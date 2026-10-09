@@ -135,7 +135,10 @@ pub(super) fn confinement_rejection(
             });
         }
         if target.path == "/dev/null"
-            && matches!(target.operation.as_str(), "output redirection" | "tee")
+            && matches!(
+                target.operation.as_str(),
+                "output redirection" | "tee" | "dd"
+            )
         {
             continue;
         }
@@ -503,6 +506,21 @@ fn collect_program_targets(program: &str, arguments: &[&str], targets: &mut Vec<
                 path: path.to_string(),
                 operation: program.to_string(),
             }));
+        }
+        // Issue #628: `dd` names its output file with `of=`, which the write
+        // table did not recognize. Every non-empty `of=` argument is a write
+        // destination, exactly like a redirection or `tee` operand.
+        "dd" => {
+            targets.extend(
+                arguments
+                    .iter()
+                    .filter_map(|argument| argument.strip_prefix("of="))
+                    .filter(|value| !value.is_empty())
+                    .map(|value| WriteTarget {
+                        path: value.to_string(),
+                        operation: program.to_string(),
+                    }),
+            );
         }
         "chmod" | "chown" => {
             targets.extend(operands.into_iter().skip(1).map(|path| WriteTarget {

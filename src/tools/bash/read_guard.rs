@@ -132,7 +132,12 @@ fn inspect_text(text: &str, cr_mode: CrMode) -> ReadVerdict {
                     .push(ReadCandidate::Expand(word.text.clone()));
                 continue;
             }
-            push_static(&mut verdict.candidates, word, index >= leading);
+            push_static(
+                &mut verdict.candidates,
+                word,
+                index >= leading,
+                index >= leading && !echo,
+            );
             collect_relative_targets(&mut verdict.relative_words, word, index >= leading);
         }
     }
@@ -240,7 +245,12 @@ fn join_base(base: &str, path: &str) -> String {
     }
 }
 
-fn push_static(candidates: &mut Vec<ReadCandidate>, word: &Word, equals_rhs_is_candidate: bool) {
+fn push_static(
+    candidates: &mut Vec<ReadCandidate>,
+    word: &Word,
+    equals_rhs_is_candidate: bool,
+    parent_home_is_candidate: bool,
+) {
     let mut produced = Vec::new();
     if word.text.starts_with('/') {
         // A quoted operator or bracket is part of the actual filename. Inspect
@@ -264,6 +274,18 @@ fn push_static(candidates: &mut Vec<ReadCandidate>, word: &Word, equals_rhs_is_c
         if equals_rhs_is_candidate && let Some(value) = equals_right_hand_side(&word.text) {
             produced.push(ReadCandidate::Literal(value.to_string()));
         }
+        // Issue #628: a bare `..` or a `~`-prefixed `/`-less word names the
+        // parent or home directory, which the existing literal read proof
+        // rejects. It carries no `/`, so it was never a literal-path candidate
+        // before. The right-hand side of a non-assignment `NAME=value`
+        // (`make PREFIX=~`, `cat --file=..`) is the same. A leading assignment
+        // and an `echo` display segment are excluded by the caller.
+        if parent_home_is_candidate && is_parent_or_home_literal(&word.text) {
+            produced.push(ReadCandidate::Literal(word.text.clone()));
+        }
+        if parent_home_is_candidate && let Some(value) = parent_home_right_hand_side(&word.text) {
+            produced.push(ReadCandidate::Literal(value.to_string()));
+        }
         produced.extend(
             super::absolute_path_candidates(&word.text)
                 .map(|path| ReadCandidate::Expand(path.to_owned())),
@@ -271,6 +293,21 @@ fn push_static(candidates: &mut Vec<ReadCandidate>, word: &Word, equals_rhs_is_c
     }
     produced.dedup();
     candidates.extend(produced);
+}
+
+/// Whether a static word names the parent directory (`..` exactly) or a
+/// `~`-prefixed home spelling without a directory separator (Issue #628). A
+/// word with a `/` keeps its existing literal-path handling.
+fn is_parent_or_home_literal(word: &str) -> bool {
+    word == ".." || (word.starts_with('~') && !word.contains('/'))
+}
+
+/// The right-hand side of a `NAME=value` word when it is a parent/home literal
+/// (`make PREFIX=~`, `cat --file=..`); see [`is_parent_or_home_literal`]
+/// (Issue #628).
+fn parent_home_right_hand_side(word: &str) -> Option<&str> {
+    let (_, value) = word.split_once('=')?;
+    is_parent_or_home_literal(value).then_some(value)
 }
 
 /// The right-hand side of a `NAME=value` word when it is a static path spelling.
