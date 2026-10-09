@@ -39,7 +39,7 @@
 {"id": "equals-parent-escape", "command": "dd if=../outside/secret", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
 {"id": "allow-quoted-space-inside", "command": "cat \"docs/my notes.md\"", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
 {"id": "allow-escaped-space-inside", "command": "cat docs/my\\ notes.md", "R": false, "A": false, "W": false, "P": false, "S": false, "V": false}
-{"id": "allow-dd-nonpath", "command": "dd if=in.bin of=out.bin", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "allow-dd-nonpath", "command": "dd if=in.bin of=out.bin", "R": false, "A": true, "W": false, "P": false, "S": false, "V": false}
 {"id": "allow-grep-file-nonpath", "command": "grep --file=patterns.txt src", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
 {"id": "allow-features", "command": "cargo test --features=gui", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
 {"id": "allow-target-dir", "command": "cargo build --target-dir=target/h05", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
@@ -101,3 +101,29 @@
 {"id": "allow-crlf-git", "command": "git status\r\ngit diff\r\n", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
 {"id": "allow-crlf-cd-cat", "command": "cd sub\r\ncat f\r\n", "R": false, "A": false, "W": false, "P": false, "S": false, "V": false}
 {"id": "allow-crlf-echo-out", "command": "echo x > out.txt\r\n", "R": false, "A": true, "W": false, "P": false, "S": false, "V": false}
+{"id": "parent-dir-read", "command": "ls ..", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "parent-dir-option-read", "command": "ls -la ..", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "parent-dir-quoted-read", "command": "ls '..'", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "parent-dir-cat-read", "command": "cat ..", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "home-read", "command": "ls ~", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "home-user-read", "command": "ls ~root", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "home-plus-read", "command": "ls ~+", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "home-minus-read", "command": "ls ~-", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "equals-home-arg", "command": "make PREFIX=~", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "equals-parent-arg", "command": "cat --file=..", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "option-c-parent-tar", "command": "tar -C .. -cf - x", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "option-c-parent-git", "command": "git -C .. status", "R": true, "A": false, "W": false, "P": false, "S": false, "V": true, "operation": "path reference"}
+{"id": "dd-out-symlink", "command": "dd if=in of=lf", "R": true, "A": true, "W": true, "P": false, "S": false, "V": false, "operation": "dd"}
+{"id": "dd-out-parent", "command": "dd if=in of=../outside/x", "R": true, "A": true, "W": true, "P": false, "S": false, "V": false, "operation": "dd"}
+{"id": "dd-out-home", "command": "dd if=in of=~/f", "R": true, "A": true, "W": true, "P": false, "S": false, "V": false, "operation": "dd"}
+{"id": "dd-out-devnull", "command": "dd if=in of=/dev/null", "R": false, "A": true, "W": false, "P": false, "S": false, "V": false}
+{"id": "dd-protected-path", "command": "dd if=in of=tests/spec.rs", "R": false, "A": true, "W": false, "P": true, "S": false, "V": false}
+{"id": "dd-no-output", "command": "dd if=in", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "dd-multi-output", "command": "dd if=in of=a of=b", "R": false, "A": true, "W": false, "P": false, "S": false, "V": false}
+{"id": "dd-redirect-write", "command": "dd if=in > out", "R": false, "A": true, "W": false, "P": false, "S": false, "V": false}
+{"id": "echo-home-unchanged", "command": "echo ~", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "echo-parent-unchanged", "command": "echo ..", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "assignment-home-unchanged", "command": "X=~ cargo test", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "git-range-unchanged", "command": "git diff main..feature", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "git-tilde-unchanged", "command": "git log HEAD~1", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "ls-dot-unchanged", "command": "ls .", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
