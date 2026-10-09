@@ -826,7 +826,13 @@ pub fn path_confinement_rejection(
     {
         return Some(path_reference_rejection(&word, &root, None));
     }
-    if inspection.has_working_directory() {
+    // Issue #635: a glob or brace `cd`/`pushd` destination adds no candidate, so
+    // `has_working_directory` stays false, but the relative words after it still
+    // follow an undetermined working directory and must be refused. The mark is
+    // narrower than `undecidable`: it is set only for a glob/brace destination,
+    // so a command with no `cd` (`env | grep CDPATH`, `echo $CDPATH`) keeps its
+    // existing handling.
+    if inspection.has_working_directory() || inspection.glob_destination {
         if inspection.undecidable && !inspection.relative_words.is_empty() {
             return Some(path_reference_rejection(
                 &inspection.relative_words[0],
