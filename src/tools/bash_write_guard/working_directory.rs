@@ -508,6 +508,26 @@ mod tests {
         );
     }
 
+    /// Issue #637: the option-value walk shares the cap check with `cd`. Forty
+    /// `git -C sub` values add exactly one candidate each (lengths 2..=41), then
+    /// a single `git -C r` doubles the set to 82, which skips 64; the value past
+    /// the cap must still be undecidable. A `>` read as `==` never sees 64 and
+    /// leaves the mark clear.
+    #[test]
+    fn working_directory_caps_an_option_growth_that_skips_the_bound() {
+        let command = format!("{}git -C r status", "git -C sub status; ".repeat(40));
+        let inspection = inspect(&command);
+        assert!(
+            inspection.bases.len() > MAX_CANDIDATES,
+            "the fixture must pass the bound: {}",
+            inspection.bases.len()
+        );
+        assert!(
+            inspection.undecidable,
+            "an option candidate set that passed the bound without landing on it must be undecidable"
+        );
+    }
+
     #[test]
     fn working_directory_keeps_cwd_words_out_of_reads() {
         let inspection = inspect("cd sub && cat secret");
