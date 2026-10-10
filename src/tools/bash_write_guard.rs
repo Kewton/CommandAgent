@@ -5,6 +5,7 @@ use super::shell_lexical;
 
 mod ansi_c_quoting;
 mod command_prefix;
+mod option_directory;
 mod working_directory;
 
 pub(super) use working_directory::Inspection;
