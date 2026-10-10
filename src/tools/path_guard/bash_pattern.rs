@@ -41,6 +41,14 @@ pub(super) fn contains_expansion(raw: &str) -> bool {
 /// Expand `raw` and prove every expansion with the literal write-target proof.
 pub(super) fn ensure_expanded_write_target(root: &Path, raw: &str) -> anyhow::Result<()> {
     for expanded in expand_braces(raw)? {
+        // Issue #641: the shell tilde-expands *after* brace expansion, so a
+        // brace result that starts with `~` (`{~,x}` -> `~`) names home. The
+        // literal proof above only saw the pre-expansion spelling. Refuse the
+        // result here, before the glob search, so a name found *by* a glob
+        // (`*` matching `~x`) is still judged by its literal spelling.
+        if expanded.starts_with('~') {
+            bail!("home-relative Bash write target is outside the workspace contract");
+        }
         if has_glob_meta(&expanded) {
             match expand_glob(root, &expanded)? {
                 Some(matches) => {
