@@ -274,9 +274,19 @@ OpenAI キーと任意の `LM_STUDIO_API_TOKEN` はプロセス環境だけか�
 | `XDG_STATE_HOME` | 既定の state directory が使うベースを変更します。 |
 | `HOME` | ユーザー設定パスと state directory fallback のホームを指定します。 |
 | `LC_ALL`、次に `LANG` | spinner が UTF-8 frame を使うか決めます。 |
+| `COMMANDAGENT_STEP_WALL_CLOCK_CAP_MS` / `ANVIL_STEP_WALL_CLOCK_CAP_MS` | step の時間上限をミリ秒で指定する運用向け設定です。`RunSessionOptions` の指定が環境値より優先されます。値は trim して `u64` として解析し、未設定または解析不能なら既定の 15 分を使います。`0` も解析上は有効です。 |
+| `COMMANDAGENT_PACK_DIRECTORY` | 選択済み pack の directory を内部で受け渡します。手で設定せず、`--pack` または preset で指定してください。 |
+| `COMMANDAGENT_PACK_ID` | 選択済み pack の ID を内部で受け渡します。手で設定せず、`--pack` または preset で指定してください。 |
+| `COMMANDAGENT_PACK_VERSION` | 選択済み pack の version を内部で受け渡します。手で設定せず、`--pack` または preset で指定してください。 |
+| `COMMANDAGENT_PACK_HASH` | 選択済み pack の exact-byte hash を内部で受け渡します。手で設定せず、`--pack` または preset で指定してください。 |
+| `COMMANDAGENT_UX_DEMO_FAST` / `ANVIL_UX_DEMO_FAST` | 開発・デモ用に `--ux-demo` の待機を短くします。値の真偽ではなく変数の存在を判定します。 |
 
 `COMMANDAGENT_*` 項目では現在名が優先されます。現在名がない場合だけ対応する `ANVIL_*` 名を使い、
 1 回だけ非推奨警告を出します。それでも表中の旧名は、現在サポートされている正確な綴りです。
+
+`COMMANDAGENT_PACK_*` の 4 変数は例外で、直接読み込まれ、`ANVIL_*` の旧名を持ちません。これらは
+選択済み pack の内部受け渡しであり、利用者向け設定ではありません。pack の選択には `--pack` または
+preset を使ってください。
 
 ## 実効設定の確認
 
