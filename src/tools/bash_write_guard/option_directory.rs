@@ -313,6 +313,13 @@ mod tests {
     }
 
     #[test]
+    fn a_double_dash_value_is_consumed_as_one_word() {
+        // `-C`'s value is `--`, one literal path word, not an end-of-options
+        // marker: the walk advances two words and still reads `-C sub`.
+        assert_eq!(values(&["tar", "-C", "--", "-C", "sub"]), vec!["--", "sub"]);
+    }
+
+    #[test]
     fn reads_npm_short_directory_option() {
         assert_eq!(values(&["npm", "-C", "sub"]), vec!["sub"]);
         assert_eq!(values(&["npm", "-Csub"]), vec!["sub"]);

@@ -202,6 +202,17 @@ fn git_c_value_named_like_a_global_option_still_reads_the_next_c() {
     assert_read_rejected(root, &["git -C -c -C sub log lf2"]);
 }
 
+/// A non-`git` table program's `-C` value may literally be `--`
+/// (`tar -C -- -C sub`). It is one path word, not an end-of-options marker, so
+/// the walk advances two words and still reads the following `-C sub`; `lf2`
+/// under `sub` then escapes. A one-word advance would stop at `--` and miss it.
+#[test]
+fn option_value_double_dash_still_reads_the_next_option() {
+    let fixture = fixture_with_escape_dirs(&["sub"]);
+    let root = &fixture.root;
+    assert_read_rejected(root, &["tar -C -- -C sub -tf lf2"]);
+}
+
 /// Table 2: the workspace-internal reads and writes through these options are
 /// not falsely refused; their value is unchanged. `git commit -C HEAD` stays
 /// allowed because `git -C` is global only before the subcommand.
