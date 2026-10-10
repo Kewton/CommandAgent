@@ -1,5 +1,17 @@
 use std::process::Command;
 
+#[cfg(unix)]
+use std::{
+    io::{Read, Write},
+    net::{TcpListener, TcpStream},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+        mpsc::{self, RecvTimeoutError, Sender},
+    },
+    time::Duration,
+};
+
 #[test]
 fn omitted_flag_preserves_stdout_bytes() {
     let workspace = tempfile::tempdir().unwrap();
@@ -111,6 +123,187 @@ fn requested_summary_is_the_final_stdout_line_even_on_failure() {
     assert_eq!(summary["provider_usage_by_role"], serde_json::json!({}));
 }
 
+// A held mock Ollama endpoint. It answers startup probes and keeps the target
+// chat request open so the real SIGINT lands while the provider call is in
+// flight. The guard reclaims the child and the serving thread even when an
+// assertion fails.
+#[cfg(unix)]
+struct MockProvider {
+    child: Option<std::process::Child>,
+    server: Option<std::thread::JoinHandle<()>>,
+    shutdown: Arc<AtomicBool>,
+}
+
+#[cfg(unix)]
+impl MockProvider {
+    fn child_mut(&mut self) -> &mut std::process::Child {
+        self.child.as_mut().expect("child process")
+    }
+
+    fn take_child(&mut self) -> std::process::Child {
+        self.child.take().expect("child process")
+    }
+
+    fn stop_server(&mut self) {
+        self.shutdown.store(true, Ordering::Release);
+        if let Some(server) = self.server.take() {
+            let _ = server.join();
+        }
+    }
+}
+
+#[cfg(unix)]
+impl Drop for MockProvider {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        self.stop_server();
+    }
+}
+
+#[cfg(unix)]
+fn header_end(buffer: &[u8]) -> Option<usize> {
+    buffer
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n".as_slice())
+}
+
+#[cfg(unix)]
+fn content_length(headers: &[u8]) -> usize {
+    for line in String::from_utf8_lossy(headers).lines() {
+        let Some((name, value)) = line.split_once(':') else {
+            continue;
+        };
+        if name.trim().eq_ignore_ascii_case("content-length") {
+            return value.trim().parse().unwrap_or(0);
+        }
+    }
+    0
+}
+
+// Returns the full request, or a diagnostic when the connection ended or timed
+// out before a complete request arrived.
+#[cfg(unix)]
+fn read_http_request(stream: &mut TcpStream) -> Result<String, String> {
+    stream
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .map_err(|err| format!("could not set the mock read timeout: {err}"))?;
+    let mut buffer = Vec::new();
+    let mut chunk = [0u8; 4096];
+    loop {
+        match stream.read(&mut chunk) {
+            Ok(0) => {
+                return Err(format!(
+                    "the connection closed after {} bytes; no complete request arrived",
+                    buffer.len()
+                ));
+            }
+            Ok(read) => buffer.extend_from_slice(&chunk[..read]),
+            Err(err)
+                if matches!(
+                    err.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                return Err(format!(
+                    "only {} bytes of an incomplete HTTP request arrived before the timeout",
+                    buffer.len()
+                ));
+            }
+            Err(err) => return Err(format!("reading the HTTP request failed: {err}")),
+        }
+        if let Some(end) = header_end(&buffer)
+            && buffer.len() - (end + 4) >= content_length(&buffer[..end])
+        {
+            return Ok(String::from_utf8_lossy(&buffer).into_owned());
+        }
+    }
+}
+
+// Keep the response body open so the provider call stays in flight until the
+// child exits or the guard asks the server to stop.
+#[cfg(unix)]
+fn hold_chat_open(stream: &mut TcpStream, shutdown: &AtomicBool) {
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(100)));
+    let mut buffer = [0u8; 256];
+    loop {
+        if shutdown.load(Ordering::Acquire) {
+            return;
+        }
+        match stream.read(&mut buffer) {
+            Ok(0) => return,
+            Ok(_) => {}
+            Err(err)
+                if matches!(
+                    err.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) => {}
+            Err(_) => return,
+        }
+    }
+}
+
+#[cfg(unix)]
+fn spawn_mock_provider(
+    listener: TcpListener,
+    started: Sender<Result<(), String>>,
+) -> (std::thread::JoinHandle<()>, Arc<AtomicBool>) {
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let server_shutdown = shutdown.clone();
+    let server = std::thread::spawn(move || {
+        let _ = listener.set_nonblocking(true);
+        loop {
+            if server_shutdown.load(Ordering::Acquire) {
+                return;
+            }
+            let (mut stream, _) = match listener.accept() {
+                Ok(connection) => connection,
+                Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(10));
+                    continue;
+                }
+                Err(_) => return,
+            };
+            let _ = stream.set_nonblocking(false);
+            let request = match read_http_request(&mut stream) {
+                Ok(request) => request,
+                Err(diagnostic) => {
+                    let _ = started.send(Err(diagnostic));
+                    continue;
+                }
+            };
+            if request.starts_with("POST /api/chat ") {
+                let _ = started.send(Ok(()));
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/x-ndjson\r\nTransfer-Encoding: chunked\r\n\r\n"
+                );
+                let _ = stream.flush();
+                hold_chat_open(&mut stream, &server_shutdown);
+                return;
+            }
+            if request.starts_with("GET /api/tags ") {
+                let body = r#"{"models":[{"name":"test-model"}]}"#;
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+            } else {
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                );
+            }
+            let _ = stream.flush();
+        }
+    });
+    (server, shutdown)
+}
+
 #[cfg(unix)]
 #[test]
 fn sigint_emits_interrupted_summary_as_the_final_stdout_line() {
@@ -118,9 +311,12 @@ fn sigint_emits_interrupted_summary_as_the_final_stdout_line() {
     let state = workspace.path().join("state");
     std::fs::create_dir_all(&state).unwrap();
     let events = workspace.path().join("run-evidence/events.jsonl");
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let ollama_host = format!("http://{}", listener.local_addr().unwrap());
-    let mut child = Command::new(env!("CARGO_BIN_EXE_commandagent"))
+    let (started_tx, started_rx) = mpsc::channel();
+    let (server, shutdown) = spawn_mock_provider(listener, started_tx);
+
+    let child = Command::new(env!("CARGO_BIN_EXE_commandagent"))
         .args([
             "--provider",
             "ollama",
@@ -149,41 +345,57 @@ fn sigint_emits_interrupted_summary_as_the_final_stdout_line() {
         .stderr(std::process::Stdio::piped())
         .spawn()
         .unwrap();
+    let mut run = MockProvider {
+        child: Some(child),
+        server: Some(server),
+        shutdown,
+    };
 
-    let evidence_deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    while !events.is_file() {
-        if let Some(status) = child.try_wait().unwrap() {
-            let output = child.wait_with_output().unwrap();
-            panic!(
-                "commandagent exited before SIGINT: {status}\nstdout={}\nstderr={}",
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr)
-            );
+    // SIGINT is only sent after the mock provider has received the target chat
+    // request. A finite wait keeps a missing ready signal a failure, never a
+    // pass on normal exit or timeout.
+    let ready_deadline = std::time::Instant::now() + Duration::from_secs(15);
+    loop {
+        match started_rx.recv_timeout(Duration::from_millis(50)) {
+            Ok(Ok(())) => break,
+            Ok(Err(diagnostic)) => {
+                panic!("the chat request never completed at the mock provider: {diagnostic}");
+            }
+            Err(RecvTimeoutError::Timeout) => {
+                if let Some(status) = run.child_mut().try_wait().unwrap() {
+                    panic!("commandagent exited before the chat request started: {status}");
+                }
+                assert!(
+                    std::time::Instant::now() < ready_deadline,
+                    "timed out waiting for the chat request to start"
+                );
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                panic!("the mock provider stopped before the chat request arrived");
+            }
         }
-        assert!(
-            std::time::Instant::now() < evidence_deadline,
-            "timed out waiting for run evidence"
-        );
-        std::thread::sleep(std::time::Duration::from_millis(10));
     }
-    std::thread::sleep(std::time::Duration::from_millis(100));
+    assert!(
+        events.is_file(),
+        "run evidence must exist before SIGINT is delivered"
+    );
 
-    let signal_result = unsafe { libc::kill(child.id() as libc::pid_t, libc::SIGINT) };
+    let signal_result = unsafe { libc::kill(run.child_mut().id() as libc::pid_t, libc::SIGINT) };
     assert_eq!(signal_result, 0, "failed to send SIGINT");
 
-    let exit_deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let exit_deadline = std::time::Instant::now() + Duration::from_secs(10);
     let status = loop {
-        if let Some(status) = child.try_wait().unwrap() {
+        if let Some(status) = run.child_mut().try_wait().unwrap() {
             break status;
         }
-        if std::time::Instant::now() >= exit_deadline {
-            child.kill().unwrap();
-            let _ = child.wait();
-            panic!("commandagent did not exit after SIGINT");
-        }
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        assert!(
+            std::time::Instant::now() < exit_deadline,
+            "commandagent did not exit after SIGINT"
+        );
+        std::thread::sleep(Duration::from_millis(10));
     };
-    let output = child.wait_with_output().unwrap();
+    let output = run.take_child().wait_with_output().unwrap();
+    run.stop_server();
 
     assert_eq!(status.code(), Some(130), "{status}");
     let stdout = String::from_utf8(output.stdout).unwrap();

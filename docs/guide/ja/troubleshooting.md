@@ -87,9 +87,13 @@ scrollback の breadcrumb は残ります。`--no-footer`、トップレベル�
 ## Model ID が存在しない
 
 CommandAgent は通常、プロバイダ横断の catalog を持たず model ID を選択したプロバイダへ渡します。
-唯一警備するaliasはOpenAI executor ID `gpt-5.6`で、dispatch前に拒否します。厳密ID
-`gpt-5.6-luna`または利用可能なsnapshot付きLuna/Sol IDを使ってください。それ以外の存在しない、
-利用できない、権限がない model はプロバイダ呼び出し時に失敗します。
+唯一警備するaliasは組み込み OpenAI の model ID `gpt-5.6` で、executor、planner、classifier の
+すべての OpenAI 役割で dispatch 前に拒否します。厳密ID `gpt-5.6-luna`、`gpt-5.6-terra`、
+`gpt-5.6-sol`、または利用可能な snapshot 付き Luna/Sol ID を使ってください。この検査は
+組み込み OpenAI provider だけに適用され、model ID をそのまま転送する汎用 `openai-compatible`
+transport には適用しません。REPL では `/model <id>` と `/provider openai` への切替が
+executor の検査を再実行します。それ以外の存在しない、利用できない、権限がない model は
+プロバイダ呼び出し時に失敗します。
 
 ### 失敗の見え方
 
