@@ -31,18 +31,30 @@
 //! | `pnpm` | `-C` | `--dir` |
 //! | `poetry` | `-C` | `--directory` |
 //! | `yarn`, `bun` | | `--cwd` |
-//! | `npm` | | `--prefix` |
+//! | `npm` | `-C` | `--prefix` |
 //! | `uv` | | `--directory` |
 //! | `just` | `-d` | `--working-directory` |
 //! | `patch` | `-d` | `--directory` |
+//!
+//! A long option that is a non-empty prefix of a table name is read as that
+//! name — GNU and bsdtar accept an unambiguous abbreviation (`--dir` for
+//! `--directory`) — in both the `--name=value` and `--name value` forms. An
+//! unknown long option names no directory, as before.
 //!
 //! # Value forms
 //!
 //! `-C dir`, `-Cdir` (a short-option cluster: the value is the rest of the
 //! word when the option is not last, otherwise the next word), `--directory=dir`,
-//! and `--directory dir`. Nothing after a `--` word is read. `git -C` is a
-//! global option only before the subcommand, so `git commit -C HEAD` names no
-//! directory.
+//! `--directory dir`, and a prefix of `--directory`. A value read from the next
+//! word that itself begins with `-` (other than `--`) is recorded and then
+//! scanned again, so the second `-C` in `tar -cfC -C sub` names `sub`. Nothing
+//! after a `--` word is read. `git -C` is a global option only before the
+//! subcommand, so `git commit -C HEAD` names no directory; because it always
+//! takes exactly one literal path word, its value is never rescanned, so
+//! `git -C --git-dir -C sub` reads `--git-dir` and then `sub`. `git`'s other
+//! global options that take a value word (`-c`, `--git-dir`, `--work-tree`,
+//! `--namespace`, `--super-prefix`, `--config-env`, `--attr-source`) skip that
+//! value so the walk keeps scanning for a later `-C`.
 //!
 //! # Programs not in the table
 //!
@@ -58,6 +70,12 @@ struct Entry {
     program: &'static str,
     short: Option<char>,
     long: &'static [&'static str],
+    /// Global option characters that take their value from the next word and
+    /// name no directory (`git -c`). Empty for every program but `git`.
+    value_short: &'static [char],
+    /// Global option names whose value is a separate word and names no
+    /// directory (`git --git-dir DIR`). Empty for every program but `git`.
+    value_long: &'static [&'static str],
     /// When true, only the options before the first operand (the subcommand)
     /// are global (`git -C`); a later `-C` belongs to the subcommand.
     stop_at_subcommand: bool,
@@ -73,6 +91,8 @@ const fn entry(
         program,
         short,
         long,
+        value_short: &[],
+        value_long: &[],
         stop_at_subcommand,
     }
 }
@@ -84,7 +104,21 @@ const TABLE: &[Entry] = &[
     entry("bsdtar", Some('C'), &["directory"], false),
     entry("make", Some('C'), &["directory"], false),
     entry("gmake", Some('C'), &["directory"], false),
-    entry("git", Some('C'), &[], true),
+    Entry {
+        program: "git",
+        short: Some('C'),
+        long: &[],
+        value_short: &['c'],
+        value_long: &[
+            "git-dir",
+            "work-tree",
+            "namespace",
+            "super-prefix",
+            "config-env",
+            "attr-source",
+        ],
+        stop_at_subcommand: true,
+    },
     entry("env", Some('C'), &["chdir"], false),
     entry("sudo", Some('D'), &["chdir"], false),
     entry("ninja", Some('C'), &[], false),
@@ -94,7 +128,7 @@ const TABLE: &[Entry] = &[
     entry("poetry", Some('C'), &["directory"], false),
     entry("yarn", None, &["cwd"], false),
     entry("bun", None, &["cwd"], false),
-    entry("npm", None, &["prefix"], false),
+    entry("npm", Some('C'), &["prefix"], false),
     entry("uv", None, &["directory"], false),
     entry("just", Some('d'), &["working-directory"], false),
     entry("patch", Some('d'), &["directory"], false),
@@ -127,23 +161,29 @@ fn collect(entry: &Entry, arguments: &[&str], values: &mut Vec<String>) {
         }
         if let Some(rest) = word.strip_prefix("--") {
             let (name, inline) = split_long(rest);
-            if !entry.long.contains(&name.as_str()) {
-                index += 1;
+            if matches_long(entry.long, &name) {
+                match inline {
+                    Some(value) => {
+                        values.push(value);
+                        index += 1;
+                    }
+                    None => {
+                        let Some(value) = arguments.get(index + 1) else {
+                            break;
+                        };
+                        values.push((*value).to_string());
+                        index += value_step(entry, value);
+                    }
+                }
                 continue;
             }
-            match inline {
-                Some(value) => {
-                    values.push(value);
-                    index += 1;
-                }
-                None => {
-                    let Some(value) = arguments.get(index + 1) else {
-                        break;
-                    };
-                    values.push((*value).to_string());
-                    index += 2;
-                }
+            // A value-taking global option (`git --git-dir DIR`) consumes its
+            // value word and scanning continues, so a following `-C` is read.
+            if inline.is_none() && entry.value_long.contains(&name.as_str()) {
+                index += 2;
+                continue;
             }
+            index += 1;
             continue;
         }
         if word.len() > 1 && word.starts_with('-') {
@@ -160,7 +200,20 @@ fn collect(entry: &Entry, arguments: &[&str], values: &mut Vec<String>) {
                     break;
                 };
                 values.push((*value).to_string());
-                index += 2;
+                index += value_step(entry, value);
+                continue;
+            }
+            // A value-taking global short option (`git -c KEY=VALUE`) consumes
+            // its value word and scanning continues.
+            if let Some(option) = entry
+                .value_short
+                .iter()
+                .copied()
+                .find(|option| word[1..].contains(*option))
+            {
+                let position = word[1..].find(option).expect("found above");
+                let remainder = &word[1 + position + option.len_utf8()..];
+                index += if remainder.is_empty() { 2 } else { 1 };
                 continue;
             }
             index += 1;
@@ -172,6 +225,26 @@ fn collect(entry: &Entry, arguments: &[&str], values: &mut Vec<String>) {
             break;
         }
         index += 1;
+    }
+}
+
+/// Whether `name` is a non-empty prefix of one of `long`, so a GNU or bsdtar
+/// abbreviation (`--dir` for `--directory`) is read as that option.
+fn matches_long(long: &[&str], name: &str) -> bool {
+    !name.is_empty() && long.iter().any(|full| full.starts_with(name))
+}
+
+/// How far to advance after reading the working-directory value from the next
+/// word. `git -C` always takes exactly the next word as its path, so its value
+/// is never rescanned: a value spelled like a global option (`--git-dir`,
+/// `-pc`, `-c`) must not swallow the `-C` after it. Every other table program
+/// rescans a `-`-prefixed value (other than `--`) so a hidden option inside it
+/// is still found.
+fn value_step(entry: &Entry, value: &str) -> usize {
+    if entry.stop_at_subcommand || !(value.starts_with('-') && value != "--") {
+        2
+    } else {
+        1
     }
 }
 
@@ -213,6 +286,72 @@ mod tests {
         assert_eq!(values(&["pnpm", "--dir", "sub"]), vec!["sub"]);
         assert_eq!(values(&["yarn", "--cwd", "sub"]), vec!["sub"]);
         assert_eq!(values(&["npm", "--prefix", "sub"]), vec!["sub"]);
+    }
+
+    #[test]
+    fn reads_abbreviated_long_options() {
+        assert_eq!(values(&["tar", "--dir=sub"]), vec!["sub"]);
+        assert_eq!(values(&["tar", "--direc", "sub"]), vec!["sub"]);
+        assert_eq!(values(&["env", "--ch=sub"]), vec!["sub"]);
+        assert_eq!(values(&["just", "--working-dir", "sub"]), vec!["sub"]);
+        assert_eq!(values(&["npm", "--pref", "sub"]), vec!["sub"]);
+        // A prefix of nothing stays unknown.
+        assert_eq!(
+            values(&["tar", "--exclude=x", "-cf", "-", "f"]),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn rescans_a_dash_prefixed_value() {
+        assert_eq!(values(&["tar", "-cfC", "-C", "sub"]), vec!["-C", "sub"]);
+        assert_eq!(
+            values(&["tar", "-cfC", "--directory=sub"]),
+            vec!["--directory=sub", "sub"]
+        );
+        assert_eq!(values(&["tar", "-fC", "-Csub"]), vec!["-Csub", "sub"]);
+    }
+
+    #[test]
+    fn a_double_dash_value_is_consumed_as_one_word() {
+        // `-C`'s value is `--`, one literal path word, not an end-of-options
+        // marker: the walk advances two words and still reads `-C sub`.
+        assert_eq!(values(&["tar", "-C", "--", "-C", "sub"]), vec!["--", "sub"]);
+    }
+
+    #[test]
+    fn reads_npm_short_directory_option() {
+        assert_eq!(values(&["npm", "-C", "sub"]), vec!["sub"]);
+        assert_eq!(values(&["npm", "-Csub"]), vec!["sub"]);
+    }
+
+    #[test]
+    fn git_skips_value_taking_global_options() {
+        assert_eq!(values(&["git", "-c", "k=v", "-C", "sub"]), vec!["sub"]);
+        // `-c` need not be first in the cluster.
+        assert_eq!(values(&["git", "-pc", "k=v", "-C", "sub"]), vec!["sub"]);
+        assert_eq!(values(&["git", "--git-dir", "x", "-C", "sub"]), vec!["sub"]);
+        // A `-C` value spelled like a global option is one literal path word and
+        // is never rescanned, so the following `-C sub` is still read.
+        assert_eq!(
+            values(&["git", "-C", "--git-dir", "-C", "sub"]),
+            vec!["--git-dir", "sub"]
+        );
+        assert_eq!(
+            values(&["git", "-C", "-pc", "-C", "sub"]),
+            vec!["-pc", "sub"]
+        );
+        assert_eq!(
+            values(&["git", "--work-tree", "sub", "-C", "deep"]),
+            vec!["deep"]
+        );
+        // The `=` form is one word and keeps its handling (the `-C` is still read).
+        assert_eq!(values(&["git", "--git-dir=x", "-C", "sub"]), vec!["sub"]);
+        // An unknown global option still ends the scan.
+        assert_eq!(
+            values(&["git", "--no-pager", "log", "-C", "sub"]),
+            Vec::<String>::new()
+        );
     }
 
     #[test]
