@@ -316,6 +316,8 @@ mod tests {
     #[test]
     fn git_skips_value_taking_global_options() {
         assert_eq!(values(&["git", "-c", "k=v", "-C", "sub"]), vec!["sub"]);
+        // `-c` need not be first in the cluster.
+        assert_eq!(values(&["git", "-pc", "k=v", "-C", "sub"]), vec!["sub"]);
         assert_eq!(values(&["git", "--git-dir", "x", "-C", "sub"]), vec!["sub"]);
         assert_eq!(
             values(&["git", "--work-tree", "sub", "-C", "deep"]),

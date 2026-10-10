@@ -142,6 +142,7 @@ fn git_value_taking_global_options_reject_relative_reads() {
         root,
         &[
             "git -c k=v -C sub log lf2",
+            "git -pc k=v -C sub log lf2",
             "git --git-dir x -C sub log lf2",
             "git --work-tree sub -C sub log lf2",
             "git --namespace n -C sub log lf2",
