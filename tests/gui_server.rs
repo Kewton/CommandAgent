@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::process::{Child, Command, ExitStatus, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use commandagent::planner::pack::catalog::ADMITTED_PACKS;
 use commandagent::runtime_paths::runs_dir;
@@ -13,9 +13,50 @@ use sha2::{Digest, Sha256};
 #[path = "support/gui_wait.rs"]
 mod gui_wait;
 
+// Issue #541 group 3, "GUI session / file polling": the 17 `gui_server`
+// functions below held a raw 3-5s polling bound in 30 places. J (Issue #621)
+// converted the 3 stop functions (7 places), the shared
+// `wait_for_path` / `wait_for_event` / `wait_for_idle_lease` wrappers, and the
+// server-ready line. K (Issue #647) converts the remaining 14 functions
+// (23 places) to the same helpers. 7 + 23 = 30; 3 + 14 = 17, no omissions.
+//
+// J - 3 functions / 7 places
+//   gui_stop_is_generation_bound_idempotent_and_records_cli_interruption (2)
+//   gui_stop_force_kills_the_exact_process_group_without_false_success (2)
+//   gui_stop_targets_the_confirmed_directive_process_generation (3)
+// K - 14 functions / 23 places
+//   gui_lists_and_proposes_an_external_draft_profile_with_a_local_pack (1)
+//   extension_supply_api_enforces_auth_origin_and_the_full_pack_lifecycle (1)
+//   later_gate_one_ignores_products_from_an_isolated_session_workspace (1)
+//   malformed_session_events_return_a_dedicated_error_code (1)
+//   failed_session_projects_exact_interval_and_reads_only_current_recovery_documents (1)
+//   recovery_documents_are_readable_when_trial_token_auth_is_off (1)
+//   confirmed_session_delegates_with_cli_event_bytes_unchanged (3)
+//   selected_working_directory_is_hash_bound_persisted_and_reused_after_restart (2)
+//   typed_trial_intents_are_validated_frozen_and_delegated (1)
+//   unclassified_nextjs_create_is_unmeasured_confirmed_and_delegated (2)
+//   selected_think_is_confirmed_and_delegated_only_for_an_ollama_role (1)
+//   recovery_auto_run_limit_is_hash_bound_validated_and_delegated (1)
+//   gate_four_recovery_run_requires_confirmation_and_executes_exact_frozen_identity (4)
+//   recovery_run_rejects_stale_drift_pending_directive_and_treatment_rejection (3)
+
 const TEST_TRIAL_TOKEN: &str = "commandagent-gui-test-token-000000000001";
 const FIXTURE_EXEC_MAX_ATTEMPTS: usize = 4;
 const FIXTURE_EXEC_RETRY_DELAY: Duration = Duration::from_millis(25);
+
+/// Explicit test-only upper bound for waiting on a delegated artifact (the
+/// events log, environment dump, or argument dump) to reach the exact content
+/// the test asserts. It never extends a product timeout.
+const DELEGATED_ARTIFACT_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Explicit test-only upper bound for the draft-pack delegation, whose original
+/// bound was three seconds.
+const DRAFT_DELEGATION_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// Explicit test-only upper bound for waiting on a session-state transition
+/// reported by `GET /api/sessions/{id}`: a gate advancing, the
+/// `recovery_auto_run` record, or the failure-explanation projection.
+const SESSION_STATE_TIMEOUT: Duration = Duration::from_secs(5);
 
 fn run_fixture_command(command: &mut Command) -> std::io::Result<ExitStatus> {
     for attempt in 1..=FIXTURE_EXEC_MAX_ATTEMPTS {
@@ -918,16 +959,7 @@ fn gui_lists_and_proposes_an_external_draft_profile_with_a_local_pack() {
     let session_id = response.json()["id"].as_str().unwrap().to_string();
     let run_root = runs_dir(workspace.path()).join(session_id);
     let events_path = run_root.join("events.jsonl");
-    let deadline = Instant::now() + Duration::from_secs(3);
-    let events = loop {
-        if let Ok(events) = std::fs::read_to_string(&events_path)
-            && events.contains("tui_command_stop")
-        {
-            break events;
-        }
-        assert!(Instant::now() < deadline, "draft pack delegation timed out");
-        std::thread::sleep(Duration::from_millis(20));
-    };
+    let events = wait_for_event(&events_path, "tui_command_stop", DRAFT_DELEGATION_TIMEOUT);
     assert!(events.contains("\"assurance_level\":\"static\""));
     assert!(events.contains("\"assurance_reason\":\"profile_not_admitted\""));
     let delegated_env = std::fs::read_to_string(run_root.join("delegated-env.txt")).unwrap();
@@ -1227,28 +1259,37 @@ fn extension_supply_api_enforces_auth_origin_and_the_full_pack_lifecycle() {
                 .display()
         ),
     ];
-    let deadline = Instant::now() + Duration::from_secs(5);
-    let delegated_env = loop {
-        match std::fs::read_to_string(&delegated_env_path) {
+    let delegated_env = gui_wait::wait_for(
+        &gui_wait::SystemClock::new(),
+        &format!(
+            "the local pack delegation in {}",
+            delegated_env_path.display()
+        ),
+        DELEGATED_ARTIFACT_TIMEOUT,
+        || match std::fs::read_to_string(&delegated_env_path) {
             Ok(contents)
                 if expected_env
                     .iter()
                     .all(|expected| contents.contains(expected)) =>
             {
-                break contents;
+                gui_wait::Poll::Ready(contents)
             }
-            Ok(contents) => assert!(
-                Instant::now() < deadline,
-                "local pack delegation timed out: {contents:?}"
-            ),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => assert!(
-                Instant::now() < deadline,
-                "local pack delegation timed out before the environment file appeared"
-            ),
-            Err(error) => panic!("could not read delegated environment: {error}"),
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    };
+            Ok(contents) => gui_wait::Poll::Pending(format!(
+                "{} has not received the local pack environment yet: {contents:?}",
+                delegated_env_path.display()
+            )),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                gui_wait::Poll::Pending(format!(
+                    "{} has not appeared yet: {error}",
+                    delegated_env_path.display()
+                ))
+            }
+            Err(error) => gui_wait::Poll::Failed(format!(
+                "could not read {}: {error}",
+                delegated_env_path.display()
+            )),
+        },
+    );
     for expected in expected_env {
         assert!(delegated_env.contains(&expected), "{delegated_env}");
     }
@@ -2215,16 +2256,7 @@ fn later_gate_one_ignores_products_from_an_isolated_session_workspace() {
     assert_eq!(created.status, 202, "{}", created.body);
     let id = created.json()["id"].as_str().unwrap().to_string();
 
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        let lease = server.request("GET", "/api/trial-workspace", None);
-        assert_eq!(lease.status, 200, "{}", lease.body);
-        if lease.json()["status"] == "idle" {
-            break;
-        }
-        assert!(Instant::now() < deadline, "delegated CLI did not finish");
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    wait_for_idle_lease(&server, gui_wait::IDLE_LEASE_TIMEOUT);
 
     let session_workspace = workspace.join("sessions").join(&id);
     let canonical_session_workspace = session_workspace.canonicalize().unwrap();
@@ -2391,16 +2423,7 @@ fn malformed_session_events_return_a_dedicated_error_code() {
     assert_eq!(created.status, 202, "{}", created.body);
     let id = created.json()["id"].as_str().unwrap().to_string();
 
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        let lease = server.request("GET", "/api/trial-workspace", None);
-        assert_eq!(lease.status, 200, "{}", lease.body);
-        if lease.json()["status"] == "idle" {
-            break;
-        }
-        assert!(Instant::now() < deadline, "delegated CLI did not finish");
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    wait_for_idle_lease(&server, gui_wait::IDLE_LEASE_TIMEOUT);
 
     let events_path = runs_dir(&workspace).join(&id).join("events.jsonl");
     std::fs::write(events_path, "not-json\n").unwrap();
@@ -2551,15 +2574,39 @@ fn failed_session_projects_exact_interval_and_reads_only_current_recovery_docume
     let events_path = runs_dir(&workspace).join(&id).join("events.jsonl");
     let failure_fixture =
         include_str!("corpus/apps/issue377-gui-failure-explanations/fixtures/failure.jsonl");
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while std::fs::read_to_string(&events_path).ok().as_deref() != Some(failure_fixture)
-        && Instant::now() < deadline
-    {
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    assert_eq!(
-        std::fs::read_to_string(&events_path).unwrap(),
-        failure_fixture
+    let events = gui_wait::wait_for_file_content(
+        &gui_wait::SystemClock::new(),
+        &events_path,
+        &format!(
+            "the failure projection fixture in {}",
+            events_path.display()
+        ),
+        DELEGATED_ARTIFACT_TIMEOUT,
+        |contents| contents == failure_fixture,
+    );
+    assert_eq!(events, failure_fixture);
+
+    gui_wait::wait_for(
+        &gui_wait::SystemClock::new(),
+        "the session failure explanation to project the current events",
+        SESSION_STATE_TIMEOUT,
+        || {
+            let status = server.request("GET", &format!("/api/sessions/{id}"), None);
+            if status.status != 200 {
+                return gui_wait::Poll::Failed(format!(
+                    "the session probe failed with status {}",
+                    status.status
+                ));
+            }
+            let projection = status.json()["failure_explanation"]["projection_status"].clone();
+            if projection == "supported" {
+                gui_wait::Poll::Ready(())
+            } else {
+                gui_wait::Poll::Pending(format!(
+                    "the failure explanation projection_status is {projection}"
+                ))
+            }
+        },
     );
 
     let failed = server.request("GET", &format!("/api/sessions/{id}"), None);
@@ -2703,16 +2750,17 @@ fn recovery_documents_are_readable_when_trial_token_auth_is_off() {
     let events_path = runs_dir(&workspace).join(&id).join("events.jsonl");
     let failure_fixture =
         include_str!("corpus/apps/issue377-gui-failure-explanations/fixtures/failure.jsonl");
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while std::fs::read_to_string(&events_path).ok().as_deref() != Some(failure_fixture)
-        && Instant::now() < deadline
-    {
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    assert_eq!(
-        std::fs::read_to_string(&events_path).unwrap(),
-        failure_fixture
+    let events = gui_wait::wait_for_file_content(
+        &gui_wait::SystemClock::new(),
+        &events_path,
+        &format!(
+            "the failure projection fixture in {}",
+            events_path.display()
+        ),
+        DELEGATED_ARTIFACT_TIMEOUT,
+        |contents| contents == failure_fixture,
     );
+    assert_eq!(events, failure_fixture);
 
     for (path, expected) in [
         (
@@ -2991,12 +3039,24 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
             > 0
     );
 
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while std::fs::read(&delegated_events).ok().as_deref() != Some(direct_bytes.as_slice())
-        && Instant::now() < deadline
-    {
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    gui_wait::wait_for(
+        &gui_wait::SystemClock::new(),
+        &format!("the delegated events to match {}", direct_events.display()),
+        DELEGATED_ARTIFACT_TIMEOUT,
+        || match std::fs::read(&delegated_events) {
+            Ok(bytes) if bytes.as_slice() == direct_bytes.as_slice() => gui_wait::Poll::Ready(()),
+            Ok(bytes) => gui_wait::Poll::Pending(format!(
+                "{} differs from the direct CLI bytes ({} vs {} bytes)",
+                delegated_events.display(),
+                bytes.len(),
+                direct_bytes.len()
+            )),
+            Err(error) => gui_wait::Poll::Pending(format!(
+                "{} is not readable yet: {error}",
+                delegated_events.display()
+            )),
+        },
+    );
     assert_eq!(std::fs::read(&delegated_events).unwrap(), direct_bytes);
     let delegated_env =
         std::fs::read_to_string(delegated_events.parent().unwrap().join("delegated-env.txt"))
@@ -3101,6 +3161,8 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
         !confirmation_record.contains("\"think\""),
         "{confirmation_record}"
     );
+
+    wait_for_session_gate(&server, id, "gate_3", SESSION_STATE_TIMEOUT);
 
     let status = server.request("GET", &format!("/api/sessions/{id}"), None);
     assert_eq!(status.status, 200, "{}", status.body);
@@ -3270,21 +3332,7 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
         Some(&directive_request),
     );
     assert_eq!(intervention.status, 409, "{}", intervention.body);
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        let completed = server.request("GET", &format!("/api/sessions/{id}"), None);
-        assert_eq!(completed.status, 200, "{}", completed.body);
-        let completed_json: serde_json::Value = serde_json::from_str(&completed.body).unwrap();
-        if completed_json["gate"] != "gate_2" {
-            assert_eq!(completed_json["gate"], "gate_3");
-            break;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "directive continuation timed out"
-        );
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    wait_for_session_gate(&server, id, "gate_3", SESSION_STATE_TIMEOUT);
     let continuation_args = std::fs::read_to_string(
         delegated_events
             .parent()
@@ -3297,19 +3345,7 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     assert!(continuation_args.windows(2).any(|arguments| {
         arguments[0] == "--cwd" && arguments[1] == session_workspace.to_string_lossy()
     }));
-    let lease_deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        let lease = server.request("GET", "/api/trial-workspace", None);
-        assert_eq!(lease.status, 200, "{}", lease.body);
-        if lease.json()["status"] == "idle" {
-            break;
-        }
-        assert!(
-            Instant::now() < lease_deadline,
-            "continuation lease timed out"
-        );
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    wait_for_idle_lease(&server, gui_wait::IDLE_LEASE_TIMEOUT);
     let canonical_run = runs_dir(&workspace).join(id);
     let legacy_runs = workspace.join(".anvil/runs");
     std::fs::create_dir_all(&legacy_runs).unwrap();
@@ -3441,15 +3477,7 @@ esac
     assert_eq!(created.status, 202, "{}", created.body);
     let id = created.json()["id"].as_str().unwrap().to_string();
     let run_root = runs_dir(&workspace).join(&id);
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        let lease = server.request("GET", "/api/trial-workspace", None);
-        if lease.json()["status"] == "idle" {
-            break;
-        }
-        assert!(Instant::now() < deadline, "selected run timed out");
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    wait_for_idle_lease(&server, gui_wait::IDLE_LEASE_TIMEOUT);
     let canonical_selected = selected.canonicalize().unwrap();
     assert_eq!(
         std::fs::read_to_string(run_root.join("delegated-cwd.txt"))
@@ -3502,15 +3530,7 @@ esac
         None,
     );
     assert_eq!(continued.status, 202, "{}", continued.body);
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        let lease = restarted.request("GET", "/api/trial-workspace", None);
-        if lease.json()["status"] == "idle" {
-            break;
-        }
-        assert!(Instant::now() < deadline, "selected continuation timed out");
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    wait_for_idle_lease(&restarted, gui_wait::IDLE_LEASE_TIMEOUT);
     assert_eq!(
         std::fs::read_to_string(run_root.join("delegated-cwd.txt"))
             .unwrap()
@@ -3641,19 +3661,7 @@ fn typed_trial_intents_are_validated_frozen_and_delegated() {
         assert_eq!(status.status, 200, "{}", status.body);
         assert_eq!(status.json()["identity"]["intent"], intent);
 
-        let deadline = Instant::now() + Duration::from_secs(5);
-        loop {
-            let lease = server.request("GET", "/api/trial-workspace", None);
-            assert_eq!(lease.status, 200, "{}", lease.body);
-            if lease.json()["status"] == "idle" {
-                break;
-            }
-            assert!(
-                Instant::now() < deadline,
-                "{intent} delegate did not finish"
-            );
-            std::thread::sleep(Duration::from_millis(20));
-        }
+        wait_for_idle_lease(&server, gui_wait::IDLE_LEASE_TIMEOUT);
 
         assert!(
             args_path.is_file(),
@@ -3800,7 +3808,17 @@ fn unclassified_nextjs_create_is_unmeasured_confirmed_and_delegated() {
     assert_eq!(created.json()["gate"], "gate_2");
     let id = created.json()["id"].as_str().unwrap().to_string();
     let run_root = runs_dir(&workspace).join(&id);
-    wait_for_path(&run_root.join("delegated-args.txt"), Duration::from_secs(5));
+    gui_wait::wait_for_file_content(
+        &gui_wait::SystemClock::new(),
+        &run_root.join("delegated-args.txt"),
+        "the delegated Next.js create arguments",
+        DELEGATED_ARTIFACT_TIMEOUT,
+        |args| {
+            let args = args.lines().collect::<Vec<_>>();
+            args.windows(2).any(|pair| pair == ["--profile", "nextjs"])
+                && args.windows(2).any(|pair| pair == ["--intent", "create"])
+        },
+    );
     let delegated = std::fs::read_to_string(run_root.join("delegated-args.txt")).unwrap();
     let delegated = delegated.lines().collect::<Vec<_>>();
     assert!(
@@ -3826,7 +3844,7 @@ fn unclassified_nextjs_create_is_unmeasured_confirmed_and_delegated() {
         serde_json::from_str(&std::fs::read_to_string(confirmation_path).unwrap()).unwrap();
     assert_eq!(confirmation["card_hash"], proposal["card_hash"]);
     assert_eq!(confirmation["identity"]["task_family"], "unknown");
-    wait_for_idle_lease(&server, Duration::from_secs(5));
+    wait_for_idle_lease(&server, gui_wait::IDLE_LEASE_TIMEOUT);
 
     let mut known_family = spec.clone();
     known_family["goal"] = serde_json::json!("Create a Quiz");
@@ -3915,16 +3933,7 @@ fn selected_think_is_confirmed_and_delegated_only_for_an_ollama_role() {
     let created = server.request("POST", "/api/sessions", Some(&confirmed));
     assert_eq!(created.status, 202, "{}", created.body);
     let id = created.json()["id"].as_str().unwrap().to_string();
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        let lease = server.request("GET", "/api/trial-workspace", None);
-        assert_eq!(lease.status, 200, "{}", lease.body);
-        if lease.json()["status"] == "idle" {
-            break;
-        }
-        assert!(Instant::now() < deadline, "delegated CLI did not finish");
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    wait_for_idle_lease(&server, gui_wait::IDLE_LEASE_TIMEOUT);
     let delegated_args =
         std::fs::read_to_string(runs_dir(&workspace).join(id).join("delegated-args.txt")).unwrap();
     assert!(
@@ -4027,29 +4036,51 @@ fn recovery_auto_run_limit_is_hash_bound_validated_and_delegated() {
     assert_eq!(created.status, 202, "{}", created.body);
     let id = created.json()["id"].as_str().unwrap().to_string();
     let args_path = runs_dir(&workspace).join(&id).join("delegated-args.txt");
-    let deadline = Instant::now() + Duration::from_secs(5);
-    let delegated_args = loop {
-        if let Ok(args) = std::fs::read_to_string(&args_path)
-            && args
-                .lines()
+    let delegated_args = gui_wait::wait_for_file_content(
+        &gui_wait::SystemClock::new(),
+        &args_path,
+        "the delegated recovery plan auto-run flag",
+        DELEGATED_ARTIFACT_TIMEOUT,
+        |args| {
+            args.lines()
                 .collect::<Vec<_>>()
                 .windows(2)
                 .any(|pair| pair == ["--recovery-plan-auto-runs", "1"])
-        {
-            break args;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "delegated CLI did not write the confirmed recovery flag and value"
-        );
-        std::thread::sleep(Duration::from_millis(20));
-    };
+        },
+    );
     let arguments = delegated_args.lines().collect::<Vec<_>>();
     let flag = arguments
         .iter()
         .position(|argument| *argument == "--recovery-plan-auto-runs")
         .expect("confirmed recovery flag was not delegated");
     assert_eq!(arguments.get(flag + 1), Some(&"1"));
+    gui_wait::wait_for(
+        &gui_wait::SystemClock::new(),
+        "the session recovery_auto_run to record the completed run",
+        SESSION_STATE_TIMEOUT,
+        || {
+            let status = server.request("GET", &format!("/api/sessions/{id}"), None);
+            if status.status != 200 {
+                return gui_wait::Poll::Failed(format!(
+                    "the session probe failed with status {}",
+                    status.status
+                ));
+            }
+            let observed = status.json()["recovery_auto_run"].clone();
+            if observed
+                == serde_json::json!({
+                    "current": 1,
+                    "used": 1,
+                    "limit": 1,
+                    "stop_reason": "recovery_succeeded",
+                })
+            {
+                gui_wait::Poll::Ready(())
+            } else {
+                gui_wait::Poll::Pending(format!("the session recovery_auto_run is {observed}"))
+            }
+        },
+    );
     let status = server.request("GET", &format!("/api/sessions/{id}"), None);
     assert_eq!(status.status, 200, "{}", status.body);
     assert_eq!(
@@ -4076,10 +4107,10 @@ fn gate_four_recovery_run_requires_confirmation_and_executes_exact_frozen_identi
 
     let first = launch_fixture_session(&server);
     let first_id = first["id"].as_str().unwrap().to_string();
-    wait_for_idle_lease(&server, Duration::from_secs(5));
+    wait_for_idle_lease(&server, gui_wait::IDLE_LEASE_TIMEOUT);
     let second = launch_fixture_session(&server);
     let second_id = second["id"].as_str().unwrap().to_string();
-    wait_for_idle_lease(&server, Duration::from_secs(5));
+    wait_for_idle_lease(&server, gui_wait::IDLE_LEASE_TIMEOUT);
 
     let proposal = server.request(
         "POST",
@@ -4144,7 +4175,7 @@ fn gate_four_recovery_run_requires_confirmation_and_executes_exact_frozen_identi
     let generation = confirmed["process_generation"].as_str().unwrap();
     wait_for_path(
         &first_run_root.join("recovery-started"),
-        Duration::from_secs(5),
+        gui_wait::DESCENDANT_READY_TIMEOUT,
     );
 
     let monitored = server.request("GET", &format!("/api/sessions/{first_id}"), None);
@@ -4207,12 +4238,14 @@ fn gate_four_recovery_run_requires_confirmation_and_executes_exact_frozen_identi
         Some(&serde_json::json!({ "generation": generation })),
     );
     assert_eq!(stopped.status, 202, "{}", stopped.body);
-    wait_for_event(
+    gui_wait::wait_for_stop_evidence(
+        &gui_wait::SystemClock::new(),
         &first_run_root.join("events.jsonl"),
-        "gui_trial_stop_completed",
-        Duration::from_secs(8),
+        &first_id,
+        generation,
+        gui_wait::STOP_EVIDENCE_TIMEOUT,
     );
-    wait_for_idle_lease(&server, Duration::from_secs(5));
+    wait_for_idle_lease(&server, gui_wait::IDLE_LEASE_TIMEOUT);
     server.stop();
 }
 
@@ -4228,7 +4261,7 @@ fn recovery_run_rejects_stale_drift_pending_directive_and_treatment_rejection() 
 
     let drifted = launch_fixture_session(&server);
     let drifted_id = drifted["id"].as_str().unwrap().to_string();
-    wait_for_idle_lease(&server, Duration::from_secs(5));
+    wait_for_idle_lease(&server, gui_wait::IDLE_LEASE_TIMEOUT);
     let proposal = server.request(
         "POST",
         &format!("/api/sessions/{drifted_id}/recovery-runs"),
@@ -4257,7 +4290,7 @@ fn recovery_run_rejects_stale_drift_pending_directive_and_treatment_rejection() 
 
     let pending = launch_fixture_session(&server);
     let pending_id = pending["id"].as_str().unwrap().to_string();
-    wait_for_idle_lease(&server, Duration::from_secs(5));
+    wait_for_idle_lease(&server, gui_wait::IDLE_LEASE_TIMEOUT);
     let older = server.request(
         "POST",
         &format!("/api/sessions/{pending_id}/recovery-runs"),
@@ -4300,7 +4333,7 @@ fn recovery_run_rejects_stale_drift_pending_directive_and_treatment_rejection() 
 
     let treatment = launch_fixture_session(&server);
     let treatment_id = treatment["id"].as_str().unwrap().to_string();
-    wait_for_idle_lease(&server, Duration::from_secs(5));
+    wait_for_idle_lease(&server, gui_wait::IDLE_LEASE_TIMEOUT);
     let events = runs_dir(&workspace)
         .join(&treatment_id)
         .join("events.jsonl");
@@ -5951,6 +5984,37 @@ fn wait_for_idle_lease(server: &Server, timeout: Duration) {
                 gui_wait::Poll::Ready(())
             } else {
                 gui_wait::Poll::Pending(format!("the trial workspace lease is {status}"))
+            }
+        },
+    );
+}
+
+/// Wait until `GET /api/sessions/{id}` reports `expected` as the gate. The
+/// gate is only `gate_3` once the server has observed the delegated process
+/// generation end, so a single read right after the events can still see
+/// `gate_2`.
+#[cfg(unix)]
+fn wait_for_session_gate(server: &Server, id: &str, expected: &str, timeout: Duration) {
+    let clock = gui_wait::SystemClock::new();
+    gui_wait::wait_for(
+        &clock,
+        &format!("session {id} to reach {expected}"),
+        timeout,
+        || {
+            let status = server.request("GET", &format!("/api/sessions/{id}"), None);
+            if status.status != 200 {
+                return gui_wait::Poll::Failed(format!(
+                    "the session probe failed with status {}",
+                    status.status
+                ));
+            }
+            let gate = status.json()["gate"].clone();
+            if gate == expected {
+                gui_wait::Poll::Ready(())
+            } else if gate == "gate_2" {
+                gui_wait::Poll::Pending(format!("session {id} is still at {gate}"))
+            } else {
+                gui_wait::Poll::Failed(format!("session {id} reached an unexpected gate {gate}"))
             }
         },
     );
