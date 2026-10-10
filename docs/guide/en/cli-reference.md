@@ -10,15 +10,17 @@ authority: use `commandagent --help` when its version differs from this checkout
 ## Invocation
 
 Use one of the action-selector flags for a direct command, or omit all of them
-for the TUI. The action selectors are `--prompt`, `--plan-steps`, `--plan-run`,
-`--run-plan`, `--ultra-plan`, `--ultra-plan-run`, `--run-ultra-plan`,
-`--validate-plan`, `--setup-interaction-probe`, `--runs`, `--ux-demo`, `--model-probe`,
-`--doctor`, and `--extensions`. The offline pack actions `--packs`, `--pack-verify`, and
-`--pack-pin`, generated-artifact actions `--completions` and `--generate-man`,
-config action `--init-config`, and delegated manifest actions
-`--validate-manifest` and `--init-profile` are displayed in the same
-`Actions (use one)` help group. CommandAgent rejects combinations whose action
-contracts are mutually exclusive.
+for the TUI. The action selectors are `--workflow`, `--prompt`, `--plan-steps`,
+`--plan-run`, `--run-plan`, `--ultra-plan`, `--ultra-plan-run`,
+`--run-ultra-plan`, `--validate-plan`, `--setup-interaction-probe`, `--runs`,
+`--ux-demo`, `--model-probe`, `--doctor`, and `--extensions`. The offline pack
+actions `--packs`, `--pack-verify`, and `--pack-pin`, generated-artifact actions
+`--completions` and `--generate-man`, config action `--init-config`, and
+delegated manifest actions `--validate-manifest` and `--init-profile` are
+displayed in the same `Actions (use one)` help group. CommandAgent rejects
+combinations whose action contracts are mutually exclusive, either in Clap
+before parsing finishes or in the resolved configuration after parsing; see
+[Conflicts and combinations](#conflicts-and-combinations).
 
 Clap also generates `-h`/`--help` and `-V`/`--version`. They are not part of the
 66 application flags below. The hidden `--completion-contract-json <PATH>` is an
@@ -112,6 +114,14 @@ least eight hexadecimal digits, such as `/confirm sha256:77cd5e23`. Set
 full hash. Prefixes are expanded to the frozen full hash before confirmation is
 persisted.
 
+`/provider` switches only among the four built-in providers `ollama`,
+`lm-studio`, `openai`, and `gemini`. The generic `openai-compatible` provider,
+including its base URL and key variable, is configured before startup with
+`--provider`, `--base-url`, and `--api-key-env`, or a preset; change it there
+and restart CommandAgent instead of using `/provider`. When the executor
+provider is OpenAI, `/model <id>` and a `/provider openai` switch reject the
+ambiguous `gpt-5.6` alias with the same check the CLI applies at startup.
+
 REPL history is isolated beneath `--state-dir` at
 `workspace-history/<sha256-of-canonical-workspace>.txt`. Only the active
 workspace file is loaded, and history hints require two entered characters and
@@ -143,20 +153,32 @@ See [Configuration](configuration.md) for the exact per-field layers.
 - `--allow` accepts `read`, `write`, and `bash:verify` as repeated or
   comma-separated values. Once supplied, omitted tool classes are blocked;
   `--yes` is the backward-compatible all-tools alias.
-- Only one action selector may be used. This is checked after parsing and fails
-  with `only one action selector can be used at a time`.
+- Clap rejects some combinations while parsing: `--workflow` conflicts with
+  `--intent`; `--origin` requires `--workflow`; the `--doctor`/`--extensions`/
+  `--runs` JSON group and the pack direct-action group accept only one member
+  each. For example, `--doctor --runs` is a Clap-level conflict.
+- After parsing, the resolved configuration accepts exactly one action selector
+  and fails with `only one action selector can be used at a time`. For example,
+  `--prompt x --ux-demo` reaches that check because each flag is a valid
+  selector on its own. `--workflow` without `--origin` also fails here, with
+  `--workflow requires --origin`.
 - `--completions` and `--generate-man` are Clap-level conflicts with every other
   action selector and with a trailing goal, so a combined invocation is rejected
   before generation begins.
 - Pre-run argument and configuration rejections exit `2` before a run starts and
   produce no run summary; see [headless execution](../../user/headless.md).
+  `--doctor` is the exception: it follows its diagnostic path, records the
+  failed Configuration check in its report (including JSON), and exits `1`
+  instead of `2`. For example, `--ux-demo --doctor --json` exits `1` with the
+  JSON report rather than the usual exit `2`.
 - `--packs`, `--pack-verify`, and `--pack-pin` are Clap-level direct actions.
   They conflict with one another, run action selectors, `--pack`, and
   `--pack-hash`. Listing allows `--extension-root`, while verify and pin take
   their target directory directly.
 - `--extensions` is read-only and accepts `--extension-root`; when omitted,
-  it resolves the top-level `extension_root` setting. `--json` is accepted
-  with either `--extensions` or `--doctor`.
+  it resolves the top-level `extension_root` setting. `--json` applies to
+  `--doctor`, `--extensions`, and `--runs`; using `--json` without one of those
+  targets is rejected.
 - `--plan-steps`, `--plan-run`, `--ultra-plan`, and `--ultra-plan-run` require a
   trailing goal.
 - `--validate-plan` is an offline, read-only action and conflicts with every
@@ -164,6 +186,12 @@ See [Configuration](configuration.md) for the exact per-field layers.
   recovery UltraPlan YAML; see [Plan YAML editing](plan-yaml.md).
 - A different `--planner-provider` requires an explicit or preset
   `planner_model`; otherwise startup fails.
+- A role that resolves to the generic provider needs its base URL: pass
+  `--base-url` or set preset `base_url` when the executor, planner, or
+  classifier is `openai-compatible`, including a preset that sets only the
+  classifier to the generic provider. With no `openai-compatible` role,
+  `--base-url` and `--api-key-env` are rejected by the resolved configuration.
+  These are not Clap `requires` relationships.
 - `--think` requires at least one resolved provider role to use Ollama. When
   both roles use another provider, startup fails instead of ignoring the flag.
 - For direct minimal-loop prompts, `--fresh-session` takes precedence over

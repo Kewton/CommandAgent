@@ -7,16 +7,18 @@
 
 ## コマンド一覧
 
-レジストリには主コマンドが 23 件あります。`/quit` は `/exit` の別名として独立して受け付ける
-コマンド名なので、受け付ける名前は合計 24 件です。
+一般コマンドレジストリには主コマンドが 23 件あります。`/quit` は `/exit` の別名として独立して
+受け付けるコマンド名なので、受け付ける名前は合計 24 件です。さらに `/directive` と
+`/confirm-directive` の 2 名はこのレジストリの外で処理されます。後述の Gate 3/4 専用コマンドの
+節を参照してください。
 
 | コマンド名 | `/help` に表示される使用法 | 動作 |
 | --- | --- | --- |
 | `/help` | `/help [command]` | グループ化したコマンドを表示するか、1 コマンドの詳しい使用法と例を表示します。 |
 | `/confirm` | `/confirm <hash>` | 確認した Gate 1 カードを保存し、その依頼を直ちに実行します。strict confirmation が無効なら、8 桁以上の 16 進数を持つ一致した `sha256:` 前方一致も使えます。 |
 | `/status` | `/status` | 現在の実行を先に、その後で実効セッション設定と readiness を表示します。 |
-| `/model` | `/model <id>` | この REPL セッションで新しい Gate 1 カードに使う executor model を設定します。 |
-| `/provider` | `/provider <name>` | この REPL セッションで新しい Gate 1 カードに使う executor provider を設定します。 |
+| `/model` | `/model <id>` | この REPL セッションで新しい Gate 1 カードに使う executor model を設定します。OpenAI の model ID は起動時と同じ方針で検証します。 |
+| `/provider` | `/provider <name>` | この REPL セッションで新しい Gate 1 カードに使う executor provider を設定します。受け付けるのは `ollama`、`lm-studio`、`openai`、`gemini` の 4 名だけで、汎用 `openai-compatible` はここでは選べません。 |
 | `/profile` | `/profile <name>` | この REPL セッションで新しい Gate 1 カードに使う明示 profile を設定します。 |
 | `/clear` | `/clear` | 直近の結果を破棄せずに端末画面を消去します。 |
 | `/last` | `/last` | 直近の REPL 結果を再表示します。 |
@@ -48,6 +50,25 @@ plan コマンドの失敗は REPL を終了せずに報告されます。
 `sha256:` 前方一致を、最新の確認待ち Gate 1 カードに一致する場合だけ受け付けます。
 `COMMANDAGENT_STRICT_CONFIRM=1` で完全 hash 一致へ戻せます。保存と event 出力には前方一致では
 なく、固定済みの完全 hash を使います。
+
+`/provider` が切り替えられるのは組み込みの 4 名（`ollama`、`lm-studio`、`openai`、`gemini`）
+だけです。汎用 `openai-compatible` は base URL やキー変数を含めて起動前に
+`--provider`、`--base-url`、`--api-key-env` フラグまたは preset で設定します。変更する場合は
+`/provider` を使わず、設定を見直して CommandAgent を再起動してください。
+
+## Gate 3/4 専用コマンド
+
+`/directive` と `/confirm-directive` は一般コマンドレジストリの外で処理されます。そのため
+`/help`、`/help <command>`、上記のコマンド表には表示されません。確認済みの terminal run が
+Gate 3 または Gate 4 に達した後だけ利用でき、それ以外のときは REPL が拒否します。
+
+- `/directive <instruction>` は、現在の Gate 3 または Gate 4 の terminal run に対して
+  限定された human directive を提案します。REPL は directive hash とともに提案を表示し、
+  確認するよう案内します。
+- `/confirm-directive <hash>` は、確認待ちの提案を完全で正確な hash で確認し、継続を準備します。
+
+表示された directive hash の完全一致が必要です。上記の Gate 1 の `sha256:` 前方一致は
+directive には適用されず、この確認より前に directive が dispatch されることもありません。
 
 ## インラインフラグ
 

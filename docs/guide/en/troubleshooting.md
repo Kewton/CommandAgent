@@ -94,10 +94,15 @@ terminal can clear a scroll region left by the terminal emulator.
 ## Model ID does not exist
 
 CommandAgent normally passes model IDs to the selected provider without a
-cross-provider catalog. The one guarded alias is OpenAI executor ID `gpt-5.6`,
-which is rejected before dispatch; use exact `gpt-5.6-luna` or an available
-snapshot-qualified Luna/Sol ID. Other nonexistent, unavailable, or unauthorized
-models fail at provider-call time.
+cross-provider catalog. The one guarded alias is the built-in OpenAI model ID
+`gpt-5.6`, which is rejected before dispatch for every OpenAI role — executor,
+planner, and classifier. Use an exact `gpt-5.6-luna`, `gpt-5.6-terra`, or
+`gpt-5.6-sol` ID, or an available snapshot-qualified Luna/Sol ID. This check
+applies only to the built-in OpenAI provider, not to the generic
+`openai-compatible` transport, which forwards the model ID unchanged. In the
+REPL, `/model <id>` and a `/provider openai` switch repeat the executor check.
+Other nonexistent, unavailable, or unauthorized models fail at provider-call
+time.
 
 ### What the failure looks like
 

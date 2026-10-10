@@ -1,6 +1,7 @@
 use std::ffi::{OsStr, OsString};
 
 use clap::builder::{EnumValueParser, PossibleValue, TypedValueParser};
+use clap::error::{ContextKind, ContextValue};
 use clap::{Arg, CommandFactory, FromArgMatches, ValueEnum};
 
 use crate::cli::{Cli, ProviderArg};
@@ -29,7 +30,13 @@ impl TypedValueParser for ProviderValueParser {
         if value == OPENAI_COMPATIBLE {
             return Ok(ProviderArg::LmStudio);
         }
-        EnumValueParser::<ProviderArg>::new().parse_ref(command, argument, value)
+        match EnumValueParser::<ProviderArg>::new().parse_ref(command, argument, value) {
+            Ok(value) => Ok(value),
+            Err(mut error) => {
+                augment_possible_values(&mut error);
+                Err(error)
+            }
+        }
     }
 
     fn possible_values(&self) -> Option<Box<dyn Iterator<Item = PossibleValue> + '_>> {
@@ -40,6 +47,22 @@ impl TypedValueParser for ProviderValueParser {
         values.push(PossibleValue::new(OPENAI_COMPATIBLE));
         Some(Box::new(values.into_iter()))
     }
+}
+
+/// Report the generic `openai-compatible` value in an invalid-value error.
+///
+/// `EnumValueParser` builds its candidate list from [`ProviderArg`], which has
+/// four built-in variants, so an invalid `--provider` value would otherwise
+/// omit `openai-compatible`. Only the rendered candidate list is extended; the
+/// error kind, message, and exit code keep the parser's behavior.
+fn augment_possible_values(error: &mut clap::Error) {
+    let Some(ContextValue::Strings(mut values)) = error.remove(ContextKind::ValidValue) else {
+        return;
+    };
+    if !values.iter().any(|value| value == OPENAI_COMPATIBLE) {
+        values.push(OPENAI_COMPATIBLE.to_string());
+    }
+    error.insert(ContextKind::ValidValue, ContextValue::Strings(values));
 }
 
 pub fn command() -> clap::Command {
@@ -138,6 +161,26 @@ mod tests {
         let help = command().render_long_help().to_string();
         for expected in [OPENAI_COMPATIBLE, "--base-url", "--api-key-env"] {
             assert!(help.contains(expected), "missing {expected} in {help}");
+        }
+    }
+
+    #[test]
+    fn invalid_provider_error_lists_generic_candidate() {
+        for flag in ["--provider", "--planner-provider"] {
+            let error = parse_from(["commandagent", flag, "not-a-provider"]).unwrap_err();
+            assert_eq!(error.kind(), clap::error::ErrorKind::InvalidValue);
+            assert_eq!(error.exit_code(), 2);
+            let rendered = error.to_string();
+            assert!(
+                rendered.contains("invalid value 'not-a-provider'"),
+                "{rendered}"
+            );
+            for candidate in ["ollama", "lm-studio", "openai", "gemini", OPENAI_COMPATIBLE] {
+                assert!(
+                    rendered.contains(candidate),
+                    "missing {candidate}: {rendered}"
+                );
+            }
         }
     }
 }

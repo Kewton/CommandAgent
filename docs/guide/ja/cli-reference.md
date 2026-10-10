@@ -10,14 +10,16 @@
 ## 呼び出し方
 
 直接コマンドを実行するにはアクション選択フラグを 1 つ使い、TUI を使う場合はすべて省略します。
-アクション選択フラグは `--prompt`、`--plan-steps`、`--plan-run`、`--run-plan`、
+アクション選択フラグは `--workflow`、`--prompt`、`--plan-steps`、`--plan-run`、`--run-plan`、
 `--ultra-plan`、`--ultra-plan-run`、`--run-ultra-plan`、
 `--validate-plan`、`--setup-interaction-probe`、`--runs`、`--ux-demo`、`--model-probe`、
 `--doctor`、`--extensions` です。
 オフライン pack アクションの `--packs`、`--pack-verify`、`--pack-pin`、生成アクションの
 `--completions` と `--generate-man`、設定アクションの `--init-config`、委譲された manifest
 アクションの `--validate-manifest` と `--init-profile` も、help の
-`Actions (use one)` グループに表示します。相互排他の action contract を組み合わせると拒否されます。
+`Actions (use one)` グループに表示します。相互排他の action contract を組み合わせると、Clap が
+構文解析中に拒否するものと、構文解析後の解決済み設定が拒否するものがあります。詳細は
+[排他関係と組み合わせ](#排他関係と組み合わせ)を参照してください。
 
 Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリケーション固有の
 66 フラグには含めません。非表示の `--completion-contract-json <PATH>` は内部連携用であり、
@@ -109,6 +111,13 @@ identity を維持します。実行時の使用法と例は、グループ化�
 `COMMANDAGENT_STRICT_CONFIRM=1` を設定すると完全 hash を必須にできます。前方一致は、
 confirmation を保存する前に固定済みの完全 hash へ展開されます。
 
+`/provider` が切り替えられるのは組み込みの 4 名 `ollama`、`lm-studio`、`openai`、`gemini`
+だけです。汎用 `openai-compatible` は base URL やキー変数を含めて起動前に
+`--provider`、`--base-url`、`--api-key-env`、または preset で設定します。変更する場合は
+`/provider` ではなく設定を見直して CommandAgent を再起動してください。executor プロバイダが
+OpenAI のとき、`/model <id>` と `/provider openai` への切替は、起動時と同じ検査で曖昧な
+alias `gpt-5.6` を拒否します。
+
 REPL 履歴は `--state-dir` 配下の
 `workspace-history/<canonical-workspaceのsha256>.txt` に分離されます。アクティブな
 workspace のファイルだけを読み込み、履歴ヒントは 2 文字以上の入力後に 1 行へ収まる長さで
@@ -147,24 +156,38 @@ context budget、timeout、profile、footer、stream などは `Config::from_cli
   canonical target がワークスペース外になる path も Read/Write/Edit/Grep で拒否され、
   広域列挙では秘密本文を出さずにポリシー除外を知らせます。詳細は
   [セキュリティモデル](../../../SECURITY.md) を参照してください。
-- アクション選択フラグは 1 つだけ使用できます。構文解析後に検査され、違反すると
-  `only one action selector can be used at a time` で失敗します。
+- Clap は構文解析中に一部の組み合わせを拒否します。`--workflow` は `--intent` と排他で、
+  `--origin` には `--workflow` が必要です。`--doctor`／`--extensions`／`--runs` の JSON
+  グループと pack 直接アクショングループは、それぞれ 1 つだけ受け付けます。例えば
+  `--doctor --runs` は Clap レベルの排他です。
+- 構文解析後、解決済み設定はアクション選択フラグを 1 つだけ受け付け、違反すると
+  `only one action selector can be used at a time` で失敗します。例えば `--prompt x --ux-demo`
+  は、どちらも単独では有効な selector のため、この検査に到達します。`--origin` なしの
+  `--workflow` もここで `--workflow requires --origin` として失敗します。
 - `--completions` と `--generate-man` は、他のすべてのアクション選択フラグおよび
   末尾のゴールと Clap レベルで排他です。併用した呼び出しは生成を始める前に拒否されます。
 - 実行前の引数・設定の拒否は、run の開始前に exit `2` で終了し、run summary を
   生成しません。詳細は [headless 実行](../../user/headless.md)を参照してください。
+  `--doctor` は例外で、診断経路を通り、失敗した Configuration 検査を report（JSON を含む）に
+  記録して exit `1` になります。例えば `--ux-demo --doctor --json` は、通常の exit `2` ではなく
+  JSON report とともに exit `1` になります。
 - `--packs`、`--pack-verify`、`--pack-pin` は Clap レベルの直接アクションです。
   相互、run アクション、`--pack`、`--pack-hash` と排他です。一覧では
   `--extension-root` を使えますが、verify と pin は対象 directory を直接取ります。
 - `--extensions` は read-only で `--extension-root` を受け付けます。省略時は
-  トップレベルの `extension_root` 設定を解決します。`--json` は
-  `--extensions` と `--doctor` のどちらでも利用できます。
+  トップレベルの `extension_root` 設定を解決します。`--json` は `--doctor`、
+  `--extensions`、`--runs` に適用され、これらの対象なしで使うと拒否されます。
 - `--plan-steps`、`--plan-run`、`--ultra-plan`、`--ultra-plan-run` には末尾のゴールが必要です。
 - `--validate-plan` は offline かつ read-only の action で、実行 action および生成物 action の
   すべてと排他です。step plan、UltraPlan、recovery UltraPlan YAML を受け付けます。詳細は
   [Plan YAML の編集](plan-yaml.md)を参照してください。
 - `--planner-provider` が実行プロバイダと異なる場合、明示または preset の
   `planner_model` が必要です。なければ起動に失敗します。
+- 汎用プロバイダに解決される役割には base URL が必要です。executor、planner、classifier の
+  いずれかが `openai-compatible` の場合は `--base-url` または preset の `base_url` を指定します。
+  preset で classifier だけを汎用プロバイダにする場合も含みます。汎用プロバイダの役割がない
+  状態で `--base-url` や `--api-key-env` を指定すると、解決済み設定が拒否します。これらは
+  Clap の `requires` ではありません。
 - `--think` には、解決後の provider 役割の少なくとも一方で Ollama が必要です。
   両方が別プロバイダの場合、フラグを無視せず起動に失敗します。
 - 直接 minimal-loop prompt では `--fresh-session` が `--resume` より優先されます。

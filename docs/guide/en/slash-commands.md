@@ -8,16 +8,18 @@ source of truth for the installed binary.
 
 ## Command reference
 
-The registry contains 23 primary entries. `/quit` is a separately accepted
-command name and an alias of `/exit`, giving 24 accepted names in total.
+The general command registry contains 23 primary entries. `/quit` is a separately
+accepted command name and an alias of `/exit`, giving 24 accepted names in total.
+Two more names, `/directive` and `/confirm-directive`, are handled outside this
+registry; see the Gate 3/4 dedicated commands section below.
 
 | Command name | Usage shown by `/help` | Behavior |
 | --- | --- | --- |
 | `/help` | `/help [command]` | Show grouped commands, or detailed usage and an example for one command. |
 | `/confirm` | `/confirm <hash>` | Persist the reviewed Gate 1 card and immediately execute its request. A matching `sha256:` prefix needs at least eight hexadecimal digits unless strict confirmation is enabled. |
 | `/status` | `/status` | Show current execution first, followed by effective session configuration and readiness. |
-| `/model` | `/model <id>` | Set the executor model used by new Gate 1 cards in this REPL session. |
-| `/provider` | `/provider <name>` | Set the executor provider used by new Gate 1 cards in this REPL session. |
+| `/model` | `/model <id>` | Set the executor model used by new Gate 1 cards in this REPL session. An OpenAI model ID is validated with the same policy as startup. |
+| `/provider` | `/provider <name>` | Set the executor provider used by new Gate 1 cards in this REPL session. Accepts only `ollama`, `lm-studio`, `openai`, and `gemini`; the generic `openai-compatible` provider is not selectable here. |
 | `/profile` | `/profile <name>` | Set the explicit profile used by new Gate 1 cards in this REPL session. |
 | `/clear` | `/clear` | Clear the terminal screen without discarding the most recent result. |
 | `/last` | `/last` | Render the most recent REPL result again. |
@@ -50,6 +52,29 @@ The full hash is always accepted. By default, a canonical `sha256:` prefix of
 8 through 63 lowercase hexadecimal digits is accepted only when it matches the
 latest pending Gate 1 card. `COMMANDAGENT_STRICT_CONFIRM=1` restores full-hash
 matching. The full frozen hash, never the prefix, is persisted and emitted.
+
+`/provider` switches only among the four built-in providers (`ollama`,
+`lm-studio`, `openai`, and `gemini`). The generic `openai-compatible` provider
+—including its base URL and key variable—is configured before startup with the
+`--provider`, `--base-url`, and `--api-key-env` flags or a preset. To change it,
+adjust the configuration and restart CommandAgent rather than using `/provider`.
+
+## Gate 3/4 dedicated commands
+
+`/directive` and `/confirm-directive` are handled outside the general command
+registry. `/help`, `/help <command>`, and the command table above therefore do
+not list them. They are available only after a confirmed terminal run reaches
+Gate 3 or Gate 4; at any other time the REPL refuses them.
+
+- `/directive <instruction>` proposes a bounded human directive for the current
+  Gate 3 or Gate 4 terminal run. The REPL prints the proposal with its directive
+  hash and instructs you to confirm it.
+- `/confirm-directive <hash>` confirms a pending directive by its exact,
+  complete hash and prepares the continuation.
+
+The exact displayed directive hash is required. The Gate 1 `sha256:` prefix
+matching described above does not apply to directives, and a directive is not
+dispatched before this confirmation.
 
 ## Inline flags
 
