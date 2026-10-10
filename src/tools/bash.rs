@@ -770,10 +770,21 @@ pub fn path_confinement_rejection(
         let nearest_relative = nearest_relative_form(&rejection.path, &root);
         let guidance = workspace_relative_retry_guidance(&nearest_relative);
         let root_display = root.to_string_lossy().to_string();
-        let message = format!(
-            "bash_path_confinement_error: {}; use workspace-relative path `{nearest_relative}`; {guidance}; Bash may create, modify, or delete only within current workspace root `{root_display}`",
-            rejection.reason,
-        );
+        let message = if is_command_form_operation(&rejection.operation) {
+            // Issue #578: the rejection refused the command's spelling, not a
+            // path, so `path`/`nearest_relative` name a spelling instead of a
+            // path. `reason` already names the alternative spelling; appending
+            // the path retry would tell the caller to rewrite that spelling into
+            // a workspace-relative path. Only the reason is shown. The
+            // `nearest_relative` and `guidance` fields keep their values so the
+            // recorded event and schema are unchanged.
+            format!("bash_path_confinement_error: {}", rejection.reason)
+        } else {
+            format!(
+                "bash_path_confinement_error: {}; use workspace-relative path `{nearest_relative}`; {guidance}; Bash may create, modify, or delete only within current workspace root `{root_display}`",
+                rejection.reason,
+            )
+        };
         return Some(BashPathConfinementRejection {
             path: rejection.path.clone(),
             root: root_display.clone(),
@@ -860,6 +871,29 @@ pub fn path_confinement_rejection(
 
 pub fn workspace_relative_retry_guidance(nearest_relative: &str) -> String {
     format!("workspace相対で再実行せよ: {nearest_relative}")
+}
+
+/// Whether the write guard refused the *form* of the command rather than a path
+/// that leaves the workspace (Issue #578). For these operations the rejection's
+/// `path` holds a spelling — an introducer, an option word, or a sentinel — not
+/// a path, and `reason` already names the alternative spelling. Appending the
+/// workspace-relative retry would ask the caller to rewrite that spelling as a
+/// path, so it is omitted.
+///
+/// The literal list mirrors the operations the fail-closed guards in
+/// `bash_write_guard` emit. It is frozen by
+/// `tests/issue578_bash_rejection_guidance.rs`, which drives one command per
+/// operation through the public rejection and checks the message shape.
+fn is_command_form_operation(operation: &str) -> bool {
+    matches!(
+        operation,
+        "ANSI-C / locale quoting"
+            | "env -S / --split-string"
+            | "unresolved command prefix"
+            | "unreadable shell text"
+            | "unverifiable backtick command substitution"
+            | "unverifiable glob write target"
+    )
 }
 
 /// A shell consults `CDPATH` for a relative `cd` operand, which would let a
