@@ -49,8 +49,10 @@
 //! word that itself begins with `-` (other than `--`) is recorded and then
 //! scanned again, so the second `-C` in `tar -cfC -C sub` names `sub`. Nothing
 //! after a `--` word is read. `git -C` is a global option only before the
-//! subcommand, so `git commit -C HEAD` names no directory; `git`'s other global
-//! options that take a value word (`-c`, `--git-dir`, `--work-tree`,
+//! subcommand, so `git commit -C HEAD` names no directory; because it always
+//! takes exactly one literal path word, its value is never rescanned, so
+//! `git -C --git-dir -C sub` reads `--git-dir` and then `sub`. `git`'s other
+//! global options that take a value word (`-c`, `--git-dir`, `--work-tree`,
 //! `--namespace`, `--super-prefix`, `--config-env`, `--attr-source`) skip that
 //! value so the walk keeps scanning for a later `-C`.
 //!
@@ -170,7 +172,7 @@ fn collect(entry: &Entry, arguments: &[&str], values: &mut Vec<String>) {
                             break;
                         };
                         values.push((*value).to_string());
-                        index += value_step(value);
+                        index += value_step(entry, value);
                     }
                 }
                 continue;
@@ -198,7 +200,7 @@ fn collect(entry: &Entry, arguments: &[&str], values: &mut Vec<String>) {
                     break;
                 };
                 values.push((*value).to_string());
-                index += value_step(value);
+                index += value_step(entry, value);
                 continue;
             }
             // A value-taking global short option (`git -c KEY=VALUE`) consumes
@@ -232,14 +234,17 @@ fn matches_long(long: &[&str], name: &str) -> bool {
     !name.is_empty() && long.iter().any(|full| full.starts_with(name))
 }
 
-/// How far to advance after reading a value from the next word. A value that
-/// begins with `-` (other than `--`) is itself scanned, so the walk advances one
-/// word; anything else is consumed whole.
-fn value_step(value: &str) -> usize {
-    if value.starts_with('-') && value != "--" {
-        1
-    } else {
+/// How far to advance after reading the working-directory value from the next
+/// word. `git -C` always takes exactly the next word as its path, so its value
+/// is never rescanned: a value spelled like a global option (`--git-dir`,
+/// `-pc`, `-c`) must not swallow the `-C` after it. Every other table program
+/// rescans a `-`-prefixed value (other than `--`) so a hidden option inside it
+/// is still found.
+fn value_step(entry: &Entry, value: &str) -> usize {
+    if entry.stop_at_subcommand || !(value.starts_with('-') && value != "--") {
         2
+    } else {
+        1
     }
 }
 
@@ -319,6 +324,16 @@ mod tests {
         // `-c` need not be first in the cluster.
         assert_eq!(values(&["git", "-pc", "k=v", "-C", "sub"]), vec!["sub"]);
         assert_eq!(values(&["git", "--git-dir", "x", "-C", "sub"]), vec!["sub"]);
+        // A `-C` value spelled like a global option is one literal path word and
+        // is never rescanned, so the following `-C sub` is still read.
+        assert_eq!(
+            values(&["git", "-C", "--git-dir", "-C", "sub"]),
+            vec!["--git-dir", "sub"]
+        );
+        assert_eq!(
+            values(&["git", "-C", "-pc", "-C", "sub"]),
+            vec!["-pc", "sub"]
+        );
         assert_eq!(
             values(&["git", "--work-tree", "sub", "-C", "deep"]),
             vec!["deep"]

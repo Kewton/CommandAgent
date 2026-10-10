@@ -71,6 +71,32 @@ fn fixture() -> Fixture {
     Fixture { _dir: dir, root }
 }
 
+/// A workspace whose every `escape` directory (a nested path such as
+/// `--git-dir/sub`) holds the outward symlink `lf2`, plus a root file `f`. Used
+/// where the option value itself is a directory name that looks like an option.
+fn fixture_with_escape_dirs(escape: &[&str]) -> Fixture {
+    let dir = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).expect("create tempdir");
+    assert!(
+        !["/usr", "/bin", "/opt", "/etc", "/tmp"]
+            .iter()
+            .any(|prefix| dir.path().starts_with(prefix)),
+        "the fixture tempdir must not sit under a system prefix: {}",
+        dir.path().display()
+    );
+    let root = dir.path().join("ws");
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("f"), "x").unwrap();
+    let outside = dir.path().join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("secret"), "outside-secret").unwrap();
+    for directory in escape {
+        std::fs::create_dir_all(root.join(directory)).unwrap();
+        std::os::unix::fs::symlink(&outside, root.join(directory).join("lf2")).unwrap();
+    }
+    let root = root.canonicalize().unwrap();
+    Fixture { _dir: dir, root }
+}
+
 /// Asserts every command is refused by a read-side `path reference`, so the
 /// relative read after the option escapes the workspace (`R=1`).
 fn assert_read_rejected(root: &Path, commands: &[&str]) {
@@ -148,6 +174,32 @@ fn git_value_taking_global_options_reject_relative_reads() {
             "git --namespace n -C sub log lf2",
         ],
     );
+}
+
+/// A `-C` value that is itself spelled like a value-taking global option
+/// (`--git-dir`, `--namespace`, `-pc`, `-c`) must still be read as one literal
+/// path word: `git -C --git-dir -C sub log lf2` chdirs to `--git-dir`, then to
+/// `sub`, then reads `lf2` under `sub`. `git -C` never rescans its value, so the
+/// following `-C sub` is not swallowed. The pre-fix code misread the value as a
+/// global option and skipped `-C sub`, letting `sub/lf2` escape (`R=0`).
+#[test]
+fn git_c_value_named_like_a_global_option_still_reads_the_next_c() {
+    let fixture = fixture_with_escape_dirs(&["--git-dir/sub", "--namespace/sub", "-pc/sub"]);
+    let root = &fixture.root;
+    assert_read_rejected(
+        root,
+        &[
+            "git -C --git-dir -C sub log lf2",
+            "git -C --namespace -C sub log lf2",
+            "git -C -pc -C sub log lf2",
+        ],
+    );
+
+    // The fourth form uses its own fixture that places `-c/sub/lf2` only and
+    // never `-c/lf2`, so the pre-fix code (which stops at `-c`) cannot reject it.
+    let fixture = fixture_with_escape_dirs(&["-c/sub"]);
+    let root = &fixture.root;
+    assert_read_rejected(root, &["git -C -c -C sub log lf2"]);
 }
 
 /// Table 2: the workspace-internal reads and writes through these options are
