@@ -97,6 +97,36 @@ internal integration surface and is intentionally not a public user flag.
 | `--footer` | `<on\|off>` | `on` | Control the fixed TUI footer; off keeps scrollback breadcrumbs. | [Footer problems](troubleshooting.md#footer-rendering-problems) |
 | `--no-footer` | none | off | Disable the fixed TUI footer. Equivalent in effect to `--footer off`. | [Footer problems](troubleshooting.md#footer-rendering-problems) |
 
+## OS write sandbox
+
+The hidden `--sandbox auto|required|off` flag (default `auto`) controls an
+OS-level write sandbox for the model Bash tool and for verification/acceptance
+commands. The lexical checks still run first; the sandbox adds confinement for
+writes the lexical guard cannot see.
+
+- **What the OS closes (when the backend is available):** writes performed inside
+  a command or script — `sh -c 'cp ...'`, `eval`, `xargs`, `find -exec`, an
+  interpreter's `open(..., 'w')`, `dd of=`, `sed -i` — and hardlinks to an inode
+  outside the workspace. Only the workspace, the run's temp directory, the known
+  dependency caches, and device files such as `/dev/null` are writable.
+- **What stays lexical-only:** reads, network access, and every command run when
+  the backend is unavailable. `--yes`, `--allow bash:verify`, and `--offline` do
+  not close an indirect write by themselves; only the sandbox, when applied,
+  does. `--allow bash:verify` admits a command by its classification only, so the
+  contents of any script it invokes are limited by the sandbox alone.
+- **Modes:** `auto` uses the backend when available and otherwise warns once and
+  records `bash_sandbox_status` with `applied=false` and a reason, continuing
+  with lexical checks only; `required` fails Bash and verifier commands with
+  `bash_sandbox_unavailable`; `off` keeps the previous behavior. The backend is
+  unavailable under a nested sandbox (`rc=71`) and on a platform without one
+  (macOS only in this stage).
+- Dependency caches (cargo, npm, pip, Playwright browsers) stay writable so
+  builds and tests work; they remain a contamination path outside the workspace.
+
+macOS `mktemp` ignores `TMPDIR`; use `mktemp -p "$TMPDIR"` or a template under
+`$TMPDIR`. The applied-probe record is under
+`tests/corpus/apps/issue502-indirect-write/fixtures/macos-probe-results.md`.
+
 ## Interactive REPL controls
 
 Within one TUI session, `/model <id>` and `/provider <name>` change the

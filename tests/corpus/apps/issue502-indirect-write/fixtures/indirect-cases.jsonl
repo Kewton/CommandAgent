@@ -1,0 +1,10 @@
+{"id": "sh-c-cp", "command": "sh -c 'cp a.txt escape/secret.txt'", "lexicalR": false, "exitNonzero": true, "note": "the lexical guard does not see inside the quoted sh -c body"}
+{"id": "eval-redirect", "command": "eval 'echo x > escape/secret.txt'", "lexicalR": false, "exitNonzero": true, "note": "eval hides the redirect from the lexical guard"}
+{"id": "xargs-cp", "command": "printf '%s\\n' a.txt | xargs -I{} cp {} escape/secret.txt", "lexicalR": true, "exitNonzero": true, "note": "the lexical guard rejects the spelled escape; the sandbox denies it independently"}
+{"id": "python-open", "command": "python3 -c 'open(\"escape/secret.txt\",\"w\").write(\"x\")'", "lexicalR": false, "exitNonzero": true, "note": "the write is inside the interpreter, invisible to the lexical guard"}
+{"id": "find-exec-cp", "command": "find . -name a.txt -exec cp {} escape/secret.txt \\;", "lexicalR": true, "exitNonzero": false, "note": "find may report success even when its -exec child is denied; the outside fixture is the assertion"}
+{"id": "dd-of", "command": "dd if=a.txt of=escape/secret.txt", "lexicalR": true, "exitNonzero": true, "note": "dd opens the outside inode for writing"}
+{"id": "sed-inplace", "command": "sed -i s/OUTSIDE_SECRET_CONTENT_502a/CHANGED/ escape/secret.txt", "lexicalR": true, "exitNonzero": true, "note": "sed -i rewrites the outside inode via its temp-file protocol"}
+{"id": "hardlink-outside", "command": "ln escape/secret.txt hard.txt", "lexicalR": true, "exitNonzero": true, "note": "creating a hardlink to an outside inode"}
+{"id": "inside-write", "command": "echo inside > inside.txt", "lexicalR": false, "exitNonzero": false, "note": "control: a workspace write stays allowed"}
+{"id": "python-open-inside", "command": "python3 -c 'open(\"inside.txt\",\"w\").write(\"x\")'", "lexicalR": false, "exitNonzero": false, "note": "control: an interpreter write inside the workspace stays allowed"}

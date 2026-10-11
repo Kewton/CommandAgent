@@ -12,6 +12,7 @@ pub mod grep;
 pub mod hidden_path;
 pub mod mcp;
 pub mod offline_policy;
+pub mod os_sandbox;
 pub mod path_guard;
 pub(crate) mod placeholder_path;
 pub mod read;

@@ -54,6 +54,8 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "anchor_stagnation_interlock",
     "artifact_stagnation_feedback",
     "bash_path_confinement_rejected",
+    "bash_sandbox_status",
+    "bash_sandbox_unavailable",
     "blocked",
     "blocked_by_dependency_setup",
     "browser_interaction_probe",

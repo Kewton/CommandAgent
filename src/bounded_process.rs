@@ -94,7 +94,12 @@ fn child_env_allowed(key: &std::ffi::OsStr, source: EnvSource) -> bool {
         || (source == EnvSource::Explicit
             && (matches!(
                 key,
-                "NODE_ENV" | "NODE_OPTIONS" | "NODE_PATH" | "NEXT_TELEMETRY_DISABLED" | "PORT"
+                "NODE_ENV"
+                    | "NODE_OPTIONS"
+                    | "NODE_PATH"
+                    | "NEXT_TELEMETRY_DISABLED"
+                    | "PORT"
+                    | "TMPDIR"
             ) || [
                 "COMMANDAGENT_FOREIGN_TOOLCHAIN_ROOT",
                 "COMMANDAGENT_FOREIGN_TOOLCHAIN_EVENTS",
