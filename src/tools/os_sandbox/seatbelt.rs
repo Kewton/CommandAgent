@@ -40,6 +40,18 @@ const PROFILE: &str = r#"
 /// Start `sandbox-exec` with a do-nothing profile. A nested sandbox reports
 /// rc=71 (`Operation not permitted`), which is an honest "unavailable".
 pub fn probe() -> SandboxAvailability {
+    match run_probe() {
+        Ok(output) => classify_probe_exit(
+            output.success(),
+            output.status.map(|status| status.to_string()),
+        ),
+        Err(err) => {
+            SandboxAvailability::Unavailable(format!("sandbox probe could not start: {err}"))
+        }
+    }
+}
+
+fn run_probe() -> std::io::Result<crate::bounded_process::BoundedProcessOutput> {
     let mut command = Command::new(SANDBOX_EXEC);
     command
         .arg("-p")
@@ -48,18 +60,20 @@ pub fn probe() -> SandboxAvailability {
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    match crate::bounded_process::run_with_timeout(&mut command, PROBE_TIMEOUT) {
-        Ok(output) if output.success() => SandboxAvailability::Available,
-        Ok(output) => SandboxAvailability::Unavailable(format!(
+    crate::bounded_process::run_with_timeout(&mut command, PROBE_TIMEOUT)
+}
+
+/// Only a zero exit status means the backend can start. rc=71 (a nested
+/// sandbox) and every other non-zero status are unavailable, with the status in
+/// the reason; a missing status is still unavailable.
+fn classify_probe_exit(success: bool, status: Option<String>) -> SandboxAvailability {
+    if success {
+        SandboxAvailability::Available
+    } else {
+        SandboxAvailability::Unavailable(format!(
             "sandbox probe exited with {}",
-            output
-                .status
-                .map(|status| status.to_string())
-                .unwrap_or_else(|| "no status".to_string())
-        )),
-        Err(err) => {
-            SandboxAvailability::Unavailable(format!("sandbox probe could not start: {err}"))
-        }
+            status.unwrap_or_else(|| "no status".to_string())
+        ))
     }
 }
 
@@ -130,4 +144,36 @@ fn canonical(path: &Path) -> String {
         .unwrap_or_else(|_| path.to_path_buf())
         .to_string_lossy()
         .into_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn probe_classifies_a_zero_exit_as_available() {
+        assert_eq!(
+            classify_probe_exit(true, Some("exit status: 0".to_string())),
+            SandboxAvailability::Available
+        );
+    }
+
+    #[test]
+    fn probe_classifies_a_nested_exit_as_unavailable_with_the_status() {
+        let result = classify_probe_exit(false, Some("exit status: 71".to_string()));
+        match result {
+            SandboxAvailability::Unavailable(reason) => {
+                assert!(reason.contains("71"), "{reason}");
+            }
+            SandboxAvailability::Available => panic!("rc=71 must be unavailable"),
+        }
+    }
+
+    #[test]
+    fn probe_classifies_a_missing_status_as_unavailable() {
+        assert!(matches!(
+            classify_probe_exit(false, None),
+            SandboxAvailability::Unavailable(_)
+        ));
+    }
 }

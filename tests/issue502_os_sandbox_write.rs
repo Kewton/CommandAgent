@@ -340,6 +340,27 @@ fn applied_cargo_build_succeeds() {
     os_sandbox::reset_for_test();
 }
 
+/// The probe agrees with a direct `/usr/bin/sandbox-exec` run: `rc=0` is
+/// available and any non-zero rc (for example 71 under a nested sandbox) is
+/// unavailable. This stays honest whether or not the test process is already
+/// sandboxed, so it catches a probe that always claims one verdict.
+#[cfg(target_os = "macos")]
+#[test]
+fn probe_matches_a_direct_sandbox_exec_run() {
+    let direct = std::process::Command::new("/usr/bin/sandbox-exec")
+        .args(["-p", "(version 1)(allow default)", "true"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .expect("run sandbox-exec directly");
+    assert_eq!(
+        matches!(os_sandbox::probe(), SandboxAvailability::Available),
+        direct.success(),
+        "probe must match the direct sandbox-exec exit status ({direct})"
+    );
+}
+
 /// `required` fails both launch points with `bash_sandbox_unavailable`, while
 /// `auto` warns once, records `applied=false`, and continues with lexical checks.
 #[test]
