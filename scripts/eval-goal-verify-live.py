@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from eval_lib.goal_verify_live import run_campaign
 from eval_lib.goal_verify_live_v3 import run_campaign_v3
 from eval_lib.goal_verify_live_v4 import run_campaign_v4
+from eval_lib.heavy_lock import heavy_lock
 
 
 def main() -> int:
@@ -98,7 +99,8 @@ def main() -> int:
             parser.error("contract.smoke pair_ids or request_namespace is invalid")
         runner_args["pair_ids"] = pair_ids
         runner_args["request_namespace"] = request_namespace
-    summary = runner(**runner_args)
+    with heavy_lock(run_dir=paths["run_dir"], invocation="goal_verify_live_campaign"):
+        summary = runner(**runner_args)
     print(
         f"[done] completed_pairs={summary['completed_pairs']}/{summary['target_pairs']} "
         f"completed_proposals={summary.get('completed_proposals', 'n/a')}"

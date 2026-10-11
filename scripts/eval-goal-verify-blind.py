@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from eval_lib.goal_verify_blind import run_blind_review
+from eval_lib.heavy_lock import heavy_lock
 
 
 def main() -> int:
@@ -26,13 +27,14 @@ def main() -> int:
     def absolute(path: Path) -> Path:
         return path if path.is_absolute() else ROOT / path
 
-    report = run_blind_review(
-        root=ROOT,
-        baseline_path=absolute(args.baseline),
-        candidate_draft_path=absolute(args.candidate_draft),
-        contract_path=absolute(args.contract),
-        run_dir=absolute(args.run_dir),
-    )
+    with heavy_lock(run_dir=absolute(args.run_dir), invocation="goal_verify_blind_review"):
+        report = run_blind_review(
+            root=ROOT,
+            baseline_path=absolute(args.baseline),
+            candidate_draft_path=absolute(args.candidate_draft),
+            contract_path=absolute(args.contract),
+            run_dir=absolute(args.run_dir),
+        )
     print(
         f"[done] reviewed_pairs={report['reviewed_pairs']}/{report['expected_pairs']} "
         f"complete={str(report['complete']).lower()}"

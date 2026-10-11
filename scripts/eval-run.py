@@ -13,8 +13,8 @@ import time
 from pathlib import Path
 
 from env_compat import getenv
-from eval_lib.acceptance_outcome import evaluate_acceptance_outcome
 from eval_lib.acceptance_contract import contract_from_scenario
+from eval_lib.acceptance_outcome import evaluate_acceptance_outcome
 from eval_lib.artifacts import create_run_root, write_json, write_jsonl
 from eval_lib.browser_oracle import evaluate_browser_oracle
 from eval_lib.config import merge_dotenv_into_env
@@ -25,8 +25,10 @@ from eval_lib.failure_classification import (
     normalize_failure_kind,
     read_jsonl,
 )
+from eval_lib.heavy_lock import heavy_lock
 from eval_lib.matrix import expand_matrix, parse_modes
 from eval_lib.models import load_model_profiles
+from eval_lib.plan_capability_contract import score_plan_capability_contract
 from eval_lib.plan_readiness import (
     READINESS_FIELDS,
     aggregate_ultra_phase_readiness,
@@ -34,12 +36,11 @@ from eval_lib.plan_readiness import (
     empty_plan_readiness_scores,
     score_plan_readiness_file,
 )
-from eval_lib.plan_capability_contract import score_plan_capability_contract
-from eval_lib.plan_verify_coverage import score_plan_verify_coverage
 from eval_lib.plan_scoring import score_plan_file
+from eval_lib.plan_verify_coverage import score_plan_verify_coverage
 from eval_lib.postcheck import is_dependency_command, run_postcheck
-from eval_lib.redaction import redact_json
 from eval_lib.process import run_capture
+from eval_lib.redaction import redact_json
 from eval_lib.run_summary import (
     calculate_overall,
     calculate_plan_run_predictive_score,
@@ -160,52 +161,58 @@ def main() -> int:
         print(f"[write] {run_root / 'events.jsonl'}")
         print("[done] dry-run complete")
         return 0
-    semaphores = {
-        "openai": threading.Semaphore(provider_limit),
-        "gemini": threading.Semaphore(provider_limit),
-    }
-    parallel_items = [item for item in prepared if not item[1].get("serial_lane") and not item[1].get("port_mutex")]
-    serial_items = [item for item in prepared if item not in parallel_items]
-    results: list[tuple[int, dict, list[dict]]] = []
-    if parallel_items:
-        print(f"[scheduler] cloud_parallel={min(args.parallel, len(parallel_items))} serial={len(serial_items)}")
-        queued_at = time.monotonic()
-        for _, spec, _, _, _ in parallel_items:
-            spec["_queued_at"] = queued_at
-            spec["_scheduler_lane"] = "cloud"
-            spec["_effective_parallelism"] = min(args.parallel, len(parallel_items))
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.parallel)) as pool:
-            futures = [pool.submit(run_prepared, item, args.timeout_sec, semaphores, len(matrix)) for item in parallel_items]
-            for future in concurrent.futures.as_completed(futures):
-                results.append(future.result())
-    for item in serial_items:
-        _, spec, _, _, _ = item
-        spec["_queued_at"] = time.monotonic()
-        spec["_scheduler_lane"] = "serial"
-        spec["_effective_parallelism"] = 1
-        results.append(run_prepared(item, args.timeout_sec, semaphores, len(matrix)))
-    for _, row, run_events in sorted(results, key=lambda item: item[0]):
-        rows.append(row)
-        events.extend(run_events)
-    apply_time_scores(rows)
-    apply_stability_scores(rows)
-    write_summary(run_root / "summary.eval.tsv", rows)
-    write_jsonl(run_root / "events.jsonl", events)
-    print(f"[write] {run_root / 'summary.eval.tsv'}")
-    print(f"[write] {run_root / 'events.jsonl'}")
-    trace = write_trace_artifacts(
-        run_root,
-        subject=trace_subject(matrix, args.binary_kind),
-        binary_kind=trace_binary_kind(matrix, args.binary_kind),
-        binary_path=args.binary,
-        commit_sha=getenv("COMMANDAGENT_EVAL_COMMIT_SHA", "") or "",
-    )
-    print(f"[write] {trace['report_path']}")
-    print(f"[write] {trace['manifest_path']}")
-    failed = [row for row in rows if row.get("success") not in {True, "true", "diagnostic_skipped"}]
-    skipped = [row for row in rows if row.get("success") == "diagnostic_skipped"]
-    print(f"[done] success={len(rows)-len(failed)-len(skipped)} failed={len(failed)} skipped={len(skipped)}")
-    return 1 if failed else 0
+    with heavy_lock(run_dir=run_root, invocation="eval_run_matrix") as heavy:
+        heavy_wait_sec = round(heavy.record.wait_sec, 3) if heavy.record else 0.0
+        heavy_nested = bool(heavy.record.nested) if heavy.record else False
+        for spec in matrix:
+            spec["_heavy_lock_wait_sec"] = heavy_wait_sec
+            spec["_heavy_lock_nested"] = heavy_nested
+        semaphores = {
+            "openai": threading.Semaphore(provider_limit),
+            "gemini": threading.Semaphore(provider_limit),
+        }
+        parallel_items = [item for item in prepared if not item[1].get("serial_lane") and not item[1].get("port_mutex")]
+        serial_items = [item for item in prepared if item not in parallel_items]
+        results: list[tuple[int, dict, list[dict]]] = []
+        if parallel_items:
+            print(f"[scheduler] cloud_parallel={min(args.parallel, len(parallel_items))} serial={len(serial_items)}")
+            queued_at = time.monotonic()
+            for _, spec, _, _, _ in parallel_items:
+                spec["_queued_at"] = queued_at
+                spec["_scheduler_lane"] = "cloud"
+                spec["_effective_parallelism"] = min(args.parallel, len(parallel_items))
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.parallel)) as pool:
+                futures = [pool.submit(run_prepared, item, args.timeout_sec, semaphores, len(matrix)) for item in parallel_items]
+                for future in concurrent.futures.as_completed(futures):
+                    results.append(future.result())
+        for item in serial_items:
+            _, spec, _, _, _ = item
+            spec["_queued_at"] = time.monotonic()
+            spec["_scheduler_lane"] = "serial"
+            spec["_effective_parallelism"] = 1
+            results.append(run_prepared(item, args.timeout_sec, semaphores, len(matrix)))
+        for _, row, run_events in sorted(results, key=lambda item: item[0]):
+            rows.append(row)
+            events.extend(run_events)
+        apply_time_scores(rows)
+        apply_stability_scores(rows)
+        write_summary(run_root / "summary.eval.tsv", rows)
+        write_jsonl(run_root / "events.jsonl", events)
+        print(f"[write] {run_root / 'summary.eval.tsv'}")
+        print(f"[write] {run_root / 'events.jsonl'}")
+        trace = write_trace_artifacts(
+            run_root,
+            subject=trace_subject(matrix, args.binary_kind),
+            binary_kind=trace_binary_kind(matrix, args.binary_kind),
+            binary_path=args.binary,
+            commit_sha=getenv("COMMANDAGENT_EVAL_COMMIT_SHA", "") or "",
+        )
+        print(f"[write] {trace['report_path']}")
+        print(f"[write] {trace['manifest_path']}")
+        failed = [row for row in rows if row.get("success") not in {True, "true", "diagnostic_skipped"}]
+        skipped = [row for row in rows if row.get("success") == "diagnostic_skipped"]
+        print(f"[done] success={len(rows)-len(failed)-len(skipped)} failed={len(failed)} skipped={len(skipped)}")
+        return 1 if failed else 0
 
 
 def trace_binary_kind(matrix: list[dict], requested: str) -> str:
@@ -421,6 +428,8 @@ def run_prepared(
                 "provider_wait_sec": row["provider_wait_sec"],
                 "queue_wait_sec": row["queue_wait_sec"],
                 "wall_clock_sec": row["wall_clock_sec"],
+                "heavy_lock_wait_sec": spec.get("_heavy_lock_wait_sec", ""),
+                "heavy_lock_nested": spec.get("_heavy_lock_nested", ""),
             }
         )
         run_events.append(
