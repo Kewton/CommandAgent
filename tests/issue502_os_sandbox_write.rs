@@ -15,10 +15,12 @@
 //! it.
 
 use std::path::{Path, PathBuf};
+#[cfg(target_os = "macos")]
 use std::process::{Command, Stdio};
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
+#[cfg(target_os = "macos")]
 use commandagent::bounded_process::{self, BoundedProcessOutput};
 use commandagent::minimal_loop::verifier_env;
 use commandagent::planner::verify::{NormalizedVerifyCommand, normalize_verify_command};
@@ -44,6 +46,7 @@ fn sandbox_lock() -> MutexGuard<'static, ()> {
 struct Fixture {
     _dir: tempfile::TempDir,
     root: PathBuf,
+    #[cfg(target_os = "macos")]
     outside_secret: PathBuf,
 }
 
@@ -63,10 +66,12 @@ fn fixture() -> Fixture {
     Fixture {
         _dir: dir,
         root,
+        #[cfg(target_os = "macos")]
         outside_secret: outside.join("secret.txt"),
     }
 }
 
+#[cfg(target_os = "macos")]
 fn read_secret(path: &Path) -> String {
     std::fs::read_to_string(path).unwrap_or_else(|_| "<missing>".to_string())
 }
@@ -75,11 +80,13 @@ fn run_tmp_path(fixture: &Fixture) -> PathBuf {
     fixture._dir.path().join("run-tmp")
 }
 
+#[cfg(target_os = "macos")]
 fn backend_available() -> bool {
     matches!(os_sandbox::probe(), SandboxAvailability::Available)
 }
 
 /// Install an available sandbox for the fixture and create its run temp dir.
+#[cfg(target_os = "macos")]
 fn install_available(fixture: &Fixture) {
     let run_tmp = run_tmp_path(fixture);
     std::fs::create_dir_all(&run_tmp).unwrap();
@@ -107,6 +114,7 @@ fn run_via_bash(root: &Path, command: &str) -> BashOutcome {
 
 /// Build `sh -c <command>` and apply the installed sandbox directly, bypassing
 /// the lexical guard, so the OS layer is measured on its own.
+#[cfg(target_os = "macos")]
 fn run_wrapped(root: &Path, command: &str) -> BoundedProcessOutput {
     let mut process = Command::new("sh");
     process.arg("-c").arg(command).current_dir(root);
@@ -115,6 +123,7 @@ fn run_wrapped(root: &Path, command: &str) -> BoundedProcessOutput {
     bounded_process::run_with_timeout(&mut process, TIMEOUT).expect("spawn wrapped command")
 }
 
+#[cfg(target_os = "macos")]
 fn run_wrapped_success(root: &Path, command: &str) -> (bool, String) {
     let output = run_wrapped(root, command);
     (
@@ -125,10 +134,13 @@ fn run_wrapped_success(root: &Path, command: &str) -> (bool, String) {
 
 #[derive(Deserialize)]
 struct IndirectCase {
-    id: String,
     command: String,
+    #[cfg(target_os = "macos")]
+    id: String,
+    #[cfg(target_os = "macos")]
     #[serde(rename = "lexicalR")]
     lexical_r: bool,
+    #[cfg(target_os = "macos")]
     #[serde(rename = "exitNonzero")]
     exit_nonzero: bool,
 }
