@@ -14,9 +14,12 @@ execute hostile projects or hostile instructions safely.
   write destinations (common mutating commands and output redirects) must stay
   under the canonical workspace root, including through existing symlinks;
   newly created workspace symlinks may not target paths outside that root.
+  Lexical inspection cannot prove every indirect effect of an arbitrary
+  program, so when an OS write sandbox is available it also confines the writes
+  performed inside a command or script (see [OS Write Sandbox](#os-write-sandbox)).
   Bash is not a complete sandbox: shell commands and invoked programs still run
-  as the current OS user, and static inspection cannot prove every indirect
-  effect of an arbitrary program.
+  as the current OS user, reads and network are not confined in this stage, and
+  the sandbox is absent when the backend is unavailable.
 
 ## `--allow` and `--yes`
 
@@ -25,13 +28,16 @@ Read/Glob/Grep, `write` admits and auto-approves Write/Edit, and `bash:verify`
 admits and auto-approves only Bash commands accepted by the shared verifier
 policy; recognized direct filesystem-mutating Bash commands remain excluded.
 Repeat the option or comma-separate selectors. Once an explicit list is used,
-omitted classes are blocked before execution.
+omitted classes are blocked before execution. `bash:verify` admits a command by
+its classification only: the contents of any script the command invokes are
+constrained only by the OS write sandbox, when it is applied, and not by the
+classification.
 
 `--yes` is the backward-compatible all-tools alias and also skips resume
 confirmation. Neither option bypasses the recognized Bash write-destination
-guard. Use `--yes` only in a trusted workspace after checking the goal and
-current branch: it does not turn Bash into an OS sandbox and does not auto-kill
-unrelated local processes.
+guard or the OS write sandbox. Use `--yes` only in a trusted workspace after
+checking the goal and current branch: it does not turn Bash into a complete OS
+sandbox and does not auto-kill unrelated local processes.
 
 At run startup CommandAgent warns about a non-Git workspace or existing Git
 changes. At exit it reports the final tracked/staged diff stat and untracked
@@ -40,7 +46,46 @@ predated the run.
 
 `--offline` blocks runtime dependency setup plus Bash command families named in
 `--help`. It does not block provider/API requests or arbitrary network-capable
-programs and therefore is not a network sandbox.
+programs and therefore is not a network sandbox. Network isolation is a later
+stage of #502 and is independent of the write sandbox below.
+
+## OS Write Sandbox
+
+`--sandbox auto|required|off` (default `auto`) adds an OS-level write sandbox at
+the two `sh -c` launch points: the model Bash tool (the `bash:verify` interval
+reuses the same function) and the verification/acceptance commands. The sandbox
+is defense in depth; the lexical checks still run first and can refuse a command
+before the shell starts.
+
+- What the OS closes (when the backend is available): a write performed inside a
+  command or script that the lexical guard cannot see — `sh -c 'cp ...'`,
+  `eval`, `xargs`, `find -exec`, an interpreter's `open(..., 'w')`, `dd of=`,
+  `sed -i` — and creating a hardlink to an inode outside the workspace. The only
+  writable locations are the workspace, the run's temp directory, the known
+  dependency caches, and device files such as `/dev/null`.
+- What remains lexical-only: reads, network access, and every command run while
+  the backend is unavailable. `--allow bash:verify` and `--offline` are lexical
+  policies, so a command they admit can still start a script; only the sandbox
+  (when applied) constrains that script's writes. Reads and network are not
+  confined in this stage.
+- Backend availability is probed once at run start. On macOS the backend is
+  Seatbelt through `sandbox-exec`; under a nested sandbox it reports `rc=71` and
+  is unavailable. Other platforms have no backend in this stage.
+- `auto` continues with lexical checks only when the backend is unavailable,
+  warns once at startup, and records `bash_sandbox_status` with `applied=false`
+  and a reason. `required` instead fails Bash and verifier commands with
+  `bash_sandbox_unavailable`. `off` keeps the previous behavior. None of them
+  reports "sandboxed" when the sandbox was not applied.
+- The dependency caches (cargo registry/git/package-cache, npm, pip, Playwright
+  browsers) stay writable so builds and tests work; they remain a contamination
+  path outside the workspace. pnpm and yarn stores are not allowed in this
+  stage.
+
+macOS `mktemp` ignores `TMPDIR` and targets the per-user temp directory, which
+the sandbox denies. A `mktemp` inside the run temp directory (`mktemp -p
+"$TMPDIR"` or a template under `$TMPDIR`) succeeds; a bare `mktemp` does not.
+The applied-probe record is under
+`tests/corpus/apps/issue502-indirect-write/fixtures/macos-probe-results.md`.
 
 ## Child Process Environment
 
@@ -115,6 +160,11 @@ template files instead.
 
 ## Backlog
 
+- OS write sandbox, remaining stages of #502: Linux write confinement (landlock),
+  read confinement, and network/dependency-install isolation. Stage 1a (macOS
+  Seatbelt write confinement and the shared leaf module) is implemented here;
+  the same leaf module is the seam the later stages extend.
 - Container-sandboxed execution track: run Bash/verifier commands inside a
   per-workspace container or equivalent OS sandbox with a mounted workspace,
-  minimal environment, and explicit network policy.
+  minimal environment, and explicit network policy. Superseded in part by the
+  #502 staging above; kept as the alternative with a fully mounted root.

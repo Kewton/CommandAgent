@@ -130,8 +130,13 @@ pub fn run_with_provider_options(
     }
     let pack_cli = cli.clone();
     let summary_json = cli.summary_json;
+    let sandbox_mode = cli.sandbox;
     let config = Config::from_cli_with_provider_options(cli, provider_options)
         .map_err(cli_argument_error)?;
+    tools::os_sandbox::install(sandbox_mode, &config.workspace_root, &config.state_dir);
+    if let Some(warning) = tools::os_sandbox::startup_warning() {
+        eprintln!("{warning}");
+    }
     for profile in planner::extension_profiles::registered() {
         for warning in &profile.warnings {
             eprintln!("warning: {warning}");
@@ -895,6 +900,18 @@ fn emit_run_start(config: &Config) {
             "build_timestamp": build_info::TIMESTAMP,
         }),
     );
+    if let Some(sandbox) = tools::os_sandbox::status() {
+        eval_events::emit(
+            config.eval_events_path.as_deref(),
+            json!({
+                "event": "bash_sandbox_status",
+                "mode": sandbox.mode.as_str(),
+                "backend": sandbox.backend,
+                "applied": sandbox.applied,
+                "reason": sandbox.reason.unwrap_or_default(),
+            }),
+        );
+    }
     eval_events::emit(
         config.eval_events_path.as_deref(),
         json!({

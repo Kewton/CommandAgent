@@ -512,6 +512,16 @@ pub struct Cli {
     pub offline: bool,
     #[arg(
         long,
+        hide = true,
+        value_enum,
+        value_name = "auto|required|off",
+        default_value = "auto",
+        help_heading = "Workspace and State",
+        help = "Select the OS write sandbox for Bash and verifier commands. `auto` applies it when the backend is available and otherwise continues with lexical checks only; `required` fails those commands when the backend is unavailable; `off` keeps the previous behavior."
+    )]
+    pub sandbox: crate::tools::os_sandbox::SandboxMode,
+    #[arg(
+        long,
         action = ArgAction::SetTrue,
         help_heading = "Display",
         help = "Suppress presentation narration."

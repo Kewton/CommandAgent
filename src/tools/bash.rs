@@ -228,6 +228,19 @@ where
 
     let mut process = Command::new("sh");
     process.arg("-c").arg(&command).current_dir(root);
+    let mut process = match super::os_sandbox::wrap_command(process) {
+        Ok(process) => process,
+        Err(refusal) => {
+            return Ok(BashOutcome {
+                kind: BashOutcomeKind::Blocked,
+                status: None,
+                stdout: String::new(),
+                stderr: String::new(),
+                elapsed_ms: started.elapsed().as_millis(),
+                summary: refusal.summary(),
+            });
+        }
+    };
     process.stdout(Stdio::piped()).stderr(Stdio::piped());
     remove_shell_cdpath(&mut process);
     let output = bounded_process::run_with_timeout_cancel_and_force(
