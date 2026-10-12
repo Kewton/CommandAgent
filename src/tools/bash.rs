@@ -1152,11 +1152,42 @@ fn build_summary(command: &str, kind: BashOutcomeKind, stdout: &str, stderr: &st
             break;
         }
     }
-    if lines.is_empty() {
+    let mut summary = if lines.is_empty() {
         format!("command did not succeed: {command}")
     } else {
         lines.join("\n")
+    };
+    if let Some(guidance) =
+        sandbox_temp_dir_guidance(super::os_sandbox::is_applied(), stdout, stderr)
+    {
+        summary.push('\n');
+        summary.push_str(guidance);
     }
+    summary
+}
+
+/// The guidance appended when the OS write sandbox is applied and the failure is
+/// a permission error against a temp directory — what a bare `mktemp` hits on
+/// macOS, where the per-user temp directory is outside the sandbox. It points at
+/// the run temp directory, which the sandbox allows.
+const SANDBOX_MKTEMP_GUIDANCE: &str = "note: the OS write sandbox denies the macOS per-user temp directory; use `mktemp -p \"$TMPDIR\"` (or a template under `$TMPDIR`) instead of a bare `mktemp`";
+
+/// Whether to append [`SANDBOX_MKTEMP_GUIDANCE`]. It needs the sandbox to be
+/// applied and a permission error against a temp directory; any other failure
+/// gets no guidance.
+fn sandbox_temp_dir_guidance(applied: bool, stdout: &str, stderr: &str) -> Option<&'static str> {
+    if !applied {
+        return None;
+    }
+    let combined = format!("{stderr}\n{stdout}").to_ascii_lowercase();
+    let permission = combined.contains("operation not permitted")
+        || combined.contains("permission denied")
+        || combined.contains("access is denied");
+    let temp_dir = combined.contains("mktemp")
+        || combined.contains("mkstemp")
+        || combined.contains("/var/folders/")
+        || combined.contains("/tmp/");
+    (permission && temp_dir).then_some(SANDBOX_MKTEMP_GUIDANCE)
 }
 
 #[cfg(test)]
@@ -1358,6 +1389,20 @@ mod tests {
         let truncated = truncate_stream(&value);
         assert!(truncated.contains("bash output truncated"));
         assert!(truncated.len() >= MAX_STREAM_BYTES);
+    }
+
+    #[test]
+    fn sandbox_temp_dir_guidance_only_for_applied_temp_dir_permission_failures() {
+        let denied =
+            "mktemp: mkstemp failed on /var/folders/ab/tmp.XXXXXX: Operation not permitted";
+        let guidance = sandbox_temp_dir_guidance(true, "", denied).expect("guidance");
+        assert!(guidance.contains("mktemp -p \"$TMPDIR\""), "{guidance}");
+
+        assert!(sandbox_temp_dir_guidance(false, "", denied).is_none());
+        assert!(sandbox_temp_dir_guidance(true, "", "Error: broken").is_none());
+        assert!(
+            sandbox_temp_dir_guidance(true, "", "cat: /etc/shadow: Permission denied").is_none()
+        );
     }
 
     #[test]

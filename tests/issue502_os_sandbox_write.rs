@@ -85,16 +85,22 @@ fn backend_available() -> bool {
     matches!(os_sandbox::probe(), SandboxAvailability::Available)
 }
 
+/// Install an available sandbox whose write-allow list is `workspace` and create
+/// its run temp dir.
+#[cfg(target_os = "macos")]
+fn install_available_for(workspace: &Path, run_tmp: &Path) {
+    std::fs::create_dir_all(run_tmp).unwrap();
+    os_sandbox::install_for_test(
+        SandboxMode::Auto,
+        SandboxPolicy::new(workspace, run_tmp),
+        SandboxAvailability::Available,
+    );
+}
+
 /// Install an available sandbox for the fixture and create its run temp dir.
 #[cfg(target_os = "macos")]
 fn install_available(fixture: &Fixture) {
-    let run_tmp = run_tmp_path(fixture);
-    std::fs::create_dir_all(&run_tmp).unwrap();
-    os_sandbox::install_for_test(
-        SandboxMode::Auto,
-        SandboxPolicy::new(&fixture.root, &run_tmp),
-        SandboxAvailability::Available,
-    );
+    install_available_for(&fixture.root, &run_tmp_path(fixture));
 }
 
 fn install_unavailable(mode: SandboxMode, fixture: &Fixture, reason: &str) {
@@ -341,7 +347,7 @@ fn applied_cargo_build_succeeds() {
     std::fs::create_dir_all(&src).unwrap();
     std::fs::write(
         fixture.root.join("Cargo.toml"),
-        "[package]\nname = \"issue502-probe\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        "[package]\nname = \"issue502-probe\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\n",
     )
     .unwrap();
     std::fs::write(src.join("main.rs"), "fn main() {}\n").unwrap();
@@ -425,6 +431,193 @@ fn off_never_claims_isolation() {
     assert_eq!(status.reason, None);
     assert!(os_sandbox::startup_warning().is_none());
     assert!(run_via_bash(&fixture.root, "true").is_success());
+    os_sandbox::reset_for_test();
+}
+
+/// A workflow child node whose workspace differs from the run's is recorded as
+/// not isolated, so the fixed parent profile is never applied to the wrong
+/// workspace. This is the behavior `run_resolved_config_for_workflow` drives for
+/// every node.
+#[test]
+fn mismatched_node_workspace_records_the_sandbox_not_applied() {
+    let _guard = sandbox_lock();
+    let fixture = fixture();
+    let parent = fixture._dir.path().join("parent");
+    std::fs::create_dir_all(&parent).unwrap();
+    let parent_tmp = fixture._dir.path().join("parent-run-tmp");
+    std::fs::create_dir_all(&parent_tmp).unwrap();
+    os_sandbox::install_for_test(
+        SandboxMode::Auto,
+        SandboxPolicy::new(&parent, &parent_tmp),
+        SandboxAvailability::Available,
+    );
+
+    let status = os_sandbox::reconcile_workspace(&fixture.root).expect("installed");
+    assert!(!status.applied, "{status:?}");
+    assert!(
+        status
+            .reason
+            .as_deref()
+            .is_some_and(|reason| !reason.is_empty()),
+        "{status:?}"
+    );
+    // Idempotent: a later node in the same workspace keeps the same record.
+    assert_eq!(
+        os_sandbox::reconcile_workspace(&fixture.root).expect("installed"),
+        status
+    );
+    os_sandbox::reset_for_test();
+}
+
+/// `required` fails the node's Bash when the node workspace differs, so a
+/// "required" run cannot silently continue without the sandbox.
+#[test]
+fn required_fails_when_the_node_workspace_differs() {
+    let _guard = sandbox_lock();
+    let fixture = fixture();
+    let parent = fixture._dir.path().join("parent");
+    std::fs::create_dir_all(&parent).unwrap();
+    let parent_tmp = fixture._dir.path().join("parent-run-tmp");
+    std::fs::create_dir_all(&parent_tmp).unwrap();
+    os_sandbox::install_for_test(
+        SandboxMode::Required,
+        SandboxPolicy::new(&parent, &parent_tmp),
+        SandboxAvailability::Available,
+    );
+
+    let status = os_sandbox::reconcile_workspace(&fixture.root).expect("installed");
+    assert!(!status.applied, "{status:?}");
+
+    let outcome = run_via_bash(&fixture.root, "true");
+    assert_eq!(outcome.kind, BashOutcomeKind::Blocked, "{outcome:?}");
+    assert!(
+        outcome.summary.contains("bash_sandbox_unavailable"),
+        "{}",
+        outcome.summary
+    );
+    os_sandbox::reset_for_test();
+}
+
+/// With the backend applied, a mismatched node stops being confined by the
+/// parent's policy and is not claimed as isolated; the child write is no longer
+/// denied on the parent's behalf.
+#[cfg(target_os = "macos")]
+#[test]
+fn applied_mismatch_drops_the_false_isolation_claim() {
+    let _guard = sandbox_lock();
+    if !backend_available() {
+        eprintln!("SKIP: sandbox backend unavailable (nested sandbox?)");
+        return;
+    }
+    let fixture = fixture();
+    let parent = fixture._dir.path().join("parent");
+    std::fs::create_dir_all(&parent).unwrap();
+    let parent_tmp = fixture._dir.path().join("parent-run-tmp");
+    install_available_for(&parent, &parent_tmp);
+
+    // Before reconciling, the parent policy confines the child to the wrong
+    // workspace, so a child write is denied.
+    let before = run_via_bash(&fixture.root, "echo child > origin.txt");
+    assert!(!before.is_success(), "{before:?}");
+    assert!(!fixture.root.join("origin.txt").exists());
+
+    let status = os_sandbox::reconcile_workspace(&fixture.root).expect("installed");
+    assert!(!status.applied, "{status:?}");
+
+    // After reconciling, no isolation is claimed or applied for the child.
+    let after = run_via_bash(&fixture.root, "echo child > origin.txt");
+    assert!(after.is_success(), "{after:?}");
+    assert!(fixture.root.join("origin.txt").is_file());
+    os_sandbox::reset_for_test();
+}
+
+/// The default run (origin == workspace) keeps the install untouched: the same
+/// temp dir remains and the record still reports the sandbox applied.
+#[cfg(target_os = "macos")]
+#[test]
+fn applied_reconcile_is_a_no_op_when_the_node_workspace_matches() {
+    let _guard = sandbox_lock();
+    if !backend_available() {
+        eprintln!("SKIP: sandbox backend unavailable (nested sandbox?)");
+        return;
+    }
+    let fixture = fixture();
+    install_available(&fixture);
+    let run_tmp = run_tmp_path(&fixture);
+
+    let status = os_sandbox::reconcile_workspace(&fixture.root).expect("installed");
+    assert!(status.applied, "{status:?}");
+    assert!(run_tmp.is_dir(), "the run temp dir must be kept");
+
+    let outcome = run_via_bash(&fixture.root, "echo ok > keeps.txt");
+    assert!(outcome.is_success(), "{outcome:?}");
+    assert!(fixture.root.join("keeps.txt").is_file());
+    os_sandbox::reset_for_test();
+}
+
+/// A bare `mktemp` fails inside the sandbox, and its summary points at the run
+/// temp directory instead of leaving the model to guess.
+#[cfg(target_os = "macos")]
+#[test]
+fn applied_bare_mktemp_failure_summarizes_the_tmpdir_guidance() {
+    let _guard = sandbox_lock();
+    if !backend_available() {
+        eprintln!("SKIP: sandbox backend unavailable (nested sandbox?)");
+        return;
+    }
+    let fixture = fixture();
+    install_available(&fixture);
+
+    let outcome = run_via_bash(&fixture.root, "mktemp");
+    assert_eq!(outcome.kind, BashOutcomeKind::CommandFailed, "{outcome:?}");
+    assert!(
+        outcome.summary.contains("mktemp -p \"$TMPDIR\""),
+        "{}",
+        outcome.summary
+    );
+    os_sandbox::reset_for_test();
+}
+
+/// Without an applied sandbox, the same temp-dir permission failure gets no
+/// mktemp guidance.
+#[test]
+fn no_mktemp_guidance_without_an_applied_sandbox() {
+    let _guard = sandbox_lock();
+    let fixture = fixture();
+    install_unavailable(SandboxMode::Auto, &fixture, NESTED);
+
+    let outcome = run_via_bash(
+        &fixture.root,
+        "printf 'mktemp: mkstemp failed: Operation not permitted\\n' >&2; exit 1",
+    );
+    assert_eq!(outcome.kind, BashOutcomeKind::CommandFailed, "{outcome:?}");
+    assert!(
+        !outcome.summary.contains("mktemp -p \"$TMPDIR\""),
+        "{}",
+        outcome.summary
+    );
+    os_sandbox::reset_for_test();
+}
+
+/// A run creates its temp dir at install and leaves none behind after cleanup,
+/// which the CLI runs on every exit path.
+#[test]
+fn install_creates_the_run_temp_dir_and_cleanup_removes_it() {
+    let _guard = sandbox_lock();
+    let fixture = fixture();
+    let state_dir = fixture._dir.path().join("state");
+
+    let status = os_sandbox::install(SandboxMode::Off, &fixture.root, &state_dir);
+    assert!(!status.applied);
+    let sandbox_dir = state_dir.join("sandbox");
+    assert!(sandbox_dir.is_dir(), "install must create the run temp dir");
+    assert_eq!(std::fs::read_dir(&sandbox_dir).unwrap().count(), 1);
+
+    os_sandbox::cleanup();
+    let remaining = std::fs::read_dir(&sandbox_dir)
+        .map(|entries| entries.count())
+        .unwrap_or(0);
+    assert_eq!(remaining, 0, "cleanup must remove the run temp dir");
     os_sandbox::reset_for_test();
 }
 

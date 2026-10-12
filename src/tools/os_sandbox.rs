@@ -233,6 +233,71 @@ pub fn install_for_test(
     store(mode, Some(policy), availability)
 }
 
+/// The reason recorded when a workflow child node runs in a workspace other than
+/// the one the run started in, so the fixed profile would confine it to the wrong
+/// workspace.
+#[cfg(not(test))]
+const DIFFERENT_WORKSPACE_REASON: &str = "workflow node runs in a workspace other than the run workspace; the OS write sandbox is not applied";
+
+/// Reconcile the installed sandbox with the workspace a workflow child node runs
+/// in.
+///
+/// The profile and the write-allow list are fixed at run start to the run's
+/// workspace, so applying them to a node running in another workspace would
+/// confine it to the wrong place. When the node's workspace differs, record the
+/// sandbox as not applied instead: `auto` continues with lexical checks only and
+/// `required` fails the node's Bash and verifier commands, so the record never
+/// claims isolation that was not in force. When the workspace matches, nothing
+/// changes. Returns the status now in effect, or `None` when no sandbox was
+/// installed.
+///
+/// In a unit-test build this is a no-op, matching [`install`].
+pub fn reconcile_workspace(workspace_root: &Path) -> Option<SandboxStatus> {
+    #[cfg(not(test))]
+    {
+        reconcile_workspace_impl(workspace_root)
+    }
+    #[cfg(test)]
+    {
+        let _ = workspace_root;
+        None
+    }
+}
+
+#[cfg(not(test))]
+fn reconcile_workspace_impl(workspace_root: &Path) -> Option<SandboxStatus> {
+    let mut installed = INSTALLED.lock().expect("sandbox state");
+    let (mode, availability, policy, mismatched) = {
+        let state = installed.as_ref()?;
+        let mismatched = state
+            .policy
+            .as_ref()
+            .is_some_and(|policy| policy.workspace_root != workspace_root);
+        (
+            state.mode,
+            state.availability.clone(),
+            state.policy.clone(),
+            mismatched,
+        )
+    };
+    if !mismatched || !mode.uses_backend() {
+        return Some(SandboxStatus::from_parts(mode, &availability));
+    }
+    if !matches!(availability, SandboxAvailability::Available) {
+        // The backend is already unavailable; keep the reason the run started
+        // with instead of overwriting it.
+        return Some(SandboxStatus::from_parts(mode, &availability));
+    }
+    let availability = SandboxAvailability::Unavailable(DIFFERENT_WORKSPACE_REASON.to_string());
+    let status = SandboxStatus::from_parts(mode, &availability);
+    *installed = Some(Installed {
+        policy,
+        mode,
+        availability,
+    });
+    Some(status)
+}
+
 fn store(
     mode: SandboxMode,
     policy: Option<SandboxPolicy>,
@@ -254,12 +319,45 @@ pub fn reset_for_test() {
     *installed = None;
 }
 
+/// Remove the installed run temp directory. Best effort and idempotent, so it is
+/// safe on every exit path (success, failure, interruption, or an unwinding
+/// panic). The event stream and the workspace are untouched.
+pub fn cleanup() {
+    let policy = {
+        let mut installed = INSTALLED.lock().expect("sandbox state");
+        installed.as_mut().and_then(|state| state.policy.take())
+    };
+    if let Some(policy) = policy {
+        let _ = std::fs::remove_dir_all(policy.run_tmp_dir);
+    }
+}
+
+/// Removes the run temp directory when dropped, so a run leaves no temp
+/// directory behind regardless of how it ends.
+pub struct SandboxCleanupGuard;
+
+impl Drop for SandboxCleanupGuard {
+    fn drop(&mut self) {
+        cleanup();
+    }
+}
+
+/// A guard that runs [`cleanup`] on drop.
+pub fn cleanup_guard() -> SandboxCleanupGuard {
+    SandboxCleanupGuard
+}
+
 /// The status recorded at run start, if any.
 pub fn status() -> Option<SandboxStatus> {
     let installed = INSTALLED.lock().expect("sandbox state");
     installed
         .as_ref()
         .map(|installed| SandboxStatus::from_parts(installed.mode, &installed.availability))
+}
+
+/// Whether the backend is currently applied for this run.
+pub fn is_applied() -> bool {
+    status().is_some_and(|status| status.applied)
 }
 
 /// The one-time startup warning for `auto` when the backend is unavailable.

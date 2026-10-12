@@ -133,10 +133,16 @@ pub fn run_with_provider_options(
     let sandbox_mode = cli.sandbox;
     let config = Config::from_cli_with_provider_options(cli, provider_options)
         .map_err(cli_argument_error)?;
-    tools::os_sandbox::install(sandbox_mode, &config.workspace_root, &config.state_dir);
-    if let Some(warning) = tools::os_sandbox::startup_warning() {
-        eprintln!("{warning}");
-    }
+    // Only actions that can run model/verifier Bash need the OS write sandbox and
+    // its per-run temp directory; read-only actions must not create one. The
+    // guard removes the run temp directory on every exit path.
+    let _sandbox_cleanup = action_uses_write_sandbox(&config.action).then(|| {
+        tools::os_sandbox::install(sandbox_mode, &config.workspace_root, &config.state_dir);
+        if let Some(warning) = tools::os_sandbox::startup_warning() {
+            eprintln!("{warning}");
+        }
+        tools::os_sandbox::cleanup_guard()
+    });
     for profile in planner::extension_profiles::registered() {
         for warning in &profile.warnings {
             eprintln!("warning: {warning}");
@@ -213,6 +219,13 @@ pub(crate) fn run_resolved_config_for_workflow(config: Config) -> anyhow::Result
     // the whole run. Re-entering catch_cli_run here makes the same thread re-lock that
     // mutex and self-deadlock. Run the resolved config directly; the outer boundary
     // still catches any panic raised by this child node run.
+    //
+    // The sandbox was installed once, in the parent's workspace. A child node runs
+    // in its own origin workspace, so reconcile the installed sandbox with that
+    // workspace first: when they differ the sandbox is recorded as not applied
+    // (and `required` fails the node) instead of confining it to the wrong place.
+    // When they match, this is a no-op.
+    tools::os_sandbox::reconcile_workspace(&config.workspace_root);
     run_config(config, None)
 }
 
@@ -454,6 +467,16 @@ fn action_uses_workspace_lock(action: &Action) -> bool {
     )
 }
 
+/// Whether the action can run model Bash or verifier commands, so it needs the OS
+/// write sandbox and its per-run temp directory. Read-only actions do not, and
+/// must not create a temp directory.
+fn action_uses_write_sandbox(action: &Action) -> bool {
+    !matches!(
+        action,
+        Action::Runs(_) | Action::UxDemo | Action::ModelProbe | Action::Doctor
+    )
+}
+
 /// Whether the action starts and stops a run recorded in the event stream.
 ///
 /// `--ux-demo` only renders a scripted demo, so it must not record run
@@ -568,24 +591,11 @@ impl DirectCommandCompletionGuard {
                     }
                     if signals.forever().next().is_some() {
                         if !signal_finalized.swap(true, Ordering::AcqRel) {
-                            let result: anyhow::Result<()> =
-                                Err(anyhow::anyhow!("interrupted by user"));
-                            bounded_process::reap_registered_server_children_for_workspace(
-                                signal_config.eval_events_path.as_deref(),
-                                "direct_cli_sigint",
-                                &signal_config.workspace_root,
-                            );
-                            emit_direct_command_stop_with_status(
+                            let mut stdout = std::io::stdout().lock();
+                            if let Err(err) = finalize_interrupted_direct_command(
                                 &signal_config,
                                 &signal_command,
-                                &result,
-                                DirectCommandStatus::Interrupted,
-                            );
-                            tui::terminal_notifications::finish_process();
-                            let mut stdout = std::io::stdout().lock();
-                            if let Err(err) = write_interrupted_headless_summary(
                                 summary_source.as_ref(),
-                                signal_config.eval_events_path.as_deref(),
                                 &mut stdout,
                             ) {
                                 eprintln!(
@@ -595,6 +605,9 @@ impl DirectCommandCompletionGuard {
                             // Keep stdout locked until exit so the JSON remains the final line.
                             std::process::exit(130);
                         }
+                        // Another thread already finalized; still release the run temp
+                        // directory, which `std::process::exit` would otherwise leak.
+                        tools::os_sandbox::cleanup();
                         std::process::exit(130);
                     }
                 }));
@@ -631,6 +644,39 @@ impl DirectCommandCompletionGuard {
         }
         emit_direct_command_stop_with_status(&self.config, &self.command, result, status);
     }
+}
+
+/// The work the direct-CLI SIGINT finalizer runs before `std::process::exit`,
+/// which skips `Drop`: reap server children, emit the interrupted stop event,
+/// write the interrupted headless summary, then release the run temp directory.
+/// The cleanup always runs, even when the summary write fails, so the exit leaks
+/// no temp directory.
+fn finalize_interrupted_direct_command(
+    config: &Config,
+    command: &str,
+    summary_source: Option<&headless_summary::Source>,
+    output: &mut impl Write,
+) -> std::io::Result<()> {
+    let result: anyhow::Result<()> = Err(anyhow::anyhow!("interrupted by user"));
+    bounded_process::reap_registered_server_children_for_workspace(
+        config.eval_events_path.as_deref(),
+        "direct_cli_sigint",
+        &config.workspace_root,
+    );
+    emit_direct_command_stop_with_status(
+        config,
+        command,
+        &result,
+        DirectCommandStatus::Interrupted,
+    );
+    tui::terminal_notifications::finish_process();
+    let write_result = write_interrupted_headless_summary(
+        summary_source,
+        config.eval_events_path.as_deref(),
+        output,
+    );
+    tools::os_sandbox::cleanup();
+    write_result.map(|_| ())
 }
 
 fn write_interrupted_headless_summary(
@@ -2030,6 +2076,41 @@ mod tests {
     }
 
     #[test]
+    fn sigint_finalizer_releases_the_run_temp_dir_before_exit() {
+        let status = run_ignored_self_test(
+            "tests::sigint_finalizer_releases_the_run_temp_dir_before_exit_child",
+            &[],
+        );
+        assert!(status.success(), "{status}");
+    }
+
+    #[test]
+    #[ignore]
+    fn sigint_finalizer_releases_the_run_temp_dir_before_exit_child() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join(".anvil/runs/test-run/events.jsonl");
+        let mut cfg = config(dir.path().to_path_buf());
+        cfg.eval_events_path = Some(events);
+
+        let run_tmp = dir.path().join("sandbox/run-test");
+        std::fs::create_dir_all(&run_tmp).unwrap();
+        crate::tools::os_sandbox::install_for_test(
+            crate::tools::os_sandbox::SandboxMode::Auto,
+            crate::tools::os_sandbox::SandboxPolicy::new(dir.path(), &run_tmp),
+            crate::tools::os_sandbox::SandboxAvailability::Unavailable("test".to_string()),
+        );
+
+        let mut output = Vec::new();
+        finalize_interrupted_direct_command(&cfg, "--prompt", None, &mut output).unwrap();
+
+        assert!(
+            !run_tmp.exists(),
+            "the SIGINT finalizer must remove the run temp directory"
+        );
+        crate::tools::os_sandbox::reset_for_test();
+    }
+
+    #[test]
     fn run_lifecycle_records_incomplete_stop_reason() {
         let dir = tempfile::tempdir().unwrap();
         let events = dir.path().join(".anvil/runs/test-run/events.jsonl");
@@ -2132,6 +2213,25 @@ mod tests {
         assert!(summary.contains("Release gate: failed"));
         assert!(summary.contains("- browser_readiness_failed:http_500"));
         assert!(!summary.contains("\nStatus: complete\nAction: Repl\nStop reason: completed"));
+    }
+
+    #[test]
+    fn read_only_actions_do_not_need_the_write_sandbox() {
+        for action in [
+            Action::Runs(crate::config::RunsRequest::default()),
+            Action::UxDemo,
+            Action::ModelProbe,
+            Action::Doctor,
+        ] {
+            assert!(!action_uses_write_sandbox(&action), "{action:?}");
+        }
+        for action in [
+            Action::Repl,
+            Action::Prompt("goal".into()),
+            Action::Workflow(PathBuf::from("def.yaml"), PathBuf::from("origin")),
+        ] {
+            assert!(action_uses_write_sandbox(&action), "{action:?}");
+        }
     }
 
     fn run_ignored_self_test(test_name: &str, envs: &[(&str, &str)]) -> std::process::ExitStatus {
