@@ -8,6 +8,7 @@ from pathlib import Path
 
 from eval_lib.artifacts import create_run_root, write_json, write_jsonl
 from eval_lib.config import credential_status, env_value, load_dotenv
+from eval_lib.heavy_lock import heavy_lock
 from eval_lib.matrix import expand_matrix, parse_modes
 from eval_lib.models import (
     gemini_interactions_smoke,
@@ -109,17 +110,18 @@ def main() -> int:
             ollama = {"error": str(err)}
     live_provider_smoke = {}
     if args.live_provider_smoke:
-        requested = (
-            required_providers_for_profile(profile)
-            if args.live_provider_smoke == "all"
-            else {part.strip() for part in args.live_provider_smoke.split(",") if part.strip()}
-        )
-        if "openai" in requested:
-            key = env_value("OPENAI_API_KEY", dotenv)
-            live_provider_smoke["openai"] = smoke_openai_models(profile, key)
-        if "gemini" in requested:
-            key = env_value("GEMINI_API_KEY", dotenv)
-            live_provider_smoke["gemini"] = smoke_gemini_models(profile, key)
+        with heavy_lock(run_dir=run_root, invocation="eval_preflight_live_provider_smoke"):
+            requested = (
+                required_providers_for_profile(profile)
+                if args.live_provider_smoke == "all"
+                else {part.strip() for part in args.live_provider_smoke.split(",") if part.strip()}
+            )
+            if "openai" in requested:
+                key = env_value("OPENAI_API_KEY", dotenv)
+                live_provider_smoke["openai"] = smoke_openai_models(profile, key)
+            if "gemini" in requested:
+                key = env_value("GEMINI_API_KEY", dotenv)
+                live_provider_smoke["gemini"] = smoke_gemini_models(profile, key)
 
     ok = True
     if any(status == "missing" for status in deps.values()):
