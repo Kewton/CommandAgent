@@ -9,9 +9,15 @@
 # default set). See docs/dev/dev-guardrails.md for the surrounding CI contract.
 
 [advisories]
-# No advisory is ignored. A new advisory must fail the check; add an entry here
-# only with a written reason and a link to the tracking Issue.
-ignore = []
+# A new advisory must fail the check; add an entry here only with a written
+# reason and a link to the tracking Issue.
+ignore = [
+  # unsafe-libyaml is unmaintained (published 2026-10). It reaches us only
+  # through serde_yaml 0.9, which has no safe upgrade. Temporary, approved by
+  # the user 2026-10-13: remove this entry in the PR that migrates off
+  # serde_yaml (https://github.com/Kewton/CommandAgent/issues/530).
+  { id = "RUSTSEC-2024-0449", reason = "unsafe-libyaml via serde_yaml 0.9; migration tracked in #530" },
+]
 
 [licenses]
 # Curated allow list matching the current dependency graph. BSL-1.0 is required
