@@ -1,0 +1,31 @@
+case_id = "issue530-yaml-migration"
+source = "Issue #530: serde_yaml 0.9 (unsafe-libyaml, RUSTSEC-2024-0449) migrated to yaml_serde 0.10.7 (libyaml-rs); pre-migration measurements are recorded in the fixture and reproduced through the public API"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/compatibility.json = [
+  "\"migrated_from\": \"serde_yaml 0.9.34+deprecated\"",
+  "\"migrated_to\": \"yaml_serde 0.10.7\"",
+  "\"id\": \"anchor-alias-rejected\"",
+  "\"schema_accepts\": false",
+  "\"parser_accepts\": true"
+]
