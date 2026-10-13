@@ -16,12 +16,14 @@ execute hostile projects or hostile instructions safely.
   newly created workspace symlinks may not target paths outside that root.
   Lexical inspection cannot prove every indirect effect of an arbitrary
   program, so when an OS sandbox is available it also confines the writes and
-  the home-credential reads performed inside a command or script (see
-  [OS Write and Read Sandbox](#os-write-and-read-sandbox)). Bash is not a
-  complete sandbox: shell commands and invoked programs still run as the current
-  OS user, network is not confined in this stage, read confinement covers the
-  home secret locations rather than every workspace credential on every
-  platform, and the sandbox is absent when the backend is unavailable.
+  the home-credential reads performed inside a command or script, and — only for
+  `--offline` — the network (see
+  [OS Write, Read, and Network Sandbox](#os-write-read-and-network-sandbox)).
+  Bash is not a complete sandbox: shell commands and invoked programs still run
+  as the current OS user, network is confined only for `--offline` and only when
+  the backend is applied, read confinement covers the home secret locations
+  rather than every workspace credential on every platform, and the sandbox is
+  absent when the backend is unavailable.
 
 ## `--allow` and `--yes`
 
@@ -46,18 +48,38 @@ changes. At exit it reports the final tracked/staged diff stat and untracked
 files. The report describes final workspace state and may include changes that
 predated the run.
 
-`--offline` blocks runtime dependency setup plus Bash command families named in
-`--help`. It does not block provider/API requests or arbitrary network-capable
-programs and therefore is not a network sandbox. Network isolation is a later
-stage of #502 and is independent of the write sandbox below.
+`--offline` has two layers, and they are not the same guarantee.
 
-## OS Write and Read Sandbox
+- OS-blocked, when `--sandbox` applies a backend: outbound network connections
+  are refused by the OS, so an arbitrary program the lexical guard cannot name
+  (`python -c "urllib..."`, `node -e "fetch(...)"`) still cannot leave the
+  machine. macOS (Seatbelt) denies every network operation except loopback TCP
+  and unix sockets. Linux (Landlock ABI4, kernel 6.7) denies every TCP connect
+  except the run's dev-server port(s): Landlock matches the port only, so the
+  same port on an external host still connects and UDP is not restricted, and
+  below ABI4 the network is not confined at all — the `bash_sandbox_status`
+  reason says so. The runtime dependency setup runs inside this same sandbox, so
+  a build backend (`setup.py`, an npm lifecycle script) cannot write outside the
+  workspace.
+- Lexical-only, always: `--offline` refuses runtime dependency setup and the
+  Bash command families named in `--help` (npm/pnpm/yarn/cargo install, curl,
+  wget). These checks do not change when a backend is applied; they still run
+  first. Provider/API requests are CommandAgent's own traffic, outside the
+  sandbox, and remain enabled.
 
-`--sandbox auto|required|off` (default `auto`) adds an OS-level write sandbox and
-a home-credential read sandbox at the two `sh -c` launch points: the model Bash
-tool (the `bash:verify` interval reuses the same function) and the
-verification/acceptance commands. The sandbox is defense in depth; the lexical
-checks still run first and can refuse a command before the shell starts.
+When `--sandbox` is `off` or its backend is unavailable, `--offline` is
+lexical-only: it blocks the named command families but not an arbitrary
+network-capable program.
+
+## OS Write, Read, and Network Sandbox
+
+`--sandbox auto|required|off` (default `auto`) adds an OS-level write sandbox, a
+home-credential read sandbox, and (for `--offline`) a network sandbox at the
+launch points the model can reach: the model Bash tool (the `bash:verify`
+interval reuses the same function), the verification/acceptance commands, and
+the runtime dependency setup (the Python `sh -c` and the `npm install`). The
+sandbox is defense in depth; the lexical checks still run first and can refuse a
+command before the shell starts.
 
 - What the OS closes (when the backend is available): a write performed inside a
   command or script that the lexical guard cannot see — `sh -c 'cp ...'`,
@@ -94,15 +116,20 @@ checks still run first and can refuse a command before the shell starts.
   read on that secret's subtree, so the read layer cannot deny it; the status
   then records that the read isolation is not effective instead of claiming it is
   applied. An empty `HOME` is reported the same way.
-- What remains lexical-only: network access, and every command run while the
-  backend is unavailable. `--allow bash:verify` and `--offline` are lexical
-  policies, so a command they admit can still start a script; only the sandbox
-  (when applied) constrains that script's writes and home-secret reads.
-  - Runtime dependency setup runs outside the sandbox: the setup steps that
-    execute `setup.py`, npm `postinstall`/`prepare` hooks, and similar
-    install-time scripts run before or outside the confined `sh -c` launch
-    points, so the sandbox does not constrain their writes. Confining dependency
-    setup is a later stage (#658).
+- What remains lexical-only: every command run while the backend is
+  unavailable. `--allow bash:verify` and `--offline` are lexical policies, so a
+  command they admit can still start a script; only the sandbox (when applied)
+  constrains that script's writes, home-secret reads, and, for `--offline`,
+  network. The network a non-`--offline` run makes is unchanged (the lexical
+  guard alone applies), and an `--offline` network layer is OS-enforced only
+  when the backend is applied (see the `--offline` section above).
+  - Runtime dependency setup now runs inside the sandbox (Issue #658): the
+    Python `sh -c` (venv and `pip install -e .`, including `setup.py`) and the
+    `npm install` are wrapped like the model Bash launches, so an install-time
+    script cannot write outside the workspace. With `auto` and an unavailable
+    backend the setup runs outside the sandbox as before and the
+    `bash_sandbox_status` record says it is not applied; with `required` it fails
+    honestly.
   - A hardlink that already exists in the workspace before the run and points at
     an inode outside the workspace can still be written through. Seatbelt decides
     by path, so it allows writing the workspace path even though the inode lives

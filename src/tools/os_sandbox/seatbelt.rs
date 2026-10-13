@@ -1,5 +1,5 @@
 //! macOS Seatbelt backend (Issue #655, stage 1a; read isolation in Issue #657,
-//! stage 2).
+//! stage 2; offline network confinement in Issue #658, stage 3).
 //!
 //! Applies a write-confinement profile and, since #657, a read-confinement
 //! layer through `sandbox-exec`. The profile is assembled from a constant; every
@@ -10,7 +10,9 @@
 //! file-read*)` denies the home secret locations and the workspace credential
 //! names. Read isolation is a deny list (decision 4 of #502): everything that is
 //! not a credential stays readable, so a toolchain, git, and the system files
-//! keep working.
+//! keep working. For an `--offline` run (#658) the profile also denies every
+//! network operation except loopback TCP and unix sockets, so an arbitrary
+//! program the lexical guard cannot name cannot reach the network.
 
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -44,11 +46,28 @@ const WRITE_PROFILE: &str = r#"
 (allow file-write* (regex #"^/dev/"))
 "#;
 
-/// The profile for a run, with `deny_count` home secret locations and the
-/// workspace credential rules. Seatbelt applies the last matching rule, so the
-/// template re-allow comes after the workspace credential deny and keeps the
-/// three strict dotenv templates readable.
-fn profile(deny_count: usize) -> String {
+/// The `--offline` network rules (Issue #658). `(deny network*)` blocks every
+/// socket operation, then loopback TCP (in, out, and bind) and unix-socket
+/// connects are re-allowed so local tools keep working. The rules name no path
+/// and no address parameter — `localhost` is a Seatbelt keyword, not a `-D`
+/// value — so they are a constant. Every operation is named explicitly: a bare
+/// `(allow network* (local ip "localhost:*"))` would re-open all outbound
+/// traffic, so the outbound rule uses `network-outbound` with a remote filter.
+const NETWORK_PROFILE: &str = r#"
+(deny network*)
+(allow network-outbound (remote ip "localhost:*"))
+(allow network-outbound (remote unix-socket))
+(allow network-inbound (local ip "localhost:*"))
+(allow network-bind (local ip "localhost:*"))
+"#;
+
+/// The profile for a run, with `deny_count` home secret locations, the workspace
+/// credential rules, and (for an `--offline` run) the network rules. Seatbelt
+/// applies the last matching rule, so the template re-allow comes after the
+/// workspace credential deny and keeps the three strict dotenv templates
+/// readable. The network rules touch only `network*` operations, so their
+/// position relative to the file rules does not matter.
+fn profile(deny_count: usize, offline: bool) -> String {
     let mut profile = String::from(WRITE_PROFILE);
     for index in 0..deny_count {
         profile.push_str(&format!(
@@ -60,6 +79,9 @@ fn profile(deny_count: usize) -> String {
     // Re-deny a template below a secret-named directory, so the re-allow above
     // cannot open `.ssh/.env.example`.
     profile.push_str("(deny file-read* (regex (param \"RDENY_WS_TEMPLATE\")))\n");
+    if offline {
+        profile.push_str(NETWORK_PROFILE);
+    }
     profile
 }
 
@@ -112,7 +134,9 @@ fn classify_probe_exit(success: bool, status: Option<String>) -> SandboxAvailabi
 pub fn wrap(command: Command, policy: &SandboxPolicy) -> Command {
     let home_secrets = secret_locations::home_secret_locations(&policy.home);
     let mut wrapped = Command::new(SANDBOX_EXEC);
-    wrapped.arg("-p").arg(profile(home_secrets.len()));
+    wrapped
+        .arg("-p")
+        .arg(profile(home_secrets.len(), policy.offline));
     define(&mut wrapped, "WS", Some(&policy.workspace_root));
     define(&mut wrapped, "TMP", Some(&policy.run_tmp_dir));
     define(
@@ -204,7 +228,7 @@ mod tests {
 
     #[test]
     fn profile_denies_each_home_location_and_re_allows_templates_last() {
-        let built = profile(3);
+        let built = profile(3, false);
         assert!(built.contains("(deny file-write*)"), "{built}");
         for index in 0..3 {
             assert!(
@@ -228,6 +252,29 @@ mod tests {
             deny_ws < allow_template && allow_template < deny_template,
             "the template re-allow must sit between the deny and the re-deny: {built}"
         );
+    }
+
+    /// Issue #658: an offline profile denies every network operation and
+    /// re-allows only loopback TCP and unix sockets; a non-offline profile adds
+    /// no network rule, so the network is unchanged.
+    #[test]
+    fn profile_adds_network_confinement_only_when_offline() {
+        let online = profile(0, false);
+        assert!(!online.contains("network"), "{online}");
+
+        let offline = profile(0, true);
+        assert!(offline.contains("(deny network*)"), "{offline}");
+        assert!(
+            offline.contains("(allow network-outbound (remote ip \"localhost:*\"))"),
+            "{offline}"
+        );
+        assert!(
+            offline.contains("(allow network-outbound (remote unix-socket))"),
+            "{offline}"
+        );
+        // A bare `(allow network* (local ip …))` would re-open all outbound
+        // traffic; every network rule must name its operation.
+        assert!(!offline.contains("(allow network*"), "{offline}");
     }
 
     #[test]

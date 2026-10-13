@@ -1,5 +1,5 @@
 //! Linux Landlock backend (Issue #656, stage 1b; read isolation in Issue #657,
-//! stage 2).
+//! stage 2; offline network confinement in Issue #658, stage 3).
 //!
 //! Confines the writes and, since #657, the reads of model Bash and verifier
 //! commands with Landlock. The ruleset and every allowed-location file
@@ -7,7 +7,7 @@
 //! `prctl(PR_SET_NO_NEW_PRIVS)` and `landlock_restrict_self`, so no work that
 //! could allocate, lock, or log happens between `fork` and `exec`.
 //!
-//! Design (issues #656 and #657, decisions from #502):
+//! Design (issues #656, #657, and #658, decisions from #502):
 //! - ABI1 (kernel 5.13) is required. ABI2 (`refer`, link/rename across
 //!   directories) and ABI3 (`truncate`) are used best-effort; when they are
 //!   missing the still-open operations are named in the `bash_sandbox_status`
@@ -26,7 +26,16 @@
 //!   ([`expand_read_allow`]): Landlock cannot deny part of an allowed tree, so
 //!   the home secret locations are expressed by allowing the siblings that do
 //!   not contain them.
-//! - Network is not handled, so it stays unchanged.
+//! - Network confinement of Issue #658 is only for an `--offline` run and only
+//!   from ABI4 (kernel 6.7): `AccessNet::ConnectTcp` is handled, which denies
+//!   every TCP connect, and a [`NetPort`] rule re-allows the dev-server ports.
+//!   Landlock cannot tell addresses apart and cannot restrict UDP, so an
+//!   `--offline` run can still reach the same port on an external host and any
+//!   UDP destination; both limitations are recorded in `bash_sandbox_status`.
+//!   Without ABI4 the network is left unchanged and the event names the gap
+//!   ([`network_limitation_note`]).
+//! - A non-`--offline` run handles no network access, so its network is exactly
+//!   as before this stage.
 //! - Availability is probed once at run start from the Landlock ABI query and a
 //!   child `restrict_self`, so a seccomp filter that denies either syscall is an
 //!   honest "unavailable" instead of a silent pass.
@@ -40,8 +49,8 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 use landlock::{
-    ABI, Access, AccessFs, CompatLevel, Compatible, Ruleset, RulesetAttr, RulesetCreatedAttr,
-    path_beneath_rules,
+    ABI, Access, AccessFs, AccessNet, CompatLevel, Compatible, NetPort, Ruleset, RulesetAttr,
+    RulesetCreated, RulesetCreatedAttr, path_beneath_rules,
 };
 
 use super::{SandboxAvailability, SandboxPolicy};
@@ -224,21 +233,38 @@ fn probe_command() -> Command {
 /// `handle_access` uses `from_all(abi)` so both the read layer and the write
 /// layer are enforced; `Execute | ReadFile | ReadDir` all exist from ABI1, so
 /// this adds no ABI requirement over the write layer.
+///
+/// For an `--offline` run with ABI4 (Issue #658), `AccessNet::ConnectTcp` is also
+/// handled, which denies every TCP connect, and each `dev_server_ports` entry is
+/// re-allowed with a [`NetPort`] rule. Before ABI4 Landlock cannot restrict the
+/// network, so nothing is handled and [`network_limitation_note`] records the
+/// gap instead of claiming confinement.
 fn create_ruleset(
     abi: u32,
     writable: impl IntoIterator<Item = PathBuf>,
     read_only: impl IntoIterator<Item = PathBuf>,
+    offline: bool,
+    dev_server_ports: &[u16],
 ) -> Result<OwnedFd, String> {
+    let abi_value = abi;
     let abi = ABI::from(abi as i32);
     let read_access = AccessFs::from_read(abi);
     let full_access = AccessFs::from_all(abi);
-    let created = Ruleset::default()
+    // Landlock gained the network access rights in ABI4 (kernel 6.7).
+    let restrict_network = offline && abi_value >= 4;
+    let mut ruleset = Ruleset::default()
         // ABI1 must be enforceable; otherwise the backend is unavailable.
         .set_compatibility(CompatLevel::HardRequirement)
         .handle_access(full_access)
-        .map_err(|err| format!("landlock ruleset setup failed: {err}"))?
-        // Rules are best-effort so a file location silently drops directory-only
-        // accesses instead of failing the whole ruleset.
+        .map_err(|err| format!("landlock ruleset setup failed: {err}"))?;
+    if restrict_network {
+        ruleset = ruleset
+            .handle_access(AccessNet::ConnectTcp)
+            .map_err(|err| format!("landlock network ruleset setup failed: {err}"))?;
+    }
+    // Rules are best-effort so a file location silently drops directory-only
+    // accesses instead of failing the whole ruleset.
+    let created = ruleset
         .set_compatibility(CompatLevel::BestEffort)
         .create()
         .map_err(|err| format!("landlock ruleset creation failed: {err}"))?;
@@ -248,8 +274,29 @@ fn create_ruleset(
     let created = created
         .add_rules(path_beneath_rules(read_only, read_access))
         .map_err(|err| format!("landlock read rule failed: {err}"))?;
+    let created = if restrict_network {
+        add_network_ports(created, dev_server_ports)?
+    } else {
+        created
+    };
     Option::<OwnedFd>::from(created)
         .ok_or_else(|| "landlock ruleset is not enforceable on this kernel".to_string())
+}
+
+/// Re-allow a TCP connect to each dev-server port on an `--offline` ruleset that
+/// otherwise handles (and so denies) every `ConnectTcp`. Landlock matches the
+/// port only, so a `NetPort` rule cannot distinguish the local dev server from
+/// an external host on the same port; that limitation is documented and recorded.
+fn add_network_ports(
+    mut created: RulesetCreated,
+    dev_server_ports: &[u16],
+) -> Result<RulesetCreated, String> {
+    for &port in dev_server_ports {
+        created = created
+            .add_rule(NetPort::new(port, AccessNet::ConnectTcp))
+            .map_err(|err| format!("landlock network rule failed: {err}"))?;
+    }
+    Ok(created)
 }
 
 /// Probe the backend once. Returns [`SandboxAvailability::Unavailable`] with an
@@ -292,6 +339,42 @@ fn limitation_for(kernel: &str, abi: u32) -> Option<String> {
     }
 }
 
+/// The network-isolation clause recorded in `bash_sandbox_status` for an
+/// `--offline` run whose kernel cannot confine the network (Issue #658).
+///
+/// Landlock restricts TCP connect only from ABI4 (kernel 6.7). Before that the
+/// network is left unchanged, so the event must say so rather than claim
+/// confinement; `--offline` then relies on the lexical guard for the network.
+/// A non-`--offline` run is unchanged and has no clause, and an unavailable
+/// backend already records its own reason, so this returns `None` there.
+pub fn network_limitation_note(offline: bool) -> Option<String> {
+    let detected = match detect() {
+        Detected::Available { abi } => Some(*abi),
+        Detected::Unavailable(_) => None,
+    };
+    network_limitation_for(offline, detected, &kernel_release())
+}
+
+/// The pure network limitation: `None` unless an `--offline` run is on a kernel
+/// whose detected ABI is below 4. `None` for an unavailable backend, whose own
+/// reason already says the sandbox is not applied.
+fn network_limitation_for(
+    offline: bool,
+    detected_abi: Option<u32>,
+    kernel: &str,
+) -> Option<String> {
+    if !offline {
+        return None;
+    }
+    match detected_abi {
+        Some(abi) if abi >= 4 => None,
+        Some(abi) => Some(format!(
+            "network is not confined: landlock ABI {abi} (kernel {kernel}) cannot restrict TCP connect (ABI4, kernel 6.7, is required); --offline relies on lexical checks for the network"
+        )),
+        None => None,
+    }
+}
+
 /// The detected Landlock ABI, or 0 when the backend is unavailable. Test record.
 pub fn detected_abi() -> u32 {
     match detect() {
@@ -319,6 +402,8 @@ pub fn wrap(command: &mut Command, policy: &SandboxPolicy) -> Result<(), String>
         detected_abi(),
         allowed_paths(policy),
         read_allow_paths(policy),
+        policy.offline,
+        &policy.dev_server_ports,
     )?;
     // Point tools at the run temp directory, which the ruleset allows.
     command.env("TMPDIR", &policy.run_tmp_dir);
@@ -750,5 +835,20 @@ mod tests {
 
         assert!(limitation_for("6.1.0", 3).is_none());
         assert!(limitation_for("6.1.0", 9).is_none());
+    }
+
+    /// Issue #658: the network limitation is named only for an `--offline` run
+    /// on a kernel below ABI4; ABI4 or later confines the network, a non-offline
+    /// run is unchanged, and an unavailable backend has its own reason.
+    #[test]
+    fn network_limitation_names_the_missing_abi4_only_when_offline() {
+        assert!(network_limitation_for(false, Some(1), "6.1.0").is_none());
+        assert!(network_limitation_for(true, Some(4), "6.7.0").is_none());
+        assert!(network_limitation_for(true, Some(9), "6.7.0").is_none());
+        assert!(network_limitation_for(true, None, "6.1.0").is_none());
+
+        let note = network_limitation_for(true, Some(3), "6.1.0")
+            .expect("ABI 3 cannot confine the network");
+        assert!(note.contains("ABI4") && note.contains("6.1.0"), "{note}");
     }
 }

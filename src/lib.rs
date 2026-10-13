@@ -137,7 +137,16 @@ pub fn run_with_provider_options(
     // its per-run temp directory; read-only actions must not create one. The
     // guard removes the run temp directory on every exit path.
     let _sandbox_cleanup = action_uses_write_sandbox(&config.action).then(|| {
-        tools::os_sandbox::install(sandbox_mode, &config.workspace_root, &config.state_dir);
+        tools::os_sandbox::install_with(
+            sandbox_mode,
+            &config.workspace_root,
+            &config.state_dir,
+            config.offline,
+            tools::os_sandbox::dev_server_ports(
+                &config.profile,
+                crate::config::action_goal(&config.action),
+            ),
+        );
         if let Some(warning) = tools::os_sandbox::startup_warning() {
             eprintln!("{warning}");
         }
