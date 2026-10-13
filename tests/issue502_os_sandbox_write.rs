@@ -1498,6 +1498,154 @@ fn isolated_child_cannot_inject_into_the_controlling_terminal() {
     eprintln!("{verdict}");
 }
 
+/// Issue #667: with `setsid()` the child has no controlling terminal, so a
+/// terminal standard input would become readable (the job-control check no
+/// longer applies). The launcher must replace a terminal stdin with `/dev/null`
+/// for every bounded child, isolated and unisolated alike. The probe makes its
+/// own pty the session's controlling terminal and puts it on fd 0, then starts a
+/// child with stdin left unset so it would inherit that terminal.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn issue667_stdin_probe() {
+    if std::env::var_os("COMMANDAGENT_ISSUE667_STDIN_PROBE").is_none() {
+        return;
+    }
+    let (_master, slave, _slave_path) = open_pty();
+    assert_ne!(
+        unsafe { libc::setsid() },
+        -1,
+        "setsid: {}",
+        std::io::Error::last_os_error()
+    );
+    assert_eq!(
+        unsafe { libc::ioctl(slave.as_raw_fd(), TIOCSCTTY_REQUEST, 0) },
+        0,
+        "TIOCSCTTY: {}",
+        std::io::Error::last_os_error()
+    );
+    unsafe {
+        libc::signal(libc::SIGHUP, libc::SIG_IGN);
+    }
+    // Make the pty the probe's own standard input, so a child that leaves stdin
+    // unset inherits a terminal and the launcher has to detach it.
+    assert_ne!(
+        unsafe { libc::dup2(slave.as_raw_fd(), 0) },
+        -1,
+        "dup2: {}",
+        std::io::Error::last_os_error()
+    );
+
+    // The unisolated launch.
+    assert_stdin_is_detached(&run_stdin_child(false));
+
+    // The isolated launch, when the backend is available.
+    if matches!(os_sandbox::probe(), SandboxAvailability::Available) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let workspace = dir.path().join("ws");
+        let run_tmp = dir.path().join("tmp");
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::create_dir_all(&run_tmp).unwrap();
+        os_sandbox::install_for_test(
+            SandboxMode::Auto,
+            SandboxPolicy::new(&workspace, &run_tmp),
+            SandboxAvailability::Available,
+        );
+        let sandboxed = run_stdin_child(true);
+        os_sandbox::reset_for_test();
+        assert_stdin_is_detached(&sandboxed);
+        println!(
+            "issue667-stdin: BLOCKED (both the isolated and unisolated launches detach a terminal stdin)"
+        );
+    } else {
+        println!(
+            "issue667-stdin: BLOCKED (the unisolated launch detaches a terminal stdin; the sandbox backend is unavailable)"
+        );
+    }
+}
+
+/// A child that reports whether fd 0 is a terminal and whether a read returns
+/// EOF at once. It ignores `SIGTTIN` and sets fd 0 non-blocking so a terminal
+/// stdin (the pre-fix behavior) reports `READ_ERR` instead of stopping.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+const STDIN_PROBE_SCRIPT: &str = r#"import fcntl, os, signal, sys
+try:
+    signal.signal(signal.SIGTTIN, signal.SIG_IGN)
+except (ValueError, OSError):
+    pass
+sys.stdout.write('ISATTY %d\n' % (1 if os.isatty(0) else 0))
+sys.stdout.flush()
+try:
+    flags = fcntl.fcntl(0, fcntl.F_GETFL)
+    fcntl.fcntl(0, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+except OSError:
+    pass
+try:
+    sys.stdout.write('READ %d\n' % len(os.read(0, 1)))
+except OSError as error:
+    sys.stdout.write('READ_ERR %d\n' % error.errno)
+"#;
+
+/// Run a child through `bounded_process` with standard input left unset, so it
+/// inherits the probe's pty, and return its stdout. The wrapped form goes through
+/// the installed sandbox. Standard I/O is set after wrapping because the macOS
+/// backend rewrites the command.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn run_stdin_child(wrapped: bool) -> String {
+    let mut command = Command::new("python3");
+    command.arg("-c").arg(STDIN_PROBE_SCRIPT);
+    let mut command = if wrapped {
+        os_sandbox::wrap_command(command).expect("available sandbox wraps")
+    } else {
+        command
+    };
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let output =
+        bounded_process::run_with_timeout(&mut command, TIMEOUT).expect("run the stdin child");
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
+/// Assert the child reports a non-terminal stdin that reads EOF at once.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn assert_stdin_is_detached(output: &str) {
+    assert!(
+        output.contains("ISATTY 0"),
+        "the child's stdin must not be a terminal: {output:?}"
+    );
+    assert!(
+        output.contains("READ 0"),
+        "a detached stdin must read EOF immediately: {output:?}"
+    );
+}
+
+/// Runs [`issue667_stdin_probe`] in a fresh process and asserts it reaches a
+/// verdict.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn isolated_child_stdin_is_detached_from_the_terminal() {
+    let exe = std::env::current_exe().expect("current exe");
+    let output = Command::new(exe)
+        .args([
+            "--exact",
+            "issue667_stdin_probe",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env("COMMANDAGENT_ISSUE667_STDIN_PROBE", "1")
+        .output()
+        .expect("run the stdin probe as a subprocess");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "the stdin probe failed:\n{stdout}\n{stderr}"
+    );
+    let verdict = stdout
+        .lines()
+        .find(|line| line.contains("issue667-stdin:"))
+        .unwrap_or_else(|| panic!("the stdin probe reported no verdict:\n{stdout}\n{stderr}"));
+    eprintln!("{verdict}");
+}
+
 /// Issue #667: a confined command keeps its own terminal (its inherited stdio)
 /// but cannot open another terminal's slave for writing. Both ptys are created
 /// by the test — the command's own terminal is one and the "other terminal" is

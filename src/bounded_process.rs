@@ -533,27 +533,70 @@ fn output_from_child(
 ///
 /// This replaces `Command::process_group(0)`: `setsid()` fails with `EPERM` for a
 /// process that is already a process-group leader, so the two cannot be combined
-/// and `setsid()` alone provides the group.
+/// and `setsid()` alone provides the group. Losing the controlling terminal also
+/// makes a terminal stdin readable, so [`detach_terminal_stdin`] points it at
+/// `/dev/null` in the same `pre_exec`.
 fn configure_child_session(command: &mut Command) {
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
         // SAFETY: `pre_exec` runs after fork and before exec. The closure calls
-        // only `setsid`; it does not allocate, lock, or log. A forked child is
-        // never a process-group leader (its pid is new), so `setsid` cannot fail
-        // with `EPERM`.
+        // only `setsid`, `isatty`, `open`, `dup2`, and `close`; it does not
+        // allocate, lock, or log. A forked child is never a process-group leader
+        // (its pid is new), so `setsid` cannot fail with `EPERM`.
         unsafe {
             command.pre_exec(|| {
                 if libc::setsid() == -1 {
                     return Err(std::io::Error::last_os_error());
                 }
-                Ok(())
+                detach_terminal_stdin()
             });
         }
     }
     #[cfg(not(unix))]
     {
         let _ = command;
+    }
+}
+
+/// Replace a terminal standard input with `/dev/null` in the freshly forked
+/// child.
+///
+/// Before `setsid()` the child sat in a background process group of the caller's
+/// session, so a read from the terminal was refused with `SIGTTIN` (or `EIO`
+/// once that signal is ignored). After `setsid()` the child has no controlling
+/// terminal, so the job-control check no longer applies and a read would succeed,
+/// letting a command read the keys the user types during a run. Pointing a
+/// terminal stdin at `/dev/null` restores a non-readable stdin. A stdin that is
+/// not a terminal (`Stdio::null()`, a pipe, or a file) is left unchanged, as are
+/// every standard output and error.
+///
+/// # pre_exec contract
+///
+/// This runs between `fork` and `exec`, so it uses only `isatty`, `open`,
+/// `dup2`, and `close` and never allocates, locks, or logs. Errors are built with
+/// [`std::io::Error::last_os_error`], which does not allocate.
+#[cfg(unix)]
+fn detach_terminal_stdin() -> std::io::Result<()> {
+    // SAFETY: this is the classic `isatty`/`open`/`dup2`/`close` sequence on the
+    // child's own descriptors; the path is a fixed static C string.
+    unsafe {
+        if libc::isatty(0) != 1 {
+            return Ok(());
+        }
+        let devnull = libc::open(c"/dev/null".as_ptr(), libc::O_RDONLY);
+        if devnull < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        if libc::dup2(devnull, 0) < 0 {
+            let error = std::io::Error::last_os_error();
+            libc::close(devnull);
+            return Err(error);
+        }
+        if devnull != 0 {
+            libc::close(devnull);
+        }
+        Ok(())
     }
 }
 

@@ -96,15 +96,25 @@ command before the shell starts.
   one. It also cannot write to another terminal's slave: on Linux `/dev/pts` is
   not writable, and on macOS the profile re-denies `/dev/tty*` last. The visible
   change is to a program that opens the terminal *directly*: an interactive pager
-  waiting for keys on `/dev/tty` now sees no controlling terminal. A command
-  whose standard streams are the terminal is unchanged — it keeps reading and
-  writing its inherited descriptors exactly as before, so the non-interactive
-  `git` pager path (output captured, pager writes to stdout) is unaffected.
-  The same `setsid()` applies to every bounded child, including the launches
-  that are not confined — the workspace `git` state check, the `lsof` port
-  lookup, the fetch and interaction probes, and the backend availability probes.
-  They run non-interactive commands with captured standard streams, so losing
-  the controlling terminal changes nothing for them.
+  waiting for keys on `/dev/tty` now sees no controlling terminal. A terminal
+  standard input is replaced with `/dev/null`, so a command cannot read the keys
+  the user types during a run — it could not before either, because the child sat
+  in a background process group of the session's terminal and a read was refused
+  with `SIGTTIN` (`EIO` once that signal is ignored); the change makes that
+  explicit instead of relying on the job-control check. A standard output or
+  error that is the terminal is unchanged: the command keeps writing its
+  inherited descriptors, so the non-interactive `git` pager path (output
+  captured, pager writes to stdout) is unaffected.
+  Every standard input is either set to `null` or a pipe, or inherited; an
+  inherited terminal stdin is the only case the `/dev/null` replacement changes.
+  The confined launches are the model Bash and its `bash:verify` interval, the
+  verifier/acceptance commands, and the runtime dependency setup. The
+  non-confined launches are the workspace `git` state check, the `lsof` port
+  lookups, the fetch, interaction, browser, pipeline, CLI-argv, and
+  declarative-check probes, the community `esbuild` bundle, the dev-server start,
+  and the backend availability probes. All of them run non-interactive commands
+  with a non-terminal standard input or an inherited one, so the change is a
+  non-readable stdin rather than a behavior change.
 - Read confinement (Issue #657) denies reading the home secret locations
   (`.ssh`, `.aws`, `.gnupg`, `.netrc`, `.git-credentials`, `.npmrc`, `.pypirc`,
   `.docker/config.json`, `.kube`, `.config/gh`, `.config/gcloud`) and, on macOS,
