@@ -68,6 +68,16 @@ before the shell starts.
   policies, so a command they admit can still start a script; only the sandbox
   (when applied) constrains that script's writes. Reads and network are not
   confined in this stage.
+  - Runtime dependency setup runs outside the sandbox: the setup steps that
+    execute `setup.py`, npm `postinstall`/`prepare` hooks, and similar
+    install-time scripts run before or outside the confined `sh -c` launch
+    points, so the sandbox does not constrain their writes. Confining dependency
+    setup is a later stage (#658).
+  - A hardlink that already exists in the workspace before the run and points at
+    an inode outside the workspace can still be written through. Seatbelt decides
+    by path, so it allows writing the workspace path even though the inode lives
+    outside; the sandbox only denies *creating* a new hardlink to an outside
+    inode.
 - Backend availability is probed once at run start. On macOS the backend is
   Seatbelt through `sandbox-exec`; under a nested sandbox it reports `rc=71` and
   is unavailable. Other platforms have no backend in this stage.

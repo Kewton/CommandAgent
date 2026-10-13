@@ -39,6 +39,11 @@ pub const UNAVAILABLE_KIND: &str = "bash_sandbox_unavailable";
 
 /// The reason recorded when the sandbox is explicitly disabled.
 const DISABLED_REASON: &str = "disabled by --sandbox off";
+/// The reason recorded once a run has finished and its sandbox is torn down.
+const RUN_FINISHED_REASON: &str = "run finished; the OS write sandbox is no longer applied";
+/// The refusal reason for a `required` run whose backend is available but whose
+/// policy is gone (for example after [`cleanup`]).
+const MISSING_POLICY_REASON: &str = "the OS write sandbox has no policy to apply";
 /// The reason recorded on platforms with no write-isolation backend in 1a.
 #[cfg(not(target_os = "macos"))]
 const NO_PLATFORM_BACKEND: &str =
@@ -233,6 +238,71 @@ pub fn install_for_test(
     store(mode, Some(policy), availability)
 }
 
+/// The reason recorded when a workflow child node runs in a workspace other than
+/// the one the run started in, so the fixed profile would confine it to the wrong
+/// workspace.
+#[cfg(not(test))]
+const DIFFERENT_WORKSPACE_REASON: &str = "workflow node runs in a workspace other than the run workspace; the OS write sandbox is not applied";
+
+/// Reconcile the installed sandbox with the workspace a workflow child node runs
+/// in.
+///
+/// The profile and the write-allow list are fixed at run start to the run's
+/// workspace, so applying them to a node running in another workspace would
+/// confine it to the wrong place. When the node's workspace differs, record the
+/// sandbox as not applied instead: `auto` continues with lexical checks only and
+/// `required` fails the node's Bash and verifier commands, so the record never
+/// claims isolation that was not in force. When the workspace matches, nothing
+/// changes. Returns the status now in effect, or `None` when no sandbox was
+/// installed.
+///
+/// In a unit-test build this is a no-op, matching [`install`].
+pub fn reconcile_workspace(workspace_root: &Path) -> Option<SandboxStatus> {
+    #[cfg(not(test))]
+    {
+        reconcile_workspace_impl(workspace_root)
+    }
+    #[cfg(test)]
+    {
+        let _ = workspace_root;
+        None
+    }
+}
+
+#[cfg(not(test))]
+fn reconcile_workspace_impl(workspace_root: &Path) -> Option<SandboxStatus> {
+    let mut installed = INSTALLED.lock().expect("sandbox state");
+    let (mode, availability, policy, mismatched) = {
+        let state = installed.as_ref()?;
+        let mismatched = state
+            .policy
+            .as_ref()
+            .is_some_and(|policy| policy.workspace_root != workspace_root);
+        (
+            state.mode,
+            state.availability.clone(),
+            state.policy.clone(),
+            mismatched,
+        )
+    };
+    if !mismatched || !mode.uses_backend() {
+        return Some(SandboxStatus::from_parts(mode, &availability));
+    }
+    if !matches!(availability, SandboxAvailability::Available) {
+        // The backend is already unavailable; keep the reason the run started
+        // with instead of overwriting it.
+        return Some(SandboxStatus::from_parts(mode, &availability));
+    }
+    let availability = SandboxAvailability::Unavailable(DIFFERENT_WORKSPACE_REASON.to_string());
+    let status = SandboxStatus::from_parts(mode, &availability);
+    *installed = Some(Installed {
+        policy,
+        mode,
+        availability,
+    });
+    Some(status)
+}
+
 fn store(
     mode: SandboxMode,
     policy: Option<SandboxPolicy>,
@@ -254,12 +324,55 @@ pub fn reset_for_test() {
     *installed = None;
 }
 
+/// Remove the installed run temp directory and end the run's sandbox. After this
+/// the sandbox is no longer reported as applied and `required` refuses instead of
+/// passing a command through, so a child spawned while shutting down never runs
+/// without the isolation the run promised. Best effort and idempotent, so it is
+/// safe on every exit path (success, failure, interruption, or an unwinding
+/// panic). The event stream and the workspace are untouched.
+pub fn cleanup() {
+    let mut installed = INSTALLED.lock().expect("sandbox state");
+    let Some(state) = installed.as_mut() else {
+        return;
+    };
+    if matches!(state.availability, SandboxAvailability::Available) {
+        // The backend was applied; mark the run over so the applied verdict is
+        // no longer reported and `required` refuses instead of passing through.
+        state.availability = SandboxAvailability::Unavailable(RUN_FINISHED_REASON.to_string());
+    }
+    let run_tmp_dir = state.policy.take().map(|policy| policy.run_tmp_dir);
+    drop(installed);
+    if let Some(run_tmp_dir) = run_tmp_dir {
+        let _ = std::fs::remove_dir_all(run_tmp_dir);
+    }
+}
+
+/// Removes the run temp directory when dropped, so a run leaves no temp
+/// directory behind regardless of how it ends.
+pub struct SandboxCleanupGuard;
+
+impl Drop for SandboxCleanupGuard {
+    fn drop(&mut self) {
+        cleanup();
+    }
+}
+
+/// A guard that runs [`cleanup`] on drop.
+pub fn cleanup_guard() -> SandboxCleanupGuard {
+    SandboxCleanupGuard
+}
+
 /// The status recorded at run start, if any.
 pub fn status() -> Option<SandboxStatus> {
     let installed = INSTALLED.lock().expect("sandbox state");
     installed
         .as_ref()
         .map(|installed| SandboxStatus::from_parts(installed.mode, &installed.availability))
+}
+
+/// Whether the backend is currently applied for this run.
+pub fn is_applied() -> bool {
+    status().is_some_and(|status| status.applied)
 }
 
 /// The one-time startup warning for `auto` when the backend is unavailable.
@@ -308,7 +421,19 @@ pub fn wrap_command(command: Command) -> Result<Command, SandboxRefusal> {
             };
             match policy {
                 Some(policy) => Ok(apply_backend(command, &policy)),
-                None => Ok(command),
+                None => {
+                    // The state says the backend is available but no policy is
+                    // installed (for example once the run's sandbox is torn
+                    // down). `required` must refuse rather than pass a command
+                    // through unconfined.
+                    if mode == SandboxMode::Required {
+                        Err(SandboxRefusal {
+                            reason: MISSING_POLICY_REASON.to_string(),
+                        })
+                    } else {
+                        Ok(command)
+                    }
+                }
             }
         }
     }
@@ -420,6 +545,44 @@ mod tests {
         let status = status().unwrap();
         assert!(!status.applied);
         assert_eq!(status.reason, None);
+    }
+
+    /// A run's sandbox is torn down by taking its policy, which can leave the
+    /// backend available with no policy. `required` must refuse instead of
+    /// passing the command through unconfined.
+    #[test]
+    fn required_refuses_when_available_without_a_policy() {
+        let _serial = SANDBOX_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = TestStateGuard;
+        *INSTALLED.lock().expect("sandbox state") = Some(Installed {
+            policy: None,
+            mode: SandboxMode::Required,
+            availability: SandboxAvailability::Available,
+        });
+
+        let error = wrap_command(Command::new("sh")).expect_err("required must refuse");
+        assert_eq!(
+            error.summary(),
+            format!("{UNAVAILABLE_KIND}: {MISSING_POLICY_REASON}")
+        );
+    }
+
+    /// `auto` keeps its previous behavior for the same state.
+    #[test]
+    fn wrap_auto_continues_when_available_without_a_policy() {
+        let _serial = SANDBOX_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = TestStateGuard;
+        *INSTALLED.lock().expect("sandbox state") = Some(Installed {
+            policy: None,
+            mode: SandboxMode::Auto,
+            availability: SandboxAvailability::Available,
+        });
+
+        assert!(wrap_command(Command::new("sh")).is_ok());
     }
 
     struct TestStateGuard;
