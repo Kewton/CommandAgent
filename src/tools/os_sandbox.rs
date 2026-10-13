@@ -16,7 +16,7 @@
 //!   [`UNAVAILABLE_KIND`]; `off` keeps the previous behavior.
 //! - The lexical guard is not weakened or replaced: it still runs first and can
 //!   refuse a command before the sandbox is consulted.
-//! - macOS only in this stage; Linux (landlock) is a separate issue. On any
+//! - macOS uses Seatbelt (stage 1a); Linux uses Landlock (stage 1b). On any
 //!   other platform the backend is reported as unavailable rather than silently
 //!   pretending isolation.
 
@@ -26,11 +26,15 @@ use std::sync::Mutex;
 
 use clap::ValueEnum;
 
+#[cfg(target_os = "linux")]
+pub mod landlock;
 #[cfg(target_os = "macos")]
 pub mod seatbelt;
 
 /// The macOS backend name used in `bash_sandbox_status`.
 pub const BACKEND_SEATBELT: &str = "seatbelt";
+/// The Linux backend name used in `bash_sandbox_status`.
+pub const BACKEND_LANDLOCK: &str = "landlock";
 /// The backend name on platforms without a write backend in this stage.
 pub const BACKEND_NONE: &str = "none";
 
@@ -44,10 +48,9 @@ const RUN_FINISHED_REASON: &str = "run finished; the OS write sandbox is no long
 /// The refusal reason for a `required` run whose backend is available but whose
 /// policy is gone (for example after [`cleanup`]).
 const MISSING_POLICY_REASON: &str = "the OS write sandbox has no policy to apply";
-/// The reason recorded on platforms with no write-isolation backend in 1a.
-#[cfg(not(target_os = "macos"))]
-const NO_PLATFORM_BACKEND: &str =
-    "no OS write-isolation backend is available on this platform (macOS only in stage 1a)";
+/// The reason recorded on platforms with no write-isolation backend in 1a/1b.
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+const NO_PLATFORM_BACKEND: &str = "no OS write-isolation backend is available on this platform (macOS Seatbelt and Linux Landlock are supported)";
 
 /// `--sandbox auto|required|off`. `auto` is the default.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -124,12 +127,18 @@ pub struct SandboxStatus {
 }
 
 impl SandboxStatus {
-    fn from_parts(mode: SandboxMode, availability: &SandboxAvailability) -> Self {
+    fn from_parts(
+        mode: SandboxMode,
+        availability: &SandboxAvailability,
+        note: Option<String>,
+    ) -> Self {
         let applied = mode.uses_backend() && matches!(availability, SandboxAvailability::Available);
         let reason = if mode.uses_backend() {
             match availability {
                 SandboxAvailability::Unavailable(reason) => Some(reason.clone()),
-                SandboxAvailability::Available => None,
+                // When the backend is applied, an empty reason means fully confined;
+                // a backend note names the best-effort operations it cannot close.
+                SandboxAvailability::Available => note,
             }
         } else {
             None
@@ -167,19 +176,41 @@ static INSTALLED: Mutex<Option<Installed>> = Mutex::new(None);
 fn backend_name() -> &'static str {
     if cfg!(target_os = "macos") {
         BACKEND_SEATBELT
+    } else if cfg!(target_os = "linux") {
+        BACKEND_LANDLOCK
     } else {
         BACKEND_NONE
     }
 }
 
+/// The best-effort limitation of the applied backend, recorded in the
+/// `bash_sandbox_status` reason even while the sandbox is applied. The Linux
+/// Landlock backend names the operations an older ABI cannot close; other
+/// backends have none.
+fn backend_note() -> Option<String> {
+    #[cfg(target_os = "linux")]
+    {
+        landlock::limitation_note()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        None
+    }
+}
+
 /// Probe the backend once. On macOS this starts `sandbox-exec` with a do-nothing
 /// profile; a nested sandbox fails with rc=71, which is reported as unavailable.
+/// On Linux this queries the Landlock ABI and confirms a child can enforce it.
 pub fn probe() -> SandboxAvailability {
     #[cfg(target_os = "macos")]
     {
         seatbelt::probe()
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
+    {
+        landlock::probe()
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
         SandboxAvailability::Unavailable(NO_PLATFORM_BACKEND.to_string())
     }
@@ -286,15 +317,23 @@ fn reconcile_workspace_impl(workspace_root: &Path) -> Option<SandboxStatus> {
         )
     };
     if !mismatched || !mode.uses_backend() {
-        return Some(SandboxStatus::from_parts(mode, &availability));
+        return Some(SandboxStatus::from_parts(
+            mode,
+            &availability,
+            backend_note(),
+        ));
     }
     if !matches!(availability, SandboxAvailability::Available) {
         // The backend is already unavailable; keep the reason the run started
         // with instead of overwriting it.
-        return Some(SandboxStatus::from_parts(mode, &availability));
+        return Some(SandboxStatus::from_parts(
+            mode,
+            &availability,
+            backend_note(),
+        ));
     }
     let availability = SandboxAvailability::Unavailable(DIFFERENT_WORKSPACE_REASON.to_string());
-    let status = SandboxStatus::from_parts(mode, &availability);
+    let status = SandboxStatus::from_parts(mode, &availability, None);
     *installed = Some(Installed {
         policy,
         mode,
@@ -308,7 +347,7 @@ fn store(
     policy: Option<SandboxPolicy>,
     availability: SandboxAvailability,
 ) -> SandboxStatus {
-    let status = SandboxStatus::from_parts(mode, &availability);
+    let status = SandboxStatus::from_parts(mode, &availability, backend_note());
     let mut installed = INSTALLED.lock().expect("sandbox state");
     *installed = Some(Installed {
         policy,
@@ -316,6 +355,23 @@ fn store(
         availability,
     });
     status
+}
+
+/// Record that the installed backend is no longer applied, for example when a
+/// per-command ruleset could not be built even though the run-start probe said
+/// the backend was available. Mirrors [`reconcile_workspace`]: the availability
+/// becomes [`SandboxAvailability::Unavailable`] with the reason, so
+/// [`is_applied`] turns false and later `required` commands refuse. The event
+/// name and schema are unchanged and no field is added.
+#[cfg(target_os = "linux")]
+fn mark_backend_unavailable(reason: String) {
+    let mut installed = INSTALLED.lock().expect("sandbox state");
+    let Some(state) = installed.as_mut() else {
+        return;
+    };
+    if matches!(state.availability, SandboxAvailability::Available) {
+        state.availability = SandboxAvailability::Unavailable(reason);
+    }
 }
 
 /// Clear the process-wide state. Tests only.
@@ -365,9 +421,9 @@ pub fn cleanup_guard() -> SandboxCleanupGuard {
 /// The status recorded at run start, if any.
 pub fn status() -> Option<SandboxStatus> {
     let installed = INSTALLED.lock().expect("sandbox state");
-    installed
-        .as_ref()
-        .map(|installed| SandboxStatus::from_parts(installed.mode, &installed.availability))
+    installed.as_ref().map(|installed| {
+        SandboxStatus::from_parts(installed.mode, &installed.availability, backend_note())
+    })
 }
 
 /// Whether the backend is currently applied for this run.
@@ -420,7 +476,7 @@ pub fn wrap_command(command: Command) -> Result<Command, SandboxRefusal> {
                     .and_then(|installed| installed.policy.clone())
             };
             match policy {
-                Some(policy) => Ok(apply_backend(command, &policy)),
+                Some(policy) => apply_backend(command, &policy, mode),
                 None => {
                     // The state says the backend is available but no policy is
                     // installed (for example once the run's sandbox is torn
@@ -439,15 +495,39 @@ pub fn wrap_command(command: Command) -> Result<Command, SandboxRefusal> {
     }
 }
 
-fn apply_backend(command: Command, policy: &SandboxPolicy) -> Command {
+fn apply_backend(
+    command: Command,
+    policy: &SandboxPolicy,
+    mode: SandboxMode,
+) -> Result<Command, SandboxRefusal> {
+    #[cfg(target_os = "linux")]
+    {
+        let mut command = command;
+        match landlock::wrap(&mut command, policy) {
+            Ok(()) => Ok(command),
+            // The ruleset could not be built even though the backend probed as
+            // available. Record the run as no longer applied, so `is_applied()`
+            // turns false and later commands do not claim isolation; `required`
+            // refuses, `auto` continues with lexical checks only.
+            Err(reason) => {
+                mark_backend_unavailable(reason.clone());
+                if mode == SandboxMode::Required {
+                    Err(SandboxRefusal { reason })
+                } else {
+                    Ok(command)
+                }
+            }
+        }
+    }
     #[cfg(target_os = "macos")]
     {
-        seatbelt::wrap(command, policy)
+        let _ = mode;
+        Ok(seatbelt::wrap(command, policy))
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
-        let _ = policy;
-        command
+        let _ = (policy, mode);
+        Ok(command)
     }
 }
 
@@ -583,6 +663,100 @@ mod tests {
         });
 
         assert!(wrap_command(Command::new("sh")).is_ok());
+    }
+
+    /// Stage 1b: a substituted Landlock decision that is unavailable (for example
+    /// ABI 0) makes `auto` continue with `applied=false` and `required` refuse
+    /// with the honest kind. The reason comes from the real pure decision.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn unavailable_landlock_decision_continues_auto_and_refuses_required() {
+        let _serial = SANDBOX_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = TestStateGuard;
+        let SandboxAvailability::Unavailable(reason) =
+            landlock::decide_availability("5.4.0-generic", Ok(0), Ok(()))
+        else {
+            panic!("ABI 0 must be unavailable");
+        };
+        assert!(
+            reason.contains("5.4.0-generic") && reason.contains("ABI"),
+            "{reason}"
+        );
+
+        install_for_test(
+            SandboxMode::Auto,
+            policy(),
+            SandboxAvailability::Unavailable(reason.clone()),
+        );
+        let status = status().unwrap();
+        assert!(!status.applied, "{status:?}");
+        assert_eq!(status.reason.as_deref(), Some(reason.as_str()));
+        assert!(wrap_command(Command::new("sh")).is_ok(), "auto continues");
+
+        install_for_test(
+            SandboxMode::Required,
+            policy(),
+            SandboxAvailability::Unavailable(reason.clone()),
+        );
+        let error = wrap_command(Command::new("sh")).expect_err("required must refuse");
+        assert_eq!(error.summary(), format!("{UNAVAILABLE_KIND}: {reason}"));
+    }
+
+    /// Stage 1b: when the probe was available but `landlock::wrap` fails at run
+    /// time, `auto` continues with lexical checks only and the installed sandbox
+    /// stops claiming to be applied; `required` refuses.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn auto_downgrades_when_the_backend_wrap_fails() {
+        let _serial = SANDBOX_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = TestStateGuard;
+        let _hook = WrapFailureHookGuard;
+        landlock::test_hooks::force_wrap_failure(true);
+
+        install_for_test(SandboxMode::Auto, policy(), SandboxAvailability::Available);
+        assert!(is_applied());
+
+        assert!(
+            wrap_command(Command::new("sh")).is_ok(),
+            "auto must continue after a failed wrap"
+        );
+        assert!(!is_applied(), "a failed wrap must clear the applied claim");
+        let status = status().unwrap();
+        assert!(!status.applied, "{status:?}");
+        assert!(
+            status
+                .reason
+                .as_deref()
+                .is_some_and(|reason| reason.contains("could not be built")),
+            "{status:?}"
+        );
+
+        install_for_test(
+            SandboxMode::Required,
+            policy(),
+            SandboxAvailability::Available,
+        );
+        let error = wrap_command(Command::new("sh")).expect_err("required must refuse");
+        assert!(
+            error.summary().contains(UNAVAILABLE_KIND),
+            "{}",
+            error.summary()
+        );
+    }
+
+    /// Resets the Landlock wrap-failure hook on drop.
+    #[cfg(target_os = "linux")]
+    struct WrapFailureHookGuard;
+
+    #[cfg(target_os = "linux")]
+    impl Drop for WrapFailureHookGuard {
+        fn drop(&mut self) {
+            landlock::test_hooks::force_wrap_failure(false);
+        }
     }
 
     struct TestStateGuard;

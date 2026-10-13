@@ -512,7 +512,6 @@ pub struct Cli {
     pub offline: bool,
     #[arg(
         long,
-        hide = true,
         value_enum,
         value_name = "auto|required|off",
         default_value = "auto",
@@ -1112,6 +1111,12 @@ mod tests {
     fn help_includes_quiet() {
         let help = Cli::command().render_long_help().to_string();
         assert!(help.contains("--quiet"));
+    }
+
+    #[test]
+    fn help_includes_sandbox() {
+        let help = Cli::command().render_long_help().to_string();
+        assert!(help.contains("--sandbox"));
     }
 
     #[test]

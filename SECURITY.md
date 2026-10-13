@@ -77,10 +77,15 @@ before the shell starts.
     an inode outside the workspace can still be written through. Seatbelt decides
     by path, so it allows writing the workspace path even though the inode lives
     outside; the sandbox only denies *creating* a new hardlink to an outside
-    inode.
+    inode. On Linux that creation needs Landlock ABI2 (kernel 5.19); on an older
+    kernel the link is not closed and is named in the `bash_sandbox_status`
+    reason.
 - Backend availability is probed once at run start. On macOS the backend is
   Seatbelt through `sandbox-exec`; under a nested sandbox it reports `rc=71` and
-  is unavailable. Other platforms have no backend in this stage.
+  is unavailable. On Linux the backend is Landlock; it requires ABI1 (kernel
+  5.13) and is unavailable below that, when Landlock is disabled, or when a
+  seccomp filter denies the ruleset syscalls. Other platforms have no backend in
+  this stage.
 - `auto` continues with lexical checks only when the backend is unavailable,
   warns once at startup, and records `bash_sandbox_status` with `applied=false`
   and a reason. `required` instead fails Bash and verifier commands with
@@ -88,8 +93,9 @@ before the shell starts.
   reports "sandboxed" when the sandbox was not applied.
 - The dependency caches (cargo registry/git/package-cache, npm, pip, Playwright
   browsers) stay writable so builds and tests work; they remain a contamination
-  path outside the workspace. pnpm and yarn stores are not allowed in this
-  stage.
+  path outside the workspace. On macOS they live under `~/Library/Caches` and
+  `~/.cargo`; on Linux under `~/.cargo`, `~/.npm`, and `~/.cache`. pnpm and yarn
+  stores are not allowed in this stage.
 
 macOS `mktemp` ignores `TMPDIR` and targets the per-user temp directory, which
 the sandbox denies. A `mktemp` inside the run temp directory (`mktemp -p

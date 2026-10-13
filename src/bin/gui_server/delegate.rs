@@ -35,6 +35,22 @@ const DELEGATION_WORKSPACE_CHANGED: &str = "Gate 1 workspace changed before CLI 
 const CONTINUATION_WORKSPACE_CHANGED: &str = "Gate 1 workspace changed before CLI continuation";
 const RECOVERY_WORKSPACE_CHANGED: &str = "Gate 1 workspace changed before Recovery Run";
 pub(super) const DELEGATE_PERMISSION_POLICY: &str = "read,write,bash:verify";
+/// Fixed flags every delegated CLI invocation starts with. `--sandbox required`
+/// (issue #656, decision 4) makes a delegated run fail honestly with
+/// `bash_sandbox_unavailable` when the OS write sandbox cannot be applied, for
+/// example inside a nested sandbox, instead of silently continuing with lexical
+/// checks only.
+const DELEGATE_FIXED_ARGS: &[&str] = &[
+    "--allow",
+    DELEGATE_PERMISSION_POLICY,
+    "--sandbox",
+    "required",
+    "--quiet",
+    "--footer",
+    "off",
+    "--stream",
+    "off",
+];
 const PACK_DIRECTORY_ENV: &str = "COMMANDAGENT_PACK_DIRECTORY";
 const PACK_ID_ENV: &str = "COMMANDAGENT_PACK_ID";
 const PACK_VERSION_ENV: &str = "COMMANDAGENT_PACK_VERSION";
@@ -295,15 +311,7 @@ fn delegated_cli_command(
     command
         .current_dir(&execution_workspace)
         .env("COMMANDAGENT_EVAL_EVENTS", paths.events_path())
-        .args([
-            "--allow",
-            DELEGATE_PERMISSION_POLICY,
-            "--quiet",
-            "--footer",
-            "off",
-            "--stream",
-            "off",
-        ])
+        .args(DELEGATE_FIXED_ARGS)
         .arg("--cwd")
         .arg(&execution_workspace)
         .arg("--state-dir")
@@ -384,4 +392,22 @@ fn apply_confirmed_pack(
         .env(PACK_VERSION_ENV, version)
         .env(PACK_HASH_ENV, hash);
     Ok(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Issue #656 decision 4: the delegated CLI must be started with
+    /// `--sandbox required` so a GUI run fails honestly when the OS write
+    /// sandbox cannot be applied instead of silently dropping it.
+    #[test]
+    fn delegated_cli_requires_the_os_write_sandbox() {
+        assert!(
+            DELEGATE_FIXED_ARGS
+                .windows(2)
+                .any(|pair| pair == ["--sandbox", "required"]),
+            "{DELEGATE_FIXED_ARGS:?}"
+        );
+    }
 }

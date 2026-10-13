@@ -60,3 +60,6 @@ required-features = ["gui"]
 name = "gui_server"
 path = "tests/gui_server.rs"
 required-features = ["gui"]
+
+[target.'cfg(target_os = "linux")'.dependencies]
+landlock = "0.4"
