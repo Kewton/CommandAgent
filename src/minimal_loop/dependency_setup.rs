@@ -752,11 +752,12 @@ fn run_node_dependency_setup_with_program_timeout_and_offline(
     let mut command = verifier_env::normalized_command_at_root(npm_program, root);
     command
         .args(["install", "--ignore-scripts"])
-        .current_dir(root)
-        .stdin(Stdio::null());
+        .current_dir(root);
     // Issue #658: run the install inside the stage-1 OS sandbox, so a build
     // backend or lifecycle script cannot write outside the workspace. Standard
-    // I/O is set after the wrap because the wrap does not transfer it.
+    // I/O is set after the wrap: macOS `seatbelt::wrap` rebuilds the command and
+    // does not transfer stdio, so a pre-wrap `.stdin(Stdio::null())` would be
+    // lost and the child would inherit the parent's stdin.
     let mut command = match crate::tools::os_sandbox::wrap_dependency_setup(command) {
         Ok(command) => command,
         Err(refusal) => {
@@ -770,7 +771,10 @@ fn run_node_dependency_setup_with_program_timeout_and_offline(
             );
         }
     };
-    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     let output = match bounded_process::run_with_timeout(&mut command, timeout) {
         Ok(output) => output,
         Err(err) => {
@@ -957,13 +961,11 @@ fn run_python_cli_dependency_setup(
     let mut changed_paths = Vec::new();
     let command_text = "python -m venv .venv && .venv/bin/python -m pip install -e .".to_string();
     let mut command = verifier_env::normalized_command_at_root("sh", root);
-    command
-        .arg("-c")
-        .arg(&command_text)
-        .current_dir(root)
-        .stdin(Stdio::null());
+    command.arg("-c").arg(&command_text).current_dir(root);
     // Issue #658: the pip build backend is arbitrary code, so run the setup
-    // inside the stage-1 OS sandbox and keep its writes in the workspace.
+    // inside the stage-1 OS sandbox and keep its writes in the workspace. Standard
+    // I/O is set after the wrap: macOS `seatbelt::wrap` rebuilds the command and
+    // does not transfer stdio.
     let mut command = match crate::tools::os_sandbox::wrap_dependency_setup(command) {
         Ok(command) => command,
         Err(refusal) => {
@@ -977,7 +979,10 @@ fn run_python_cli_dependency_setup(
             );
         }
     };
-    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     let output = match bounded_process::run_with_timeout(&mut command, timeout) {
         Ok(output) => output,
         Err(err) => {

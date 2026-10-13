@@ -339,6 +339,158 @@ fn macos_offline_refuses_outbound_and_allows_the_dev_server() {
     os_sandbox::reset_for_test();
 }
 
+/// macOS Seatbelt: an `--offline` run lets a unix socket be created (bind and
+/// listen) inside the isolation, while the reserved-address connect is still
+/// refused. The socket path is inside the fixture tempdir.
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_offline_allows_unix_socket_bind_and_still_refuses_outbound() {
+    const UNPROBE_PY: &str = r#"
+import os, socket, sys
+path = os.path.join(sys.argv[1], "probe.sock")
+s = socket.socket(socket.AF_UNIX)
+try:
+    s.bind(path)
+    s.listen(1)
+    print("BIND_OK")
+except OSError as e:
+    print("BIND_ERR", type(e).__name__)
+c = socket.socket()
+c.settimeout(3)
+try:
+    c.connect(("192.0.2.1", 9))
+    print("EXT_OK")
+except OSError as e:
+    print("EXT_ERR", type(e).__name__)
+"#;
+    let _serial = sandbox_lock();
+    if !backend_available() {
+        eprintln!("SKIP: nested sandbox; macOS network cases no-op");
+        return;
+    }
+    let fixture = fixture();
+    install_available(online_policy(&fixture).with_offline(true));
+
+    let script = fixture.root.join("unixbind.py");
+    std::fs::write(&script, UNPROBE_PY).unwrap();
+    let command = format!(
+        "python3 {script} {dir}",
+        script = script.display(),
+        dir = fixture.root.display(),
+    );
+    let output = run_wrapped(&fixture.root, &command);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("BIND_OK"),
+        "a unix socket must be bindable inside the isolation: {stdout}"
+    );
+    assert!(
+        stdout.contains("EXT_ERR") && !stdout.contains("EXT_OK"),
+        "outbound must stay refused: {stdout}"
+    );
+
+    os_sandbox::cleanup();
+    os_sandbox::reset_for_test();
+}
+
+/// macOS Seatbelt: the dependency-setup child's stdin is null, not inherited.
+/// `seatbelt::wrap` rebuilds the command, so the launch must set `stdin` after
+/// the wrap. The check runs in a child process whose stdin is an open pipe with
+/// data, so an inherited stdin is visible (a null stdin is not).
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_dependency_setup_child_stdin_is_null() {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    if !backend_available() {
+        eprintln!("SKIP: nested sandbox; dependency-setup stdin no-op");
+        return;
+    }
+    let mut child = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--ignored",
+            "--exact",
+            "macos_dependency_setup_child_stdin_is_null_child",
+            "--nocapture",
+        ])
+        .stdin(Stdio::piped())
+        .spawn()
+        .expect("spawn stdin child");
+    // Keep the pipe open with data while the child runs; a null stdin would not
+    // see this.
+    let mut stdin = child.stdin.take().expect("child stdin");
+    let _ = stdin.write_all(b"x");
+    let _ = stdin.flush();
+    let status = child.wait().expect("wait stdin child");
+    drop(stdin);
+    assert!(status.success(), "the child check must pass: {status}");
+}
+
+/// The child check of [`macos_dependency_setup_child_stdin_is_null`]. It runs in
+/// its own process so its stdin can be a pipe; the fake npm records whether fd 0
+/// is a terminal, a pipe, and at EOF.
+#[cfg(target_os = "macos")]
+#[test]
+#[ignore]
+fn macos_dependency_setup_child_stdin_is_null_child() {
+    // The child process spawned by the parent has its own sandbox state, but
+    // --include-ignored also runs this test in the main process, so it must
+    // serialize with the tests that install the process-wide sandbox.
+    let _serial = sandbox_lock();
+    const FAKE_NPM_STDIN: &str = r#"#!/usr/bin/env python3
+import os, select, stat
+fd = os.fstat(0)
+ready, _, _ = select.select([0], [], [], 0.5)
+eof = bool(ready) and os.read(0, 1) == b""
+with open("stdin.txt", "w") as fh:
+    fh.write(f"tty={os.isatty(0)} fifo={stat.S_ISFIFO(fd.st_mode)} eof={eof}\n")
+os.makedirs("node_modules", exist_ok=True)
+"#;
+    let fixture = fixture();
+    std::fs::write(
+        fixture.root.join("package.json"),
+        r#"{"dependencies":{"left-pad":"^1.3.0"}}"#,
+    )
+    .unwrap();
+    let fake_npm = write_executable(&fixture.root, "fake-npm", FAKE_NPM_STDIN);
+    install_available(online_policy(&fixture));
+
+    let requirement = dependency_setup::requirement_for_node_declared_dependencies(
+        &fixture.root,
+        Some("node"),
+        "network test",
+        NodeDependencySetupAuthority::PlanSetupStep,
+    );
+    let observation = dependency_setup::run_node_dependency_setup_with_program(
+        &fixture.root,
+        &requirement,
+        &fake_npm,
+    );
+    assert_eq!(
+        observation.status,
+        NodeDependencySetupStatus::Passed,
+        "{observation:?}"
+    );
+
+    let recorded = std::fs::read_to_string(fixture.root.join("stdin.txt")).unwrap();
+    assert!(
+        recorded.contains("tty=False"),
+        "stdin must not be a terminal: {recorded}"
+    );
+    assert!(
+        recorded.contains("fifo=False"),
+        "stdin must not be a pipe: {recorded}"
+    );
+    assert!(
+        recorded.contains("eof=True"),
+        "stdin must be at EOF: {recorded}"
+    );
+
+    os_sandbox::cleanup();
+    os_sandbox::reset_for_test();
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn linux_offline_refuses_outbound_and_allows_only_the_dev_server_port() {

@@ -47,18 +47,20 @@ const WRITE_PROFILE: &str = r#"
 "#;
 
 /// The `--offline` network rules (Issue #658). `(deny network*)` blocks every
-/// socket operation, then loopback TCP (in, out, and bind) and unix-socket
-/// connects are re-allowed so local tools keep working. The rules name no path
-/// and no address parameter — `localhost` is a Seatbelt keyword, not a `-D`
-/// value — so they are a constant. Every operation is named explicitly: a bare
-/// `(allow network* (local ip "localhost:*"))` would re-open all outbound
-/// traffic, so the outbound rule uses `network-outbound` with a remote filter.
+/// socket operation, then loopback TCP (in, out, and bind) and unix sockets
+/// (outbound connect and bind) are re-allowed so local tools keep working. The
+/// rules name no path and no address parameter — `localhost` is a Seatbelt
+/// keyword, not a `-D` value — so they are a constant. Every operation is named
+/// explicitly: a bare `(allow network* (local ip "localhost:*"))` would re-open
+/// all outbound traffic, so the outbound rule uses `network-outbound` with a
+/// remote filter.
 const NETWORK_PROFILE: &str = r#"
 (deny network*)
 (allow network-outbound (remote ip "localhost:*"))
 (allow network-outbound (remote unix-socket))
 (allow network-inbound (local ip "localhost:*"))
 (allow network-bind (local ip "localhost:*"))
+(allow network-bind (local unix-socket))
 "#;
 
 /// The profile for a run, with `deny_count` home secret locations, the workspace
@@ -271,6 +273,10 @@ mod tests {
         assert!(
             offline.contains("(allow network-outbound (remote unix-socket))"),
             "{offline}"
+        );
+        assert!(
+            offline.contains("(allow network-bind (local unix-socket))"),
+            "a unix socket must be bindable inside the isolation: {offline}"
         );
         // A bare `(allow network* (local ip …))` would re-open all outbound
         // traffic; every network rule must name its operation.

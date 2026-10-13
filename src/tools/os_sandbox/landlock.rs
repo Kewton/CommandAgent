@@ -31,9 +31,10 @@
 //!   every TCP connect, and a [`NetPort`] rule re-allows the dev-server ports.
 //!   Landlock cannot tell addresses apart and cannot restrict UDP, so an
 //!   `--offline` run can still reach the same port on an external host and any
-//!   UDP destination; both limitations are recorded in `bash_sandbox_status`.
-//!   Without ABI4 the network is left unchanged and the event names the gap
-//!   ([`network_limitation_note`]).
+//!   UDP destination; those limits are documented (SECURITY.md and the
+//!   cli-reference) rather than recorded in `bash_sandbox_status`. Only a kernel
+//!   below ABI4 is recorded there, because then the network is left unchanged and
+//!   the event says so ([`network_limitation_note`]).
 //! - A non-`--offline` run handles no network access, so its network is exactly
 //!   as before this stage.
 //! - Availability is probed once at run start from the Landlock ABI query and a

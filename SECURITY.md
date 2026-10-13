@@ -55,12 +55,14 @@ predated the run.
   (`python -c "urllib..."`, `node -e "fetch(...)"`) still cannot leave the
   machine. macOS (Seatbelt) denies every network operation except loopback TCP
   and unix sockets. Linux (Landlock ABI4, kernel 6.7) denies every TCP connect
-  except the run's dev-server port(s): Landlock matches the port only, so the
-  same port on an external host still connects and UDP is not restricted, and
-  below ABI4 the network is not confined at all — the `bash_sandbox_status`
-  reason says so. The runtime dependency setup runs inside this same sandbox, so
-  a build backend (`setup.py`, an npm lifecycle script) cannot write outside the
-  workspace.
+  except the run's dev-server port(s). Landlock matches the port only, so the
+  same port on an external host still connects and UDP is not restricted. When
+  the run's dev-server port cannot be derived — it is neither named in the goal
+  nor a profile default — the allow list is empty and every TCP connect is
+  denied, localhost included. Below ABI4 the network is not confined at all — the
+  `bash_sandbox_status` reason says so. The runtime dependency setup runs inside
+  this same sandbox, so a build backend (`setup.py`, an npm lifecycle script)
+  cannot write outside the workspace.
 - Lexical-only, always: `--offline` refuses runtime dependency setup and the
   Bash command families named in `--help` (npm/pnpm/yarn/cargo install, curl,
   wget). These checks do not change when a backend is applied; they still run
