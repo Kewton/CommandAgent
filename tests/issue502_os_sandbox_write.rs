@@ -371,16 +371,47 @@ fn applied_cargo_build_succeeds() {
 #[cfg(target_os = "linux")]
 const LINUX_EXCLUDED_INDIRECT_IDS: &[&str] = &["hardlink-outside"];
 
+/// Ask the kernel for its Landlock ABI without going through the backend, so a
+/// mutated `landlock::detected_abi()` cannot make these tests agree with
+/// themselves. A negative return (unsupported, disabled, or seccomp-denied) is
+/// reported as ABI 0.
+#[cfg(target_os = "linux")]
+fn kernel_landlock_abi() -> u32 {
+    const LANDLOCK_CREATE_RULESET_VERSION: libc::c_uint = 1;
+    let ret = unsafe {
+        libc::syscall(
+            libc::SYS_landlock_create_ruleset,
+            std::ptr::null::<libc::c_void>(),
+            0usize,
+            LANDLOCK_CREATE_RULESET_VERSION,
+        )
+    };
+    if ret < 0 { 0 } else { ret as u32 }
+}
+
 /// Print the running kernel release and Landlock ABI, and refuse a silent skip
 /// under CI: a GitHub Actions Linux runner must have an applied Landlock
 /// backend. Returns whether the backend is available for this test run.
+///
+/// It also pins `landlock::detected_abi()` to the independently queried kernel
+/// ABI, so a backend that reports the wrong ABI fails here instead of silently
+/// building a weaker ruleset.
 #[cfg(target_os = "linux")]
 fn require_landlock_backend() -> bool {
     use commandagent::tools::os_sandbox::landlock;
-    let abi = landlock::detected_abi();
+    let abi = kernel_landlock_abi();
     let kernel = landlock::kernel_release_label();
-    eprintln!("issue502/656 landlock: kernel={kernel} abi={abi}");
     let available = matches!(os_sandbox::probe(), SandboxAvailability::Available);
+    let reported = landlock::detected_abi();
+    eprintln!("issue502/656 landlock: kernel={kernel} abi={abi} detected_abi={reported}");
+    if available {
+        // A backend that reports the wrong ABI would build a weaker ruleset
+        // than the kernel supports; pin it to the independent query.
+        assert_eq!(
+            reported, abi,
+            "detected_abi() must equal the kernel ABI queried independently"
+        );
+    }
     if std::env::var_os("CI").is_some() {
         assert!(
             available,
@@ -447,13 +478,12 @@ fn linux_applied_indirect_writes_are_denied_and_the_outside_fixture_is_unchanged
 #[cfg(target_os = "linux")]
 #[test]
 fn linux_applied_hardlink_to_an_outside_inode_is_denied() {
-    use commandagent::tools::os_sandbox::landlock;
     let _guard = sandbox_lock();
     if !require_landlock_backend() {
         eprintln!("SKIP: Landlock backend unavailable");
         return;
     }
-    let abi = landlock::detected_abi();
+    let abi = kernel_landlock_abi();
     if abi < 2 {
         eprintln!(
             "SKIP: Landlock ABI {abi} < 2; creating a cross-directory hardlink is not closed (ABI2)"
@@ -477,6 +507,82 @@ fn linux_applied_hardlink_to_an_outside_inode_is_denied() {
     );
     assert!(!hardlink.exists(), "the hardlink must not be created");
     assert_eq!(read_secret(&fixture.outside_secret), SECRET);
+    os_sandbox::reset_for_test();
+}
+
+/// `truncate(2)` does not `open` the file, so an outside inode needs ABI3
+/// (kernel 6.2) to be closed. ABI3 and later must deny it; an older ABI records
+/// the skip instead of silently passing.
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_applied_truncate_of_an_outside_inode_is_denied() {
+    let _guard = sandbox_lock();
+    if !require_landlock_backend() {
+        eprintln!("SKIP: Landlock backend unavailable");
+        return;
+    }
+    let abi = kernel_landlock_abi();
+    if abi < 3 {
+        eprintln!(
+            "SKIP: Landlock ABI {abi} < 3; truncating an outside inode via truncate(2) is not closed (ABI3)"
+        );
+        return;
+    }
+    let fixture = fixture();
+    install_available(&fixture);
+    let command = format!(
+        "python3 -c \"import os; os.truncate('{}', 0)\"",
+        fixture.outside_secret.display()
+    );
+
+    let output = run_wrapped(&fixture.root, &command);
+    assert!(
+        !output.success(),
+        "truncate(2) of an outside inode must be denied: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(read_secret(&fixture.outside_secret), SECRET);
+    os_sandbox::reset_for_test();
+}
+
+/// The public run-start status reports the Linux backend and its ABI
+/// limitations: `backend == "landlock"`, `applied == true`, no reason once ABI3
+/// closes every supported operation, and the unclosed operations named on an
+/// older ABI.
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_installed_status_reports_the_backend_and_its_limitations() {
+    let _guard = sandbox_lock();
+    if !require_landlock_backend() {
+        eprintln!("SKIP: Landlock backend unavailable");
+        return;
+    }
+    let abi = kernel_landlock_abi();
+    let fixture = fixture();
+    let state_dir = fixture._dir.path().join("state");
+
+    let status = os_sandbox::install(SandboxMode::Auto, &fixture.root, &state_dir);
+    assert_eq!(status.backend, "landlock", "{status:?}");
+    assert!(status.applied, "{status:?}");
+    assert_eq!(status.mode.as_str(), "auto");
+    if abi >= 3 {
+        assert_eq!(
+            status.reason, None,
+            "ABI3+ closes truncate and cross-directory link/rename: {status:?}"
+        );
+    } else {
+        let reason = status.reason.as_deref().unwrap_or("");
+        assert!(
+            reason.contains("ABI2") || reason.contains("ABI3"),
+            "an older ABI must name the unclosed operations: {status:?}"
+        );
+    }
+    assert_eq!(
+        os_sandbox::status().map(|status| status.backend),
+        Some("landlock")
+    );
+
+    os_sandbox::cleanup();
     os_sandbox::reset_for_test();
 }
 
