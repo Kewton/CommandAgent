@@ -89,6 +89,22 @@ command before the shell starts.
   `sed -i` — and creating a hardlink to an inode outside the workspace. The only
   writable locations are the workspace, the run's temp directory, the known
   dependency caches, and device files such as `/dev/null`.
+- Terminal isolation (Issue #667): a command runs in its own session with no
+  controlling terminal (`setsid()` at spawn), so it cannot inject keystrokes into
+  the terminal the run was started from with `TIOCSTI` — the kernel only allows
+  `TIOCSTI` on the caller's controlling terminal, and the child no longer has
+  one. It also cannot write to another terminal's slave: on Linux `/dev/pts` is
+  not writable, and on macOS the profile re-denies `/dev/tty*` last. The visible
+  change is to a program that opens the terminal *directly*: an interactive pager
+  waiting for keys on `/dev/tty` now sees no controlling terminal. A command
+  whose standard streams are the terminal is unchanged — it keeps reading and
+  writing its inherited descriptors exactly as before, so the non-interactive
+  `git` pager path (output captured, pager writes to stdout) is unaffected.
+  The same `setsid()` applies to every bounded child, including the launches
+  that are not confined — the workspace `git` state check, the `lsof` port
+  lookup, the fetch and interaction probes, and the backend availability probes.
+  They run non-interactive commands with captured standard streams, so losing
+  the controlling terminal changes nothing for them.
 - Read confinement (Issue #657) denies reading the home secret locations
   (`.ssh`, `.aws`, `.gnupg`, `.netrc`, `.git-credentials`, `.npmrc`, `.pypirc`,
   `.docker/config.json`, `.kube`, `.config/gh`, `.config/gcloud`) and, on macOS,

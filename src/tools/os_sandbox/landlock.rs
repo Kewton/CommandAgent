@@ -40,6 +40,11 @@
 //! - Availability is probed once at run start from the Landlock ABI query and a
 //!   child `restrict_self`, so a seccomp filter that denies either syscall is an
 //!   honest "unavailable" instead of a silent pass.
+//! - Terminal isolation (Issue #667): `/dev/tty` and the `/dev/pts` directory
+//!   are not allowed for writing, so a confined command cannot write to another
+//!   terminal's slave; the child's own session (a `setsid()` in
+//!   `bounded_process`) has no controlling terminal, so `TIOCSTI` is refused by
+//!   the kernel even where Landlock cannot filter device ioctls (below ABI5).
 
 use std::collections::HashSet;
 use std::os::fd::{AsRawFd, OwnedFd};
@@ -64,15 +69,21 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Device files that either read-only tools or an attached terminal expect to
 /// write. Only the ones that exist are allowed.
+///
+/// `/dev/tty` and `/dev/pts` are deliberately absent (Issue #667). A sandboxed
+/// child runs in its own session with no controlling terminal, so it has no
+/// legitimate use for either, and allowing the whole `/dev/pts` directory let it
+/// write to another terminal's slave. Landlock grants the handled `IoctlDev`
+/// access (ABI5) only where a rule covers the location, so leaving these two out
+/// also closes device ioctls on them — including `TIOCSTI` — not just writes.
+/// `/dev/ptmx` stays allowed so allocating a pty still works.
 const DEVICE_PATHS: &[&str] = &[
     "/dev/null",
     "/dev/zero",
     "/dev/full",
     "/dev/random",
     "/dev/urandom",
-    "/dev/tty",
     "/dev/ptmx",
-    "/dev/pts",
 ];
 
 /// The Landlock ABI detected for the running kernel, or the reason it cannot be

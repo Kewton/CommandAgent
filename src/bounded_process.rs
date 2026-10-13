@@ -50,7 +50,7 @@ impl BoundedProcessOutput {
 
 pub fn spawn_child(command: &mut Command) -> io::Result<Child> {
     apply_child_env_allowlist(command);
-    configure_process_group(command);
+    configure_child_session(command);
     command.spawn()
 }
 
@@ -399,7 +399,7 @@ pub fn terminate_process_group(child: &mut Child) {
 
 /// Resolves a spawned child PID into a process-group id that is safe to
 /// signal with a negative `kill` target. The child is spawned with
-/// `process_group(0)`, so its PID equals its group id, but `-1` would signal
+/// `setsid()`, so its PID equals its group id, but `-1` would signal
 /// every signalable process and `0`/`1` would target the caller or init.
 #[cfg(unix)]
 fn signalable_process_group(pid: u32) -> Option<i32> {
@@ -416,7 +416,7 @@ pub fn terminate_process_group_by_pid(pid: u32) -> io::Result<()> {
             ));
         };
         // SAFETY: `pgid` is greater than 1 and derived from a child spawned
-        // with `process_group(0)`, so `-pgid` names only that child's own
+        // with `setsid()`, so `-pgid` names only that child's own
         // process group, never pid 0/1 or the caller's group.
         unsafe {
             libc::kill(-pgid, libc::SIGTERM);
@@ -476,7 +476,7 @@ fn terminate_process_group_with_grace<F, C>(
     {
         if let Some(pgid) = signalable_process_group(child.id()) {
             // SAFETY: `pgid` is greater than 1 and was created with
-            // `configure_process_group(0)` for this child, so `-pgid` targets
+            // `configure_child_session()` for this child, so `-pgid` targets
             // only the child's process group, never pid 0/1 or the caller's.
             unsafe {
                 libc::kill(-pgid, libc::SIGTERM);
@@ -520,11 +520,40 @@ fn output_from_child(
     })
 }
 
-fn configure_process_group(command: &mut Command) {
+/// Put the child in a new session, and so a new process group, with no
+/// controlling terminal (Issue #667).
+///
+/// `setsid()` sets both the session id and the process-group id to the child's
+/// pid, so the child's group id still equals its pid and
+/// `terminate_process_group*` keeps signalling exactly the child's own group
+/// with `-pid`. Dropping the controlling terminal is the point: the kernel only
+/// allows `TIOCSTI` when the fd names the caller's controlling terminal, so a
+/// child in its own session can no longer inject keystrokes into the terminal
+/// the caller was started from (`/dev/tty` also stops resolving for it).
+///
+/// This replaces `Command::process_group(0)`: `setsid()` fails with `EPERM` for a
+/// process that is already a process-group leader, so the two cannot be combined
+/// and `setsid()` alone provides the group.
+fn configure_child_session(command: &mut Command) {
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
-        command.process_group(0);
+        // SAFETY: `pre_exec` runs after fork and before exec. The closure calls
+        // only `setsid`; it does not allocate, lock, or log. A forked child is
+        // never a process-group leader (its pid is new), so `setsid` cannot fail
+        // with `EPERM`.
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setsid() == -1 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = command;
     }
 }
 
