@@ -389,6 +389,88 @@ fn kernel_landlock_abi() -> u32 {
     if ret < 0 { 0 } else { ret as u32 }
 }
 
+/// The running kernel release, read through the backend's public accessor (which
+/// reads `/proc/sys/kernel/osrelease`).
+#[cfg(target_os = "linux")]
+fn landlock_kernel_release() -> String {
+    commandagent::tools::os_sandbox::landlock::kernel_release_label()
+}
+
+/// The ABI-gated outcome for an ABI-dependent Linux test.
+#[cfg(target_os = "linux")]
+#[derive(Debug, PartialEq, Eq)]
+enum AbiGate {
+    /// The kernel ABI is new enough.
+    Continue,
+    /// The ABI is too old and this is a local run; record and skip.
+    Skip(String),
+    /// The ABI is too old and this is CI; the runner must provide it.
+    Fail(String),
+}
+
+/// Decide whether an ABI-dependent test continues, skips, or fails. Pure: it
+/// takes the CI flag, the queried ABI, and the ABI it needs, so it is testable
+/// without touching the environment. The skip/fail reasons name the kernel and
+/// the ABI.
+#[cfg(target_os = "linux")]
+fn abi_gate(ci: bool, abi: u32, required_abi: u32, kernel: &str) -> AbiGate {
+    if abi >= required_abi {
+        AbiGate::Continue
+    } else if ci {
+        AbiGate::Fail(format!(
+            "CI: Landlock ABI {abi} (kernel {kernel}) is below the required ABI{required_abi}"
+        ))
+    } else {
+        AbiGate::Skip(format!(
+            "SKIP: Landlock ABI {abi} (kernel {kernel}) < {required_abi}"
+        ))
+    }
+}
+
+/// Apply [`abi_gate`] with the process `CI`, returning whether the test should
+/// continue. A too-old ABI fails under CI and skips otherwise.
+#[cfg(target_os = "linux")]
+fn require_abi_or_ci_fail(abi: u32, required_abi: u32) -> bool {
+    match abi_gate(
+        std::env::var_os("CI").is_some(),
+        abi,
+        required_abi,
+        &landlock_kernel_release(),
+    ) {
+        AbiGate::Continue => true,
+        AbiGate::Skip(reason) => {
+            eprintln!("{reason}");
+            false
+        }
+        AbiGate::Fail(reason) => panic!("{reason}"),
+    }
+}
+
+/// Append the kernel release and Landlock ABI to `$GITHUB_STEP_SUMMARY` once per
+/// process, when that variable is set. Best effort: a write failure never fails
+/// the test, and only the kernel version and ABI number are written.
+#[cfg(target_os = "linux")]
+fn record_kernel_and_abi_in_step_summary() {
+    use std::sync::Once;
+
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        let Some(path) = std::env::var_os("GITHUB_STEP_SUMMARY") else {
+            return;
+        };
+        let line = format!(
+            "issue502/656 landlock: kernel={} abi={}\n",
+            landlock_kernel_release(),
+            kernel_landlock_abi()
+        );
+        let _ = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .and_then(|mut file| std::io::Write::write_all(&mut file, line.as_bytes()));
+    });
+}
+
 /// Print the running kernel release and Landlock ABI, and refuse a silent skip
 /// under CI: a GitHub Actions Linux runner must have an applied Landlock
 /// backend. Returns whether the backend is available for this test run.
@@ -399,6 +481,7 @@ fn kernel_landlock_abi() -> u32 {
 #[cfg(target_os = "linux")]
 fn require_landlock_backend() -> bool {
     use commandagent::tools::os_sandbox::landlock;
+    record_kernel_and_abi_in_step_summary();
     let abi = kernel_landlock_abi();
     let kernel = landlock::kernel_release_label();
     let available = matches!(os_sandbox::probe(), SandboxAvailability::Available);
@@ -472,9 +555,29 @@ fn linux_applied_indirect_writes_are_denied_and_the_outside_fixture_is_unchanged
     os_sandbox::reset_for_test();
 }
 
+/// The ABI gate: a too-old ABI fails under CI, skips on a local run, and a new
+/// enough ABI continues. The kernel and the queried ABI appear in the reason.
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_abi_gate_fails_under_ci_and_skips_otherwise() {
+    let kernel = "6.1.0-generic";
+    assert!(
+        matches!(
+            abi_gate(true, 1, 2, kernel),
+            AbiGate::Fail(reason) if reason.contains(kernel) && reason.contains('1')
+        ),
+        "{:?}",
+        abi_gate(true, 1, 2, kernel)
+    );
+    assert!(matches!(abi_gate(false, 1, 2, kernel), AbiGate::Skip(_)));
+    assert_eq!(abi_gate(false, 3, 3, kernel), AbiGate::Continue);
+    assert_eq!(abi_gate(true, 3, 3, kernel), AbiGate::Continue);
+    assert_eq!(abi_gate(false, 8, 2, kernel), AbiGate::Continue);
+}
+
 /// A hardlink to an outside inode is refused by Landlock. ABI2 (kernel 5.19)
-/// introduced the `refer` right that closes this; without it the link is not
-/// closed and this test is skipped with the reason recorded.
+/// introduced the `refer` right that closes this. A too-old ABI skips on a local
+/// run and fails under CI, so a CI runner cannot silently lose the closure.
 #[cfg(target_os = "linux")]
 #[test]
 fn linux_applied_hardlink_to_an_outside_inode_is_denied() {
@@ -484,10 +587,7 @@ fn linux_applied_hardlink_to_an_outside_inode_is_denied() {
         return;
     }
     let abi = kernel_landlock_abi();
-    if abi < 2 {
-        eprintln!(
-            "SKIP: Landlock ABI {abi} < 2; creating a cross-directory hardlink is not closed (ABI2)"
-        );
+    if !require_abi_or_ci_fail(abi, 2) {
         return;
     }
     let fixture = fixture();
@@ -511,8 +611,8 @@ fn linux_applied_hardlink_to_an_outside_inode_is_denied() {
 }
 
 /// `truncate(2)` does not `open` the file, so an outside inode needs ABI3
-/// (kernel 6.2) to be closed. ABI3 and later must deny it; an older ABI records
-/// the skip instead of silently passing.
+/// (kernel 6.2) to be closed. ABI3 and later must deny it; a too-old ABI skips
+/// on a local run and fails under CI.
 #[cfg(target_os = "linux")]
 #[test]
 fn linux_applied_truncate_of_an_outside_inode_is_denied() {
@@ -522,10 +622,7 @@ fn linux_applied_truncate_of_an_outside_inode_is_denied() {
         return;
     }
     let abi = kernel_landlock_abi();
-    if abi < 3 {
-        eprintln!(
-            "SKIP: Landlock ABI {abi} < 3; truncating an outside inode via truncate(2) is not closed (ABI3)"
-        );
+    if !require_abi_or_ci_fail(abi, 3) {
         return;
     }
     let fixture = fixture();
