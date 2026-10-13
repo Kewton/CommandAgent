@@ -1,30 +1,46 @@
-//! Linux Landlock backend (Issue #656, stage 1b).
+//! Linux Landlock backend (Issue #656, stage 1b; read isolation in Issue #657,
+//! stage 2).
 //!
-//! Confines the writes of model Bash and verifier commands with Landlock. The
-//! ruleset and every allowed-location file descriptor are opened in the parent;
-//! the forked child's `pre_exec` runs only `prctl(PR_SET_NO_NEW_PRIVS)` and
-//! `landlock_restrict_self`, so no work that could allocate, lock, or log
-//! happens between `fork` and `exec`.
+//! Confines the writes and, since #657, the reads of model Bash and verifier
+//! commands with Landlock. The ruleset and every allowed-location file
+//! descriptor are opened in the parent; the forked child's `pre_exec` runs only
+//! `prctl(PR_SET_NO_NEW_PRIVS)` and `landlock_restrict_self`, so no work that
+//! could allocate, lock, or log happens between `fork` and `exec`.
 //!
-//! Design (issue #656, decisions from #502):
+//! Design (issues #656 and #657, decisions from #502):
 //! - ABI1 (kernel 5.13) is required. ABI2 (`refer`, link/rename across
 //!   directories) and ABI3 (`truncate`) are used best-effort; when they are
 //!   missing the still-open operations are named in the `bash_sandbox_status`
 //!   reason.
-//! - Reads and network are not handled, so they stay unchanged, matching 1a.
+//! - Read rights: the handled read set is `AccessFs::from_read(abi)`, i.e.
+//!   `Execute | ReadFile | ReadDir`. `ReadFile` opens a file for reading and
+//!   `ReadDir` lists a directory; `Execute` runs a file, and both the toolchain
+//!   (`cargo`, `rustup`, `node`, `python`, `git`) and the system binaries need
+//!   it, so the read allow list grants all three together. Landlock checks the
+//!   access on the file or directory that is opened, not on each ancestor path
+//!   component, so an allowed subtree needs no separate traversal grant; a
+//!   denied location is unreadable because no rule covers it. `ReadFile`,
+//!   `ReadDir`, and `Execute` are all present from ABI1, so the read layer adds
+//!   no new ABI requirement over the write layer.
+//! - Read isolation is a deny list rewritten as an allow list
+//!   ([`expand_read_allow`]): Landlock cannot deny part of an allowed tree, so
+//!   the home secret locations are expressed by allowing the siblings that do
+//!   not contain them.
+//! - Network is not handled, so it stays unchanged.
 //! - Availability is probed once at run start from the Landlock ABI query and a
 //!   child `restrict_self`, so a seccomp filter that denies either syscall is an
 //!   honest "unavailable" instead of a silent pass.
 
+use std::collections::HashSet;
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::process::CommandExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;
 use std::time::Duration;
 
 use landlock::{
-    ABI, AccessFs, CompatLevel, Compatible, Ruleset, RulesetAttr, RulesetCreatedAttr,
+    ABI, Access, AccessFs, CompatLevel, Compatible, Ruleset, RulesetAttr, RulesetCreatedAttr,
     path_beneath_rules,
 };
 
@@ -139,7 +155,7 @@ fn query_abi() -> Result<u32, i32> {
 /// seccomp profile that allows creation but denies enforcement is still
 /// reported as unavailable.
 fn probe_restrict_self(abi: u32) -> Result<(), String> {
-    let fd = create_ruleset(abi, std::iter::empty::<PathBuf>())?;
+    let fd = probe_ruleset(abi)?;
     let raw = fd.as_raw_fd();
     let mut command = probe_command();
     // SAFETY: `pre_exec` runs after fork. The closure performs only the two
@@ -162,6 +178,26 @@ fn probe_restrict_self(abi: u32) -> Result<(), String> {
     }
 }
 
+/// The ruleset the availability probe enforces in its short-lived child.
+///
+/// It handles only the write accesses (ABI1) and allows no location, so the
+/// child keeps its read and execute access and can still `exec` the probe
+/// program. The probe only needs to confirm that `landlock_restrict_self` is
+/// enforceable (not denied by seccomp or the kernel); handling the read set here
+/// too would deny the child's own `exec` and be misread as "unavailable".
+fn probe_ruleset(abi: u32) -> Result<OwnedFd, String> {
+    let access = AccessFs::from_write(ABI::from(abi as i32));
+    let created = Ruleset::default()
+        // ABI1 must be enforceable; otherwise the backend is unavailable.
+        .set_compatibility(CompatLevel::HardRequirement)
+        .handle_access(access)
+        .map_err(|err| format!("landlock ruleset setup failed: {err}"))?
+        .create()
+        .map_err(|err| format!("landlock ruleset creation failed: {err}"))?;
+    Option::<OwnedFd>::from(created)
+        .ok_or_else(|| "landlock ruleset is not enforceable on this kernel".to_string())
+}
+
 fn probe_command() -> Command {
     for candidate in ["/bin/true", "/usr/bin/true"] {
         if std::path::Path::new(candidate).exists() {
@@ -181,14 +217,25 @@ fn probe_command() -> Command {
     command
 }
 
-/// Create a ruleset that denies the ABI's write accesses outside `allowed`,
-/// returning its file descriptor for the child to enforce.
-fn create_ruleset(abi: u32, allowed: impl IntoIterator<Item = PathBuf>) -> Result<OwnedFd, String> {
-    let access = AccessFs::from_write(ABI::from(abi as i32));
+/// Create a ruleset that denies every handled read and write access outside
+/// `writable` (read+write+execute) and `read_only` (read+execute), returning its
+/// file descriptor for the child to enforce.
+///
+/// `handle_access` uses `from_all(abi)` so both the read layer and the write
+/// layer are enforced; `Execute | ReadFile | ReadDir` all exist from ABI1, so
+/// this adds no ABI requirement over the write layer.
+fn create_ruleset(
+    abi: u32,
+    writable: impl IntoIterator<Item = PathBuf>,
+    read_only: impl IntoIterator<Item = PathBuf>,
+) -> Result<OwnedFd, String> {
+    let abi = ABI::from(abi as i32);
+    let read_access = AccessFs::from_read(abi);
+    let full_access = AccessFs::from_all(abi);
     let created = Ruleset::default()
         // ABI1 must be enforceable; otherwise the backend is unavailable.
         .set_compatibility(CompatLevel::HardRequirement)
-        .handle_access(access)
+        .handle_access(full_access)
         .map_err(|err| format!("landlock ruleset setup failed: {err}"))?
         // Rules are best-effort so a file location silently drops directory-only
         // accesses instead of failing the whole ruleset.
@@ -196,8 +243,11 @@ fn create_ruleset(abi: u32, allowed: impl IntoIterator<Item = PathBuf>) -> Resul
         .create()
         .map_err(|err| format!("landlock ruleset creation failed: {err}"))?;
     let created = created
-        .add_rules(path_beneath_rules(allowed, access))
-        .map_err(|err| format!("landlock rule failed: {err}"))?;
+        .add_rules(path_beneath_rules(writable, full_access))
+        .map_err(|err| format!("landlock write rule failed: {err}"))?;
+    let created = created
+        .add_rules(path_beneath_rules(read_only, read_access))
+        .map_err(|err| format!("landlock read rule failed: {err}"))?;
     Option::<OwnedFd>::from(created)
         .ok_or_else(|| "landlock ruleset is not enforceable on this kernel".to_string())
 }
@@ -265,7 +315,11 @@ pub fn wrap(command: &mut Command, policy: &SandboxPolicy) -> Result<(), String>
     if test_hooks::wrap_should_fail() {
         return Err("landlock ruleset could not be built (test hook)".to_string());
     }
-    let fd = create_ruleset(detected_abi(), allowed_paths(policy))?;
+    let fd = create_ruleset(
+        detected_abi(),
+        allowed_paths(policy),
+        read_allow_paths(policy),
+    )?;
     // Point tools at the run temp directory, which the ruleset allows.
     command.env("TMPDIR", &policy.run_tmp_dir);
     let raw = fd.as_raw_fd();
@@ -283,7 +337,13 @@ pub fn wrap(command: &mut Command, policy: &SandboxPolicy) -> Result<(), String>
 
 /// The locations the sandbox leaves writable: the workspace, the run temp
 /// directory, the known dependency caches, and the device files that exist.
-fn allowed_paths(policy: &SandboxPolicy) -> Vec<PathBuf> {
+/// These also get the read and execute rights, because a location that is
+/// writable must be readable and its binaries executable.
+///
+/// Because each of these locations also grants read on its whole subtree, a
+/// writable location that is a home secret or an ancestor of one re-opens that
+/// secret; [`read_isolation_gaps`] detects it.
+pub(crate) fn allowed_paths(policy: &SandboxPolicy) -> Vec<PathBuf> {
     let mut paths = vec![policy.workspace_root.clone(), policy.run_tmp_dir.clone()];
     paths.extend(existing(policy.caches.cargo_registry.clone()));
     paths.extend(existing(policy.caches.cargo_git.clone()));
@@ -291,9 +351,7 @@ fn allowed_paths(policy: &SandboxPolicy) -> Vec<PathBuf> {
     paths.extend(existing(policy.caches.npm.clone()));
     paths.extend(existing(policy.caches.pip.clone()));
     paths.extend(existing(policy.caches.playwright.clone()));
-    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
-        paths.extend(cache_paths(&home));
-    }
+    paths.extend(cache_paths(&policy.home));
     for device in DEVICE_PATHS {
         let path = PathBuf::from(device);
         if path.exists() {
@@ -301,6 +359,113 @@ fn allowed_paths(policy: &SandboxPolicy) -> Vec<PathBuf> {
         }
     }
     paths
+}
+
+/// The read-only locations: the expansion of the home secret deny list into its
+/// complement (see [`expand_read_allow`]). Without this, handling the read
+/// rights would make every location unreadable. `home_secret_locations`
+/// canonicalizes each location, so a symlinked secret location (`~/.ssh` that
+/// points outside the home) denies its target too.
+fn read_allow_paths(policy: &SandboxPolicy) -> Vec<PathBuf> {
+    expand_read_allow(&super::secret_locations::home_secret_locations(
+        &policy.home,
+    ))
+}
+
+/// The home secret locations whose read denial a writable location defeats, so
+/// the read layer is not fully effective. A secret is defeated when a writable
+/// location is the same path or an ancestor of it (the write allow then grants
+/// read on the secret's subtree) or, more narrowly, when the writable location
+/// is *inside* the secret (only that subtree is readable, but the denial is
+/// still partial). Both writable and denied paths are canonicalized first, so a
+/// workspace or cache reached through a symlink is compared by its real path.
+/// Pure apart from that canonicalization.
+pub(crate) fn read_isolation_gaps(writable: &[PathBuf], denied: &[PathBuf]) -> Vec<PathBuf> {
+    let writable: Vec<PathBuf> = writable
+        .iter()
+        .map(|path| canonicalize_or_keep(path))
+        .collect();
+    denied
+        .iter()
+        .filter(|secret| {
+            let secret = secret.as_path();
+            writable
+                .iter()
+                .any(|root| secret.starts_with(root) || root.starts_with(secret))
+        })
+        .cloned()
+        .collect()
+}
+
+/// Canonicalize a path, keeping it as-is when it does not exist or cannot be
+/// resolved.
+fn canonicalize_or_keep(path: &Path) -> PathBuf {
+    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+}
+
+/// Rewrite a deny list into a read-allow list for Landlock.
+///
+/// Landlock is an allow list: an object is readable only if some rule covers it,
+/// and a rule on a directory also covers its whole subtree, so a deny list must
+/// be expressed as its complement. For every directory on the path to a denied
+/// location, allow each child that does not contain a denied location, and
+/// recurse into the children that do; the denied location itself is never
+/// allowed, so only its subtree stays unreadable. The toolchain, git, and the
+/// system locations are covered because their top-level and home siblings are
+/// allowed here.
+///
+/// The expansion reads the directories once, when the run starts, so a location
+/// created under an expanded directory afterwards is not readable in this run.
+fn expand_read_allow(denied: &[PathBuf]) -> Vec<PathBuf> {
+    expand_read_allow_from(std::path::Path::new("/"), denied)
+}
+
+/// [`expand_read_allow`] from an explicit root, so a test can drive the same
+/// walk inside a tempdir instead of the filesystem root.
+///
+/// An empty deny list (for example when `HOME` is unset) has no location to
+/// protect, so the walk allows every child of the root and reads stay unchanged
+/// rather than becoming unreadable.
+fn expand_read_allow_from(root: &std::path::Path, denied: &[PathBuf]) -> Vec<PathBuf> {
+    let mut allow = Vec::new();
+    let mut frontier = vec![root.to_path_buf()];
+    let mut visited: HashSet<PathBuf> = HashSet::new();
+    while let Some(directory) = frontier.pop() {
+        if !visited.insert(directory.clone()) {
+            continue;
+        }
+        let Ok(entries) = std::fs::read_dir(&directory) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            // `path_beneath_rules` opens each allowed path with `O_PATH`, which
+            // follows symlinks, so a rule for a symlink entry would attach to
+            // its target. A link that points at a secret would then open that
+            // secret (and a secret location that is itself a link would open
+            // its target). Skip symlink entries: the target is decided by the
+            // real path, which the walk reaches on its own when it is outside a
+            // secret and leaves unmatched when it is a secret.
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
+            if file_type.is_symlink() {
+                continue;
+            }
+            if denied.iter().any(|secret| secret == &path) {
+                // The denied location itself stays unreadable and is not opened.
+                continue;
+            }
+            if denied.iter().any(|secret| secret.starts_with(&path)) {
+                // A strict ancestor of a denied location: open up its own
+                // children without reading the denied subtree.
+                frontier.push(path);
+            } else {
+                allow.push(path);
+            }
+        }
+    }
+    allow
 }
 
 /// The Linux dependency caches allowed for writing (decision 2). Only those that
@@ -414,6 +579,25 @@ mod tests {
         }
     }
 
+    /// The availability probe must still let its child `exec`. The probe ruleset
+    /// handles only the write accesses, so the child keeps read/execute; a
+    /// regression that also handles the read set (without allowing the probe's
+    /// own reads) makes the child fail with EACCES and the backend be
+    /// misreported as unavailable.
+    #[test]
+    fn probe_child_can_exec_under_the_probe_ruleset() {
+        // Use the raw ABI query, not `detected_abi()`: the latter is 0 when the
+        // probe itself fails, which would hide the regression under test.
+        let abi = match query_abi() {
+            Ok(abi) if abi >= 1 => abi,
+            _ => {
+                eprintln!("SKIP: landlock is unavailable on this kernel");
+                return;
+            }
+        };
+        probe_restrict_self(abi).expect("the probe child must exec under the probe ruleset");
+    }
+
     #[test]
     fn an_enforcement_failure_is_unavailable_and_names_the_kernel_and_abi() {
         let Detected::Unavailable(reason) = decide(
@@ -425,6 +609,131 @@ mod tests {
         };
         assert!(reason.contains("6.1.0"), "{reason}");
         assert!(reason.contains("landlock ABI 2"), "{reason}");
+    }
+
+    #[test]
+    fn read_allow_expansion_keeps_siblings_and_excludes_denied_subtrees() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("secret/inner")).unwrap();
+        std::fs::write(root.join("secret/inner/key"), "CANARY\n").unwrap();
+        std::fs::create_dir_all(root.join("nested/gh")).unwrap();
+        std::fs::create_dir_all(root.join("nested/other")).unwrap();
+        std::fs::create_dir_all(root.join("public")).unwrap();
+        let denied = vec![root.join("secret"), root.join("nested/gh")];
+
+        let allow = expand_read_allow_from(root, &denied);
+        assert!(allow.contains(&root.join("public")), "{allow:?}");
+        // A directory that only contains denied locations is opened up for its
+        // own non-denied children, not allowed wholesale.
+        assert!(allow.contains(&root.join("nested/other")), "{allow:?}");
+        assert!(!allow.contains(&root.join("nested")), "{allow:?}");
+        assert!(
+            allow.iter().all(|path| !path.starts_with(&denied[0])),
+            "{allow:?}"
+        );
+        assert!(
+            allow.iter().all(|path| !path.starts_with(&denied[1])),
+            "{allow:?}"
+        );
+    }
+
+    #[test]
+    fn read_isolation_gaps_reports_secrets_covered_by_writable_locations() {
+        let home = PathBuf::from("/home/alice");
+        let denied = vec![home.join(".ssh"), home.join(".aws")];
+
+        // A writable location that is the home itself covers both secrets.
+        assert_eq!(
+            read_isolation_gaps(std::slice::from_ref(&home), &denied),
+            denied
+        );
+
+        // A writable location inside one secret covers only that secret.
+        let workspace = home.join(".ssh/workspace");
+        assert_eq!(
+            read_isolation_gaps(&[workspace], &denied),
+            vec![home.join(".ssh")]
+        );
+
+        // A writable location outside the secrets covers none.
+        assert!(read_isolation_gaps(&[PathBuf::from("/tmp/work")], &denied).is_empty());
+    }
+
+    #[test]
+    fn read_isolation_gaps_canonicalizes_writable_locations() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("real");
+        std::fs::create_dir_all(real.join(".ssh")).unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let denied = vec![real.canonicalize().unwrap().join(".ssh")];
+
+        // The workspace is reached through a symlink, so only canonicalizing the
+        // writable location reveals that it is the secret's ancestor.
+        assert_eq!(read_isolation_gaps(&[link], &denied), denied);
+    }
+
+    #[test]
+    fn an_empty_deny_list_allows_every_child_so_reads_stay_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("one")).unwrap();
+        std::fs::create_dir_all(root.join("two")).unwrap();
+        let allow = expand_read_allow_from(root, &[]);
+        assert!(allow.contains(&root.join("one")), "{allow:?}");
+        assert!(allow.contains(&root.join("two")), "{allow:?}");
+    }
+
+    #[test]
+    fn expand_read_allow_skips_a_symlink_that_points_at_a_secret() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().canonicalize().unwrap();
+        std::fs::create_dir_all(home.join(".ssh")).unwrap();
+        let key = home.join(".ssh/id_ed25519");
+        std::fs::write(&key, "CANARY\n").unwrap();
+        let note = home.join("notes.txt");
+        std::os::unix::fs::symlink(&key, &note).unwrap();
+        let denied = vec![home.join(".ssh")];
+
+        let allow = expand_read_allow_from(&home, &denied);
+        assert!(
+            !allow.contains(&note),
+            "the symlink entry must not be allowed: {allow:?}"
+        );
+        let key = key.canonicalize().unwrap();
+        assert!(
+            allow
+                .iter()
+                .all(|path| path.canonicalize().ok().as_ref() != Some(&key)),
+            "no rule may reach the secret inode: {allow:?}"
+        );
+    }
+
+    #[test]
+    fn expand_read_allow_skips_a_secret_location_that_is_a_symlink() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().canonicalize().unwrap();
+        std::fs::create_dir_all(&home).unwrap();
+        let outside = dir.path().join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("id_rsa"), "CANARY\n").unwrap();
+        let ssh = home.join(".ssh");
+        std::os::unix::fs::symlink(&outside, &ssh).unwrap();
+        let outside = outside.canonicalize().unwrap();
+        let denied = vec![outside.clone()];
+
+        let allow = expand_read_allow_from(&home, &denied);
+        assert!(
+            !allow.contains(&ssh),
+            "the symlink entry must not be allowed: {allow:?}"
+        );
+        assert!(
+            allow
+                .iter()
+                .all(|path| path.canonicalize().ok().as_ref() != Some(&outside)),
+            "no rule may reach the secret target inode: {allow:?}"
+        );
     }
 
     #[test]

@@ -1,0 +1,6 @@
+{"id": "home-direct", "command": "cat \"$HOME/.ssh/id_ed25519\"", "lexicalR": true, "exitNonzero": true, "note": "a directly named home secret; the lexical guard already refuses the .ssh component"}
+{"id": "home-symlink", "command": "cat \"$HOME/notes.txt\"", "lexicalR": false, "exitNonzero": true, "note": "a non-secret symlink name resolves to the key; only the OS read layer closes it"}
+{"id": "home-bash-env", "command": "cat \"$BASH_ENV\"", "lexicalR": false, "exitNonzero": true, "note": "a file named by a read-through environment variable (: contains no literal .ssh)"}
+{"id": "home-python-assembled", "command": "python3 - <<'PY'\nimport os, sys\nhome = os.environ[\"HOME\"]\nname = \".\" + \"s\" + \"sh\" + \"/\" + \"id_\" + \"ed25519\"\nsys.stdout.write(open(home + \"/\" + name).read())\nPY", "lexicalR": false, "exitNonzero": true, "note": "a name an interpreter assembles at run time from a heredoc"}
+{"id": "workspace-template", "command": "cat .env.example", "lexicalR": false, "exitNonzero": false, "note": "a strict dotenv template stays readable"}
+{"id": "inside-read", "command": "cat a.txt", "lexicalR": false, "exitNonzero": false, "note": "control: an ordinary workspace read stays allowed"}

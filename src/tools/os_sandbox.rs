@@ -1,12 +1,14 @@
-//! OS write sandbox for model Bash and verifier commands (Issue #655).
+//! OS write and read sandbox for model Bash and verifier commands (Issues #655
+//! and #657).
 //!
-//! This is the common leaf module of the #502 write-confinement track. It wraps
-//! the `sh -c` launch point of the model Bash tool (including the `bash:verify`
+//! This is the common leaf module of the #502 confinement track. It wraps the
+//! `sh -c` launch point of the model Bash tool (including the `bash:verify`
 //! interval, which reuses the same function) and of verifier commands, so an
-//! indirect write that the lexical guard cannot see still fails when the OS
-//! backend is available.
+//! indirect write the lexical guard cannot see still fails, and since #657 an
+//! indirect read of a home secret location (or, on macOS, a workspace
+//! credential) fails as well, when the OS backend is available.
 //!
-//! Design (issue #655, decisions from #502):
+//! Design (issues #655 and #657, decisions from #502):
 //! - The backend writes a fixed profile; locations travel only through `-D`
 //!   parameters, never embedded in the profile string.
 //! - Availability is probed once at run start and stored process-wide, together
@@ -19,6 +21,11 @@
 //! - macOS uses Seatbelt (stage 1a); Linux uses Landlock (stage 1b). On any
 //!   other platform the backend is reported as unavailable rather than silently
 //!   pretending isolation.
+//! - The read layer is a deny list shared by both backends
+//!   ([`secret_locations`]); it is applied together with the write layer, and
+//!   `bash_sandbox_status` reports it through the existing `reason` field (a
+//!   `reason` that names the read isolation, or `None` for a fully confined
+//!   sandbox).
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -30,12 +37,16 @@ use clap::ValueEnum;
 pub mod landlock;
 #[cfg(target_os = "macos")]
 pub mod seatbelt;
+/// The shared read-deny list (Issue #657). Compiled only where a read backend
+/// exists, so it is never dead code on other platforms.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+pub mod secret_locations;
 
 /// The macOS backend name used in `bash_sandbox_status`.
 pub const BACKEND_SEATBELT: &str = "seatbelt";
 /// The Linux backend name used in `bash_sandbox_status`.
 pub const BACKEND_LANDLOCK: &str = "landlock";
-/// The backend name on platforms without a write backend in this stage.
+/// The backend name on platforms without an OS sandbox backend in this stage.
 pub const BACKEND_NONE: &str = "none";
 
 /// The honest failure kind emitted when `required` cannot apply the sandbox.
@@ -44,13 +55,13 @@ pub const UNAVAILABLE_KIND: &str = "bash_sandbox_unavailable";
 /// The reason recorded when the sandbox is explicitly disabled.
 const DISABLED_REASON: &str = "disabled by --sandbox off";
 /// The reason recorded once a run has finished and its sandbox is torn down.
-const RUN_FINISHED_REASON: &str = "run finished; the OS write sandbox is no longer applied";
+const RUN_FINISHED_REASON: &str = "run finished; the OS sandbox is no longer applied";
 /// The refusal reason for a `required` run whose backend is available but whose
 /// policy is gone (for example after [`cleanup`]).
-const MISSING_POLICY_REASON: &str = "the OS write sandbox has no policy to apply";
-/// The reason recorded on platforms with no write-isolation backend in 1a/1b.
+const MISSING_POLICY_REASON: &str = "the OS sandbox has no policy to apply";
+/// The reason recorded on platforms with no OS backend in 1a/1b/2.
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-const NO_PLATFORM_BACKEND: &str = "no OS write-isolation backend is available on this platform (macOS Seatbelt and Linux Landlock are supported)";
+const NO_PLATFORM_BACKEND: &str = "no OS sandbox backend is available on this platform (macOS Seatbelt and Linux Landlock are supported)";
 
 /// `--sandbox auto|required|off`. `auto` is the default.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -86,23 +97,43 @@ pub enum SandboxAvailability {
     Unavailable(String),
 }
 
-/// The resolved write-allow list and the run temp directory.
+/// The resolved write-allow list, the run temp directory, and the home whose
+/// secret locations are denied for reading (Issue #657).
 #[derive(Debug, Clone)]
 pub struct SandboxPolicy {
     pub workspace_root: PathBuf,
     pub run_tmp_dir: PathBuf,
     pub caches: CachePaths,
+    /// The home whose secret locations the read backend denies. Resolved from
+    /// `HOME`; tests pass an explicit tempdir so they never touch the real home.
+    pub home: PathBuf,
 }
 
 impl SandboxPolicy {
-    /// Build a policy whose cache locations are resolved from `HOME`.
+    /// Build a policy whose cache locations and read-deny home are resolved from
+    /// `HOME`.
     pub fn new(workspace_root: &Path, run_tmp_dir: &Path) -> Self {
+        Self::with_home(workspace_root, run_tmp_dir, home_dir())
+    }
+
+    /// Build a policy with an explicit home, so a test can point the read deny
+    /// list at a tempdir without racing on the process `HOME`.
+    pub fn with_home(workspace_root: &Path, run_tmp_dir: &Path, home: PathBuf) -> Self {
         Self {
             workspace_root: workspace_root.to_path_buf(),
             run_tmp_dir: run_tmp_dir.to_path_buf(),
-            caches: resolve_cache_paths(),
+            caches: resolve_cache_paths(&home),
+            home,
         }
     }
+}
+
+/// The process home, or an empty path when `HOME` is unset. An empty home makes
+/// the read deny list empty ([`secret_locations::home_secret_locations`]).
+fn home_dir() -> PathBuf {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_default()
 }
 
 /// Known dependency caches allowed for writing (decision 2). pnpm and yarn
@@ -123,6 +154,14 @@ pub struct SandboxStatus {
     pub mode: SandboxMode,
     pub backend: &'static str,
     pub applied: bool,
+    /// Whether the read isolation of Issue #657 is in force for the whole
+    /// workspace. It is applied together with the write backend, but is `false`
+    /// when no home secret location is known or, on Linux, when a writable
+    /// location is a home secret or an ancestor of one (its subtree then stays
+    /// readable), so the record never claims isolation the read layer cannot
+    /// provide. `bash_sandbox_status` reports it through the existing
+    /// [`SandboxStatus::reason`] field rather than a new event field.
+    pub read_isolation: bool,
     pub reason: Option<String>,
 }
 
@@ -131,6 +170,7 @@ impl SandboxStatus {
         mode: SandboxMode,
         availability: &SandboxAvailability,
         note: Option<String>,
+        read_isolation_effective: bool,
     ) -> Self {
         let applied = mode.uses_backend() && matches!(availability, SandboxAvailability::Available);
         let reason = if mode.uses_backend() {
@@ -147,6 +187,7 @@ impl SandboxStatus {
             mode,
             backend: backend_name(),
             applied,
+            read_isolation: applied && read_isolation_effective,
             reason,
         }
     }
@@ -183,18 +224,86 @@ fn backend_name() -> &'static str {
     }
 }
 
-/// The best-effort limitation of the applied backend, recorded in the
-/// `bash_sandbox_status` reason even while the sandbox is applied. The Linux
-/// Landlock backend names the operations an older ABI cannot close; other
-/// backends have none.
-fn backend_note() -> Option<String> {
+/// The read-isolation clause recorded in `bash_sandbox_status`'s reason while
+/// the read layer of Issue #657 is effective.
+const READ_ISOLATION_APPLIED: &str = "read isolation applied";
+/// The clause recorded when no home secret location is known to deny.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+const READ_ISOLATION_NO_HOME: &str =
+    "read isolation is not effective: no home secret location is known";
+
+/// Whether the read layer is effective for a policy, and the clause that reports
+/// it in the `bash_sandbox_status` reason.
+struct ReadIsolation {
+    effective: bool,
+    clause: String,
+}
+
+/// Classify the read isolation for a policy. It is ineffective when the home is
+/// unknown (an empty deny list) or, on Linux, when a write-allowed location is a
+/// home secret or an ancestor of one: the expansion cannot deny a location that
+/// the write allow list already grants read on, so those secrets stay readable.
+/// On macOS the read deny is applied after `(allow default)`, so a write-allowed
+/// location does not re-open a secret.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn read_isolation(policy: Option<&SandboxPolicy>) -> ReadIsolation {
+    let Some(policy) = policy else {
+        return ReadIsolation {
+            effective: false,
+            clause: "read isolation is not effective: no sandbox policy".to_string(),
+        };
+    };
+    let denied = secret_locations::home_secret_locations(&policy.home);
+    if denied.is_empty() {
+        return ReadIsolation {
+            effective: false,
+            clause: READ_ISOLATION_NO_HOME.to_string(),
+        };
+    }
     #[cfg(target_os = "linux")]
     {
-        landlock::limitation_note()
+        let gaps = landlock::read_isolation_gaps(&landlock::allowed_paths(policy), &denied);
+        if !gaps.is_empty() {
+            return ReadIsolation {
+                effective: false,
+                clause: format!(
+                    "read isolation is not effective for {} home secret location(s) overlapped by a writable location",
+                    gaps.len()
+                ),
+            };
+        }
+    }
+    ReadIsolation {
+        effective: true,
+        clause: READ_ISOLATION_APPLIED.to_string(),
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn read_isolation(_policy: Option<&SandboxPolicy>) -> ReadIsolation {
+    ReadIsolation {
+        effective: false,
+        clause: "read isolation is not effective: no backend on this platform".to_string(),
+    }
+}
+
+/// The note recorded in the `bash_sandbox_status` reason while the sandbox is
+/// applied. On Linux it names the write operations an older ABI cannot close and
+/// the read-isolation clause; a fully closed ABI with effective reads has no
+/// note (`None`), which the event reads as fully confined. On other platforms it
+/// names the read-isolation clause.
+fn backend_note(read: &ReadIsolation) -> Option<String> {
+    #[cfg(target_os = "linux")]
+    {
+        match landlock::limitation_note() {
+            Some(note) => Some(format!("{note}; {}", read.clause)),
+            None if read.effective => None,
+            None => Some(read.clause.clone()),
+        }
     }
     #[cfg(not(target_os = "linux"))]
     {
-        None
+        Some(read.clause.clone())
     }
 }
 
@@ -235,6 +344,7 @@ pub fn install(mode: SandboxMode, workspace_root: &Path, state_dir: &Path) -> Sa
             mode,
             backend: backend_name(),
             applied: false,
+            read_isolation: false,
             reason: None,
         }
     }
@@ -273,7 +383,8 @@ pub fn install_for_test(
 /// the one the run started in, so the fixed profile would confine it to the wrong
 /// workspace.
 #[cfg(not(test))]
-const DIFFERENT_WORKSPACE_REASON: &str = "workflow node runs in a workspace other than the run workspace; the OS write sandbox is not applied";
+const DIFFERENT_WORKSPACE_REASON: &str =
+    "workflow node runs in a workspace other than the run workspace; the OS sandbox is not applied";
 
 /// Reconcile the installed sandbox with the workspace a workflow child node runs
 /// in.
@@ -316,11 +427,13 @@ fn reconcile_workspace_impl(workspace_root: &Path) -> Option<SandboxStatus> {
             mismatched,
         )
     };
+    let read = read_isolation(policy.as_ref());
     if !mismatched || !mode.uses_backend() {
         return Some(SandboxStatus::from_parts(
             mode,
             &availability,
-            backend_note(),
+            backend_note(&read),
+            read.effective,
         ));
     }
     if !matches!(availability, SandboxAvailability::Available) {
@@ -329,11 +442,12 @@ fn reconcile_workspace_impl(workspace_root: &Path) -> Option<SandboxStatus> {
         return Some(SandboxStatus::from_parts(
             mode,
             &availability,
-            backend_note(),
+            backend_note(&read),
+            read.effective,
         ));
     }
     let availability = SandboxAvailability::Unavailable(DIFFERENT_WORKSPACE_REASON.to_string());
-    let status = SandboxStatus::from_parts(mode, &availability, None);
+    let status = SandboxStatus::from_parts(mode, &availability, None, false);
     *installed = Some(Installed {
         policy,
         mode,
@@ -347,7 +461,9 @@ fn store(
     policy: Option<SandboxPolicy>,
     availability: SandboxAvailability,
 ) -> SandboxStatus {
-    let status = SandboxStatus::from_parts(mode, &availability, backend_note());
+    let read = read_isolation(policy.as_ref());
+    let status =
+        SandboxStatus::from_parts(mode, &availability, backend_note(&read), read.effective);
     let mut installed = INSTALLED.lock().expect("sandbox state");
     *installed = Some(Installed {
         policy,
@@ -422,7 +538,13 @@ pub fn cleanup_guard() -> SandboxCleanupGuard {
 pub fn status() -> Option<SandboxStatus> {
     let installed = INSTALLED.lock().expect("sandbox state");
     installed.as_ref().map(|installed| {
-        SandboxStatus::from_parts(installed.mode, &installed.availability, backend_note())
+        let read = read_isolation(installed.policy.as_ref());
+        SandboxStatus::from_parts(
+            installed.mode,
+            &installed.availability,
+            backend_note(&read),
+            read.effective,
+        )
     })
 }
 
@@ -437,7 +559,7 @@ pub fn startup_warning() -> Option<String> {
     if status.mode == SandboxMode::Auto && !status.applied {
         let reason = status.reason.as_deref().unwrap_or("unknown reason");
         Some(format!(
-            "warning: OS write sandbox is unavailable ({reason}); Bash and verifier commands continue with lexical path checks only"
+            "warning: OS sandbox is unavailable ({reason}); Bash and verifier commands continue with lexical path checks only"
         ))
     } else {
         None
@@ -531,10 +653,11 @@ fn apply_backend(
     }
 }
 
-fn resolve_cache_paths() -> CachePaths {
-    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
+fn resolve_cache_paths(home: &Path) -> CachePaths {
+    if home.as_os_str().is_empty() {
         return CachePaths::default();
-    };
+    }
+    let home = home.to_path_buf();
     CachePaths {
         cargo_registry: existing_dir(home.join(".cargo/registry")),
         cargo_git: existing_dir(home.join(".cargo/git")),
@@ -566,7 +689,25 @@ mod tests {
             workspace_root: PathBuf::from("/tmp/os-sandbox-test-work"),
             run_tmp_dir: PathBuf::from("/tmp/os-sandbox-test-tmp"),
             caches: CachePaths::default(),
+            home: PathBuf::from("/tmp/os-sandbox-test-home"),
         }
+    }
+
+    /// `SandboxPolicy::new` must take the home from the process `HOME` (through
+    /// `home_dir`); otherwise the read-deny list is built from an empty home and
+    /// every secret stays readable. Reads only the `HOME` value: it does not read
+    /// or list the home directory, and it does not mutate the environment.
+    #[test]
+    fn policy_new_resolves_home_from_the_environment() {
+        let Some(home) = std::env::var_os("HOME") else {
+            eprintln!("SKIP: HOME is not set");
+            return;
+        };
+        let policy = SandboxPolicy::new(
+            Path::new("/commandagent-home-test-ws"),
+            Path::new("/commandagent-home-test-tmp"),
+        );
+        assert_eq!(policy.home, PathBuf::from(home));
     }
 
     #[test]

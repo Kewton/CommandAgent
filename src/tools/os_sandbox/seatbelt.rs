@@ -1,17 +1,22 @@
-//! macOS Seatbelt backend (Issue #655, stage 1a).
+//! macOS Seatbelt backend (Issue #655, stage 1a; read isolation in Issue #657,
+//! stage 2).
 //!
-//! Applies a fixed write-confinement profile through `sandbox-exec`. The
-//! profile is a constant string; the workspace, the run temp directory, and the
-//! allowed caches travel only as `-D` parameters, so no location is embedded in
-//! the profile text. Reads and network are left as they are (`allow default`
-//! then `deny file-write*`), and the only re-allowed writes are the workspace,
-//! the run temp directory, the known dependency caches, and device files.
+//! Applies a write-confinement profile and, since #657, a read-confinement
+//! layer through `sandbox-exec`. The profile is assembled from a constant; every
+//! location travels only as a `-D` parameter, so no path is embedded in the
+//! profile text. `(allow default)` keeps everything else open, then
+//! `(deny file-write*)` confines writes to the workspace, the run temp
+//! directory, the known dependency caches, and device files, and `(deny
+//! file-read*)` denies the home secret locations and the workspace credential
+//! names. Read isolation is a deny list (decision 4 of #502): everything that is
+//! not a credential stays readable, so a toolchain, git, and the system files
+//! keep working.
 
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use super::{SandboxAvailability, SandboxPolicy};
+use super::{SandboxAvailability, SandboxPolicy, secret_locations};
 
 const SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
 const PROBE_PROFILE: &str = "(version 1)(allow default)";
@@ -20,9 +25,11 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 /// defined. It matches nothing on a real system.
 const UNSET_PATH: &str = "/commandagent-sandbox-unset";
 
-/// The fixed profile. `(allow default)` keeps reads and network unchanged;
-/// `(deny file-write*)` then confines every write to the parameters below.
-const PROFILE: &str = r#"
+/// The fixed write profile. `(allow default)` keeps everything else open;
+/// `(deny file-write*)` then confines every write to the parameters below. The
+/// read-deny rules are appended per run by [`profile`], because the number of
+/// home secret locations is fixed but their names travel as parameters.
+const WRITE_PROFILE: &str = r#"
 (version 1)
 (allow default)
 (deny file-write*)
@@ -36,6 +43,25 @@ const PROFILE: &str = r#"
 (allow file-write* (literal (param "CACHE_CARGO_PACKAGE")))
 (allow file-write* (regex #"^/dev/"))
 "#;
+
+/// The profile for a run, with `deny_count` home secret locations and the
+/// workspace credential rules. Seatbelt applies the last matching rule, so the
+/// template re-allow comes after the workspace credential deny and keeps the
+/// three strict dotenv templates readable.
+fn profile(deny_count: usize) -> String {
+    let mut profile = String::from(WRITE_PROFILE);
+    for index in 0..deny_count {
+        profile.push_str(&format!(
+            "(deny file-read* (subpath (param \"RDENY_HOME_{index}\")))\n"
+        ));
+    }
+    profile.push_str("(deny file-read* (regex (param \"RDENY_WS\")))\n");
+    profile.push_str("(allow file-read* (regex (param \"RALLOW_WS_TEMPLATE\")))\n");
+    // Re-deny a template below a secret-named directory, so the re-allow above
+    // cannot open `.ssh/.env.example`.
+    profile.push_str("(deny file-read* (regex (param \"RDENY_WS_TEMPLATE\")))\n");
+    profile
+}
 
 /// Start `sandbox-exec` with a do-nothing profile. A nested sandbox reports
 /// rc=71 (`Operation not permitted`), which is an honest "unavailable".
@@ -84,8 +110,9 @@ fn classify_probe_exit(success: bool, status: Option<String>) -> SandboxAvailabi
 /// Standard I/O is intentionally left unset: it does not survive the transfer,
 /// so callers set it on the returned command.
 pub fn wrap(command: Command, policy: &SandboxPolicy) -> Command {
+    let home_secrets = secret_locations::home_secret_locations(&policy.home);
     let mut wrapped = Command::new(SANDBOX_EXEC);
-    wrapped.arg("-p").arg(PROFILE);
+    wrapped.arg("-p").arg(profile(home_secrets.len()));
     define(&mut wrapped, "WS", Some(&policy.workspace_root));
     define(&mut wrapped, "TMP", Some(&policy.run_tmp_dir));
     define(
@@ -109,6 +136,25 @@ pub fn wrap(command: Command, policy: &SandboxPolicy) -> Command {
         &mut wrapped,
         "CACHE_CARGO_PACKAGE",
         policy.caches.cargo_package_cache.as_deref(),
+    );
+
+    for (index, location) in home_secrets.iter().enumerate() {
+        define(&mut wrapped, &format!("RDENY_HOME_{index}"), Some(location));
+    }
+    define_text(
+        &mut wrapped,
+        "RDENY_WS",
+        &secret_locations::workspace_credential_regex(&policy.workspace_root),
+    );
+    define_text(
+        &mut wrapped,
+        "RALLOW_WS_TEMPLATE",
+        &secret_locations::workspace_template_regex(&policy.workspace_root),
+    );
+    define_text(
+        &mut wrapped,
+        "RDENY_WS_TEMPLATE",
+        &secret_locations::workspace_template_under_secret_regex(&policy.workspace_root),
     );
 
     wrapped.arg(command.get_program());
@@ -139,6 +185,12 @@ fn define(command: &mut Command, name: &str, path: Option<&Path>) {
     command.arg("-D").arg(format!("{name}={value}"));
 }
 
+/// Define a parameter whose value is already a literal string (a generated
+/// regex), so it is not canonicalized as a path.
+fn define_text(command: &mut Command, name: &str, value: &str) {
+    command.arg("-D").arg(format!("{name}={value}"));
+}
+
 fn canonical(path: &Path) -> String {
     path.canonicalize()
         .unwrap_or_else(|_| path.to_path_buf())
@@ -149,6 +201,34 @@ fn canonical(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn profile_denies_each_home_location_and_re_allows_templates_last() {
+        let built = profile(3);
+        assert!(built.contains("(deny file-write*)"), "{built}");
+        for index in 0..3 {
+            assert!(
+                built.contains(&format!(
+                    "(deny file-read* (subpath (param \"RDENY_HOME_{index}\")))"
+                )),
+                "{built}"
+            );
+        }
+        assert!(!built.contains("RDENY_HOME_3"), "{built}");
+        let deny_ws = built
+            .find("(deny file-read* (regex (param \"RDENY_WS\")))")
+            .expect("workspace deny rule");
+        let allow_template = built
+            .find("(allow file-read* (regex (param \"RALLOW_WS_TEMPLATE\")))")
+            .expect("template allow rule");
+        let deny_template = built
+            .find("(deny file-read* (regex (param \"RDENY_WS_TEMPLATE\")))")
+            .expect("template re-deny rule");
+        assert!(
+            deny_ws < allow_template && allow_template < deny_template,
+            "the template re-allow must sit between the deny and the re-deny: {built}"
+        );
+    }
 
     #[test]
     fn probe_classifies_a_zero_exit_as_available() {
