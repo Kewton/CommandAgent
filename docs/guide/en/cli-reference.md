@@ -23,7 +23,7 @@ before parsing finishes or in the resolved configuration after parsing; see
 [Conflicts and combinations](#conflicts-and-combinations).
 
 Clap also generates `-h`/`--help` and `-V`/`--version`. They are not part of the
-66 application flags below. The hidden `--completion-contract-json <PATH>` is an
+67 application flags below. The hidden `--completion-contract-json <PATH>` is an
 internal integration surface and is intentionally not a public user flag.
 
 ## Flag reference
@@ -79,6 +79,7 @@ internal integration surface and is intentionally not a public user flag.
 | `--style` | `<STYLE>` | `default` | Pass the plan presentation/generation style. | [Inline flags](slash-commands.md#inline-flags) |
 | `--resume` | `<RESUME>` | none | Load the named saved minimal-loop session for a direct `--prompt` run. | [Session options](#conflicts-and-combinations) |
 | `--offline` | none | off | Block runtime dependency setup and Bash commands containing npm/pnpm/yarn/cargo install, curl, or wget. Provider/API requests and other network-capable commands are unaffected. | [Providers](providers.md) |
+| `--sandbox` | `<auto\|required\|off>` | `auto` | Select the OS write sandbox for Bash and verifier commands. `auto` applies it when the backend is available and otherwise continues with lexical checks only; `required` fails those commands when the backend is unavailable; `off` keeps the previous behavior. | [OS write sandbox](#os-write-sandbox) |
 | `--quiet` | none | off (`narration = "normal"`) | Suppress presentation narration. | [Top-level keys](configuration.md#top-level-keys) |
 | `--summary-json` | none | off | Append one machine-readable terminal run summary as the final stdout line. Omitting it preserves existing stdout bytes. | [Headless execution](../../user/headless.md) |
 | `--trace` | none | off | Opt in to scrubbed provider request and response traces under the active run directory. | [Troubleshooting](troubleshooting.md) |
@@ -99,7 +100,7 @@ internal integration surface and is intentionally not a public user flag.
 
 ## OS write sandbox
 
-The hidden `--sandbox auto|required|off` flag (default `auto`) controls an
+The `--sandbox auto|required|off` flag (default `auto`) controls an
 OS-level write sandbox for the model Bash tool and for verification/acceptance
 commands. The lexical checks still run first; the sandbox adds confinement for
 writes the lexical guard cannot see.
@@ -117,9 +118,10 @@ writes the lexical guard cannot see.
 - **Modes:** `auto` uses the backend when available and otherwise warns once and
   records `bash_sandbox_status` with `applied=false` and a reason, continuing
   with lexical checks only; `required` fails Bash and verifier commands with
-  `bash_sandbox_unavailable`; `off` keeps the previous behavior. The backend is
-  unavailable under a nested sandbox (`rc=71`) and on a platform without one
-  (macOS only in this stage).
+  `bash_sandbox_unavailable`; `off` keeps the previous behavior. On macOS the
+  backend is Seatbelt and is unavailable under a nested sandbox (`rc=71`); on
+  Linux it is Landlock and is unavailable below ABI1 (kernel 5.13), when
+  disabled, or when a seccomp filter denies it.
 - Dependency caches (cargo, npm, pip, Playwright browsers) stay writable so
   builds and tests work; they remain a contamination path outside the workspace.
 

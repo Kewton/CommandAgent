@@ -22,7 +22,7 @@
 [排他関係と組み合わせ](#排他関係と組み合わせ)を参照してください。
 
 Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリケーション固有の
-66 フラグには含めません。非表示の `--completion-contract-json <PATH>` は内部連携用であり、
+67 フラグには含めません。非表示の `--completion-contract-json <PATH>` は内部連携用であり、
 公開ユーザーフラグではありません。
 
 ## フラグ一覧
@@ -78,6 +78,7 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 | `--style` | `<STYLE>` | `default` | plan の表示／生成スタイルを渡します。 | [インラインフラグ](slash-commands.md#インラインフラグ) |
 | `--resume` | `<RESUME>` | なし | 直接 `--prompt` 実行で、指定した保存済み minimal-loop セッションを読み込みます。 | [セッションオプション](#排他関係と組み合わせ) |
 | `--offline` | なし | オフ | runtime の依存関係セットアップと、npm/pnpm/yarn/cargo install、curl、wget を含む Bash コマンドを禁止します。provider/API 要求とその他のネットワーク可能なコマンドには影響しません。 | [プロバイダ](providers.md) |
+| `--sandbox` | `<auto\|required\|off>` | `auto` | モデルの Bash ツールと検証・受け入れコマンドに対する OS レベルの書き込みサンドボックスを選びます。`auto` は backend が使えれば適用し、使えなければ字句検査だけで続けます。`required` は backend が使えないときに対象コマンドを失敗させます。`off` は今までの挙動を保ちます。 | [OS 書き込みサンドボックス](#os-書き込みサンドボックス) |
 | `--quiet` | なし | オフ（`narration = "normal"`） | プレゼンテーションのナレーションを抑制します。 | [トップレベルキー](configuration.md#トップレベルキー) |
 | `--summary-json` | なし | オフ | stdout 最終行へ機械可読な終端runサマリを1件追加します。省略時は既存stdout bytesを維持します。 | [Headless execution](../../user/headless.md) |
 | `--trace` | なし | オフ | active run の `trace/` directory に scrub 済み provider exchange を opt-in 保存します。 | [トラブルシューティング](troubleshooting.md) |
@@ -98,11 +99,11 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 
 ## OS 書き込みサンドボックス
 
-隠しフラグ `--sandbox auto|required|off`（既定 `auto`）は、モデルの Bash ツールと検証・受け入れコマンドに対する OS レベルの書き込みサンドボックスを制御します。字句検査は先に働き、サンドボックスは字句検査から見えない書き込みを閉じ込めます。
+フラグ `--sandbox auto|required|off`（既定 `auto`）は、モデルの Bash ツールと検証・受け入れコマンドに対する OS レベルの書き込みサンドボックスを制御します。字句検査は先に働き、サンドボックスは字句検査から見えない書き込みを閉じ込めます。
 
 - **OS が閉じるもの（backend が使えるとき）：** コマンドやスクリプトの中の書き込み — `sh -c 'cp ...'`、`eval`、`xargs`、`find -exec`、インタープリタの `open(..., 'w')`、`dd of=`、`sed -i` — と、workspace の外の inode への hardlink です。書き込めるのは、workspace・run の一時ディレクトリ・既知の依存キャッシュ・`/dev/null` などのデバイスだけです。
 - **字句検査だけのもの：** 読み取り、ネットワーク、backend が使えないときの全コマンドです。`--yes`・`--allow bash:verify`・`--offline` は、それ自体では間接的な書き込みを閉じません。適用されたサンドボックスだけが閉じます。`--allow bash:verify` はコマンドを分類で通すだけなので、そのコマンドが呼ぶスクリプトの中身を制限するのはサンドボックスだけです。
-- **モード：** `auto` は backend が使えれば適用し、使えなければ起動時に一度警告し、`applied=false` と理由つきの `bash_sandbox_status` を記録して字句検査だけで続けます。`required` は Bash と検証コマンドを `bash_sandbox_unavailable` で失敗させます。`off` は今までの挙動を保ちます。入れ子の sandbox（`rc=71`）と backend の無いプラットフォーム（この段階は macOS のみ）では未適用です。
+- **モード：** `auto` は backend が使えれば適用し、使えなければ起動時に一度警告し、`applied=false` と理由つきの `bash_sandbox_status` を記録して字句検査だけで続けます。`required` は Bash と検証コマンドを `bash_sandbox_unavailable` で失敗させます。`off` は今までの挙動を保ちます。macOS は Seatbelt で、入れ子の sandbox（`rc=71`）では未適用です。Linux は Landlock で、ABI1（kernel 5.13）未満・無効化・seccomp による拒否では未適用です。
 - 依存キャッシュ（cargo・npm・pip・Playwright のブラウザ）はビルドとテストのために書き込み可能なままにします。workspace の外の汚染経路として残ります。
 
 macOS の `mktemp` は `TMPDIR` を見ません。`mktemp -p "$TMPDIR"` か `$TMPDIR` 配下のテンプレートを使ってください。適用の試験の記録は `tests/corpus/apps/issue502-indirect-write/fixtures/macos-probe-results.md` にあります。

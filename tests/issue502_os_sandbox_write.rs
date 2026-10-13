@@ -8,19 +8,20 @@
 //! the two launch points use, so an escape fails and the outside fixture does
 //! not change.
 //!
-//! The applied cases are `#[cfg(target_os = "macos")]` and no-op when the
-//! backend is unavailable (a nested sandbox reports rc=71); on Linux CI only the
-//! `off` and unavailable paths run, matching the issue's acceptance note. The
-//! outside fixtures live inside one test tempdir and are never written outside
-//! it.
+//! The macOS applied cases are `#[cfg(target_os = "macos")]` and no-op when the
+//! backend is unavailable (a nested sandbox reports rc=71). The Linux applied
+//! cases are `#[cfg(target_os = "linux")]`; they fail under CI when Landlock is
+//! unavailable, so the runner cannot silently lose the backend. Both platforms
+//! share the `off` and unavailable paths. The outside fixtures live inside one
+//! test tempdir and are never written outside it.
 
 use std::path::{Path, PathBuf};
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 use std::process::{Command, Stdio};
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 use commandagent::bounded_process::{self, BoundedProcessOutput};
 use commandagent::minimal_loop::verifier_env;
 use commandagent::planner::verify::{NormalizedVerifyCommand, normalize_verify_command};
@@ -46,7 +47,7 @@ fn sandbox_lock() -> MutexGuard<'static, ()> {
 struct Fixture {
     _dir: tempfile::TempDir,
     root: PathBuf,
-    #[cfg(target_os = "macos")]
+    #[cfg(unix)]
     outside_secret: PathBuf,
 }
 
@@ -66,12 +67,12 @@ fn fixture() -> Fixture {
     Fixture {
         _dir: dir,
         root,
-        #[cfg(target_os = "macos")]
+        #[cfg(unix)]
         outside_secret: outside.join("secret.txt"),
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 fn read_secret(path: &Path) -> String {
     std::fs::read_to_string(path).unwrap_or_else(|_| "<missing>".to_string())
 }
@@ -87,7 +88,7 @@ fn backend_available() -> bool {
 
 /// Install an available sandbox whose write-allow list is `workspace` and create
 /// its run temp dir.
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 fn install_available_for(workspace: &Path, run_tmp: &Path) {
     std::fs::create_dir_all(run_tmp).unwrap();
     os_sandbox::install_for_test(
@@ -98,7 +99,7 @@ fn install_available_for(workspace: &Path, run_tmp: &Path) {
 }
 
 /// Install an available sandbox for the fixture and create its run temp dir.
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 fn install_available(fixture: &Fixture) {
     install_available_for(&fixture.root, &run_tmp_path(fixture));
 }
@@ -120,7 +121,7 @@ fn run_via_bash(root: &Path, command: &str) -> BashOutcome {
 
 /// Build `sh -c <command>` and apply the installed sandbox directly, bypassing
 /// the lexical guard, so the OS layer is measured on its own.
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 fn run_wrapped(root: &Path, command: &str) -> BoundedProcessOutput {
     let mut process = Command::new("sh");
     process.arg("-c").arg(command).current_dir(root);
@@ -129,7 +130,7 @@ fn run_wrapped(root: &Path, command: &str) -> BoundedProcessOutput {
     bounded_process::run_with_timeout(&mut process, TIMEOUT).expect("spawn wrapped command")
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 fn run_wrapped_success(root: &Path, command: &str) -> (bool, String) {
     let output = run_wrapped(root, command);
     (
@@ -141,12 +142,12 @@ fn run_wrapped_success(root: &Path, command: &str) -> (bool, String) {
 #[derive(Deserialize)]
 struct IndirectCase {
     command: String,
-    #[cfg(target_os = "macos")]
+    #[cfg(unix)]
     id: String,
-    #[cfg(target_os = "macos")]
+    #[cfg(unix)]
     #[serde(rename = "lexicalR")]
     lexical_r: bool,
-    #[cfg(target_os = "macos")]
+    #[cfg(unix)]
     #[serde(rename = "exitNonzero")]
     exit_nonzero: bool,
 }
@@ -339,6 +340,244 @@ fn applied_required_tools_succeed_inside_the_sandbox() {
 fn applied_cargo_build_succeeds() {
     let _guard = sandbox_lock();
     if !backend_available() {
+        return;
+    }
+    let fixture = fixture();
+    install_available(&fixture);
+    let src = fixture.root.join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(
+        fixture.root.join("Cargo.toml"),
+        "[package]\nname = \"issue502-probe\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\n",
+    )
+    .unwrap();
+    std::fs::write(src.join("main.rs"), "fn main() {}\n").unwrap();
+
+    let (ok, stderr) = run_wrapped_success(&fixture.root, "cargo build");
+    assert!(ok, "cargo build failed: {stderr}");
+    assert!(fixture.root.join("target/debug/issue502-probe").is_file());
+    os_sandbox::reset_for_test();
+}
+
+// ---------------------------------------------------------------------------
+// Linux (Issue #656, stage 1b): the Landlock backend drives the same two launch
+// points. These cases skip only when Landlock is genuinely unavailable, and fail
+// under CI when it is, so a GitHub Actions Linux runner cannot silently lose the
+// backend. The kernel release and Landlock ABI are printed for the record.
+// ---------------------------------------------------------------------------
+
+/// The indirect rows the Linux backend measures. The hardlink row is covered by
+/// its own ABI2-gated test, so a kernel without ABI2 does not fail here.
+#[cfg(target_os = "linux")]
+const LINUX_EXCLUDED_INDIRECT_IDS: &[&str] = &["hardlink-outside"];
+
+/// Print the running kernel release and Landlock ABI, and refuse a silent skip
+/// under CI: a GitHub Actions Linux runner must have an applied Landlock
+/// backend. Returns whether the backend is available for this test run.
+#[cfg(target_os = "linux")]
+fn require_landlock_backend() -> bool {
+    use commandagent::tools::os_sandbox::landlock;
+    let abi = landlock::detected_abi();
+    let kernel = landlock::kernel_release_label();
+    eprintln!("issue502/656 landlock: kernel={kernel} abi={abi}");
+    let available = matches!(os_sandbox::probe(), SandboxAvailability::Available);
+    if std::env::var_os("CI").is_some() {
+        assert!(
+            available,
+            "CI: the Landlock backend must be available (kernel {kernel}, abi {abi})"
+        );
+    }
+    available
+}
+
+/// The acceptance write set under Landlock: each indirect form fails (or
+/// performs no outside write) and the outside fixture is unchanged.
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_applied_indirect_writes_are_denied_and_the_outside_fixture_is_unchanged() {
+    let _guard = sandbox_lock();
+    if !require_landlock_backend() {
+        eprintln!("SKIP: Landlock backend unavailable");
+        return;
+    }
+    let fixture = fixture();
+    install_available(&fixture);
+
+    for case in indirect_cases() {
+        if LINUX_EXCLUDED_INDIRECT_IDS.contains(&case.id.as_str()) {
+            continue;
+        }
+        assert_eq!(
+            path_confinement_rejection(&case.command, &fixture.root).is_some(),
+            case.lexical_r,
+            "{}: the lexical decision must be unchanged",
+            case.id
+        );
+        let output = run_wrapped(&fixture.root, &case.command);
+        assert_eq!(
+            !output.success(),
+            case.exit_nonzero,
+            "{}: sandbox exit code; stderr={}",
+            case.id,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            read_secret(&fixture.outside_secret),
+            SECRET,
+            "{}: the outside fixture must not change",
+            case.id
+        );
+        if !case.lexical_r {
+            let outcome = run_via_bash(&fixture.root, &case.command);
+            assert_eq!(
+                !outcome.is_success(),
+                case.exit_nonzero,
+                "{}: the bash launch point; {outcome:?}",
+                case.id
+            );
+            assert_eq!(read_secret(&fixture.outside_secret), SECRET, "{}", case.id);
+        }
+    }
+    os_sandbox::reset_for_test();
+}
+
+/// A hardlink to an outside inode is refused by Landlock. ABI2 (kernel 5.19)
+/// introduced the `refer` right that closes this; without it the link is not
+/// closed and this test is skipped with the reason recorded.
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_applied_hardlink_to_an_outside_inode_is_denied() {
+    use commandagent::tools::os_sandbox::landlock;
+    let _guard = sandbox_lock();
+    if !require_landlock_backend() {
+        eprintln!("SKIP: Landlock backend unavailable");
+        return;
+    }
+    let abi = landlock::detected_abi();
+    if abi < 2 {
+        eprintln!(
+            "SKIP: Landlock ABI {abi} < 2; creating a cross-directory hardlink is not closed (ABI2)"
+        );
+        return;
+    }
+    let fixture = fixture();
+    install_available(&fixture);
+    let hardlink = fixture.root.join("hard.txt");
+    let outside = fixture
+        .outside_secret
+        .parent()
+        .expect("outside secret has a parent");
+
+    let command = format!("ln '{}' hard.txt", outside.join("secret.txt").display());
+    let output = run_wrapped(&fixture.root, &command);
+    assert!(
+        !output.success(),
+        "hardlink must be denied: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!hardlink.exists(), "the hardlink must not be created");
+    assert_eq!(read_secret(&fixture.outside_secret), SECRET);
+    os_sandbox::reset_for_test();
+}
+
+/// A direct write to the system temp directory (not the run temp directory) is
+/// denied, and the probe path is never created.
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_applied_system_temp_write_is_denied() {
+    let _guard = sandbox_lock();
+    if !require_landlock_backend() {
+        eprintln!("SKIP: Landlock backend unavailable");
+        return;
+    }
+    let fixture = fixture();
+    install_available(&fixture);
+    let system_tmp = std::env::temp_dir()
+        .canonicalize()
+        .unwrap_or_else(|_| std::env::temp_dir());
+    let target = system_tmp.join(format!("commandagent-502b-{}.txt", std::process::id()));
+
+    let command = format!("echo written > '{}'", target.display());
+    let output = run_wrapped(&fixture.root, &command);
+    assert!(
+        !output.success(),
+        "a write to the system temp directory must be denied: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!target.exists(), "the system temp probe must not exist");
+    let _ = std::fs::remove_file(&target);
+    os_sandbox::reset_for_test();
+}
+
+/// The verifier/acceptance launch point is wired to the same Landlock sandbox.
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_applied_verifier_commands_cannot_write_outside() {
+    let _guard = sandbox_lock();
+    if !require_landlock_backend() {
+        eprintln!("SKIP: Landlock backend unavailable");
+        return;
+    }
+    let fixture = fixture();
+    install_available(&fixture);
+    let command: NormalizedVerifyCommand =
+        normalize_verify_command("sh -c 'cp a.txt escape/secret.txt'").expect("normalize");
+    assert!(
+        path_confinement_rejection(command.as_str(), &fixture.root).is_none(),
+        "the lexical guard must pass this form so the sandbox is what blocks it"
+    );
+
+    let outcome =
+        verifier_env::run_structured_for_verify_with_profile(&command, &fixture.root, None, false)
+            .expect("verifier launch");
+    assert!(!outcome.is_success(), "{outcome:?}");
+    assert_eq!(read_secret(&fixture.outside_secret), SECRET);
+    os_sandbox::reset_for_test();
+}
+
+/// Required tools that only read or use the run temp directory succeed inside
+/// Landlock (`TMPDIR` points at the allowed run temp directory).
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_applied_required_tools_succeed_inside_the_sandbox() {
+    let _guard = sandbox_lock();
+    if !require_landlock_backend() {
+        eprintln!("SKIP: Landlock backend unavailable");
+        return;
+    }
+    let fixture = fixture();
+    install_available(&fixture);
+    std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&fixture.root)
+        .status()
+        .expect("git init");
+
+    for command in [
+        "mktemp -p \"$TMPDIR\" probe.XXXXXX",
+        "mktemp \"$TMPDIR/probe.XXXXXX\"",
+        "git status --porcelain",
+        "cargo --version",
+        "node -e 'process.stdout.write(\"ok\")'",
+        "python3 -c 'print(\"ok\")'",
+        "echo inside > inside.txt",
+    ] {
+        let (ok, stderr) = run_wrapped_success(&fixture.root, command);
+        assert!(ok, "expected success: {command}; stderr={stderr}");
+    }
+    assert!(fixture.root.join("inside.txt").is_file());
+    os_sandbox::reset_for_test();
+}
+
+/// A dependency-less `cargo build` succeeds inside Landlock when the cargo
+/// caches are allowed. Ignored by default: run explicitly to record the applied
+/// result.
+#[cfg(target_os = "linux")]
+#[test]
+#[ignore = "heavy: run explicitly to record the applied result"]
+fn linux_applied_cargo_build_succeeds() {
+    let _guard = sandbox_lock();
+    if !require_landlock_backend() {
         return;
     }
     let fixture = fixture();
