@@ -15,11 +15,13 @@ execute hostile projects or hostile instructions safely.
   under the canonical workspace root, including through existing symlinks;
   newly created workspace symlinks may not target paths outside that root.
   Lexical inspection cannot prove every indirect effect of an arbitrary
-  program, so when an OS write sandbox is available it also confines the writes
-  performed inside a command or script (see [OS Write Sandbox](#os-write-sandbox)).
-  Bash is not a complete sandbox: shell commands and invoked programs still run
-  as the current OS user, reads and network are not confined in this stage, and
-  the sandbox is absent when the backend is unavailable.
+  program, so when an OS sandbox is available it also confines the writes and
+  the home-credential reads performed inside a command or script (see
+  [OS Write and Read Sandbox](#os-write-and-read-sandbox)). Bash is not a
+  complete sandbox: shell commands and invoked programs still run as the current
+  OS user, network is not confined in this stage, read confinement covers the
+  home secret locations rather than every workspace credential on every
+  platform, and the sandbox is absent when the backend is unavailable.
 
 ## `--allow` and `--yes`
 
@@ -49,13 +51,13 @@ predated the run.
 programs and therefore is not a network sandbox. Network isolation is a later
 stage of #502 and is independent of the write sandbox below.
 
-## OS Write Sandbox
+## OS Write and Read Sandbox
 
-`--sandbox auto|required|off` (default `auto`) adds an OS-level write sandbox at
-the two `sh -c` launch points: the model Bash tool (the `bash:verify` interval
-reuses the same function) and the verification/acceptance commands. The sandbox
-is defense in depth; the lexical checks still run first and can refuse a command
-before the shell starts.
+`--sandbox auto|required|off` (default `auto`) adds an OS-level write sandbox and
+a home-credential read sandbox at the two `sh -c` launch points: the model Bash
+tool (the `bash:verify` interval reuses the same function) and the
+verification/acceptance commands. The sandbox is defense in depth; the lexical
+checks still run first and can refuse a command before the shell starts.
 
 - What the OS closes (when the backend is available): a write performed inside a
   command or script that the lexical guard cannot see — `sh -c 'cp ...'`,
@@ -63,11 +65,39 @@ before the shell starts.
   `sed -i` — and creating a hardlink to an inode outside the workspace. The only
   writable locations are the workspace, the run's temp directory, the known
   dependency caches, and device files such as `/dev/null`.
-- What remains lexical-only: reads, network access, and every command run while
-  the backend is unavailable. `--allow bash:verify` and `--offline` are lexical
+- Read confinement (Issue #657) denies reading the home secret locations
+  (`.ssh`, `.aws`, `.gnupg`, `.netrc`, `.git-credentials`, `.npmrc`, `.pypirc`,
+  `.docker/config.json`, `.kube`, `.config/gh`, `.config/gcloud`) and, on macOS,
+  a workspace credential named by the #501 rule (`.env`, `.env.*`, `.envrc`,
+  `.npmrc`, `.pypirc`, `.netrc`, `.git-credentials`, `.ssh`, `service-account*.json`,
+  `*.private.key`, `*.private.pem`, `*.p12`, `*.pfx`); the three strict dotenv
+  templates (`.env.example`, `.env.sample`, `.env.template`) stay readable. The
+  list lives in one leaf module (`src/tools/os_sandbox/secret_locations.rs`) that
+  both backends import. Denial is decided by name and path: it closes a
+  credential reached through a non-secret symlink, a file named by an environment
+  variable such as `BASH_ENV`, and a name an interpreter assembles at run time
+  when that assembled name is itself a denied name. It does not deny a new name:
+  on macOS, renaming a credential inside the writable workspace, or copying it to
+  another name, leaves the credential readable under the new name.
+  - A secret reached from an off-list path through a bind mount, or through a
+    hardlink created outside the isolation, is not denied on either OS. Creating
+    such a hardlink inside the isolation is denied by the write sandbox.
+  On Linux only the home secret locations are denied: a workspace credential is
+  closed lexically for a named reference, and a non-secret symlink to it is not
+  closed by the read layer (decision 4 of #502). Linux rewrites the deny list as
+  a read-allow list rebuilt at each command's start, so a location created after
+  a command starts is not readable inside that command; listing a directory the
+  run did not allow fails by design: `ls /`, `ls $HOME`, and `echo $HOME/*` do
+  not work (the home's siblings are allowed, but `/` and `$HOME` themselves are
+  not listed). When a writable location (for example the workspace) is the home
+  itself or an ancestor of a home secret, the write allow list already grants
+  read on that secret's subtree, so the read layer cannot deny it; the status
+  then records that the read isolation is not effective instead of claiming it is
+  applied. An empty `HOME` is reported the same way.
+- What remains lexical-only: network access, and every command run while the
+  backend is unavailable. `--allow bash:verify` and `--offline` are lexical
   policies, so a command they admit can still start a script; only the sandbox
-  (when applied) constrains that script's writes. Reads and network are not
-  confined in this stage.
+  (when applied) constrains that script's writes and home-secret reads.
   - Runtime dependency setup runs outside the sandbox: the setup steps that
     execute `setup.py`, npm `postinstall`/`prepare` hooks, and similar
     install-time scripts run before or outside the confined `sh -c` launch
@@ -90,18 +120,25 @@ before the shell starts.
   warns once at startup, and records `bash_sandbox_status` with `applied=false`
   and a reason. `required` instead fails Bash and verifier commands with
   `bash_sandbox_unavailable`. `off` keeps the previous behavior. None of them
-  reports "sandboxed" when the sandbox was not applied.
+  reports "sandboxed" when the sandbox was not applied. The read isolation is
+  reported through the same event's `reason`: it names the applied read
+  isolation, or is empty for a fully confined sandbox (reads included).
 - The dependency caches (cargo registry/git/package-cache, npm, pip, Playwright
   browsers) stay writable so builds and tests work; they remain a contamination
   path outside the workspace. On macOS they live under `~/Library/Caches` and
   `~/.cargo`; on Linux under `~/.cargo`, `~/.npm`, and `~/.cache`. pnpm and yarn
-  stores are not allowed in this stage.
+  stores are not allowed in this stage. The home npm config (`~/.npmrc`) is a
+  read-denied secret, so an `npm` that reads a private-registry `~/.npmrc` fails
+  inside Bash: that is the intended consequence of not feeding registry tokens to
+  Bash, not a regression.
 
 macOS `mktemp` ignores `TMPDIR` and targets the per-user temp directory, which
 the sandbox denies. A `mktemp` inside the run temp directory (`mktemp -p
 "$TMPDIR"` or a template under `$TMPDIR`) succeeds; a bare `mktemp` does not.
-The applied-probe record is under
-`tests/corpus/apps/issue502-indirect-write/fixtures/macos-probe-results.md`.
+The applied write-probe record is under
+`tests/corpus/apps/issue502-indirect-write/fixtures/macos-probe-results.md`; the
+applied read-probe record is under
+`tests/corpus/apps/issue502-indirect-read/fixtures/macos-probe-results.md`.
 
 ## Child Process Environment
 
@@ -168,18 +205,21 @@ workspace credentials in this change.
   registration and before spawn.
 
 Because the refusal happens before any read, a rejected call returns an honest
-refusal that contains no credential bytes or expansion value. This is not a
-claim that no arbitrary Bash program can read a secret: dynamic variables,
-indirect scripts, encodings, hardlinks, copies, and TOCTOU are tracked
-separately by #502. Keep real secrets outside the agent workspace and edit the
-template files instead.
+refusal that contains no credential bytes or expansion value. This lexical layer
+is not a claim that no arbitrary Bash program can read a secret: dynamic
+variables, indirect scripts, encodings, hardlinks, copies, and TOCTOU are why the
+OS read sandbox above also denies the home secret locations (and, on macOS,
+workspace credentials) at the kernel; the remaining forms are tracked by #502.
+Keep real secrets outside the agent workspace and edit the template files
+instead.
 
 ## Backlog
 
-- OS write sandbox, remaining stages of #502: Linux write confinement (landlock),
-  read confinement, and network/dependency-install isolation. Stage 1a (macOS
-  Seatbelt write confinement and the shared leaf module) is implemented here;
-  the same leaf module is the seam the later stages extend.
+- OS sandbox, remaining stage of #502: network and dependency-install isolation.
+  Stage 1a (macOS Seatbelt write confinement and the shared leaf module), stage
+  1b (Linux Landlock write confinement), and stage 2 (home-credential read
+  confinement on both backends, Issue #657) are implemented here; the same leaf
+  module is the seam the later stage extends.
 - Container-sandboxed execution track: run Bash/verifier commands inside a
   per-workspace container or equivalent OS sandbox with a mounted workspace,
   minimal environment, and explicit network policy. Superseded in part by the

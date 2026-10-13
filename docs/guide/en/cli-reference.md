@@ -79,7 +79,7 @@ internal integration surface and is intentionally not a public user flag.
 | `--style` | `<STYLE>` | `default` | Pass the plan presentation/generation style. | [Inline flags](slash-commands.md#inline-flags) |
 | `--resume` | `<RESUME>` | none | Load the named saved minimal-loop session for a direct `--prompt` run. | [Session options](#conflicts-and-combinations) |
 | `--offline` | none | off | Block runtime dependency setup and Bash commands containing npm/pnpm/yarn/cargo install, curl, or wget. Provider/API requests and other network-capable commands are unaffected. | [Providers](providers.md) |
-| `--sandbox` | `<auto\|required\|off>` | `auto` | Select the OS write sandbox for Bash and verifier commands. `auto` applies it when the backend is available and otherwise continues with lexical checks only; `required` fails those commands when the backend is unavailable; `off` keeps the previous behavior. | [OS write sandbox](#os-write-sandbox) |
+| `--sandbox` | `<auto\|required\|off>` | `auto` | Select the OS write sandbox for Bash and verifier commands. `auto` applies it when the backend is available and otherwise continues with lexical checks only; `required` fails those commands when the backend is unavailable; `off` keeps the previous behavior. | [OS write and read sandbox](#os-write-and-read-sandbox) |
 | `--quiet` | none | off (`narration = "normal"`) | Suppress presentation narration. | [Top-level keys](configuration.md#top-level-keys) |
 | `--summary-json` | none | off | Append one machine-readable terminal run summary as the final stdout line. Omitting it preserves existing stdout bytes. | [Headless execution](../../user/headless.md) |
 | `--trace` | none | off | Opt in to scrubbed provider request and response traces under the active run directory. | [Troubleshooting](troubleshooting.md) |
@@ -98,27 +98,48 @@ internal integration surface and is intentionally not a public user flag.
 | `--footer` | `<on\|off>` | `on` | Control the fixed TUI footer; off keeps scrollback breadcrumbs. | [Footer problems](troubleshooting.md#footer-rendering-problems) |
 | `--no-footer` | none | off | Disable the fixed TUI footer. Equivalent in effect to `--footer off`. | [Footer problems](troubleshooting.md#footer-rendering-problems) |
 
-## OS write sandbox
+## OS write and read sandbox
 
-The `--sandbox auto|required|off` flag (default `auto`) controls an
-OS-level write sandbox for the model Bash tool and for verification/acceptance
-commands. The lexical checks still run first; the sandbox adds confinement for
-writes the lexical guard cannot see.
+The `--sandbox auto|required|off` flag (default `auto`) controls an OS-level
+write sandbox and a home-credential read sandbox for the model Bash tool and for
+verification/acceptance commands. The lexical checks still run first; the
+sandbox adds confinement for writes and reads the lexical guard cannot see.
 
 - **What the OS closes (when the backend is available):** writes performed inside
   a command or script — `sh -c 'cp ...'`, `eval`, `xargs`, `find -exec`, an
   interpreter's `open(..., 'w')`, `dd of=`, `sed -i` — and hardlinks to an inode
   outside the workspace. Only the workspace, the run's temp directory, the known
   dependency caches, and device files such as `/dev/null` are writable.
-- **What stays lexical-only:** reads, network access, and every command run when
-  the backend is unavailable. `--yes`, `--allow bash:verify`, and `--offline` do
-  not close an indirect write by themselves; only the sandbox, when applied,
-  does. `--allow bash:verify` admits a command by its classification only, so the
-  contents of any script it invokes are limited by the sandbox alone.
+- **Read confinement:** reading the home secret locations (`.ssh`, `.aws`,
+  `.gnupg`, `.netrc`, `.git-credentials`, `.npmrc`, `.pypirc`,
+  `.docker/config.json`, `.kube`, `.config/gh`, `.config/gcloud`) is denied, and
+  on macOS a workspace credential named by the #501 rule is denied too; the three
+  strict dotenv templates stay readable. This closes the reads the lexical guard
+  cannot see: a credential through a non-secret symlink, a file named by an
+  environment variable such as `BASH_ENV`, and a name an interpreter assembles at
+  run time when that assembled name is itself a denied name. On Linux only the
+  home secret locations are denied, so a non-secret symlink to a workspace
+  credential is not closed by the read layer. Denying the home npm config means
+  an `npm` that reads a private-registry `~/.npmrc` fails inside Bash. On Linux
+  the deny list becomes a read-allow list rebuilt at each command's start, so a
+  location created after a command starts is not readable inside that command;
+  `ls /`, `ls $HOME`, and `echo $HOME/*` fail by design. When a writable location
+  (for example the workspace) is the home or an ancestor of a home secret the
+  read layer cannot deny those secrets, and the status says the read isolation is
+  not effective instead of claiming it is applied; an empty `HOME` is reported
+  the same way.
+- **What stays lexical-only:** network access, and every command run when the
+  backend is unavailable. `--yes`, `--allow bash:verify`, and `--offline` do not
+  close an indirect write or a home-secret read by themselves; only the sandbox,
+  when applied, does. `--allow bash:verify` admits a command by its
+  classification only, so the contents of any script it invokes are limited by
+  the sandbox alone.
 - **Modes:** `auto` uses the backend when available and otherwise warns once and
   records `bash_sandbox_status` with `applied=false` and a reason, continuing
   with lexical checks only; `required` fails Bash and verifier commands with
-  `bash_sandbox_unavailable`; `off` keeps the previous behavior. On macOS the
+  `bash_sandbox_unavailable`; `off` keeps the previous behavior. The read
+  isolation is reported through the same event's `reason` (it names the applied
+  read isolation, or is empty for a fully confined sandbox). On macOS the
   backend is Seatbelt and is unavailable under a nested sandbox (`rc=71`); on
   Linux it is Landlock and is unavailable below ABI1 (kernel 5.13), when
   disabled, or when a seccomp filter denies it.
@@ -126,8 +147,10 @@ writes the lexical guard cannot see.
   builds and tests work; they remain a contamination path outside the workspace.
 
 macOS `mktemp` ignores `TMPDIR`; use `mktemp -p "$TMPDIR"` or a template under
-`$TMPDIR`. The applied-probe record is under
-`tests/corpus/apps/issue502-indirect-write/fixtures/macos-probe-results.md`.
+`$TMPDIR`. The applied write-probe record is under
+`tests/corpus/apps/issue502-indirect-write/fixtures/macos-probe-results.md`; the
+applied read-probe record is under
+`tests/corpus/apps/issue502-indirect-read/fixtures/macos-probe-results.md`.
 
 ## Interactive REPL controls
 
