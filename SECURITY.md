@@ -73,16 +73,23 @@ checks still run first and can refuse a command before the shell starts.
   `*.private.key`, `*.private.pem`, `*.p12`, `*.pfx`); the three strict dotenv
   templates (`.env.example`, `.env.sample`, `.env.template`) stay readable. The
   list lives in one leaf module (`src/tools/os_sandbox/secret_locations.rs`) that
-  both backends import. This closes the reads the lexical guard cannot see: a
-  credential through a non-secret symlink, a file named by an environment
-  variable such as `BASH_ENV`, and a name an interpreter assembles at run time.
+  both backends import. Denial is decided by name and path: it closes a
+  credential reached through a non-secret symlink, a file named by an environment
+  variable such as `BASH_ENV`, and a name an interpreter assembles at run time
+  when that assembled name is itself a denied name. It does not deny a new name:
+  on macOS, renaming a credential inside the writable workspace, or copying it to
+  another name, leaves the credential readable under the new name.
+  - A secret reached from an off-list path through a bind mount, or through a
+    hardlink created outside the isolation, is not denied on either OS. Creating
+    such a hardlink inside the isolation is denied by the write sandbox.
   On Linux only the home secret locations are denied: a workspace credential is
   closed lexically for a named reference, and a non-secret symlink to it is not
   closed by the read layer (decision 4 of #502). Linux rewrites the deny list as
-  a read-allow list built once at run start, so listing a directory the run did
-  not allow fails by design: `ls /`, `ls $HOME`, and `echo $HOME/*` do not work
-  (the home's siblings are allowed, but `/` and `$HOME` themselves are not
-  listed). When a writable location (for example the workspace) is the home
+  a read-allow list rebuilt at each command's start, so a location created after
+  a command starts is not readable inside that command; listing a directory the
+  run did not allow fails by design: `ls /`, `ls $HOME`, and `echo $HOME/*` do
+  not work (the home's siblings are allowed, but `/` and `$HOME` themselves are
+  not listed). When a writable location (for example the workspace) is the home
   itself or an ancestor of a home secret, the write allow list already grants
   read on that secret's subtree, so the read layer cannot deny it; the status
   then records that the read isolation is not effective instead of claiming it is

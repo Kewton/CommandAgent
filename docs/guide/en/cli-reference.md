@@ -117,15 +117,17 @@ sandbox adds confinement for writes and reads the lexical guard cannot see.
   strict dotenv templates stay readable. This closes the reads the lexical guard
   cannot see: a credential through a non-secret symlink, a file named by an
   environment variable such as `BASH_ENV`, and a name an interpreter assembles at
-  run time. On Linux only the home secret locations are denied, so a non-secret
-  symlink to a workspace credential is not closed by the read layer. Denying the
-  home npm config means an `npm` that reads a private-registry `~/.npmrc` fails
-  inside Bash. On Linux the deny list becomes a read-allow list built once at run
-  start, so `ls /`, `ls $HOME`, and `echo $HOME/*` fail by design. When a
-  writable location (for example the workspace) is the home or an ancestor of a
-  home secret the read layer cannot deny those secrets, and the status says the
-  read isolation is not effective instead of claiming it is applied; an empty
-  `HOME` is reported the same way.
+  run time when that assembled name is itself a denied name. On Linux only the
+  home secret locations are denied, so a non-secret symlink to a workspace
+  credential is not closed by the read layer. Denying the home npm config means
+  an `npm` that reads a private-registry `~/.npmrc` fails inside Bash. On Linux
+  the deny list becomes a read-allow list rebuilt at each command's start, so a
+  location created after a command starts is not readable inside that command;
+  `ls /`, `ls $HOME`, and `echo $HOME/*` fail by design. When a writable location
+  (for example the workspace) is the home or an ancestor of a home secret the
+  read layer cannot deny those secrets, and the status says the read isolation is
+  not effective instead of claiming it is applied; an empty `HOME` is reported
+  the same way.
 - **What stays lexical-only:** network access, and every command run when the
   backend is unavailable. `--yes`, `--allow bash:verify`, and `--offline` do not
   close an indirect write or a home-secret read by themselves; only the sandbox,
