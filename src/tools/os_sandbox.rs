@@ -547,6 +547,44 @@ mod tests {
         assert_eq!(status.reason, None);
     }
 
+    /// A run's sandbox is torn down by taking its policy, which can leave the
+    /// backend available with no policy. `required` must refuse instead of
+    /// passing the command through unconfined.
+    #[test]
+    fn required_refuses_when_available_without_a_policy() {
+        let _serial = SANDBOX_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = TestStateGuard;
+        *INSTALLED.lock().expect("sandbox state") = Some(Installed {
+            policy: None,
+            mode: SandboxMode::Required,
+            availability: SandboxAvailability::Available,
+        });
+
+        let error = wrap_command(Command::new("sh")).expect_err("required must refuse");
+        assert_eq!(
+            error.summary(),
+            format!("{UNAVAILABLE_KIND}: {MISSING_POLICY_REASON}")
+        );
+    }
+
+    /// `auto` keeps its previous behavior for the same state.
+    #[test]
+    fn wrap_auto_continues_when_available_without_a_policy() {
+        let _serial = SANDBOX_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = TestStateGuard;
+        *INSTALLED.lock().expect("sandbox state") = Some(Installed {
+            policy: None,
+            mode: SandboxMode::Auto,
+            availability: SandboxAvailability::Available,
+        });
+
+        assert!(wrap_command(Command::new("sh")).is_ok());
+    }
+
     struct TestStateGuard;
 
     impl Drop for TestStateGuard {
