@@ -39,6 +39,11 @@ pub const UNAVAILABLE_KIND: &str = "bash_sandbox_unavailable";
 
 /// The reason recorded when the sandbox is explicitly disabled.
 const DISABLED_REASON: &str = "disabled by --sandbox off";
+/// The reason recorded once a run has finished and its sandbox is torn down.
+const RUN_FINISHED_REASON: &str = "run finished; the OS write sandbox is no longer applied";
+/// The refusal reason for a `required` run whose backend is available but whose
+/// policy is gone (for example after [`cleanup`]).
+const MISSING_POLICY_REASON: &str = "the OS write sandbox has no policy to apply";
 /// The reason recorded on platforms with no write-isolation backend in 1a.
 #[cfg(not(target_os = "macos"))]
 const NO_PLATFORM_BACKEND: &str =
@@ -319,16 +324,26 @@ pub fn reset_for_test() {
     *installed = None;
 }
 
-/// Remove the installed run temp directory. Best effort and idempotent, so it is
+/// Remove the installed run temp directory and end the run's sandbox. After this
+/// the sandbox is no longer reported as applied and `required` refuses instead of
+/// passing a command through, so a child spawned while shutting down never runs
+/// without the isolation the run promised. Best effort and idempotent, so it is
 /// safe on every exit path (success, failure, interruption, or an unwinding
 /// panic). The event stream and the workspace are untouched.
 pub fn cleanup() {
-    let policy = {
-        let mut installed = INSTALLED.lock().expect("sandbox state");
-        installed.as_mut().and_then(|state| state.policy.take())
+    let mut installed = INSTALLED.lock().expect("sandbox state");
+    let Some(state) = installed.as_mut() else {
+        return;
     };
-    if let Some(policy) = policy {
-        let _ = std::fs::remove_dir_all(policy.run_tmp_dir);
+    if matches!(state.availability, SandboxAvailability::Available) {
+        // The backend was applied; mark the run over so the applied verdict is
+        // no longer reported and `required` refuses instead of passing through.
+        state.availability = SandboxAvailability::Unavailable(RUN_FINISHED_REASON.to_string());
+    }
+    let run_tmp_dir = state.policy.take().map(|policy| policy.run_tmp_dir);
+    drop(installed);
+    if let Some(run_tmp_dir) = run_tmp_dir {
+        let _ = std::fs::remove_dir_all(run_tmp_dir);
     }
 }
 
@@ -406,7 +421,19 @@ pub fn wrap_command(command: Command) -> Result<Command, SandboxRefusal> {
             };
             match policy {
                 Some(policy) => Ok(apply_backend(command, &policy)),
-                None => Ok(command),
+                None => {
+                    // The state says the backend is available but no policy is
+                    // installed (for example once the run's sandbox is torn
+                    // down). `required` must refuse rather than pass a command
+                    // through unconfined.
+                    if mode == SandboxMode::Required {
+                        Err(SandboxRefusal {
+                            reason: MISSING_POLICY_REASON.to_string(),
+                        })
+                    } else {
+                        Ok(command)
+                    }
+                }
             }
         }
     }

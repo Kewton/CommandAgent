@@ -621,6 +621,38 @@ fn install_creates_the_run_temp_dir_and_cleanup_removes_it() {
     os_sandbox::reset_for_test();
 }
 
+/// `cleanup` ends the run: the sandbox must no longer be reported as applied and
+/// `required` must not pass a command through unwrapped, so a child spawned
+/// during shutdown never runs without the confinement the run promised.
+#[test]
+fn cleanup_ends_the_run_without_leaving_the_sandbox_applied() {
+    let _guard = sandbox_lock();
+    let fixture = fixture();
+    let run_tmp = run_tmp_path(&fixture);
+    std::fs::create_dir_all(&run_tmp).unwrap();
+    os_sandbox::install_for_test(
+        SandboxMode::Required,
+        SandboxPolicy::new(&fixture.root, &run_tmp),
+        SandboxAvailability::Available,
+    );
+    assert!(os_sandbox::is_applied());
+
+    os_sandbox::cleanup();
+
+    assert!(
+        !os_sandbox::is_applied(),
+        "cleanup must not leave the sandbox reported as applied"
+    );
+    let error = os_sandbox::wrap_command(std::process::Command::new("sh"))
+        .expect_err("required must refuse instead of passing through after cleanup");
+    assert!(
+        error.summary().contains("bash_sandbox_unavailable"),
+        "{}",
+        error.summary()
+    );
+    os_sandbox::reset_for_test();
+}
+
 fn lexical_triple(root: &Path, command: &str) -> (bool, bool, bool) {
     (
         path_confinement_rejection(command, root).is_some(),
