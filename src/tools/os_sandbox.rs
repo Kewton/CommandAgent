@@ -1,12 +1,14 @@
-//! OS write and read sandbox for model Bash and verifier commands (Issues #655
-//! and #657).
+//! OS write, read, and (for `--offline`) network sandbox for model Bash,
+//! verifier, and dependency-setup commands (Issues #655, #657, and #658).
 //!
 //! This is the common leaf module of the #502 confinement track. It wraps the
 //! `sh -c` launch point of the model Bash tool (including the `bash:verify`
-//! interval, which reuses the same function) and of verifier commands, so an
-//! indirect write the lexical guard cannot see still fails, and since #657 an
-//! indirect read of a home secret location (or, on macOS, a workspace
-//! credential) fails as well, when the OS backend is available.
+//! interval, which reuses the same function), of verifier commands, and of the
+//! dependency-setup launches, so an indirect write the lexical guard cannot see
+//! still fails, and since #657 an indirect read of a home secret location (or,
+//! on macOS, a workspace credential) fails as well, when the OS backend is
+//! available. Since #658 an `--offline` run also blocks outbound network, so an
+//! arbitrary program the lexical guard cannot name cannot reach the network.
 //!
 //! Design (issues #655 and #657, decisions from #502):
 //! - The backend writes a fixed profile; locations travel only through `-D`
@@ -97,8 +99,9 @@ pub enum SandboxAvailability {
     Unavailable(String),
 }
 
-/// The resolved write-allow list, the run temp directory, and the home whose
-/// secret locations are denied for reading (Issue #657).
+/// The resolved write-allow list, the run temp directory, the home whose secret
+/// locations are denied for reading (Issue #657), and the network layer of
+/// Issue #658.
 #[derive(Debug, Clone)]
 pub struct SandboxPolicy {
     pub workspace_root: PathBuf,
@@ -107,11 +110,22 @@ pub struct SandboxPolicy {
     /// The home whose secret locations the read backend denies. Resolved from
     /// `HOME`; tests pass an explicit tempdir so they never touch the real home.
     pub home: PathBuf,
+    /// Whether the run was started with `--offline` (Issue #658). When true the
+    /// backend also blocks outbound network — macOS confines it to loopback and
+    /// unix sockets, Linux (ABI4) to the dev-server ports — so an arbitrary
+    /// program the lexical guard cannot name still cannot reach the network.
+    /// When false the network is unchanged, exactly as before this stage.
+    pub offline: bool,
+    /// The TCP ports an `--offline` run still allows a `connect` to (Linux ABI4,
+    /// Issue #658), so a dev server started outside the sandbox stays reachable
+    /// while every other destination is refused. macOS allows all of loopback
+    /// and ignores this list. Empty by default; `install` does not populate it.
+    pub dev_server_ports: Vec<u16>,
 }
 
 impl SandboxPolicy {
     /// Build a policy whose cache locations and read-deny home are resolved from
-    /// `HOME`.
+    /// `HOME`. The network layer is off, so the network is unchanged.
     pub fn new(workspace_root: &Path, run_tmp_dir: &Path) -> Self {
         Self::with_home(workspace_root, run_tmp_dir, home_dir())
     }
@@ -124,7 +138,22 @@ impl SandboxPolicy {
             run_tmp_dir: run_tmp_dir.to_path_buf(),
             caches: resolve_cache_paths(&home),
             home,
+            offline: false,
+            dev_server_ports: Vec::new(),
         }
+    }
+
+    /// Set whether the run is `--offline`, so the backend blocks outbound
+    /// network. Off by default.
+    pub fn with_offline(mut self, offline: bool) -> Self {
+        self.offline = offline;
+        self
+    }
+
+    /// Set the TCP ports an `--offline` run leaves connectable (Linux ABI4).
+    pub fn with_dev_server_ports(mut self, ports: impl IntoIterator<Item = u16>) -> Self {
+        self.dev_server_ports = ports.into_iter().collect();
+        self
     }
 }
 
@@ -288,21 +317,35 @@ fn read_isolation(_policy: Option<&SandboxPolicy>) -> ReadIsolation {
 }
 
 /// The note recorded in the `bash_sandbox_status` reason while the sandbox is
-/// applied. On Linux it names the write operations an older ABI cannot close and
-/// the read-isolation clause; a fully closed ABI with effective reads has no
-/// note (`None`), which the event reads as fully confined. On other platforms it
-/// names the read-isolation clause.
-fn backend_note(read: &ReadIsolation) -> Option<String> {
+/// applied. On Linux it names the write operations an older ABI cannot close,
+/// the network-isolation clause of Issue #658 when `--offline` cannot be
+/// enforced (no ABI4), and the read-isolation clause; a fully closed ABI with
+/// effective reads and an enforced network has no note (`None`), which the event
+/// reads as fully confined. On other platforms it names the read-isolation
+/// clause. macOS enforces the network layer inside Seatbelt, so it has no
+/// network clause.
+fn backend_note(read: &ReadIsolation, offline: bool) -> Option<String> {
     #[cfg(target_os = "linux")]
     {
-        match landlock::limitation_note() {
-            Some(note) => Some(format!("{note}; {}", read.clause)),
-            None if read.effective => None,
-            None => Some(read.clause.clone()),
+        let mut parts = Vec::new();
+        if let Some(note) = landlock::limitation_note() {
+            parts.push(note);
+        }
+        if let Some(note) = landlock::network_limitation_note(offline) {
+            parts.push(note);
+        }
+        if !read.effective {
+            parts.push(read.clause.clone());
+        }
+        if parts.is_empty() {
+            None
+        } else {
+            Some(parts.join("; "))
         }
     }
     #[cfg(not(target_os = "linux"))]
     {
+        let _ = offline;
         Some(read.clause.clone())
     }
 }
@@ -326,20 +369,38 @@ pub fn probe() -> SandboxAvailability {
 }
 
 /// Install the process-wide sandbox state for a run and create its temp
-/// directory. Returns the status recorded in `bash_sandbox_status`.
+/// directory, without the `--offline` network layer. Returns the status recorded
+/// in `bash_sandbox_status`.
 ///
 /// In a unit-test build this is a no-op: many lib tests run in one process and
 /// must not observe each other's process-wide state. Integration tests compile
 /// the library without `cfg(test)` and exercise the real install, and the
 /// `install_for_test` seam drives the explicit states.
 pub fn install(mode: SandboxMode, workspace_root: &Path, state_dir: &Path) -> SandboxStatus {
+    install_with(mode, workspace_root, state_dir, false, Vec::new())
+}
+
+/// [`install`] with the run's `--offline` network layer of Issue #658.
+///
+/// `offline` is the run's `--offline` flag, so the backend also blocks outbound
+/// network. `dev_server_ports` is the set of TCP ports an `--offline` run still
+/// allows a `connect` to (Linux ABI4), so the run's dev server stays reachable;
+/// macOS confines the network to loopback and ignores the list. Both defaults
+/// keep the network unchanged.
+pub fn install_with(
+    mode: SandboxMode,
+    workspace_root: &Path,
+    state_dir: &Path,
+    offline: bool,
+    dev_server_ports: Vec<u16>,
+) -> SandboxStatus {
     #[cfg(not(test))]
     {
-        install_impl(mode, workspace_root, state_dir)
+        install_impl(mode, workspace_root, state_dir, offline, dev_server_ports)
     }
     #[cfg(test)]
     {
-        let _ = (workspace_root, state_dir);
+        let _ = (workspace_root, state_dir, offline, dev_server_ports);
         SandboxStatus {
             mode,
             backend: backend_name(),
@@ -350,8 +411,33 @@ pub fn install(mode: SandboxMode, workspace_root: &Path, state_dir: &Path) -> Sa
     }
 }
 
+/// The TCP port(s) an `--offline` run leaves connectable (Issue #658).
+///
+/// Landlock (ABI4) is port-scoped and cannot tell addresses apart, so the run's
+/// dev-server port must be re-allowed for a sandboxed command to reach it. The
+/// port is derived the same way preflight derives it — the port named in the
+/// goal, otherwise the profile default — so the allow list matches the port the
+/// run actually uses. macOS confines the network to loopback and ignores the
+/// list; an empty list leaves the network fully denied.
+pub fn dev_server_ports(profile: &str, goal: Option<&str>) -> Vec<u16> {
+    let goal_port = goal.and_then(crate::planner::signals::requested_port_from_text);
+    let default_port =
+        crate::planner::profile::resolve_profile_runtime(profile).default_requested_port();
+    match (goal_port, default_port) {
+        (Some(port), _) => vec![port],
+        (None, Some(default)) => vec![default],
+        (None, None) => Vec::new(),
+    }
+}
+
 #[cfg(not(test))]
-fn install_impl(mode: SandboxMode, workspace_root: &Path, state_dir: &Path) -> SandboxStatus {
+fn install_impl(
+    mode: SandboxMode,
+    workspace_root: &Path,
+    state_dir: &Path,
+    offline: bool,
+    dev_server_ports: Vec<u16>,
+) -> SandboxStatus {
     let run_tmp_dir = state_dir
         .join("sandbox")
         .join(format!("run-{}", uuid::Uuid::now_v7()));
@@ -360,7 +446,9 @@ fn install_impl(mode: SandboxMode, workspace_root: &Path, state_dir: &Path) -> S
             SandboxAvailability::Unavailable(format!("run temp directory is unavailable: {err}"));
         return store(mode, None, availability);
     }
-    let policy = SandboxPolicy::new(workspace_root, &run_tmp_dir);
+    let policy = SandboxPolicy::new(workspace_root, &run_tmp_dir)
+        .with_offline(offline)
+        .with_dev_server_ports(dev_server_ports);
     let availability = if mode.uses_backend() {
         probe()
     } else {
@@ -428,11 +516,12 @@ fn reconcile_workspace_impl(workspace_root: &Path) -> Option<SandboxStatus> {
         )
     };
     let read = read_isolation(policy.as_ref());
+    let offline = policy.as_ref().is_some_and(|policy| policy.offline);
     if !mismatched || !mode.uses_backend() {
         return Some(SandboxStatus::from_parts(
             mode,
             &availability,
-            backend_note(&read),
+            backend_note(&read, offline),
             read.effective,
         ));
     }
@@ -442,7 +531,7 @@ fn reconcile_workspace_impl(workspace_root: &Path) -> Option<SandboxStatus> {
         return Some(SandboxStatus::from_parts(
             mode,
             &availability,
-            backend_note(&read),
+            backend_note(&read, offline),
             read.effective,
         ));
     }
@@ -462,8 +551,13 @@ fn store(
     availability: SandboxAvailability,
 ) -> SandboxStatus {
     let read = read_isolation(policy.as_ref());
-    let status =
-        SandboxStatus::from_parts(mode, &availability, backend_note(&read), read.effective);
+    let offline = policy.as_ref().is_some_and(|policy| policy.offline);
+    let status = SandboxStatus::from_parts(
+        mode,
+        &availability,
+        backend_note(&read, offline),
+        read.effective,
+    );
     let mut installed = INSTALLED.lock().expect("sandbox state");
     *installed = Some(Installed {
         policy,
@@ -539,10 +633,14 @@ pub fn status() -> Option<SandboxStatus> {
     let installed = INSTALLED.lock().expect("sandbox state");
     installed.as_ref().map(|installed| {
         let read = read_isolation(installed.policy.as_ref());
+        let offline = installed
+            .policy
+            .as_ref()
+            .is_some_and(|policy| policy.offline);
         SandboxStatus::from_parts(
             installed.mode,
             &installed.availability,
-            backend_note(&read),
+            backend_note(&read, offline),
             read.effective,
         )
     })
@@ -617,6 +715,30 @@ pub fn wrap_command(command: Command) -> Result<Command, SandboxRefusal> {
     }
 }
 
+/// Wrap a runtime dependency-setup launch in the OS sandbox (Issue #658).
+///
+/// The Python `sh -c` (venv and `pip install -e .`, including `setup.py`) and
+/// the `npm install` run through here, so an install-time script cannot write
+/// outside the workspace and an `--offline` run cannot reach the network. `Err`
+/// is the `required` refusal when the backend is unavailable; `auto` and `off`
+/// return the command unchanged (unwrapped when the backend is unavailable), so
+/// `auto` keeps running the setup outside the sandbox and the run status records
+/// it as not applied.
+///
+/// In a unit-test build this is a no-op: many lib tests run in one process and
+/// must not observe each other's process-wide sandbox state. Integration tests
+/// compile the library without `cfg(test)` and exercise the real wrap.
+pub fn wrap_dependency_setup(command: Command) -> Result<Command, SandboxRefusal> {
+    #[cfg(not(test))]
+    {
+        wrap_command(command)
+    }
+    #[cfg(test)]
+    {
+        Ok(command)
+    }
+}
+
 fn apply_backend(
     command: Command,
     policy: &SandboxPolicy,
@@ -684,12 +806,34 @@ mod tests {
     /// The installed state is process-wide, so these tests serialize.
     static SANDBOX_TEST_LOCK: Mutex<()> = Mutex::new(());
 
+    /// Issue #658: the `--offline` dev-server allow list is the port the run
+    /// will use — the goal's port, else the profile default — so a sandboxed
+    /// command can reach the dev server on Linux (ABI4) while every other
+    /// connect is denied. macOS ignores the list.
+    #[test]
+    fn dev_server_ports_follow_the_goal_then_the_profile_default() {
+        assert_eq!(
+            dev_server_ports("generic", Some("serve the app on port 4000")),
+            vec![4000]
+        );
+        assert_eq!(
+            dev_server_ports("generic", Some("serve the app")),
+            Vec::<u16>::new()
+        );
+        assert_eq!(
+            dev_server_ports("nextjs", Some("build a landing page")),
+            vec![crate::planner::profiles::nextjs::DEFAULT_REQUESTED_PORT]
+        );
+    }
+
     fn policy() -> SandboxPolicy {
         SandboxPolicy {
             workspace_root: PathBuf::from("/tmp/os-sandbox-test-work"),
             run_tmp_dir: PathBuf::from("/tmp/os-sandbox-test-tmp"),
             caches: CachePaths::default(),
             home: PathBuf::from("/tmp/os-sandbox-test-home"),
+            offline: false,
+            dev_server_ports: Vec::new(),
         }
     }
 

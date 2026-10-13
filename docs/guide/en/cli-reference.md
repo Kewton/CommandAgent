@@ -78,8 +78,8 @@ internal integration surface and is intentionally not a public user flag.
 | `--profile` | `<PROFILE>` | inferred, then `generic` | Set a compiled profile or an external draft ID. An external ID requires the extension root that declares `profiles/<id>/manifest.toml`. | [Profile inference](slash-commands.md#profile-inference) |
 | `--style` | `<STYLE>` | `default` | Pass the plan presentation/generation style. | [Inline flags](slash-commands.md#inline-flags) |
 | `--resume` | `<RESUME>` | none | Load the named saved minimal-loop session for a direct `--prompt` run. | [Session options](#conflicts-and-combinations) |
-| `--offline` | none | off | Block runtime dependency setup and Bash commands containing npm/pnpm/yarn/cargo install, curl, or wget. Provider/API requests and other network-capable commands are unaffected. | [Providers](providers.md) |
-| `--sandbox` | `<auto\|required\|off>` | `auto` | Select the OS write sandbox for Bash and verifier commands. `auto` applies it when the backend is available and otherwise continues with lexical checks only; `required` fails those commands when the backend is unavailable; `off` keeps the previous behavior. | [OS write and read sandbox](#os-write-and-read-sandbox) |
+| `--offline` | none | off | Block runtime dependency setup and Bash commands containing npm/pnpm/yarn/cargo install, curl, or wget. Provider/API requests and other network-capable commands are unaffected. | [OS write, read, and network sandbox](#os-write-read-and-network-sandbox) |
+| `--sandbox` | `<auto\|required\|off>` | `auto` | Select the OS write sandbox for Bash and verifier commands. `auto` applies it when the backend is available and otherwise continues with lexical checks only; `required` fails those commands when the backend is unavailable; `off` keeps the previous behavior. | [OS write, read, and network sandbox](#os-write-read-and-network-sandbox) |
 | `--quiet` | none | off (`narration = "normal"`) | Suppress presentation narration. | [Top-level keys](configuration.md#top-level-keys) |
 | `--summary-json` | none | off | Append one machine-readable terminal run summary as the final stdout line. Omitting it preserves existing stdout bytes. | [Headless execution](../../user/headless.md) |
 | `--trace` | none | off | Opt in to scrubbed provider request and response traces under the active run directory. | [Troubleshooting](troubleshooting.md) |
@@ -98,16 +98,19 @@ internal integration surface and is intentionally not a public user flag.
 | `--footer` | `<on\|off>` | `on` | Control the fixed TUI footer; off keeps scrollback breadcrumbs. | [Footer problems](troubleshooting.md#footer-rendering-problems) |
 | `--no-footer` | none | off | Disable the fixed TUI footer. Equivalent in effect to `--footer off`. | [Footer problems](troubleshooting.md#footer-rendering-problems) |
 
-## OS write and read sandbox
+## OS write, read, and network sandbox
 
 The `--sandbox auto|required|off` flag (default `auto`) controls an OS-level
-write sandbox and a home-credential read sandbox for the model Bash tool and for
-verification/acceptance commands. The lexical checks still run first; the
-sandbox adds confinement for writes and reads the lexical guard cannot see.
+write sandbox, a home-credential read sandbox, and (for `--offline`) a network
+sandbox for the model Bash tool, verification/acceptance commands, and the
+runtime dependency setup (the Python `sh -c` and the `npm install`). The lexical
+checks still run first; the sandbox adds confinement for the writes, reads, and
+(with `--offline`) network the lexical guard cannot see.
 
 - **What the OS closes (when the backend is available):** writes performed inside
   a command or script — `sh -c 'cp ...'`, `eval`, `xargs`, `find -exec`, an
-  interpreter's `open(..., 'w')`, `dd of=`, `sed -i` — and hardlinks to an inode
+  interpreter's `open(..., 'w')`, `dd of=`, `sed -i`, and an install-time script
+  such as `setup.py` or an npm lifecycle script — and hardlinks to an inode
   outside the workspace. Only the workspace, the run's temp directory, the known
   dependency caches, and device files such as `/dev/null` are writable.
 - **Read confinement:** reading the home secret locations (`.ssh`, `.aws`,
@@ -128,12 +131,23 @@ sandbox adds confinement for writes and reads the lexical guard cannot see.
   read layer cannot deny those secrets, and the status says the read isolation is
   not effective instead of claiming it is applied; an empty `HOME` is reported
   the same way.
-- **What stays lexical-only:** network access, and every command run when the
-  backend is unavailable. `--yes`, `--allow bash:verify`, and `--offline` do not
-  close an indirect write or a home-secret read by themselves; only the sandbox,
-  when applied, does. `--allow bash:verify` admits a command by its
-  classification only, so the contents of any script it invokes are limited by
-  the sandbox alone.
+- **Network (`--offline` only):** when the backend is applied, an `--offline`
+  run has its outbound connections refused by the OS, so an arbitrary program the
+  lexical guard cannot name (`python -c "urllib..."`, `node -e "fetch(...)"`)
+  cannot reach the network. macOS denies every network operation except loopback
+  TCP and unix sockets. Linux (Landlock ABI4, kernel 6.7) denies every TCP
+  connect except the run's dev-server port(s): Landlock matches the port only, so
+  the same port on an external host still connects and UDP is not restricted, and
+  below ABI4 the network is not confined — the `bash_sandbox_status` reason says
+  so. A run that is not `--offline` is unchanged.
+- **What stays lexical-only:** every command run when the backend is unavailable.
+  `--yes`, `--allow bash:verify`, and `--offline` do not close an indirect write
+  or a home-secret read by themselves; only the sandbox, when applied, does.
+  `--allow bash:verify` admits a command by its classification only, so the
+  contents of any script it invokes are limited by the sandbox alone. With `auto`
+  and an unavailable backend the dependency setup runs outside the sandbox as
+  before and the status records it as not applied; with `required` it fails
+  honestly.
 - **Modes:** `auto` uses the backend when available and otherwise warns once and
   records `bash_sandbox_status` with `applied=false` and a reason, continuing
   with lexical checks only; `required` fails Bash and verifier commands with

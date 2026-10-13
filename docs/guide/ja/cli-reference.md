@@ -77,8 +77,8 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 | `--profile` | `<PROFILE>` | 推論後に `generic` | 組み込み profile または外部 draft ID を明示します。外部 ID には `profiles/<id>/manifest.toml` を宣言する extension root が必要です。 | [プロファイル推論](slash-commands.md#プロファイル推論) |
 | `--style` | `<STYLE>` | `default` | plan の表示／生成スタイルを渡します。 | [インラインフラグ](slash-commands.md#インラインフラグ) |
 | `--resume` | `<RESUME>` | なし | 直接 `--prompt` 実行で、指定した保存済み minimal-loop セッションを読み込みます。 | [セッションオプション](#排他関係と組み合わせ) |
-| `--offline` | なし | オフ | runtime の依存関係セットアップと、npm/pnpm/yarn/cargo install、curl、wget を含む Bash コマンドを禁止します。provider/API 要求とその他のネットワーク可能なコマンドには影響しません。 | [プロバイダ](providers.md) |
-| `--sandbox` | `<auto\|required\|off>` | `auto` | モデルの Bash ツールと検証・受け入れコマンドに対する OS レベルの書き込みサンドボックスを選びます。`auto` は backend が使えれば適用し、使えなければ字句検査だけで続けます。`required` は backend が使えないときに対象コマンドを失敗させます。`off` は今までの挙動を保ちます。 | [OS 書き込み・読み取りサンドボックス](#os-書き込み読み取りサンドボックス) |
+| `--offline` | なし | オフ | `--sandbox` が backend を適用するときは外向きの通信を OS で拒否し、常に runtime の依存関係セットアップと、npm/pnpm/yarn/cargo install、curl、wget を含む Bash コマンドを禁止します。provider/API 要求と `--offline` でない run には影響しません。 | [OS 書き込み・読み取り・ネットワークサンドボックス](#os-書き込み読み取りネットワークサンドボックス) |
+| `--sandbox` | `<auto\|required\|off>` | `auto` | モデルの Bash ツール・検証・受け入れコマンド・依存関係セットアップに対する OS レベルの書き込み・読み取り・（`--offline` のとき）ネットワークのサンドボックスを選びます。`auto` は backend が使えれば適用し、使えなければ字句検査だけで続けます。`required` は backend が使えないときに対象コマンドを失敗させます。`off` は今までの挙動を保ちます。 | [OS 書き込み・読み取り・ネットワークサンドボックス](#os-書き込み読み取りネットワークサンドボックス) |
 | `--quiet` | なし | オフ（`narration = "normal"`） | プレゼンテーションのナレーションを抑制します。 | [トップレベルキー](configuration.md#トップレベルキー) |
 | `--summary-json` | なし | オフ | stdout 最終行へ機械可読な終端runサマリを1件追加します。省略時は既存stdout bytesを維持します。 | [Headless execution](../../user/headless.md) |
 | `--trace` | なし | オフ | active run の `trace/` directory に scrub 済み provider exchange を opt-in 保存します。 | [トラブルシューティング](troubleshooting.md) |
@@ -97,13 +97,14 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 | `--footer` | `<on\|off>` | `on` | 固定 TUI フッターを制御します。off でもスクロールバックの breadcrumb は残ります。 | [フッターの問題](troubleshooting.md#フッター描画の問題) |
 | `--no-footer` | なし | オフ | 固定 TUI フッターを無効にします。効果は `--footer off` と同じです。 | [フッターの問題](troubleshooting.md#フッター描画の問題) |
 
-## OS 書き込み・読み取りサンドボックス
+## OS 書き込み・読み取り・ネットワークサンドボックス
 
-フラグ `--sandbox auto|required|off`（既定 `auto`）は、モデルの Bash ツールと検証・受け入れコマンドに対する OS レベルの書き込みサンドボックスと、home の資格情報の読み取りサンドボックスを制御します。字句検査は先に働き、サンドボックスは字句検査から見えない書き込みと読み取りを閉じ込めます。
+フラグ `--sandbox auto|required|off`（既定 `auto`）は、モデルの Bash ツール・検証・受け入れコマンド・依存関係セットアップ（Python の `sh -c` と `npm install`）に対する OS レベルの書き込みサンドボックスと、home の資格情報の読み取りサンドボックス、`--offline` のときのネットワークのサンドボックスを制御します。字句検査は先に働き、サンドボックスは字句検査から見えない書き込み・読み取り・（`--offline` のとき）ネットワークを閉じ込めます。
 
-- **OS が閉じるもの（backend が使えるとき）：** コマンドやスクリプトの中の書き込み — `sh -c 'cp ...'`、`eval`、`xargs`、`find -exec`、インタープリタの `open(..., 'w')`、`dd of=`、`sed -i` — と、workspace の外の inode への hardlink です。書き込めるのは、workspace・run の一時ディレクトリ・既知の依存キャッシュ・`/dev/null` などのデバイスだけです。
+- **OS が閉じるもの（backend が使えるとき）：** コマンドやスクリプトの中の書き込み — `sh -c 'cp ...'`、`eval`、`xargs`、`find -exec`、インタープリタの `open(..., 'w')`、`dd of=`、`sed -i`、`setup.py` や npm の lifecycle script のようなインストール時のスクリプト — と、workspace の外の inode への hardlink です。書き込めるのは、workspace・run の一時ディレクトリ・既知の依存キャッシュ・`/dev/null` などのデバイスだけです。
 - **読み取りの隔離：** home の秘密の場所（`.ssh`・`.aws`・`.gnupg`・`.netrc`・`.git-credentials`・`.npmrc`・`.pypirc`・`.docker/config.json`・`.kube`・`.config/gh`・`.config/gcloud`）の読み取りを拒否し、macOS では #501 の規則に当たる workspace の資格情報も拒否します。厳密な dotenv テンプレート（`.env.example`・`.env.sample`・`.env.template`）は読めます。これにより、秘密でない名前の symlink 経由、`BASH_ENV` のような環境変数で名指す形、インタープリタが実行時に組み立てた名前が拒否一覧の名前そのものを指す場合など、字句検査から見えない読み取りを閉じます。Linux では home の秘密の場所だけを拒否するため、秘密でない名前の symlink 経由の workspace の資格情報は読み取りの隔離では閉じません。home の npm の設定を拒否するため、private registry の `~/.npmrc` を読む `npm` は Bash の中で失敗します。Linux は拒否リストをコマンドの起動ごとに読み取り許可リストへ展開し直すため、起動の後にできた場所はそのコマンドの中では読めません（`ls /`・`ls $HOME`・`echo $HOME/*` は意図どおり失敗します）。書き込みの許可の場所（たとえば workspace）が home そのものか home の秘密の場所の祖先のときは、書き込みの許可がその秘密の場所の下位も読ませるため読み取りでは閉じられず、status は適用と偽らず「読み取りの隔離が効かない」と記録します。HOME が空のときも同じです。
-- **字句検査だけのもの：** ネットワーク、backend が使えないときの全コマンドです。`--yes`・`--allow bash:verify`・`--offline` は、それ自体では間接的な書き込みや home の秘密の読み取りを閉じません。適用されたサンドボックスだけが閉じます。`--allow bash:verify` はコマンドを分類で通すだけなので、そのコマンドが呼ぶスクリプトの中身を制限するのはサンドボックスだけです。
+- **ネットワーク（`--offline` のときだけ）：** backend が適用されているとき、`--offline` の run は外向きの接続を OS が拒否するため、字句検査が名指しできない任意のプログラム（`python -c "urllib..."`、`node -e "fetch(...)"`）はネットワークに出られません。macOS は loopback の TCP と unix socket 以外のネットワーク操作をすべて拒否します。Linux（Landlock ABI4、kernel 6.7）は run の dev server の port 以外の TCP の connect をすべて拒否します。Landlock は port しか区別しないため同じ port の外部ホストへは通り、UDP は制限できず、ABI4 未満ではネットワークを閉じ込めません（`bash_sandbox_status` の reason にそう書きます）。`--offline` でない run のネットワークは変わりません。
+- **字句検査だけのもの：** backend が使えないときの全コマンドです。`--yes`・`--allow bash:verify`・`--offline` は、それ自体では間接的な書き込みや home の秘密の読み取りを閉じません。適用されたサンドボックスだけが閉じます。`--allow bash:verify` はコマンドを分類で通すだけなので、そのコマンドが呼ぶスクリプトの中身を制限するのはサンドボックスだけです。`auto` で backend が使えないときは依存関係セットアップもこれまでどおり隔離の外で動き、status が未適用と記録します。`required` では正直に失敗します。
 - **モード：** `auto` は backend が使えれば適用し、使えなければ起動時に一度警告し、`applied=false` と理由つきの `bash_sandbox_status` を記録して字句検査だけで続けます。`required` は Bash と検証コマンドを `bash_sandbox_unavailable` で失敗させます。`off` は今までの挙動を保ちます。読み取りの隔離は同じイベントの `reason` で報告します（適用中は read isolation を名指し、完全に閉じている場合は空です）。macOS は Seatbelt で、入れ子の sandbox（`rc=71`）では未適用です。Linux は Landlock で、ABI1（kernel 5.13）未満・無効化・seccomp による拒否では未適用です。
 - 依存キャッシュ（cargo・npm・pip・Playwright のブラウザ）はビルドとテストのために書き込み可能なままにします。workspace の外の汚染経路として残ります。
 
