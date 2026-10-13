@@ -9,8 +9,8 @@
 # default set). See docs/dev/dev-guardrails.md for the surrounding CI contract.
 
 [advisories]
-# No advisory is ignored. A new advisory must fail the check; add an entry here
-# only with a written reason and a link to the tracking Issue.
+# A new advisory must fail the check; add an entry here only with a written
+# reason and a link to the tracking Issue.
 ignore = []
 
 [licenses]

@@ -22,10 +22,12 @@ workers.
   keep them moving: send investigation of unknowns (unclear requirements, root
   causes, unexpected behavior, plan review) to Codex_Sub (`codex-3`), and
   clear, mechanical tasks to Antigravity (`antigravity`).
-- You approve plans and dispatch. The user has delegated merge approval to you
-  (2026-09-30). Approve and run a merge only when every condition in harness
-  section 3, step 6 holds, then report it; when any condition fails or is
-  unclear, present the merge request to the user instead. Escalate to the user when a plan has open questions, high risk, an
+- You approve plans and dispatch. The user has delegated PR creation (for
+  Issues whose dispatch the user approved, 2026-10-13) and merge approval
+  (2026-09-30) to you. Approve PR creation only when every condition in harness
+  section 3, step 5 holds, and run a merge only when every condition in step 6
+  holds, then report it; when any condition fails or is unclear, ask the user
+  instead. Escalate to the user when a plan has open questions, high risk, an
   unverified profile, or harness paths in scope.
 - The leader runs with auto-yes. When a prompt stays open (the stop pattern
   fired), answer it only within your authority; send anything else (merge,

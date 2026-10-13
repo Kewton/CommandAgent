@@ -1,0 +1,219 @@
+{
+  "issue": 530,
+  "migrated_from": "serde_yaml 0.9.34+deprecated",
+  "migrated_to": "yaml_serde 0.10.7",
+  "parser_dependency_from": "unsafe-libyaml 0.2.11 (RUSTSEC-2024-0449, unmaintained)",
+  "parser_dependency_to": "libyaml-rs 0.3.0",
+  "baseline": "Measured on the pre-migration develop export; yaml_serde 0.10.7 reproduces accept/reject, type, value, tag, arbitrary-key, serialization, and diagnostic line/column identically.",
+  "pack_cases": [
+    {
+      "id": "valid-assist-accepted",
+      "document": "schema_version: commandagent.pack.assist/v0\npack:\n  id: ingest-default\n  version: 1.0.0\n  profile: ingest\n  intent: create\ninject:\n  - point: declare-ingest-inspection\n    source: ingest_snapshot_structure_injected\n    required: true\n    params:\n      max_files: 8\nliterals:\n  - gate: ingest_source_binding\n    example:\n      format: json\n      value: '{\"date\":\"2026-08-03\"}'\nvocabulary:\n  - point: implement-ingest-delivery\n    source: ingest_candidate_ids_injected\n    mode: verbatim\n    required: true\n    params: {}\n",
+      "parser_accepts": true,
+      "schema_accepts": true
+    },
+    {
+      "id": "unknown-field-rejected",
+      "document": "schema_version: commandagent.pack.assist/v0\npack:\n  id: ingest-default\n  version: 1.0.0\n  profile: ingest\n  intent: create\ninvented: true\ninject:\n  - point: declare-ingest-inspection\n    source: ingest_snapshot_structure_injected\n    required: true\n    params:\n      max_files: 8\nliterals:\n  - gate: ingest_source_binding\n    example:\n      format: json\n      value: '{\"date\":\"2026-08-03\"}'\nvocabulary:\n  - point: implement-ingest-delivery\n    source: ingest_candidate_ids_injected\n    mode: verbatim\n    required: true\n    params: {}\n",
+      "parser_accepts": true,
+      "schema_accepts": false,
+      "schema_error": "unknown field `invented`, expected one of `schema_version`, `pack`, `inject`, `literals`, `vocabulary` at line 7 column 1"
+    },
+    {
+      "id": "duplicate-key-rejected",
+      "document": "schema_version: commandagent.pack.assist/v0\npack:\n  id: ingest-default\n  id: duplicate\n  version: 1.0.0\n  profile: ingest\n  intent: create\ninject:\n  - point: declare-ingest-inspection\n    source: ingest_snapshot_structure_injected\n    required: true\n    params:\n      max_files: 8\nliterals:\n  - gate: ingest_source_binding\n    example:\n      format: json\n      value: '{\"date\":\"2026-08-03\"}'\nvocabulary:\n  - point: implement-ingest-delivery\n    source: ingest_candidate_ids_injected\n    mode: verbatim\n    required: true\n    params: {}\n",
+      "parser_accepts": false,
+      "schema_accepts": false,
+      "schema_error": "duplicate YAML key `id` at line 3 column 3"
+    },
+    {
+      "id": "anchor-alias-rejected",
+      "document": "schema_version: commandagent.pack.assist/v0\npack:\n  id: ingest-default\n  version: 1.0.0\n  profile: ingest\n  intent: create\ninject:\n  - point: declare-ingest-inspection\n    source: ingest_snapshot_structure_injected\n    required: true\n    params:\n      max_files: 8\nliterals:\n  - gate: ingest_source_binding\n    example:\n      format: json\n      value: '{\"date\":\"2026-08-03\"}'\nvocabulary:\n  - point: implement-ingest-delivery\n    source: ingest_candidate_ids_injected\n    mode: verbatim\n    required: true\n    params: {}\nnote: &n hello\nref: *n\n",
+      "parser_accepts": true,
+      "schema_accepts": false,
+      "schema_error": "YAML anchors are forbidden at line 24"
+    },
+    {
+      "id": "tag-rejected",
+      "document": "schema_version: commandagent.pack.assist/v0\npack:\n  id: ingest-default\n  version: 1.0.0\n  profile: ingest\n  intent: create\ninject:\n  - point: declare-ingest-inspection\n    source: ingest_snapshot_structure_injected\n    required: true\n    params:\n      max_files: 8\nliterals:\n  - gate: ingest_source_binding\n    example:\n      format: json\n      value: '{\"date\":\"2026-08-03\"}'\nvocabulary:\n  - point: implement-ingest-delivery\n    source: ingest_candidate_ids_injected\n    mode: verbatim\n    required: true\n    params: {}\nnote: !custom hello\n",
+      "parser_accepts": true,
+      "schema_accepts": false,
+      "schema_error": "YAML tags are forbidden at line 24"
+    },
+    {
+      "id": "merge-key-rejected",
+      "document": "schema_version: commandagent.pack.assist/v0\npack:\n  id: ingest-default\n  version: 1.0.0\n  profile: ingest\n  intent: create\nextra:\n  <<: {a: 1}\ninject:\n  - point: declare-ingest-inspection\n    source: ingest_snapshot_structure_injected\n    required: true\n    params:\n      max_files: 8\nliterals:\n  - gate: ingest_source_binding\n    example:\n      format: json\n      value: '{\"date\":\"2026-08-03\"}'\nvocabulary:\n  - point: implement-ingest-delivery\n    source: ingest_candidate_ids_injected\n    mode: verbatim\n    required: true\n    params: {}\n",
+      "parser_accepts": true,
+      "schema_accepts": false,
+      "schema_error": "YAML merge keys are forbidden at line 8"
+    },
+    {
+      "id": "multi-document-rejected",
+      "document": "schema_version: commandagent.pack.assist/v0\npack:\n  id: ingest-default\n  version: 1.0.0\n  profile: ingest\n  intent: create\ninject:\n  - point: declare-ingest-inspection\n    source: ingest_snapshot_structure_injected\n    required: true\n    params:\n      max_files: 8\nliterals:\n  - gate: ingest_source_binding\n    example:\n      format: json\n      value: '{\"date\":\"2026-08-03\"}'\nvocabulary:\n  - point: implement-ingest-delivery\n    source: ingest_candidate_ids_injected\n    mode: verbatim\n    required: true\n    params: {}\n---\nschema_version: other\n",
+      "parser_accepts": false,
+      "schema_accepts": false,
+      "schema_error": "deserializing from YAML containing more than one document is not supported"
+    },
+    {
+      "id": "non-string-key-rejected",
+      "document": "1: x\nschema_version: commandagent.pack.assist/v0\npack:\n  id: ingest-default\n  version: 1.0.0\n  profile: ingest\n  intent: create\ninject:\n  - point: declare-ingest-inspection\n    source: ingest_snapshot_structure_injected\n    required: true\n    params:\n      max_files: 8\nliterals:\n  - gate: ingest_source_binding\n    example:\n      format: json\n      value: '{\"date\":\"2026-08-03\"}'\nvocabulary:\n  - point: implement-ingest-delivery\n    source: ingest_candidate_ids_injected\n    mode: verbatim\n    required: true\n    params: {}\n",
+      "parser_accepts": true,
+      "schema_accepts": false,
+      "schema_error": "unknown field `1`, expected one of `schema_version`, `pack`, `inject`, `literals`, `vocabulary`"
+    }
+  ],
+  "plan_cases": [
+    {
+      "id": "valid-step-plan-accepted",
+      "document": "goal: Update the plan YAML guide\nsteps:\n  - id: update-guide\n    kind: implement\n    expected_result: pass\n    instruction: Update docs/guide/en/plan-yaml.md with editing guidance.\n    expected_paths:\n      - docs/guide/en/plan-yaml.md\n",
+      "accepts": true
+    },
+    {
+      "id": "valid-ultra-plan-accepted",
+      "document": "recovery_schema_version: '1'\ngoal: recover\nprofile: generic\nstyle: recovery\nintent: recover\nphases:\n  - id: repair\n    prompt: Repair.\n  - id: verify\n    prompt: Verify.\n",
+      "accepts": true
+    },
+    {
+      "id": "syntax-error-keeps-line-and-column",
+      "document": "goal: x\nsteps:\n  - id: bad\n    instruction: [\n",
+      "accepts": false,
+      "error_contains": "did not find expected node content",
+      "line": 5,
+      "column": 1
+    },
+    {
+      "id": "type-error-keeps-line-and-column",
+      "document": "goal: docs\nsteps:\n  - id: update-guide\n    kind: implement\n    expected_result: pass\n    instruction: [not, a, string]\n",
+      "accepts": false,
+      "error_contains": "invalid type: sequence, expected a string",
+      "line": 6,
+      "column": 18
+    },
+    {
+      "id": "both-steps-and-phases-rejected",
+      "document": "goal: x\nsteps:\n  - id: s1\n    instruction: a\nphases:\n  - id: p1\n    prompt: b\n",
+      "accepts": false,
+      "error_contains": "plan cannot contain both `steps` and `phases`",
+      "line": 5,
+      "column": 1
+    },
+    {
+      "id": "neither-steps-nor-phases-rejected",
+      "document": "goal: x\n",
+      "accepts": false,
+      "error_contains": "plan must contain either a `steps` list or a `phases` list",
+      "line": 1,
+      "column": 1
+    },
+    {
+      "id": "contract-error-keeps-line-and-column",
+      "document": "goal: test\nsteps:\n  - id: verify\n    kind: verify\n    expected_result: pass\n    instruction: Run tests.\n    verify:\n      - \"cargo test | cargo clippy\"\n",
+      "accepts": false,
+      "error_contains": "verify command may not use shell control syntax",
+      "line": 8,
+      "column": 10
+    }
+  ],
+  "workflow_versions": [
+    {
+      "id": "numeric-0",
+      "document": "workflow: recovery-circle-data\nversion: 0\nentry: create\nnodes:\n  create: {intent: create, profile: generic}\nroutes: []\nterminal: {}\n",
+      "accepts": true
+    },
+    {
+      "id": "numeric-0.1",
+      "document": "workflow: recovery-circle-data\nversion: 0.1\nentry: create\nnodes:\n  create: {intent: create, profile: generic}\nroutes: []\nterminal: {}\n",
+      "accepts": true
+    },
+    {
+      "id": "numeric-0.2",
+      "document": "workflow: recovery-circle-data\nversion: 0.2\nentry: create\nnodes:\n  create: {intent: create, profile: generic}\nroutes: []\nterminal: {}\n",
+      "accepts": true
+    },
+    {
+      "id": "numeric-0.3-rejected",
+      "document": "workflow: recovery-circle-data\nversion: 0.3\nentry: create\nnodes:\n  create: {intent: create, profile: generic}\nroutes: []\nterminal: {}\n",
+      "accepts": false,
+      "error_contains": "workflow version must be 0, 0.1, or 0.2"
+    },
+    {
+      "id": "string-zero-rejected",
+      "document": "workflow: recovery-circle-data\nversion: \"0\"\nentry: create\nnodes:\n  create: {intent: create, profile: generic}\nroutes: []\nterminal: {}\n",
+      "accepts": false,
+      "error_contains": "workflow version must be 0, 0.1, or 0.2"
+    }
+  ],
+  "scrub_cases": [
+    {
+      "id": "tagged-keys-keep-element-count",
+      "register_plain": [
+        "SECRET-AAA-111",
+        "SECRET-BBB-222"
+      ],
+      "document": "!t SECRET-AAA-111: 1\n!t SECRET-BBB-222: 2\n!t keep-me: 3\n",
+      "mapping_len": 3,
+      "absent": [
+        "SECRET-AAA-111",
+        "SECRET-BBB-222"
+      ],
+      "serialized_contains": [
+        "!t keep-me: 3"
+      ]
+    },
+    {
+      "id": "compound-mapping-keys-keep-element-count",
+      "register_plain": [
+        "SECRET-AAA-111",
+        "SECRET-BBB-222"
+      ],
+      "document": "? {a: SECRET-AAA-111}\n: 1\n? {a: SECRET-BBB-222}\n: 2\n",
+      "mapping_len": 2,
+      "absent": [
+        "SECRET-AAA-111",
+        "SECRET-BBB-222"
+      ]
+    },
+    {
+      "id": "numeric-secret-becomes-marker-string",
+      "register_plain": [
+        "8675309012345"
+      ],
+      "document": "port: 8675309012345\nplain: 42\n",
+      "mapping_len": 2,
+      "absent": [
+        "8675309012345"
+      ],
+      "string_value": {
+        "port": "<redacted>"
+      },
+      "number_value": {
+        "plain": 42
+      }
+    },
+    {
+      "id": "key-collision-keeps-existing-value",
+      "register_plain": [
+        "SECRET-AAA-111"
+      ],
+      "document": "SECRET-AAA-111: keep\n<redacted>: existing\n",
+      "mapping_len": 2,
+      "absent": [
+        "SECRET-AAA-111"
+      ],
+      "string_value": {
+        "<redacted>": "existing",
+        "<redacted>#1": "keep"
+      }
+    }
+  ],
+  "boundary": {
+    "max_file_bytes": 262144,
+    "file_error": "file exceeds 262144 bytes",
+    "max_depth": 16,
+    "depth_error": "YAML nesting exceeds 16",
+    "max_sequence": 256,
+    "sequence_error": "YAML sequence exceeds 256 entries",
+    "max_scalar_bytes": 65536,
+    "scalar_error": "YAML scalar exceeds 65536 bytes"
+  }
+}
