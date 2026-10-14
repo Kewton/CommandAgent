@@ -212,16 +212,22 @@ enum ProbeTaskKind {
 }
 
 struct ScratchWorkspace {
+    /// The system temp directory that owns `path`. Kept separately from `path`
+    /// so the recursive delete in [`ScratchWorkspace::cleanup`] can re-check the
+    /// real path against an independent reference (Issue #673).
+    root: PathBuf,
     path: PathBuf,
     cleaned: bool,
 }
 
 impl ScratchWorkspace {
     fn create() -> anyhow::Result<Self> {
-        let path = std::env::temp_dir().join(format!("anvil-model-probe-{}", Uuid::now_v7()));
+        let root = std::env::temp_dir();
+        let path = root.join(format!("anvil-model-probe-{}", Uuid::now_v7()));
         fs::create_dir_all(&path)
             .with_context(|| format!("failed to create scratch workspace {}", path.display()))?;
         Ok(Self {
+            root,
             path,
             cleaned: false,
         })
@@ -231,7 +237,27 @@ impl ScratchWorkspace {
         if self.cleaned {
             return true;
         }
-        self.cleaned = match fs::remove_dir_all(&self.path) {
+        // Issue #673: only remove a scratch directory that is a strict
+        // descendant of the temp dir it was created in, so a mutation that
+        // moves `path` cannot recursively delete an unrelated directory.
+        match std::fs::symlink_metadata(&self.path) {
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                self.cleaned = true;
+                return true;
+            }
+            Err(_) => {
+                self.cleaned = false;
+                return false;
+            }
+            Ok(_) => {}
+        }
+        let Some(checked) =
+            crate::tools::dir_fd::strict_descendant_real_path(&self.root, &self.path)
+        else {
+            self.cleaned = false;
+            return false;
+        };
+        self.cleaned = match fs::remove_dir_all(&checked) {
             Ok(()) => true,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => true,
             Err(_) => false,

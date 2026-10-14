@@ -46,6 +46,10 @@ pub(super) struct RunRecordPaths {
 
 pub(super) struct SessionPaths {
     run_root: PathBuf,
+    /// The `runs` directory that owns `run_root`. Kept separately from
+    /// `run_root` so a recursive delete can re-check the real path against an
+    /// independent reference (Issue #673).
+    runs_root: PathBuf,
     execution_workspace: PathBuf,
     selected_binding: Option<WorkingDirectoryBinding>,
 }
@@ -73,8 +77,10 @@ impl SessionPaths {
             || workspace.join(SESSION_WORKSPACES_DIRECTORY).join(id),
             |binding| binding.canonical_path.clone(),
         );
+        let runs_root = commandagent::runtime_paths::runs_dir(workspace);
         Ok(Self {
-            run_root: commandagent::runtime_paths::runs_dir(workspace).join(id),
+            run_root: runs_root.join(id),
+            runs_root,
             execution_workspace,
             selected_binding,
         })
@@ -105,6 +111,7 @@ impl SessionPaths {
             );
             return Ok(Some(Self {
                 run_root,
+                runs_root,
                 execution_workspace,
                 selected_binding,
             }));
@@ -297,7 +304,34 @@ impl SessionPaths {
     }
 
     pub(super) fn rollback_unstarted(&self) -> anyhow::Result<()> {
-        match std::fs::remove_dir_all(&self.run_root) {
+        // Issue #673: re-check the recursive delete target against the real
+        // path of the runs root that owns it, so a mutation that moves
+        // `run_root` outside `runs/` (a `..`, an ancestor symlink, the root
+        // itself, or the filesystem root) is refused before anything is
+        // removed. The checked real path is the value that is removed. A
+        // missing target left nothing to roll back and stays `Ok`.
+        match std::fs::symlink_metadata(&self.run_root) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!(
+                        "inspect unstarted session directory {}",
+                        self.run_root.display()
+                    )
+                });
+            }
+            Ok(_) => {}
+        }
+        let Some(checked) = commandagent::tools::dir_fd::strict_descendant_real_path(
+            &self.runs_root,
+            &self.run_root,
+        ) else {
+            anyhow::bail!(
+                "refusing to remove a session run outside the runs root: {}",
+                self.run_root.display()
+            );
+        };
+        match std::fs::remove_dir_all(&checked) {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(error) => Err(error).with_context(|| {

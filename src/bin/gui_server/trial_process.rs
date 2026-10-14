@@ -426,6 +426,11 @@ enum Signal {
 
 /// Guards the negative `kill` targets: group id 1 is init and 0 is the
 /// caller's own group, so only a real child group id may be signalled.
+///
+/// This is a value-returning selector, so cargo-mutants can replace the whole
+/// body with `true` (Issue #673). It is listed in `.cargo/mutants.toml`, and
+/// every `kill` caller re-checks the converted target with a non-mutatable
+/// `assert!(-process_group < -1)` in the function that calls `kill`.
 #[cfg(unix)]
 fn group_is_signalable(process_group: i32) -> bool {
     process_group > 1
@@ -436,6 +441,15 @@ fn send_group_signal(process_group: i32, signal: Signal) -> anyhow::Result<()> {
     if !group_is_signalable(process_group) {
         bail!("refusing to signal process group {process_group}");
     }
+    // Last, non-mutatable defense (Issue #673), written directly in the
+    // function that calls `kill`: even a mutated selector
+    // (`group_is_signalable -> true`) panics here instead of executing
+    // `kill(-1, ...)` (every signalable process) or `kill(0, ...)` (the
+    // caller's own group). The `bail!` path above is unchanged.
+    assert!(
+        -process_group < -1,
+        "refusing to signal process group {process_group}"
+    );
     let signal = match signal {
         Signal::Interrupt => libc::SIGINT,
         Signal::Kill => libc::SIGKILL,
@@ -464,6 +478,12 @@ fn process_group_exists(process_group: i32) -> bool {
     if !group_is_signalable(process_group) {
         return false;
     }
+    // Last, non-mutatable defense (Issue #673), written directly in the
+    // function that calls `kill`.
+    assert!(
+        -process_group < -1,
+        "refusing to signal process group {process_group}"
+    );
     // SAFETY: `process_group` is checked to be greater than 1 and is derived
     // from the delegated child PID; signal 0 only probes for its existence.
     let result = unsafe { libc::kill(-process_group, 0) };
@@ -516,5 +536,19 @@ mod tests {
         assert!(group_is_signalable(2));
         assert!(send_group_signal(1, Signal::Kill).is_err());
         assert!(!process_group_exists(1));
+    }
+
+    /// Issue #673 対処の方向 4: pass 0 (the caller's own group), 1 (init), and
+    /// -1 straight to the functions that call `kill`, skipping the selector's
+    /// own assertion, so a mutated `group_is_signalable` reaches the
+    /// non-mutatable `assert!` in front of `kill` and panics there instead of
+    /// signalling `kill(0)` / `kill(-1)`. Runs only in the isolated container.
+    #[cfg(unix)]
+    #[test]
+    fn dangerous_value_send_group_signal_refuses_init_caller_and_negative_groups() {
+        for process_group in [0, 1, -1] {
+            assert!(send_group_signal(process_group, Signal::Kill).is_err());
+            assert!(!process_group_exists(process_group));
+        }
     }
 }

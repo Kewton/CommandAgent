@@ -401,6 +401,11 @@ pub fn terminate_process_group(child: &mut Child) {
 /// signal with a negative `kill` target. The child is spawned with
 /// `setsid()`, so its PID equals its group id, but `-1` would signal
 /// every signalable process and `0`/`1` would target the caller or init.
+///
+/// This is a value-returning selector, so cargo-mutants can replace the whole
+/// body with `Some(1)` (Issue #673). It is listed in `.cargo/mutants.toml`, and
+/// every `kill` caller re-checks the converted target with a non-mutatable
+/// `assert!(-pgid < -1)` in the function that calls `kill`.
 #[cfg(unix)]
 fn signalable_process_group(pid: u32) -> Option<i32> {
     let pgid = i32::try_from(pid).ok()?;
@@ -415,6 +420,16 @@ pub fn terminate_process_group_by_pid(pid: u32) -> io::Result<()> {
                 "refusing to signal a process group outside the child range",
             ));
         };
+        // Last, non-mutatable defense (Issue #673). cargo-mutants does not
+        // rewrite comparisons inside `assert!`, and this is written directly in
+        // the function that calls `kill`, so a mutated selector (`Some(0)`,
+        // `Some(1)`, `Some(-1)`) panics here instead of executing `kill(0, ...)`
+        // (the caller's own group) or `kill(-1, ...)` (every signalable
+        // process). The `Err` path above is unchanged.
+        assert!(
+            -pgid < -1,
+            "refusing to signal a process group outside the child range"
+        );
         // SAFETY: `pgid` is greater than 1 and derived from a child spawned
         // with `setsid()`, so `-pgid` names only that child's own
         // process group, never pid 0/1 or the caller's group.
@@ -475,6 +490,12 @@ fn terminate_process_group_with_grace<F, C>(
     #[cfg(unix)]
     {
         if let Some(pgid) = signalable_process_group(child.id()) {
+            // Last, non-mutatable defense (Issue #673), written directly in the
+            // function that calls `kill`.
+            assert!(
+                -pgid < -1,
+                "refusing to signal a process group outside the child range"
+            );
             // SAFETY: `pgid` is greater than 1 and was created with
             // `configure_child_session()` for this child, so `-pgid` targets
             // only the child's process group, never pid 0/1 or the caller's.
@@ -497,6 +518,12 @@ fn terminate_process_group_with_grace<F, C>(
     #[cfg(unix)]
     {
         if let Some(pgid) = signalable_process_group(child.id()) {
+            // Last, non-mutatable defense (Issue #673), written directly in the
+            // function that calls `kill`.
+            assert!(
+                -pgid < -1,
+                "refusing to signal a process group outside the child range"
+            );
             // SAFETY: the same checked child-derived group identifier as above.
             unsafe {
                 libc::kill(-pgid, libc::SIGKILL);
@@ -859,6 +886,95 @@ mod tests {
         assert_eq!(signalable_process_group(1), None);
         assert_eq!(signalable_process_group(2), Some(2));
         assert!(terminate_process_group_by_pid(1).is_err());
+    }
+
+    /// Issue #673 対処の方向 4: pass 0 (the caller's own group) and 1 (init)
+    /// straight to the function that calls `kill`, skipping the selector's own
+    /// assertions, so a mutated `signalable_process_group` reaches the
+    /// non-mutatable `assert!` in front of `kill` and panics there instead of
+    /// signalling. Runs only in the isolated container.
+    #[cfg(unix)]
+    #[test]
+    fn dangerous_value_terminate_process_group_by_pid_refuses_init_and_caller_group() {
+        assert!(terminate_process_group_by_pid(0).is_err());
+        assert!(terminate_process_group_by_pid(1).is_err());
+    }
+
+    /// Issue #673 sentinel test. It exercises a real `kill(-pgid, ...)`, so it
+    /// must run only inside the isolated container: it panics unless
+    /// `COMMANDAGENT_ISSUE673_CONTAINER=1` is set, and it is `#[ignore]`d so
+    /// `cargo test` never runs it in a host process. Docker command (from the
+    /// repository root of a container that shares no host PID namespace):
+    ///
+    /// ```text
+    /// COMMANDAGENT_ISSUE673_CONTAINER=1 \
+    ///   cargo test --lib -- --ignored --exact \
+    ///   bounded_process::tests::dangerous_sentinel_same_uid_other_group_survives
+    /// ```
+    ///
+    /// It proves the scope of the signal: a same-UID process in a **different**
+    /// process group survives, while the target child's group and its
+    /// grandchild are terminated.
+    #[cfg(unix)]
+    #[test]
+    #[ignore = "run only inside the isolated container (COMMANDAGENT_ISSUE673_CONTAINER=1)"]
+    fn dangerous_sentinel_same_uid_other_group_survives() {
+        if std::env::var("COMMANDAGENT_ISSUE673_CONTAINER")
+            .ok()
+            .as_deref()
+            != Some("1")
+        {
+            panic!("run only inside the isolated container");
+        }
+        use std::os::unix::process::CommandExt;
+
+        // Sentinel: same UID, its own process group, and not the target group.
+        let mut sentinel = Command::new("sh");
+        sentinel
+            .arg("-c")
+            .arg("sleep 30")
+            .process_group(0)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let mut sentinel = sentinel.spawn().expect("spawn the sentinel");
+
+        // Target: a `setsid` child whose `sh` also leaves a grandchild in the
+        // same process group.
+        let mut target = Command::new("sh");
+        target
+            .arg("-c")
+            .arg("sh -c 'sleep 30' & sleep 30")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let mut target = spawn_child(&mut target).expect("spawn the target");
+        let target_pid = target.id();
+        thread::sleep(Duration::from_millis(300));
+
+        terminate_process_group_by_pid(target_pid).expect("reap the target group");
+        let _ = target.wait();
+        assert!(
+            !group_exists(target_pid),
+            "the target group must be gone after the reap"
+        );
+        assert!(
+            sentinel.try_wait().expect("poll the sentinel").is_none(),
+            "the same-UID sentinel in another group must survive"
+        );
+
+        let _ = sentinel.kill();
+        let _ = sentinel.wait();
+    }
+
+    #[cfg(unix)]
+    fn group_exists(pgid: u32) -> bool {
+        let Ok(pgid) = i32::try_from(pgid) else {
+            return false;
+        };
+        // SAFETY: signal 0 only probes for the group's existence.
+        let rc = unsafe { libc::kill(-pgid, 0) };
+        rc == 0
     }
 
     struct TestEnvGuard {
