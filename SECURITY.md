@@ -99,7 +99,12 @@ command before the shell starts.
   and on macOS the profile re-denies `/dev/tty*` for writes and reads last, so a
   command can neither write to a terminal's slave nor re-open the run's terminal
   by path and read the keys the user types. `/dev/null`, `/dev/zero`,
-  `/dev/urandom`, `/dev/ptmx`, and the rest of `/dev` stay usable. A terminal
+  `/dev/urandom`, and the rest of `/dev` stay usable. `/dev/ptmx` is still
+  openable, but that does not give a usable pty: the slave it would create
+  (`/dev/pts/*` on Linux, `/dev/ttys*` on macOS) is refused, so a confined
+  command cannot allocate a pty (`openpty`, `script`, `expect`, `pexpect` fail).
+  That pty loss is the cost of closing terminal reads and writes (Issue #667);
+  allocating a pty worked before #667. A terminal
   standard input is replaced with `/dev/null`, so the command's standard input is
   non-readable; the pre-#667 job-control check had left it non-readable only by
   accident (the child sat in a background process group of the session's

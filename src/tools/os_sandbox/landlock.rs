@@ -80,7 +80,11 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 /// write to another terminal's slave. Landlock grants the handled `IoctlDev`
 /// access (ABI5) only where a rule covers the location, so leaving these two out
 /// also closes device ioctls on them — including `TIOCSTI` — not just writes.
-/// `/dev/ptmx` stays allowed so allocating a pty still works.
+/// `/dev/ptmx` stays allowed, but that does not give a usable pty: the slave it
+/// would create (`/dev/pts/*`) is not allowed either, so `openpty`, `script`,
+/// `expect`, and `pexpect` fail inside the isolation. That pty loss is the cost
+/// of closing terminal reads and writes (Issue #667); allocating a pty worked
+/// before #667.
 const DEVICE_PATHS: &[&str] = &[
     "/dev/null",
     "/dev/zero",

@@ -48,8 +48,12 @@ const UNSET_PATH: &str = "/commandagent-sandbox-unset";
 /// in its own session with no controlling terminal, but it can still re-open the
 /// run's terminal by path (`/dev/ttys*`) and read the keys the user types; the
 /// read re-deny closes that path, while the already-open standard descriptors are
-/// untouched. `/dev/null`, `/dev/urandom`, `/dev/ptmx`, and the rest of `/dev`
-/// are unaffected.
+/// untouched. `/dev/null`, `/dev/urandom`, and the rest of `/dev` are unaffected,
+/// and `/dev/ptmx` is still openable — but that does not give a usable pty: the
+/// slave it would create (`/dev/ttys*`) is denied, so `openpty`, `script`,
+/// `expect`, and `pexpect` cannot use a pty inside the isolation. That pty loss
+/// is the cost of closing terminal reads and writes (Issue #667); allocating a
+/// pty worked before #667.
 const WRITE_PROFILE: &str = r#"
 (version 1)
 (allow default)
