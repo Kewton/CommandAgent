@@ -282,6 +282,33 @@ pub(crate) use unix_impl::{ParentDir, open_parent};
 #[cfg(unix)]
 pub use unix_impl::open_read_file;
 
+/// Issue #673: true only when `target` is a strict descendant of `owned_root`
+/// by real path.
+///
+/// `canonicalize` resolves `.`, `..`, and every symlink, so the root itself, an
+/// ancestor, a sibling, a path outside the root, and a symlink (even one that
+/// points back inside) all return `false`. `starts_with` alone is not enough:
+/// it accepts the root and is fooled by `..` and ancestor symlinks. The check
+/// takes an `owned_root` that is derived independently of `target`, so a
+/// mutation that moves `target` cannot also move the reference it is compared
+/// against. A target that no longer exists returns `false`; callers that treat
+/// a missing target as "nothing to do" check for it first.
+pub fn is_strict_descendant(owned_root: &Path, target: &Path) -> bool {
+    let Ok(root) = owned_root.canonicalize() else {
+        return false;
+    };
+    let Ok(metadata) = target.symlink_metadata() else {
+        return false;
+    };
+    if metadata.file_type().is_symlink() {
+        return false;
+    }
+    let Ok(target) = target.canonicalize() else {
+        return false;
+    };
+    target != root && target.starts_with(&root)
+}
+
 #[cfg(not(unix))]
 pub fn open_read_file(root: &Path, path: &Path) -> anyhow::Result<std::fs::File> {
     use anyhow::{Context, bail};
@@ -377,6 +404,7 @@ mod tests {
     use std::io::Read as _;
     use std::path::{Path, PathBuf};
 
+    use super::is_strict_descendant;
     use super::open_parent;
     use super::open_read_file;
     use super::test_hook::install;
@@ -595,5 +623,66 @@ mod tests {
 
         let err = open_read_file(&root, Path::new("pipe.md")).unwrap_err();
         assert!(err.to_string().contains("not a regular file"), "{err}");
+    }
+
+    // Issue #673: the recursive-delete guard. Every case uses a synthetic
+    // tempdir with a fake `root` and a sibling `outside` (canary), never a real
+    // host path, and none of these calls deletes anything.
+
+    fn guard_fixture() -> (tempfile::TempDir, PathBuf, PathBuf) {
+        let hold = tempfile::tempdir().unwrap();
+        let root = hold.path().join("root");
+        let outside = hold.path().join("outside");
+        fs::create_dir_all(root.join("child")).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("canary.txt"), "OUTSIDE_CANARY_673").unwrap();
+        (hold, root, outside)
+    }
+
+    #[test]
+    fn is_strict_descendant_accepts_a_real_child() {
+        let (_hold, root, _outside) = guard_fixture();
+        assert!(is_strict_descendant(&root, &root.join("child")));
+    }
+
+    #[test]
+    fn is_strict_descendant_rejects_root_itself() {
+        let (_hold, root, _outside) = guard_fixture();
+        assert!(!is_strict_descendant(&root, &root));
+    }
+
+    #[test]
+    fn is_strict_descendant_rejects_an_ancestor_and_a_sibling() {
+        let (hold, root, outside) = guard_fixture();
+        assert!(!is_strict_descendant(&root, hold.path()));
+        assert!(!is_strict_descendant(&root, &outside));
+    }
+
+    #[test]
+    fn is_strict_descendant_rejects_traversal_outside() {
+        let (_hold, root, outside) = guard_fixture();
+        let traversal = root.join("child").join("..").join("..").join("outside");
+        assert!(!is_strict_descendant(&root, &traversal));
+        assert!(!is_strict_descendant(&root, &outside.join("canary.txt")));
+    }
+
+    #[test]
+    fn is_strict_descendant_rejects_a_symlink_even_when_it_points_inside() {
+        let (_hold, root, _outside) = guard_fixture();
+        std::os::unix::fs::symlink(root.join("child"), root.join("link")).unwrap();
+        assert!(!is_strict_descendant(&root, &root.join("link")));
+    }
+
+    #[test]
+    fn is_strict_descendant_rejects_an_outside_symlink() {
+        let (_hold, root, outside) = guard_fixture();
+        std::os::unix::fs::symlink(&outside, root.join("escape")).unwrap();
+        assert!(!is_strict_descendant(&root, &root.join("escape")));
+    }
+
+    #[test]
+    fn is_strict_descendant_rejects_a_missing_target() {
+        let (_hold, root, _outside) = guard_fixture();
+        assert!(!is_strict_descendant(&root, &root.join("missing")));
     }
 }

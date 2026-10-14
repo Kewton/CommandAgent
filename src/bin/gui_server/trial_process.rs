@@ -426,6 +426,11 @@ enum Signal {
 
 /// Guards the negative `kill` targets: group id 1 is init and 0 is the
 /// caller's own group, so only a real child group id may be signalled.
+///
+/// This is a value-returning selector, so cargo-mutants can replace the whole
+/// body with `true` (Issue #673). It is listed in `.cargo/mutants.toml`, and
+/// every `kill` caller re-checks the converted target with a non-mutatable
+/// `assert!(-process_group < -1)` in the function that calls `kill`.
 #[cfg(unix)]
 fn group_is_signalable(process_group: i32) -> bool {
     process_group > 1
@@ -436,6 +441,15 @@ fn send_group_signal(process_group: i32, signal: Signal) -> anyhow::Result<()> {
     if !group_is_signalable(process_group) {
         bail!("refusing to signal process group {process_group}");
     }
+    // Last, non-mutatable defense (Issue #673), written directly in the
+    // function that calls `kill`: even a mutated selector
+    // (`group_is_signalable -> true`) panics here instead of executing
+    // `kill(-1, ...)` (every signalable process) or `kill(0, ...)` (the
+    // caller's own group). The `bail!` path above is unchanged.
+    assert!(
+        -process_group < -1,
+        "refusing to signal process group {process_group}"
+    );
     let signal = match signal {
         Signal::Interrupt => libc::SIGINT,
         Signal::Kill => libc::SIGKILL,
@@ -464,6 +478,12 @@ fn process_group_exists(process_group: i32) -> bool {
     if !group_is_signalable(process_group) {
         return false;
     }
+    // Last, non-mutatable defense (Issue #673), written directly in the
+    // function that calls `kill`.
+    assert!(
+        -process_group < -1,
+        "refusing to signal process group {process_group}"
+    );
     // SAFETY: `process_group` is checked to be greater than 1 and is derived
     // from the delegated child PID; signal 0 only probes for its existence.
     let result = unsafe { libc::kill(-process_group, 0) };

@@ -1322,6 +1322,13 @@ pub(super) fn signal_dev_server_process_group(
 ) -> std::io::Result<()> {
     let pid =
         i32::try_from(pid).map_err(|_| std::io::Error::other("child pid does not fit pid_t"))?;
+    // Last, non-mutatable defense (Issue #673). The group target comes from
+    // `std::process::Child::id()`, so `-pid < -1` always holds for the real
+    // value; the check is a fortress against a mutation that rewrites the
+    // converted value to 0 (the caller's own group) or 1 (init). cargo-mutants
+    // does not rewrite comparisons inside `assert!`, and this is written
+    // directly in the function that calls `kill`.
+    assert!(-pid < -1, "refusing to signal process group {pid}");
     // SAFETY: `kill` is called with a process-group id derived from the child
     // pid returned by `std::process::Child` and a libc signal constant.
     let rc = unsafe { libc::kill(-pid, signal) };
@@ -1363,6 +1370,9 @@ pub(super) fn dev_server_process_group_exists(pgid: u32) -> bool {
     let Ok(pgid) = i32::try_from(pgid) else {
         return false;
     };
+    // Last, non-mutatable defense (Issue #673), written directly in the
+    // function that calls `kill`.
+    assert!(-pgid < -1, "refusing to signal process group {pgid}");
     // SAFETY: signal 0 performs existence/permission checking only, using
     // a process-group id derived from a child process spawned by this probe.
     let rc = unsafe { libc::kill(-pgid, 0) };

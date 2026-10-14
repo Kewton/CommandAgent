@@ -301,6 +301,31 @@ Approval is always written, never implied: the PM's dispatch brief says
    (`gh pr list --state merged --head <branch>`), then
    `git push origin --delete <branch>`.
 
+## 3a. Mutation-testing rules
+
+`cargo mutants` may run only under these rules. They exist because a macOS run
+on 2026-10-14 mutated a guard (`signalable_process_group -> Some(1)`) and the
+mutated test binary executed `kill(-1, SIGTERM)`, stopping every process the user
+owned (102 SIGTERM exits in the launchd log; #673).
+
+- Scope the run to the functions named in the brief. Widening it needs the PM's
+  confirmation.
+- Use a fresh run script and a fresh output directory for every run. Before
+  running, produce `cargo mutants --list` and have the PM match every mutant's
+  name and replacement value (a count alone is not enough).
+- Mutations that touch signal, deletion, or the child session run only in an
+  isolated environment (Docker; a macOS-only test on a disposable VM or a
+  dedicated account) until the last, non-mutatable defense is in place.
+- Host tests run with the narrowest test-name filter, a dedicated secret-free
+  HOME and Git configuration, and known executables. Set `GITHUB_STEP_SUMMARY`
+  only to an unset value or a file the new run owns. The outer `GIT_*` is dropped
+  by the bounded child's allowlist, so verify the actual child environment.
+- `--jobs 1`, the heavy lock, and the user being at the keyboard are not
+  substitutes for isolation or for reaping the processes a run started.
+
+The signal sites, their defenses, and the functions to compare against
+`cargo mutants --list` are listed in `docs/dev/dangerous-commands.md`.
+
 ## 4. auto-yes policy
 
 | Session | auto-yes |

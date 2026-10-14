@@ -239,6 +239,11 @@ struct Installed {
     policy: Option<SandboxPolicy>,
     mode: SandboxMode,
     availability: SandboxAvailability,
+    /// The directory that owns the run temp dir (`<state>/sandbox`), stored
+    /// independently of `policy.run_tmp_dir` so the recursive cleanup can
+    /// re-check the real path against a reference a mutation of the run temp
+    /// dir cannot move (Issue #673).
+    run_tmp_root: Option<PathBuf>,
 }
 
 static INSTALLED: Mutex<Option<Installed>> = Mutex::new(None);
@@ -438,13 +443,12 @@ fn install_impl(
     offline: bool,
     dev_server_ports: Vec<u16>,
 ) -> SandboxStatus {
-    let run_tmp_dir = state_dir
-        .join("sandbox")
-        .join(format!("run-{}", uuid::Uuid::now_v7()));
+    let run_tmp_root = state_dir.join("sandbox");
+    let run_tmp_dir = run_tmp_root.join(format!("run-{}", uuid::Uuid::now_v7()));
     if let Err(err) = std::fs::create_dir_all(&run_tmp_dir) {
         let availability =
             SandboxAvailability::Unavailable(format!("run temp directory is unavailable: {err}"));
-        return store(mode, None, availability);
+        return store(mode, None, availability, None);
     }
     let policy = SandboxPolicy::new(workspace_root, &run_tmp_dir)
         .with_offline(offline)
@@ -454,7 +458,7 @@ fn install_impl(
     } else {
         SandboxAvailability::Unavailable(DISABLED_REASON.to_string())
     };
-    store(mode, Some(policy), availability)
+    store(mode, Some(policy), availability, Some(run_tmp_root))
 }
 
 /// Install an explicit policy and availability. Used by tests to simulate an
@@ -464,7 +468,8 @@ pub fn install_for_test(
     policy: SandboxPolicy,
     availability: SandboxAvailability,
 ) -> SandboxStatus {
-    store(mode, Some(policy), availability)
+    let run_tmp_root = policy.run_tmp_dir.parent().map(Path::to_path_buf);
+    store(mode, Some(policy), availability, run_tmp_root)
 }
 
 /// The reason recorded when a workflow child node runs in a workspace other than
@@ -502,7 +507,7 @@ pub fn reconcile_workspace(workspace_root: &Path) -> Option<SandboxStatus> {
 #[cfg(not(test))]
 fn reconcile_workspace_impl(workspace_root: &Path) -> Option<SandboxStatus> {
     let mut installed = INSTALLED.lock().expect("sandbox state");
-    let (mode, availability, policy, mismatched) = {
+    let (mode, availability, policy, run_tmp_root, mismatched) = {
         let state = installed.as_ref()?;
         let mismatched = state
             .policy
@@ -512,6 +517,7 @@ fn reconcile_workspace_impl(workspace_root: &Path) -> Option<SandboxStatus> {
             state.mode,
             state.availability.clone(),
             state.policy.clone(),
+            state.run_tmp_root.clone(),
             mismatched,
         )
     };
@@ -541,6 +547,7 @@ fn reconcile_workspace_impl(workspace_root: &Path) -> Option<SandboxStatus> {
         policy,
         mode,
         availability,
+        run_tmp_root,
     });
     Some(status)
 }
@@ -549,6 +556,7 @@ fn store(
     mode: SandboxMode,
     policy: Option<SandboxPolicy>,
     availability: SandboxAvailability,
+    run_tmp_root: Option<PathBuf>,
 ) -> SandboxStatus {
     let read = read_isolation(policy.as_ref());
     let offline = policy.as_ref().is_some_and(|policy| policy.offline);
@@ -563,6 +571,7 @@ fn store(
         policy,
         mode,
         availability,
+        run_tmp_root,
     });
     status
 }
@@ -607,9 +616,19 @@ pub fn cleanup() {
         state.availability = SandboxAvailability::Unavailable(RUN_FINISHED_REASON.to_string());
     }
     let run_tmp_dir = state.policy.take().map(|policy| policy.run_tmp_dir);
+    let run_tmp_root = state.run_tmp_root.take();
     drop(installed);
     if let Some(run_tmp_dir) = run_tmp_dir {
-        let _ = std::fs::remove_dir_all(run_tmp_dir);
+        // Issue #673: only remove the run temp dir when it is a strict
+        // descendant of the `<state>/sandbox` root stored at install time, so a
+        // mutation that moves `run_tmp_dir` cannot recursively delete an
+        // unrelated directory.
+        if run_tmp_root
+            .as_deref()
+            .is_some_and(|root| crate::tools::dir_fd::is_strict_descendant(root, &run_tmp_dir))
+        {
+            let _ = std::fs::remove_dir_all(run_tmp_dir);
+        }
     }
 }
 
@@ -925,6 +944,7 @@ mod tests {
             policy: None,
             mode: SandboxMode::Required,
             availability: SandboxAvailability::Available,
+            run_tmp_root: None,
         });
 
         let error = wrap_command(Command::new("sh")).expect_err("required must refuse");
@@ -945,6 +965,7 @@ mod tests {
             policy: None,
             mode: SandboxMode::Auto,
             availability: SandboxAvailability::Available,
+            run_tmp_root: None,
         });
 
         assert!(wrap_command(Command::new("sh")).is_ok());

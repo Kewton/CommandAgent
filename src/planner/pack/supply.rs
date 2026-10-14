@@ -687,7 +687,8 @@ impl SupplyRoot {
 
     fn install(&self, directory: &Path, members: &Members) -> Result<(), SupplyError> {
         let nonce = uuid::Uuid::now_v7().to_string();
-        let staging_root = self.packs_root().join(STAGING_DIRECTORY);
+        let packs_root = self.packs_root();
+        let staging_root = packs_root.join(STAGING_DIRECTORY);
         let session = staging_root.join(&nonce);
         let pending = session.join("pack");
         self.create_directory(&pending)?;
@@ -711,10 +712,18 @@ impl SupplyRoot {
             if let Some(previous) = previous {
                 let _ = std::fs::rename(previous, directory);
             }
-            let _ = std::fs::remove_dir_all(&session);
+            // Issue #673: only remove the staging session when it is a strict
+            // descendant of `packs/`, so a mutation that moves `session` cannot
+            // recursively delete an unrelated directory.
+            if crate::tools::dir_fd::is_strict_descendant(&packs_root, &session) {
+                let _ = std::fs::remove_dir_all(&session);
+            }
             return Err(SupplyError::io(directory, source));
         }
-        let _ = std::fs::remove_dir_all(&session);
+        // Issue #673: the same strict-descendant check for the success path.
+        if crate::tools::dir_fd::is_strict_descendant(&packs_root, &session) {
+            let _ = std::fs::remove_dir_all(&session);
+        }
         // Leave no residue: the staging parent is only meaningful while a
         // rename is in flight, and other roots below it belong to other packs.
         let _ = std::fs::remove_dir(staging_root);

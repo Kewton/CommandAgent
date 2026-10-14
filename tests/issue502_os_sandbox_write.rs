@@ -2085,6 +2085,36 @@ fn applied_terminal_slave_write_is_denied() {
     assert_terminal_slave_write_is_denied(&fixture);
 }
 
+/// Issue #673: a `git` command that cannot reach the user's HOME, global Git
+/// configuration, system configuration, or template/hook directory. The host
+/// pager test uses this instead of the ambient `git`, so a developer's
+/// `~/.gitconfig` (hooks, `init.templateDir`, signing, pager) never applies.
+fn isolated_git_command(home: &Path) -> Command {
+    let mut command = Command::new("git");
+    command
+        .env("HOME", home)
+        .env("GIT_CONFIG_GLOBAL", home.join("gitconfig"))
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("XDG_CONFIG_HOME", home.join("xdg"))
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .env_remove("GIT_INDEX_FILE")
+        .env_remove("GIT_OBJECT_DIRECTORY")
+        .env_remove("GIT_COMMON_DIR")
+        .env_remove("GIT_TEMPLATE_DIR")
+        .env_remove("GIT_ALTERNATE_OBJECT_DIRECTORIES");
+    command
+}
+
+/// A secret-free HOME for the host git commands, inside the test tempdir.
+fn isolated_git_home(fixture: &Fixture) -> PathBuf {
+    let home = fixture._dir.path().join("iso-git-home");
+    std::fs::create_dir_all(&home).unwrap();
+    home
+}
+
 /// Issue #667: a command that needs a terminal (a `git` pager) still works.
 /// `git` runs its pager only when stdout is a tty, so the fixture gives the
 /// wrapped command the pty slave as stdout; the pager (`cat > pager.out`) then
@@ -2094,12 +2124,13 @@ fn applied_terminal_slave_write_is_denied() {
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn assert_git_pager_runs_inside_sandbox(fixture: &Fixture) {
     let (_master, slave, _slave_path) = open_pty();
-    std::process::Command::new("git")
+    let iso_home = isolated_git_home(fixture);
+    isolated_git_command(&iso_home)
         .args(["init", "-q"])
         .current_dir(&fixture.root)
         .status()
         .expect("git init");
-    std::process::Command::new("git")
+    isolated_git_command(&iso_home)
         .args([
             "-c",
             "user.email=probe@example.invalid",
@@ -2118,7 +2149,11 @@ fn assert_git_pager_runs_inside_sandbox(fixture: &Fixture) {
     process
         .arg("-c")
         .arg("git -c core.pager='cat > pager.out' --paginate log --oneline")
-        .current_dir(&fixture.root);
+        .current_dir(&fixture.root)
+        // The bounded child drops every `GIT_*`, but passes `HOME`; set it to
+        // the isolated HOME so the sandboxed `git` cannot read the user's
+        // global Git configuration either (Issue #673).
+        .env("HOME", &iso_home);
     let mut process = os_sandbox::wrap_command(process).expect("available sandbox wraps");
     // Standard I/O is set after wrapping: the macOS backend rewrites the
     // command, so a `Stdio` set beforehand would not survive the transfer.
@@ -2137,6 +2172,63 @@ fn assert_git_pager_runs_inside_sandbox(fixture: &Fixture) {
     assert!(
         pager_out.contains("issue667 pager probe"),
         "git's pager did not run inside the sandbox: {pager_out:?}"
+    );
+}
+
+/// Issue #673: the host git work does not reach the user's HOME or Git
+/// configuration. It inspects the actual child environment (a bounded child
+/// sees the isolated HOME and none of the outer `GIT_*`), and reads back a value
+/// the isolated helper wrote, proving the helper uses the isolated config.
+#[cfg(unix)]
+#[test]
+fn host_git_child_environment_is_isolated_from_the_user() {
+    let fixture = fixture();
+    let iso_home = isolated_git_home(&fixture);
+
+    let mut process = Command::new("sh");
+    process
+        .arg("-c")
+        .arg("printf '%s\\n' \"$HOME\" \"${GIT_CONFIG_GLOBAL-unset}\" \"${GIT_DIR-unset}\"")
+        .current_dir(&fixture.root)
+        .env("HOME", &iso_home)
+        .env(
+            "GIT_CONFIG_GLOBAL",
+            "/nonexistent/issue673-canary-gitconfig",
+        )
+        .env("GIT_DIR", "/nonexistent/issue673-canary-git-dir");
+    process.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let output = bounded_process::run_with_timeout(&mut process, TIMEOUT).expect("run child");
+    let text = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(
+        lines.first().copied(),
+        Some(iso_home.to_string_lossy().as_ref()),
+        "the child must see the isolated HOME: {text:?}"
+    );
+    assert_eq!(
+        lines.get(1).copied(),
+        Some("unset"),
+        "GIT_CONFIG_GLOBAL must be dropped by the bounded child allowlist: {text:?}"
+    );
+    assert_eq!(
+        lines.get(2).copied(),
+        Some("unset"),
+        "GIT_DIR must be dropped by the bounded child allowlist: {text:?}"
+    );
+
+    std::fs::write(
+        iso_home.join("gitconfig"),
+        "[issue673]\n\tmarker = isolated\n",
+    )
+    .unwrap();
+    let out = isolated_git_command(&iso_home)
+        .args(["config", "--global", "--get", "issue673.marker"])
+        .output()
+        .expect("run git config");
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout).trim(),
+        "isolated",
+        "the isolated helper must read the isolated global config"
     );
 }
 

@@ -170,6 +170,18 @@ impl PortControl for SystemPortControl {
         #[cfg(unix)]
         {
             let pid = i32::try_from(pid).context("owning pid does not fit platform pid type")?;
+            // Last, non-mutatable defense (Issue #673). This is a positive pid
+            // from lsof, so the dangerous converted values are 0 (the caller's
+            // own process group) and 1 (init). The comparison inside `assert!`
+            // is not a cargo-mutants target and is written directly in the
+            // function that calls `kill`; the `context` error path above is
+            // unchanged. The own-pid check refuses signalling ourselves; it is
+            // not an ownership proof for the port owner.
+            assert!(pid > 1, "refusing to signal pid {pid}");
+            assert!(
+                pid != std::process::id() as i32,
+                "refusing to signal the caller's own pid"
+            );
             // SAFETY: sends SIGTERM to the concrete pid reported by lsof after
             // explicit user confirmation in the preflight prompt.
             let rc = unsafe { libc::kill(pid, libc::SIGTERM) };
