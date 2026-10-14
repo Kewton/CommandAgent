@@ -1646,6 +1646,166 @@ fn isolated_child_stdin_is_detached_from_the_terminal() {
     eprintln!("{verdict}");
 }
 
+/// Issue #667: to replace a terminal stdin the launcher opens `/dev/null` in the
+/// freshly forked child and duplicates it onto fd 0. The descriptor it opened
+/// must be closed before `exec`, otherwise the exec'd command inherits an extra
+/// descriptor pointing at `/dev/null`. The probe makes its own pty the session's
+/// controlling terminal and puts it on fd 0, then starts a child with stdin left
+/// unset so it would inherit that terminal, and the child reports every
+/// descriptor above the standard three whose device is `/dev/null`.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn issue667_devnull_fd_probe() {
+    if std::env::var_os("COMMANDAGENT_ISSUE667_DEVNULL_FD_PROBE").is_none() {
+        return;
+    }
+    let (_master, slave, _slave_path) = open_pty();
+    assert_ne!(
+        unsafe { libc::setsid() },
+        -1,
+        "setsid: {}",
+        std::io::Error::last_os_error()
+    );
+    assert_eq!(
+        unsafe { libc::ioctl(slave.as_raw_fd(), TIOCSCTTY_REQUEST, 0) },
+        0,
+        "TIOCSCTTY: {}",
+        std::io::Error::last_os_error()
+    );
+    unsafe {
+        libc::signal(libc::SIGHUP, libc::SIG_IGN);
+    }
+    // Make the pty the probe's own standard input, so a child that leaves stdin
+    // unset inherits a terminal and the launcher opens `/dev/null` for it.
+    assert_ne!(
+        unsafe { libc::dup2(slave.as_raw_fd(), 0) },
+        -1,
+        "dup2: {}",
+        std::io::Error::last_os_error()
+    );
+
+    // Positive control: the scanner must report a `/dev/null` descriptor the
+    // child itself opens, so a clean scan below is evidence rather than a blind
+    // spot.
+    let leaked = run_devnull_fd_child(false, true);
+    assert!(
+        leaked.contains("DEVNULL_FDS") && !leaked.contains("DEVNULL_FDS none"),
+        "the scanner must detect an extra /dev/null descriptor: {leaked:?}"
+    );
+
+    // The unisolated launch.
+    assert_no_devnull_descriptor(&run_devnull_fd_child(false, false));
+
+    // The isolated launch, when the backend is available.
+    if matches!(os_sandbox::probe(), SandboxAvailability::Available) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let workspace = dir.path().join("ws");
+        let run_tmp = dir.path().join("tmp");
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::create_dir_all(&run_tmp).unwrap();
+        os_sandbox::install_for_test(
+            SandboxMode::Auto,
+            SandboxPolicy::new(&workspace, &run_tmp),
+            SandboxAvailability::Available,
+        );
+        let sandboxed = run_devnull_fd_child(true, false);
+        os_sandbox::reset_for_test();
+        assert_no_devnull_descriptor(&sandboxed);
+        println!(
+            "issue667-devnull-fd: BLOCKED (both the isolated and unisolated launches close the /dev/null descriptor)"
+        );
+    } else {
+        println!(
+            "issue667-devnull-fd: BLOCKED (the unisolated launch closes the /dev/null descriptor; the sandbox backend is unavailable)"
+        );
+    }
+}
+
+/// A child that reports every descriptor above the standard three whose device
+/// matches `/dev/null`, so a descriptor the launcher left open is visible from
+/// inside the exec'd program. `leak` additionally opens `/dev/null` in the child
+/// as a positive control that the scan can see a retained descriptor.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn devnull_fd_script(leak: bool) -> String {
+    let leak_line = if leak {
+        "os.open('/dev/null', os.O_RDONLY)\n"
+    } else {
+        ""
+    };
+    format!(
+        r#"import os, stat, sys
+{leak_line}null_rdev = os.stat('/dev/null').st_rdev
+hits = []
+for fd in range(3, 256):
+    try:
+        info = os.fstat(fd)
+    except OSError:
+        continue
+    if stat.S_ISCHR(info.st_mode) and info.st_rdev == null_rdev:
+        hits.append(fd)
+sys.stdout.write('DEVNULL_FDS %s\n' % (','.join(map(str, hits)) if hits else 'none'))
+"#
+    )
+}
+
+/// Run a child through `bounded_process` with standard input left unset, so it
+/// inherits the probe's pty, and return its stdout. The wrapped form goes through
+/// the installed sandbox. Standard I/O is set after wrapping because the macOS
+/// backend rewrites the command.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn run_devnull_fd_child(wrapped: bool, leak: bool) -> String {
+    let mut command = Command::new("python3");
+    command.arg("-c").arg(devnull_fd_script(leak));
+    let mut command = if wrapped {
+        os_sandbox::wrap_command(command).expect("available sandbox wraps")
+    } else {
+        command
+    };
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let output =
+        bounded_process::run_with_timeout(&mut command, TIMEOUT).expect("run the devnull-fd child");
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
+/// Assert the child reports no descriptor above the standard three whose device
+/// is `/dev/null`.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn assert_no_devnull_descriptor(output: &str) {
+    assert!(
+        output.contains("DEVNULL_FDS none"),
+        "no descriptor above the standard three may point at /dev/null: {output:?}"
+    );
+}
+
+/// Runs [`issue667_devnull_fd_probe`] in a fresh process and asserts it reaches a
+/// verdict.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn isolated_child_closes_the_devnull_descriptor_for_a_terminal_stdin() {
+    let exe = std::env::current_exe().expect("current exe");
+    let output = Command::new(exe)
+        .args([
+            "--exact",
+            "issue667_devnull_fd_probe",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env("COMMANDAGENT_ISSUE667_DEVNULL_FD_PROBE", "1")
+        .output()
+        .expect("run the devnull-fd probe as a subprocess");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "the devnull-fd probe failed:\n{stdout}\n{stderr}"
+    );
+    let verdict = stdout
+        .lines()
+        .find(|line| line.contains("issue667-devnull-fd:"))
+        .unwrap_or_else(|| panic!("the devnull-fd probe reported no verdict:\n{stdout}\n{stderr}"));
+    eprintln!("{verdict}");
+}
+
 /// Issue #667: a confined command keeps its own terminal (its inherited stdio)
 /// but cannot open another terminal's slave for writing. Both ptys are created
 /// by the test — the command's own terminal is one and the "other terminal" is
