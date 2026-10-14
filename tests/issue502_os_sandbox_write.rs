@@ -1440,10 +1440,12 @@ fn run_tiocsti_attempt(slave: &std::fs::File, inject: char, wrapped: bool) -> St
     }
 }
 
-/// Report an unmeasurable `TIOCSTI` probe without passing silently.
+/// Report an unmeasurable `TIOCSTI` probe on stdout, like the other probes, so
+/// the outer test can find the verdict instead of reading it as missing; the
+/// `$GITHUB_STEP_SUMMARY` line still records it, so it is not a silent pass.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn record_unverified(reason: &str) {
-    eprintln!("issue667-tiocsti: UNVERIFIED ({reason})");
+    println!("issue667-tiocsti: UNVERIFIED ({reason})");
     record_tiocsti_step_summary(&format!("unverified: {reason}"));
 }
 
