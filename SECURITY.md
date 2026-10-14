@@ -93,23 +93,35 @@ command before the shell starts.
   controlling terminal (`setsid()` at spawn), so it cannot inject keystrokes into
   the terminal the run was started from with `TIOCSTI` — the kernel only allows
   `TIOCSTI` on the caller's controlling terminal, and the child no longer has
-  one. It also cannot write to another terminal's slave: on Linux `/dev/pts` is
-  not writable, and on macOS the profile re-denies `/dev/tty*` last. The visible
-  change is to a program that opens the terminal *directly*: an interactive pager
-  waiting for keys on `/dev/tty` now sees no controlling terminal. A terminal
-  standard input is replaced with `/dev/null`, so a command cannot read the keys
-  the user types during a run — it could not before either, because the child sat
-  in a background process group of the session's terminal and a read was refused
-  with `SIGTTIN` (`EIO` once that signal is ignored); the change makes that
-  explicit instead of relying on the job-control check. A standard output or
-  error that is the terminal is unchanged: the command keeps writing its
-  inherited descriptors, so the non-interactive `git` pager path (output
-  captured, pager writes to stdout) is unaffected.
+  one. It also cannot name a terminal device by path from inside the isolation:
+  on Linux `/dev/pts` and `/dev/tty` (plus every existing `/dev/tty*` and
+  `/dev/console`) are outside both the write allow list and the read allow list,
+  and on macOS the profile re-denies `/dev/tty*` for writes and reads last, so a
+  command can neither write to a terminal's slave nor re-open the run's terminal
+  by path and read the keys the user types. `/dev/null`, `/dev/zero`,
+  `/dev/urandom`, `/dev/ptmx`, and the rest of `/dev` stay usable. A terminal
+  standard input is replaced with `/dev/null`, so the command's standard input is
+  non-readable; the pre-#667 job-control check had left it non-readable only by
+  accident (the child sat in a background process group of the session's
+  terminal, and a read was refused with `SIGTTIN`, or `EIO` once that signal is
+  ignored). The visible change is to a program that opens the terminal
+  *directly*: an interactive pager waiting for keys on `/dev/tty` now sees no
+  controlling terminal.
+  Two cases are outside this boundary. A standard output or error that is already
+  the terminal keeps working from its inherited descriptor, which the read deny
+  does not re-check, so a confined command that inherited a terminal on
+  stdout/stderr could still read it; the confined launches set both to pipes, so
+  none inherits a terminal descriptor. And a command launched without the
+  isolation is not a boundary at all: it runs with the user's own privilege and,
+  because the launcher `setsid()`s every child, it can re-open the run's terminal
+  by path even though job control would otherwise have refused the read.
   Every standard input is either set to `null` or a pipe, or inherited; an
   inherited terminal stdin is the only case the `/dev/null` replacement changes.
   The confined launches are the model Bash and its `bash:verify` interval, the
-  verifier/acceptance commands, and the runtime dependency setup. The
-  non-confined launches are the workspace `git` state check, the `lsof` port
+  verifier/acceptance commands, and the runtime dependency setup; each sets its
+  `stdout` and `stderr` to pipes (`src/tools/bash.rs`,
+  `src/minimal_loop/verifier_env.rs`, `src/minimal_loop/dependency_setup.rs`).
+  The non-confined launches are the workspace `git` state check, the `lsof` port
   lookups, the fetch, interaction, browser, pipeline, CLI-argv, and
   declarative-check probes, the community `esbuild` bundle, the dev-server start,
   and the backend availability probes. All of them run non-interactive commands

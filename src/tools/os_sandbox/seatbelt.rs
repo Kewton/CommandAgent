@@ -16,8 +16,10 @@
 //!
 //! Terminal isolation (Issue #667): the write profile re-denies `/dev/tty*`
 //! last, so a confined command cannot write to a terminal (its own or another
-//! user's slave), and the child's own session (a `setsid()` in
-//! `bounded_process`) has no controlling terminal, so `TIOCSTI` is refused.
+//! user's slave), and the same pattern is re-denied for reads, so it cannot
+//! re-open the run's terminal by path and read the keys the user types; the
+//! child's own session (a `setsid()` in `bounded_process`) has no controlling
+//! terminal, so `TIOCSTI` is refused.
 
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -41,6 +43,13 @@ const UNSET_PATH: &str = "/commandagent-sandbox-unset";
 /// last (Seatbelt applies the last matching rule), so a confined command can
 /// still use `/dev/null` and friends but cannot write to a terminal — its own or
 /// another user's slave (`/dev/ttys*`) — see Issue #667.
+///
+/// The same `/dev/tty*` pattern is re-denied for reads. A confined command runs
+/// in its own session with no controlling terminal, but it can still re-open the
+/// run's terminal by path (`/dev/ttys*`) and read the keys the user types; the
+/// read re-deny closes that path, while the already-open standard descriptors are
+/// untouched. `/dev/null`, `/dev/urandom`, `/dev/ptmx`, and the rest of `/dev`
+/// are unaffected.
 const WRITE_PROFILE: &str = r#"
 (version 1)
 (allow default)
@@ -55,6 +64,7 @@ const WRITE_PROFILE: &str = r#"
 (allow file-write* (literal (param "CACHE_CARGO_PACKAGE")))
 (allow file-write* (regex #"^/dev/"))
 (deny file-write* (regex #"^/dev/tty"))
+(deny file-read* (regex #"^/dev/tty"))
 "#;
 
 /// The `--offline` network rules (Issue #658). `(deny network*)` blocks every
@@ -309,6 +319,22 @@ mod tests {
         assert!(
             allow_devices < deny_terminal,
             "the terminal deny must come after the device allow: {built}"
+        );
+    }
+
+    /// Issue #667: the same `/dev/tty*` pattern is re-denied for reads, after the
+    /// `(allow default)`, so a confined command cannot re-open a terminal by path
+    /// and read the keys the user types.
+    #[test]
+    fn profile_denies_terminal_reads() {
+        let built = profile(0, false);
+        let allow_default = built.find("(allow default)").expect("allow default rule");
+        let deny_read = built
+            .find("(deny file-read* (regex #\"^/dev/tty\"))")
+            .expect("terminal read deny rule");
+        assert!(
+            allow_default < deny_read,
+            "the terminal read deny must follow (allow default): {built}"
         );
     }
 

@@ -1806,6 +1806,214 @@ fn isolated_child_closes_the_devnull_descriptor_for_a_terminal_stdin() {
     eprintln!("{verdict}");
 }
 
+/// Issue #667: a confined command runs in its own session with no controlling
+/// terminal, but it can still re-open the run's terminal by path (`/dev/pts/N`
+/// on Linux, `/dev/ttys*` on macOS) and read the keys the user types. The read
+/// layer must refuse that open. The probe makes its own pty the session's
+/// controlling terminal, writes one line to the master as the "user", then
+/// starts a child through `bounded_process` that re-opens the slave by path and
+/// reads it. `reopen` opens it directly; `setsid_reopen` forks a grandchild that
+/// `setsid()`s first, which is the hole that also existed before this change.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn issue667_terminal_read_probe() {
+    if std::env::var_os("COMMANDAGENT_ISSUE667_TERMINAL_READ_PROBE").is_none() {
+        return;
+    }
+    let (mut master, slave, slave_path) = open_pty();
+    assert_ne!(
+        unsafe { libc::setsid() },
+        -1,
+        "setsid: {}",
+        std::io::Error::last_os_error()
+    );
+    assert_eq!(
+        unsafe { libc::ioctl(slave.as_raw_fd(), TIOCSCTTY_REQUEST, 0) },
+        0,
+        "TIOCSCTTY: {}",
+        std::io::Error::last_os_error()
+    );
+    unsafe {
+        libc::signal(libc::SIGHUP, libc::SIG_IGN);
+    }
+
+    // Positive control: without the sandbox the child re-opens the run's
+    // terminal by path and reads the line, so a denial below is the sandbox.
+    for mode in ["reopen", "setsid_reopen"] {
+        let output = run_terminal_read_child(&mut master, &slave, &slave_path, false, mode);
+        assert!(
+            output.contains(&format!("RESULT {mode} READ"))
+                && output.contains(&terminal_read_token(mode, false)),
+            "the unisolated child must read the run's terminal by path ({mode}): {output:?}"
+        );
+    }
+
+    // The isolated launch, when the backend is available.
+    if matches!(os_sandbox::probe(), SandboxAvailability::Available) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let workspace = dir.path().join("ws");
+        let run_tmp = dir.path().join("tmp");
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::create_dir_all(&run_tmp).unwrap();
+        os_sandbox::install_for_test(
+            SandboxMode::Auto,
+            SandboxPolicy::new(&workspace, &run_tmp),
+            SandboxAvailability::Available,
+        );
+        for mode in ["reopen", "setsid_reopen"] {
+            let output = run_terminal_read_child(&mut master, &slave, &slave_path, true, mode);
+            assert!(
+                output.contains(&format!("RESULT {mode} ERR")),
+                "the isolated child must not open the run's terminal by path ({mode}): {output:?}"
+            );
+            assert!(
+                !output.contains(&terminal_read_token(mode, true)),
+                "no typed key may reach the isolated child ({mode}): {output:?}"
+            );
+        }
+        os_sandbox::reset_for_test();
+        record_terminal_read_step_summary("blocked");
+        println!(
+            "issue667-terminal-read: BLOCKED (the isolated child could not re-open the terminal by path; the unisolated control read it)"
+        );
+    } else {
+        record_terminal_read_step_summary("unverified: the sandbox backend is unavailable");
+        println!(
+            "issue667-terminal-read: UNVERIFIED (the sandbox backend is unavailable; only the unisolated control was measured)"
+        );
+    }
+}
+
+/// A Python child that re-opens the pty at `path` by name and reads it: `reopen`
+/// opens it directly, `setsid_reopen` forks a grandchild that `setsid()`s first.
+/// It reports `RESULT <mode> READ <bytes>`, `RESULT <mode> NOTHING`, or `RESULT
+/// <mode> ERR <errno>`, so the caller can tell a read from a denied open.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+const TERMINAL_READ_SCRIPT: &str = r#"import os, select, signal, sys
+signal.signal(signal.SIGTTIN, signal.SIG_IGN)
+mode, path = sys.argv[1], sys.argv[2]
+if mode == 'setsid_reopen':
+    pid = os.fork()
+    if pid:
+        os.waitpid(pid, 0)
+        sys.exit(0)
+    os.setsid()
+try:
+    fd = os.open(path, os.O_RDONLY | os.O_NOCTTY | os.O_NONBLOCK)
+    ready, _, _ = select.select([fd], [], [], 2.0)
+    if ready:
+        sys.stdout.write('RESULT %s READ %r\n' % (mode, os.read(fd, 128)))
+    else:
+        sys.stdout.write('RESULT %s NOTHING\n' % mode)
+except OSError as error:
+    sys.stdout.write('RESULT %s ERR %d\n' % (mode, error.errno))
+sys.stdout.flush()
+"#;
+
+/// Run a child that re-opens `slave_path` after `master` receives one typed
+/// line, optionally through the installed sandbox, and return its output. The
+/// queued input is flushed afterwards so the next mode starts clean.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn run_terminal_read_child(
+    master: &mut std::fs::File,
+    slave: &std::fs::File,
+    slave_path: &Path,
+    sandbox: bool,
+    mode: &str,
+) -> String {
+    use std::io::Write;
+
+    let mut command = Command::new("python3");
+    command
+        .arg("-c")
+        .arg(TERMINAL_READ_SCRIPT)
+        .arg(mode)
+        .arg(slave_path);
+    let mut command = if sandbox {
+        os_sandbox::wrap_command(command).expect("available sandbox wraps")
+    } else {
+        command
+    };
+    // Standard I/O is set after wrapping because the macOS backend rewrites the
+    // command (same as `run_stdin_child`).
+    command
+        .stdin(dup_stdio(slave))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    // The "user" types one line on the run's terminal while the child runs.
+    master
+        .write_all(format!("{}\n", terminal_read_token(mode, sandbox)).as_bytes())
+        .expect("write the typed line");
+    master.flush().expect("flush the typed line");
+    let output = bounded_process::run_with_timeout(&mut command, TIMEOUT)
+        .expect("run the terminal-read child");
+    // Drop anything the child left queued so a previous mode's line is not read
+    // by the next one.
+    unsafe {
+        libc::tcflush(slave.as_raw_fd(), libc::TCIFLUSH);
+    }
+    format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    )
+}
+
+/// The one line the "user" types for a mode, so the caller can tell whether the
+/// child actually received it.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn terminal_read_token(mode: &str, sandbox: bool) -> String {
+    format!("KEY_{mode}_{sandbox}")
+}
+
+/// Append the terminal-read verdict to `$GITHUB_STEP_SUMMARY` when it is set, so
+/// a run that could not measure the denial records why instead of passing
+/// silently.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn record_terminal_read_step_summary(status: &str) {
+    let Some(path) = std::env::var_os("GITHUB_STEP_SUMMARY") else {
+        return;
+    };
+    let line = format!("issue667/terminal-read: {status}\n");
+    let _ = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .and_then(|mut file| std::io::Write::write_all(&mut file, line.as_bytes()));
+}
+
+/// Runs [`issue667_terminal_read_probe`] in a fresh process and asserts it
+/// reaches a verdict. A run without the sandbox backend reports `UNVERIFIED`
+/// and records a `$GITHUB_STEP_SUMMARY` line, so it is never a silent pass.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn isolated_child_cannot_read_the_terminal_by_path() {
+    let exe = std::env::current_exe().expect("current exe");
+    let output = Command::new(exe)
+        .args([
+            "--exact",
+            "issue667_terminal_read_probe",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env("COMMANDAGENT_ISSUE667_TERMINAL_READ_PROBE", "1")
+        .output()
+        .expect("run the terminal-read probe as a subprocess");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "the terminal-read probe failed:\n{stdout}\n{stderr}"
+    );
+    let verdict = stdout
+        .lines()
+        .find(|line| line.contains("issue667-terminal-read:"))
+        .unwrap_or_else(|| {
+            panic!("the terminal-read probe reported no verdict:\n{stdout}\n{stderr}")
+        });
+    eprintln!("{verdict}");
+}
+
 /// Issue #667: a confined command keeps its own terminal (its inherited stdio)
 /// but cannot open another terminal's slave for writing. Both ptys are created
 /// by the test — the command's own terminal is one and the "other terminal" is
