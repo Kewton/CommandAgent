@@ -40,6 +40,15 @@
 //! - Availability is probed once at run start from the Landlock ABI query and a
 //!   child `restrict_self`, so a seccomp filter that denies either syscall is an
 //!   honest "unavailable" instead of a silent pass.
+//! - Terminal isolation (Issue #667): `/dev/tty` and the `/dev/pts` directory
+//!   are not allowed for writing, so a confined command cannot write to another
+//!   terminal's slave; the child's own session (a `setsid()` in
+//!   `bounded_process`) has no controlling terminal, so `TIOCSTI` is refused by
+//!   the kernel even where Landlock cannot filter device ioctls (below ABI5).
+//!   The same locations are removed from the read allow list
+//!   ([`terminal_read_deny_paths`]), so a command cannot re-open the run's
+//!   terminal by path and read the keys the user types; `/dev` stays listable
+//!   through a `ReadDir`-only rule that never grants `ReadFile`.
 
 use std::collections::HashSet;
 use std::os::fd::{AsRawFd, OwnedFd};
@@ -64,15 +73,25 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Device files that either read-only tools or an attached terminal expect to
 /// write. Only the ones that exist are allowed.
+///
+/// `/dev/tty` and `/dev/pts` are deliberately absent (Issue #667). A sandboxed
+/// child runs in its own session with no controlling terminal, so it has no
+/// legitimate use for either, and allowing the whole `/dev/pts` directory let it
+/// write to another terminal's slave. Landlock grants the handled `IoctlDev`
+/// access (ABI5) only where a rule covers the location, so leaving these two out
+/// also closes device ioctls on them — including `TIOCSTI` — not just writes.
+/// `/dev/ptmx` stays allowed, but that does not give a usable pty: the slave it
+/// would create (`/dev/pts/*`) is not allowed either, so `openpty`, `script`,
+/// `expect`, and `pexpect` fail inside the isolation. That pty loss is the cost
+/// of closing terminal reads and writes (Issue #667); allocating a pty worked
+/// before #667.
 const DEVICE_PATHS: &[&str] = &[
     "/dev/null",
     "/dev/zero",
     "/dev/full",
     "/dev/random",
     "/dev/urandom",
-    "/dev/tty",
     "/dev/ptmx",
-    "/dev/pts",
 ];
 
 /// The Landlock ABI detected for the running kernel, or the reason it cannot be
@@ -228,12 +247,17 @@ fn probe_command() -> Command {
 }
 
 /// Create a ruleset that denies every handled read and write access outside
-/// `writable` (read+write+execute) and `read_only` (read+execute), returning its
-/// file descriptor for the child to enforce.
+/// `writable` (read+write+execute), `read_only` (read+execute), and `list_only`
+/// (read-dir only), returning its file descriptor for the child to enforce.
 ///
 /// `handle_access` uses `from_all(abi)` so both the read layer and the write
 /// layer are enforced; `Execute | ReadFile | ReadDir` all exist from ABI1, so
 /// this adds no ABI requirement over the write layer.
+///
+/// `list_only` grants `ReadDir` alone, never `ReadFile`, so a directory that
+/// [`expand_read_allow`] had to recurse into (an ancestor of a denied location,
+/// such as `/dev` once the terminal devices are denied) stays listable while the
+/// denied subtree beneath it stays unreadable.
 ///
 /// For an `--offline` run with ABI4 (Issue #658), `AccessNet::ConnectTcp` is also
 /// handled, which denies every TCP connect, and each `dev_server_ports` entry is
@@ -244,6 +268,7 @@ fn create_ruleset(
     abi: u32,
     writable: impl IntoIterator<Item = PathBuf>,
     read_only: impl IntoIterator<Item = PathBuf>,
+    list_only: impl IntoIterator<Item = PathBuf>,
     offline: bool,
     dev_server_ports: &[u16],
 ) -> Result<OwnedFd, String> {
@@ -275,6 +300,9 @@ fn create_ruleset(
     let created = created
         .add_rules(path_beneath_rules(read_only, read_access))
         .map_err(|err| format!("landlock read rule failed: {err}"))?;
+    let created = created
+        .add_rules(path_beneath_rules(list_only, AccessFs::ReadDir))
+        .map_err(|err| format!("landlock list-only rule failed: {err}"))?;
     let created = if restrict_network {
         add_network_ports(created, dev_server_ports)?
     } else {
@@ -403,6 +431,7 @@ pub fn wrap(command: &mut Command, policy: &SandboxPolicy) -> Result<(), String>
         detected_abi(),
         allowed_paths(policy),
         read_allow_paths(policy),
+        list_only_paths(),
         policy.offline,
         &policy.dev_server_ports,
     )?;
@@ -447,15 +476,64 @@ pub(crate) fn allowed_paths(policy: &SandboxPolicy) -> Vec<PathBuf> {
     paths
 }
 
-/// The read-only locations: the expansion of the home secret deny list into its
+/// The read-only locations: the expansion of the read-deny list into its
 /// complement (see [`expand_read_allow`]). Without this, handling the read
 /// rights would make every location unreadable. `home_secret_locations`
 /// canonicalizes each location, so a symlinked secret location (`~/.ssh` that
-/// points outside the home) denies its target too.
+/// points outside the home) denies its target too; the terminal devices of
+/// [`terminal_read_deny_paths`] deny the run's terminal like any other denied
+/// location.
 fn read_allow_paths(policy: &SandboxPolicy) -> Vec<PathBuf> {
-    expand_read_allow(&super::secret_locations::home_secret_locations(
-        &policy.home,
-    ))
+    let mut denied = super::secret_locations::home_secret_locations(&policy.home);
+    denied.extend(terminal_read_deny_paths());
+    expand_read_allow(&denied)
+}
+
+/// The terminal device locations removed from the read allow list (Issue #667),
+/// for the given device directory (normally `/dev`).
+///
+/// A bounded child `setsid()`s, so it has no controlling terminal, but it can
+/// still re-open the run's terminal by path and read the keys the user types:
+/// `<dev>/pts/N` on Linux (the run's terminal is always a pty slave) and
+/// `<dev>/tty` (the controlling-terminal alias). Landlock cannot deny part of an
+/// allowed tree, so these locations join the read-deny list and
+/// [`expand_read_allow`] leaves them and their subtrees out.
+///
+/// The physical console and serial terminals (`<dev>/console`, `<dev>/tty0`,
+/// `<dev>/ttyS*`, …) are the other terminals a child could name, so every
+/// existing entry whose name is `console` or starts with `tty` is denied too;
+/// only the entries that exist are listed, and denying them costs nothing a
+/// confined command needs. `<dev>/ptmx` and the null/zero/random devices are not
+/// terminal paths and stay readable.
+fn terminal_read_deny_paths_in(dev: &Path) -> Vec<PathBuf> {
+    let mut paths = vec![dev.join("pts"), dev.join("tty")];
+    if let Ok(entries) = std::fs::read_dir(dev) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name == "console" || name.starts_with("tty") {
+                paths.push(entry.path());
+            }
+        }
+    }
+    paths.sort();
+    paths.dedup();
+    paths
+}
+
+/// The terminal device locations for the real `/dev`.
+fn terminal_read_deny_paths() -> Vec<PathBuf> {
+    terminal_read_deny_paths_in(Path::new("/dev"))
+}
+
+/// The directories granted `ReadDir` alone. [`expand_read_allow`] recurses into
+/// every ancestor of a denied location without allowing the ancestor itself, so
+/// listing such a directory would fail once the terminal devices are denied.
+/// `/dev` is enumerated by tools (`ls /dev`), so it is listed here; the grant is
+/// `ReadDir` only, so it never re-opens the terminal devices beneath it.
+fn list_only_paths() -> Vec<PathBuf> {
+    let dev = PathBuf::from("/dev");
+    if dev.is_dir() { vec![dev] } else { Vec::new() }
 }
 
 /// The home secret locations whose read denial a writable location defeats, so
@@ -820,6 +898,112 @@ mod tests {
                 .all(|path| path.canonicalize().ok().as_ref() != Some(&outside)),
             "no rule may reach the secret target inode: {allow:?}"
         );
+    }
+
+    /// Issue #667: the terminal devices are removed from the read allow list,
+    /// while the devices a confined command needs and their non-terminal siblings
+    /// stay readable, and `/dev` itself is not allowed wholesale (it is an
+    /// ancestor of a denied location).
+    #[test]
+    fn read_allow_excludes_terminal_devices_and_keeps_the_required_ones() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let dev = root.join("dev");
+        std::fs::create_dir_all(dev.join("pts")).unwrap();
+        std::fs::create_dir_all(dev.join("shm")).unwrap();
+        for file in [
+            "tty", "tty0", "console", "null", "zero", "urandom", "random", "ptmx",
+        ] {
+            std::fs::write(dev.join(file), "").unwrap();
+        }
+        let denied = vec![
+            dev.join("pts"),
+            dev.join("tty"),
+            dev.join("tty0"),
+            dev.join("console"),
+        ];
+
+        let allow = expand_read_allow_from(root, &denied);
+        for kept in ["null", "zero", "urandom", "random", "ptmx", "shm"] {
+            assert!(
+                allow.contains(&dev.join(kept)),
+                "{kept} must stay readable: {allow:?}"
+            );
+        }
+        for gone in ["pts", "tty", "tty0", "console"] {
+            let path = dev.join(gone);
+            assert!(
+                !allow.contains(&path),
+                "{path:?} must stay unreadable: {allow:?}"
+            );
+            assert!(
+                allow.iter().all(|entry| !entry.starts_with(&path)),
+                "no rule may reach below {path:?}: {allow:?}"
+            );
+        }
+        assert!(
+            !allow.contains(&dev),
+            "/dev is an ancestor of a denied location and must be recursed, not allowed: {allow:?}"
+        );
+    }
+
+    /// Issue #667: the read-deny list names the pty-slave directory and the
+    /// controlling-terminal alias, so `read_allow_paths` leaves the run's
+    /// terminal out.
+    #[test]
+    fn terminal_read_deny_paths_names_the_pty_directory_and_the_controlling_tty() {
+        let denied = terminal_read_deny_paths();
+        assert!(denied.contains(&PathBuf::from("/dev/pts")), "{denied:?}");
+        assert!(denied.contains(&PathBuf::from("/dev/tty")), "{denied:?}");
+    }
+
+    /// Issue #667: given a device directory, the deny list is exactly the
+    /// pty-slave directory and every terminal device name — `console`, `tty`,
+    /// `tty0`, `ttyS0`, `ttyUSB0` — and never a non-terminal entry (`null`,
+    /// `urandom`, `ptmx`) or a non-terminal directory (`shm`). A mutation that
+    /// widens or narrows the name test (`||` to `&&`, `==` to `!=`) changes this
+    /// set, so the check pins both.
+    #[test]
+    fn terminal_read_deny_paths_in_selects_exactly_the_terminal_devices() {
+        let dir = tempfile::tempdir().unwrap();
+        let dev = dir.path();
+        std::fs::create_dir_all(dev.join("pts")).unwrap();
+        std::fs::create_dir_all(dev.join("shm")).unwrap();
+        for file in [
+            "tty", "console", "tty0", "ttyS0", "ttyUSB0", "null", "urandom", "ptmx",
+        ] {
+            std::fs::write(dev.join(file), "").unwrap();
+        }
+
+        let denied = terminal_read_deny_paths_in(dev);
+        let expected = vec![
+            dev.join("console"),
+            dev.join("pts"),
+            dev.join("tty"),
+            dev.join("tty0"),
+            dev.join("ttyS0"),
+            dev.join("ttyUSB0"),
+        ];
+        assert_eq!(denied, expected);
+    }
+
+    /// Issue #667: `/dev` stays listable through the `ReadDir`-only rule even
+    /// though a denied location sits below it.
+    #[test]
+    fn list_only_paths_keeps_dev_listable() {
+        assert_eq!(list_only_paths(), vec![PathBuf::from("/dev")]);
+    }
+
+    /// Issue #657: the read layer needs no ABI beyond ABI1, so removing the
+    /// terminal devices from the read allow list adds no new minimum. `Execute`,
+    /// `ReadFile`, and `ReadDir` are all part of `from_read` from ABI1, and
+    /// `ReadDir` (the `list_only` grant) is therefore always enforceable.
+    #[test]
+    fn read_access_is_available_from_abi1() {
+        let read = AccessFs::from_read(ABI::from(1));
+        assert!(read.contains(AccessFs::Execute), "{read:?}");
+        assert!(read.contains(AccessFs::ReadFile), "{read:?}");
+        assert!(read.contains(AccessFs::ReadDir), "{read:?}");
     }
 
     #[test]

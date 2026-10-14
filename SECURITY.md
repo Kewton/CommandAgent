@@ -89,6 +89,49 @@ command before the shell starts.
   `sed -i` — and creating a hardlink to an inode outside the workspace. The only
   writable locations are the workspace, the run's temp directory, the known
   dependency caches, and device files such as `/dev/null`.
+- Terminal isolation (Issue #667): a command runs in its own session with no
+  controlling terminal (`setsid()` at spawn), so it cannot inject keystrokes into
+  the terminal the run was started from with `TIOCSTI` — the kernel only allows
+  `TIOCSTI` on the caller's controlling terminal, and the child no longer has
+  one. It also cannot name a terminal device by path from inside the isolation:
+  on Linux `/dev/pts` and `/dev/tty` (plus every existing `/dev/tty*` and
+  `/dev/console`) are outside both the write allow list and the read allow list,
+  and on macOS the profile re-denies `/dev/tty*` for writes and reads last, so a
+  command can neither write to a terminal's slave nor re-open the run's terminal
+  by path and read the keys the user types. `/dev/null`, `/dev/zero`,
+  `/dev/urandom`, and the rest of `/dev` stay usable. `/dev/ptmx` is still
+  openable, but that does not give a usable pty: the slave it would create
+  (`/dev/pts/*` on Linux, `/dev/ttys*` on macOS) is refused, so a confined
+  command cannot allocate a pty (`openpty`, `script`, `expect`, `pexpect` fail).
+  That pty loss is the cost of closing terminal reads and writes (Issue #667);
+  allocating a pty worked before #667. A terminal
+  standard input is replaced with `/dev/null`, so the command's standard input is
+  non-readable; the pre-#667 job-control check had left it non-readable only by
+  accident (the child sat in a background process group of the session's
+  terminal, and a read was refused with `SIGTTIN`, or `EIO` once that signal is
+  ignored). The visible change is to a program that opens the terminal
+  *directly*: an interactive pager waiting for keys on `/dev/tty` now sees no
+  controlling terminal.
+  Two cases are outside this boundary. A standard output or error that is already
+  the terminal keeps working from its inherited descriptor, which the read deny
+  does not re-check, so a confined command that inherited a terminal on
+  stdout/stderr could still read it; the confined launches set both to pipes, so
+  none inherits a terminal descriptor. And a command launched without the
+  isolation is not a boundary at all: it runs with the user's own privilege and,
+  because the launcher `setsid()`s every child, it can re-open the run's terminal
+  by path even though job control would otherwise have refused the read.
+  Every standard input is either set to `null` or a pipe, or inherited; an
+  inherited terminal stdin is the only case the `/dev/null` replacement changes.
+  The confined launches are the model Bash and its `bash:verify` interval, the
+  verifier/acceptance commands, and the runtime dependency setup; each sets its
+  `stdout` and `stderr` to pipes (`src/tools/bash.rs`,
+  `src/minimal_loop/verifier_env.rs`, `src/minimal_loop/dependency_setup.rs`).
+  The non-confined launches are the workspace `git` state check, the `lsof` port
+  lookups, the fetch, interaction, browser, pipeline, CLI-argv, and
+  declarative-check probes, the community `esbuild` bundle, the dev-server start,
+  and the backend availability probes. All of them run non-interactive commands
+  with a non-terminal standard input or an inherited one, so the change is a
+  non-readable stdin rather than a behavior change.
 - Read confinement (Issue #657) denies reading the home secret locations
   (`.ssh`, `.aws`, `.gnupg`, `.netrc`, `.git-credentials`, `.npmrc`, `.pypirc`,
   `.docker/config.json`, `.kube`, `.config/gh`, `.config/gcloud`) and, on macOS,

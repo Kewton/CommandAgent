@@ -15,6 +15,10 @@
 //! share the `off` and unavailable paths. The outside fixtures live inside one
 //! test tempdir and are never written outside it.
 
+#[cfg(unix)]
+use std::ffi::CStr;
+#[cfg(unix)]
+use std::os::fd::{AsRawFd, FromRawFd};
 use std::path::{Path, PathBuf};
 #[cfg(unix)]
 use std::process::{Command, Stdio};
@@ -22,7 +26,7 @@ use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
 #[cfg(unix)]
-use commandagent::bounded_process::{self, BoundedProcessOutput};
+use commandagent::bounded_process::{self, BoundedProcessOutcomeKind, BoundedProcessOutput};
 use commandagent::minimal_loop::verifier_env;
 use commandagent::planner::verify::{NormalizedVerifyCommand, normalize_verify_command};
 use commandagent::tools::allow_policy::bash_verify_command_is_auto_approvable;
@@ -1153,5 +1157,1013 @@ fn sandbox_off_and_unavailable_do_not_change_the_lexical_decision() {
             );
         }
     }
+    os_sandbox::reset_for_test();
+}
+
+// ---------------------------------------------------------------------------
+// Terminal isolation (Issue #667): a confined command must not be able to
+// inject keystrokes into the caller's terminal with `TIOCSTI`, nor write to
+// another terminal's slave.
+// ---------------------------------------------------------------------------
+
+/// The `TIOCSCTTY` request number, which the `libc` crate does not name on
+/// macOS. `TCGETS`/BSD `_IO('t', 97)` differs per platform.
+#[cfg(target_os = "macos")]
+const TIOCSCTTY_REQUEST: libc::c_ulong = 0x2000_7461;
+#[cfg(target_os = "linux")]
+const TIOCSCTTY_REQUEST: libc::c_ulong = 0x540E;
+
+/// A Python one-liner that tries `TIOCSTI` with `inject` on fd 0 and reports the
+/// outcome, so the attempt travels through a real program exactly as a command
+/// would. The kernel only allows `TIOCSTI` when fd 0 is the caller's controlling
+/// terminal.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn tiocsti_script(inject: char) -> String {
+    format!(
+        r#"import fcntl, termios, sys
+try:
+    fcntl.ioctl(0, termios.TIOCSTI, b'{inject}')
+    sys.stdout.write('TIOCSTI_OK\n')
+except OSError as error:
+    sys.stdout.write('TIOCSTI_FAIL %d\n' % error.errno)
+"#
+    )
+}
+
+/// Open a pty the test owns and return `(master, slave, slave_path)`. The master
+/// is non-blocking so a test can drain it without waiting; both descriptors stay
+/// open in the returned tuple. Only ptys the test created are ever used — a test
+/// never opens the worker's or the user's real terminal.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn open_pty() -> (std::fs::File, std::fs::File, PathBuf) {
+    let master = unsafe { libc::posix_openpt(libc::O_RDWR | libc::O_NOCTTY) };
+    assert!(
+        master >= 0,
+        "posix_openpt: {}",
+        std::io::Error::last_os_error()
+    );
+    assert_eq!(
+        unsafe { libc::grantpt(master) },
+        0,
+        "grantpt: {}",
+        std::io::Error::last_os_error()
+    );
+    assert_eq!(
+        unsafe { libc::unlockpt(master) },
+        0,
+        "unlockpt: {}",
+        std::io::Error::last_os_error()
+    );
+    let name = unsafe { libc::ptsname(master) };
+    assert!(
+        !name.is_null(),
+        "ptsname: {}",
+        std::io::Error::last_os_error()
+    );
+    let flags = unsafe { libc::fcntl(master, libc::F_GETFL) };
+    let _ = unsafe { libc::fcntl(master, libc::F_SETFL, flags | libc::O_NONBLOCK) };
+    let slave_path = PathBuf::from(
+        unsafe { CStr::from_ptr(name) }
+            .to_string_lossy()
+            .into_owned(),
+    );
+    let slave = unsafe { libc::open(name, libc::O_RDWR | libc::O_NOCTTY) };
+    assert!(
+        slave >= 0,
+        "open slave: {}",
+        std::io::Error::last_os_error()
+    );
+    (
+        unsafe { std::fs::File::from_raw_fd(master) },
+        unsafe { std::fs::File::from_raw_fd(slave) },
+        slave_path,
+    )
+}
+
+/// A `Stdio` for a duplicate of `file`, so the caller keeps the original open.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn dup_stdio(file: &std::fs::File) -> Stdio {
+    let fd = unsafe { libc::dup(file.as_raw_fd()) };
+    assert!(fd >= 0, "dup: {}", std::io::Error::last_os_error());
+    Stdio::from(unsafe { std::fs::File::from_raw_fd(fd) })
+}
+
+/// Drain the non-blocking master side of a pty into a string.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn drain_master(master: &std::fs::File) -> String {
+    use std::io::Read;
+
+    let mut reader: &std::fs::File = master;
+    let mut text = String::new();
+    let mut buffer = [0_u8; 256];
+    loop {
+        match reader.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(read) => text.push_str(&String::from_utf8_lossy(&buffer[..read])),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+            Err(_) => break,
+        }
+    }
+    text
+}
+
+/// Run `sh -c command` with no sandbox and no session change, taking `stdout` as
+/// the command's own terminal. The positive control for a terminal-slave write
+/// must not go through `bounded_process`: that starts a new session, and a
+/// session leader that opens a fresh tty blocks, so the write is measured
+/// without the session change.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn run_unwrapped(root: &Path, command: &str, stdout: &std::fs::File) -> std::process::Output {
+    Command::new("sh")
+        .arg("-c")
+        .arg(command)
+        .current_dir(root)
+        .stdin(Stdio::null())
+        .stdout(dup_stdio(stdout))
+        .stderr(Stdio::piped())
+        .output()
+        .expect("spawn unwrapped command")
+}
+
+/// Run `sh -c command` through the installed sandbox, taking `stdout` as the
+/// command's own terminal. Standard I/O is set after wrapping because the macOS
+/// backend rewrites the command and a `Stdio` set beforehand would not survive.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn run_wrapped_with_stdout(
+    root: &Path,
+    command: &str,
+    stdout: &std::fs::File,
+) -> BoundedProcessOutput {
+    let mut process = Command::new("sh");
+    process.arg("-c").arg(command).current_dir(root);
+    let mut process = os_sandbox::wrap_command(process).expect("available sandbox wraps");
+    process
+        .stdin(Stdio::null())
+        .stdout(dup_stdio(stdout))
+        .stderr(Stdio::piped());
+    bounded_process::run_with_timeout(&mut process, TIMEOUT).expect("spawn wrapped command")
+}
+
+/// Issue #667: every bounded child is moved into its own session by `setsid()`,
+/// so it keeps a process group whose id equals its pid (termination by `-pid`
+/// still works) and has no controlling terminal to inject into. The child's
+/// session must differ from the test process's session.
+#[cfg(unix)]
+#[test]
+fn bounded_child_runs_in_its_own_session_and_process_group() {
+    let mut command = Command::new("python3");
+    command
+        .arg("-c")
+        .arg("import os; print(os.getsid(0), os.getpgrp(), os.getpid())")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let output = bounded_process::run_with_timeout(&mut command, TIMEOUT).expect("spawn child");
+    assert!(output.success(), "{output:?}");
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut parts = text.split_whitespace();
+    let sid: i32 = parts.next().expect("sid").parse().expect("sid number");
+    let pgrp: i32 = parts.next().expect("pgrp").parse().expect("pgrp number");
+    let pid: i32 = parts.next().expect("pid").parse().expect("pid number");
+    assert_eq!(pgrp, pid, "the child's group id must equal its pid: {text}");
+    assert_eq!(sid, pid, "the child must lead its own session: {text}");
+    let caller_sid = unsafe { libc::getsid(0) };
+    assert_ne!(
+        sid, caller_sid,
+        "the child must not share the caller's session: {text}"
+    );
+}
+
+/// Issue #667: an isolated command cannot inject input into the controlling
+/// terminal with `TIOCSTI`. This runs as its own process because it must become
+/// a session leader and own a pty; that must not touch the shared test process,
+/// and it only ever uses the pty the probe created. Injection is judged by
+/// whether the injected byte appears on the pty's master side. When the
+/// environment cannot exercise `TIOCSTI` (a kernel with `legacy_tiocsti=0`, or no
+/// controlling terminal) the probe reports `UNVERIFIED (reason)` and records a
+/// line for the run summary instead of passing silently.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn issue667_tiocsti_session_probe() {
+    if std::env::var_os("COMMANDAGENT_ISSUE667_TIOCSTI_PROBE").is_none() {
+        return;
+    }
+    let (master, slave, _slave_path) = open_pty();
+    assert_ne!(
+        unsafe { libc::setsid() },
+        -1,
+        "setsid: {}",
+        std::io::Error::last_os_error()
+    );
+    assert_eq!(
+        unsafe { libc::ioctl(slave.as_raw_fd(), TIOCSCTTY_REQUEST, 0) },
+        0,
+        "TIOCSCTTY: {}",
+        std::io::Error::last_os_error()
+    );
+    // The probe now owns a controlling terminal; the kernel sends SIGHUP to the
+    // session leader when it exits, so ignore it and finish normally.
+    unsafe {
+        libc::signal(libc::SIGHUP, libc::SIG_IGN);
+    }
+    // Echo injected bytes back to the master, so the master side is the evidence
+    // that an injection happened.
+    let mut termios: libc::termios = unsafe { std::mem::zeroed() };
+    assert_eq!(
+        unsafe { libc::tcgetattr(slave.as_raw_fd(), &mut termios) },
+        0,
+        "tcgetattr: {}",
+        std::io::Error::last_os_error()
+    );
+    termios.c_lflag |= libc::ECHO;
+    assert_eq!(
+        unsafe { libc::tcsetattr(slave.as_raw_fd(), libc::TCSANOW, &termios) },
+        0,
+        "tcsetattr: {}",
+        std::io::Error::last_os_error()
+    );
+
+    // Positive control: a plain child in this session inherits the pty as its
+    // controlling terminal, so the kernel allows `TIOCSTI` and the injected 'Z'
+    // must echo onto the master. If it does not, the environment cannot exercise
+    // `TIOCSTI` and the denial cannot be measured.
+    let positive_out = run_tiocsti_attempt(&slave, 'Z', false);
+    let positive_echo = drain_master(&master);
+    if !positive_out.contains("TIOCSTI_OK") || !positive_echo.contains('Z') {
+        record_unverified(&format!(
+            "the positive control could not inject (child said {:?}, master echoed {:?})",
+            positive_out.trim(),
+            positive_echo
+        ));
+        return;
+    }
+
+    // Negative control: the same attempt through the bounded-process launcher,
+    // which puts the child in its own session with no controlling terminal. Its
+    // injected 'Y' must not reach the master.
+    let negative_out = run_tiocsti_attempt(&slave, 'Y', true);
+    let negative_echo = drain_master(&master);
+    assert!(
+        !negative_echo.contains('Y'),
+        "an isolated child injected into the controlling terminal: master echoed {negative_echo:?}"
+    );
+    assert!(
+        negative_out.contains("TIOCSTI_FAIL"),
+        "TIOCSTI must fail without a controlling terminal: {negative_out:?}"
+    );
+    record_tiocsti_step_summary("blocked");
+    println!(
+        "issue667-tiocsti: BLOCKED (the positive control injected 'Z'; the isolated child could not inject 'Y')"
+    );
+}
+
+/// Run one `TIOCSTI` attempt with fd 0 as `slave` and return the child's stdout.
+/// A plain attempt keeps the probe's session and its controlling terminal; a
+/// wrapped attempt goes through `bounded_process`, which `setsid()`s the child.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn run_tiocsti_attempt(slave: &std::fs::File, inject: char, wrapped: bool) -> String {
+    let script = tiocsti_script(inject);
+    let mut command = Command::new("python3");
+    command
+        .arg("-c")
+        .arg(script)
+        .stdin(dup_stdio(slave))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    if wrapped {
+        let output = bounded_process::run_with_timeout(&mut command, TIMEOUT)
+            .expect("run the isolated attempt");
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    } else {
+        let output = command.output().expect("run the plain attempt");
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    }
+}
+
+/// Report an unmeasurable `TIOCSTI` probe on stdout, like the other probes, so
+/// the outer test can find the verdict instead of reading it as missing; the
+/// `$GITHUB_STEP_SUMMARY` line still records it, so it is not a silent pass.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn record_unverified(reason: &str) {
+    println!("issue667-tiocsti: UNVERIFIED ({reason})");
+    record_tiocsti_step_summary(&format!("unverified: {reason}"));
+}
+
+/// Append the `TIOCSTI` verdict to `$GITHUB_STEP_SUMMARY` when it is set, with
+/// the kernel's `legacy_tiocsti` value when the file exists, so a runner can tell
+/// a measured denial from an unverifiable environment.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn record_tiocsti_step_summary(status: &str) {
+    let legacy = std::fs::read_to_string("/proc/sys/dev/tty/legacy_tiocsti")
+        .map(|value| value.trim().to_string())
+        .unwrap_or_else(|_| "unknown".to_string());
+    let Some(path) = std::env::var_os("GITHUB_STEP_SUMMARY") else {
+        return;
+    };
+    let line = format!("issue667/tiocsti: {status}; legacy_tiocsti={legacy}\n");
+    let _ = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .and_then(|mut file| std::io::Write::write_all(&mut file, line.as_bytes()));
+}
+
+/// Runs [`issue667_tiocsti_session_probe`] in a fresh process and asserts it
+/// reaches a verdict. The probe prints `BLOCKED` when it demonstrated the
+/// injection and its denial, or `UNVERIFIED (reason)` when the environment
+/// cannot exercise `TIOCSTI`; either verdict records a `$GITHUB_STEP_SUMMARY`
+/// line, so an unmeasurable environment is never a silent pass.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn isolated_child_cannot_inject_into_the_controlling_terminal() {
+    let exe = std::env::current_exe().expect("current exe");
+    let output = Command::new(exe)
+        .args([
+            "--exact",
+            "issue667_tiocsti_session_probe",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env("COMMANDAGENT_ISSUE667_TIOCSTI_PROBE", "1")
+        .output()
+        .expect("run the tiocsti probe as a subprocess");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "the tiocsti probe failed:\n{stdout}\n{stderr}"
+    );
+    let verdict = stdout
+        .lines()
+        .find(|line| line.contains("issue667-tiocsti:"))
+        .unwrap_or_else(|| panic!("the tiocsti probe reported no verdict:\n{stdout}\n{stderr}"));
+    eprintln!("{verdict}");
+}
+
+/// Issue #667: with `setsid()` the child has no controlling terminal, so a
+/// terminal standard input would become readable (the job-control check no
+/// longer applies). The launcher must replace a terminal stdin with `/dev/null`
+/// for every bounded child, isolated and unisolated alike. The probe makes its
+/// own pty the session's controlling terminal and puts it on fd 0, then starts a
+/// child with stdin left unset so it would inherit that terminal.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn issue667_stdin_probe() {
+    if std::env::var_os("COMMANDAGENT_ISSUE667_STDIN_PROBE").is_none() {
+        return;
+    }
+    let (_master, slave, _slave_path) = open_pty();
+    assert_ne!(
+        unsafe { libc::setsid() },
+        -1,
+        "setsid: {}",
+        std::io::Error::last_os_error()
+    );
+    assert_eq!(
+        unsafe { libc::ioctl(slave.as_raw_fd(), TIOCSCTTY_REQUEST, 0) },
+        0,
+        "TIOCSCTTY: {}",
+        std::io::Error::last_os_error()
+    );
+    unsafe {
+        libc::signal(libc::SIGHUP, libc::SIG_IGN);
+    }
+    // Make the pty the probe's own standard input, so a child that leaves stdin
+    // unset inherits a terminal and the launcher has to detach it.
+    assert_ne!(
+        unsafe { libc::dup2(slave.as_raw_fd(), 0) },
+        -1,
+        "dup2: {}",
+        std::io::Error::last_os_error()
+    );
+
+    // The unisolated launch.
+    assert_stdin_is_detached(&run_stdin_child(false));
+
+    // The isolated launch, when the backend is available.
+    if matches!(os_sandbox::probe(), SandboxAvailability::Available) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let workspace = dir.path().join("ws");
+        let run_tmp = dir.path().join("tmp");
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::create_dir_all(&run_tmp).unwrap();
+        os_sandbox::install_for_test(
+            SandboxMode::Auto,
+            SandboxPolicy::new(&workspace, &run_tmp),
+            SandboxAvailability::Available,
+        );
+        let sandboxed = run_stdin_child(true);
+        os_sandbox::reset_for_test();
+        assert_stdin_is_detached(&sandboxed);
+        println!(
+            "issue667-stdin: BLOCKED (both the isolated and unisolated launches detach a terminal stdin)"
+        );
+    } else {
+        println!(
+            "issue667-stdin: BLOCKED (the unisolated launch detaches a terminal stdin; the sandbox backend is unavailable)"
+        );
+    }
+}
+
+/// A child that reports whether fd 0 is a terminal and whether a read returns
+/// EOF at once. It ignores `SIGTTIN` and sets fd 0 non-blocking so a terminal
+/// stdin (the pre-fix behavior) reports `READ_ERR` instead of stopping.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+const STDIN_PROBE_SCRIPT: &str = r#"import fcntl, os, signal, sys
+try:
+    signal.signal(signal.SIGTTIN, signal.SIG_IGN)
+except (ValueError, OSError):
+    pass
+sys.stdout.write('ISATTY %d\n' % (1 if os.isatty(0) else 0))
+sys.stdout.flush()
+try:
+    flags = fcntl.fcntl(0, fcntl.F_GETFL)
+    fcntl.fcntl(0, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+except OSError:
+    pass
+try:
+    sys.stdout.write('READ %d\n' % len(os.read(0, 1)))
+except OSError as error:
+    sys.stdout.write('READ_ERR %d\n' % error.errno)
+"#;
+
+/// Run a child through `bounded_process` with standard input left unset, so it
+/// inherits the probe's pty, and return its stdout. The wrapped form goes through
+/// the installed sandbox. Standard I/O is set after wrapping because the macOS
+/// backend rewrites the command.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn run_stdin_child(wrapped: bool) -> String {
+    let mut command = Command::new("python3");
+    command.arg("-c").arg(STDIN_PROBE_SCRIPT);
+    let mut command = if wrapped {
+        os_sandbox::wrap_command(command).expect("available sandbox wraps")
+    } else {
+        command
+    };
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let output =
+        bounded_process::run_with_timeout(&mut command, TIMEOUT).expect("run the stdin child");
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
+/// Assert the child reports a non-terminal stdin that reads EOF at once.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn assert_stdin_is_detached(output: &str) {
+    assert!(
+        output.contains("ISATTY 0"),
+        "the child's stdin must not be a terminal: {output:?}"
+    );
+    assert!(
+        output.contains("READ 0"),
+        "a detached stdin must read EOF immediately: {output:?}"
+    );
+}
+
+/// Runs [`issue667_stdin_probe`] in a fresh process and asserts it reaches a
+/// verdict.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn isolated_child_stdin_is_detached_from_the_terminal() {
+    let exe = std::env::current_exe().expect("current exe");
+    let output = Command::new(exe)
+        .args([
+            "--exact",
+            "issue667_stdin_probe",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env("COMMANDAGENT_ISSUE667_STDIN_PROBE", "1")
+        .output()
+        .expect("run the stdin probe as a subprocess");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "the stdin probe failed:\n{stdout}\n{stderr}"
+    );
+    let verdict = stdout
+        .lines()
+        .find(|line| line.contains("issue667-stdin:"))
+        .unwrap_or_else(|| panic!("the stdin probe reported no verdict:\n{stdout}\n{stderr}"));
+    eprintln!("{verdict}");
+}
+
+/// Issue #667: to replace a terminal stdin the launcher opens `/dev/null` in the
+/// freshly forked child and duplicates it onto fd 0. The descriptor it opened
+/// must be closed before `exec`, otherwise the exec'd command inherits an extra
+/// descriptor pointing at `/dev/null`. The probe makes its own pty the session's
+/// controlling terminal and puts it on fd 0, then starts a child with stdin left
+/// unset so it would inherit that terminal, and the child reports every
+/// descriptor above the standard three whose device is `/dev/null`.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn issue667_devnull_fd_probe() {
+    if std::env::var_os("COMMANDAGENT_ISSUE667_DEVNULL_FD_PROBE").is_none() {
+        return;
+    }
+    let (_master, slave, _slave_path) = open_pty();
+    assert_ne!(
+        unsafe { libc::setsid() },
+        -1,
+        "setsid: {}",
+        std::io::Error::last_os_error()
+    );
+    assert_eq!(
+        unsafe { libc::ioctl(slave.as_raw_fd(), TIOCSCTTY_REQUEST, 0) },
+        0,
+        "TIOCSCTTY: {}",
+        std::io::Error::last_os_error()
+    );
+    unsafe {
+        libc::signal(libc::SIGHUP, libc::SIG_IGN);
+    }
+    // Make the pty the probe's own standard input, so a child that leaves stdin
+    // unset inherits a terminal and the launcher opens `/dev/null` for it.
+    assert_ne!(
+        unsafe { libc::dup2(slave.as_raw_fd(), 0) },
+        -1,
+        "dup2: {}",
+        std::io::Error::last_os_error()
+    );
+
+    // Positive control: the scanner must report a `/dev/null` descriptor the
+    // child itself opens, so a clean scan below is evidence rather than a blind
+    // spot.
+    let leaked = run_devnull_fd_child(false, true);
+    assert!(
+        leaked.contains("DEVNULL_FDS") && !leaked.contains("DEVNULL_FDS none"),
+        "the scanner must detect an extra /dev/null descriptor: {leaked:?}"
+    );
+
+    // The unisolated launch.
+    assert_no_devnull_descriptor(&run_devnull_fd_child(false, false));
+
+    // The isolated launch, when the backend is available.
+    if matches!(os_sandbox::probe(), SandboxAvailability::Available) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let workspace = dir.path().join("ws");
+        let run_tmp = dir.path().join("tmp");
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::create_dir_all(&run_tmp).unwrap();
+        os_sandbox::install_for_test(
+            SandboxMode::Auto,
+            SandboxPolicy::new(&workspace, &run_tmp),
+            SandboxAvailability::Available,
+        );
+        let sandboxed = run_devnull_fd_child(true, false);
+        os_sandbox::reset_for_test();
+        assert_no_devnull_descriptor(&sandboxed);
+        println!(
+            "issue667-devnull-fd: BLOCKED (both the isolated and unisolated launches close the /dev/null descriptor)"
+        );
+    } else {
+        println!(
+            "issue667-devnull-fd: BLOCKED (the unisolated launch closes the /dev/null descriptor; the sandbox backend is unavailable)"
+        );
+    }
+}
+
+/// A child that reports every descriptor above the standard three whose device
+/// matches `/dev/null`, so a descriptor the launcher left open is visible from
+/// inside the exec'd program. `leak` additionally opens `/dev/null` in the child
+/// as a positive control that the scan can see a retained descriptor.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn devnull_fd_script(leak: bool) -> String {
+    let leak_line = if leak {
+        "os.open('/dev/null', os.O_RDONLY)\n"
+    } else {
+        ""
+    };
+    format!(
+        r#"import os, stat, sys
+{leak_line}null_rdev = os.stat('/dev/null').st_rdev
+hits = []
+for fd in range(3, 256):
+    try:
+        info = os.fstat(fd)
+    except OSError:
+        continue
+    if stat.S_ISCHR(info.st_mode) and info.st_rdev == null_rdev:
+        hits.append(fd)
+sys.stdout.write('DEVNULL_FDS %s\n' % (','.join(map(str, hits)) if hits else 'none'))
+"#
+    )
+}
+
+/// Run a child through `bounded_process` with standard input left unset, so it
+/// inherits the probe's pty, and return its stdout. The wrapped form goes through
+/// the installed sandbox. Standard I/O is set after wrapping because the macOS
+/// backend rewrites the command.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn run_devnull_fd_child(wrapped: bool, leak: bool) -> String {
+    let mut command = Command::new("python3");
+    command.arg("-c").arg(devnull_fd_script(leak));
+    let mut command = if wrapped {
+        os_sandbox::wrap_command(command).expect("available sandbox wraps")
+    } else {
+        command
+    };
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let output =
+        bounded_process::run_with_timeout(&mut command, TIMEOUT).expect("run the devnull-fd child");
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
+/// Assert the child reports no descriptor above the standard three whose device
+/// is `/dev/null`.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn assert_no_devnull_descriptor(output: &str) {
+    assert!(
+        output.contains("DEVNULL_FDS none"),
+        "no descriptor above the standard three may point at /dev/null: {output:?}"
+    );
+}
+
+/// Runs [`issue667_devnull_fd_probe`] in a fresh process and asserts it reaches a
+/// verdict.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn isolated_child_closes_the_devnull_descriptor_for_a_terminal_stdin() {
+    let exe = std::env::current_exe().expect("current exe");
+    let output = Command::new(exe)
+        .args([
+            "--exact",
+            "issue667_devnull_fd_probe",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env("COMMANDAGENT_ISSUE667_DEVNULL_FD_PROBE", "1")
+        .output()
+        .expect("run the devnull-fd probe as a subprocess");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "the devnull-fd probe failed:\n{stdout}\n{stderr}"
+    );
+    let verdict = stdout
+        .lines()
+        .find(|line| line.contains("issue667-devnull-fd:"))
+        .unwrap_or_else(|| panic!("the devnull-fd probe reported no verdict:\n{stdout}\n{stderr}"));
+    eprintln!("{verdict}");
+}
+
+/// Issue #667: a confined command runs in its own session with no controlling
+/// terminal, but it can still re-open the run's terminal by path (`/dev/pts/N`
+/// on Linux, `/dev/ttys*` on macOS) and read the keys the user types. The read
+/// layer must refuse that open. The probe makes its own pty the session's
+/// controlling terminal, writes one line to the master as the "user", then
+/// starts a child through `bounded_process` that re-opens the slave by path and
+/// reads it. `reopen` opens it directly; `setsid_reopen` forks a grandchild that
+/// `setsid()`s first, which is the hole that also existed before this change.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn issue667_terminal_read_probe() {
+    if std::env::var_os("COMMANDAGENT_ISSUE667_TERMINAL_READ_PROBE").is_none() {
+        return;
+    }
+    let (mut master, slave, slave_path) = open_pty();
+    assert_ne!(
+        unsafe { libc::setsid() },
+        -1,
+        "setsid: {}",
+        std::io::Error::last_os_error()
+    );
+    assert_eq!(
+        unsafe { libc::ioctl(slave.as_raw_fd(), TIOCSCTTY_REQUEST, 0) },
+        0,
+        "TIOCSCTTY: {}",
+        std::io::Error::last_os_error()
+    );
+    unsafe {
+        libc::signal(libc::SIGHUP, libc::SIG_IGN);
+    }
+
+    // Positive control: without the sandbox the child re-opens the run's
+    // terminal by path and reads the line, so a denial below is the sandbox.
+    for mode in ["reopen", "setsid_reopen"] {
+        let output = run_terminal_read_child(&mut master, &slave, &slave_path, false, mode);
+        assert!(
+            output.contains(&format!("RESULT {mode} READ"))
+                && output.contains(&terminal_read_token(mode, false)),
+            "the unisolated child must read the run's terminal by path ({mode}): {output:?}"
+        );
+    }
+
+    // The isolated launch, when the backend is available.
+    if matches!(os_sandbox::probe(), SandboxAvailability::Available) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let workspace = dir.path().join("ws");
+        let run_tmp = dir.path().join("tmp");
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::create_dir_all(&run_tmp).unwrap();
+        os_sandbox::install_for_test(
+            SandboxMode::Auto,
+            SandboxPolicy::new(&workspace, &run_tmp),
+            SandboxAvailability::Available,
+        );
+        for mode in ["reopen", "setsid_reopen"] {
+            let output = run_terminal_read_child(&mut master, &slave, &slave_path, true, mode);
+            assert!(
+                output.contains(&format!("RESULT {mode} ERR")),
+                "the isolated child must not open the run's terminal by path ({mode}): {output:?}"
+            );
+            assert!(
+                !output.contains(&terminal_read_token(mode, true)),
+                "no typed key may reach the isolated child ({mode}): {output:?}"
+            );
+        }
+        os_sandbox::reset_for_test();
+        record_terminal_read_step_summary("blocked");
+        println!(
+            "issue667-terminal-read: BLOCKED (the isolated child could not re-open the terminal by path; the unisolated control read it)"
+        );
+    } else {
+        record_terminal_read_step_summary("unverified: the sandbox backend is unavailable");
+        println!(
+            "issue667-terminal-read: UNVERIFIED (the sandbox backend is unavailable; only the unisolated control was measured)"
+        );
+    }
+}
+
+/// A Python child that re-opens the pty at `path` by name and reads it: `reopen`
+/// opens it directly, `setsid_reopen` forks a grandchild that `setsid()`s first.
+/// It reports `RESULT <mode> READ <bytes>`, `RESULT <mode> NOTHING`, or `RESULT
+/// <mode> ERR <errno>`, so the caller can tell a read from a denied open.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+const TERMINAL_READ_SCRIPT: &str = r#"import os, select, signal, sys
+signal.signal(signal.SIGTTIN, signal.SIG_IGN)
+mode, path = sys.argv[1], sys.argv[2]
+if mode == 'setsid_reopen':
+    pid = os.fork()
+    if pid:
+        os.waitpid(pid, 0)
+        sys.exit(0)
+    os.setsid()
+try:
+    fd = os.open(path, os.O_RDONLY | os.O_NOCTTY | os.O_NONBLOCK)
+    ready, _, _ = select.select([fd], [], [], 2.0)
+    if ready:
+        sys.stdout.write('RESULT %s READ %r\n' % (mode, os.read(fd, 128)))
+    else:
+        sys.stdout.write('RESULT %s NOTHING\n' % mode)
+except OSError as error:
+    sys.stdout.write('RESULT %s ERR %d\n' % (mode, error.errno))
+sys.stdout.flush()
+"#;
+
+/// Run a child that re-opens `slave_path` after `master` receives one typed
+/// line, optionally through the installed sandbox, and return its output. The
+/// queued input is flushed afterwards so the next mode starts clean.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn run_terminal_read_child(
+    master: &mut std::fs::File,
+    slave: &std::fs::File,
+    slave_path: &Path,
+    sandbox: bool,
+    mode: &str,
+) -> String {
+    use std::io::Write;
+
+    let mut command = Command::new("python3");
+    command
+        .arg("-c")
+        .arg(TERMINAL_READ_SCRIPT)
+        .arg(mode)
+        .arg(slave_path);
+    let mut command = if sandbox {
+        os_sandbox::wrap_command(command).expect("available sandbox wraps")
+    } else {
+        command
+    };
+    // Standard I/O is set after wrapping because the macOS backend rewrites the
+    // command (same as `run_stdin_child`).
+    command
+        .stdin(dup_stdio(slave))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    // The "user" types one line on the run's terminal while the child runs.
+    master
+        .write_all(format!("{}\n", terminal_read_token(mode, sandbox)).as_bytes())
+        .expect("write the typed line");
+    master.flush().expect("flush the typed line");
+    let output = bounded_process::run_with_timeout(&mut command, TIMEOUT)
+        .expect("run the terminal-read child");
+    // Drop anything the child left queued so a previous mode's line is not read
+    // by the next one.
+    unsafe {
+        libc::tcflush(slave.as_raw_fd(), libc::TCIFLUSH);
+    }
+    format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    )
+}
+
+/// The one line the "user" types for a mode, so the caller can tell whether the
+/// child actually received it.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn terminal_read_token(mode: &str, sandbox: bool) -> String {
+    format!("KEY_{mode}_{sandbox}")
+}
+
+/// Append the terminal-read verdict to `$GITHUB_STEP_SUMMARY` when it is set, so
+/// a run that could not measure the denial records why instead of passing
+/// silently.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn record_terminal_read_step_summary(status: &str) {
+    let Some(path) = std::env::var_os("GITHUB_STEP_SUMMARY") else {
+        return;
+    };
+    let line = format!("issue667/terminal-read: {status}\n");
+    let _ = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .and_then(|mut file| std::io::Write::write_all(&mut file, line.as_bytes()));
+}
+
+/// Runs [`issue667_terminal_read_probe`] in a fresh process and asserts it
+/// reaches a verdict. A run without the sandbox backend reports `UNVERIFIED`
+/// and records a `$GITHUB_STEP_SUMMARY` line, so it is never a silent pass.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn isolated_child_cannot_read_the_terminal_by_path() {
+    let exe = std::env::current_exe().expect("current exe");
+    let output = Command::new(exe)
+        .args([
+            "--exact",
+            "issue667_terminal_read_probe",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env("COMMANDAGENT_ISSUE667_TERMINAL_READ_PROBE", "1")
+        .output()
+        .expect("run the terminal-read probe as a subprocess");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "the terminal-read probe failed:\n{stdout}\n{stderr}"
+    );
+    let verdict = stdout
+        .lines()
+        .find(|line| line.contains("issue667-terminal-read:"))
+        .unwrap_or_else(|| {
+            panic!("the terminal-read probe reported no verdict:\n{stdout}\n{stderr}")
+        });
+    eprintln!("{verdict}");
+}
+
+/// Issue #667: a confined command keeps its own terminal (its inherited stdio)
+/// but cannot open another terminal's slave for writing. Both ptys are created
+/// by the test — the command's own terminal is one and the "other terminal" is
+/// the second — so no real terminal is ever touched.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn assert_terminal_slave_write_is_denied(fixture: &Fixture) {
+    let (_own_master, own_slave, _own_path) = open_pty();
+    let (_other_master, _other_slave, other_path) = open_pty();
+    let command = format!("echo written > '{}'", other_path.display());
+
+    // Positive control: without a sandbox the same write succeeds, so the
+    // fixture proves the sandbox is what denies it.
+    os_sandbox::reset_for_test();
+    let before = run_unwrapped(&fixture.root, &command, &own_slave);
+    assert!(
+        before.status.success(),
+        "a write to a terminal slave must succeed without the sandbox: {}",
+        String::from_utf8_lossy(&before.stderr)
+    );
+
+    install_available(fixture);
+    let after = run_wrapped_with_stdout(&fixture.root, &command, &own_slave);
+    assert_eq!(
+        after.kind,
+        BoundedProcessOutcomeKind::Exited,
+        "the denied write must fail, not hang or time out: {after:?}"
+    );
+    assert!(
+        !after.success(),
+        "a write to another terminal's slave must be denied: {}",
+        String::from_utf8_lossy(&after.stderr)
+    );
+    let denial = String::from_utf8_lossy(&after.stderr);
+    assert!(
+        denial.contains("Permission denied") || denial.contains("Operation not permitted"),
+        "the denial must be a permission error, not a hang: {denial}"
+    );
+    os_sandbox::reset_for_test();
+}
+
+/// Issue #667 on Linux: `/dev/pts` is no longer in the Landlock write allow
+/// list, so an `open` for writing to another terminal's slave is refused.
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_applied_terminal_slave_write_is_denied() {
+    let _guard = sandbox_lock();
+    if !require_landlock_backend() {
+        eprintln!("SKIP: Landlock backend unavailable");
+        return;
+    }
+    let fixture = fixture();
+    assert_terminal_slave_write_is_denied(&fixture);
+}
+
+/// Issue #667 on macOS: the write profile allows `/dev` and then re-denies
+/// `/dev/tty*` last, which covers the `/dev/ttys*` pty slaves, so writing to
+/// another terminal is refused.
+#[cfg(target_os = "macos")]
+#[test]
+fn applied_terminal_slave_write_is_denied() {
+    let _guard = sandbox_lock();
+    if !backend_available() {
+        eprintln!("SKIP: sandbox backend unavailable (nested sandbox?)");
+        return;
+    }
+    let fixture = fixture();
+    assert_terminal_slave_write_is_denied(&fixture);
+}
+
+/// Issue #667: a command that needs a terminal (a `git` pager) still works.
+/// `git` runs its pager only when stdout is a tty, so the fixture gives the
+/// wrapped command the pty slave as stdout; the pager (`cat > pager.out`) then
+/// runs inside the sandbox and writes the allowed workspace. This is the
+/// behavior SECURITY.md keeps: stdio still works, only opening `/dev/tty`
+/// directly changed.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn assert_git_pager_runs_inside_sandbox(fixture: &Fixture) {
+    let (_master, slave, _slave_path) = open_pty();
+    std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&fixture.root)
+        .status()
+        .expect("git init");
+    std::process::Command::new("git")
+        .args([
+            "-c",
+            "user.email=probe@example.invalid",
+            "-c",
+            "user.name=probe",
+            "commit",
+            "--allow-empty",
+            "-qm",
+            "issue667 pager probe",
+        ])
+        .current_dir(&fixture.root)
+        .status()
+        .expect("git commit");
+
+    let mut process = Command::new("sh");
+    process
+        .arg("-c")
+        .arg("git -c core.pager='cat > pager.out' --paginate log --oneline")
+        .current_dir(&fixture.root);
+    let mut process = os_sandbox::wrap_command(process).expect("available sandbox wraps");
+    // Standard I/O is set after wrapping: the macOS backend rewrites the
+    // command, so a `Stdio` set beforehand would not survive the transfer.
+    process
+        .stdin(Stdio::null())
+        .stdout(dup_stdio(&slave))
+        .stderr(dup_stdio(&slave));
+    let output =
+        bounded_process::run_with_timeout(&mut process, TIMEOUT).expect("run the pager command");
+    assert!(
+        output.success(),
+        "the pager command failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let pager_out = std::fs::read_to_string(fixture.root.join("pager.out")).unwrap_or_default();
+    assert!(
+        pager_out.contains("issue667 pager probe"),
+        "git's pager did not run inside the sandbox: {pager_out:?}"
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_applied_git_pager_still_runs_inside_the_sandbox() {
+    let _guard = sandbox_lock();
+    if !require_landlock_backend() {
+        eprintln!("SKIP: Landlock backend unavailable");
+        return;
+    }
+    let fixture = fixture();
+    install_available(&fixture);
+    assert_git_pager_runs_inside_sandbox(&fixture);
+    os_sandbox::reset_for_test();
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn applied_git_pager_still_runs_inside_the_sandbox() {
+    let _guard = sandbox_lock();
+    if !backend_available() {
+        eprintln!("SKIP: sandbox backend unavailable (nested sandbox?)");
+        return;
+    }
+    let fixture = fixture();
+    install_available(&fixture);
+    assert_git_pager_runs_inside_sandbox(&fixture);
     os_sandbox::reset_for_test();
 }

@@ -13,6 +13,13 @@
 //! keep working. For an `--offline` run (#658) the profile also denies every
 //! network operation except loopback TCP and unix sockets, so an arbitrary
 //! program the lexical guard cannot name cannot reach the network.
+//!
+//! Terminal isolation (Issue #667): the write profile re-denies `/dev/tty*`
+//! last, so a confined command cannot write to a terminal (its own or another
+//! user's slave), and the same pattern is re-denied for reads, so it cannot
+//! re-open the run's terminal by path and read the keys the user types; the
+//! child's own session (a `setsid()` in `bounded_process`) has no controlling
+//! terminal, so `TIOCSTI` is refused.
 
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -31,6 +38,22 @@ const UNSET_PATH: &str = "/commandagent-sandbox-unset";
 /// `(deny file-write*)` then confines every write to the parameters below. The
 /// read-deny rules are appended per run by [`profile`], because the number of
 /// home secret locations is fixed but their names travel as parameters.
+///
+/// The device rule allows the whole `/dev` tree and then re-denies `/dev/tty*`
+/// last (Seatbelt applies the last matching rule), so a confined command can
+/// still use `/dev/null` and friends but cannot write to a terminal — its own or
+/// another user's slave (`/dev/ttys*`) — see Issue #667.
+///
+/// The same `/dev/tty*` pattern is re-denied for reads. A confined command runs
+/// in its own session with no controlling terminal, but it can still re-open the
+/// run's terminal by path (`/dev/ttys*`) and read the keys the user types; the
+/// read re-deny closes that path, while the already-open standard descriptors are
+/// untouched. `/dev/null`, `/dev/urandom`, and the rest of `/dev` are unaffected,
+/// and `/dev/ptmx` is still openable — but that does not give a usable pty: the
+/// slave it would create (`/dev/ttys*`) is denied, so `openpty`, `script`,
+/// `expect`, and `pexpect` cannot use a pty inside the isolation. That pty loss
+/// is the cost of closing terminal reads and writes (Issue #667); allocating a
+/// pty worked before #667.
 const WRITE_PROFILE: &str = r#"
 (version 1)
 (allow default)
@@ -44,6 +67,8 @@ const WRITE_PROFILE: &str = r#"
 (allow file-write* (subpath (param "CACHE_PLAYWRIGHT")))
 (allow file-write* (literal (param "CACHE_CARGO_PACKAGE")))
 (allow file-write* (regex #"^/dev/"))
+(deny file-write* (regex #"^/dev/tty"))
+(deny file-read* (regex #"^/dev/tty"))
 "#;
 
 /// The `--offline` network rules (Issue #658). `(deny network*)` blocks every
@@ -281,6 +306,40 @@ mod tests {
         // A bare `(allow network* (local ip …))` would re-open all outbound
         // traffic; every network rule must name its operation.
         assert!(!offline.contains("(allow network*"), "{offline}");
+    }
+
+    /// Issue #667: the device allow comes first and the terminal deny last, so
+    /// Seatbelt's last-match rule closes `/dev/tty*` (including another
+    /// terminal's `/dev/ttys*`) while `/dev/null` and friends stay writable.
+    #[test]
+    fn profile_denies_terminal_writes_after_allowing_devices() {
+        let built = profile(0, false);
+        let allow_devices = built
+            .find("(allow file-write* (regex #\"^/dev/\"))")
+            .expect("device allow rule");
+        let deny_terminal = built
+            .find("(deny file-write* (regex #\"^/dev/tty\"))")
+            .expect("terminal deny rule");
+        assert!(
+            allow_devices < deny_terminal,
+            "the terminal deny must come after the device allow: {built}"
+        );
+    }
+
+    /// Issue #667: the same `/dev/tty*` pattern is re-denied for reads, after the
+    /// `(allow default)`, so a confined command cannot re-open a terminal by path
+    /// and read the keys the user types.
+    #[test]
+    fn profile_denies_terminal_reads() {
+        let built = profile(0, false);
+        let allow_default = built.find("(allow default)").expect("allow default rule");
+        let deny_read = built
+            .find("(deny file-read* (regex #\"^/dev/tty\"))")
+            .expect("terminal read deny rule");
+        assert!(
+            allow_default < deny_read,
+            "the terminal read deny must follow (allow default): {built}"
+        );
     }
 
     #[test]
