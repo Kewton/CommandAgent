@@ -85,7 +85,10 @@ and the target, and returns the target's real path only when
 ancestor, a sibling, a path outside the root, a `..` that escapes, and a symlink
 (even one that points back inside) — none of which `starts_with` alone rejects.
 Each caller passes **the returned real path** to `remove_dir_all`, so the checked
-value is the value that is removed; a `None` return deletes nothing.
+value is the value that is removed; a `None` return deletes nothing. Independence
+holds on the production `install` path. The test-only `install_for_test` seam is
+the one exception: it derives the root from the delete target's parent (see the
+note after the table).
 
 | File | Site | Kind | Owned root | Guard |
 | --- | --- | --- | --- | --- |
@@ -93,11 +96,21 @@ value is the value that is removed; a `None` return deletes nothing.
 | `src/model_probe.rs` | `ScratchWorkspace::cleanup` | product cleanup | `std::env::temp_dir()` (`ScratchWorkspace.root`) | added |
 | `src/planner/pack/supply.rs` | `install` (failure path) | product staging | `packs/` (`packs_root`) | added |
 | `src/planner/pack/supply.rs` | `install` (success path) | product staging | `packs/` | added |
-| `src/tools/os_sandbox.rs` | `cleanup` | product temp | `<state>/sandbox` (`Installed.run_tmp_root`) | added |
+| `src/tools/os_sandbox.rs` | `cleanup` | product temp | `<state>/sandbox` (`Installed.run_tmp_root`) | added — production `install` only; see the note below |
 | `src/tools/dir_fd.rs` | test swap seam (×2) | test helper | a synthetic tempdir | **none** — synthetic path |
 | `src/tools/edit.rs` | test swap seam | test helper | a synthetic tempdir | **none** — synthetic path |
 | `src/tools/write.rs` | test swap seam | test helper | a synthetic tempdir | **none** — synthetic path |
 | `tests/gui_server.rs` (×4), `tests/issue505_write_toctou.rs` (×3) | test cleanup | test helper | synthetic tempdirs | **none** — synthetic paths |
+
+Note on `src/tools/os_sandbox.rs`: the production `install` (`install_impl`)
+decides `<state>/sandbox` independently of the run temp dir and stores it, so
+`cleanup` compares against a reference a mutation of the run temp dir cannot
+move. The test-only `install_for_test` seam is not independent — it builds the
+root from `policy.run_tmp_dir.parent()`, i.e. from the delete target itself — and
+is called only by tests, whose run temp dir is their own tempdir. Taking an
+independent root there needs edits to files outside Issue #673's scope
+(`src/lib.rs`, `tests/issue502_os_sandbox_network.rs`,
+`tests/issue502_os_sandbox_read.rs`), so it is left as a follow-up.
 
 The product sites keep deleting the product location (pack staging stays under
 `packs/`, the sandbox temp stays under `<state>/sandbox`); none is redirected to
