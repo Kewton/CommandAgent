@@ -622,12 +622,13 @@ pub fn cleanup() {
         // Issue #673: only remove the run temp dir when it is a strict
         // descendant of the `<state>/sandbox` root stored at install time, so a
         // mutation that moves `run_tmp_dir` cannot recursively delete an
-        // unrelated directory.
-        if run_tmp_root
-            .as_deref()
-            .is_some_and(|root| crate::tools::dir_fd::is_strict_descendant(root, &run_tmp_dir))
+        // unrelated directory. The checked real path is the value that is
+        // removed.
+        if let Some(root) = run_tmp_root.as_deref()
+            && let Some(checked) =
+                crate::tools::dir_fd::strict_descendant_real_path(root, &run_tmp_dir)
         {
-            let _ = std::fs::remove_dir_all(run_tmp_dir);
+            let _ = std::fs::remove_dir_all(checked);
         }
     }
 }

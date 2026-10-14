@@ -78,12 +78,14 @@ run `cargo mutants`):
 
 Nine sites under `src` plus seven test helpers. Each is classified by whether a
 mutation that moves the target could delete something the run does not own. The
-guard is `crate::tools::dir_fd::is_strict_descendant(owned_root, target)`: it
-`canonicalize`s an `owned_root` that is derived **independently of the target**
-and the target, and requires `target != root && target.starts_with(root)`. That
-rejects the root itself, an ancestor, a sibling, a path outside the root, a
-`..` that escapes, and an outside-pointing symlink — none of which `starts_with`
-alone rejects. The guard is the value that is then removed.
+guard is `crate::tools::dir_fd::strict_descendant_real_path(owned_root, target)`:
+it `canonicalize`s an `owned_root` that is derived **independently of the target**
+and the target, and returns the target's real path only when
+`target != root && target.starts_with(root)`. That rejects the root itself, an
+ancestor, a sibling, a path outside the root, a `..` that escapes, and a symlink
+(even one that points back inside) — none of which `starts_with` alone rejects.
+Each caller passes **the returned real path** to `remove_dir_all`, so the checked
+value is the value that is removed; a `None` return deletes nothing.
 
 | File | Site | Kind | Owned root | Guard |
 | --- | --- | --- | --- | --- |
@@ -102,26 +104,60 @@ The product sites keep deleting the product location (pack staging stays under
 a generic temp dir. The product-owned delete targets are not optional for the
 product, so the fix is a real-path check, not a relocation.
 
-`is_strict_descendant`'s own mutation is not defended by an `assert!`: the
-Issue asks for a real-path check on deletion, and the check is a boolean guard,
-not the value sent to a syscall. The guard is exercised by its unit tests in
+`strict_descendant_real_path`'s own mutation is not defended by an `assert!`:
+the Issue asks for a real-path check on deletion, and the check guards a delete,
+not a syscall target. Returning `Option<PathBuf>` keeps the mutation direction
+safe — a body-replacement mutant yields `None` (the `Option` default), which
+deletes nothing — and the guard is exercised by its unit tests in
 `src/tools/dir_fd.rs` (fake root, sibling canary) and reviewed in the
 isolated-container run.
 
+## 2a. Shell and Python sites
+
+The inventory also reads tracked `scripts/**/*.sh`, `scripts/**/*.py`, and
+`tests/**/*.py`. The declared sites it found:
+
+| File | Token | Count | Notes |
+| --- | --- | --- | --- |
+| `scripts/build-release.sh` | `rm -rf` | 3 | build/publish dir cleanup |
+| `scripts/install.sh` | `rm -rf` | 1 | temp dir cleanup |
+| `scripts/cmate-pm-watch.sh` | `rm -rf` | 3 | stop-pattern string and its own grep |
+| `scripts/demo/record_cli_demo.py` | `os.kill(` | 1 | terminate a recorded child |
+| `scripts/eval_lib/heavy_lock.py` | `os.kill(` | 2 | liveness probe (`signal 0`) |
+| `scripts/eval_lib/heavy_lock.py` | `shutil.rmtree(` | 2 | lock dir cleanup |
+| `scripts/eval_lib/goal_verify_recovery_deterministic_pair.py` | `os.killpg(` | 2 | terminate a spawned process group |
+| `scripts/eval_lib/goal_verify_recovery_exposure_corpus_pilot.py` | `os.killpg(` | 2 | terminate a spawned process group |
+| `scripts/eval_lib/goal_verify_workspaces_v3.py` | `shutil.rmtree(` | 1 | destination cleanup |
+| `scripts/eval_lib/goal_verify_live_v4.py` | `shutil.rmtree(` | 2 | destination cleanup |
+| `scripts/nextjs_domain_oracle.py` | `shutil.rmtree(` | 1 | scratch cleanup |
+| `tests/eval/test_heavy_lock.py` | `os.kill(` | 1 | liveness probe (`signal 0`) |
+
+No external `kill`/`pkill`/`killall` or `rm -r ` occurs anywhere in the scanned
+set; every `rm -rf`, `os.kill(`, `os.killpg(`, and `shutil.rmtree(` site is
+listed above.
+
 ## 3. Detection limits
 
-The inventory test matches **direct API names in `.rs` files**:
+The inventory test matches **direct API names and shell commands in tracked `.rs`,
+`.sh`, and `.py` files**:
 
-- Covered in full: `libc::kill(`, `libc::killpg(`, `nix::sys::signal::kill(`,
-  `Command::new("kill"|"killall"|"pkill")`, and `remove_dir_all(`.
+- Rust (`src/**`, `tests/**`, `build.rs`): `libc::kill(`, `libc::killpg(`,
+  `nix::sys::signal::kill(`, `Command::new("kill"|"killall"|"pkill")`, and
+  `remove_dir_all(`.
+- Shell (`scripts/**/*.sh`): external `kill `, `pkill`, `killall`, `rm -rf`,
+  `rm -r `.
+- Python (`scripts/**/*.py`, `tests/**/*.py`): `os.kill(`, `os.killpg(`,
+  `shutil.rmtree(`.
 - **Missed**: an alias or a re-export of a covered name; a wrapper function that
-  hides the token; a signal sent from inside `sh -c` or a Python snippet
-  (`python3 -c "import os; os.kill(...)"`); `kill` invoked through a variable or
-  `exec`; and any non-Rust execution path (shell scripts, `build.rs` shells out
-  but does not signal).
+  hides the token; an external `kill` not followed by a space (for example
+  `kill$pid` or a bare `kill` on its own line); a signal sent from inside `sh -c`
+  or a Python string (`python3 -c "import os; os.kill(...)"`); `kill` invoked
+  through a variable or `exec`; Node's `child.kill()` in `scripts/*.mjs`; and any
+  other language not scanned.
 - `grep` counts string literals too (for example
-  `tests/gui_read_only_guard.rs`, which asserts the source text). Those are
-  declared, so the inventory stays honest about them.
+  `tests/gui_read_only_guard.rs`, which asserts the source text, and
+  `scripts/cmate-pm-watch.sh`, whose stop-pattern string contains `rm -rf`).
+  Those are declared, so the inventory stays honest about them.
 
 Out of the automated match, with the reason:
 
@@ -135,8 +171,11 @@ Out of the automated match, with the reason:
   threat model of this Issue.
 - **Terminal ioctl / termios / shared-fd flags**: measured by Issue #667's own
   probes, not by this inventory.
-- **`sh -c` and interpreter bodies**: invisible to a token grep by design; the
-  lexical and OS guards cover the write side, the inventory cannot.
+- **`sh -c` and interpreter string bodies**: invisible to a token grep by design;
+  the lexical and OS guards cover the write side, the inventory cannot.
+- **Node/`.mjs` scripts**: `scripts/issue45*_*.mjs` call `server.kill('SIGTERM')`
+  on a child the script itself spawned. The token set the Issue names does not
+  include Node's `ChildProcess.kill()`, so these are outside the match.
 
 The inventory is thus a tripwire for the two categories with the largest blast
 radius (signalling every process, and recursive deletion), and an explicit

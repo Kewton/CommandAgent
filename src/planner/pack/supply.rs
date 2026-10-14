@@ -714,15 +714,20 @@ impl SupplyRoot {
             }
             // Issue #673: only remove the staging session when it is a strict
             // descendant of `packs/`, so a mutation that moves `session` cannot
-            // recursively delete an unrelated directory.
-            if crate::tools::dir_fd::is_strict_descendant(&packs_root, &session) {
-                let _ = std::fs::remove_dir_all(&session);
+            // recursively delete an unrelated directory. The checked real path
+            // is the value that is removed.
+            if let Some(checked) =
+                crate::tools::dir_fd::strict_descendant_real_path(&packs_root, &session)
+            {
+                let _ = std::fs::remove_dir_all(checked);
             }
             return Err(SupplyError::io(directory, source));
         }
         // Issue #673: the same strict-descendant check for the success path.
-        if crate::tools::dir_fd::is_strict_descendant(&packs_root, &session) {
-            let _ = std::fs::remove_dir_all(&session);
+        if let Some(checked) =
+            crate::tools::dir_fd::strict_descendant_real_path(&packs_root, &session)
+        {
+            let _ = std::fs::remove_dir_all(checked);
         }
         // Leave no residue: the staging parent is only meaningful while a
         // rename is in flight, and other roots below it belong to other packs.

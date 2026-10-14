@@ -6,38 +6,58 @@
 //! `docs/dev/dangerous-commands.md`), or when a declared count changes. That
 //! is what makes an added `kill` visible in review instead of silent.
 //!
-//! Limits (see the doc for the full list): this matches direct API names, so it
-//! misses aliases, wrappers, and code inside `sh -c` / Python. It covers the
-//! two categories the Issue requires in full — signal (`libc::kill`,
-//! `libc::killpg`, a `nix` signal wrapper, and the external `kill`/`killall`/
-//! `pkill` commands) and recursive delete (`remove_dir_all`) — and leaves
+//! Limits (see the doc for the full list): this matches direct API names and
+//! shell commands in tracked `.rs`, `.sh`, and `.py` files, so it misses
+//! aliases, wrappers, code inside `sh -c` / a Python string, and other
+//! languages (for example the Node `child.kill()` in `scripts/*.mjs`). It
+//! covers in full the categories the Issue requires — signal (Rust
+//! `libc::kill`/`libc::killpg`, a `nix` signal wrapper, the external
+//! `kill`/`pkill`/`killall`, Python `os.kill(`/`os.killpg(`) and recursive
+//! delete (`remove_dir_all`, `rm -rf`/`rm -r `, `shutil.rmtree(`) — and leaves
 //! single-file delete, truncate/rename, permission changes, terminal ioctls,
-//! and `sh -c` out of the automated match (documented as out of scope).
+//! and interpreter string bodies out of the automated match (documented).
 
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// The token that marks a signal site. `libc::kill(` is matched literally, so
-/// `libc::killpg(` is counted with its own token.
-const SIGNAL_TOKENS: &[&str] = &[
+/// Tokens that mark a dangerous site in a Rust source file.
+const RUST_TOKENS: &[&str] = &[
     "libc::kill(",
     "libc::killpg(",
     "nix::sys::signal::kill(",
     "Command::new(\"kill\")",
     "Command::new(\"killall\")",
     "Command::new(\"pkill\")",
+    "remove_dir_all(",
 ];
 
-/// The token that marks a recursive delete.
-const RECURSIVE_DELETE_TOKENS: &[&str] = &["remove_dir_all("];
+/// Tokens that mark a dangerous site in a shell script: the external `kill`,
+/// `pkill`, `killall`, and the recursive `rm`.
+const SHELL_TOKENS: &[&str] = &["kill ", "pkill", "killall", "rm -rf", "rm -r "];
+
+/// Tokens that mark a dangerous site in a Python file: `os.kill`, `os.killpg`,
+/// and the recursive `shutil.rmtree`.
+const PYTHON_TOKENS: &[&str] = &["os.kill(", "os.killpg(", "shutil.rmtree("];
+
+fn tokens_for(path: &str) -> &'static [&'static str] {
+    if path.ends_with(".rs") {
+        RUST_TOKENS
+    } else if path.ends_with(".sh") {
+        SHELL_TOKENS
+    } else if path.ends_with(".py") {
+        PYTHON_TOKENS
+    } else {
+        &[]
+    }
+}
 
 /// Every signal / recursive-delete site declared in the inventory, with the
 /// number of token occurrences. `(path, token, count)`.
 ///
 /// This file is excluded from the scan, so its own token literals do not count.
 const DECLARED: &[(&str, &str, usize)] = &[
-    // Signal: negative process-group targets and one positive pid.
+    // Rust: negative process-group targets, one positive pid, probes.
     // `src/bounded_process.rs` carries 4 in the wrappers plus 1 in the
     // `dangerous_sentinel_` test's `group_exists` probe.
     ("src/bounded_process.rs", "libc::kill(", 5),
@@ -53,7 +73,7 @@ const DECLARED: &[(&str, &str, usize)] = &[
     ("tests/headless_summary.rs", "libc::kill(", 1),
     // `tests/gui_read_only_guard.rs` holds these as string literals only.
     ("tests/gui_read_only_guard.rs", "libc::kill(", 3),
-    // Recursive delete.
+    // Rust recursive delete.
     ("src/model_probe.rs", "remove_dir_all(", 1),
     ("src/bin/gui_server/session_paths.rs", "remove_dir_all(", 1),
     ("src/tools/dir_fd.rs", "remove_dir_all(", 2),
@@ -63,18 +83,45 @@ const DECLARED: &[(&str, &str, usize)] = &[
     ("src/tools/write.rs", "remove_dir_all(", 1),
     ("tests/gui_server.rs", "remove_dir_all(", 4),
     ("tests/issue505_write_toctou.rs", "remove_dir_all(", 3),
+    // Shell recursive delete. `scripts/cmate-pm-watch.sh` also matches the
+    // `rm -rf` inside its stop-pattern string and its own grep of that string.
+    ("scripts/build-release.sh", "rm -rf", 3),
+    ("scripts/install.sh", "rm -rf", 1),
+    ("scripts/cmate-pm-watch.sh", "rm -rf", 3),
+    // Python signal and recursive delete.
+    ("scripts/demo/record_cli_demo.py", "os.kill(", 1),
+    ("scripts/eval_lib/heavy_lock.py", "os.kill(", 2),
+    ("scripts/eval_lib/heavy_lock.py", "shutil.rmtree(", 2),
+    (
+        "scripts/eval_lib/goal_verify_recovery_deterministic_pair.py",
+        "os.killpg(",
+        2,
+    ),
+    (
+        "scripts/eval_lib/goal_verify_recovery_exposure_corpus_pilot.py",
+        "os.killpg(",
+        2,
+    ),
+    (
+        "scripts/eval_lib/goal_verify_workspaces_v3.py",
+        "shutil.rmtree(",
+        1,
+    ),
+    (
+        "scripts/eval_lib/goal_verify_live_v4.py",
+        "shutil.rmtree(",
+        2,
+    ),
+    ("scripts/nextjs_domain_oracle.py", "shutil.rmtree(", 1),
+    ("tests/eval/test_heavy_lock.py", "os.kill(", 1),
 ];
-
-fn all_tokens() -> impl Iterator<Item = &'static str> {
-    SIGNAL_TOKENS.iter().chain(RECURSIVE_DELETE_TOKENS).copied()
-}
 
 /// Report every mismatch between the declared inventory and `corpus`:
 /// undeclared sites, changed counts, and declared sites that disappeared.
 fn inventory_violations(corpus: &[(String, String)]) -> Vec<String> {
     let mut found: BTreeMap<(String, String), usize> = BTreeMap::new();
     for (path, text) in corpus {
-        for token in all_tokens() {
+        for token in tokens_for(path) {
             let count = text.matches(token).count();
             if count > 0 {
                 found.insert((path.clone(), token.to_string()), count);
@@ -106,7 +153,7 @@ fn inventory_violations(corpus: &[(String, String)]) -> Vec<String> {
 
 #[test]
 fn dangerous_command_inventory_matches_the_tree() {
-    let corpus = scan_rust_tree();
+    let corpus = scan_tree();
     let violations = inventory_violations(&corpus);
     assert!(
         violations.is_empty(),
@@ -170,16 +217,36 @@ fn dangerous_command_inventory_rejects_an_extra_signal_in_a_declared_file() {
     );
 }
 
-fn scan_rust_tree() -> Vec<(String, String)> {
+/// The script surface is measured too: an unlisted external `kill` in a shell
+/// script is a violation.
+#[test]
+fn dangerous_command_inventory_rejects_an_unlisted_shell_kill() {
+    let corpus = vec![(
+        "scripts/new_run.sh".to_string(),
+        "kill -TERM \"$pid\"\n".to_string(),
+    )];
+    let violations = inventory_violations(&corpus);
+    assert!(
+        violations
+            .iter()
+            .any(|violation| violation.contains("scripts/new_run.sh")),
+        "{violations:?}"
+    );
+}
+
+fn scan_tree() -> Vec<(String, String)> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let mut corpus = Vec::new();
-    for dir in ["src", "tests"] {
-        for path in rust_files(&root.join(dir)) {
+    for (dir, extensions) in [
+        ("src", ["rs"].as_slice()),
+        ("tests", ["rs", "py"].as_slice()),
+        ("scripts", ["sh", "py"].as_slice()),
+    ] {
+        for path in files_with_extensions(&root.join(dir), extensions) {
             push_relative(root, &path, &mut corpus);
         }
     }
-    let build_rs = root.join("build.rs");
-    push_relative(root, &build_rs, &mut corpus);
+    push_relative(root, &root.join("build.rs"), &mut corpus);
     // This file declares the tokens as string literals; it is not a site.
     corpus.retain(|(path, _)| path != "tests/issue673_dangerous_command_inventory.rs");
     corpus
@@ -196,20 +263,22 @@ fn push_relative(root: &Path, path: &Path, corpus: &mut Vec<(String, String)>) {
     corpus.push((relative, text));
 }
 
-fn rust_files(dir: &Path) -> Vec<PathBuf> {
+fn files_with_extensions(dir: &Path, extensions: &[&str]) -> Vec<PathBuf> {
     let mut out = Vec::new();
-    collect_rust_files(dir, &mut out);
+    collect_files(dir, extensions, &mut out);
     out
 }
 
-fn collect_rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
+fn collect_files(dir: &Path, extensions: &[&str], out: &mut Vec<PathBuf>) {
     for entry in fs::read_dir(dir).unwrap_or_else(|error| panic!("failed to read {dir:?}: {error}"))
     {
         let entry = entry.expect("directory entry");
         let path = entry.path();
         if path.is_dir() {
-            collect_rust_files(&path, out);
-        } else if path.extension().is_some_and(|ext| ext == "rs") {
+            collect_files(&path, extensions, out);
+        } else if let Some(extension) = path.extension().and_then(|ext| ext.to_str())
+            && extensions.contains(&extension)
+        {
             out.push(path);
         }
     }

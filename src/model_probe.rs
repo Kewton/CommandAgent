@@ -251,11 +251,13 @@ impl ScratchWorkspace {
             }
             Ok(_) => {}
         }
-        if !crate::tools::dir_fd::is_strict_descendant(&self.root, &self.path) {
+        let Some(checked) =
+            crate::tools::dir_fd::strict_descendant_real_path(&self.root, &self.path)
+        else {
             self.cleaned = false;
             return false;
-        }
-        self.cleaned = match fs::remove_dir_all(&self.path) {
+        };
+        self.cleaned = match fs::remove_dir_all(&checked) {
             Ok(()) => true,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => true,
             Err(_) => false,

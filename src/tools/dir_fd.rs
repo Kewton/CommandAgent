@@ -13,7 +13,7 @@
 //! no component ever follows a symlink, a parent directory that is a symlink is
 //! refused even when it points back inside the workspace.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[cfg(unix)]
 mod unix_impl {
@@ -282,31 +282,29 @@ pub(crate) use unix_impl::{ParentDir, open_parent};
 #[cfg(unix)]
 pub use unix_impl::open_read_file;
 
-/// Issue #673: true only when `target` is a strict descendant of `owned_root`
-/// by real path.
+/// Issue #673: the real path of `target`, returned only when it is a strict
+/// descendant of `owned_root`.
 ///
 /// `canonicalize` resolves `.`, `..`, and every symlink, so the root itself, an
 /// ancestor, a sibling, a path outside the root, and a symlink (even one that
-/// points back inside) all return `false`. `starts_with` alone is not enough:
+/// points back inside) all return `None`. `starts_with` alone is not enough:
 /// it accepts the root and is fooled by `..` and ancestor symlinks. The check
 /// takes an `owned_root` that is derived independently of `target`, so a
 /// mutation that moves `target` cannot also move the reference it is compared
-/// against. A target that no longer exists returns `false`; callers that treat
-/// a missing target as "nothing to do" check for it first.
-pub fn is_strict_descendant(owned_root: &Path, target: &Path) -> bool {
-    let Ok(root) = owned_root.canonicalize() else {
-        return false;
-    };
-    let Ok(metadata) = target.symlink_metadata() else {
-        return false;
-    };
+/// against. A target that no longer exists returns `None`.
+///
+/// Callers must pass the returned path to the delete, so the value that was
+/// checked is the value that is removed. `None` means "do not delete" (missing
+/// or refused); callers that treat a missing target as "nothing to do" check
+/// for it first or treat `None` as a no-op.
+pub fn strict_descendant_real_path(owned_root: &Path, target: &Path) -> Option<PathBuf> {
+    let root = owned_root.canonicalize().ok()?;
+    let metadata = target.symlink_metadata().ok()?;
     if metadata.file_type().is_symlink() {
-        return false;
+        return None;
     }
-    let Ok(target) = target.canonicalize() else {
-        return false;
-    };
-    target != root && target.starts_with(&root)
+    let target = target.canonicalize().ok()?;
+    (target != root && target.starts_with(&root)).then_some(target)
 }
 
 #[cfg(not(unix))]
@@ -404,9 +402,9 @@ mod tests {
     use std::io::Read as _;
     use std::path::{Path, PathBuf};
 
-    use super::is_strict_descendant;
     use super::open_parent;
     use super::open_read_file;
+    use super::strict_descendant_real_path;
     use super::test_hook::install;
 
     const PAYLOAD: &str = "PAYLOAD_505";
@@ -627,7 +625,8 @@ mod tests {
 
     // Issue #673: the recursive-delete guard. Every case uses a synthetic
     // tempdir with a fake `root` and a sibling `outside` (canary), never a real
-    // host path, and none of these calls deletes anything.
+    // host path, and none of these calls deletes anything. The guard returns the
+    // real path to delete, so the asserted value is what a caller would remove.
 
     fn guard_fixture() -> (tempfile::TempDir, PathBuf, PathBuf) {
         let hold = tempfile::tempdir().unwrap();
@@ -640,49 +639,61 @@ mod tests {
     }
 
     #[test]
-    fn is_strict_descendant_accepts_a_real_child() {
+    fn strict_descendant_real_path_accepts_a_real_child() {
         let (_hold, root, _outside) = guard_fixture();
-        assert!(is_strict_descendant(&root, &root.join("child")));
+        assert_eq!(
+            strict_descendant_real_path(&root, &root.join("child")),
+            Some(root.join("child").canonicalize().unwrap())
+        );
     }
 
     #[test]
-    fn is_strict_descendant_rejects_root_itself() {
+    fn strict_descendant_real_path_rejects_root_itself() {
         let (_hold, root, _outside) = guard_fixture();
-        assert!(!is_strict_descendant(&root, &root));
+        assert_eq!(strict_descendant_real_path(&root, &root), None);
     }
 
     #[test]
-    fn is_strict_descendant_rejects_an_ancestor_and_a_sibling() {
+    fn strict_descendant_real_path_rejects_an_ancestor_and_a_sibling() {
         let (hold, root, outside) = guard_fixture();
-        assert!(!is_strict_descendant(&root, hold.path()));
-        assert!(!is_strict_descendant(&root, &outside));
+        assert_eq!(strict_descendant_real_path(&root, hold.path()), None);
+        assert_eq!(strict_descendant_real_path(&root, &outside), None);
     }
 
     #[test]
-    fn is_strict_descendant_rejects_traversal_outside() {
+    fn strict_descendant_real_path_rejects_traversal_outside() {
         let (_hold, root, outside) = guard_fixture();
         let traversal = root.join("child").join("..").join("..").join("outside");
-        assert!(!is_strict_descendant(&root, &traversal));
-        assert!(!is_strict_descendant(&root, &outside.join("canary.txt")));
+        assert_eq!(strict_descendant_real_path(&root, &traversal), None);
+        assert_eq!(
+            strict_descendant_real_path(&root, &outside.join("canary.txt")),
+            None
+        );
     }
 
     #[test]
-    fn is_strict_descendant_rejects_a_symlink_even_when_it_points_inside() {
+    fn strict_descendant_real_path_rejects_a_symlink_even_when_it_points_inside() {
         let (_hold, root, _outside) = guard_fixture();
         std::os::unix::fs::symlink(root.join("child"), root.join("link")).unwrap();
-        assert!(!is_strict_descendant(&root, &root.join("link")));
+        assert_eq!(strict_descendant_real_path(&root, &root.join("link")), None);
     }
 
     #[test]
-    fn is_strict_descendant_rejects_an_outside_symlink() {
+    fn strict_descendant_real_path_rejects_an_outside_symlink() {
         let (_hold, root, outside) = guard_fixture();
         std::os::unix::fs::symlink(&outside, root.join("escape")).unwrap();
-        assert!(!is_strict_descendant(&root, &root.join("escape")));
+        assert_eq!(
+            strict_descendant_real_path(&root, &root.join("escape")),
+            None
+        );
     }
 
     #[test]
-    fn is_strict_descendant_rejects_a_missing_target() {
+    fn strict_descendant_real_path_rejects_a_missing_target() {
         let (_hold, root, _outside) = guard_fixture();
-        assert!(!is_strict_descendant(&root, &root.join("missing")));
+        assert_eq!(
+            strict_descendant_real_path(&root, &root.join("missing")),
+            None
+        );
     }
 }

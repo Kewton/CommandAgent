@@ -308,7 +308,8 @@ impl SessionPaths {
         // path of the runs root that owns it, so a mutation that moves
         // `run_root` outside `runs/` (a `..`, an ancestor symlink, the root
         // itself, or the filesystem root) is refused before anything is
-        // removed. A missing target left nothing to roll back and stays `Ok`.
+        // removed. The checked real path is the value that is removed. A
+        // missing target left nothing to roll back and stays `Ok`.
         match std::fs::symlink_metadata(&self.run_root) {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
             Err(error) => {
@@ -321,13 +322,16 @@ impl SessionPaths {
             }
             Ok(_) => {}
         }
-        if !commandagent::tools::dir_fd::is_strict_descendant(&self.runs_root, &self.run_root) {
+        let Some(checked) = commandagent::tools::dir_fd::strict_descendant_real_path(
+            &self.runs_root,
+            &self.run_root,
+        ) else {
             anyhow::bail!(
                 "refusing to remove a session run outside the runs root: {}",
                 self.run_root.display()
             );
-        }
-        match std::fs::remove_dir_all(&self.run_root) {
+        };
+        match std::fs::remove_dir_all(&checked) {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(error) => Err(error).with_context(|| {
