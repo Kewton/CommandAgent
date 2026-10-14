@@ -888,6 +888,18 @@ mod tests {
         assert!(terminate_process_group_by_pid(1).is_err());
     }
 
+    /// Issue #673 対処の方向 4: pass 0 (the caller's own group) and 1 (init)
+    /// straight to the function that calls `kill`, skipping the selector's own
+    /// assertions, so a mutated `signalable_process_group` reaches the
+    /// non-mutatable `assert!` in front of `kill` and panics there instead of
+    /// signalling. Runs only in the isolated container.
+    #[cfg(unix)]
+    #[test]
+    fn dangerous_value_terminate_process_group_by_pid_refuses_init_and_caller_group() {
+        assert!(terminate_process_group_by_pid(0).is_err());
+        assert!(terminate_process_group_by_pid(1).is_err());
+    }
+
     /// Issue #673 sentinel test. It exercises a real `kill(-pgid, ...)`, so it
     /// must run only inside the isolated container: it panics unless
     /// `COMMANDAGENT_ISSUE673_CONTAINER=1` is set, and it is `#[ignore]`d so

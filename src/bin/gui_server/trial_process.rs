@@ -537,4 +537,18 @@ mod tests {
         assert!(send_group_signal(1, Signal::Kill).is_err());
         assert!(!process_group_exists(1));
     }
+
+    /// Issue #673 対処の方向 4: pass 0 (the caller's own group), 1 (init), and
+    /// -1 straight to the functions that call `kill`, skipping the selector's
+    /// own assertion, so a mutated `group_is_signalable` reaches the
+    /// non-mutatable `assert!` in front of `kill` and panics there instead of
+    /// signalling `kill(0)` / `kill(-1)`. Runs only in the isolated container.
+    #[cfg(unix)]
+    #[test]
+    fn dangerous_value_send_group_signal_refuses_init_caller_and_negative_groups() {
+        for process_group in [0, 1, -1] {
+            assert!(send_group_signal(process_group, Signal::Kill).is_err());
+            assert!(!process_group_exists(process_group));
+        }
+    }
 }
