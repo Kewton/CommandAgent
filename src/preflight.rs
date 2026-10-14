@@ -438,8 +438,9 @@ mod tests {
     /// the caller's own pid straight to the function that calls `kill`, so a
     /// mutated tree reaches the last, non-mutatable `assert!`. On an unmutated
     /// tree the `bail!` paths return `Err` before `libc::kill`, so the message
-    /// is `refusing …`, never `failed to kill owning process`. Runs only in the
-    /// isolated container.
+    /// is `refusing …`, never `failed to kill owning process`. Under a mutation
+    /// it runs only in the isolated container; on an unmutated tree it also runs
+    /// in host CI and verify.
     #[cfg(unix)]
     #[test]
     fn dangerous_value_system_port_control_kill_refuses_init_zero_and_own_pid() {
