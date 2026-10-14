@@ -485,24 +485,25 @@ fn read_allow_paths(policy: &SandboxPolicy) -> Vec<PathBuf> {
     expand_read_allow(&denied)
 }
 
-/// The terminal device locations removed from the read allow list (Issue #667).
+/// The terminal device locations removed from the read allow list (Issue #667),
+/// for the given device directory (normally `/dev`).
 ///
 /// A bounded child `setsid()`s, so it has no controlling terminal, but it can
 /// still re-open the run's terminal by path and read the keys the user types:
-/// `/dev/pts/N` on Linux (the run's terminal is always a pty slave) and
-/// `/dev/tty` (the controlling-terminal alias). Landlock cannot deny part of an
+/// `<dev>/pts/N` on Linux (the run's terminal is always a pty slave) and
+/// `<dev>/tty` (the controlling-terminal alias). Landlock cannot deny part of an
 /// allowed tree, so these locations join the read-deny list and
 /// [`expand_read_allow`] leaves them and their subtrees out.
 ///
-/// The physical console and serial terminals (`/dev/console`, `/dev/tty0`,
-/// `/dev/ttyS*`, …) are the other terminals a child could name, so every
-/// existing `/dev` entry whose name is `console` or starts with `tty` is denied
-/// too; only the entries that exist are listed, and denying them costs nothing a
-/// confined command needs. `/dev/ptmx` and the null/zero/random devices are not
+/// The physical console and serial terminals (`<dev>/console`, `<dev>/tty0`,
+/// `<dev>/ttyS*`, …) are the other terminals a child could name, so every
+/// existing entry whose name is `console` or starts with `tty` is denied too;
+/// only the entries that exist are listed, and denying them costs nothing a
+/// confined command needs. `<dev>/ptmx` and the null/zero/random devices are not
 /// terminal paths and stay readable.
-fn terminal_read_deny_paths() -> Vec<PathBuf> {
-    let mut paths = vec![PathBuf::from("/dev/pts"), PathBuf::from("/dev/tty")];
-    if let Ok(entries) = std::fs::read_dir("/dev") {
+fn terminal_read_deny_paths_in(dev: &Path) -> Vec<PathBuf> {
+    let mut paths = vec![dev.join("pts"), dev.join("tty")];
+    if let Ok(entries) = std::fs::read_dir(dev) {
         for entry in entries.flatten() {
             let name = entry.file_name();
             let name = name.to_string_lossy();
@@ -514,6 +515,11 @@ fn terminal_read_deny_paths() -> Vec<PathBuf> {
     paths.sort();
     paths.dedup();
     paths
+}
+
+/// The terminal device locations for the real `/dev`.
+fn terminal_read_deny_paths() -> Vec<PathBuf> {
+    terminal_read_deny_paths_in(Path::new("/dev"))
 }
 
 /// The directories granted `ReadDir` alone. [`expand_read_allow`] recurses into
@@ -945,6 +951,36 @@ mod tests {
         let denied = terminal_read_deny_paths();
         assert!(denied.contains(&PathBuf::from("/dev/pts")), "{denied:?}");
         assert!(denied.contains(&PathBuf::from("/dev/tty")), "{denied:?}");
+    }
+
+    /// Issue #667: given a device directory, the deny list is exactly the
+    /// pty-slave directory and every terminal device name — `console`, `tty`,
+    /// `tty0`, `ttyS0`, `ttyUSB0` — and never a non-terminal entry (`null`,
+    /// `urandom`, `ptmx`) or a non-terminal directory (`shm`). A mutation that
+    /// widens or narrows the name test (`||` to `&&`, `==` to `!=`) changes this
+    /// set, so the check pins both.
+    #[test]
+    fn terminal_read_deny_paths_in_selects_exactly_the_terminal_devices() {
+        let dir = tempfile::tempdir().unwrap();
+        let dev = dir.path();
+        std::fs::create_dir_all(dev.join("pts")).unwrap();
+        std::fs::create_dir_all(dev.join("shm")).unwrap();
+        for file in [
+            "tty", "console", "tty0", "ttyS0", "ttyUSB0", "null", "urandom", "ptmx",
+        ] {
+            std::fs::write(dev.join(file), "").unwrap();
+        }
+
+        let denied = terminal_read_deny_paths_in(dev);
+        let expected = vec![
+            dev.join("console"),
+            dev.join("pts"),
+            dev.join("tty"),
+            dev.join("tty0"),
+            dev.join("ttyS0"),
+            dev.join("ttyUSB0"),
+        ];
+        assert_eq!(denied, expected);
     }
 
     /// Issue #667: `/dev` stays listable through the `ReadDir`-only rule even
