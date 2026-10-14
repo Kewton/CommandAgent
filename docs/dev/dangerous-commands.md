@@ -203,21 +203,26 @@ from a child the test itself spawned, and the signal is an existence probe or a
 positive-pid `SIGINT`. They are listed so the inventory is complete, and so a
 future Issue can decide whether to guard them too.
 
-## 5. Dangerous-value tests (run only in the isolated container)
+## 5. Dangerous-value tests (mutated runs only in the isolated container)
 
-These pass dangerous values (0, 1, negative) to a function that calls `kill`, so
-their names start with `dangerous_value_` (or `dangerous_sentinel_`) and they are
-never run on the host. The `dangerous_value_` tests deliberately do not check the
-selector: on unmutated code the `Err`/`bail!`/`return false` path handles them,
-and on a mutated selector the non-mutatable `assert!` in front of `kill` panics
-(the Issue #673 対処の方向 4 requirement to reach the last defense) and no
-syscall is made. On the host, `cargo test` runs with
-`-- --skip dangerous_value_ --skip process_group_guard_refuses_non_child_group_ids`.
+These pass dangerous values (0, 1, negative) to a function that calls `kill`.
+They must not run on the host **under a mutation** — neither inside a `cargo
+mutants` run nor on a tree where the defense was removed by hand; that is the
+Mutation-testing rule in `parallel-dev-harness.md` §3a. On an unmutated tree they
+do run on the host (CI and the verify gates do not skip them): the
+`Err`/`bail!`/`return false` path returns before `libc::kill`, so no syscall
+happens. A newly added `dangerous_value_` test is first confirmed once in the
+isolated container on an unmutated tree, before it may run on the host. The
+`dangerous_value_` tests deliberately do not check the selector, so under a
+mutated selector the value reaches the non-mutatable `assert!` in front of `kill`
+and panics there (the Issue #673 対処の方向 4 requirement), and no syscall is
+made.
 
 | Test | Target | Notes |
 | --- | --- | --- |
 | `bounded_process::tests::process_group_guard_refuses_non_child_group_ids` | `terminate_process_group_by_pid` | existing; also checks the selector |
 | `bounded_process::tests::dangerous_value_terminate_process_group_by_pid_refuses_init_and_caller_group` | `terminate_process_group_by_pid(0/1)` | new; skips the selector, so a mutated selector reaches the `assert!` |
+| `preflight::tests::dangerous_value_system_port_control_kill_refuses_init_zero_and_own_pid` | `SystemPortControl::kill(0/1/own pid)` | new; on an unmutated tree the `bail!` paths return `Err` before `libc::kill` |
 | `bounded_process::tests::dangerous_sentinel_same_uid_other_group_survives` | real `kill` scope | `#[ignore]`, needs `COMMANDAGENT_ISSUE673_CONTAINER=1` |
 | `trial_process::tests::process_group_guard_rejects_init_and_caller_group` | `send_group_signal` / `process_group_exists` | existing; also checks the selector; `--features gui` |
 | `trial_process::tests::dangerous_value_send_group_signal_refuses_init_caller_and_negative_groups` | `send_group_signal(0/1/-1)`, `process_group_exists(0/1/-1)` | new; skips the selector; `--features gui` |
@@ -228,6 +233,7 @@ Docker commands (from a container that shares no host PID namespace, is not
 ```sh
 cargo test --lib -- --exact bounded_process::tests::process_group_guard_refuses_non_child_group_ids
 cargo test --lib -- --exact bounded_process::tests::dangerous_value_terminate_process_group_by_pid_refuses_init_and_caller_group
+cargo test --lib -- --exact preflight::tests::dangerous_value_system_port_control_kill_refuses_init_zero_and_own_pid
 COMMANDAGENT_ISSUE673_CONTAINER=1 cargo test --lib -- --ignored --exact \
   bounded_process::tests::dangerous_sentinel_same_uid_other_group_survives
 cargo test --features gui --bin gui_server -- --exact \

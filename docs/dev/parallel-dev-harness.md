@@ -313,9 +313,17 @@ owned (102 SIGTERM exits in the launchd log; #673).
 - Use a fresh run script and a fresh output directory for every run. Before
   running, produce `cargo mutants --list` and have the PM match every mutant's
   name and replacement value (a count alone is not enough).
-- Mutations that touch signal, deletion, or the child session run only in an
-  isolated environment (Docker; a macOS-only test on a disposable VM or a
-  dedicated account) until the last, non-mutatable defense is in place.
+- Mutations that touch signal, deletion, or the child session always run in an
+  isolated environment, whether or not the last, non-mutatable defense is in
+  place (Docker; a macOS-only test on a disposable VM or a dedicated account).
+  The Docker container is non-root (uid 1000) with `--network none`, no mounts,
+  and no `--privileged`, `--pid=host`, or Docker socket; the tree enters only
+  through the `docker build` context or `docker cp`.
+- `cargo mutants`' `--timeout` does not reap processes a test left behind (for
+  example a child that ignores `TERM`), so each run uses a disposable container
+  and the whole container is discarded afterwards (`docker rm -f`). On the
+  2026-10-15 confirmation run a `TERM`-ignoring child survived inside the
+  container after the timeout.
 - Host tests run with the narrowest test-name filter, a dedicated secret-free
   HOME and Git configuration, and known executables. Set `GITHUB_STEP_SUMMARY`
   only to an unset value or a file the new run owns. The outer `GIT_*` is dropped
