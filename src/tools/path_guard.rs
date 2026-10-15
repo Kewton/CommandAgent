@@ -988,13 +988,15 @@ mod tests {
         std::fs::create_dir_all(&locked).unwrap();
         std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
 
-        if std::fs::read_dir(&locked).is_ok() {
-            std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
-            return;
-        }
-
+        let probe = std::fs::read_dir(&locked);
         let result = ensure_bash_write_target(&root, "locked/f.txt");
         std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        assert_eq!(
+            probe.as_ref().err().map(|e| e.kind()),
+            Some(std::io::ErrorKind::PermissionDenied),
+            "this test must exercise actual EACCES; run under an unprivileged account"
+        );
         assert!(result.is_err());
     }
 

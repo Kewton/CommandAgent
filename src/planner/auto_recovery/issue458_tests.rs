@@ -430,6 +430,9 @@ mod tests {
                 std::fs::write(path, contract.to_string()).unwrap();
             }
             if mode == "promotion" {
+                // Retain the read-only file permission to exercise the OS permission denial path
+                // on unprivileged accounts (uid 1000) when the test hook is absent (enabling
+                // two-point measurement on uid 0, where root bypasses DAC).
                 let path = dir.path().join("app.txt");
                 let mut permissions = std::fs::metadata(&path).unwrap().permissions();
                 permissions.set_readonly(true);
@@ -505,6 +508,15 @@ mod tests {
                 }
                 _ => {}
             }
+            let _hook_guard = if mode == "promotion" {
+                Some(
+                    crate::planner::recovery_snapshot::test_hooks::fail_sync_source_tree_copy_for_workspace(
+                        dir.path(),
+                    ),
+                )
+            } else {
+                None
+            };
             let outcome = real.finish(1, &first, success("candidate execution finished"));
             assert!(outcome.result.is_err(), "{mode}: unexpected promotion");
             assert_eq!(current_source_sha256(dir.path()).unwrap(), before, "{mode}");

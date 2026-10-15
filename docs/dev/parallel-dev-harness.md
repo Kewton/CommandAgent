@@ -318,7 +318,8 @@ owned (102 SIGTERM exits in the launchd log; #673).
   place (Docker; a macOS-only test on a disposable VM or a dedicated account).
   The Docker container is non-root (uid 1000) with `--network none`, no mounts,
   and no `--privileged`, `--pid=host`, or Docker socket; the tree enters only
-  through the `docker build` context or `docker cp`.
+  through the `docker build` context or `docker cp`. Run both baseline and
+  mutation passes under this unprivileged user (`USER 1000` or `--user 1000:1000`).
 - `cargo mutants`' `--timeout` does not reap processes a test left behind (for
   example a child that ignores `TERM`), so each run uses a disposable container
   and the whole container is discarded afterwards (`docker rm -f`). On the
