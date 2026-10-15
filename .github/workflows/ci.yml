@@ -56,8 +56,39 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-deny@0.20.2
+      - name: Enable legacy TIOCSTI for the isolation probes
+        run: |
+          # The runner's kernel may refuse the write (dev.tty.legacy_tiocsti has no
+          # namespace, so a container or a locked-down kernel cannot set it). Log the
+          # outcome and never fail the job: the probe reports UNVERIFIED in that case.
+          sudo sysctl -w dev.tty.legacy_tiocsti=1 || echo "could not write dev.tty.legacy_tiocsti (exit $?): the TIOCSTI probe reports UNVERIFIED"
+          sysctl -n dev.tty.legacy_tiocsti || echo "could not read dev.tty.legacy_tiocsti (exit $?)"
       - name: Repository acceptance suite
+        env:
+          COMMANDAGENT_PROBE_VERDICT_FILE: ${{ runner.temp }}/probe-verdicts.txt
         run: bash scripts/ci.sh
+      - name: Report isolation probe verdicts
+        if: always()
+        env:
+          COMMANDAGENT_PROBE_VERDICT_FILE: ${{ runner.temp }}/probe-verdicts.txt
+        run: |
+          # A passing test's stdout is captured by cargo test, and $GITHUB_STEP_SUMMARY
+          # is not readable through gh or the REST API, so print the verdict file and
+          # annotate every UNVERIFIED line. This step never fails the job.
+          verdicts="${COMMANDAGENT_PROBE_VERDICT_FILE}"
+          if [ ! -s "$verdicts" ]; then
+            echo "::warning::no isolation probe verdict was recorded in $verdicts: the probes did not run, or the file is empty"
+            exit 0
+          fi
+          echo "isolation probe verdicts ($verdicts):"
+          cat "$verdicts"
+          while IFS= read -r line; do
+            case "$line" in
+              *[Uu][Nn][Vv][Ee][Rr][Ii][Ff][Ii][Ee][Dd]*)
+                echo "::warning::$line"
+                ;;
+            esac
+          done < "$verdicts"
 
   gui-dashboard:
     name: GUI Dashboard

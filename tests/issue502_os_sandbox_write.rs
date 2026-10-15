@@ -1440,6 +1440,25 @@ fn run_tiocsti_attempt(slave: &std::fs::File, inject: char, wrapped: bool) -> St
     }
 }
 
+/// Append one probe verdict line to the file named by
+/// `COMMANDAGENT_PROBE_VERDICT_FILE` when that variable is set, so a CI step can
+/// print the verdicts and turn each `UNVERIFIED` line into an annotation.
+/// `cargo test` captures a passing test's stdout, and `$GITHUB_STEP_SUMMARY` is
+/// not readable through `gh` or the REST API, so neither shows the verdict on
+/// its own. A write failure never fails a test, exactly like the
+/// `$GITHUB_STEP_SUMMARY` recording, and an unset variable changes nothing.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn append_probe_verdict(line: &str) {
+    let Some(path) = std::env::var_os("COMMANDAGENT_PROBE_VERDICT_FILE") else {
+        return;
+    };
+    let _ = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .and_then(|mut file| std::io::Write::write_all(&mut file, line.as_bytes()));
+}
+
 /// Report an unmeasurable `TIOCSTI` probe on stdout, like the other probes, so
 /// the outer test can find the verdict instead of reading it as missing; the
 /// `$GITHUB_STEP_SUMMARY` line still records it, so it is not a silent pass.
@@ -1451,16 +1470,18 @@ fn record_unverified(reason: &str) {
 
 /// Append the `TIOCSTI` verdict to `$GITHUB_STEP_SUMMARY` when it is set, with
 /// the kernel's `legacy_tiocsti` value when the file exists, so a runner can tell
-/// a measured denial from an unverifiable environment.
+/// a measured denial from an unverifiable environment. The same line also goes to
+/// `$COMMANDAGENT_PROBE_VERDICT_FILE` so the verdict reaches the job log.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn record_tiocsti_step_summary(status: &str) {
     let legacy = std::fs::read_to_string("/proc/sys/dev/tty/legacy_tiocsti")
         .map(|value| value.trim().to_string())
         .unwrap_or_else(|_| "unknown".to_string());
+    let line = format!("issue667/tiocsti: {status}; legacy_tiocsti={legacy}\n");
+    append_probe_verdict(&line);
     let Some(path) = std::env::var_os("GITHUB_STEP_SUMMARY") else {
         return;
     };
-    let line = format!("issue667/tiocsti: {status}; legacy_tiocsti={legacy}\n");
     let _ = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -1555,13 +1576,14 @@ fn issue667_stdin_probe() {
         let sandboxed = run_stdin_child(true);
         os_sandbox::reset_for_test();
         assert_stdin_is_detached(&sandboxed);
-        println!(
-            "issue667-stdin: BLOCKED (both the isolated and unisolated launches detach a terminal stdin)"
-        );
+        let verdict = "both the isolated and unisolated launches detach a terminal stdin";
+        append_probe_verdict(&format!("issue667/stdin: blocked ({verdict})\n"));
+        println!("issue667-stdin: BLOCKED ({verdict})");
     } else {
-        println!(
-            "issue667-stdin: BLOCKED (the unisolated launch detaches a terminal stdin; the sandbox backend is unavailable)"
-        );
+        let verdict =
+            "the unisolated launch detaches a terminal stdin; the sandbox backend is unavailable";
+        append_probe_verdict(&format!("issue667/stdin: blocked ({verdict})\n"));
+        println!("issue667-stdin: BLOCKED ({verdict})");
     }
 }
 
@@ -1713,13 +1735,13 @@ fn issue667_devnull_fd_probe() {
         let sandboxed = run_devnull_fd_child(true, false);
         os_sandbox::reset_for_test();
         assert_no_devnull_descriptor(&sandboxed);
-        println!(
-            "issue667-devnull-fd: BLOCKED (both the isolated and unisolated launches close the /dev/null descriptor)"
-        );
+        let verdict = "both the isolated and unisolated launches close the /dev/null descriptor";
+        append_probe_verdict(&format!("issue667/devnull-fd: blocked ({verdict})\n"));
+        println!("issue667-devnull-fd: BLOCKED ({verdict})");
     } else {
-        println!(
-            "issue667-devnull-fd: BLOCKED (the unisolated launch closes the /dev/null descriptor; the sandbox backend is unavailable)"
-        );
+        let verdict = "the unisolated launch closes the /dev/null descriptor; the sandbox backend is unavailable";
+        append_probe_verdict(&format!("issue667/devnull-fd: blocked ({verdict})\n"));
+        println!("issue667-devnull-fd: BLOCKED ({verdict})");
     }
 }
 
@@ -1970,13 +1992,15 @@ fn terminal_read_token(mode: &str, sandbox: bool) -> String {
 
 /// Append the terminal-read verdict to `$GITHUB_STEP_SUMMARY` when it is set, so
 /// a run that could not measure the denial records why instead of passing
-/// silently.
+/// silently. The same line also goes to `$COMMANDAGENT_PROBE_VERDICT_FILE` so the
+/// verdict reaches the job log.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn record_terminal_read_step_summary(status: &str) {
+    let line = format!("issue667/terminal-read: {status}\n");
+    append_probe_verdict(&line);
     let Some(path) = std::env::var_os("GITHUB_STEP_SUMMARY") else {
         return;
     };
-    let line = format!("issue667/terminal-read: {status}\n");
     let _ = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
