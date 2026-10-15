@@ -227,8 +227,8 @@ fn actual_permission_denial_is_not_ordinary_missing() {
     let result = read_error(&context(root.path()), "private/missing");
     std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o700)).unwrap();
     assert_eq!(
-        probe.unwrap_err().kind(),
-        std::io::ErrorKind::PermissionDenied,
+        probe.as_ref().err().map(|e| e.kind()),
+        Some(std::io::ErrorKind::PermissionDenied),
         "this test must exercise actual EACCES; run under an unprivileged account"
     );
     assert_ne!(tool_error_kind(&result), MISSING);

@@ -348,6 +348,14 @@ fn sync_source_tree(
         if let Some(parent) = target.parent() {
             std::fs::create_dir_all(parent)?;
         }
+        #[cfg(test)]
+        if test_hooks::should_fail_sync_copy(destination_root) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                format!("simulated failure copying {}", relative.display()),
+            ))
+            .with_context(|| format!("restore Recovery control artifact {}", relative.display()));
+        }
         std::fs::copy(source, &target)
             .with_context(|| format!("restore Recovery control artifact {}", relative.display()))?;
         if let Ok(metadata) = std::fs::metadata(source) {
@@ -525,6 +533,61 @@ fn excluded(relative: &Path) -> bool {
 }
 
 #[cfg(test)]
+pub(crate) mod test_hooks {
+    use std::cell::RefCell;
+    use std::path::{Path, PathBuf};
+
+    thread_local! {
+        static FAIL_SYNC_COPY_WORKSPACE: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
+    }
+
+    #[must_use]
+    pub(crate) struct FailSyncCopyGuard {
+        _private: (),
+    }
+
+    impl Drop for FailSyncCopyGuard {
+        fn drop(&mut self) {
+            FAIL_SYNC_COPY_WORKSPACE.with(|cell| {
+                cell.borrow_mut().take();
+            });
+        }
+    }
+
+    /// Arms a thread-local fault injection hook that causes `sync_source_tree`
+    /// to fail when copying an artifact into the specified workspace root.
+    ///
+    /// The hook consumes itself upon the first injected failure so that any
+    /// subsequent control retention / transaction rollback can succeed, and
+    /// resets automatically when the returned guard is dropped.
+    pub(crate) fn fail_sync_source_tree_copy_for_workspace(
+        workspace_root: &Path,
+    ) -> FailSyncCopyGuard {
+        let canonical = workspace_root
+            .canonicalize()
+            .unwrap_or_else(|_| workspace_root.to_path_buf());
+        FAIL_SYNC_COPY_WORKSPACE.with(|cell| {
+            *cell.borrow_mut() = Some(canonical);
+        });
+        FailSyncCopyGuard { _private: () }
+    }
+
+    pub(crate) fn should_fail_sync_copy(destination_root: &Path) -> bool {
+        let canonical = destination_root
+            .canonicalize()
+            .unwrap_or_else(|_| destination_root.to_path_buf());
+        FAIL_SYNC_COPY_WORKSPACE.with(|cell| {
+            let mut borrow = cell.borrow_mut();
+            if borrow.as_ref() == Some(&canonical) {
+                borrow.take();
+                return true;
+            }
+            false
+        })
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -689,5 +752,33 @@ mod tests {
             content_sha256(dir.path(), &[path]).unwrap(),
             "fca205d27f585d85835e310c03faf89448c6707cc889e2fda18085ae527122bf"
         );
+    }
+
+    #[test]
+    fn test_hooks_fail_sync_copy_is_scoped_and_resets_on_drop() {
+        let dir1 = tempfile::tempdir().unwrap();
+        let dir2 = tempfile::tempdir().unwrap();
+
+        assert!(!test_hooks::should_fail_sync_copy(dir1.path()));
+        assert!(!test_hooks::should_fail_sync_copy(dir2.path()));
+
+        {
+            let _guard = test_hooks::fail_sync_source_tree_copy_for_workspace(dir1.path());
+            // dir2 must not be affected
+            assert!(!test_hooks::should_fail_sync_copy(dir2.path()));
+            // dir1 should trigger and consume
+            assert!(test_hooks::should_fail_sync_copy(dir1.path()));
+            // after consuming, dir1 returns false
+            assert!(!test_hooks::should_fail_sync_copy(dir1.path()));
+        }
+
+        // After guard drops, still false
+        assert!(!test_hooks::should_fail_sync_copy(dir1.path()));
+
+        // Check that drop resets even without consuming
+        {
+            let _guard = test_hooks::fail_sync_source_tree_copy_for_workspace(dir1.path());
+        }
+        assert!(!test_hooks::should_fail_sync_copy(dir1.path()));
     }
 }
