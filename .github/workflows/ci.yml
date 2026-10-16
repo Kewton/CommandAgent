@@ -74,21 +74,9 @@ jobs:
         run: |
           # A passing test's stdout is captured by cargo test, and $GITHUB_STEP_SUMMARY
           # is not readable through gh or the REST API, so print the verdict file and
-          # annotate every UNVERIFIED line. This step never fails the job.
-          verdicts="${COMMANDAGENT_PROBE_VERDICT_FILE}"
-          if [ ! -s "$verdicts" ]; then
-            echo "::warning::no isolation probe verdict was recorded in $verdicts: the probes did not run, or the file is empty"
-            exit 0
-          fi
-          echo "isolation probe verdicts ($verdicts):"
-          cat "$verdicts"
-          while IFS= read -r line; do
-            case "$line" in
-              *[Uu][Nn][Vv][Ee][Rr][Ii][Ff][Ii][Ee][Dd]*)
-                echo "::warning::$line"
-                ;;
-            esac
-          done < "$verdicts"
+          # annotate every UNVERIFIED line. This step fails the job if any probe was
+          # UNVERIFIED or if the verdict file is missing or empty.
+          bash scripts/check-probe-verdicts.sh
 
   gui-dashboard:
     name: GUI Dashboard
