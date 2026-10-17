@@ -193,13 +193,22 @@ command before the shell starts.
   and a reason. `required` instead fails Bash and verifier commands with
   `bash_sandbox_unavailable`. `off` keeps the previous behavior. None of them
   reports "sandboxed" when the sandbox was not applied. The read isolation is
-  reported through the same event's `reason`: it names the applied read
-  isolation, or is empty for a fully confined sandbox (reads included).
+  reported through the same event's `reason`: on both macOS and Linux it
+  names the applied read isolation ("read isolation applied") or why it is not
+  effective. If the Linux deny-list expansion would need more than 4096 allow
+  rules, the read layer is not built, reads stay open, and the reason says the
+  read isolation is not effective (the write confinement still applies). When
+  `auto` falls back to lexical checks after the run started (a per-command
+  ruleset could not be built on Linux), `bash_sandbox_status` is emitted again
+  with `applied=false` and the reason; the event name and fields are unchanged.
 - The dependency caches (cargo registry/git/package-cache, npm, pip, Playwright
   browsers) stay writable so builds and tests work; they remain a contamination
   path outside the workspace. On macOS they live under `~/Library/Caches` and
   `~/.cargo`; on Linux under `~/.cargo`, `~/.npm`, and `~/.cache`. pnpm and yarn
-  stores are not allowed in this stage. The home npm config (`~/.npmrc`) is a
+  stores are not allowed in this stage. A cache is allowed only when its
+  symlinks resolve to a location under the home; one that points elsewhere
+  (for example `~/.npm` linked at another directory) is not writable and the
+  `reason` counts it. The home npm config (`~/.npmrc`) is a
   read-denied secret, so an `npm` that reads a private-registry `~/.npmrc` fails
   inside Bash: that is the intended consequence of not feeding registry tokens to
   Bash, not a regression.
