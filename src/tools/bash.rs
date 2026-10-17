@@ -859,14 +859,14 @@ pub fn path_confinement_rejection(
     // so a command with no `cd` (`env | grep CDPATH`, `echo $CDPATH`) keeps its
     // existing handling.
     if inspection.has_working_directory() || inspection.glob_destination {
-        if inspection.undecidable && !inspection.relative_words.is_empty() {
+        if inspection.undecidable && !inspection.undecidable_words.is_empty() {
             // Issue #637: name the destination that raised the mark (the
             // `cd`/`pushd` target or option value) rather than the following
             // command word, so the message points at the word to fix.
             let word = inspection
                 .glob_destination_word
                 .as_deref()
-                .unwrap_or(&inspection.relative_words[0]);
+                .unwrap_or(&inspection.undecidable_words[0]);
             return Some(path_reference_rejection(
                 word,
                 &root,
