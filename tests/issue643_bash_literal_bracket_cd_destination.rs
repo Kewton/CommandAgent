@@ -27,7 +27,7 @@ struct Fixture {
 fn fixture() -> Fixture {
     let dir = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).expect("create tempdir");
     let root = dir.path().join("ws");
-    for directory in ["src/app/[id]", "s[2]", "star*", "q?", "q[z]", "sub"] {
+    for directory in ["src/app/[id]", "s[2]", "star*", "q?", "q[z]", "qz", "sub"] {
         std::fs::create_dir_all(root.join(directory)).unwrap();
     }
     std::fs::write(
@@ -37,6 +37,11 @@ fn fixture() -> Fixture {
     .unwrap();
     std::fs::write(root.join("s[2]/item.txt"), "hello").unwrap();
     std::fs::write(root.join("file*"), "regular file").unwrap();
+    std::fs::write(
+        root.join("q[z]/page.tsx"),
+        "export default function QzPage() {}",
+    )
+    .unwrap();
     std::fs::write(
         root.join("sub/page.tsx"),
         "export default function SubPage() {}",
@@ -52,6 +57,7 @@ fn fixture() -> Fixture {
     std::os::unix::fs::symlink(&outside, root.join("star*/lf6")).unwrap();
     std::os::unix::fs::symlink(&outside, root.join("q?/lf6")).unwrap();
     std::os::unix::fs::symlink(&outside, root.join("q[z]/lf6")).unwrap();
+    std::os::unix::fs::symlink(&outside, root.join("q[z]/qq-out")).unwrap();
     std::os::unix::fs::symlink(&outside, root.join("sub/lf6")).unwrap();
 
     let root = root.canonicalize().unwrap();
@@ -285,6 +291,9 @@ fn pattern_bearing_candidate_rejects_executed_glob_words() {
         ("cd \"src/app/[id]\" && rm *.tsx", "rm"),
         ("cd \"src/app/[id]\" && tee qq*", "tee"),
         ("cd \"src/app/[id]\" && cp page.tsx qq*", "cp"),
+        ("cd \"q[z]\" && dd if=page.tsx of=./qq*", "dd"),
+        ("cd \"q[z]\" && cp page.tsx --target-directory=./qq*", "cp"),
+        ("cd \"q[z]\" && cp -tqq* page.tsx", "cp"),
     ] {
         let rejection = path_confinement_rejection(command, root)
             .unwrap_or_else(|| panic!("expected write rejection: {command}"));

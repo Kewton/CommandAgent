@@ -125,6 +125,13 @@ impl Inspection {
         self.bases.iter().any(|base| is_pattern_base(base))
     }
 
+    /// Whether the command combines a pattern-bearing candidate base with any
+    /// executed glob word in the command, making downstream relative write
+    /// targets unverifiable (Issue #643 write-side blocker).
+    pub(crate) fn rejects_relative_writes(&self) -> bool {
+        self.has_pattern_bases() && !self.executed_glob_words.is_empty()
+    }
+
     /// Whether combining `path` with a pattern-bearing candidate base is an
     /// unverifiable pattern-on-pattern combination (Issue #643 reviewer blocker).
     pub(crate) fn is_unverifiable_expansion(&self, path: &str, expands: bool) -> bool {
