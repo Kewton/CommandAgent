@@ -27,7 +27,7 @@ struct Fixture {
 fn fixture() -> Fixture {
     let dir = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).expect("create tempdir");
     let root = dir.path().join("ws");
-    for directory in ["src/app/[id]", "s[2]", "star*", "q?"] {
+    for directory in ["src/app/[id]", "s[2]", "star*", "q?", "q[z]", "sub"] {
         std::fs::create_dir_all(root.join(directory)).unwrap();
     }
     std::fs::write(
@@ -37,14 +37,22 @@ fn fixture() -> Fixture {
     .unwrap();
     std::fs::write(root.join("s[2]/item.txt"), "hello").unwrap();
     std::fs::write(root.join("file*"), "regular file").unwrap();
+    std::fs::write(
+        root.join("sub/page.tsx"),
+        "export default function SubPage() {}",
+    )
+    .unwrap();
 
     let outside = dir.path().join("outside");
     std::fs::create_dir_all(&outside).unwrap();
     std::fs::write(outside.join("secret"), "outside-secret").unwrap();
 
     std::os::unix::fs::symlink(&outside, root.join("src/app/[id]/lf6")).unwrap();
+    std::os::unix::fs::symlink(&outside, root.join("src/app/[id]/lg.tsx")).unwrap();
     std::os::unix::fs::symlink(&outside, root.join("star*/lf6")).unwrap();
     std::os::unix::fs::symlink(&outside, root.join("q?/lf6")).unwrap();
+    std::os::unix::fs::symlink(&outside, root.join("q[z]/lf6")).unwrap();
+    std::os::unix::fs::symlink(&outside, root.join("sub/lf6")).unwrap();
 
     let root = root.canonicalize().unwrap();
     Fixture { _dir: dir, root }
@@ -231,6 +239,88 @@ fn quoted_wildcard_destinations_require_existing_directory() {
     assert!(
         rejection.reason.contains(CWD_REASON),
         "command: cd \"file*\": {}",
+        rejection.reason
+    );
+}
+
+/// Issue #643 reviewer blocker: combining a pattern-bearing candidate destination
+/// (such as Next.js `[id]` or `q[z]`) with a following word that carries executed
+/// glob or brace metacharacters could reach outward symlinks because the expansion
+/// proof treats the candidate brackets as a glob character class. Such combinations
+/// must be rejected on both the read and write sides.
+///
+/// Contrast:
+/// - `cd "src/app/[id]" && cat page.tsx` is allowed (literal read).
+/// - `cd sub && cat ...` preserves ordinary candidate expansion behavior.
+#[test]
+fn pattern_bearing_candidate_rejects_executed_glob_words() {
+    let fixture = fixture();
+    let root = &fixture.root;
+
+    // Read commands with executed glob/brace after pattern-bearing destination: R=1.
+    for command in [
+        "cd \"src/app/[id]\" && cat l?6",
+        "cd \"src/app/[id]\" && cat *.tsx",
+        "cd \"src/app/[id]\" && cat [l]g.tsx",
+        "pushd \"q[z]\" && cat qq*",
+        "cd \"src/app/[id]\" && cat ./qq*",
+        "cd \"src/app/[id]\" && cat {lf6,page.tsx}",
+    ] {
+        let rejection = path_confinement_rejection(command, root)
+            .unwrap_or_else(|| panic!("expected read rejection: {command}"));
+        assert_eq!(rejection.operation, READ_OPERATION, "command: {command}");
+        assert!(
+            rejection.reason.contains(CWD_REASON),
+            "command: {command}: {}",
+            rejection.reason
+        );
+    }
+
+    // Write commands with executed glob/brace after pattern-bearing destination: W=1.
+    for (command, operation) in [
+        (
+            "cd \"src/app/[id]\" && echo x > *.tsx",
+            "output redirection",
+        ),
+        ("cd \"src/app/[id]\" && rm *.tsx", "rm"),
+        ("cd \"src/app/[id]\" && tee qq*", "tee"),
+        ("cd \"src/app/[id]\" && cp page.tsx qq*", "cp"),
+    ] {
+        let rejection = path_confinement_rejection(command, root)
+            .unwrap_or_else(|| panic!("expected write rejection: {command}"));
+        assert_eq!(rejection.operation, operation, "command: {command}");
+        assert!(
+            rejection.reason.contains(CWD_REASON),
+            "command: {command}: {}",
+            rejection.reason
+        );
+    }
+
+    // Contrast 1: literal read without glob remains allowed.
+    assert!(
+        path_confinement_rejection("cd \"src/app/[id]\" && cat page.tsx", root).is_none(),
+        "literal read inside [id] must remain allowed"
+    );
+
+    // Contrast 2: normal candidate without pattern (cd sub) preserves existing behavior.
+    assert!(
+        path_confinement_rejection("cd sub && cat page.tsx", root).is_none(),
+        "literal read inside sub must be allowed"
+    );
+    // Globs inside sub expand normally: matching page.tsx is inside workspace -> allowed.
+    assert!(
+        path_confinement_rejection("cd sub && cat p*.tsx", root).is_none(),
+        "glob matching inside workspace under sub must be allowed"
+    );
+    // Globs inside sub matching an outward symlink (sub/lf6) are rejected as outside workspace.
+    let rejection = path_confinement_rejection("cd sub && cat l*6", root)
+        .unwrap_or_else(|| panic!("expected rejection for outward symlink glob under sub"));
+    assert_eq!(rejection.operation, READ_OPERATION);
+    assert!(
+        rejection
+            .reason
+            .contains("resolves outside current workspace root"),
+        "rejection reason: {}",
         rejection.reason
     );
 }

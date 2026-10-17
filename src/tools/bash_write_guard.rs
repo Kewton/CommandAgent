@@ -206,7 +206,7 @@ fn working_directory_rejection(
     if path.starts_with('/') || path.starts_with('~') || path.starts_with('$') || path == "-" {
         return None;
     }
-    if inspection.undecidable {
+    if inspection.undecidable || inspection.is_unverifiable_expansion(path, false) {
         return Some(BashWriteConfinementRejection {
             path: path.clone(),
             operation: target.operation.clone(),

@@ -69,6 +69,10 @@ pub(crate) struct Inspection {
     /// directory change). The second stage of the inspector joins these onto
     /// every candidate.
     pub(crate) relative_words: Vec<String>,
+    /// Executed glob words seen in the command. If a working-directory candidate
+    /// carries literal glob/brace characters (e.g. Next.js `[id]`), joining an
+    /// executed glob word onto it is unverifiable (Issue #643 reviewer blocker).
+    pub(crate) executed_glob_words: Vec<String>,
 }
 
 impl Inspection {
@@ -82,6 +86,7 @@ impl Inspection {
             glob_destination: false,
             glob_destination_word: None,
             relative_words: Vec::new(),
+            executed_glob_words: Vec::new(),
         }
     }
 
@@ -97,6 +102,11 @@ impl Inspection {
         }
         self.targets.extend(other.targets);
         self.relative_words.extend(other.relative_words);
+        for word in other.executed_glob_words {
+            if !self.executed_glob_words.contains(&word) {
+                self.executed_glob_words.push(word);
+            }
+        }
         self.undecidable |= other.undecidable;
         self.glob_destination |= other.glob_destination;
         if self.glob_destination_word.is_none() {
@@ -107,6 +117,28 @@ impl Inspection {
     /// Whether a `cd`/`pushd` added a candidate beyond the workspace root.
     pub(crate) fn has_working_directory(&self) -> bool {
         self.bases.iter().any(|base| !base.is_empty())
+    }
+
+    /// Whether any non-root working-directory candidate base contains glob or
+    /// brace metacharacters (Issue #643 reviewer blocker).
+    pub(crate) fn has_pattern_bases(&self) -> bool {
+        self.bases.iter().any(|base| is_pattern_base(base))
+    }
+
+    /// Whether combining `path` with a pattern-bearing candidate base is an
+    /// unverifiable pattern-on-pattern combination (Issue #643 reviewer blocker).
+    pub(crate) fn is_unverifiable_expansion(&self, path: &str, expands: bool) -> bool {
+        if !self.has_pattern_bases() {
+            return false;
+        }
+        let clean_path = path.strip_prefix("./").unwrap_or(path);
+        expands
+            || self.executed_glob_words.iter().any(|word| {
+                let clean_word = word.strip_prefix("./").unwrap_or(word);
+                clean_word == clean_path
+                    || clean_word.strip_prefix("of=") == Some(clean_path)
+                    || clean_word.strip_prefix("--target-directory=") == Some(clean_path)
+            })
     }
 
     /// The base-joined forms of a relative path, excluding the root form that
@@ -161,6 +193,14 @@ fn walk(text: &str, ambiguous: bool, cr_mode: CrMode, root: Option<&Path>) -> In
         inspection.undecidable = ambiguous;
         return inspection;
     };
+
+    for token in &tokens {
+        if let ShellToken::Word(word) = token
+            && word.executed_glob
+        {
+            inspection.executed_glob_words.push(word.text.clone());
+        }
+    }
 
     let mut has_cd = false;
     let mut glob_destination: Option<String> = None;
@@ -411,6 +451,13 @@ fn is_determinable(target: &str) -> bool {
 /// because the lexical read does not tell it apart from an executed one.
 fn is_glob_destination(target: &str) -> bool {
     target.contains(['*', '?', '[', ']', '{', '}'])
+}
+
+/// Whether a working-directory candidate base contains glob or brace metacharacters
+/// that would misdirect pattern expansion when combined with an executed glob word
+/// (Issue #643 reviewer blocker).
+pub(crate) fn is_pattern_base(base: &str) -> bool {
+    !base.is_empty() && is_glob_destination(base)
 }
 
 /// Adds the candidates a literal destination produces and returns them for the caller
