@@ -78,7 +78,7 @@ internal integration surface and is intentionally not a public user flag.
 | `--profile` | `<PROFILE>` | inferred, then `generic` | Set a compiled profile or an external draft ID. An external ID requires the extension root that declares `profiles/<id>/manifest.toml`. | [Profile inference](slash-commands.md#profile-inference) |
 | `--style` | `<STYLE>` | `default` | Pass the plan presentation/generation style. | [Inline flags](slash-commands.md#inline-flags) |
 | `--resume` | `<RESUME>` | none | Load the named saved minimal-loop session for a direct `--prompt` run. | [Session options](#conflicts-and-combinations) |
-| `--offline` | none | off | Block runtime dependency setup and Bash commands containing npm/pnpm/yarn/cargo install, curl, or wget. Provider/API requests and other network-capable commands are unaffected. | [OS write, read, and network sandbox](#os-write-read-and-network-sandbox) |
+| `--offline` | none | off | Refuse runtime dependency setup and Bash commands containing npm/pnpm/yarn/cargo install, curl, or wget (lexical check, always). When --sandbox applies an OS backend, the OS also refuses outbound network connections from sandboxed commands: macOS allows only loopback (TCP and UDP) and unix sockets; Linux needs Landlock ABI4 (kernel 6.7) or later and then allows TCP only to the dev-server port(s) without restricting UDP, while below ABI4 the network is not confined and only the lexical check applies. Without a backend only the lexical check applies. Provider/API requests are unaffected. | [OS write, read, and network sandbox](#os-write-read-and-network-sandbox) |
 | `--sandbox` | `<auto\|required\|off>` | `auto` | Select the OS write sandbox for Bash and verifier commands. `auto` applies it when the backend is available and otherwise continues with lexical checks only; `required` fails those commands when the backend is unavailable; `off` keeps the previous behavior. | [OS write, read, and network sandbox](#os-write-read-and-network-sandbox) |
 | `--quiet` | none | off (`narration = "normal"`) | Suppress presentation narration. | [Top-level keys](configuration.md#top-level-keys) |
 | `--summary-json` | none | off | Append one machine-readable terminal run summary as the final stdout line. Omitting it preserves existing stdout bytes. | [Headless execution](../../user/headless.md) |
@@ -135,11 +135,17 @@ checks still run first; the sandbox adds confinement for the writes, reads, and
   run has its outbound connections refused by the OS, so an arbitrary program the
   lexical guard cannot name (`python -c "urllib..."`, `node -e "fetch(...)"`)
   cannot reach the network. macOS denies every network operation except loopback
-  TCP and unix sockets. Linux (Landlock ABI4, kernel 6.7) denies every TCP
+  (TCP and UDP) and unix sockets. Linux (Landlock ABI4, kernel 6.7) denies every TCP
   connect except the run's dev-server port(s): Landlock matches the port only, so
-  the same port on an external host still connects and UDP is not restricted, and
-  below ABI4 the network is not confined — the `bash_sandbox_status` reason says
-  so. A run that is not `--offline` is unchanged.
+  the same port on an external host still connects and UDP is not restricted. When
+  the dev-server port can be taken neither from the goal nor from the profile,
+  Linux refuses every TCP connect, localhost included. Whether Landlock's TCP
+  rule also covers a Multipath TCP (MPTCP, `IPPROTO_MPTCP`) socket's connect
+  depends on the kernel; on a kernel where it does not, an MPTCP connect goes
+  through, a limit of the same kind as UDP (CI records the observed result as the
+  `issue672/mptcp` probe verdict). Below ABI4 the network is not confined — the
+  `bash_sandbox_status` reason says so. A run that is not `--offline` is
+  unchanged.
 - **What stays lexical-only:** every command run when the backend is unavailable.
   `--yes`, `--allow bash:verify`, and `--offline` do not close an indirect write
   or a home-secret read by themselves; only the sandbox, when applied, does.

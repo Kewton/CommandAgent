@@ -708,8 +708,16 @@ mod tests {
         assert!(help.contains("npm/pnpm/yarn/cargo install"), "{help}");
         assert!(help.contains("Provider/API requests"), "{help}");
         assert!(
-            help.contains("other network-capable commands are unaffected"),
+            !help.contains("network-capable commands are unaffected"),
             "{help}"
+        );
+        // The help wraps, so compare the whole sentence on normalized spaces.
+        let flat = help.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            flat.contains(
+                "Refuse runtime dependency setup and Bash commands containing npm/pnpm/yarn/cargo install, curl, or wget (lexical check, always). When --sandbox applies an OS backend, the OS also refuses outbound network connections from sandboxed commands: macOS allows only loopback (TCP and UDP) and unix sockets; Linux needs Landlock ABI4 (kernel 6.7) or later and then allows TCP only to the dev-server port(s) without restricting UDP, while below ABI4 the network is not confined and only the lexical check applies. Without a backend only the lexical check applies. Provider/API requests are unaffected."
+            ),
+            "{flat}"
         );
     }
 
