@@ -30,18 +30,22 @@ emits the same result as JSON.
 ## Delegated runs need the OS sandbox
 
 The GUI delegates a run to the `commandagent` CLI and always passes `--sandbox
-required`. If the OS isolation cannot be applied, the run stops with
-`bash_sandbox_unavailable` instead of continuing: the GUI never runs a model's
-commands without isolation and never does so silently (Issue #502, decision 1).
+required`. If the OS isolation cannot be applied, the run still starts, but every Bash
+and verifier command is refused with `bash_sandbox_unavailable: <reason>`. The
+run cannot execute commands or verify its work and fails: the GUI never runs a
+model's commands without isolation and never does so silently (Issue #502,
+decision 1).
 This happens where no backend is available, for example inside a nested sandbox
 (a sandboxed container or an IDE that already uses Seatbelt), or on a Linux
 kernel without Landlock or with it disabled.
 
 `commandagent --doctor` does not probe the OS sandbox, so it cannot tell you
-this in advance. To check a host, start any CLI run in a scratch workspace with
-`--sandbox required`, outside the GUI: it either runs, or fails with
-`bash_sandbox_unavailable` and the reason. The same reason is recorded in the
-run's `bash_sandbox_status` event (`applied=false` plus `reason`). Fix the
+this in advance. Read the run's `bash_sandbox_status` event: `applied=false`
+plus `reason` says the isolation is not in force and why. You can also start a
+CLI run outside the GUI, in a scratch workspace, with `--sandbox required`; for
+a run that uses Bash, its commands either run or are refused with
+`bash_sandbox_unavailable` and the reason (a run that never calls Bash cannot
+tell you). Fix the
 environment (run outside the nested sandbox, or use a kernel with Landlock
 enabled) rather than looking for a GUI switch that turns the isolation off;
 there is none.
