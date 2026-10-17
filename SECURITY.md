@@ -53,10 +53,14 @@ predated the run.
 - OS-blocked, when `--sandbox` applies a backend: outbound network connections
   are refused by the OS, so an arbitrary program the lexical guard cannot name
   (`python -c "urllib..."`, `node -e "fetch(...)"`) still cannot leave the
-  machine. macOS (Seatbelt) denies every network operation except loopback TCP
-  and unix sockets. Linux (Landlock ABI4, kernel 6.7) denies every TCP connect
+  machine. macOS (Seatbelt) denies every network operation except loopback
+  (TCP and UDP) and unix sockets. Linux (Landlock ABI4, kernel 6.7) denies every TCP connect
   except the run's dev-server port(s). Landlock matches the port only, so the
-  same port on an external host still connects and UDP is not restricted. When
+  same port on an external host still connects and UDP is not restricted.
+  Whether Landlock's TCP rule also covers a Multipath TCP (MPTCP,
+  `IPPROTO_MPTCP`) socket's connect depends on the kernel; on a kernel where it
+  does not, an MPTCP connect goes through, a limit of the same kind as UDP (CI
+  records the observed result as the `issue672/mptcp` probe verdict). When
   the run's dev-server port cannot be derived — it is neither named in the goal
   nor a profile default — the allow list is empty and every TCP connect is
   denied, localhost included. Below ABI4 the network is not confined at all — the

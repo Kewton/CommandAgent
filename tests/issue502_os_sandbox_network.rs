@@ -393,28 +393,17 @@ except OSError as e:
     os_sandbox::reset_for_test();
 }
 
-/// macOS Seatbelt: the dependency-setup child's stdin is null, not inherited.
-/// `seatbelt::wrap` rebuilds the command, so the launch must set `stdin` after
-/// the wrap. The check runs in a child process whose stdin is an open pipe with
-/// data, so an inherited stdin is visible (a null stdin is not).
-#[cfg(target_os = "macos")]
-#[test]
-fn macos_dependency_setup_child_stdin_is_null() {
+/// Run `child_test` (an `#[ignore]`d test of this file) in a fresh process whose
+/// stdin is an open pipe holding data, so an inherited stdin is visible to the
+/// dependency-setup child while a null stdin is not.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn assert_dependency_setup_child_stdin_is_null(child_test: &str) {
     use std::io::Write;
-    use std::process::{Command, Stdio};
 
-    if !backend_available() {
-        eprintln!("SKIP: nested sandbox; dependency-setup stdin no-op");
-        return;
-    }
     let mut child = Command::new(std::env::current_exe().unwrap())
-        .args([
-            "--ignored",
-            "--exact",
-            "macos_dependency_setup_child_stdin_is_null_child",
-            "--nocapture",
-        ])
+        .args(["--ignored", "--exact", child_test, "--nocapture"])
         .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
         .spawn()
         .expect("spawn stdin child");
     // Keep the pipe open with data while the child runs; a null stdin would not
@@ -422,22 +411,25 @@ fn macos_dependency_setup_child_stdin_is_null() {
     let mut stdin = child.stdin.take().expect("child stdin");
     let _ = stdin.write_all(b"x");
     let _ = stdin.flush();
-    let status = child.wait().expect("wait stdin child");
+    let output = child.wait_with_output().expect("wait stdin child");
     drop(stdin);
-    assert!(status.success(), "the child check must pass: {status}");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "the child check must pass: {}\n{stdout}",
+        output.status
+    );
+    // A name that no longer matches runs 0 tests and still exits 0.
+    assert!(
+        stdout.contains("1 passed"),
+        "the child check must have run exactly one test: {stdout}"
+    );
 }
 
-/// The child check of [`macos_dependency_setup_child_stdin_is_null`]. It runs in
-/// its own process so its stdin can be a pipe; the fake npm records whether fd 0
-/// is a terminal, a pipe, and at EOF.
-#[cfg(target_os = "macos")]
-#[test]
-#[ignore]
-fn macos_dependency_setup_child_stdin_is_null_child() {
-    // The child process spawned by the parent has its own sandbox state, but
-    // --include-ignored also runs this test in the main process, so it must
-    // serialize with the tests that install the process-wide sandbox.
-    let _serial = sandbox_lock();
+/// The body of the child checks. It runs in its own process so its stdin can be a
+/// pipe; the fake npm records whether fd 0 is a terminal, a pipe, and at EOF.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn dependency_setup_child_stdin_is_null_body() {
     const FAKE_NPM_STDIN: &str = r#"#!/usr/bin/env python3
 import os, select, stat
 fd = os.fstat(0)
@@ -489,6 +481,55 @@ os.makedirs("node_modules", exist_ok=True)
 
     os_sandbox::cleanup();
     os_sandbox::reset_for_test();
+}
+
+/// macOS Seatbelt: the dependency-setup child's stdin is null, not inherited.
+/// `seatbelt::wrap` rebuilds the command, so the launch must set `stdin` after
+/// the wrap.
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_dependency_setup_child_stdin_is_null() {
+    if !backend_available() {
+        eprintln!("SKIP: nested sandbox; dependency-setup stdin no-op");
+        return;
+    }
+    assert_dependency_setup_child_stdin_is_null("macos_dependency_setup_child_stdin_is_null_child");
+}
+
+/// The child check of [`macos_dependency_setup_child_stdin_is_null`].
+#[cfg(target_os = "macos")]
+#[test]
+#[ignore]
+fn macos_dependency_setup_child_stdin_is_null_child() {
+    // The child process spawned by the parent has its own sandbox state, but
+    // --include-ignored also runs this test in the main process, so it must
+    // serialize with the tests that install the process-wide sandbox.
+    let _serial = sandbox_lock();
+    dependency_setup_child_stdin_is_null_body();
+}
+
+/// Linux Landlock: the dependency-setup child's stdin is null, not inherited.
+/// Landlock wraps the command in place, so this is correct today; the test
+/// catches a regression that would let the child inherit the parent's stdin
+/// (Issue #672).
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_dependency_setup_child_stdin_is_null() {
+    assert_dependency_setup_child_stdin_is_null("linux_dependency_setup_child_stdin_is_null_child");
+}
+
+/// The child check of [`linux_dependency_setup_child_stdin_is_null`]. A Linux CI
+/// runner without a working Landlock fails in `require_landlock_backend`.
+#[cfg(target_os = "linux")]
+#[test]
+#[ignore]
+fn linux_dependency_setup_child_stdin_is_null_child() {
+    let _serial = sandbox_lock();
+    if !require_landlock_backend() {
+        eprintln!("SKIP: Landlock backend unavailable");
+        return;
+    }
+    dependency_setup_child_stdin_is_null_body();
 }
 
 #[cfg(target_os = "linux")]
@@ -550,6 +591,236 @@ fn linux_abi_gate_requires_abi4_fails_under_ci_and_skips_otherwise() {
     assert_eq!(abi_gate(false, 4, 4, kernel), AbiGate::Continue);
     assert_eq!(abi_gate(true, 4, 4, kernel), AbiGate::Continue);
     assert_eq!(abi_gate(false, 9, 4, kernel), AbiGate::Continue);
+}
+
+// ---------------------------------------------------------------------------
+// Issue #672: MPTCP, and the Linux pip cache.
+// ---------------------------------------------------------------------------
+
+/// One connect from a Multipath TCP socket (`IPPROTO_MPTCP` = 262). The first
+/// word of the output is the verdict: `REFUSED` when the OS refuses the connect,
+/// `ALLOWED` when it goes through, and `UNVERIFIED <stage> <errno>` when the
+/// socket cannot be created or the connect fails for another reason.
+#[cfg(target_os = "linux")]
+const MPTCP_CONNECT_PY: &str = r#"
+import errno, socket, sys
+host, port = sys.argv[1], int(sys.argv[2])
+try:
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 262)
+except OSError as e:
+    print("UNVERIFIED socket", errno.errorcode.get(e.errno, type(e).__name__))
+    sys.exit(0)
+s.settimeout(3)
+try:
+    s.connect((host, port))
+    print("ALLOWED")
+except PermissionError:
+    print("REFUSED")
+except OSError as e:
+    print("UNVERIFIED connect", errno.errorcode.get(e.errno, type(e).__name__))
+"#;
+
+/// Turn the probe output into the one-word verdict, or `UNVERIFIED (reason)`.
+#[cfg(target_os = "linux")]
+fn mptcp_verdict(stdout: &str) -> String {
+    let mut words = stdout.split_whitespace();
+    match words.next() {
+        Some("REFUSED") => "REFUSED".to_string(),
+        Some("ALLOWED") => "ALLOWED".to_string(),
+        Some("UNVERIFIED") => format!("UNVERIFIED ({})", words.collect::<Vec<_>>().join(" ")),
+        _ => format!(
+            "UNVERIFIED (no verdict from the probe: {:?})",
+            stdout.trim()
+        ),
+    }
+}
+
+/// Append one probe verdict line to the file named by
+/// `COMMANDAGENT_PROBE_VERDICT_FILE`, as the TIOCSTI probe in
+/// `issue502_os_sandbox_write.rs` does, so `scripts/check-probe-verdicts.sh`
+/// prints it and fails the CI job on an `UNVERIFIED` line. A write failure never
+/// fails a test and an unset variable changes nothing.
+#[cfg(target_os = "linux")]
+fn append_probe_verdict(line: &str) {
+    let Some(path) = std::env::var_os("COMMANDAGENT_PROBE_VERDICT_FILE") else {
+        return;
+    };
+    let _ = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .and_then(|mut file| std::io::Write::write_all(&mut file, line.as_bytes()));
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_mptcp_verdict_reads_the_probe_output() {
+    assert_eq!(mptcp_verdict("REFUSED\n"), "REFUSED");
+    assert_eq!(mptcp_verdict("ALLOWED\n"), "ALLOWED");
+    assert_eq!(
+        mptcp_verdict("UNVERIFIED socket EPROTONOSUPPORT\n"),
+        "UNVERIFIED (socket EPROTONOSUPPORT)"
+    );
+    assert!(mptcp_verdict("").starts_with("UNVERIFIED ("));
+}
+
+/// Issue #672: from inside an `--offline` isolation, connect once from an MPTCP
+/// socket to a loopback port the run does not allow, and record the outcome
+/// (`REFUSED`, `ALLOWED`, or `UNVERIFIED (reason)`) in the probe verdict file.
+/// An environment that cannot create an MPTCP socket, or has no ABI4 network
+/// backend, records `UNVERIFIED` — never a silent pass. `ALLOWED` does not fail
+/// the test: it is a documented limit, like UDP.
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_offline_mptcp_connect_to_a_disallowed_port_is_recorded() {
+    let _serial = sandbox_lock();
+    let abi = kernel_landlock_abi();
+    let available = matches!(os_sandbox::probe(), SandboxAvailability::Available);
+    let verdict = if !available || abi < 4 {
+        format!("UNVERIFIED (no Landlock ABI4 network backend: available={available} abi={abi})")
+    } else {
+        let fixture = fixture();
+        let (_allowed_server, allowed_port) = dev_server();
+        let (_other_server, other_port) = dev_server();
+        install_available(
+            online_policy(&fixture)
+                .with_offline(true)
+                .with_dev_server_ports([allowed_port]),
+        );
+        let script = fixture.root.join("mptcp.py");
+        std::fs::write(&script, MPTCP_CONNECT_PY).unwrap();
+        let output = run_wrapped(
+            &fixture.root,
+            &format!("python3 {} 127.0.0.1 {other_port}", script.display()),
+        );
+        os_sandbox::cleanup();
+        os_sandbox::reset_for_test();
+        mptcp_verdict(&String::from_utf8_lossy(&output.stdout))
+    };
+    let mptcp_enabled = std::fs::read_to_string("/proc/sys/net/mptcp/enabled")
+        .map(|value| value.trim().to_string())
+        .unwrap_or_else(|_| "unknown".to_string());
+    let line = format!(
+        "issue672/mptcp: {verdict}; kernel={} abi={abi} net.mptcp.enabled={mptcp_enabled}\n",
+        landlock_kernel_release()
+    );
+    eprint!("{line}");
+    append_probe_verdict(&line);
+}
+
+/// Issue #672: the Linux `~/.cache/pip` cache is an allowed write location when
+/// it is inside the home (decision 2, known caches only). A sibling directory in
+/// `~/.cache` is not.
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_pip_cache_inside_the_home_is_writable_inside_the_isolation() {
+    let _serial = sandbox_lock();
+    if !require_landlock_backend() {
+        eprintln!("SKIP: Landlock backend unavailable");
+        return;
+    }
+    let fixture = fixture();
+    let pip = fixture.home.join(".cache/pip");
+    let sibling = fixture.home.join(".cache/other");
+    std::fs::create_dir_all(&pip).unwrap();
+    std::fs::create_dir_all(&sibling).unwrap();
+    install_available(online_policy(&fixture).with_offline(true));
+
+    let output = run_wrapped(
+        &fixture.root,
+        &format!("echo ok > '{}'", pip.join("wheel.cache").display()),
+    );
+    assert!(
+        output.success(),
+        "~/.cache/pip must be writable: {output:?}"
+    );
+    assert!(pip.join("wheel.cache").exists());
+
+    let output = run_wrapped(
+        &fixture.root,
+        &format!("echo no > '{}'", sibling.join("x").display()),
+    );
+    assert!(
+        !output.success() && !sibling.join("x").exists(),
+        "only the known cache is writable, not its siblings: {output:?}"
+    );
+
+    os_sandbox::cleanup();
+    os_sandbox::reset_for_test();
+}
+
+/// Issue #672: a `~/.cache/pip` symlinked to a directory outside the home is not
+/// a write grant (Issue #668 F3), so a write through it fails and the outside
+/// directory does not change.
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_pip_cache_symlinked_outside_the_home_cannot_be_written_through() {
+    let _serial = sandbox_lock();
+    if !require_landlock_backend() {
+        eprintln!("SKIP: Landlock backend unavailable");
+        return;
+    }
+    let fixture = fixture();
+    let outside = fixture._dir.path().join("outside-pip");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::create_dir_all(fixture.home.join(".cache")).unwrap();
+    std::os::unix::fs::symlink(&outside, fixture.home.join(".cache/pip")).unwrap();
+    install_available(online_policy(&fixture).with_offline(true));
+
+    let output = run_wrapped(
+        &fixture.root,
+        &format!(
+            "echo pwned > '{}'",
+            fixture.home.join(".cache/pip/pwned").display()
+        ),
+    );
+    assert!(
+        !output.success(),
+        "a write through the outside-pointing pip cache link must fail: {output:?}"
+    );
+    assert!(
+        !outside.join("pwned").exists(),
+        "the outside directory must not change"
+    );
+
+    os_sandbox::cleanup();
+    os_sandbox::reset_for_test();
+}
+
+/// Issue #672: the same holds when the parent `~/.cache` is the symlink to a
+/// directory outside the home, so `~/.cache/pip` resolves outside it.
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_pip_cache_under_a_cache_dir_symlinked_outside_the_home_cannot_be_written_through() {
+    let _serial = sandbox_lock();
+    if !require_landlock_backend() {
+        eprintln!("SKIP: Landlock backend unavailable");
+        return;
+    }
+    let fixture = fixture();
+    let outside = fixture._dir.path().join("outside-cache-dir");
+    std::fs::create_dir_all(outside.join("pip")).unwrap();
+    std::os::unix::fs::symlink(&outside, fixture.home.join(".cache")).unwrap();
+    install_available(online_policy(&fixture).with_offline(true));
+
+    let output = run_wrapped(
+        &fixture.root,
+        &format!(
+            "echo pwned > '{}'",
+            fixture.home.join(".cache/pip/pwned").display()
+        ),
+    );
+    assert!(
+        !output.success(),
+        "a write through the outside-pointing ~/.cache link must fail: {output:?}"
+    );
+    assert!(
+        !outside.join("pip/pwned").exists(),
+        "the outside directory must not change"
+    );
+
+    os_sandbox::cleanup();
+    os_sandbox::reset_for_test();
 }
 
 // ---------------------------------------------------------------------------
