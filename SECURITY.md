@@ -196,8 +196,12 @@ command before the shell starts.
   reported through the same event's `reason`: on both macOS and Linux it
   names the applied read isolation ("read isolation applied") or why it is not
   effective. If the Linux deny-list expansion would need more than 4096 allow
-  rules, the read layer is not built, reads stay open, and the reason says the
-  read isolation is not effective (the write confinement still applies). When
+  rules, the whole home is denied for reading instead (the workspace, run
+  temp directory, and caches stay readable through their write rules); the
+  reason says the read isolation is not effective and the home is unreadable,
+  so tools installed under the home will not run. If even that exceeds the
+  limit, no ruleset is built: `required` refuses and `auto` is downgraded.
+  Reads are never opened to the whole filesystem. When
   `auto` falls back to lexical checks after the run started (a per-command
   ruleset could not be built on Linux), `bash_sandbox_status` is emitted again
   with `applied=false` and the reason; the event name and fields are unchanged.

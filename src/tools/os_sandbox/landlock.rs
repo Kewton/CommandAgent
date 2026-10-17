@@ -430,7 +430,7 @@ pub fn wrap(command: &mut Command, policy: &SandboxPolicy) -> Result<(), String>
     let fd = create_ruleset(
         detected_abi(),
         allowed_paths(policy),
-        read_allow_paths(policy),
+        read_allow_paths(policy)?,
         list_only_paths(),
         policy.offline,
         &policy.dev_server_ports,
@@ -483,33 +483,54 @@ pub(crate) fn allowed_paths(policy: &SandboxPolicy) -> Vec<PathBuf> {
 /// points outside the home) denies its target too; the terminal devices of
 /// [`terminal_read_deny_paths`] deny the run's terminal like any other denied
 /// location.
-fn read_allow_paths(policy: &SandboxPolicy) -> Vec<PathBuf> {
-    match read_allow_plan(policy, super::read_allow_limit()) {
-        Some(paths) => paths,
-        // The expansion is too large to build a ruleset from. Keep the write
-        // confinement and leave reads open: the status then records the read
-        // isolation as not effective (see `read_allow_overflows`).
-        None => vec![PathBuf::from("/")],
+fn read_allow_paths(policy: &SandboxPolicy) -> Result<Vec<PathBuf>, String> {
+    let limit = super::read_allow_limit();
+    match read_allow_plan(policy, limit) {
+        ReadAllowPlan::Full(paths) | ReadAllowPlan::HomeClosed(paths) => Ok(paths),
+        // Neither expansion fits. Reads are never opened to `/` instead: the
+        // ruleset is not built, so `required` refuses and `auto` is recorded
+        // as downgraded.
+        ReadAllowPlan::Unbuildable => Err(format!(
+            "landlock read allow list exceeds {limit} rules even with the home closed"
+        )),
     }
 }
 
 /// The most read-allow rules the deny-list expansion may produce (Issue #668).
 /// The expansion adds one rule per sibling along every path to a denied
-/// location, so it grows with the number of entries beside the home. Past this
-/// the read layer is not built and is recorded as not effective instead of
-/// applied.
+/// location, so it grows with the number of entries beside the home's secrets.
 pub(crate) const MAX_READ_ALLOW_RULES: usize = 4096;
 
-/// The read-allow list for a policy, or `None` when it would exceed `limit`.
-fn read_allow_plan(policy: &SandboxPolicy, limit: usize) -> Option<Vec<PathBuf>> {
-    let mut denied = super::secret_locations::home_secret_locations(&policy.home);
-    denied.extend(terminal_read_deny_paths());
-    expand_read_allow_limited(Path::new("/"), &denied, limit)
+/// How the read layer is built for a policy.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ReadAllowPlan {
+    /// Every home secret is denied one by one and the rest stays readable.
+    Full(Vec<PathBuf>),
+    /// The full expansion exceeds the limit, so the whole home is denied
+    /// instead. Its siblings are allowed, so the rule count no longer follows
+    /// the home's entries; the writable locations stay readable through their
+    /// write rules.
+    HomeClosed(Vec<PathBuf>),
+    /// Even the closed-home expansion exceeds the limit, or there is no home to
+    /// close: the ruleset cannot be built.
+    Unbuildable,
 }
 
-/// Whether the read-allow expansion for a policy exceeds `limit` rules.
-pub(crate) fn read_allow_overflows(policy: &SandboxPolicy, limit: usize) -> bool {
-    read_allow_plan(policy, limit).is_none()
+/// The read-allow plan for a policy under `limit` rules.
+pub(crate) fn read_allow_plan(policy: &SandboxPolicy, limit: usize) -> ReadAllowPlan {
+    let mut denied = super::secret_locations::home_secret_locations(&policy.home);
+    denied.extend(terminal_read_deny_paths());
+    if let Some(paths) = expand_read_allow_limited(Path::new("/"), &denied, limit) {
+        return ReadAllowPlan::Full(paths);
+    }
+    if policy.home.as_os_str().is_empty() {
+        return ReadAllowPlan::Unbuildable;
+    }
+    denied.push(canonicalize_or_keep(&policy.home));
+    match expand_read_allow_limited(Path::new("/"), &denied, limit) {
+        Some(paths) => ReadAllowPlan::HomeClosed(paths),
+        None => ReadAllowPlan::Unbuildable,
+    }
 }
 
 /// The terminal device locations removed from the read allow list (Issue #667),
@@ -834,6 +855,30 @@ mod tests {
         assert!(
             allow.iter().all(|path| !path.starts_with(&denied[1])),
             "{allow:?}"
+        );
+    }
+
+    /// Issue #668: denying the whole home makes the expansion independent of the
+    /// home's entries, so it fits a limit the per-secret expansion exceeds.
+    #[test]
+    fn closing_the_home_keeps_the_expansion_small() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("home/.ssh")).unwrap();
+        for index in 0..40 {
+            std::fs::create_dir_all(root.join(format!("home/entry-{index}"))).unwrap();
+        }
+        std::fs::create_dir_all(root.join("usr")).unwrap();
+
+        let per_secret = vec![root.join("home/.ssh")];
+        assert!(expand_read_allow_limited(root, &per_secret, 10).is_none());
+        let closed = expand_read_allow_limited(root, &[root.join("home")], 10)
+            .expect("the closed home fits");
+        assert!(closed.contains(&root.join("usr")), "{closed:?}");
+        assert!(
+            closed
+                .iter()
+                .all(|path| !path.starts_with(root.join("home")))
         );
     }
 

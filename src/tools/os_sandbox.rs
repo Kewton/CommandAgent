@@ -322,15 +322,24 @@ fn read_isolation_with_limit(policy: Option<&SandboxPolicy>, limit: usize) -> Re
     let Some(policy) = policy else {
         return checked;
     };
-    if checked.effective && landlock::read_allow_overflows(policy, limit) {
-        return ReadIsolation {
+    if !checked.effective {
+        return checked;
+    }
+    match landlock::read_allow_plan(policy, limit) {
+        landlock::ReadAllowPlan::Full(_) => checked,
+        landlock::ReadAllowPlan::HomeClosed(_) => ReadIsolation {
             effective: false,
             clause: format!(
-                "read isolation is not effective: the read allow list would exceed {limit} rules"
+                "read isolation is not effective: the read allow list would exceed {limit} rules, so the whole home is unreadable (tools installed under the home will not run)"
             ),
-        };
+        },
+        landlock::ReadAllowPlan::Unbuildable => ReadIsolation {
+            effective: false,
+            clause: format!(
+                "read isolation is not effective: the read allow list exceeds {limit} rules even with the home closed, so the sandbox cannot be built"
+            ),
+        },
     }
-    checked
 }
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -894,9 +903,12 @@ const CACHE_LOCATIONS: &[&str] = &[
     ".cargo/git",
     ".cargo/.package-cache",
     ".npm",
+    // macOS locations.
+    #[cfg(target_os = "macos")]
     "Library/Caches/pip",
+    #[cfg(target_os = "macos")]
     "Library/Caches/ms-playwright",
-    // Only Linux allows these two (`landlock::cache_paths`).
+    // Linux locations (`landlock::cache_paths`).
     #[cfg(target_os = "linux")]
     ".cache/pip",
     #[cfg(target_os = "linux")]
