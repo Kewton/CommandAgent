@@ -149,7 +149,14 @@ command before the shell starts.
   variable such as `BASH_ENV`, and a name an interpreter assembles at run time
   when that assembled name is itself a denied name. It does not deny a new name:
   on macOS, renaming a credential inside the writable workspace, or copying it to
-  another name, leaves the credential readable under the new name.
+  another name, leaves the credential readable under the new name. This is a
+  documented limit (Issue #669). A `file-write*` deny on the names would stop
+  renaming a credential that is denied by its basename (`.env`, `.npmrc`,
+  `.ssh`), but the credentials denied by a path sequence (`.aws/credentials`,
+  `.docker/config.json`,
+  `.config/gcloud/application_default_credentials.json`) can be reached by
+  renaming a parent directory, so a name deny alone could not close the hole
+  and it is left as a limit.
   - A secret reached from an off-list path through a bind mount, or through a
     hardlink created outside the isolation, is not denied on either OS. Creating
     such a hardlink inside the isolation is denied by the write sandbox.
@@ -218,10 +225,26 @@ command before the shell starts.
   stores are not allowed in this stage. A cache is allowed only when its
   symlinks resolve to a location under the home; one that points elsewhere
   (for example `~/.npm` linked at another directory) is not writable and the
-  `reason` counts it. The home npm config (`~/.npmrc`) is a
-  read-denied secret, so an `npm` that reads a private-registry `~/.npmrc` fails
-  inside Bash: that is the intended consequence of not feeding registry tokens to
-  Bash, not a regression.
+  `reason` counts it.
+- Private-registry npm fails inside the isolation (Issue #669, a documented
+  limit). The home npm config (`~/.npmrc`) is a read-denied secret, so an `npm`
+  that needs a registry token from it fails, both in model Bash and in the
+  runtime dependency install (Issue #658), and since #658 also in a run that is
+  not `--offline`. On macOS a workspace `.npmrc` is also unreadable, so it fails the same way.
+  This is the intended consequence of not letting Bash read the home
+  `~/.npmrc`, not a regression; a value the user passes through the parent's
+  `npm_config_*` environment variables is still inherited by the child.
+  Workaround: install
+  the dependencies outside the isolation (for example `npm ci` in a terminal
+  with your own `~/.npmrc`) and then start the run.
+- Toolchains installed outside `$HOME` (for example the official rust image
+  with `RUSTUP_HOME=/usr/local/rustup` and `CARGO_HOME=/usr/local/cargo`) are
+  found inside Bash: `RUSTUP_HOME` and `CARGO_HOME` are inherited by child
+  processes from the parent environment. Inheriting them does not add any write
+  permission, and the cache allowance is only under the home, so writes to the
+  registry, git, and `.package-cache` under such a `CARGO_HOME` are denied.
+  A `cargo` that downloads dependencies, and `cargo install`, fail; an offline
+  build with no dependencies to fetch works.
 
 macOS `mktemp` ignores `TMPDIR` and targets the per-user temp directory, which
 the sandbox denies. A `mktemp` inside the run temp directory (`mktemp -p
@@ -234,7 +257,8 @@ applied read-probe record is under
 ## Child Process Environment
 
 Bounded child processes start from `env_clear` and receive only a small
-allowlist such as `PATH`, `HOME`, locale variables, `TERM`, selected Node/npm
+allowlist such as `PATH`, `HOME`, locale variables, `TERM`, `RUSTUP_HOME` and
+`CARGO_HOME` (inherited from the parent only), selected Node/npm
 settings, and explicit verifier/dev-server variables. Provider API keys and
 unrelated parent environment variables must not be inherited by child commands.
 

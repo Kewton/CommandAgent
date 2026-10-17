@@ -115,3 +115,4 @@ jobs:
         run: |
           cargo clippy --features gui --bin gui_server -- -D warnings
           cargo test --features gui --test gui_server
+          cargo test --features gui --bin gui_server
