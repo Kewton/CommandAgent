@@ -3,6 +3,9 @@ use std::time::Duration;
 
 use crate::config::{Action, Config, Provider};
 
+mod probe_transport;
+use probe_transport::{HttpOllamaProbe, OllamaProbe};
+
 const STARTUP_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub(crate) fn warnings(config: &Config, stdin_is_terminal: bool) -> Vec<String> {
@@ -16,18 +19,16 @@ pub(crate) fn warnings(config: &Config, stdin_is_terminal: bool) -> Vec<String> 
 }
 
 fn ollama_warnings(config: &Config) -> Vec<String> {
+    ollama_warnings_with(config, &HttpOllamaProbe)
+}
+
+fn ollama_warnings_with(config: &Config, probe: &dyn OllamaProbe) -> Vec<String> {
     let models = configured_ollama_models(config);
     if models.is_empty() {
         return Vec::new();
     }
 
-    let result = crate::providers::ollama::OllamaClient::new(
-        config.ollama_host.clone(),
-        STARTUP_PROBE_TIMEOUT.as_secs(),
-        1,
-        0,
-    )
-    .and_then(|client| client.list_models());
+    let result = probe.list_models(&config.ollama_host, STARTUP_PROBE_TIMEOUT);
     match result {
         Ok(installed) => {
             let installed = installed.into_iter().collect::<BTreeSet<_>>();
@@ -362,17 +363,30 @@ mod tests {
     fn unresponsive_ollama_respects_two_second_probe_bound() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let host = format!("http://{}", listener.local_addr().unwrap());
+        let (received_tx, received_rx) = std::sync::mpsc::channel::<()>();
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
         let server = std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
             let mut request = [0_u8; 1024];
             let _ = stream.read(&mut request).unwrap();
-            std::thread::sleep(Duration::from_millis(2_500));
+            received_tx.send(()).unwrap();
+            // Hold the connection open without responding until released, so
+            // the client can only finish through its own timeout, never EOF.
+            let _ = release_rx.recv_timeout(Duration::from_secs(10));
+            drop(stream);
         });
 
         let started = Instant::now();
         let warnings = warnings(&config(host), true);
         let elapsed = started.elapsed();
+        let request_received = received_rx.try_recv().is_ok();
+        release_tx.send(()).unwrap();
         server.join().unwrap();
+
+        assert!(
+            request_received,
+            "probe finished before the request arrived"
+        );
 
         assert!(
             elapsed >= Duration::from_millis(1_800),
@@ -381,6 +395,63 @@ mod tests {
         assert!(elapsed <= Duration::from_secs(3), "elapsed={elapsed:?}");
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].ends_with("continuing."), "{}", warnings[0]);
+    }
+
+    struct RecordingProbe {
+        calls: std::cell::RefCell<Vec<(String, Duration)>>,
+        result: fn() -> anyhow::Result<Vec<String>>,
+    }
+
+    impl OllamaProbe for RecordingProbe {
+        fn list_models(&self, host: &str, timeout: Duration) -> anyhow::Result<Vec<String>> {
+            self.calls.borrow_mut().push((host.to_string(), timeout));
+            (self.result)()
+        }
+    }
+
+    fn probe_failure(result: fn() -> anyhow::Result<Vec<String>>) -> (Vec<String>, RecordingProbe) {
+        let probe = RecordingProbe {
+            calls: std::cell::RefCell::new(Vec::new()),
+            result,
+        };
+        let host = "http://probe.invalid:11434".to_string();
+        let warnings = ollama_warnings_with(&config(host), &probe);
+        (warnings, probe)
+    }
+
+    #[test]
+    fn startup_probe_timeout_is_two_seconds_and_reaches_transport_once() {
+        assert_eq!(STARTUP_PROBE_TIMEOUT, Duration::from_secs(2));
+        let (_, probe) =
+            probe_failure(|| Ok(vec!["executor:latest".into(), "planner:latest".into()]));
+        assert_eq!(
+            *probe.calls.borrow(),
+            vec![(
+                "http://probe.invalid:11434".to_string(),
+                STARTUP_PROBE_TIMEOUT
+            )]
+        );
+    }
+
+    #[test]
+    fn refused_and_timed_out_probe_warn_once_with_host_and_remedy() {
+        let results: [fn() -> anyhow::Result<Vec<String>>; 2] = [
+            || Err(anyhow::anyhow!("connection refused")),
+            || Err(anyhow::anyhow!("operation timed out")),
+        ];
+        for result in results {
+            let (warnings, _) = probe_failure(result);
+            assert_eq!(warnings.len(), 1, "{warnings:?}");
+            for expected in [
+                "http://probe.invalid:11434",
+                "ollama serve",
+                "--ollama-host",
+                "commandagent --doctor",
+            ] {
+                assert!(warnings[0].contains(expected), "{}", warnings[0]);
+            }
+            assert!(warnings[0].ends_with("continuing."), "{}", warnings[0]);
+        }
     }
 
     fn tags_server(
