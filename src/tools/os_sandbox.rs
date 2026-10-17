@@ -333,10 +333,10 @@ fn read_isolation_with_limit(policy: Option<&SandboxPolicy>, limit: usize) -> Re
                 "read isolation is not effective: the read allow list would exceed {limit} rules, so the whole home is unreadable (tools installed under the home will not run)"
             ),
         },
-        landlock::ReadAllowPlan::Unbuildable => ReadIsolation {
+        landlock::ReadAllowPlan::HomeClosedOverLimit(_) => ReadIsolation {
             effective: false,
             clause: format!(
-                "read isolation is not effective: the read allow list exceeds {limit} rules even with the home closed, so the sandbox cannot be built"
+                "read isolation is not effective: the read allow list exceeds {limit} rules even with the home closed; the home is unreadable (tools installed under the home will not run)"
             ),
         },
     }

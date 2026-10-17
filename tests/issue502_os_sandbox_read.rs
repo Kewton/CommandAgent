@@ -1013,33 +1013,54 @@ fn linux_expansion_that_overflows_after_run_start_keeps_the_home_closed() {
     os_sandbox::reset_for_test();
 }
 
-/// When even the closed-home expansion exceeds the limit, no ruleset is built:
-/// `required` refuses instead of running with reads open to `/`.
+/// When even the closed-home expansion exceeds the limit (the home's parent is
+/// crowded), the sandbox is still built, in `auto` and `required` alike: the
+/// status stays applied, the home secret is unreadable, and writes outside the
+/// workspace fail. Only the reason says the read isolation is not effective.
 #[cfg(target_os = "linux")]
 #[test]
-fn linux_unbuildable_read_allow_list_is_refused_by_required() {
+fn linux_crowded_home_parent_keeps_the_sandbox_applied() {
     let _guard = sandbox_lock();
     if !require_landlock_backend() {
         eprintln!("SKIP: Landlock backend unavailable");
         return;
     }
-    let fixture = fixture();
-    std::fs::create_dir_all(run_tmp_path(&fixture)).unwrap();
-    os_sandbox::set_read_allow_limit_for_test(Some(1));
-    os_sandbox::install_for_test(
-        SandboxMode::Required,
-        SandboxPolicy::with_home(&fixture.root, &run_tmp_path(&fixture), fixture.home.clone()),
-        SandboxAvailability::Available,
-    );
-    let mut process = Command::new("sh");
-    process.arg("-c").arg("true").current_dir(&fixture.root);
-    let refusal = os_sandbox::wrap_command(process).expect_err("required must refuse");
-    assert!(
-        refusal.summary().contains("even with the home closed"),
-        "{}",
-        refusal.summary()
-    );
-    os_sandbox::reset_for_test();
+    for mode in [SandboxMode::Auto, SandboxMode::Required] {
+        let fixture = fixture();
+        std::fs::create_dir_all(run_tmp_path(&fixture)).unwrap();
+        // The home's parent is the fixture dir; crowd it beyond the limit.
+        for index in 0..(CROWDED_LIMIT + 500) {
+            std::fs::write(fixture._dir.path().join(format!("sibling-{index}")), "x").unwrap();
+        }
+        os_sandbox::set_read_allow_limit_for_test(Some(CROWDED_LIMIT));
+        os_sandbox::install_for_test(
+            mode,
+            SandboxPolicy::with_home(&fixture.root, &run_tmp_path(&fixture), fixture.home.clone()),
+            SandboxAvailability::Available,
+        );
+        let status = os_sandbox::status().expect("installed");
+        assert!(status.applied, "{mode:?}: {status:?}");
+        assert!(!status.read_isolation, "{mode:?}: {status:?}");
+        let reason = status.reason.as_deref().expect("reported");
+        assert!(reason.contains("even with the home closed"), "{reason}");
+        assert!(!reason.contains("read isolation applied"), "{reason}");
+
+        assert_read_denied(
+            &fixture.root,
+            &format!("cat '{}'", fixture.ssh_secret.display()),
+            &[],
+            HOME_KEY_CANARY,
+        );
+        let outside = fixture._dir.path().join("outside-write");
+        let output = run_wrapped(&fixture.root, &format!("echo x > '{}'", outside.display()));
+        assert!(!output.success(), "{mode:?}: writes stay confined");
+        assert!(!outside.exists());
+        assert!(
+            os_sandbox::status().expect("installed").applied,
+            "{mode:?}: the sandbox stays applied after the command"
+        );
+        os_sandbox::reset_for_test();
+    }
 }
 
 /// The limit the crowded-home tests use, above the rules the closed-home

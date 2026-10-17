@@ -199,9 +199,11 @@ command before the shell starts.
   rules, the whole home is denied for reading instead (the workspace, run
   temp directory, and caches stay readable through their write rules); the
   reason says the read isolation is not effective and the home is unreadable,
-  so tools installed under the home will not run. If even that exceeds the
-  limit, no ruleset is built: `required` refuses and `auto` is downgraded.
-  Reads are never opened to the whole filesystem. When
+  so tools installed under the home will not run. If the closed-home
+  expansion still exceeds the limit (the home's parent directories are
+  crowded), the ruleset is built anyway and the reason says so; a rule count
+  never removes the sandbox, and reads are never opened to the whole
+  filesystem. When
   `auto` falls back to lexical checks after the run started (a per-command
   ruleset could not be built on Linux), `bash_sandbox_status` is emitted again
   with `applied=false` and the reason; the event name and fields are unchanged.
