@@ -28,7 +28,9 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use super::command_prefix::{self, Resolution};
-use super::{ShellToken, command_words, option_directory, positional_operands};
+use super::{
+    ShellToken, WordToken, command_word_tokens, option_directory, positional_operands, shell_tokens,
+};
 use crate::tools::bash::path_tokens::CrMode;
 
 /// Upper bound on the working-directory candidates. Consecutive distinct `cd`
@@ -124,7 +126,7 @@ impl Inspection {
 }
 
 /// Reads the working-directory candidates out of a command.
-pub(crate) fn inspect(command: &str) -> Inspection {
+pub(crate) fn inspect(command: &str, root: Option<&Path>) -> Inspection {
     let Some(view) = super::super::shell_lexical::write_guard_view(command) else {
         // The shell text cannot be read, so no working-directory change can be
         // modelled; relative writes after it must be refused (Issue #576).
@@ -141,17 +143,17 @@ pub(crate) fn inspect(command: &str) -> Inspection {
     // the text that way too and union the candidates, so a `cd` destination
     // whose name holds a `\r` still adds the directory the shell changes into.
     // The two readings coincide when the text has no `\r`.
-    let mut inspection = walk(&view.text, ambiguous, CrMode::Separator);
+    let mut inspection = walk(&view.text, ambiguous, CrMode::Separator, root);
     if view.text.contains('\r') {
-        inspection.merge(walk(&view.text, ambiguous, CrMode::WordChar));
+        inspection.merge(walk(&view.text, ambiguous, CrMode::WordChar, root));
     }
     inspection
 }
 
 /// The working-directory walk of one reading of the elided text (Issue #613).
-fn walk(text: &str, ambiguous: bool, cr_mode: CrMode) -> Inspection {
+fn walk(text: &str, ambiguous: bool, cr_mode: CrMode, root: Option<&Path>) -> Inspection {
     let mut inspection = Inspection::empty();
-    let Some(tokens) = super::shell_tokens(text, cr_mode) else {
+    let Some(tokens) = shell_tokens(text, cr_mode) else {
         // The elided text of an ambiguous expansion can leave an unterminated
         // quote, so the walk cannot run. Keep the ambiguity signal anyway: the
         // design promise "an ambiguous expansion is undecidable" must hold on
@@ -186,7 +188,8 @@ fn walk(text: &str, ambiguous: bool, cr_mode: CrMode) -> Inspection {
 
     let mut overflow = false;
     for segment in tokens.split(|token| *token == ShellToken::SegmentEnd) {
-        let words = command_words(segment);
+        let word_tokens = command_word_tokens(segment);
+        let words: Vec<&str> = word_tokens.iter().map(|word| word.text.as_str()).collect();
         if words.is_empty() {
             continue;
         }
@@ -196,10 +199,12 @@ fn walk(text: &str, ambiguous: bool, cr_mode: CrMode) -> Inspection {
         // read because `env -C`/`sudo -D` never resolve to a `Program` and a
         // table program can sit behind a prefix.
         collect_option_directories(
+            &word_tokens,
             &words,
             &mut inspection,
             &mut glob_destination,
             &mut overflow,
+            root,
         );
         let resolution = command_prefix::resolve(&words);
         // A working-directory change is consumed by the candidate walk below;
@@ -228,12 +233,16 @@ fn walk(text: &str, ambiguous: bool, cr_mode: CrMode) -> Inspection {
             "cd" => {
                 has_cd = true;
                 if let Some(target) = positional_operands(&arguments).first().copied() {
-                    if is_glob_destination(target) {
+                    let token = find_operand_token(&word_tokens, target);
+                    if is_literal_target(target, token, &inspection.bases, root) {
+                        if !overflow
+                            && let Some(joined) = extend_literal(&mut inspection.bases, target)
+                        {
+                            inspection.targets.extend(joined);
+                            overflow = inspection.bases.len() > MAX_CANDIDATES;
+                        }
+                    } else if is_glob_destination(target) {
                         mark_glob_destination(&mut glob_destination, target);
-                    }
-                    if !overflow && let Some(joined) = extend(&mut inspection.bases, target) {
-                        inspection.targets.extend(joined);
-                        overflow = inspection.bases.len() > MAX_CANDIDATES;
                     }
                 }
             }
@@ -252,12 +261,15 @@ fn walk(text: &str, ambiguous: bool, cr_mode: CrMode) -> Inspection {
                 if stack_rotation {
                     continue;
                 }
-                if is_glob_destination(target) {
+                let token = find_operand_token(&word_tokens, target);
+                if is_literal_target(target, token, &inspection.bases, root) {
+                    if !overflow && let Some(joined) = extend_literal(&mut inspection.bases, target)
+                    {
+                        inspection.targets.extend(joined);
+                        overflow = inspection.bases.len() > MAX_CANDIDATES;
+                    }
+                } else if is_glob_destination(target) {
                     mark_glob_destination(&mut glob_destination, target);
-                }
-                if !overflow && let Some(joined) = extend(&mut inspection.bases, target) {
-                    inspection.targets.extend(joined);
-                    overflow = inspection.bases.len() > MAX_CANDIDATES;
                 }
             }
             "popd" => {
@@ -292,26 +304,95 @@ fn mark_glob_destination(slot: &mut Option<String>, word: &str) {
 /// value) adds no candidate and raises the glob-destination mark, so the
 /// relative words after it are still refused.
 fn collect_option_directories(
+    word_tokens: &[&WordToken],
     words: &[&str],
     inspection: &mut Inspection,
     glob_destination: &mut Option<String>,
     overflow: &mut bool,
+    root: Option<&Path>,
 ) {
     for value in option_directory::directories(words) {
-        if !is_determinable(&value) {
+        let token = find_option_token(word_tokens, &value);
+        if is_literal_target(&value, token, &inspection.bases, root) {
+            if !*overflow && let Some(joined) = extend_literal(&mut inspection.bases, &value) {
+                inspection.targets.extend(joined);
+                *overflow = inspection.bases.len() > MAX_CANDIDATES;
+            }
+        } else if !is_determinable(&value) {
             mark_glob_destination(glob_destination, &value);
-        }
-        if !*overflow && let Some(joined) = extend(&mut inspection.bases, &value) {
-            inspection.targets.extend(joined);
-            *overflow = inspection.bases.len() > MAX_CANDIDATES;
         }
     }
 }
 
 fn word_token(token: &ShellToken) -> Option<&str> {
     match token {
-        ShellToken::Word(word) => Some(word.as_str()),
+        ShellToken::Word(word) => Some(word.text.as_str()),
         _ => None,
+    }
+}
+
+fn find_operand_token<'a>(word_tokens: &[&'a WordToken], target: &str) -> Option<&'a WordToken> {
+    word_tokens
+        .iter()
+        .copied()
+        .find(|token| token.text == target)
+}
+
+fn find_option_token<'a>(word_tokens: &[&'a WordToken], value: &str) -> Option<&'a WordToken> {
+    word_tokens.iter().copied().find(|token| {
+        token.text == value
+            || token.text.ends_with(value)
+            || token.text.split('=').nth(1) == Some(value)
+    })
+}
+
+/// Checks whether a `cd`/`pushd` or option directory destination can be treated
+/// as a literal working directory candidate.
+///
+/// Rules (Issue #643, PM decision):
+/// 1. Must be determinable: non-empty, != "-", no `$`, `` ` ``, `~`, and no `..` components.
+/// 2. If it contains no glob or brace metacharacters (`* ? [ ] { }`), it is literal.
+/// 3. If it contains glob/brace metacharacters:
+///    - Every metacharacter must be quoted or escaped: `matching_token.executed_glob == false`.
+///    - If it contains `*`, `?`, `{`, or `}`, a directory with that literal name must
+///      actually exist on disk (checked against `bases` with `root`).
+///    - Otherwise (only `[` and `]`, all quoted/escaped), it is literal.
+fn is_literal_target(
+    target: &str,
+    token: Option<&WordToken>,
+    bases: &[String],
+    root: Option<&Path>,
+) -> bool {
+    if target.is_empty()
+        || target == "-"
+        || target.contains(['$', '`', '~'])
+        || target.split('/').any(|component| component == "..")
+    {
+        return false;
+    }
+    if !is_glob_destination(target) {
+        return true;
+    }
+    let Some(token) = token else {
+        return false;
+    };
+    if token.executed_glob {
+        return false;
+    }
+    if target.contains(['*', '?', '{', '}']) {
+        let Some(root) = root else {
+            return false;
+        };
+        let path = Path::new(target);
+        if path.is_absolute() {
+            path.is_dir()
+        } else {
+            bases
+                .iter()
+                .any(|base| root.join(base).join(target).is_dir())
+        }
+    } else {
+        true
     }
 }
 
@@ -332,12 +413,9 @@ fn is_glob_destination(target: &str) -> bool {
     target.contains(['*', '?', '[', ']', '{', '}'])
 }
 
-/// Adds the candidates a destination produces and returns them for the caller
-/// to confine. A destination that cannot be determined adds nothing.
-fn extend(bases: &mut Vec<String>, target: &str) -> Option<Vec<String>> {
-    if !is_determinable(target) {
-        return None;
-    }
+/// Adds the candidates a literal destination produces and returns them for the caller
+/// to confine.
+fn extend_literal(bases: &mut Vec<String>, target: &str) -> Option<Vec<String>> {
     let joined: Vec<String> = if Path::new(target).is_absolute() {
         vec![target.to_string()]
     } else {
@@ -375,6 +453,10 @@ fn is_relative_word(word: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn inspect(command: &str) -> Inspection {
+        super::inspect(command, None)
+    }
 
     fn bases(command: &str) -> Vec<String> {
         inspect(command).bases

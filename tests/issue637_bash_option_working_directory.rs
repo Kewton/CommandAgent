@@ -170,7 +170,7 @@ fn refusal_reason_names_the_destination_word() {
     let root = &fixture.root;
     for (command, word) in [
         ("cd 's2*' && cat lf4", "s2*"),
-        ("cd \"s[2]\" && ls", "s[2]"),
+        ("cd \"s\"[2] && ls", "s[2]"),
         ("tar -C 's2*' -cf - lf4", "s2*"),
         ("make -C {s2,x} lf4", "{s2,x}"),
         ("git -C s? log lf4", "s?"),
