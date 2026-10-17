@@ -887,8 +887,8 @@ fn apply_backend(
     }
 }
 
-/// The known cache locations, relative to the home, on either platform. Used to
-/// count the ones a symlink pointed outside the home (Issue #668).
+/// The known cache locations, relative to the home, that this platform allows.
+/// Used to count the ones a symlink pointed outside the home (Issue #668).
 const CACHE_LOCATIONS: &[&str] = &[
     ".cargo/registry",
     ".cargo/git",
@@ -896,7 +896,10 @@ const CACHE_LOCATIONS: &[&str] = &[
     ".npm",
     "Library/Caches/pip",
     "Library/Caches/ms-playwright",
+    // Only Linux allows these two (`landlock::cache_paths`).
+    #[cfg(target_os = "linux")]
     ".cache/pip",
+    #[cfg(target_os = "linux")]
     ".cache/ms-playwright",
 ];
 
@@ -1272,17 +1275,43 @@ mod tests {
         assert!(cache_note(None).is_none());
     }
 
+    /// Issue #668: only the caches this platform allows are counted as refused.
+    #[test]
+    fn cache_note_ignores_locations_the_platform_never_allows() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().canonicalize().unwrap();
+        let home = base.join("home");
+        let outside = base.join("outside");
+        std::fs::create_dir_all(home.join(".cache")).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::os::unix::fs::symlink(&outside, home.join(".cache/pip")).unwrap();
+        let policy = SandboxPolicy::with_home(&base.join("ws"), &base.join("run"), home);
+
+        let note = cache_note(Some(&policy));
+        if cfg!(target_os = "linux") {
+            assert!(note.is_some_and(|note| note.starts_with("1 ")));
+        } else {
+            assert_eq!(note, None);
+        }
+    }
+
     /// Issue #668: past the expansion limit the read layer is recorded as not
     /// effective instead of applied.
     #[cfg(target_os = "linux")]
     #[test]
     fn an_expansion_over_the_limit_is_not_recorded_as_applied() {
         let dir = tempfile::tempdir().unwrap();
-        let home = dir.path().canonicalize().unwrap();
+        let base = dir.path().canonicalize().unwrap();
+        // The workspace and run directory sit beside the home, so no writable
+        // location overlaps a home secret.
+        let home = base.join("home");
+        let workspace = base.join("ws");
         std::fs::create_dir_all(home.join(".ssh")).unwrap();
-        let policy = SandboxPolicy::with_home(&home, &home.join("run"), home.clone());
+        std::fs::create_dir_all(&workspace).unwrap();
+        let policy = SandboxPolicy::with_home(&workspace, &base.join("run"), home);
 
         let within = read_isolation_with_limit(Some(&policy), usize::MAX);
+        assert!(within.effective, "{}", within.clause);
         let over = read_isolation_with_limit(Some(&policy), 1);
         assert!(!over.effective, "{}", over.clause);
         assert!(over.clause.contains("not effective"), "{}", over.clause);
