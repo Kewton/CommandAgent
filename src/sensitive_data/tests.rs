@@ -1304,3 +1304,374 @@ fn c28b_forced_registration_is_not_called_from_product_code() {
         "forced SecretCatalog::register is called from product code: {offenses:?}"
     );
 }
+
+// ---- Issue #547: replace_values equivalence with the pre-#547 implementation ----
+
+/// The `replace_values` implementation before Issue #547, copied verbatim as
+/// the reference the optimized path must match exactly.
+fn reference_replace_values(catalog: &SecretCatalog, text: &str) -> String {
+    if text.is_empty() || catalog.is_empty() {
+        return text.to_string();
+    }
+    let mut spans: Vec<(usize, usize)> = Vec::new();
+    for value in catalog.values() {
+        let mut search = 0usize;
+        while let Some(relative) = text[search..].find(value.as_str()) {
+            let start = search + relative;
+            spans.push((start, start + value.len()));
+            let step = text[start..]
+                .chars()
+                .next()
+                .map(char::len_utf8)
+                .unwrap_or(1);
+            search = start + step;
+        }
+    }
+    if spans.is_empty() {
+        return text.to_string();
+    }
+    spans.sort_unstable();
+    let mut merged: Vec<(usize, usize)> = Vec::with_capacity(spans.len());
+    for (start, end) in spans {
+        if let Some(last) = merged.last_mut()
+            && start <= last.1
+        {
+            last.1 = last.1.max(end);
+            continue;
+        }
+        merged.push((start, end));
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut cursor = 0usize;
+    for (start, end) in merged {
+        out.push_str(&text[cursor..start]);
+        out.push_str(catalog.marker());
+        cursor = end;
+    }
+    out.push_str(&text[cursor..]);
+    out
+}
+
+/// The automaton path forced regardless of the work threshold.
+fn automaton_replace_values(catalog: &SecretCatalog, text: &str) -> String {
+    if text.is_empty() || catalog.is_empty() {
+        return text.to_string();
+    }
+    let spans = redaction::occurrence_spans_automaton(catalog.values(), text);
+    redaction::splice_marker(catalog.marker(), text, spans)
+}
+
+/// The per-value scan path forced regardless of the cost model.
+fn scan_replace_values(catalog: &SecretCatalog, text: &str) -> String {
+    if text.is_empty() || catalog.is_empty() {
+        return text.to_string();
+    }
+    let spans = redaction::occurrence_spans_scan(catalog.values(), text);
+    redaction::splice_marker(catalog.marker(), text, spans)
+}
+
+fn assert_equivalent(catalog: &SecretCatalog, text: &str) {
+    let expected = reference_replace_values(catalog, text);
+    assert_eq!(catalog.scrub(text), expected, "public scrub, text {text:?}");
+    assert_eq!(
+        automaton_replace_values(catalog, text),
+        expected,
+        "automaton path, text {text:?}"
+    );
+    assert_eq!(
+        scan_replace_values(catalog, text),
+        expected,
+        "scan path, text {text:?}"
+    );
+    assert_eq!(
+        catalog.scrub(&expected),
+        reference_replace_values(catalog, &expected),
+        "second pass, text {text:?}"
+    );
+    assert_eq!(automaton_replace_values(catalog, &expected), expected);
+}
+
+fn catalog_from(values: &[String]) -> SecretCatalog {
+    let mut catalog = SecretCatalog::new();
+    for value in values {
+        catalog.register(value);
+    }
+    catalog
+}
+
+#[test]
+fn replace_values_matches_reference_on_fixed_cases() {
+    let cases: &[(&[&str], &str)] = &[
+        (&["abcdefgh1"], "x abcdefgh1 y abcdefgh1abcdefgh1 z"),
+        (&["abcdefgh1"], "no secret here"),
+        (&["abcdefgh1"], ""),
+        (&["aaaaaaaa"], "aaaaaaaaaaaaaaaaaaaa"),
+        (&["aaaaaaaa"], "aaaaaaa"),
+        (&["abcdefgh", "efghijkl"], "xx abcdefghijkl yy"),
+        (&["abcdefgh", "abcdefghij"], "abcdefghij abcdefgh"),
+        (&["abcdefghij", "cdefgh12"], "abcdefghij cdefgh12 ab"),
+        (
+            &["secret-秘密の値-1", "秘密の値-1234567"],
+            "a secret-秘密の値-1234567 b",
+        ),
+        (
+            &["日本語の秘密値です", "本語の秘密値"],
+            "前日本語の秘密値です後 本語の秘密値",
+        ),
+        (&["éééééééé"], "ééééééééééé é éééééééé"),
+        (&["12345678", "23456789"], "12345678 123456789 2345678"),
+    ];
+    for (values, text) in cases {
+        let owned: Vec<String> = values.iter().map(|value| value.to_string()).collect();
+        assert_equivalent(&catalog_from(&owned), text);
+    }
+}
+
+/// A small deterministic xorshift generator; no external crate.
+struct Xorshift(u64);
+
+impl Xorshift {
+    fn next(&mut self) -> u64 {
+        let mut x = self.0;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        self.0 = x;
+        x
+    }
+
+    fn below(&mut self, bound: usize) -> usize {
+        (self.next() % bound as u64) as usize
+    }
+}
+
+fn random_string(rng: &mut Xorshift, alphabet: &[&str], len: usize) -> String {
+    (0..len)
+        .map(|_| alphabet[rng.below(alphabet.len())])
+        .collect()
+}
+
+#[test]
+fn replace_values_matches_reference_on_seeded_random_inputs() {
+    let alphabets: &[&[&str]] = &[
+        &["a", "b"],
+        &["a", "b", "c", " "],
+        &["é", "a", "日", "本"],
+        &["x", "秘", "密", "😀", "-"],
+    ];
+    let mut rng = Xorshift(0x5eed_0547_u64);
+    for round in 0..400 {
+        let alphabet = alphabets[round % alphabets.len()];
+        let value_count = 1 + rng.below(40);
+        let mut values = Vec::new();
+        for _ in 0..value_count {
+            let len = 8 + rng.below(6);
+            values.push(random_string(&mut rng, alphabet, len));
+        }
+        let catalog = catalog_from(&values);
+        let text_len = rng.below(400);
+        let mut text = random_string(&mut rng, alphabet, text_len);
+        // Plant some registered values so matches and overlaps are common.
+        for _ in 0..rng.below(8) {
+            let pick = &values[rng.below(values.len())];
+            let at = rng.below(text.len() + 1);
+            let at = (0..=at).rev().find(|i| text.is_char_boundary(*i)).unwrap();
+            text.insert_str(at, pick);
+        }
+        assert_equivalent(&catalog, &text);
+    }
+}
+
+#[test]
+fn replace_values_matches_reference_for_a_full_catalog() {
+    let mut rng = Xorshift(0x0547_1024_u64);
+    for count in [1usize, 2, 64, 1024] {
+        let values: Vec<String> = (0..count)
+            .map(|index| {
+                format!(
+                    "sk-{index:04}-{}",
+                    random_string(&mut rng, &["k", "9", "é"], 10)
+                )
+            })
+            .collect();
+        let catalog = catalog_from(&values);
+        assert_eq!(catalog.len(), count);
+        let mut text = String::new();
+        for chunk in 0..200 {
+            text.push_str("line ");
+            text.push_str(&random_string(&mut rng, &["o", "k", " ", "-"], 30));
+            if chunk % 3 == 0 {
+                text.push_str(&values[rng.below(values.len())]);
+            }
+            if chunk % 7 == 0 {
+                // Two values back to back, and one overlapping the next.
+                text.push_str(&values[rng.below(values.len())]);
+                text.push_str(&values[rng.below(values.len())]);
+            }
+            text.push('\n');
+        }
+        assert_equivalent(&catalog, &text);
+    }
+}
+
+#[test]
+fn scrub_key_on_a_short_key_matches_reference() {
+    let catalog = catalog_from(&["H01_CANARY_short_1".to_string()]);
+    for key in ["plain", "H01_CANARY_short_1", "pre-H01_CANARY_short_1-post"] {
+        assert_equivalent(&catalog, key);
+    }
+}
+
+// ---- Issue #547: benchmark (release; no threshold, prints timings) ----
+
+fn median(mut samples: Vec<std::time::Duration>) -> std::time::Duration {
+    samples.sort();
+    samples[samples.len() / 2]
+}
+
+#[test]
+#[ignore = "benchmark: Issue #547 replace_values before/after; run with --release --ignored --nocapture"]
+fn bench_replace_values_1024_values_2mb() {
+    let mut rng = Xorshift(0x0547_beef_u64);
+    let values: Vec<String> = (0..1024)
+        .map(|index| {
+            format!(
+                "tok-{index:04}-{}",
+                random_string(&mut rng, &["a", "b", "c", "d"], 16)
+            )
+        })
+        .collect();
+    let catalog = catalog_from(&values);
+    assert_eq!(catalog.len(), 1024);
+    let mut text = String::new();
+    while text.len() < 2 * 1024 * 1024 {
+        text.push_str(&random_string(
+            &mut rng,
+            &["a", "b", "c", "d", " ", "\n"],
+            120,
+        ));
+        if rng.below(20) == 0 {
+            text.push_str(&values[rng.below(values.len())]);
+        }
+    }
+    let expected = reference_replace_values(&catalog, &text);
+    assert_eq!(catalog.scrub(&text), expected);
+
+    let mut before = Vec::new();
+    let mut after = Vec::new();
+    for _ in 0..5 {
+        let started = std::time::Instant::now();
+        let reference = reference_replace_values(&catalog, &text);
+        before.push(started.elapsed());
+        let started = std::time::Instant::now();
+        let current = catalog.scrub(&text);
+        after.push(started.elapsed());
+        assert_eq!(reference, current);
+    }
+    println!(
+        "replace_values 1024 values / {} bytes: before(reference) median {:?}, after median {:?}",
+        text.len(),
+        median(before),
+        median(after)
+    );
+
+    let single = catalog_from(&["H01_CANARY_short_1".to_string()]);
+    let short = "some key with H01_CANARY_short_1 inside";
+    let rounds = 20_000u32;
+    let mut single_before = Vec::new();
+    let mut single_after = Vec::new();
+    for _ in 0..5 {
+        let started = std::time::Instant::now();
+        for _ in 0..rounds {
+            std::hint::black_box(reference_replace_values(
+                &single,
+                std::hint::black_box(short),
+            ));
+        }
+        single_before.push(started.elapsed() / rounds);
+        let started = std::time::Instant::now();
+        for _ in 0..rounds {
+            std::hint::black_box(single.scrub(std::hint::black_box(short)));
+        }
+        single_after.push(started.elapsed() / rounds);
+    }
+    println!(
+        "replace_values 1 value / short text: before(reference) median {:?}/call, after median {:?}/call",
+        median(single_before),
+        median(single_after)
+    );
+}
+
+fn bench_point(label: &str, value_count: usize, text_len: usize) {
+    let mut rng = Xorshift(0x0547_cafe_u64 ^ (value_count as u64 * 31 + text_len as u64));
+    let values: Vec<String> = (0..value_count)
+        .map(|index| {
+            format!(
+                "tok-{index:04}-{}",
+                random_string(&mut rng, &["a", "b", "c", "d"], 16)
+            )
+        })
+        .collect();
+    let catalog = catalog_from(&values);
+    assert_eq!(catalog.len(), value_count);
+    let mut text = String::new();
+    while text.len() < text_len {
+        text.push_str(&random_string(
+            &mut rng,
+            &["a", "b", "c", "d", " ", "\n"],
+            60,
+        ));
+        if rng.below(10) == 0 {
+            text.push_str(&values[rng.below(values.len())]);
+        }
+    }
+    assert_eq!(
+        catalog.scrub(&text),
+        reference_replace_values(&catalog, &text)
+    );
+    let rounds = (20_000_000 / (text.len() * value_count.min(64)).max(1)).clamp(3, 2000) as u32;
+    let time = |run: &dyn Fn() -> String| {
+        let mut samples = Vec::new();
+        for _ in 0..5 {
+            let started = std::time::Instant::now();
+            for _ in 0..rounds {
+                std::hint::black_box(run());
+            }
+            samples.push(started.elapsed() / rounds);
+        }
+        median(samples)
+    };
+    let before = time(&|| reference_replace_values(&catalog, std::hint::black_box(&text)));
+    let after = time(&|| catalog.scrub(std::hint::black_box(&text)));
+    let forced = time(&|| automaton_replace_values(&catalog, std::hint::black_box(&text)));
+    println!(
+        "{label}: values {value_count}, text {} B: reference {before:?}, after {after:?} ({:.2}x), forced automaton {forced:?}",
+        text.len(),
+        after.as_secs_f64() / before.as_secs_f64()
+    );
+}
+
+#[test]
+#[ignore = "benchmark: Issue #547 threshold sweep; run with --release --ignored --nocapture"]
+fn bench_replace_values_threshold_sweep() {
+    for (count, len) in [
+        (1usize, 105usize),
+        (1, 2 * 1024 * 1024),
+        (16, 4096),
+        (64, 4096),
+        (64, 16 * 1024),
+        (64, 64 * 1024),
+        (256, 1024),
+        (256, 4096),
+        (256, 16 * 1024),
+        (1024, 265),
+        (1024, 1024),
+        (1024, 4096),
+        (1024, 8192),
+        (1024, 16 * 1024),
+        (1024, 64 * 1024),
+        (1024, 2 * 1024 * 1024),
+    ] {
+        bench_point("sweep", count, len);
+    }
+}

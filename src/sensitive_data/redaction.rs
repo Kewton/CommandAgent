@@ -20,6 +20,7 @@ use std::io::Read as _;
 use std::path::Path;
 use std::sync::Arc;
 
+use aho_corasick::{AhoCorasick, AhoCorasickKind, MatchKind};
 use serde_json::Value;
 
 use super::fixed_identifiers::{
@@ -132,6 +133,24 @@ impl std::fmt::Display for CollectionFailure {
 
 impl std::error::Error for CollectionFailure {}
 
+/// Cost model (release, ns) behind [`use_automaton`], measured by
+/// `bench_replace_values_threshold_sweep`. The per-value scan costs about
+/// `len / 7` ns per registered value. Building the automaton costs a fixed
+/// ~10 us plus ~0.8 us per value, and its own scan of the text is small next
+/// to that. The automaton is chosen only when the scan is estimated to cost at
+/// least 1.25x as much, so a short key, a single value, or a modest catalog on
+/// a modest text never pays the build, and a misestimate stays within noise.
+const AUTOMATON_BUILD_FIXED_NS: usize = 10_000;
+const AUTOMATON_BUILD_PER_VALUE_NS: usize = 800;
+const SCAN_BYTES_PER_VALUE_PER_NS: usize = 7;
+
+fn use_automaton(value_count: usize, text_len: usize) -> bool {
+    let scan = value_count.saturating_mul(text_len) / SCAN_BYTES_PER_VALUE_PER_NS;
+    let build = AUTOMATON_BUILD_FIXED_NS
+        .saturating_add(value_count.saturating_mul(AUTOMATON_BUILD_PER_VALUE_NS));
+    scan >= build.saturating_add(build / 4)
+}
+
 /// Replace every registered value with the marker.
 ///
 /// Occurrences are collected as spans and merged, so two overlapping secrets
@@ -141,8 +160,19 @@ fn replace_values(catalog: &SecretCatalog, text: &str) -> String {
     if text.is_empty() || catalog.is_empty() {
         return text.to_string();
     }
+    let spans = if use_automaton(catalog.len(), text.len()) {
+        occurrence_spans_automaton(catalog.values(), text)
+    } else {
+        occurrence_spans_scan(catalog.values(), text)
+    };
+    splice_marker(catalog.marker(), text, spans)
+}
+
+/// Every occurrence of every value (overlapping ones included), one scan per
+/// value.
+pub(super) fn occurrence_spans_scan(values: &[String], text: &str) -> Vec<(usize, usize)> {
     let mut spans: Vec<(usize, usize)> = Vec::new();
-    for value in catalog.values() {
+    for value in values {
         let mut search = 0usize;
         while let Some(relative) = text[search..].find(value.as_str()) {
             let start = search + relative;
@@ -155,6 +185,27 @@ fn replace_values(catalog: &SecretCatalog, text: &str) -> String {
             search = start + step;
         }
     }
+    spans
+}
+
+/// The same span set as [`occurrence_spans_scan`], from one overlapping
+/// Aho-Corasick pass over the text.
+pub(super) fn occurrence_spans_automaton(values: &[String], text: &str) -> Vec<(usize, usize)> {
+    let Ok(automaton) = AhoCorasick::builder()
+        .match_kind(MatchKind::Standard)
+        .kind(Some(AhoCorasickKind::ContiguousNFA))
+        .build(values)
+    else {
+        return occurrence_spans_scan(values, text);
+    };
+    automaton
+        .find_overlapping_iter(text)
+        .map(|found| (found.start(), found.end()))
+        .collect()
+}
+
+/// Merge overlapping and touching spans and replace each region with `marker`.
+pub(super) fn splice_marker(marker: &str, text: &str, mut spans: Vec<(usize, usize)>) -> String {
     if spans.is_empty() {
         return text.to_string();
     }
@@ -173,7 +224,7 @@ fn replace_values(catalog: &SecretCatalog, text: &str) -> String {
     let mut cursor = 0usize;
     for (start, end) in merged {
         out.push_str(&text[cursor..start]);
-        out.push_str(catalog.marker());
+        out.push_str(marker);
         cursor = end;
     }
     out.push_str(&text[cursor..]);
