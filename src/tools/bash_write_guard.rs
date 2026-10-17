@@ -12,8 +12,8 @@ pub(super) use working_directory::Inspection;
 
 /// Reads the working-directory candidates of a command for the second-stage
 /// (`bash.rs`) path inspection.
-pub(super) fn inspect_working_directory(command: &str) -> Inspection {
-    working_directory::inspect(command)
+pub(super) fn inspect_working_directory(command: &str, root: &Path) -> Inspection {
+    working_directory::inspect(command, Some(root))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,9 +59,16 @@ impl ShellWord {
     }
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(super) struct WordToken {
+    pub(super) text: String,
+    pub(super) executed_glob: bool,
+    pub(super) quoted_glob: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum ShellToken {
-    Word(String),
+pub(super) enum ShellToken {
+    Word(WordToken),
     OutputRedirect,
     InputRedirect,
     DescriptorRedirect,
@@ -79,7 +86,7 @@ pub(super) fn confinement_rejection(
     command: &str,
     root: &Path,
 ) -> Option<BashWriteConfinementRejection> {
-    let inspection = working_directory::inspect(command);
+    let inspection = working_directory::inspect(command, Some(root));
     for target in write_targets(command) {
         if let Some(rejection) = working_directory_rejection(&target, &inspection, root) {
             return Some(rejection);
@@ -199,7 +206,7 @@ fn working_directory_rejection(
     if path.starts_with('/') || path.starts_with('~') || path.starts_with('$') || path == "-" {
         return None;
     }
-    if inspection.undecidable {
+    if inspection.undecidable || inspection.rejects_relative_writes() {
         return Some(BashWriteConfinementRejection {
             path: path.clone(),
             operation: target.operation.clone(),
@@ -236,7 +243,7 @@ pub(crate) fn protected_path_mutation(
     root: &Path,
     protected_paths: &[String],
 ) -> Option<String> {
-    let inspection = working_directory::inspect(command);
+    let inspection = working_directory::inspect(command, Some(root));
     let mut targets = write_targets(command);
     // When the elision cannot read the command, the write guard still fails
     // closed, but the protected-path reference would be lost. Read the raw text
@@ -560,15 +567,15 @@ fn redirect_targets(tokens: &[ShellToken]) -> Vec<WriteTarget> {
     tokens
         .windows(2)
         .filter_map(|window| match window {
-            [ShellToken::OutputRedirect, ShellToken::Word(path)] => Some(WriteTarget {
-                path: path.clone(),
+            [ShellToken::OutputRedirect, ShellToken::Word(word)] => Some(WriteTarget {
+                path: word.text.clone(),
                 operation: "output redirection".to_string(),
             }),
-            [ShellToken::DescriptorRedirect, ShellToken::Word(path)]
-                if !is_descriptor_word(path) =>
+            [ShellToken::DescriptorRedirect, ShellToken::Word(word)]
+                if !is_descriptor_word(&word.text) =>
             {
                 Some(WriteTarget {
-                    path: path.clone(),
+                    path: word.text.clone(),
                     operation: "output redirection".to_string(),
                 })
             }
@@ -595,13 +602,35 @@ fn command_words(tokens: &[ShellToken]) -> Vec<&str> {
             }
             ShellToken::DescriptorRedirect => skip_redirect_target = true,
             ShellToken::Word(_) if skip_redirect_target => skip_redirect_target = false,
-            ShellToken::Word(word) => words.push(word.as_str()),
+            ShellToken::Word(word) => words.push(word.text.as_str()),
             ShellToken::SegmentEnd => {}
         }
     }
     let assignment_count = words
         .iter()
         .take_while(|word| is_environment_assignment(word))
+        .count();
+    words.drain(..assignment_count);
+    words
+}
+
+pub(super) fn command_word_tokens(tokens: &[ShellToken]) -> Vec<&WordToken> {
+    let mut words = Vec::new();
+    let mut skip_redirect_target = false;
+    for token in tokens {
+        match token {
+            ShellToken::OutputRedirect | ShellToken::InputRedirect => {
+                skip_redirect_target = true;
+            }
+            ShellToken::DescriptorRedirect => skip_redirect_target = true,
+            ShellToken::Word(_) if skip_redirect_target => skip_redirect_target = false,
+            ShellToken::Word(word) => words.push(word),
+            ShellToken::SegmentEnd => {}
+        }
+    }
+    let assignment_count = words
+        .iter()
+        .take_while(|word| is_environment_assignment(&word.text))
         .count();
     words.drain(..assignment_count);
     words
@@ -669,7 +698,7 @@ fn is_environment_assignment(word: &str) -> bool {
 
 /// Splits a command into shell tokens. A thin wrapper over [`lex_shell`] for the
 /// callers that only need the token stream (the working-directory walk).
-fn shell_tokens(command: &str, cr_mode: CrMode) -> Option<Vec<ShellToken>> {
+pub(super) fn shell_tokens(command: &str, cr_mode: CrMode) -> Option<Vec<ShellToken>> {
     lex_shell(command, cr_mode).map(|lexed| lexed.tokens)
 }
 
@@ -825,10 +854,10 @@ fn lex_shell(command: &str, cr_mode: CrMode) -> Option<LexedShell> {
 }
 
 /// Whether a character is a glob or brace metacharacter the shell may expand
-/// when it stands unquoted (`* ? [ { }`). The set matches the read-path mark
+/// when it stands unquoted (`* ? [ ] { }`). The set matches the read-path mark
 /// (`path_tokens::read_words`).
 fn is_executed_glob_brace_metacharacter(ch: char) -> bool {
-    matches!(ch, '*' | '?' | '[' | '{' | '}')
+    matches!(ch, '*' | '?' | '[' | ']' | '{' | '}')
 }
 
 /// Whether a character is a glob or brace metacharacter whose quoting the word
@@ -848,7 +877,11 @@ fn push_word(
         if word.is_ambiguous() {
             ambiguous_words.push(word.text.clone());
         }
-        tokens.push(ShellToken::Word(word.text));
+        tokens.push(ShellToken::Word(WordToken {
+            text: word.text,
+            executed_glob: word.executed_glob,
+            quoted_glob: word.quoted_glob,
+        }));
         *word_started = false;
     }
 }
@@ -880,7 +913,11 @@ mod tests {
 
     /// A literal word token, for the lexer-shape tests.
     fn word(text: &str) -> ShellToken {
-        ShellToken::Word(text.to_string())
+        ShellToken::Word(WordToken {
+            text: text.to_string(),
+            executed_glob: false,
+            quoted_glob: false,
+        })
     }
 
     #[test]
@@ -1949,7 +1986,7 @@ mod tests {
             pairs.contains(&("spec.rs".to_string(), "tee".to_string())),
             "the existing target must stay visible: {pairs:?}"
         );
-        let inspection = working_directory::inspect(command);
+        let inspection = working_directory::inspect(command, Some(&root));
         assert!(
             inspection.undecidable,
             "an ambiguous expansion must mark the inspection undecidable"

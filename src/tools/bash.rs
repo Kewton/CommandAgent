@@ -808,7 +808,7 @@ pub fn path_confinement_rejection(
             message,
         });
     }
-    let inspection = super::bash_write_guard::inspect_working_directory(command);
+    let inspection = super::bash_write_guard::inspect_working_directory(command, &root);
     let read = read_guard::inspect(command);
     if let Some(word) = read.unverifiable {
         return Some(path_reference_rejection(
@@ -826,7 +826,7 @@ pub fn path_confinement_rejection(
         if path.starts_with('/') {
             continue;
         }
-        if inspection.undecidable {
+        if inspection.undecidable || inspection.is_unverifiable_expansion(path, expands) {
             return Some(path_reference_rejection(
                 path,
                 &root,
@@ -834,7 +834,9 @@ pub fn path_confinement_rejection(
             ));
         }
         for joined in inspection.relative_variants(path) {
-            if ensure_read_candidate(&root, &joined, expands).is_err() {
+            if ensure_read_candidate(&root, &joined, expands).is_err()
+                || super::path_guard::ensure_bash_write_target(&root, &joined).is_err()
+            {
                 return Some(path_reference_rejection(&joined, &root, None));
             }
         }
@@ -872,8 +874,17 @@ pub fn path_confinement_rejection(
             ));
         }
         for word in &inspection.relative_words {
+            if inspection.is_unverifiable_expansion(word, false) {
+                return Some(path_reference_rejection(
+                    word,
+                    &root,
+                    Some("follows a working directory change that cannot be determined"),
+                ));
+            }
             for joined in inspection.all_variants(word) {
-                if super::path_guard::ensure_bash_write_target(&root, &joined).is_err() {
+                if super::path_guard::ensure_bash_write_target(&root, &joined).is_err()
+                    || super::path_guard::ensure_bash_read_target(&root, &joined).is_err()
+                {
                     return Some(path_reference_rejection(&joined, &root, None));
                 }
             }

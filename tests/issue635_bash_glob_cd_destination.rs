@@ -5,9 +5,9 @@
 //! not mark the walk "cannot be determined", so a following relative path was
 //! judged against the workspace root alone and an outward symlink inside the
 //! destination escaped. The walk now flags such a destination, and the second
-//! stage refuses the `/`-less relative words under that flag too. A destination
-//! whose brackets are quoted or escaped (`cd "s[2]"`) is flagged the same way,
-//! because the lexical read cannot tell it apart from an executed glob.
+//! stage refuses the `/`-less relative words under that flag too. Quoted or
+//! escaped literal brackets are read as literal destinations (Issue #643); an
+//! outward symlink inside them is rejected as an outside-workspace reference.
 //!
 //! The write rows are pinned to the write-side operation and the existing
 //! "working directory change that cannot be determined" reason, so they are
@@ -108,10 +108,6 @@ fn glob_cd_destination_rejects_relative_reads() {
         "cd s2*\ncat lf4".to_string(),
         "cd s2*; cat lf4".to_string(),
         "cd s2* || cat lf4".to_string(),
-        // Row 8: quoted or escaped literal brackets.
-        "cd \"s[2]\" && cat lf5".to_string(),
-        "cd 's[2]' && cat lf5".to_string(),
-        r"cd s\[2\] && cat lf5".to_string(),
         // A prefixed `cd` and an absolute destination keep their handling.
         "env cd s2* && cat lf4".to_string(),
         format!("cd {root_absolute}/s2* && cat lf4"),
@@ -132,7 +128,6 @@ fn glob_cd_destination_rejects_relative_writes() {
         ("cd s2* && cp f lf4", "cp"),
         ("cd s2* && touch lf4", "touch"),
         ("cd {s2,x} && printf x > lf4", "output redirection"),
-        ("cd \"s[2]\" && touch lf5", "touch"),
         ("pushd s2* && tee lf4", "tee"),
     ];
     for (command, operation) in cases {
@@ -256,4 +251,44 @@ fn glob_cd_destination_alone_is_rejected() {
         "cd {s2,x}".to_string(),
     ];
     assert_glob_destination_read_rejected(root, &cases);
+}
+
+/// Issue #643: quoted or escaped literal brackets are read as literal
+/// working-directory destinations. An outward symlink inside them is still
+/// rejected, now with the outward symlink reason rather than the undetermined
+/// working-directory reason.
+#[test]
+fn quoted_bracket_destination_rejects_outward_symlink() {
+    let fixture = fixture();
+    let root = &fixture.root;
+    for command in [
+        "cd \"s[2]\" && cat lf5",
+        "cd 's[2]' && cat lf5",
+        r"cd s\[2\] && cat lf5",
+    ] {
+        let rejection = path_confinement_rejection(command, root)
+            .unwrap_or_else(|| panic!("expected rejection: {command}"));
+        assert_eq!(rejection.operation, READ_OPERATION, "command: {command}");
+        assert_eq!(rejection.path, "lf5", "command: {command}");
+        assert!(
+            rejection
+                .reason
+                .contains("resolves outside current workspace root"),
+            "command: {command}: {}",
+            rejection.reason
+        );
+    }
+
+    let command = "cd \"s[2]\" && touch lf5";
+    let rejection = path_confinement_rejection(command, root)
+        .unwrap_or_else(|| panic!("expected write rejection: {command}"));
+    assert_eq!(rejection.operation, "touch", "command: {command}");
+    assert_eq!(rejection.path, "s[2]/lf5", "command: {command}");
+    assert!(
+        rejection.reason.contains(
+            "outside the Gate 1 workspace boundary relative to a working directory candidate"
+        ),
+        "command: {command}: {}",
+        rejection.reason
+    );
 }
