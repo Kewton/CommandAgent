@@ -26,6 +26,7 @@ default = []
 gui = ["dep:axum", "dep:tokio"]
 
 [dependencies]
+aho-corasick = "1"
 anyhow = "1"
 axum = { version = "0.8", optional = true }
 clap = { version = "4", features = ["derive"] }
