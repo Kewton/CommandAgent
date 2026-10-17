@@ -220,11 +220,19 @@ fn walk(text: &str, ambiguous: bool, cr_mode: CrMode, root: Option<&Path>) -> In
     let mut glob_destination: Option<String> = None;
     let mut cdpath = false;
     let mut dirstack = false;
+    // Issue #580: the lenient read-word count holds only when every candidate
+    // working directory is known to stay inside the workspace root. A
+    // non-empty `CDPATH`, any `DIRSTACK` mention, and a destination that cannot
+    // be read from its spelling each make the directory unknowable.
+    let mut cdpath_unsafe = false;
+    let mut unknown_destination = false;
+    let mut literal_targets: Vec<String> = Vec::new();
     let mut loop_keyword = false;
     let mut function_keyword = false;
     for word in tokens.iter().filter_map(word_token) {
         if names_variable(word, "CDPATH") {
             cdpath = true;
+            cdpath_unsafe |= word != "CDPATH=";
         }
         if names_variable(word, "DIRSTACK") {
             dirstack = true;
@@ -260,10 +268,12 @@ fn walk(text: &str, ambiguous: bool, cr_mode: CrMode, root: Option<&Path>) -> In
             &mut glob_destination,
             &mut overflow,
             root,
+            &mut literal_targets,
         );
         let resolution = command_prefix::resolve(&words);
         if declares_variable(&resolution, "CDPATH") {
             cdpath = true;
+            cdpath_unsafe = true;
         }
         if declares_variable(&resolution, "DIRSTACK") {
             dirstack = true;
@@ -283,6 +293,7 @@ fn walk(text: &str, ambiguous: bool, cr_mode: CrMode, root: Option<&Path>) -> In
                 }
             }
             file_words.extend(file_reading_words(&words, &resolution));
+            file_words.extend(redirect_target_words(segment));
         }
         let Resolution::Program {
             program, arguments, ..
@@ -294,9 +305,13 @@ fn walk(text: &str, ambiguous: bool, cr_mode: CrMode, root: Option<&Path>) -> In
         match program.as_str() {
             "cd" => {
                 has_cd = true;
-                if let Some(target) = positional_operands(&arguments).first().copied() {
+                let target = positional_operands(&arguments).first().copied();
+                // `cd` with no operand goes to `$HOME`, which is not a candidate.
+                unknown_destination |= target.is_none();
+                if let Some(target) = target {
                     let token = find_operand_token(&word_tokens, target);
                     if is_literal_target(target, token, &inspection.bases, root) {
+                        literal_targets.push(target.to_string());
                         if !overflow
                             && let Some(joined) = extend_literal(&mut inspection.bases, target)
                         {
@@ -305,6 +320,8 @@ fn walk(text: &str, ambiguous: bool, cr_mode: CrMode, root: Option<&Path>) -> In
                         }
                     } else if is_glob_destination(target) {
                         mark_glob_destination(&mut glob_destination, target);
+                    } else {
+                        unknown_destination = true;
                     }
                 }
             }
@@ -325,6 +342,7 @@ fn walk(text: &str, ambiguous: bool, cr_mode: CrMode, root: Option<&Path>) -> In
                 }
                 let token = find_operand_token(&word_tokens, target);
                 if is_literal_target(target, token, &inspection.bases, root) {
+                    literal_targets.push(target.to_string());
                     if !overflow && let Some(joined) = extend_literal(&mut inspection.bases, target)
                     {
                         inspection.targets.extend(joined);
@@ -332,6 +350,8 @@ fn walk(text: &str, ambiguous: bool, cr_mode: CrMode, root: Option<&Path>) -> In
                     }
                 } else if is_glob_destination(target) {
                     mark_glob_destination(&mut glob_destination, target);
+                } else {
+                    unknown_destination = true;
                 }
             }
             "popd" => {
@@ -349,7 +369,13 @@ fn walk(text: &str, ambiguous: bool, cr_mode: CrMode, root: Option<&Path>) -> In
         || overflow
         || inspection.glob_destination
         || (has_cd && (loop_keyword || function_keyword));
-    inspection.undecidable_words = if ambiguous || inspection.glob_destination {
+    let stays_in_root = !unknown_destination
+        && !cdpath_unsafe
+        && !dirstack
+        && root.is_some_and(|root| {
+            targets_stay_in_root(&literal_targets, root, loop_keyword || function_keyword)
+        });
+    inspection.undecidable_words = if ambiguous || inspection.glob_destination || !stays_in_root {
         inspection.relative_words.clone()
     } else {
         file_words
@@ -481,23 +507,18 @@ fn file_reading_words(words: &[&str], resolution: &Resolution) -> Vec<String> {
             after_options = true;
             subcommand_pending = false;
         } else if argument.starts_with('-') {
-            if argument.contains('/') {
-                let value = if argument.starts_with("--") {
-                    argument.split_once('=').map(|(_, value)| value)
-                } else {
-                    argument.get(2..)
-                };
-                match value {
-                    Some(value) if value.starts_with('/') => {}
-                    Some(value) if !value.is_empty() => found.push(value.to_string()),
-                    _ => found.push(argument.to_string()),
+            // Only a one-letter `-x` and a `--long` without `=` name no file.
+            // A longer single-dash word may carry a value (`-fsecret`), and a
+            // `--long=VALUE` keeps its value.
+            if let Some(option) = argument.strip_prefix("--") {
+                if let Some((_, value)) = option.split_once('=')
+                    && !value.is_empty()
+                    && !value.starts_with('/')
+                {
+                    found.push(value.to_string());
                 }
-            } else if let Some((_, value)) = argument
-                .strip_prefix("--")
-                .and_then(|option| option.split_once('='))
-                && is_relative_word(value)
-            {
-                found.push(value.to_string());
+            } else if argument.chars().count() > 2 {
+                found.push(argument.to_string());
             }
             if !argument.contains('=') && !CARGO_LEADING_FLAGS.contains(&argument) {
                 subcommand_pending = false;
@@ -506,12 +527,93 @@ fn file_reading_words(words: &[&str], resolution: &Resolution) -> Vec<String> {
             subcommand_pending = false;
         } else {
             subcommand_pending = false;
-            if is_relative_word(argument) {
+            if is_read_argument(argument) {
                 found.push(argument.to_string());
             }
         }
     }
     found
+}
+
+/// Whether a plain argument may name a file, or carry text (a `sh -c` script)
+/// that does: a relative word, or a word holding whitespace, a backslash, or `=`.
+fn is_read_argument(word: &str) -> bool {
+    is_relative_word(word)
+        || (!word.starts_with('-')
+            && word.contains(|ch: char| ch.is_whitespace() || ch == '\\' || ch == '='))
+}
+
+/// The relative words after an input or output redirect, which name a file the
+/// shell opens (`cat < secret`). A descriptor target (`2>&1`) names none.
+fn redirect_target_words(segment: &[ShellToken]) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut descriptor = false;
+    let mut redirect = false;
+    for token in segment {
+        match token {
+            ShellToken::OutputRedirect | ShellToken::InputRedirect => {
+                redirect = true;
+                descriptor = false;
+            }
+            ShellToken::DescriptorRedirect => {
+                redirect = true;
+                descriptor = true;
+            }
+            ShellToken::Word(word) if redirect => {
+                redirect = false;
+                let numeric = word.text.chars().all(|ch| ch.is_ascii_digit() || ch == '-');
+                if is_relative_word(&word.text) && !(descriptor && numeric) {
+                    found.push(word.text.clone());
+                }
+            }
+            _ => redirect = false,
+        }
+    }
+    found
+}
+
+/// Whether every working-directory candidate the literal `cd`/`pushd`
+/// destinations can produce stays inside the workspace root (Issue #580). The
+/// destinations are replayed like the candidate walk but without its cap, twice
+/// when a loop or function can repeat them. A candidate that exists and resolves
+/// outside the root, or a set past the replay bound, is not proven.
+fn targets_stay_in_root(targets: &[String], root: &Path, repeats: bool) -> bool {
+    const MAX_REPLAY: usize = 4096;
+    let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let mut bases: Vec<String> = vec![String::new()];
+    let mut seen: HashSet<String> = bases.iter().cloned().collect();
+    for _ in 0..if repeats { 2 } else { 1 } {
+        for target in targets {
+            let joined: Vec<String> = if Path::new(target).is_absolute() {
+                vec![target.clone()]
+            } else {
+                bases.iter().map(|base| join(base, target)).collect()
+            };
+            for path in joined {
+                if !seen.insert(path.clone()) {
+                    continue;
+                }
+                if seen.len() > MAX_REPLAY || !stays_in_root(&root, &path) {
+                    return false;
+                }
+                bases.push(path);
+            }
+        }
+    }
+    true
+}
+
+fn stays_in_root(root: &Path, path: &str) -> bool {
+    let full = if Path::new(path).is_absolute() {
+        Path::new(path).to_path_buf()
+    } else {
+        root.join(path)
+    };
+    match full.canonicalize() {
+        Ok(resolved) => resolved.starts_with(root),
+        // A directory that does not exist cannot be entered.
+        Err(_) => full.starts_with(root) || !Path::new(path).is_absolute(),
+    }
 }
 
 fn is_subcommand_name(word: &str) -> bool {
@@ -541,10 +643,12 @@ fn collect_option_directories(
     glob_destination: &mut Option<String>,
     overflow: &mut bool,
     root: Option<&Path>,
+    literal_targets: &mut Vec<String>,
 ) {
     for value in option_directory::directories(words) {
         let token = find_option_token(word_tokens, &value);
         if is_literal_target(&value, token, &inspection.bases, root) {
+            literal_targets.push(value.clone());
             if !*overflow && let Some(joined) = extend_literal(&mut inspection.bases, &value) {
                 inspection.targets.extend(joined);
                 *overflow = inspection.bases.len() > MAX_CANDIDATES;

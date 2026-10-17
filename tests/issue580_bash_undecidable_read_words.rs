@@ -28,6 +28,8 @@ fn fixture() -> Fixture {
     std::fs::create_dir_all(&outside).unwrap();
     std::fs::write(outside.join("secret"), "outside-secret").unwrap();
     std::os::unix::fs::symlink(&outside, root.join("link")).unwrap();
+    std::os::unix::fs::symlink(&outside, root.join("linked-outside")).unwrap();
+    std::os::unix::fs::symlink(&outside, root.join("sub/link")).unwrap();
     let root = root.canonicalize().unwrap();
     Fixture { _dir: dir, root }
 }
@@ -140,6 +142,68 @@ fn variable_names_keep_raising_the_mark() {
             "cd sub && \"DIR\"STACK[1]=x; cat secret",
             "cd sub && DIR\\STACK[1]=x; cat secret",
             "cd sub && \"CD\"PATH=x; cat secret",
+        ],
+    );
+}
+
+#[test]
+fn input_redirect_targets_stay_read_words() {
+    let fixture = fixture();
+    assert_rejected(
+        &fixture.root,
+        &[
+            "CDPATH=sub cd link && cat < secret",
+            "CDPATH=sub cd link && cat <secret",
+            "CDPATH=sub cd link && cat 0<secret",
+            "CDPATH= cd sub && cat < secret",
+        ],
+    );
+    assert_allowed(&fixture.root, &["CDPATH= cd sub && cargo test 2>&1"]);
+}
+
+#[test]
+fn short_option_values_and_scripts_stay_read_words() {
+    let fixture = fixture();
+    let root = fixture.root.display();
+    let absolute = format!("CDPATH=sub cd link && sed -fsecret {root}/secret");
+    assert_rejected(
+        &fixture.root,
+        &[
+            "CDPATH=sub cd link && grep -fsecret /dev/null",
+            &absolute,
+            "CDPATH=sub cd link && tar -xfsecret",
+            "CDPATH= cd sub && grep -fsecret /dev/null",
+            "CDPATH=sub cd link && sh -c 'cat secret'",
+            "CDPATH= cd sub && sh -c 'cat secret'",
+            "CDPATH= cd sub && grep --file=secret /dev/null",
+        ],
+    );
+    assert_allowed(
+        &fixture.root,
+        &["CDPATH= cd sub && ls -a", "cd sub && tee -"],
+    );
+}
+
+#[test]
+fn undecidable_cd_that_may_leave_the_root_stays_rejected() {
+    let fixture = fixture();
+    assert_rejected(
+        &fixture.root,
+        &[
+            "CDPATH=sub cd link && ls",
+            "CDPATH=sub cd link && ls -la",
+            "CDPATH=sub cd link && cargo test",
+            "CDPATH=sub cd link && cargo run",
+            "CDPATH=sub cd link && true",
+            "export CDPATH=sub; cd link; true",
+            "cd sub && DIRSTACK[1]=x; true",
+            "cd sub && echo $CDPATH",
+            "for d in a b; do (cd linked-outside && cargo test); done",
+            "f() { cd linked-outside; }; f; ls",
+            "for d in a b; do (cd sub && cd link && true); done",
+            "for d in a b; do (cd $d && true); done",
+            "for d in a b; do (cd .. && true); done",
+            "for d in a b; do (cd && true); done",
         ],
     );
 }
