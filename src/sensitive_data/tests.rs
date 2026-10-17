@@ -1361,6 +1361,15 @@ fn automaton_replace_values(catalog: &SecretCatalog, text: &str) -> String {
     redaction::splice_marker(catalog.marker(), text, spans)
 }
 
+/// The per-value scan path forced regardless of the cost model.
+fn scan_replace_values(catalog: &SecretCatalog, text: &str) -> String {
+    if text.is_empty() || catalog.is_empty() {
+        return text.to_string();
+    }
+    let spans = redaction::occurrence_spans_scan(catalog.values(), text);
+    redaction::splice_marker(catalog.marker(), text, spans)
+}
+
 fn assert_equivalent(catalog: &SecretCatalog, text: &str) {
     let expected = reference_replace_values(catalog, text);
     assert_eq!(catalog.scrub(text), expected, "public scrub, text {text:?}");
@@ -1368,6 +1377,11 @@ fn assert_equivalent(catalog: &SecretCatalog, text: &str) {
         automaton_replace_values(catalog, text),
         expected,
         "automaton path, text {text:?}"
+    );
+    assert_eq!(
+        scan_replace_values(catalog, text),
+        expected,
+        "scan path, text {text:?}"
     );
     assert_eq!(
         catalog.scrub(&expected),
@@ -1586,4 +1600,78 @@ fn bench_replace_values_1024_values_2mb() {
         median(single_before),
         median(single_after)
     );
+}
+
+fn bench_point(label: &str, value_count: usize, text_len: usize) {
+    let mut rng = Xorshift(0x0547_cafe_u64 ^ (value_count as u64 * 31 + text_len as u64));
+    let values: Vec<String> = (0..value_count)
+        .map(|index| {
+            format!(
+                "tok-{index:04}-{}",
+                random_string(&mut rng, &["a", "b", "c", "d"], 16)
+            )
+        })
+        .collect();
+    let catalog = catalog_from(&values);
+    assert_eq!(catalog.len(), value_count);
+    let mut text = String::new();
+    while text.len() < text_len {
+        text.push_str(&random_string(
+            &mut rng,
+            &["a", "b", "c", "d", " ", "\n"],
+            60,
+        ));
+        if rng.below(10) == 0 {
+            text.push_str(&values[rng.below(values.len())]);
+        }
+    }
+    assert_eq!(
+        catalog.scrub(&text),
+        reference_replace_values(&catalog, &text)
+    );
+    let rounds = (20_000_000 / (text.len() * value_count.min(64)).max(1)).clamp(3, 2000) as u32;
+    let time = |run: &dyn Fn() -> String| {
+        let mut samples = Vec::new();
+        for _ in 0..5 {
+            let started = std::time::Instant::now();
+            for _ in 0..rounds {
+                std::hint::black_box(run());
+            }
+            samples.push(started.elapsed() / rounds);
+        }
+        median(samples)
+    };
+    let before = time(&|| reference_replace_values(&catalog, std::hint::black_box(&text)));
+    let after = time(&|| catalog.scrub(std::hint::black_box(&text)));
+    let forced = time(&|| automaton_replace_values(&catalog, std::hint::black_box(&text)));
+    println!(
+        "{label}: values {value_count}, text {} B: reference {before:?}, after {after:?} ({:.2}x), forced automaton {forced:?}",
+        text.len(),
+        after.as_secs_f64() / before.as_secs_f64()
+    );
+}
+
+#[test]
+#[ignore = "benchmark: Issue #547 threshold sweep; run with --release --ignored --nocapture"]
+fn bench_replace_values_threshold_sweep() {
+    for (count, len) in [
+        (1usize, 105usize),
+        (1, 2 * 1024 * 1024),
+        (16, 4096),
+        (64, 4096),
+        (64, 16 * 1024),
+        (64, 64 * 1024),
+        (256, 1024),
+        (256, 4096),
+        (256, 16 * 1024),
+        (1024, 265),
+        (1024, 1024),
+        (1024, 4096),
+        (1024, 8192),
+        (1024, 16 * 1024),
+        (1024, 64 * 1024),
+        (1024, 2 * 1024 * 1024),
+    ] {
+        bench_point("sweep", count, len);
+    }
 }

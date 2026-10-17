@@ -20,7 +20,7 @@ use std::io::Read as _;
 use std::path::Path;
 use std::sync::Arc;
 
-use aho_corasick::{AhoCorasick, MatchKind};
+use aho_corasick::{AhoCorasick, AhoCorasickKind, MatchKind};
 use serde_json::Value;
 
 use super::fixed_identifiers::{
@@ -133,10 +133,23 @@ impl std::fmt::Display for CollectionFailure {
 
 impl std::error::Error for CollectionFailure {}
 
-/// Work (registered values x text bytes) above which one Aho-Corasick pass is
-/// cheaper than building the automaton plus scanning once per value. Below it
-/// the per-value scan runs, so a short key or a single value pays no build cost.
-const AUTOMATON_WORK_THRESHOLD: usize = 1 << 20;
+/// Cost model (release, ns) behind [`use_automaton`], measured by
+/// `bench_replace_values_threshold_sweep`. The per-value scan costs about
+/// `len / 7` ns per registered value. Building the automaton costs a fixed
+/// ~10 us plus ~0.8 us per value, and its own scan of the text is small next
+/// to that. The automaton is chosen only when the scan is estimated to cost at
+/// least 1.25x as much, so a short key, a single value, or a modest catalog on
+/// a modest text never pays the build, and a misestimate stays within noise.
+const AUTOMATON_BUILD_FIXED_NS: usize = 10_000;
+const AUTOMATON_BUILD_PER_VALUE_NS: usize = 800;
+const SCAN_BYTES_PER_VALUE_PER_NS: usize = 7;
+
+fn use_automaton(value_count: usize, text_len: usize) -> bool {
+    let scan = value_count.saturating_mul(text_len) / SCAN_BYTES_PER_VALUE_PER_NS;
+    let build = AUTOMATON_BUILD_FIXED_NS
+        .saturating_add(value_count.saturating_mul(AUTOMATON_BUILD_PER_VALUE_NS));
+    scan >= build.saturating_add(build / 4)
+}
 
 /// Replace every registered value with the marker.
 ///
@@ -147,7 +160,7 @@ fn replace_values(catalog: &SecretCatalog, text: &str) -> String {
     if text.is_empty() || catalog.is_empty() {
         return text.to_string();
     }
-    let spans = if catalog.len().saturating_mul(text.len()) >= AUTOMATON_WORK_THRESHOLD {
+    let spans = if use_automaton(catalog.len(), text.len()) {
         occurrence_spans_automaton(catalog.values(), text)
     } else {
         occurrence_spans_scan(catalog.values(), text)
@@ -180,6 +193,7 @@ pub(super) fn occurrence_spans_scan(values: &[String], text: &str) -> Vec<(usize
 pub(super) fn occurrence_spans_automaton(values: &[String], text: &str) -> Vec<(usize, usize)> {
     let Ok(automaton) = AhoCorasick::builder()
         .match_kind(MatchKind::Standard)
+        .kind(Some(AhoCorasickKind::ContiguousNFA))
         .build(values)
     else {
         return occurrence_spans_scan(values, text);
