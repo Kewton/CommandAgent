@@ -281,6 +281,69 @@ struct ReadIsolation {
 /// location does not re-open a secret.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 fn read_isolation(policy: Option<&SandboxPolicy>) -> ReadIsolation {
+    #[cfg(target_os = "linux")]
+    {
+        read_isolation_with_limit(policy, read_allow_limit())
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        read_isolation_checked(policy)
+    }
+}
+
+/// A test override of the read-allow expansion limit (0 means the default
+/// [`landlock::MAX_READ_ALLOW_RULES`]), so an integration test can drive the
+/// overflow without a home of thousands of siblings (Issue #668).
+#[cfg(target_os = "linux")]
+static READ_ALLOW_LIMIT_OVERRIDE: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+/// The read-allow expansion limit in force.
+#[cfg(target_os = "linux")]
+pub(crate) fn read_allow_limit() -> usize {
+    match READ_ALLOW_LIMIT_OVERRIDE.load(std::sync::atomic::Ordering::Relaxed) {
+        0 => landlock::MAX_READ_ALLOW_RULES,
+        limit => limit,
+    }
+}
+
+/// Override the read-allow expansion limit (`None` restores the default).
+/// Tests only; [`reset_for_test`] clears it.
+#[cfg(target_os = "linux")]
+pub fn set_read_allow_limit_for_test(limit: Option<usize>) {
+    READ_ALLOW_LIMIT_OVERRIDE.store(limit.unwrap_or(0), std::sync::atomic::Ordering::Relaxed);
+}
+
+/// [`read_isolation`] with an explicit expansion limit, so a test can drive the
+/// overflow without a real home of thousands of siblings (Issue #668).
+#[cfg(target_os = "linux")]
+fn read_isolation_with_limit(policy: Option<&SandboxPolicy>, limit: usize) -> ReadIsolation {
+    let checked = read_isolation_checked(policy);
+    let Some(policy) = policy else {
+        return checked;
+    };
+    if !checked.effective {
+        return checked;
+    }
+    match landlock::read_allow_plan(policy, limit) {
+        landlock::ReadAllowPlan::Full(_) => checked,
+        landlock::ReadAllowPlan::HomeClosed(_) => ReadIsolation {
+            effective: false,
+            clause: format!(
+                "read isolation is not effective: the read allow list would exceed {limit} rules, so the whole home is unreadable (tools installed under the home will not run)"
+            ),
+        },
+        landlock::ReadAllowPlan::HomeClosedOverLimit(_) => ReadIsolation {
+            effective: false,
+            clause: format!(
+                "read isolation is not effective: the read allow list exceeds {limit} rules even with the home closed; the home is unreadable (tools installed under the home will not run)"
+            ),
+        },
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn read_isolation_checked(policy: Option<&SandboxPolicy>) -> ReadIsolation {
     let Some(policy) = policy else {
         return ReadIsolation {
             effective: false,
@@ -324,12 +387,16 @@ fn read_isolation(_policy: Option<&SandboxPolicy>) -> ReadIsolation {
 /// The note recorded in the `bash_sandbox_status` reason while the sandbox is
 /// applied. On Linux it names the write operations an older ABI cannot close,
 /// the network-isolation clause of Issue #658 when `--offline` cannot be
-/// enforced (no ABI4), and the read-isolation clause; a fully closed ABI with
-/// effective reads and an enforced network has no note (`None`), which the event
-/// reads as fully confined. On other platforms it names the read-isolation
-/// clause. macOS enforces the network layer inside Seatbelt, so it has no
-/// network clause.
-fn backend_note(read: &ReadIsolation, offline: bool) -> Option<String> {
+/// enforced (no ABI4), and the read-isolation clause (effective or not, in the
+/// same words as macOS since Issue #668). Both platforms then name a known
+/// dependency cache that was refused because it resolves outside the home.
+/// macOS enforces the network layer inside Seatbelt, so it has no network
+/// clause.
+fn backend_note(
+    read: &ReadIsolation,
+    offline: bool,
+    policy: Option<&SandboxPolicy>,
+) -> Option<String> {
     #[cfg(target_os = "linux")]
     {
         let mut parts = Vec::new();
@@ -339,19 +406,18 @@ fn backend_note(read: &ReadIsolation, offline: bool) -> Option<String> {
         if let Some(note) = landlock::network_limitation_note(offline) {
             parts.push(note);
         }
-        if !read.effective {
-            parts.push(read.clause.clone());
-        }
-        if parts.is_empty() {
-            None
-        } else {
-            Some(parts.join("; "))
-        }
+        // The same "applied" sentence macOS records (Issue #668), so both
+        // platforms report an effective read layer in the same words.
+        parts.push(read.clause.clone());
+        parts.extend(cache_note(policy));
+        Some(parts.join("; "))
     }
     #[cfg(not(target_os = "linux"))]
     {
         let _ = offline;
-        Some(read.clause.clone())
+        let mut parts = vec![read.clause.clone()];
+        parts.extend(cache_note(policy));
+        Some(parts.join("; "))
     }
 }
 
@@ -527,7 +593,7 @@ fn reconcile_workspace_impl(workspace_root: &Path) -> Option<SandboxStatus> {
         return Some(SandboxStatus::from_parts(
             mode,
             &availability,
-            backend_note(&read, offline),
+            backend_note(&read, offline, policy.as_ref()),
             read.effective,
         ));
     }
@@ -537,7 +603,7 @@ fn reconcile_workspace_impl(workspace_root: &Path) -> Option<SandboxStatus> {
         return Some(SandboxStatus::from_parts(
             mode,
             &availability,
-            backend_note(&read, offline),
+            backend_note(&read, offline, policy.as_ref()),
             read.effective,
         ));
     }
@@ -563,7 +629,7 @@ fn store(
     let status = SandboxStatus::from_parts(
         mode,
         &availability,
-        backend_note(&read, offline),
+        backend_note(&read, offline, policy.as_ref()),
         read.effective,
     );
     let mut installed = INSTALLED.lock().expect("sandbox state");
@@ -576,20 +642,51 @@ fn store(
     status
 }
 
+/// The events file a downgrade is reported to. The run's path is chosen by the
+/// binary at run start, so it hands it over with [`set_events_path`]; without it
+/// a downgrade is recorded in the status only.
+static EVENTS_PATH: Mutex<Option<PathBuf>> = Mutex::new(None);
+
+/// Tell the sandbox where the run's events file is, so a later downgrade can
+/// re-emit `bash_sandbox_status` there (Issue #668). Pass `None` to clear it.
+pub fn set_events_path(path: Option<PathBuf>) {
+    *EVENTS_PATH.lock().expect("sandbox events path") = path;
+}
+
+/// The `bash_sandbox_status` event for a status. The same name and fields the
+/// run-start event carries; no field is added.
+pub fn status_event(status: &SandboxStatus) -> serde_json::Value {
+    serde_json::json!({
+        "event": "bash_sandbox_status",
+        "mode": status.mode.as_str(),
+        "backend": status.backend,
+        "applied": status.applied,
+        "reason": status.reason.clone().unwrap_or_default(),
+    })
+}
+
 /// Record that the installed backend is no longer applied, for example when a
 /// per-command ruleset could not be built even though the run-start probe said
 /// the backend was available. Mirrors [`reconcile_workspace`]: the availability
 /// becomes [`SandboxAvailability::Unavailable`] with the reason, so
-/// [`is_applied`] turns false and later `required` commands refuse. The event
-/// name and schema are unchanged and no field is added.
-#[cfg(target_os = "linux")]
+/// [`is_applied`] turns false and later `required` commands refuse. The
+/// downgrade is announced once by re-emitting `bash_sandbox_status` (Issue #668)
+/// so an `auto` run that fell back to lexical checks does not keep a run-start
+/// event that still says applied. The event name and fields are unchanged.
+#[cfg(any(target_os = "linux", test))]
 fn mark_backend_unavailable(reason: String) {
     let mut installed = INSTALLED.lock().expect("sandbox state");
     let Some(state) = installed.as_mut() else {
         return;
     };
-    if matches!(state.availability, SandboxAvailability::Available) {
-        state.availability = SandboxAvailability::Unavailable(reason);
+    if !matches!(state.availability, SandboxAvailability::Available) {
+        return;
+    }
+    state.availability = SandboxAvailability::Unavailable(reason);
+    drop(installed);
+    let path = EVENTS_PATH.lock().expect("sandbox events path").clone();
+    if let (Some(path), Some(status)) = (path, status()) {
+        crate::eval_events::emit(Some(&path), status_event(&status));
     }
 }
 
@@ -597,6 +694,10 @@ fn mark_backend_unavailable(reason: String) {
 pub fn reset_for_test() {
     let mut installed = INSTALLED.lock().expect("sandbox state");
     *installed = None;
+    drop(installed);
+    set_events_path(None);
+    #[cfg(target_os = "linux")]
+    set_read_allow_limit_for_test(None);
 }
 
 /// Remove the installed run temp directory and end the run's sandbox. After this
@@ -660,7 +761,7 @@ pub fn status() -> Option<SandboxStatus> {
         SandboxStatus::from_parts(
             installed.mode,
             &installed.availability,
-            backend_note(&read, offline),
+            backend_note(&read, offline, installed.policy.as_ref()),
             read.effective,
         )
     })
@@ -795,27 +896,80 @@ fn apply_backend(
     }
 }
 
+/// The known cache locations, relative to the home, that this platform allows.
+/// Used to count the ones a symlink pointed outside the home (Issue #668).
+const CACHE_LOCATIONS: &[&str] = &[
+    ".cargo/registry",
+    ".cargo/git",
+    ".cargo/.package-cache",
+    ".npm",
+    // macOS locations.
+    #[cfg(target_os = "macos")]
+    "Library/Caches/pip",
+    #[cfg(target_os = "macos")]
+    "Library/Caches/ms-playwright",
+    // Linux locations (`landlock::cache_paths`).
+    #[cfg(target_os = "linux")]
+    ".cache/pip",
+    #[cfg(target_os = "linux")]
+    ".cache/ms-playwright",
+];
+
+/// Whether a known cache location, once its symlinks are resolved, is still
+/// under the home. A cache that points outside the home (`~/.npm` linked at an
+/// unrelated directory) is not granted write: the sandbox would otherwise open
+/// the link's target (Issue #668). An empty home or an unresolvable path is not
+/// inside.
+pub(crate) fn cache_stays_in_home(home: &Path, cache: &Path) -> bool {
+    if home.as_os_str().is_empty() {
+        return false;
+    }
+    match (home.canonicalize(), cache.canonicalize()) {
+        (Ok(home), Ok(cache)) => cache.starts_with(home),
+        _ => false,
+    }
+}
+
+/// The reason clause naming the known caches that exist but were refused
+/// because they resolve outside the home, or `None` when there are none.
+fn cache_note(policy: Option<&SandboxPolicy>) -> Option<String> {
+    let home = &policy?.home;
+    if home.as_os_str().is_empty() {
+        return None;
+    }
+    let refused = CACHE_LOCATIONS
+        .iter()
+        .map(|relative| home.join(relative))
+        .filter(|path| path.exists() && !cache_stays_in_home(home, path))
+        .count();
+    (refused > 0).then(|| {
+        format!(
+            "{refused} dependency cache location(s) resolve outside the home and are not writable"
+        )
+    })
+}
+
 fn resolve_cache_paths(home: &Path) -> CachePaths {
     if home.as_os_str().is_empty() {
         return CachePaths::default();
     }
     let home = home.to_path_buf();
     CachePaths {
-        cargo_registry: existing_dir(home.join(".cargo/registry")),
-        cargo_git: existing_dir(home.join(".cargo/git")),
-        cargo_package_cache: existing_file(home.join(".cargo/.package-cache")),
-        npm: existing_dir(home.join(".npm")),
-        pip: existing_dir(home.join("Library/Caches/pip")),
-        playwright: existing_dir(home.join("Library/Caches/ms-playwright")),
+        cargo_registry: existing_dir(&home, home.join(".cargo/registry")),
+        cargo_git: existing_dir(&home, home.join(".cargo/git")),
+        cargo_package_cache: existing_file(&home, home.join(".cargo/.package-cache")),
+        npm: existing_dir(&home, home.join(".npm")),
+        pip: existing_dir(&home, home.join("Library/Caches/pip")),
+        playwright: existing_dir(&home, home.join("Library/Caches/ms-playwright")),
     }
 }
 
-fn existing_dir(path: PathBuf) -> Option<PathBuf> {
-    path.is_dir().then_some(path)
+fn existing_dir(home: &Path, path: PathBuf) -> Option<PathBuf> {
+    (path.is_dir() && cache_stays_in_home(home, &path)).then_some(path)
 }
 
-fn existing_file(path: PathBuf) -> Option<PathBuf> {
-    path.is_file().then_some(path)
+fn existing_file(home: &Path, path: PathBuf) -> Option<PathBuf> {
+    (path.is_file() && cache_stays_in_home(home, &path)).then_some(path)
 }
 
 #[cfg(test)]
@@ -1053,6 +1207,128 @@ mod tests {
             "{}",
             error.summary()
         );
+    }
+
+    /// Issue #668: a downgrade re-emits `bash_sandbox_status` with the same name
+    /// and fields, once, so the events file no longer ends on a stale "applied".
+    #[test]
+    fn a_downgrade_re_emits_the_status_event_once() {
+        let _serial = SANDBOX_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = TestStateGuard;
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join("events.jsonl");
+        install_for_test(SandboxMode::Auto, policy(), SandboxAvailability::Available);
+        set_events_path(Some(events.clone()));
+
+        mark_backend_unavailable("ruleset could not be built".to_string());
+        mark_backend_unavailable("a second failure".to_string());
+
+        let text = std::fs::read_to_string(&events).expect("the downgrade is emitted");
+        let lines: Vec<serde_json::Value> = text
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(lines.len(), 1, "{text}");
+        let event = &lines[0];
+        assert_eq!(event["event"], "bash_sandbox_status");
+        assert_eq!(event["mode"], "auto");
+        assert_eq!(event["backend"], backend_name());
+        assert_eq!(event["applied"], false);
+        assert_eq!(event["reason"], "ruleset could not be built");
+        let mut keys: Vec<&str> = event
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            [
+                "applied",
+                "backend",
+                "event",
+                "mode",
+                "reason",
+                "schema_version"
+            ]
+        );
+    }
+
+    /// Issue #668: a known cache that is a symlink to a location outside the home
+    /// is not granted write and is named in the reason; a link that stays inside
+    /// the home is kept.
+    #[test]
+    fn a_cache_symlinked_outside_the_home_is_not_allowed() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().canonicalize().unwrap();
+        let home = base.join("home");
+        let outside = base.join("outside");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::os::unix::fs::symlink(&outside, home.join(".npm")).unwrap();
+        std::fs::create_dir_all(home.join("real-cargo-git")).unwrap();
+        std::fs::create_dir_all(home.join(".cargo")).unwrap();
+        std::os::unix::fs::symlink(home.join("real-cargo-git"), home.join(".cargo/git")).unwrap();
+
+        let caches = resolve_cache_paths(&home);
+        assert_eq!(caches.npm, None, "{caches:?}");
+        assert_eq!(
+            caches.cargo_git,
+            Some(home.join(".cargo/git")),
+            "{caches:?}"
+        );
+
+        let policy = SandboxPolicy::with_home(&home, &base.join("run"), home.clone());
+        let note = cache_note(Some(&policy)).expect("the refused cache is recorded");
+        assert!(note.starts_with("1 dependency cache"), "{note}");
+        assert!(cache_note(None).is_none());
+    }
+
+    /// Issue #668: only the caches this platform allows are counted as refused.
+    #[test]
+    fn cache_note_ignores_locations_the_platform_never_allows() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().canonicalize().unwrap();
+        let home = base.join("home");
+        let outside = base.join("outside");
+        std::fs::create_dir_all(home.join(".cache")).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::os::unix::fs::symlink(&outside, home.join(".cache/pip")).unwrap();
+        let policy = SandboxPolicy::with_home(&base.join("ws"), &base.join("run"), home);
+
+        let note = cache_note(Some(&policy));
+        if cfg!(target_os = "linux") {
+            assert!(note.is_some_and(|note| note.starts_with("1 ")));
+        } else {
+            assert_eq!(note, None);
+        }
+    }
+
+    /// Issue #668: past the expansion limit the read layer is recorded as not
+    /// effective instead of applied.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn an_expansion_over_the_limit_is_not_recorded_as_applied() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().canonicalize().unwrap();
+        // The workspace and run directory sit beside the home, so no writable
+        // location overlaps a home secret.
+        let home = base.join("home");
+        let workspace = base.join("ws");
+        std::fs::create_dir_all(home.join(".ssh")).unwrap();
+        std::fs::create_dir_all(&workspace).unwrap();
+        let policy = SandboxPolicy::with_home(&workspace, &base.join("run"), home);
+
+        let within = read_isolation_with_limit(Some(&policy), usize::MAX);
+        assert!(within.effective, "{}", within.clause);
+        let over = read_isolation_with_limit(Some(&policy), 1);
+        assert!(!over.effective, "{}", over.clause);
+        assert!(over.clause.contains("not effective"), "{}", over.clause);
+        assert!(!over.clause.contains(READ_ISOLATION_APPLIED));
+        assert_ne!(within.clause, over.clause);
     }
 
     /// Resets the Landlock wrap-failure hook on drop.

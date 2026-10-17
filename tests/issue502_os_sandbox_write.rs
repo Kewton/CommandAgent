@@ -647,9 +647,10 @@ fn linux_applied_truncate_of_an_outside_inode_is_denied() {
 }
 
 /// The public run-start status reports the Linux backend and its ABI
-/// limitations: `backend == "landlock"`, `applied == true`, no reason once ABI3
-/// closes every supported operation, and the unclosed operations named on an
-/// older ABI.
+/// limitations: `backend == "landlock"`, `applied == true`, the same "read
+/// isolation applied" sentence macOS records once ABI3 closes every supported
+/// operation (Issue #668), and the unclosed operations named in front of it on
+/// an older ABI.
 #[cfg(target_os = "linux")]
 #[test]
 fn linux_installed_status_reports_the_backend_and_its_limitations() {
@@ -668,7 +669,8 @@ fn linux_installed_status_reports_the_backend_and_its_limitations() {
     assert_eq!(status.mode.as_str(), "auto");
     if abi >= 3 {
         assert_eq!(
-            status.reason, None,
+            status.reason.as_deref(),
+            Some("read isolation applied"),
             "ABI3+ closes truncate and cross-directory link/rename: {status:?}"
         );
     } else {
@@ -677,6 +679,7 @@ fn linux_installed_status_reports_the_backend_and_its_limitations() {
             reason.contains("ABI2") || reason.contains("ABI3"),
             "an older ABI must name the unclosed operations: {status:?}"
         );
+        assert!(reason.ends_with("read isolation applied"), "{status:?}");
     }
     assert_eq!(
         os_sandbox::status().map(|status| status.backend),
@@ -2281,5 +2284,68 @@ fn applied_git_pager_still_runs_inside_the_sandbox() {
     let fixture = fixture();
     install_available(&fixture);
     assert_git_pager_runs_inside_sandbox(&fixture);
+    os_sandbox::reset_for_test();
+}
+
+/// Issue #668: a known cache (`~/.npm`) that is a symlink to a location outside
+/// the home is not a write grant, so a command cannot write through it into the
+/// outside directory. A real cache inside the home stays writable, and the
+/// reason records the refusal. The home is a tempdir, never the real one.
+#[cfg(unix)]
+#[test]
+fn a_cache_symlinked_outside_the_home_cannot_be_written_through() {
+    let _guard = sandbox_lock();
+    #[cfg(target_os = "macos")]
+    if !backend_available() {
+        eprintln!("SKIP: sandbox backend unavailable (nested sandbox?)");
+        return;
+    }
+    #[cfg(target_os = "linux")]
+    if !require_landlock_backend() {
+        eprintln!("SKIP: Landlock backend unavailable");
+        return;
+    }
+    let fixture = fixture();
+    let base = fixture._dir.path().canonicalize().unwrap();
+    let home = base.join("home");
+    let outside_cache = base.join("outside-cache");
+    std::fs::create_dir_all(home.join(".cargo/registry")).unwrap();
+    std::fs::create_dir_all(&outside_cache).unwrap();
+    std::os::unix::fs::symlink(&outside_cache, home.join(".npm")).unwrap();
+    let run_tmp = run_tmp_path(&fixture);
+    std::fs::create_dir_all(&run_tmp).unwrap();
+    os_sandbox::install_for_test(
+        SandboxMode::Auto,
+        SandboxPolicy::with_home(&fixture.root, &run_tmp, home.clone()),
+        SandboxAvailability::Available,
+    );
+
+    let through_link = run_wrapped(
+        &fixture.root,
+        &format!("echo pwned > '{}'", home.join(".npm/pwned").display()),
+    );
+    assert!(
+        !through_link.success(),
+        "a write through the outside-pointing cache link must fail"
+    );
+    assert!(
+        !outside_cache.join("pwned").exists(),
+        "the outside directory must not change"
+    );
+
+    let (ok, stderr) = run_wrapped_success(
+        &fixture.root,
+        &format!("echo ok > '{}'", home.join(".cargo/registry/ok").display()),
+    );
+    assert!(ok, "a real cache inside the home stays writable: {stderr}");
+
+    let status = os_sandbox::status().expect("installed");
+    assert!(
+        status
+            .reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("resolve outside the home")),
+        "{status:?}"
+    );
     os_sandbox::reset_for_test();
 }

@@ -803,8 +803,8 @@ echo TOOLCHAIN_OK
 
 /// The run-start status reports the read isolation through the existing reason:
 /// an older ABI leaves a write operation open and the reason names the read
-/// isolation with it; a fully closed ABI leaves no reason, which means fully
-/// confined (reads included).
+/// isolation with it; a fully closed ABI records the same "read isolation
+/// applied" sentence macOS does (Issue #668).
 #[cfg(target_os = "linux")]
 #[test]
 fn linux_installed_status_reports_read_isolation() {
@@ -820,9 +820,11 @@ fn linux_installed_status_reports_read_isolation() {
     assert_eq!(status.backend, "landlock", "{status:?}");
     assert!(status.applied, "{status:?}");
     assert!(status.read_isolation, "{status:?}");
-    if let Some(reason) = status.reason.as_deref() {
-        assert!(reason.contains("read isolation applied"), "{reason}");
-    }
+    let reason = status
+        .reason
+        .as_deref()
+        .expect("the read layer is reported");
+    assert!(reason.contains("read isolation applied"), "{reason}");
     let reported = os_sandbox::status().expect("installed");
     assert_eq!(reported.read_isolation, status.read_isolation);
     assert_eq!(reported.reason, status.reason);
@@ -948,4 +950,146 @@ fn required_and_unavailable_fail_honestly_and_auto_continues() {
 
     assert!(NESTED.contains("71"));
     os_sandbox::reset_for_test();
+}
+
+/// Issue #668: a home that crowds the read-allow expansion past the rule limit
+/// closes the whole home instead of opening reads. The status does not record
+/// the read isolation as applied, the home secret stays unreadable, and the
+/// write confinement stays in force.
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_expansion_over_the_limit_is_not_recorded_as_applied() {
+    let _guard = sandbox_lock();
+    if !require_landlock_backend() {
+        eprintln!("SKIP: Landlock backend unavailable");
+        return;
+    }
+    let fixture = fixture();
+    crowd_home(&fixture);
+
+    let within = install_status(&fixture.root, &run_tmp_path(&fixture), &fixture.home);
+    assert!(within.read_isolation, "{within:?}");
+    os_sandbox::reset_for_test();
+
+    os_sandbox::set_read_allow_limit_for_test(Some(CROWDED_LIMIT));
+    let status = install_status(&fixture.root, &run_tmp_path(&fixture), &fixture.home);
+    assert!(status.applied, "{status:?}");
+    assert!(!status.read_isolation, "{status:?}");
+    let reason = status.reason.as_deref().expect("the overflow is reported");
+    assert!(
+        reason.contains("read isolation is not effective"),
+        "{reason}"
+    );
+    assert!(reason.contains("home is unreadable"), "{reason}");
+    assert!(!reason.contains("read isolation applied"), "{reason}");
+
+    assert_home_closed(&fixture);
+    let outside = fixture._dir.path().join("outside-write");
+    let output = run_wrapped(&fixture.root, &format!("echo x > '{}'", outside.display()));
+    assert!(!output.success(), "writes stay confined");
+    assert!(!outside.exists());
+
+    os_sandbox::reset_for_test();
+}
+
+/// Issue #668: an overflow that first appears when a command is wrapped (the
+/// home grew after the run started) also keeps the home secret unreadable.
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_expansion_that_overflows_after_run_start_keeps_the_home_closed() {
+    let _guard = sandbox_lock();
+    if !require_landlock_backend() {
+        eprintln!("SKIP: Landlock backend unavailable");
+        return;
+    }
+    let fixture = fixture();
+    let started = install_status(&fixture.root, &run_tmp_path(&fixture), &fixture.home);
+    assert!(started.read_isolation, "{started:?}");
+
+    crowd_home(&fixture);
+    os_sandbox::set_read_allow_limit_for_test(Some(CROWDED_LIMIT));
+    assert_home_closed(&fixture);
+
+    os_sandbox::reset_for_test();
+}
+
+/// When even the closed-home expansion exceeds the limit (the home's parent is
+/// crowded), the sandbox is still built, in `auto` and `required` alike: the
+/// status stays applied, the home secret is unreadable, and writes outside the
+/// workspace fail. Only the reason says the read isolation is not effective.
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_crowded_home_parent_keeps_the_sandbox_applied() {
+    let _guard = sandbox_lock();
+    if !require_landlock_backend() {
+        eprintln!("SKIP: Landlock backend unavailable");
+        return;
+    }
+    for mode in [SandboxMode::Auto, SandboxMode::Required] {
+        let fixture = fixture();
+        std::fs::create_dir_all(run_tmp_path(&fixture)).unwrap();
+        // The home's parent is the fixture dir; crowd it beyond the limit.
+        for index in 0..(CROWDED_LIMIT + 500) {
+            std::fs::write(fixture._dir.path().join(format!("sibling-{index}")), "x").unwrap();
+        }
+        os_sandbox::set_read_allow_limit_for_test(Some(CROWDED_LIMIT));
+        os_sandbox::install_for_test(
+            mode,
+            SandboxPolicy::with_home(&fixture.root, &run_tmp_path(&fixture), fixture.home.clone()),
+            SandboxAvailability::Available,
+        );
+        let status = os_sandbox::status().expect("installed");
+        assert!(status.applied, "{mode:?}: {status:?}");
+        assert!(!status.read_isolation, "{mode:?}: {status:?}");
+        let reason = status.reason.as_deref().expect("reported");
+        assert!(reason.contains("even with the home closed"), "{reason}");
+        assert!(!reason.contains("read isolation applied"), "{reason}");
+
+        assert_read_denied(
+            &fixture.root,
+            &format!("cat '{}'", fixture.ssh_secret.display()),
+            &[],
+            HOME_KEY_CANARY,
+        );
+        let outside = fixture._dir.path().join("outside-write");
+        let output = run_wrapped(&fixture.root, &format!("echo x > '{}'", outside.display()));
+        assert!(!output.success(), "{mode:?}: writes stay confined");
+        assert!(!outside.exists());
+        assert!(
+            os_sandbox::status().expect("installed").applied,
+            "{mode:?}: the sandbox stays applied after the command"
+        );
+        os_sandbox::reset_for_test();
+    }
+}
+
+/// The limit the crowded-home tests use, above the rules the closed-home
+/// expansion needs and below the rules the full expansion needs.
+#[cfg(target_os = "linux")]
+const CROWDED_LIMIT: usize = 1000;
+
+/// Give the fake home more entries than [`CROWDED_LIMIT`].
+#[cfg(target_os = "linux")]
+fn crowd_home(fixture: &Fixture) {
+    for index in 0..(CROWDED_LIMIT + 500) {
+        std::fs::write(fixture.home.join(format!("entry-{index}")), "x").unwrap();
+    }
+}
+
+/// The home secret and a plain home file are unreadable, while the workspace
+/// stays readable.
+#[cfg(target_os = "linux")]
+fn assert_home_closed(fixture: &Fixture) {
+    assert_read_denied(
+        &fixture.root,
+        &format!("cat '{}'", fixture.ssh_secret.display()),
+        &[],
+        HOME_KEY_CANARY,
+    );
+    assert_read_denied(
+        &fixture.root,
+        &format!("cat '{}'", fixture.home.join("entry-0").display()),
+        &[],
+        "unused-canary",
+    );
 }
