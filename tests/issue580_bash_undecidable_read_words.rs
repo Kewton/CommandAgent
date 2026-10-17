@@ -30,6 +30,12 @@ fn fixture() -> Fixture {
     std::os::unix::fs::symlink(&outside, root.join("link")).unwrap();
     std::os::unix::fs::symlink(&outside, root.join("linked-outside")).unwrap();
     std::os::unix::fs::symlink(&outside, root.join("sub/link")).unwrap();
+    // `n/n` is inside; `n/n/n` leaves the root, so a third `cd n` escapes.
+    std::fs::create_dir_all(root.join("n/n")).unwrap();
+    std::os::unix::fs::symlink(&outside, root.join("n/n/n")).unwrap();
+    // `m/k/m/k/m` leaves the root after two `cd m; cd k` rounds.
+    std::fs::create_dir_all(root.join("m/k/m/k")).unwrap();
+    std::os::unix::fs::symlink(&outside, root.join("m/k/m/k/m")).unwrap();
     let root = root.canonicalize().unwrap();
     Fixture { _dir: dir, root }
 }
@@ -203,7 +209,29 @@ fn undecidable_cd_that_may_leave_the_root_stays_rejected() {
             "for d in a b; do (cd sub && cd link && true); done",
             "for d in a b; do (cd $d && true); done",
             "for d in a b; do (cd .. && true); done",
+            "for i in 1 2 3; do cd n; done; ls",
+            "for i in 1 2 3; do cd n; done; cargo test",
+            "for i in 1 2 3; do cd n; done; cargo run",
+            "for i in 1 2 3; do cd n; done; make",
+            "for i in 1 2 3; do cd n; done; python3",
+            "while :; do cd n; done; ls",
+            "for i in 1 2 3; do cd m; cd k; done; ls",
+            "for CDPATH in sub; do :; done; cd link; ls",
+            "for CDPATH in sub; do cd link; done; ls",
+            "select CDPATH in sub; do break; done; for i in 1; do cd link; done; ls",
             "for d in a b; do (cd && true); done",
+        ],
+    );
+}
+
+#[test]
+fn undecidable_cd_loop_that_stays_in_the_root_is_allowed() {
+    let fixture = fixture();
+    assert_allowed(
+        &fixture.root,
+        &[
+            "for i in 1 2; do cd n; done; ls",
+            "for i in 1 2; do cd n; done; cargo test",
         ],
     );
 }

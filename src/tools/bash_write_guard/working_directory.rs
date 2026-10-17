@@ -25,7 +25,7 @@
 //! `Resolution` are not changed here: this module only reads their output.
 
 use std::collections::HashSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::command_prefix::{self, Resolution};
 use super::{
@@ -228,6 +228,8 @@ fn walk(text: &str, ambiguous: bool, cr_mode: CrMode, root: Option<&Path>) -> In
     let mut unknown_destination = false;
     let mut literal_targets: Vec<String> = Vec::new();
     let mut loop_keyword = false;
+    let mut loop_count = 0usize;
+    let mut for_rounds: Option<usize> = None;
     let mut function_keyword = false;
     for word in tokens.iter().filter_map(word_token) {
         if names_variable(word, "CDPATH") {
@@ -239,6 +241,7 @@ fn walk(text: &str, ambiguous: bool, cr_mode: CrMode, root: Option<&Path>) -> In
         }
         if matches!(word, "for" | "while" | "until" | "select") {
             loop_keyword = true;
+            loop_count += 1;
         }
         if word == "function" {
             function_keyword = true;
@@ -301,6 +304,9 @@ fn walk(text: &str, ambiguous: bool, cr_mode: CrMode, root: Option<&Path>) -> In
         else {
             continue;
         };
+        if program == "for" {
+            for_rounds = literal_for_rounds(&arguments);
+        }
         let arguments: Vec<&str> = arguments.iter().map(String::as_str).collect();
         match program.as_str() {
             "cd" => {
@@ -373,7 +379,14 @@ fn walk(text: &str, ambiguous: bool, cr_mode: CrMode, root: Option<&Path>) -> In
         && !cdpath_unsafe
         && !dirstack
         && root.is_some_and(|root| {
-            targets_stay_in_root(&literal_targets, root, loop_keyword || function_keyword)
+            let rounds = if function_keyword || loop_count > 1 {
+                None
+            } else if loop_count == 1 {
+                for_rounds
+            } else {
+                Some(1)
+            };
+            targets_stay_in_root(&literal_targets, root, rounds)
         });
     inspection.undecidable_words = if ambiguous || inspection.glob_destination || !stays_in_root {
         inspection.relative_words.clone()
@@ -389,6 +402,11 @@ fn walk(text: &str, ambiguous: bool, cr_mode: CrMode, root: Option<&Path>) -> In
 /// longer identifier (`MYDIRSTACK`) or as plain text does not. The words are
 /// already de-quoted, so `"DIR"STACK[1]=` reads as the assignment it is.
 fn names_variable(word: &str, name: &str) -> bool {
+    // A bare name is a loop variable (`for CDPATH in sub`, `select DIRSTACK in`)
+    // or a name handed to a builtin; refuse rather than guess.
+    if word == name {
+        return true;
+    }
     let is_identifier = |ch: char| ch == '_' || ch.is_ascii_alphanumeric();
     word.match_indices(name).any(|(start, _)| {
         let before = &word[..start];
@@ -572,47 +590,66 @@ fn redirect_target_words(segment: &[ShellToken]) -> Vec<String> {
     found
 }
 
-/// Whether every working-directory candidate the literal `cd`/`pushd`
-/// destinations can produce stays inside the workspace root (Issue #580). The
-/// destinations are replayed like the candidate walk but without its cap, twice
-/// when a loop or function can repeat them. A candidate that exists and resolves
-/// outside the root, or a set past the replay bound, is not proven.
-fn targets_stay_in_root(targets: &[String], root: &Path, repeats: bool) -> bool {
-    const MAX_REPLAY: usize = 4096;
-    let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
-    let mut bases: Vec<String> = vec![String::new()];
-    let mut seen: HashSet<String> = bases.iter().cloned().collect();
-    for _ in 0..if repeats { 2 } else { 1 } {
-        for target in targets {
-            let joined: Vec<String> = if Path::new(target).is_absolute() {
-                vec![target.clone()]
-            } else {
-                bases.iter().map(|base| join(base, target)).collect()
-            };
-            for path in joined {
-                if !seen.insert(path.clone()) {
-                    continue;
-                }
-                if seen.len() > MAX_REPLAY || !stays_in_root(&root, &path) {
-                    return false;
-                }
-                bases.push(path);
-            }
-        }
-    }
-    true
+/// How many times a `for VAR in WORDS` loop runs when every word is a plain
+/// literal (no expansion, glob, or brace); `None` when the count is not known.
+fn literal_for_rounds(arguments: &[String]) -> Option<usize> {
+    let [_, keyword, items @ ..] = arguments else {
+        return None;
+    };
+    (keyword == "in"
+        && items
+            .iter()
+            .all(|item| !item.contains(['$', '`', '*', '?', '[', ']', '{', '}', '~'])))
+    .then_some(items.len())
 }
 
-fn stays_in_root(root: &Path, path: &str) -> bool {
-    let full = if Path::new(path).is_absolute() {
-        Path::new(path).to_path_buf()
-    } else {
-        root.join(path)
-    };
-    match full.canonicalize() {
-        Ok(resolved) => resolved.starts_with(root),
-        // A directory that does not exist cannot be entered.
-        Err(_) => full.starts_with(root) || !Path::new(path).is_absolute(),
+/// Whether every working-directory candidate the literal `cd`/`pushd`
+/// destinations can produce stays inside the workspace root (Issue #580). The
+/// destinations are replayed against the real directories: a candidate is the
+/// canonical path of an existing directory, a destination that does not exist
+/// extends nothing (the `cd` fails), and the replay repeats `rounds` times, or
+/// until no new candidate appears when the count is unknown (`None`). A
+/// candidate outside the root, or a replay past its bounds, is not proven.
+fn targets_stay_in_root(targets: &[String], root: &Path, rounds: Option<usize>) -> bool {
+    const MAX_CANDIDATES_REPLAY: usize = 4096;
+    const MAX_ROUNDS: usize = 256;
+    let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let mut bases: Vec<PathBuf> = vec![root.clone()];
+    let mut seen: HashSet<PathBuf> = bases.iter().cloned().collect();
+    let mut round = 0usize;
+    loop {
+        if rounds.is_some_and(|limit| round >= limit) {
+            return true;
+        }
+        if round >= MAX_ROUNDS {
+            return false;
+        }
+        round += 1;
+        let before = seen.len();
+        for target in targets {
+            let joined: Vec<PathBuf> = if Path::new(target).is_absolute() {
+                vec![PathBuf::from(target)]
+            } else {
+                bases.iter().map(|base| base.join(target)).collect()
+            };
+            for path in joined {
+                let Ok(resolved) = path.canonicalize() else {
+                    continue;
+                };
+                if !resolved.starts_with(&root) {
+                    return false;
+                }
+                if seen.insert(resolved.clone()) {
+                    if seen.len() > MAX_CANDIDATES_REPLAY {
+                        return false;
+                    }
+                    bases.push(resolved);
+                }
+            }
+        }
+        if rounds.is_none() && seen.len() == before {
+            return true;
+        }
     }
 }
 
