@@ -581,6 +581,9 @@ fn required_path_suffix_candidate_count(raw: &str, expected_paths: &[String]) ->
 }
 
 fn required_path_suffix_matches(raw: &str, expected_paths: &[String]) -> Vec<String> {
+    if has_parent_component(raw) {
+        return Vec::new();
+    }
     let raw_components = path_components(raw);
     expected_paths
         .iter()
@@ -597,6 +600,9 @@ fn required_path_suffix_matches(raw: &str, expected_paths: &[String]) -> Vec<Str
 }
 
 fn nearest_expected_path(raw: &str, expected_paths: &[String]) -> Option<String> {
+    if has_parent_component(raw) {
+        return None;
+    }
     let raw_components = path_components(raw);
     expected_paths
         .iter()
@@ -611,6 +617,14 @@ fn common_suffix_len(left: &[String], right: &[String]) -> usize {
         .zip(right.iter().rev())
         .take_while(|(left, right)| left == right)
         .count()
+}
+
+/// True when any component of `raw` is `..`. `path_components` drops it, so a
+/// path that has one must never be salvaged or suggested from its remainder.
+pub(super) fn has_parent_component(raw: &str) -> bool {
+    std::path::Path::new(raw)
+        .components()
+        .any(|component| matches!(component, std::path::Component::ParentDir))
 }
 
 fn path_components(raw: &str) -> Vec<String> {

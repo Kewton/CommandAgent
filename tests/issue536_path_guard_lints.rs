@@ -10,11 +10,15 @@
 
 use std::path::{Path, PathBuf};
 
+use commandagent::mode::ExecutionMode;
 use commandagent::tools::bash::path_confinement_rejection;
 use commandagent::tools::path_guard::{
     normalize_absolute_workspace_glob, normalize_absolute_workspace_path,
     validate_workspace_relative,
 };
+use commandagent::tools::registry::{ToolContext, ToolRegistry, tool_error_kind};
+use commandagent::tools::workspace_policy::WorkspacePolicy;
+use serde_json::json;
 
 fn render(result: anyhow::Result<Option<String>>) -> String {
     match result {
@@ -347,4 +351,131 @@ fn missing_leading_slash_parent_rejection_matches_the_absolute_form() {
         "{absolute}"
     );
     assert_eq!(missing, absolute);
+}
+
+fn tool_context(root: &Path, expected: &[&str]) -> ToolContext {
+    ToolContext {
+        root: root.to_path_buf(),
+        mode: ExecutionMode::Act,
+        auto_approve: true,
+        interactive_approval: false,
+        offline: false,
+        workspace_policy: WorkspacePolicy::NormalTask,
+        eval_events_path: None,
+        expected_paths: expected.iter().map(|path| (*path).to_string()).collect(),
+        protected_paths: Vec::new(),
+    }
+}
+
+#[test]
+fn required_path_fallback_rejects_parent_components() {
+    let (_temp, root) = workspace("proj");
+    let anchored = components(&root);
+    let context = tool_context(&root, &["x/b.rs"]);
+    let registry = ToolRegistry::default();
+
+    for raw in [
+        format!("/{anchored}/x/../b.rs"),
+        format!("/{anchored}/x//../b.rs"),
+        format!("/{anchored}/x/./../b.rs"),
+        format!("/{anchored}/x/.././b.rs"),
+        format!("/{anchored}/x/b.rs/.."),
+        format!("/{anchored}/../x/b.rs"),
+        "/other/root/x/../x/b.rs".to_string(),
+    ] {
+        let result = registry.execute("Write", &json!({"path": raw, "content": "no"}), &context);
+        let error = result.unwrap_err();
+        let message = error.to_string();
+        assert!(
+            !message.contains("use workspace-relative path `x/b.rs`"),
+            "{raw}: {message}"
+        );
+        assert_ne!(
+            tool_error_kind(&error),
+            "stale_absolute_path_recoverable",
+            "{raw}: {message}"
+        );
+        assert!(!root.join("x/b.rs").exists(), "{raw} wrote x/b.rs");
+        assert!(!root.join("b.rs").exists(), "{raw} wrote b.rs");
+    }
+}
+
+#[test]
+fn required_path_fallback_without_parent_components_is_unchanged() {
+    let (_temp, root) = workspace("proj");
+    let context = tool_context(&root, &["x/b.rs"]);
+    let registry = ToolRegistry::default();
+
+    registry
+        .execute(
+            "Write",
+            &json!({"path": "/stale/old-root/x/b.rs", "content": "ok"}),
+            &context,
+        )
+        .unwrap();
+    assert!(root.join("x/b.rs").exists());
+
+    for raw in [
+        "/stale/old-root/a..b/x/b.rs",
+        "/stale/old-root/..foo/x/b.rs",
+    ] {
+        let _ = std::fs::remove_file(root.join("x/b.rs"));
+        registry
+            .execute("Write", &json!({"path": raw, "content": "ok"}), &context)
+            .unwrap();
+        assert!(root.join("x/b.rs").exists(), "{raw}");
+    }
+
+    let error = registry
+        .execute(
+            "Write",
+            &json!({"path": "/stale/old-root/x/c.rs", "content": "no"}),
+            &context,
+        )
+        .unwrap_err();
+    assert_eq!(tool_error_kind(&error), "stale_absolute_path_recoverable");
+    assert!(
+        error
+            .to_string()
+            .contains("use workspace-relative path `x/b.rs`"),
+        "{error}"
+    );
+}
+
+#[test]
+fn bash_guidance_drops_no_parent_components() {
+    let (_temp, root) = workspace("proj");
+
+    for command in [
+        "touch /stale/other/../b.rs",
+        "touch /stale/other//../b.rs",
+        "touch /stale/other/./../b.rs",
+        "touch /stale/other/.././b.rs",
+        "touch /stale/other/..",
+        "touch /stale/../other/b.rs",
+    ] {
+        let rejection = path_confinement_rejection(command, &root)
+            .unwrap_or_else(|| panic!("{command} must be rejected"));
+        assert_eq!(rejection.nearest_relative, ".", "{command}");
+        assert!(
+            !rejection.message.contains("`b.rs`") && !rejection.message.contains("`other/b.rs`"),
+            "{command}: {}",
+            rejection.message
+        );
+    }
+}
+
+#[test]
+fn bash_guidance_without_parent_components_is_unchanged() {
+    let (_temp, root) = workspace("proj");
+
+    for (command, expected) in [
+        ("touch /stale/other/b.rs", "b.rs"),
+        ("touch /stale/other/a..b", "a..b"),
+        ("touch /stale/other/..foo", "..foo"),
+    ] {
+        let rejection = path_confinement_rejection(command, &root)
+            .unwrap_or_else(|| panic!("{command} must be rejected"));
+        assert_eq!(rejection.nearest_relative, expected, "{command}");
+    }
 }
