@@ -1,161 +1,119 @@
 //! A conservative recognizer for direct checks in a Node script, not a JS
 //! interpreter. Opaque control flow cannot establish a failing execution path.
 
-use super::super::{LiteralScanMode, strip_c_family_comments_and_literals};
-use regex::Regex;
-use std::sync::LazyLock;
+use std::ops::ControlFlow;
+use tokens::{branch, closing, has_unsupported_construct, scan, statement_end, tokenize};
+
+#[path = "node_checks/tokens.rs"]
+mod tokens;
+
+const ASSERT_METHODS: [&str; 15] = [
+    "ok",
+    "equal",
+    "strictEqual",
+    "deepEqual",
+    "deepStrictEqual",
+    "notEqual",
+    "notStrictEqual",
+    "notDeepEqual",
+    "notDeepStrictEqual",
+    "throws",
+    "doesNotThrow",
+    "ifError",
+    "match",
+    "doesNotMatch",
+    "fail",
+];
 
 pub(super) fn has_failure_check(source: &str) -> bool {
-    let source = source.strip_prefix("#!").map_or(source, |rest| {
-        rest.split_once('\n').map_or("", |(_, body)| body)
-    });
-    let Some(scan) = strip_c_family_comments_and_literals(source, LiteralScanMode::Keep) else {
+    let Some(scan) = scan(source) else {
         return false;
     };
-    // Keep a literal as one opaque token: an assertion mentioned inside a string
-    // is not a binding or a call. Template interpolation/regexp ambiguity is
-    // deliberately unsupported in this small evidence recognizer.
-    if scan.contains('`') {
+    let tokens = tokenize(&scan);
+    if has_unsupported_construct(&tokens) {
         return false;
     }
-    static TOKENS: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r#""(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[A-Za-z_$][A-Za-z0-9_$]*|[0-9]+|[^\s]"#)
-            .unwrap()
-    });
-    let tokens = TOKENS
-        .find_iter(&scan)
-        .map(|m| m.as_str())
-        .collect::<Vec<_>>();
-    // Catch/finally and process mutation require control-flow/binding analysis
-    // outside this bounded recognizer. Do not borrow evidence from other files.
-    if tokens.iter().any(|token| {
-        matches!(
-            *token,
-            "catch" | "finally" | "eval" | "Function" | "constructor" | "global" | "globalThis" | "/" | "\\"
-        )
-    }) || tokens.windows(2).any(|t| {
-        matches!(
-            t[0],
-            "const" | "let" | "var" | "function" | "class" | "import"
-        ) && matches!(t[1], "process" | "require")
-    }) || tokens
-        .windows(4)
-        .any(|t| t == ["process", ".", "exit", "="])
-        || tokens
-            .windows(3)
-            .any(|t| t == ["process", ".", "on"] || t == ["process", ".", "once"])
-        // Computed properties, aliases, destructuring and parameters can change
-        // the identity of process/exit. Only direct exit calls are understood.
-        || tokens.iter().enumerate().any(|(i, token)| {
-            *token == "process" && !tokens[i + 1..].starts_with(&[".", "exit", "("])
-        })
-        || tokens.windows(2).any(|t| t == ["assert", "["])
-    {
+    let Some(direct_assert) = assert_binding(&tokens) else {
         return false;
-    }
-    let module = |token: &str| {
-        matches!(
-            token.trim_matches(['\'', '"']),
-            "assert" | "node:assert" | "node:assert/strict"
-        )
     };
+    if overrides_assert(&tokens) {
+        return false;
+    }
+    checks_in_statements(&tokens, false, direct_assert)
+}
+
+fn is_assert_module(token: &str) -> bool {
+    matches!(
+        token.trim_matches(['\'', '"']),
+        "assert" | "node:assert" | "node:assert/strict"
+    )
+}
+
+/// `Some(true)` when the script binds `assert` directly, `Some(false)` when it
+/// only calls it, `None` when `assert` is bound, aliased or passed in a way this
+/// recognizer cannot trust.
+fn assert_binding(tokens: &[&str]) -> Option<bool> {
     // A require inside a function/block/loop does not bind the identifier used
     // by a later top-level call. Strings are opaque tokens, so their braces do
     // not affect the lexical nesting recorded here.
     let mut nesting = 0usize;
     let mut direct_assert = false;
     for (i, token) in tokens.iter().enumerate() {
-        let rest = &tokens[i..];
         if *token == "assert" {
             let previous = i.checked_sub(1).and_then(|i| tokens.get(i)).copied();
-            let binding = match previous {
-                Some("const") => {
-                    nesting == 0
-                        && rest.starts_with(&["assert", "=", "require", "("])
-                        && rest.get(4).is_some_and(|token| module(token))
-                        && rest.get(5) == Some(&")")
-                        && rest.get(6).is_none_or(|token| *token == ";")
-                }
-                Some("import") => {
-                    nesting == 0
-                        && rest.get(1) == Some(&"from")
-                        && rest.get(2).is_some_and(|token| module(token))
-                }
-                Some("let" | "var" | "function" | "class") => false,
-                _ => {
-                    // Passing or aliasing assert can permit indirect mutation.
-                    // Only direct calls are understood outside its binding.
-                    if rest.get(1) == Some(&"(")
-                        || rest.get(1) == Some(&".") && rest.get(3) == Some(&"(")
-                    {
-                        continue;
-                    }
-                    return false;
-                }
-            };
-            if !binding {
-                return false;
-            }
-            direct_assert = true;
+            direct_assert |= assert_use(previous, &tokens[i..], nesting)?;
         }
-        match *token {
-            "(" | "{" | "[" => nesting += 1,
-            ")" | "}" | "]" => nesting = nesting.saturating_sub(1),
-            _ => {}
-        }
+        nesting = nesting_after(nesting, token);
         if nesting > 64 {
-            return false;
+            return None;
         }
     }
-    // Reject reassignment, property overrides and counterfeit assertion bindings.
-    if tokens
+    Some(direct_assert)
+}
+
+fn nesting_after(nesting: usize, token: &str) -> usize {
+    match token {
+        "(" | "{" | "[" => nesting + 1,
+        ")" | "}" | "]" => nesting.saturating_sub(1),
+        _ => nesting,
+    }
+}
+
+fn assert_use(previous: Option<&str>, rest: &[&str], nesting: usize) -> Option<bool> {
+    match previous {
+        Some("const") => (nesting == 0 && is_require_binding(rest)).then_some(true),
+        Some("import") => (nesting == 0 && is_import_binding(rest)).then_some(true),
+        Some("let" | "var" | "function" | "class") => None,
+        // Passing or aliasing assert can permit indirect mutation.
+        // Only direct calls are understood outside its binding.
+        _ => is_direct_call(rest).then_some(false),
+    }
+}
+
+fn is_require_binding(rest: &[&str]) -> bool {
+    rest.starts_with(&["assert", "=", "require", "("])
+        && rest.get(4).is_some_and(|token| is_assert_module(token))
+        && rest.get(5) == Some(&")")
+        && rest.get(6).is_none_or(|token| *token == ";")
+}
+
+fn is_import_binding(rest: &[&str]) -> bool {
+    rest.get(1) == Some(&"from") && rest.get(2).is_some_and(|token| is_assert_module(token))
+}
+
+fn is_direct_call(rest: &[&str]) -> bool {
+    rest.get(1) == Some(&"(") || rest.get(1) == Some(&".") && rest.get(3) == Some(&"(")
+}
+
+/// Reject reassignment, property overrides and counterfeit assertion bindings.
+fn overrides_assert(tokens: &[&str]) -> bool {
+    tokens
         .windows(2)
         .enumerate()
         .any(|(i, t)| t == ["assert", "="] && (i == 0 || tokens[i - 1] != "const"))
         || tokens
             .windows(4)
             .any(|t| t[0] == "assert" && t[1] == "." && t[3] == "=")
-    {
-        return false;
-    }
-    checks_in_statements(&tokens, false, direct_assert)
-}
-
-fn closing(tokens: &[&str], start: usize) -> Option<usize> {
-    let close = match *tokens.get(start)? {
-        "(" => ")",
-        "{" => "}",
-        "[" => "]",
-        _ => return None,
-    };
-    let mut i = start + 1;
-    while i < tokens.len() {
-        if tokens[i] == close {
-            return Some(i);
-        }
-        if matches!(tokens[i], "(" | "{" | "[") {
-            i = closing(tokens, i)?;
-        }
-        i += 1;
-    }
-    None
-}
-
-fn statement_end(tokens: &[&str], start: usize) -> usize {
-    let mut i = start;
-    while i < tokens.len() {
-        if tokens[i] == ";" {
-            return i + 1;
-        }
-        if matches!(tokens[i], "(" | "{" | "[") {
-            let Some(end) = closing(tokens, i) else {
-                return tokens.len();
-            };
-            i = end;
-        }
-        i += 1;
-    }
-    i
 }
 
 fn checks_in_statements(tokens: &[&str], conditional: bool, direct_assert: bool) -> bool {
@@ -166,76 +124,20 @@ fn checks_in_statements(tokens: &[&str], conditional: bool, direct_assert: bool)
             continue;
         }
         if tokens[i] == "if" && tokens.get(i + 1) == Some(&"(") {
-            let Some(end_condition) = closing(tokens, i + 1) else {
-                return false;
-            };
-            let condition = &tokens[i + 2..end_condition];
-            // Literal-only conditions do not constitute an inspection.
-            let meaningful = condition.iter().any(|t| {
-                t.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
-                    && !matches!(*t, "true" | "false" | "null" | "undefined")
-            });
-            // Literal boolean control flow (for example false && actual.ok)
-            // cannot establish a reachable inspection in this recognizer.
-            if !meaningful || condition.iter().any(|t| matches!(*t, "true" | "false")) {
-                return false;
-            }
-            i = end_condition + 1;
-            let Some((body, next)) = branch(tokens, i) else {
-                return false;
-            };
-            if meaningful && checks_in_statements(body, true, direct_assert) {
-                return true;
-            }
-            i = next;
-            if tokens.get(i) == Some(&"else") {
-                let Some((body, next)) = branch(tokens, i + 1) else {
-                    return false;
-                };
-                if meaningful && checks_in_statements(body, true, direct_assert) {
-                    return true;
-                }
-                i = next;
+            match if_statement(tokens, i, direct_assert) {
+                ControlFlow::Break(verdict) => return verdict,
+                ControlFlow::Continue(next) => i = next,
             }
             continue;
         }
         let rest = &tokens[i..];
         if rest.starts_with(&["process", ".", "exit", "("]) {
-            return conditional
-                && rest
-                    .get(4)
-                    .and_then(|code| code.parse::<u8>().ok())
-                    .is_some_and(|code| code != 0)
-                && rest.get(5) == Some(&")");
+            return conditional && is_nonzero_exit(rest);
         }
         if matches!(tokens[i], "return" | "throw") {
             return false;
         }
-        if direct_assert
-            && rest.first() == Some(&"assert")
-            && (rest.get(1) == Some(&"(")
-                || rest.get(1) == Some(&".")
-                    && rest.get(3) == Some(&"(")
-                    && rest.get(2).is_some_and(|method| {
-                        matches!(
-                            *method,
-                            "ok" | "equal"
-                                | "strictEqual"
-                                | "deepEqual"
-                                | "deepStrictEqual"
-                                | "notEqual"
-                                | "notStrictEqual"
-                                | "notDeepEqual"
-                                | "notDeepStrictEqual"
-                                | "throws"
-                                | "doesNotThrow"
-                                | "ifError"
-                                | "match"
-                                | "doesNotMatch"
-                                | "fail"
-                        )
-                    }))
-        {
+        if direct_assert && is_assert_check(rest) {
             return true;
         }
         // Skip function bodies, callbacks and compound expressions as a unit:
@@ -245,12 +147,61 @@ fn checks_in_statements(tokens: &[&str], conditional: bool, direct_assert: bool)
     false
 }
 
-fn branch<'a>(tokens: &'a [&'a str], start: usize) -> Option<(&'a [&'a str], usize)> {
-    if tokens.get(start) == Some(&"{") {
-        let end = closing(tokens, start)?;
-        Some((&tokens[start + 1..end], end + 1))
-    } else {
-        let end = statement_end(tokens, start);
-        Some((tokens.get(start..end)?, end))
+/// Break with the verdict, or continue with the index after the statement.
+fn if_statement(tokens: &[&str], start: usize, direct_assert: bool) -> ControlFlow<bool, usize> {
+    let Some(end_condition) = closing(tokens, start + 1) else {
+        return ControlFlow::Break(false);
+    };
+    if !inspects_something(&tokens[start + 2..end_condition]) {
+        return ControlFlow::Break(false);
     }
+    let mut next = branch_checks(tokens, end_condition + 1, direct_assert)?;
+    if tokens.get(next) == Some(&"else") {
+        next = branch_checks(tokens, next + 1, direct_assert)?;
+    }
+    ControlFlow::Continue(next)
 }
+
+fn inspects_something(condition: &[&str]) -> bool {
+    // Literal-only conditions do not constitute an inspection.
+    let meaningful = condition.iter().any(|t| {
+        t.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
+            && !matches!(*t, "true" | "false" | "null" | "undefined")
+    });
+    // Literal boolean control flow (for example false && actual.ok)
+    // cannot establish a reachable inspection in this recognizer.
+    meaningful && !condition.iter().any(|t| matches!(*t, "true" | "false"))
+}
+
+/// Break(true) when the branch holds a check, Break(false) when it cannot be
+/// read, otherwise continue with the index after it.
+fn branch_checks(tokens: &[&str], start: usize, direct_assert: bool) -> ControlFlow<bool, usize> {
+    let Some((body, next)) = branch(tokens, start) else {
+        return ControlFlow::Break(false);
+    };
+    if checks_in_statements(body, true, direct_assert) {
+        return ControlFlow::Break(true);
+    }
+    ControlFlow::Continue(next)
+}
+
+fn is_nonzero_exit(rest: &[&str]) -> bool {
+    rest.get(4)
+        .and_then(|code| code.parse::<u8>().ok())
+        .is_some_and(|code| code != 0)
+        && rest.get(5) == Some(&")")
+}
+
+fn is_assert_check(rest: &[&str]) -> bool {
+    rest.first() == Some(&"assert")
+        && (rest.get(1) == Some(&"(")
+            || rest.get(1) == Some(&".")
+                && rest.get(3) == Some(&"(")
+                && rest
+                    .get(2)
+                    .is_some_and(|method| ASSERT_METHODS.contains(method)))
+}
+
+#[cfg(test)]
+#[path = "node_checks/tests.rs"]
+mod tests;
