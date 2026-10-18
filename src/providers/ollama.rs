@@ -1,4 +1,4 @@
-use reqwest::blocking::Client;
+use reqwest::Client;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -8,13 +8,14 @@ use crate::tools::args_recovery::recover_tool_arguments;
 use crate::tools::registry::ToolSpec;
 
 use super::parsing::tool_names;
-use super::streaming::StreamControl;
+use super::streaming::{CancelToken, HttpCall, StreamControl};
 use super::{AssistantReply, ChatClient, ResponseTiming};
 
 #[derive(Debug, Clone)]
 pub struct OllamaClient {
     base_url: String,
     http: Client,
+    cancel: CancelToken,
     request_options: Value,
     think: Option<OllamaThink>,
     keep_alive: &'static str,
@@ -29,13 +30,11 @@ impl OllamaClient {
         max_predict: usize,
         retries: usize,
     ) -> anyhow::Result<Self> {
-        let http = Client::builder()
-            .connect_timeout(std::time::Duration::from_secs(timeout_secs))
-            .timeout(std::time::Duration::from_secs(timeout_secs))
-            .build()?;
+        let http = super::streaming::http_client(timeout_secs)?;
         Ok(Self {
             base_url,
             http,
+            cancel: CancelToken::default(),
             request_options: json!({
                 "num_ctx": DEFAULT_CONTEXT_BUDGET,
                 "num_predict": max_predict,
@@ -58,14 +57,17 @@ impl OllamaClient {
     }
 
     pub fn list_models(&self) -> anyhow::Result<Vec<String>> {
-        let response = self
-            .http
-            .get(format!("{}/api/tags", self.base_url))
-            .send()?;
+        let call = HttpCall::new(&self.cancel)?;
+        let response = call.run(async {
+            self.http
+                .get(format!("{}/api/tags", self.base_url))
+                .send()
+                .await
+        })??;
         if !response.status().is_success() {
             anyhow::bail!("Ollama /api/tags failed: {}", response.status());
         }
-        let body = response.text()?;
+        let body = call.run(response.text())??;
         parse_tags_response(&body)
     }
 }
@@ -95,6 +97,10 @@ impl ChatClient for OllamaClient {
         self.last_response_timing.take()
     }
 
+    fn set_cancel_token(&mut self, token: CancelToken) {
+        self.cancel = token;
+    }
+
     fn supports_streaming(&self) -> bool {
         true
     }
@@ -109,17 +115,19 @@ impl ChatClient for OllamaClient {
     ) -> anyhow::Result<AssistantReply> {
         let body =
             self.chat_request_body_with_stream(model, messages, tools, native_tools_enabled, true);
+        let call = HttpCall::new(&self.cancel)?;
         for attempt in 0..=self.retries {
-            match self
-                .http
-                .post(format!("{}/api/chat", self.base_url))
-                .json(&body)
-                .send()
-            {
+            match call.run(async {
+                self.http
+                    .post(format!("{}/api/chat", self.base_url))
+                    .json(&body)
+                    .send()
+                    .await
+            })? {
                 Ok(response) if response.status().is_success() => {
                     let mut delivered = false;
                     let result = parse_chat_stream(
-                        response,
+                        call.reader(response),
                         &tool_names(tools),
                         !native_tools_enabled,
                         &mut |chunk| {
@@ -176,15 +184,17 @@ impl ChatClient for OllamaClient {
         native_tools_enabled: bool,
     ) -> anyhow::Result<AssistantReply> {
         let body = self.chat_request_body(model, messages, tools, native_tools_enabled);
+        let call = HttpCall::new(&self.cancel)?;
         for attempt in 0..=self.retries {
-            match self
-                .http
-                .post(format!("{}/api/chat", self.base_url))
-                .json(&body)
-                .send()
-            {
+            match call.run(async {
+                self.http
+                    .post(format!("{}/api/chat", self.base_url))
+                    .json(&body)
+                    .send()
+                    .await
+            })? {
                 Ok(response) if response.status().is_success() => {
-                    let body = response.text()?;
+                    let body = call.run(response.text())??;
                     let (reply, timing) = parse_chat_response_with_timing(
                         &body,
                         &tool_names(tools),

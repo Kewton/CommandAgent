@@ -1,10 +1,139 @@
+use std::future::Future;
 use std::io::Read;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::task::Poll;
+use std::time::Duration;
 
 use anyhow::{Context, bail};
+use tokio::sync::Notify;
 
 const READ_BUFFER_BYTES: usize = 8 * 1024;
 const MAX_STREAM_LINE_BYTES: usize = 8 * 1024 * 1024;
 const AFTER_FIRST_CHUNK_PREFIX: &str = "provider stream failed after partial output:";
+
+const ABORTED_BY_USER_ERROR: &str = "aborted_by_user: interrupted by user";
+
+/// Cancellation signal shared between `provider_call` and a provider client.
+/// Firing it makes every in-flight [`HttpCall`] drop its request, which closes
+/// the HTTP connection.
+#[derive(Debug, Clone, Default)]
+pub struct CancelToken(Arc<CancelState>);
+
+#[derive(Debug, Default)]
+struct CancelState {
+    cancelled: AtomicBool,
+    notify: Notify,
+}
+
+impl CancelToken {
+    pub fn cancel(&self) {
+        self.0.cancelled.store(true, Ordering::SeqCst);
+        self.0.notify.notify_one();
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.0.cancelled.load(Ordering::SeqCst)
+    }
+
+    async fn cancelled(&self) {
+        loop {
+            let notified = self.0.notify.notified();
+            if self.is_cancelled() {
+                return;
+            }
+            notified.await;
+        }
+    }
+}
+
+pub fn aborted_by_user() -> anyhow::Error {
+    anyhow::anyhow!(ABORTED_BY_USER_ERROR)
+}
+
+/// Async HTTP client with the timeout semantics of the former blocking client.
+/// Idle connections are not pooled because each call owns its own runtime.
+pub fn http_client(timeout_secs: u64) -> reqwest::Result<reqwest::Client> {
+    let timeout = Duration::from_secs(timeout_secs);
+    reqwest::Client::builder()
+        .connect_timeout(timeout)
+        .timeout(timeout)
+        .pool_max_idle_per_host(0)
+        .build()
+}
+
+/// One provider call's current-thread runtime. Each wait races the request or
+/// body read against the cancel token; on cancel the future is dropped and the
+/// runtime is dropped with this value, so the socket closes.
+pub struct HttpCall {
+    runtime: tokio::runtime::Runtime,
+    cancel: CancelToken,
+}
+
+impl HttpCall {
+    pub fn new(cancel: &CancelToken) -> anyhow::Result<Self> {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .context("failed to start provider HTTP runtime")?;
+        Ok(Self {
+            runtime,
+            cancel: cancel.clone(),
+        })
+    }
+
+    pub fn run<F: Future>(&self, future: F) -> anyhow::Result<F::Output> {
+        if self.cancel.is_cancelled() {
+            return Err(aborted_by_user());
+        }
+        let mut future = std::pin::pin!(future);
+        let mut cancelled = std::pin::pin!(self.cancel.cancelled());
+        self.runtime.block_on(std::future::poll_fn(|cx| {
+            if cancelled.as_mut().poll(cx).is_ready() {
+                return Poll::Ready(Err(aborted_by_user()));
+            }
+            future.as_mut().poll(cx).map(Ok)
+        }))
+    }
+
+    pub fn reader(&self, response: reqwest::Response) -> BodyReader<'_> {
+        BodyReader {
+            call: self,
+            response,
+            buffer: Vec::new(),
+            offset: 0,
+        }
+    }
+}
+
+/// `std::io::Read` over an async response body, so the line parsers stay
+/// synchronous.
+pub struct BodyReader<'a> {
+    call: &'a HttpCall,
+    response: reqwest::Response,
+    buffer: Vec<u8>,
+    offset: usize,
+}
+
+impl Read for BodyReader<'_> {
+    fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+        if self.offset >= self.buffer.len() {
+            match self.call.run(self.response.chunk()) {
+                Ok(Ok(Some(chunk))) => {
+                    self.buffer = chunk.to_vec();
+                    self.offset = 0;
+                }
+                Ok(Ok(None)) => return Ok(0),
+                Ok(Err(err)) => return Err(std::io::Error::other(err)),
+                Err(err) => return Err(std::io::Error::other(err)),
+            }
+        }
+        let count = out.len().min(self.buffer.len() - self.offset);
+        out[..count].copy_from_slice(&self.buffer[self.offset..self.offset + count]);
+        self.offset += count;
+        Ok(count)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StreamControl {
