@@ -10,7 +10,13 @@
 mod gui {
     // The whole server binary is included for its handlers, so most of it is
     // unreferenced from this test crate; the production build uses it all.
-    #![allow(dead_code, unused_imports, unused_variables, unused_mut)]
+    #![allow(
+        dead_code,
+        unused_imports,
+        unused_variables,
+        unused_mut,
+        reason = "include!d server binary is mostly unused here"
+    )]
 
     include!(concat!(
         env!("CARGO_MANIFEST_DIR"),

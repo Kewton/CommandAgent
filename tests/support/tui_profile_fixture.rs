@@ -61,7 +61,7 @@ struct FakeClient {
     state: Arc<Mutex<FakeClientState>>,
 }
 
-#[allow(dead_code)]
+#[allow(dead_code, reason = "shared fixture; not every including crate reads it")]
 struct FakeClientState {
     replies: Vec<AssistantReply>,
     requests: Vec<Vec<ConversationMessage>>,
@@ -78,7 +78,7 @@ impl FakeClient {
         }
     }
 
-    #[allow(dead_code)]
+    #[allow(dead_code, reason = "shared fixture; not every including crate calls it")]
     fn requests(&self) -> MutexGuard<'_, FakeClientState> {
         self.state.lock().unwrap()
     }
@@ -122,7 +122,7 @@ struct FakeUi {
 }
 
 impl FakeUi {
-    #[allow(dead_code)]
+    #[allow(dead_code, reason = "shared fixture; not every including crate calls it")]
     fn events(&self) -> Vec<String> {
         self.events.lock().unwrap().clone()
     }
