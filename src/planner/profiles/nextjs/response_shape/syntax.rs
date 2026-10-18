@@ -1,4 +1,7 @@
 //! Small lexical view for proven local contracts, not a TypeScript type checker.
+mod tokenize;
+use tokenize::tokenize;
+
 #[derive(Clone, Debug)]
 pub(super) struct Token {
     pub(super) text: String,
@@ -13,93 +16,11 @@ pub(super) struct Source {
 
 impl Source {
     pub(super) fn parse(text: &str) -> Option<Self> {
-        let mut chars = text.chars().peekable();
-        let mut tokens = Vec::new();
-        while let Some(ch) = chars.next() {
-            if ch.is_whitespace() {
-                continue;
-            }
-            if ch == '/' && chars.peek() == Some(&'/') {
-                for c in chars.by_ref() {
-                    if c == '\n' {
-                        break;
-                    }
-                }
-                continue;
-            }
-            if ch == '/' && chars.peek() == Some(&'*') {
-                chars.next();
-                loop {
-                    if chars.next()? == '*' && chars.peek() == Some(&'/') {
-                        chars.next();
-                        break;
-                    }
-                }
-                continue;
-            }
-            if ch == '/'
-                && tokens.last().is_none_or(|t: &Token| {
-                    !t.quoted
-                        && matches!(
-                            t.text.as_str(),
-                            "=" | "(" | ":" | "," | "[" | "!" | "return"
-                        )
-                })
-            {
-                let mut class = false;
-                loop {
-                    match chars.next()? {
-                        '\\' => {
-                            chars.next()?;
-                        }
-                        '[' => class = true,
-                        ']' => class = false,
-                        '/' if !class => break,
-                        '\n' | '\r' => return None,
-                        _ => {}
-                    }
-                }
-                while chars.peek().is_some_and(|c| c.is_ascii_alphabetic()) {
-                    chars.next();
-                }
-                tokens.push(Token {
-                    text: String::new(),
-                    quoted: true,
-                });
-                continue;
-            }
-            let quoted = matches!(ch, '\'' | '"' | '`');
-            let mut value = String::new();
-            if quoted {
-                loop {
-                    let c = chars.next()?;
-                    if c == ch {
-                        break;
-                    }
-                    if c == '\\' {
-                        // Escaped or interpolated paths are not literal routes.
-                        value.push(c);
-                        value.push(chars.next()?);
-                    } else {
-                        value.push(c);
-                    }
-                }
-            } else {
-                value.push(ch);
-                if ch.is_ascii_alphanumeric() || matches!(ch, '_' | '$') {
-                    while chars
-                        .peek()
-                        .is_some_and(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '$'))
-                    {
-                        value.push(chars.next()?);
-                    }
-                }
-            }
-            tokens.push(Token {
-                text: value,
-                quoted,
-            });
-        }
+        Self::from_tokens(tokenize(text)?)
+    }
+
+    /// Build bracket pairs and enclosing-brace scopes; `None` when unbalanced.
+    fn from_tokens(tokens: Vec<Token>) -> Option<Self> {
         let mut source = Self {
             pairs: vec![None; tokens.len()],
             scopes: vec![None; tokens.len()],
