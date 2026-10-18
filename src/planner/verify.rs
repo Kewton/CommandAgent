@@ -4,7 +4,7 @@ use setup_command_policy::is_setup_or_dev_server_verify_command;
 use std::path::Path;
 
 use crate::minimal_loop::build_verifier::{
-    self, BuildVerifierLifecycleObservation, BuildVerifierStatus, CompileError,
+    self, BuildVerifierLifecycleObservation, BuildVerifierStatus,
 };
 use crate::minimal_loop::dependency_setup::{
     self, NodeDependencySetupAuthority, NodeDependencySetupObservation, NodeDependencySetupStatus,
@@ -24,46 +24,10 @@ mod failure_classification;
 mod shell_control;
 mod shell_rewrite;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum VerifyStatus {
-    Pass,
-    MissingPath(String),
-    CommandFailed(String),
-    VerifierCommandFalseNegative(String),
-    DependencyMissing(String),
-    ProfileContractFailed(String),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct VerificationReport {
-    pub status: VerifyStatus,
-    pub missing_paths: Vec<String>,
-    pub command_failures: Vec<CommandFailure>,
-    pub verifier_command_false_negatives: Vec<VerifierCommandFalseNegative>,
-    pub runtime_command_normalizations: Vec<VerifyCommandRuntimeNormalization>,
-    pub dependency_missing: Vec<String>,
-    pub profile_failures: Vec<String>,
-    pub compile_errors: Vec<CompileError>,
-    pub python_tracebacks: Vec<crate::minimal_loop::python_traceback::PythonTraceback>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CommandFailure {
-    pub command: String,
-    pub reason: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
-pub struct VerifierCommandFalseNegative {
-    pub command: String,
-    pub reason: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
-pub struct VerifyCommandRuntimeNormalization {
-    pub original: String,
-    pub repaired: String,
-}
+pub use crate::verification::report::{
+    CommandFailure, VerificationReport, VerifierCommandFalseNegative,
+    VerifyCommandRuntimeNormalization, VerifyStatus,
+};
 
 pub const OUTPUT_PIPE_STRIPPED_REASON: &str = "output_pipe_stripped: verifier output is already captured and excerpted; trailing head/tail pipes mask the base command exit status";
 const STDERR_MERGE_STRIPPED_REASON: &str =
@@ -279,179 +243,6 @@ pub struct RuntimeNormalizedCommandPlan {
     pub normalization_kind: &'static str,
     pub normalization_reason: String,
     pub segments: Vec<RuntimeNormalizedCommandSegment>,
-}
-
-impl VerificationReport {
-    pub fn pass() -> Self {
-        Self {
-            status: VerifyStatus::Pass,
-            missing_paths: Vec::new(),
-            command_failures: Vec::new(),
-            verifier_command_false_negatives: Vec::new(),
-            runtime_command_normalizations: Vec::new(),
-            dependency_missing: Vec::new(),
-            profile_failures: Vec::new(),
-            compile_errors: Vec::new(),
-            python_tracebacks: Vec::new(),
-        }
-    }
-
-    pub fn is_pass(&self) -> bool {
-        self.status == VerifyStatus::Pass
-            && self.missing_paths.is_empty()
-            && self.command_failures.is_empty()
-            && self.verifier_command_false_negatives.is_empty()
-            && self.dependency_missing.is_empty()
-            && self.profile_failures.is_empty()
-            && self.compile_errors.is_empty()
-            && self.python_tracebacks.is_empty()
-    }
-
-    pub fn missing_path(path: impl Into<String>) -> Self {
-        let mut report = Self::pass();
-        report.push_missing_path(path);
-        report
-    }
-
-    pub fn command_failed(command: impl Into<String>, reason: impl Into<String>) -> Self {
-        let mut report = Self::pass();
-        report.push_command_failure(command, reason);
-        report
-    }
-
-    pub fn dependency_missing(reason: impl Into<String>) -> Self {
-        let mut report = Self::pass();
-        report.push_dependency_missing(reason);
-        report
-    }
-
-    pub fn profile_failed(reason: impl Into<String>) -> Self {
-        let mut report = Self::pass();
-        report.push_profile_failure(reason);
-        report
-    }
-
-    pub fn push_missing_path(&mut self, path: impl Into<String>) {
-        self.missing_paths.push(path.into());
-        self.refresh_status();
-    }
-
-    pub fn push_command_failure(&mut self, command: impl Into<String>, reason: impl Into<String>) {
-        self.command_failures.push(CommandFailure {
-            command: command.into(),
-            reason: reason.into(),
-        });
-        self.refresh_status();
-    }
-
-    pub fn push_verifier_command_false_negative(
-        &mut self,
-        command: impl Into<String>,
-        reason: impl Into<String>,
-    ) {
-        self.verifier_command_false_negatives
-            .push(VerifierCommandFalseNegative {
-                command: command.into(),
-                reason: reason.into(),
-            });
-        self.refresh_status();
-    }
-
-    fn push_runtime_command_normalization(
-        &mut self,
-        original: impl Into<String>,
-        repaired: impl Into<String>,
-    ) {
-        self.runtime_command_normalizations
-            .push(VerifyCommandRuntimeNormalization {
-                original: original.into(),
-                repaired: repaired.into(),
-            });
-    }
-
-    pub fn push_dependency_missing(&mut self, reason: impl Into<String>) {
-        self.dependency_missing.push(reason.into());
-        self.refresh_status();
-    }
-
-    pub fn push_profile_failure(&mut self, reason: impl Into<String>) {
-        self.profile_failures.push(reason.into());
-        self.refresh_status();
-    }
-
-    pub fn push_python_traceback(
-        &mut self,
-        traceback: crate::minimal_loop::python_traceback::PythonTraceback,
-    ) {
-        if !self.python_tracebacks.contains(&traceback) {
-            self.python_tracebacks.push(traceback);
-        }
-    }
-
-    pub fn push_compile_errors(&mut self, command: impl Into<String>, errors: Vec<CompileError>) {
-        if errors.is_empty() {
-            return;
-        }
-        for error in &errors {
-            if !self.compile_errors.contains(error) {
-                self.compile_errors.push(error.clone());
-            }
-        }
-        let reason = format!(
-            "implementation_compile_error: {}",
-            errors
-                .iter()
-                .map(CompileError::summary)
-                .collect::<Vec<_>>()
-                .join("; ")
-        );
-        self.push_command_failure(command, reason);
-    }
-
-    pub fn primary_reason(&self) -> String {
-        self.missing_paths
-            .first()
-            .cloned()
-            .or_else(|| self.dependency_missing.first().cloned())
-            .or_else(|| {
-                self.command_failures
-                    .first()
-                    .map(|failure| failure.reason.clone())
-            })
-            .or_else(|| {
-                self.verifier_command_false_negatives
-                    .first()
-                    .map(|failure| failure.reason.clone())
-            })
-            .or_else(|| {
-                self.compile_errors
-                    .first()
-                    .map(|error| format!("implementation_compile_error: {}", error.summary()))
-            })
-            .or_else(|| self.profile_failures.first().cloned())
-            .unwrap_or_else(|| "pass".to_string())
-    }
-
-    pub fn refresh_status(&mut self) {
-        self.status = if let Some(path) = self.missing_paths.first() {
-            VerifyStatus::MissingPath(path.clone())
-        } else if let Some(reason) = self.dependency_missing.first() {
-            VerifyStatus::DependencyMissing(reason.clone())
-        } else if let Some(failure) = self.command_failures.first() {
-            VerifyStatus::CommandFailed(failure.reason.clone())
-        } else if let Some(failure) = self.verifier_command_false_negatives.first() {
-            VerifyStatus::VerifierCommandFalseNegative(failure.reason.clone())
-        } else if let Some(error) = self.compile_errors.first() {
-            VerifyStatus::CommandFailed(format!(
-                "implementation_compile_error: {}",
-                error.summary()
-            ))
-        } else if let Some(reason) = self.profile_failures.first() {
-            VerifyStatus::ProfileContractFailed(reason.clone())
-        } else {
-            VerifyStatus::Pass
-        };
-    }
 }
 
 pub fn verify_step(root: &Path, step: &PlanStep) -> VerificationReport {

@@ -1,3 +1,88 @@
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CompileError {
+    pub path: String,
+    pub line: usize,
+    pub column: usize,
+    pub message: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub excerpt: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub symbol: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub route_bound: Option<bool>,
+}
+
+impl CompileError {
+    pub fn location(&self) -> String {
+        if self.line > 0 && self.column > 0 {
+            format!("{}:{}:{}", self.path, self.line, self.column)
+        } else if self.line > 0 {
+            format!("{}:{}", self.path, self.line)
+        } else {
+            self.path.clone()
+        }
+    }
+
+    pub fn summary(&self) -> String {
+        format!("{} {}", self.location(), self.message)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BuildVerifierStatus {
+    PolicyRejected,
+    DependencyMissing,
+    Blocked,
+    Passed,
+    Failed,
+}
+
+impl BuildVerifierStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::PolicyRejected => "policy_rejected",
+            Self::DependencyMissing => "dependency_missing",
+            Self::Blocked => "blocked",
+            Self::Passed => "passed",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PythonTracebackFrame {
+    pub file: String,
+    pub line: usize,
+    pub function: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PythonTraceback {
+    pub final_frame: PythonTracebackFrame,
+    pub leading_frames: Vec<PythonTracebackFrame>,
+    pub exception_type: String,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub target_path: Option<String>,
+}
+
+impl PythonTraceback {
+    pub(crate) fn signature(&self) -> String {
+        format!(
+            "traceback:{}:{}:{}:{}",
+            self.target_path
+                .as_deref()
+                .unwrap_or(self.final_frame.file.as_str()),
+            self.final_frame.line,
+            self.exception_type,
+            self.message
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::minimal_loop::build_verifier::{BuildVerifierStatus, CompileError};
