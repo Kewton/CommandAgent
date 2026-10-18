@@ -4,6 +4,8 @@ use std::{collections::BTreeSet, iter::Peekable, str::Chars};
 use super::Token;
 
 mod template_reads;
+#[cfg(test)]
+mod tests;
 
 fn dynamic_evaluation(tokens: &[Token]) -> bool {
     tokens.iter().any(|token| {
