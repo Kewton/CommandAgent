@@ -58,6 +58,8 @@ use super::repair_progress::{
 
 #[path = "loop_run/context.rs"]
 mod context;
+#[cfg(test)]
+mod contract_outcome;
 #[path = "loop_run/error.rs"]
 mod error;
 mod implementation_completion;
