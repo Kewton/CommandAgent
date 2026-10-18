@@ -1,5 +1,5 @@
 // StepPlan execution, bounded repair, and phase-owned context (pre-split runner.rs:960-3602).
-#[allow(unused_imports, reason = "shared import list")]
+#[allow(unused_imports, reason = "names shared with children")]
 use super::{
     BTreeSet, BoundCompletionContract, BuildVerifierLifecycleObservation, BuildVerifierObservation,
     BuildVerifierRequirement, BuildVerifierStatus, CarriedPressure, ChatClient,
@@ -1092,7 +1092,8 @@ pub(super) struct StepPromptContext {
     pub(super) completion_contract_path: Option<PathBuf>,
 }
 
-#[allow(clippy::result_large_err, clippy::too_many_arguments)]
+#[allow(clippy::result_large_err, reason = "error carries step outcome")]
+#[allow(clippy::too_many_arguments, reason = "step inputs borrowed apart")]
 pub(super) fn run_step(
     client: &mut dyn ChatClient,
     session: &mut SessionSnapshot,

@@ -3,7 +3,7 @@
 mod report_signature;
 pub(super) use report_signature::verification_report_signature;
 
-#[allow(unused_imports, reason = "shared import list")]
+#[allow(unused_imports, reason = "names used by test modules")]
 use super::{
     AssistantReply, BTreeSet, ChatClient, CompletionContract, Config, Duration,
     GeneratedStepPlanFieldDefault, IntentId, InteractionUi, MissingImport, NOOP_UI, Path, PathBuf,
@@ -3036,7 +3036,7 @@ pub(super) fn emit_step_prompt_contract(
     );
 }
 
-#[allow(dead_code, reason = "test-only helper")]
+#[allow(dead_code, reason = "only used by driver_tests")]
 pub(super) fn prompt_with_required_paths(instruction: &str, paths: &[String]) -> String {
     if paths.is_empty() || instruction.contains("Required final artifacts:") {
         return instruction.to_string();
@@ -3313,7 +3313,7 @@ pub(super) fn phase_goal_one_liner(prompt: &str) -> String {
     }
 }
 
-#[allow(dead_code, reason = "diagnostic formatter")]
+#[allow(dead_code, reason = "no callers; kept for debug")]
 pub(super) fn _format_report(report: &VerificationReport) -> String {
     format!("{:?}", report.status)
 }

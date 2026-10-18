@@ -1,4 +1,4 @@
-#[allow(unused_imports, reason = "shared import list")]
+#[allow(unused_imports, reason = "names shared with children")]
 use super::{
     ChatClient, Config, DependencyReconciliationTrigger, EscalationCarryoverHandle,
     FINAL_ACCEPTANCE_COMPILE_NO_SNAPSHOT_EXTRA_ATTEMPTS,
@@ -46,7 +46,7 @@ use super::{
     ultra_plan_generation_messages, verification_missing_signals, verify_invariant_with_hooks,
     writable_workspace_source_path,
 };
-#[allow(unused_imports, reason = "shared import list")]
+#[allow(unused_imports, reason = "names used by test modules")]
 use super::{
     Path, PathBuf, StepPlan, capability_evidence_remedy_lines,
     generate_step_plan_with_ui_for_phase, render_ultra_plan, resolve_plan_file_path,
