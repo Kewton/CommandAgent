@@ -1,6 +1,6 @@
 use super::*;
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "cancel closures plus ctx")]
 pub(super) fn execute_split_runtime_bash<F, G>(
     segments: &[RuntimeNormalizedCommandSegment],
     root: &Path,

@@ -949,7 +949,7 @@ pub fn verify_runtime_acceptance(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "public API keeps flat lists")]
 pub fn verify_runtime_acceptance_with_browser_dirs(
     root: &Path,
     required_paths: &[String],
@@ -973,7 +973,7 @@ pub fn verify_runtime_acceptance_with_browser_dirs(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "public API keeps flat lists")]
 pub fn verify_runtime_acceptance_with_hints(
     root: &Path,
     required_paths: &[String],
@@ -997,7 +997,7 @@ pub fn verify_runtime_acceptance_with_hints(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "public API keeps flat lists")]
 pub fn verify_runtime_acceptance_with_browser_dirs_and_hints(
     root: &Path,
     required_paths: &[String],

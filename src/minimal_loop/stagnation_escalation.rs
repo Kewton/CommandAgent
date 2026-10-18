@@ -512,7 +512,7 @@ pub(crate) struct ReadOnlyRecoveryPaths {
     pub(crate) suggested_yaml_command: String,
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "handoff fields stay explicit")]
 pub(crate) fn save_read_only_write_required_handoff(
     config: &Config,
     objective: &str,
@@ -705,7 +705,7 @@ pub(crate) fn render_read_only_recovery_stop_reason(
     eval_events::render_stop_reason(&parts)
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "stop event fields stay explicit")]
 pub(crate) fn record_write_required_exhaustion_and_render_stop(
     config: &Config,
     objective: &str,

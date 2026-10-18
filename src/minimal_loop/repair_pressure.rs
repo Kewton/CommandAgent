@@ -18,7 +18,7 @@ pub(crate) enum PressureLevel {
 }
 
 impl PressureLevel {
-    #[allow(dead_code)]
+    #[allow(dead_code, reason = "no caller yet for stage mapping")]
     pub(crate) fn feedback_stage(self) -> Option<&'static str> {
         match self {
             Self::Intervention => Some("intervention"),
@@ -47,7 +47,7 @@ pub(crate) enum PressureTerminalReason {
 }
 
 impl PressureTerminalReason {
-    #[allow(dead_code)]
+    #[allow(dead_code, reason = "used by unit tests only")]
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::ReadOnlyLoop | Self::WriteRequiredExhausted => READ_ONLY_STAGNATION_REASON,
