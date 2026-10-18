@@ -12,6 +12,9 @@ use std::process::Command;
 #[path = "../../final_acceptance/issue507_tests.rs"]
 mod final_acceptance_issue507_tests;
 
+#[path = "../../final_acceptance/issue511_tests.rs"]
+mod final_acceptance_issue511_tests;
+
 fn generic_config(root: &Path) -> Config {
     let mut config = Config::from_cli(Cli::parse_from([
         "commandagent",
