@@ -537,6 +537,8 @@ fn applied_launch_point_denies_an_indirect_read() {
 #[cfg(target_os = "linux")]
 fn kernel_landlock_abi() -> u32 {
     const LANDLOCK_CREATE_RULESET_VERSION: libc::c_uint = 1;
+    // SAFETY: with a null attr pointer, size 0 and the VERSION flag, landlock_create_ruleset only
+    // returns the ABI number; it reads no memory and creates no file descriptor.
     let ret = unsafe {
         libc::syscall(
             libc::SYS_landlock_create_ruleset,

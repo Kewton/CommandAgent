@@ -1093,6 +1093,8 @@ mod tests {
                 .map(|(key, _)| (*key, std::env::var_os(key)))
                 .collect();
             for (key, value) in pairs {
+                // SAFETY: every caller holds `ENV_TEST_LOCK` for the guard's whole life, so no
+                // other test in this module reads or writes the environment while it changes.
                 unsafe {
                     std::env::set_var(key, value);
                 }
@@ -1104,6 +1106,8 @@ mod tests {
     impl Drop for TestEnvGuard {
         fn drop(&mut self) {
             for (key, previous) in &self.saved {
+                // SAFETY: the guard is dropped while the caller's `ENV_TEST_LOCK` guard is still
+                // alive (declared earlier, dropped later), so the restore is serialized too.
                 unsafe {
                     match previous {
                         Some(value) => std::env::set_var(key, value),

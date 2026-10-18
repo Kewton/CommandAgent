@@ -380,6 +380,8 @@ fn sigint_emits_interrupted_summary_as_the_final_stdout_line() {
         "run evidence must exist before SIGINT is delivered"
     );
 
+    // SAFETY: the pid is the test's own child, which is only polled for exit after this call, so
+    // the pid is not recycled and SIGINT reaches nothing else.
     let signal_result = unsafe { libc::kill(run.child_mut().id() as libc::pid_t, libc::SIGINT) };
     assert_eq!(signal_result, 0, "failed to send SIGINT");
 

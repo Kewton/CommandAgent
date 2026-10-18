@@ -147,6 +147,8 @@ const GRANDCHILD_PIPE_RELATIVE: &str = ".anvil/evidence/dev-server-grandchild.pi
 fn create_grandchild_pipe(path: &Path) {
     use std::os::unix::ffi::OsStrExt;
     let c_path = std::ffi::CString::new(path.as_os_str().as_bytes()).expect("pipe path");
+    // SAFETY: `c_path` is a NUL-terminated CString that outlives the call; mkfifo only creates a
+    // fifo at that test-owned path and keeps no pointer to it.
     let rc = unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) };
     assert_eq!(rc, 0, "create grandchild pipe {path:?}");
 }
