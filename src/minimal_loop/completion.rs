@@ -3451,3 +3451,7 @@ export class SpaceInvadersEngine {\n\
 #[cfg(test)]
 #[path = "completion/issue508_tests.rs"]
 mod issue508_tests;
+
+#[cfg(test)]
+#[path = "completion/issue511_tests.rs"]
+mod issue511_tests;
