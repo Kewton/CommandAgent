@@ -67,6 +67,7 @@ pub fn normalize_workspace_path(
     let path = Path::new(raw);
     if !path.is_absolute() {
         if looks_like_missing_leading_slash_absolute(raw) {
+            reject_parent_components(path)?;
             let root = root
                 .canonicalize()
                 .context("workspace root is not accessible")?;
