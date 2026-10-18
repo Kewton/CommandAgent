@@ -1551,6 +1551,9 @@ fn start_tags_only_ollama() -> (String, thread::JoinHandle<()>) {
                 Err(error) => panic!("fake Ollama accept failed: {error}"),
             }
         };
+        stream
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .unwrap();
         let request = read_http_request(&mut stream)
             .expect("fake Ollama must receive the complete startup probe request");
         assert!(request.starts_with("GET /api/tags "), "request={request:?}");
