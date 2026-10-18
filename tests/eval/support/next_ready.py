@@ -43,16 +43,11 @@ class NextServer:
             try:
                 line = self._lines.get(timeout=min(remaining, 0.5))
             except queue.Empty:
-                if self.process.poll() is not None:
-                    raise NextStartError(
-                        f"next start exited {self.process.returncode}\n" + self.tail()
-                    )
                 continue
             if line is None:
-                self.process.wait()
-                raise NextStartError(
-                    f"next start exited {self.process.returncode}\n" + self.tail()
-                )
+                # EOF: every holder of the pipe is gone. The leader stays
+                # unreaped here so the group can still be signalled safely.
+                raise NextStartError("next start exited\n" + self.tail())
             self.output.append(line)
             match = _LOCAL_URL.search(line)
             if match and int(match.group(1)) > 0:
@@ -71,22 +66,31 @@ def _pump(stream, lines: "queue.Queue[str | None]") -> None:
         lines.put(None)
 
 
-def _stop(process: subprocess.Popen) -> None:
-    if process.poll() is None:
-        try:
-            os.killpg(process.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-        try:
-            process.wait(timeout=_STOP_GRACE_SECONDS)
-        except subprocess.TimeoutExpired:
-            pass
-    # Reap the whole group even when npm already exited and left its child behind.
+def _signal_group(process: subprocess.Popen, sig: int) -> None:
+    """Signal the group only while its leader is unreaped.
+
+    A reaped leader frees its pid for reuse, so the group id could then name an
+    unrelated process group.
+    """
+    if process.returncode is not None:
+        return
+    pgid = process.pid
+    assert pgid > 1
     try:
-        os.killpg(process.pid, signal.SIGKILL)
-    except ProcessLookupError:
+        os.killpg(pgid, sig)
+    except (ProcessLookupError, PermissionError):
+        # macOS reports EPERM for a group whose only member is a zombie leader.
         pass
+
+
+def _stop(process: subprocess.Popen, reader: threading.Thread) -> None:
+    _signal_group(process, signal.SIGTERM)
+    # EOF on the pipe means every group member that held it has exited.
+    reader.join(timeout=_STOP_GRACE_SECONDS)
+    # Still before the final wait(): reap the rest of the group, then the leader.
+    _signal_group(process, signal.SIGKILL)
     process.wait()
+    reader.join(timeout=5)
 
 
 @contextmanager
@@ -109,6 +113,5 @@ def next_server(cwd: Path, *, timeout: float = 60.0, argv: list[str] | None = No
         server.wait_for_port(timeout)
         yield server
     finally:
-        _stop(process)
-        reader.join(timeout=5)
+        _stop(process, reader)
         process.stdout.close()

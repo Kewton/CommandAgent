@@ -10,9 +10,11 @@ counter in a headless browser.
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 import urllib.error
@@ -25,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from eval_lib.goal_verify_executors_v3 import execute_registered
 from eval_lib.goal_verify_workspaces_v3 import prepare_workspace_stage
+from support import next_ready
 from support.next_ready import NextStartError, next_server
 
 FIXTURES = ROOT / "tests/fixtures/goal_verify_v3"
@@ -194,11 +197,8 @@ class NextReadyHelperTest(unittest.TestCase):
     """Real child processes: the helper must never wait forever or leak a child."""
 
     def _pid_gone(self, pid: int) -> bool:
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return True
-        return False
+        probe = subprocess.run(["ps", "-p", str(pid)], capture_output=True, check=False)
+        return probe.returncode != 0
 
     def test_reads_announced_port_and_reaps_child(self):
         child = "import time; print('- Local:         http://localhost:54321', flush=True); time.sleep(60)"
@@ -222,7 +222,39 @@ class NextReadyHelperTest(unittest.TestCase):
         with self.assertRaises(NextStartError) as raised:
             with next_server(ROOT, timeout=30, argv=[sys.executable, "-c", child]):
                 pass
-        self.assertIn("exited 3", str(raised.exception))
+        self.assertIn("boom", str(raised.exception))
+
+    def test_stop_after_leader_was_reaped_sends_no_signal(self):
+        process = subprocess.Popen([sys.executable, "-c", "pass"], start_new_session=True)
+        process.wait()
+        sent = []
+        original = next_ready.os.killpg
+        next_ready.os.killpg = lambda pgid, sig: sent.append((pgid, sig))
+        try:
+            reader = threading.Thread(target=lambda: None)
+            reader.start()
+            next_ready._stop(process, reader)
+        finally:
+            next_ready.os.killpg = original
+        self.assertEqual(sent, [])
+
+    def test_group_signal_refuses_init_and_caller_ids(self):
+        class Leader:
+            returncode = None
+
+            def __init__(self, pid):
+                self.pid = pid
+
+        sent = []
+        original = next_ready.os.killpg
+        next_ready.os.killpg = lambda pgid, sig: sent.append((pgid, sig))
+        try:
+            for pid in (0, 1):
+                with self.assertRaises(AssertionError):
+                    next_ready._signal_group(Leader(pid), signal.SIGTERM)
+        finally:
+            next_ready.os.killpg = original
+        self.assertEqual(sent, [])
 
     def test_port_zero_is_not_accepted_as_an_announcement(self):
         child = "import time; print('Local: http://localhost:0', flush=True); time.sleep(60)"
