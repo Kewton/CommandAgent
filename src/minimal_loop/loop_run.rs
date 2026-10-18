@@ -58,7 +58,6 @@ use super::repair_progress::{
 
 #[path = "loop_run/context.rs"]
 mod context;
-#[cfg(test)]
 mod contract_outcome;
 #[path = "loop_run/error.rs"]
 mod error;
@@ -72,6 +71,7 @@ mod runtime_bash_effects;
 mod runtime_bash_policy_telemetry;
 mod runtime_bash_workspace_policy;
 mod short_circuit;
+use contract_outcome::{ContractSite, ContractTransition, map_contract_outcome};
 use implementation_completion::ImplementationCompletion;
 use short_circuit::{ShortCircuitContext, maybe_short_circuit_satisfied_step};
 #[path = "loop_run/state.rs"]
@@ -1140,7 +1140,7 @@ pub(crate) fn run_session_with_outcome_with_options(
                         });
                     }
                 }
-                match verify_completion_contract_with_enforcement(
+                let contract_outcome = verify_completion_contract_with_enforcement(
                     &config.workspace_root,
                     config.eval_events_path.as_deref(),
                     contract,
@@ -1155,40 +1155,32 @@ pub(crate) fn run_session_with_outcome_with_options(
                     options.dependency_setup_authority,
                     config.offline,
                     &options,
+                )?;
+                match map_contract_outcome(
+                    ContractSite::AssistantFinal {
+                        reply_text: reply.content,
+                    },
+                    contract_outcome,
+                    &required_paths,
+                    verify_attempts,
                 ) {
-                    Ok(ContractVerificationOutcome::Satisfied) => {
-                        eval_events::emit(
-                            config.eval_events_path.as_deref(),
-                            json!({
-                                "event": "loop_stop",
-                                "reason": "completion_contract_satisfied",
-                                "required_paths": required_paths,
-                                "verify_attempts": verify_attempts,
-                            }),
-                        );
-                        return Ok(RunSessionOutcome {
-                            final_text: reply.content,
-                            stop_reason: RunStopReason::CompletionContractSatisfied,
+                    ContractTransition::Stop(stop) => {
+                        stop.emit(config.eval_events_path.as_deref());
+                        return Ok(stop.into_outcome(
                             changed_paths,
-                            iterations: iteration + 1,
-                            tool_calls: tool_call_count,
-                            missing_required_paths: Vec::new(),
-                            missing_capabilities: Vec::new(),
-                            missing_evidence: Vec::new(),
-                            missing_obligations: Vec::new(),
+                            iteration + 1,
+                            tool_call_count,
                             verify_attempts,
                             last_blocking_reason,
                             last_provider_error,
-                        });
+                        ));
                     }
-                    Ok(ContractVerificationOutcome::NeedsRepair(feedback)) => {
-                        session.messages.pop();
+                    ContractTransition::Repair(repair) => {
+                        if repair.pop_reply {
+                            session.messages.pop();
+                        }
                         last_blocking_reason = Some("completion verify failed".to_string());
-                        verify_repair_state.pending_error_context = feedback.error_context.clone();
-                        verify_repair_state.pending_signature = Some(feedback.signature);
-                        verify_repair_state.pending_target = Some(feedback.target);
-                        verify_repair_state.changed_paths_at_failure = changed_paths.clone();
-                        verify_repair_state.no_edit_turns = 0;
+                        let feedback = repair.apply(&mut verify_repair_state, &changed_paths);
                         pending_feedback = Some(
                             super::route_unbound_recovery::feedback_or_route_unbound_recovery(
                                 &mut route_unbound_recovery_state,
@@ -1196,29 +1188,10 @@ pub(crate) fn run_session_with_outcome_with_options(
                                 &config.workspace_root,
                                 config.eval_events_path.as_deref(),
                                 &contract.runtime_acceptance_report(&config.workspace_root),
-                                feedback.feedback,
+                                feedback,
                             ),
                         );
                         continue;
-                    }
-                    Ok(ContractVerificationOutcome::ObservationIncomplete(observation)) => {
-                        return Ok(RunSessionOutcome {
-                            final_text: reply.content,
-                            stop_reason: RunStopReason::CompletionContractObservedIncomplete,
-                            changed_paths,
-                            iterations: iteration + 1,
-                            tool_calls: tool_call_count,
-                            missing_required_paths: observation.missing_paths,
-                            missing_capabilities: observation.missing_capabilities,
-                            missing_evidence: observation.missing_evidence,
-                            missing_obligations: observation.missing_obligations,
-                            verify_attempts,
-                            last_blocking_reason,
-                            last_provider_error,
-                        });
-                    }
-                    Err(err) => {
-                        return Err(err);
                     }
                 }
             }
@@ -2026,7 +1999,7 @@ pub(crate) fn run_session_with_outcome_with_options(
                         }
                     }
                 }
-                match verify_completion_contract_with_enforcement(
+                let contract_outcome = verify_completion_contract_with_enforcement(
                     &config.workspace_root,
                     config.eval_events_path.as_deref(),
                     contract,
@@ -2041,42 +2014,30 @@ pub(crate) fn run_session_with_outcome_with_options(
                     options.dependency_setup_authority,
                     config.offline,
                     &options,
+                )?;
+                match map_contract_outcome(
+                    ContractSite::AfterToolBatch,
+                    contract_outcome,
+                    &required_paths,
+                    verify_attempts,
                 ) {
-                    Ok(ContractVerificationOutcome::Satisfied) => {
-                        eval_events::emit(
-                            config.eval_events_path.as_deref(),
-                            json!({
-                                "event": "loop_stop",
-                                "reason": "completion_contract_satisfied",
-                                "required_paths": required_paths,
-                                "verify_attempts": verify_attempts,
-                            }),
-                        );
-                        return Ok(RunSessionOutcome {
-                            final_text: format!(
-                                "completion contract satisfied: {}",
-                                required_paths.join(", ")
-                            ),
-                            stop_reason: RunStopReason::CompletionContractSatisfied,
+                    ContractTransition::Stop(stop) => {
+                        stop.emit(config.eval_events_path.as_deref());
+                        return Ok(stop.into_outcome(
                             changed_paths,
-                            iterations: iteration + 1,
-                            tool_calls: tool_call_count,
-                            missing_required_paths: Vec::new(),
-                            missing_capabilities: Vec::new(),
-                            missing_evidence: Vec::new(),
-                            missing_obligations: Vec::new(),
+                            iteration + 1,
+                            tool_call_count,
                             verify_attempts,
                             last_blocking_reason,
                             last_provider_error,
-                        });
+                        ));
                     }
-                    Ok(ContractVerificationOutcome::NeedsRepair(feedback)) => {
+                    ContractTransition::Repair(repair) => {
+                        if repair.pop_reply {
+                            session.messages.pop();
+                        }
                         last_blocking_reason = Some("completion verify failed".to_string());
-                        verify_repair_state.pending_error_context = feedback.error_context.clone();
-                        verify_repair_state.pending_signature = Some(feedback.signature);
-                        verify_repair_state.pending_target = Some(feedback.target);
-                        verify_repair_state.changed_paths_at_failure = changed_paths.clone();
-                        verify_repair_state.no_edit_turns = 0;
+                        let feedback = repair.apply(&mut verify_repair_state, &changed_paths);
                         pending_feedback = Some(
                             super::route_unbound_recovery::feedback_or_route_unbound_recovery(
                                 &mut route_unbound_recovery_state,
@@ -2084,32 +2045,10 @@ pub(crate) fn run_session_with_outcome_with_options(
                                 &config.workspace_root,
                                 config.eval_events_path.as_deref(),
                                 &contract.runtime_acceptance_report(&config.workspace_root),
-                                feedback.feedback,
+                                feedback,
                             ),
                         );
                         continue;
-                    }
-                    Ok(ContractVerificationOutcome::ObservationIncomplete(observation)) => {
-                        return Ok(RunSessionOutcome {
-                            final_text: format!(
-                                "completion contract observed incomplete: {}",
-                                observation.primary_reason
-                            ),
-                            stop_reason: RunStopReason::CompletionContractObservedIncomplete,
-                            changed_paths,
-                            iterations: iteration + 1,
-                            tool_calls: tool_call_count,
-                            missing_required_paths: observation.missing_paths,
-                            missing_capabilities: observation.missing_capabilities,
-                            missing_evidence: observation.missing_evidence,
-                            missing_obligations: observation.missing_obligations,
-                            verify_attempts,
-                            last_blocking_reason,
-                            last_provider_error,
-                        });
-                    }
-                    Err(err) => {
-                        return Err(err);
                     }
                 }
             }

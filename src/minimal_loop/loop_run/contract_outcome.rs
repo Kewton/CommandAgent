@@ -1,6 +1,133 @@
+//! Maps a contract verification outcome to the loop transition shared by the
+//! assistant-final and after-tool-batch call sites. The per-site differences
+//! (final text, reply pop) are explicit inputs; the caller keeps the state
+//! that only it can touch.
+use super::*;
+
+/// Where the contract was verified; it carries what differs between sites.
+pub(super) enum ContractSite {
+    /// Text-only reply: the reply text is the final text and is popped on repair.
+    AssistantFinal { reply_text: String },
+    /// After a tool batch: the final text is synthesized and nothing is popped.
+    AfterToolBatch,
+}
+
+pub(super) struct ContractStop {
+    final_text: String,
+    stop_reason: RunStopReason,
+    observation: ContractObservation,
+    satisfied_event: Option<Value>,
+}
+
+pub(super) struct ContractRepair {
+    pub(super) pop_reply: bool,
+    feedback: VerifyFailureFeedback,
+}
+
+pub(super) enum ContractTransition {
+    Stop(ContractStop),
+    Repair(ContractRepair),
+}
+
+pub(super) fn map_contract_outcome(
+    site: ContractSite,
+    outcome: ContractVerificationOutcome,
+    required_paths: &[String],
+    verify_attempts: usize,
+) -> ContractTransition {
+    let pop_reply = matches!(site, ContractSite::AssistantFinal { .. });
+    match outcome {
+        ContractVerificationOutcome::Satisfied => ContractTransition::Stop(ContractStop {
+            final_text: match site {
+                ContractSite::AssistantFinal { reply_text } => reply_text,
+                ContractSite::AfterToolBatch => {
+                    format!(
+                        "completion contract satisfied: {}",
+                        required_paths.join(", ")
+                    )
+                }
+            },
+            stop_reason: RunStopReason::CompletionContractSatisfied,
+            observation: ContractObservation::default(),
+            satisfied_event: Some(json!({
+                "event": "loop_stop",
+                "reason": "completion_contract_satisfied",
+                "required_paths": required_paths,
+                "verify_attempts": verify_attempts,
+            })),
+        }),
+        ContractVerificationOutcome::NeedsRepair(feedback) => {
+            ContractTransition::Repair(ContractRepair {
+                pop_reply,
+                feedback,
+            })
+        }
+        ContractVerificationOutcome::ObservationIncomplete(observation) => {
+            ContractTransition::Stop(ContractStop {
+                final_text: match site {
+                    ContractSite::AssistantFinal { reply_text } => reply_text,
+                    ContractSite::AfterToolBatch => format!(
+                        "completion contract observed incomplete: {}",
+                        observation.primary_reason
+                    ),
+                },
+                stop_reason: RunStopReason::CompletionContractObservedIncomplete,
+                observation,
+                satisfied_event: None,
+            })
+        }
+    }
+}
+
+impl ContractStop {
+    pub(super) fn emit(&self, eval_events_path: Option<&Path>) {
+        if let Some(event) = &self.satisfied_event {
+            eval_events::emit(eval_events_path, event.clone());
+        }
+    }
+
+    pub(super) fn into_outcome(
+        self,
+        changed_paths: Vec<String>,
+        iterations: usize,
+        tool_calls: usize,
+        verify_attempts: usize,
+        last_blocking_reason: Option<String>,
+        last_provider_error: Option<String>,
+    ) -> RunSessionOutcome {
+        RunSessionOutcome {
+            final_text: self.final_text,
+            stop_reason: self.stop_reason,
+            changed_paths,
+            iterations,
+            tool_calls,
+            missing_required_paths: self.observation.missing_paths,
+            missing_capabilities: self.observation.missing_capabilities,
+            missing_evidence: self.observation.missing_evidence,
+            missing_obligations: self.observation.missing_obligations,
+            verify_attempts,
+            last_blocking_reason,
+            last_provider_error,
+        }
+    }
+}
+
+impl ContractRepair {
+    /// Records the failure in the repair state and returns the feedback text.
+    pub(super) fn apply(self, state: &mut VerifyRepairState, changed_paths: &[String]) -> String {
+        state.pending_error_context = self.feedback.error_context.clone();
+        state.pending_signature = Some(self.feedback.signature);
+        state.pending_target = Some(self.feedback.target);
+        state.changed_paths_at_failure = changed_paths.to_vec();
+        state.no_edit_turns = 0;
+        self.feedback.feedback
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::*;
+    use super::*;
     use crate::providers::AssistantReply;
     use std::sync::{Arc, Mutex};
 
@@ -167,6 +294,145 @@ mod tests {
             requests,
             events,
         }
+    }
+
+    fn reply_site() -> ContractSite {
+        ContractSite::AssistantFinal {
+            reply_text: "reply".to_string(),
+        }
+    }
+
+    fn observation() -> ContractObservation {
+        ContractObservation {
+            missing_paths: vec!["a.py".to_string()],
+            missing_capabilities: vec!["cap".to_string()],
+            missing_evidence: vec!["evidence".to_string()],
+            missing_obligations: vec!["obligation".to_string()],
+            primary_reason: "why".to_string(),
+        }
+    }
+
+    fn repair_feedback() -> VerifyFailureFeedback {
+        let report = crate::planner::verify::VerificationReport::profile_failed("broken");
+        VerifyFailureFeedback {
+            feedback: "fix it".to_string(),
+            signature: VerificationSignature::from_report(&report),
+            target: RepairTarget::EmptyApp,
+            error_context: RunSessionErrorContext::default(),
+        }
+    }
+
+    fn stop(transition: ContractTransition) -> ContractStop {
+        match transition {
+            ContractTransition::Stop(stop) => stop,
+            ContractTransition::Repair(_) => panic!("expected a stop"),
+        }
+    }
+
+    #[test]
+    fn satisfied_maps_site_text_and_event() {
+        let paths = vec!["a.py".to_string(), "b.py".to_string()];
+        let map = |site| {
+            stop(map_contract_outcome(
+                site,
+                ContractVerificationOutcome::Satisfied,
+                &paths,
+                3,
+            ))
+        };
+        let reply = map(reply_site());
+        let batch = map(ContractSite::AfterToolBatch);
+        assert_eq!(reply.final_text, "reply");
+        assert_eq!(
+            batch.final_text,
+            "completion contract satisfied: a.py, b.py"
+        );
+        for stop in [&reply, &batch] {
+            assert_eq!(stop.stop_reason, RunStopReason::CompletionContractSatisfied);
+            assert!(stop.observation.missing_paths.is_empty());
+            assert_eq!(
+                stop.satisfied_event,
+                Some(json!({
+                    "event": "loop_stop",
+                    "reason": "completion_contract_satisfied",
+                    "required_paths": ["a.py", "b.py"],
+                    "verify_attempts": 3,
+                }))
+            );
+        }
+    }
+
+    #[test]
+    fn observation_incomplete_maps_site_text_and_carries_missing_lists() {
+        let map = |site| {
+            stop(map_contract_outcome(
+                site,
+                ContractVerificationOutcome::ObservationIncomplete(observation()),
+                &["a.py".to_string()],
+                1,
+            ))
+        };
+        let reply = map(reply_site());
+        let batch = map(ContractSite::AfterToolBatch);
+        assert_eq!(reply.final_text, "reply");
+        assert_eq!(
+            batch.final_text,
+            "completion contract observed incomplete: why"
+        );
+        for stop in [reply, batch] {
+            assert!(stop.satisfied_event.is_none());
+            let outcome = stop.into_outcome(vec!["c.py".to_string()], 4, 2, 1, None, None);
+            assert_eq!(
+                outcome.stop_reason,
+                RunStopReason::CompletionContractObservedIncomplete
+            );
+            assert_eq!(outcome.missing_required_paths, vec!["a.py".to_string()]);
+            assert_eq!(outcome.missing_capabilities, vec!["cap".to_string()]);
+            assert_eq!(outcome.missing_evidence, vec!["evidence".to_string()]);
+            assert_eq!(outcome.missing_obligations, vec!["obligation".to_string()]);
+            assert_eq!(outcome.changed_paths, vec!["c.py".to_string()]);
+            assert_eq!((outcome.iterations, outcome.tool_calls), (4, 2));
+        }
+    }
+
+    #[test]
+    fn repair_pops_only_at_the_assistant_final_site() {
+        let map = |site| {
+            map_contract_outcome(
+                site,
+                ContractVerificationOutcome::NeedsRepair(repair_feedback()),
+                &[],
+                1,
+            )
+        };
+        let pops = |transition| match transition {
+            ContractTransition::Repair(repair) => repair.pop_reply,
+            ContractTransition::Stop(_) => panic!("expected a repair"),
+        };
+        assert!(pops(map(reply_site())));
+        assert!(!pops(map(ContractSite::AfterToolBatch)));
+    }
+
+    #[test]
+    fn repair_apply_records_failure_state_and_returns_feedback() {
+        let ContractTransition::Repair(repair) = map_contract_outcome(
+            ContractSite::AfterToolBatch,
+            ContractVerificationOutcome::NeedsRepair(repair_feedback()),
+            &[],
+            1,
+        ) else {
+            panic!("expected a repair");
+        };
+        let mut state = VerifyRepairState {
+            no_edit_turns: 2,
+            ..VerifyRepairState::default()
+        };
+        let changed = vec!["a.py".to_string()];
+        assert_eq!(repair.apply(&mut state, &changed), "fix it");
+        assert!(state.pending_signature.is_some());
+        assert_eq!(state.pending_target, Some(RepairTarget::EmptyApp));
+        assert_eq!(state.changed_paths_at_failure, changed);
+        assert_eq!(state.no_edit_turns, 0);
     }
 
     fn names(run: &Run) -> Vec<String> {
