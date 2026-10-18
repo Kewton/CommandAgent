@@ -210,8 +210,8 @@ impl RangeSpec {
 fn find_brace(input: &str) -> Option<BraceSpan> {
     let bytes = input.as_bytes();
     let mut index = 0;
-    while index < bytes.len() {
-        if bytes[index] != b'{' {
+    while let Some(&byte) = bytes.get(index) {
+        if byte != b'{' {
             index += 1;
             continue;
         }
@@ -219,8 +219,8 @@ fn find_brace(input: &str) -> Option<BraceSpan> {
         let mut depth = 0usize;
         let mut close = None;
         let mut cursor = start;
-        while cursor < bytes.len() {
-            match bytes[cursor] {
+        while let Some(&byte) = bytes.get(cursor) {
+            match byte {
                 b'{' => depth += 1,
                 b'}' => {
                     depth -= 1;

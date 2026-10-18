@@ -1,3 +1,8 @@
+#![cfg_attr(
+    not(test),
+    deny(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)
+)]
+
 use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, bail};
@@ -385,7 +390,7 @@ fn root_anchor_salvage(root: &Path, raw: &Path) -> Option<String> {
         return None;
     }
     let anchor_len = root_components.len().min(2);
-    let anchor = &root_components[root_components.len() - anchor_len..];
+    let anchor = root_components.get(root_components.len() - anchor_len..)?;
     let mut matches = raw_components
         .windows(anchor_len)
         .enumerate()
@@ -395,7 +400,7 @@ fn root_anchor_salvage(root: &Path, raw: &Path) -> Option<String> {
         return None;
     }
     let index = matches.pop()?;
-    let tail = &raw_components[index + anchor_len..];
+    let tail = raw_components.get(index + anchor_len..)?;
     let relative = if tail.is_empty() {
         ".".to_string()
     } else {
@@ -447,12 +452,11 @@ fn missing_path_candidate(root: &Path, raw: &str) -> Option<String> {
 }
 
 fn looks_like_windows_absolute(raw: &str) -> bool {
-    let bytes = raw.as_bytes();
     raw.starts_with("\\\\")
-        || (bytes.len() >= 3
-            && bytes[0].is_ascii_alphabetic()
-            && bytes[1] == b':'
-            && (bytes[2] == b'\\' || bytes[2] == b'/'))
+        || matches!(
+            raw.as_bytes(),
+            [drive, b':', b'\\' | b'/', ..] if drive.is_ascii_alphabetic()
+        )
 }
 
 fn looks_like_missing_leading_slash_absolute(raw: &str) -> bool {
@@ -472,7 +476,9 @@ fn looks_like_near_root_digit_variance(root: &Path, raw: &Path) -> bool {
         || (root_components
             .first()
             .is_some_and(|component| component == "private")
-            && near_root_digit_variance_components(&root_components[1..], &raw_components))
+            && root_components
+                .get(1..)
+                .is_some_and(|rest| near_root_digit_variance_components(rest, &raw_components)))
 }
 
 fn near_root_digit_variance_components(
