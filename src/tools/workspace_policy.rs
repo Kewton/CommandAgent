@@ -106,6 +106,41 @@ mod tests {
     }
 
     #[test]
+    fn should_skip_path_follows_the_policy_decision() {
+        // kills: workspace_policy.rs:65 should_skip_path -> true / false
+        let root = Path::new("/tmp/work");
+        for (path, policy, skipped) in [
+            (
+                "/tmp/work/.anvil/session.json",
+                WorkspacePolicy::NormalTask,
+                true,
+            ),
+            (
+                "/tmp/work/node_modules/x/index.js",
+                WorkspacePolicy::NormalTask,
+                true,
+            ),
+            ("/tmp/work/src/main.rs", WorkspacePolicy::NormalTask, false),
+            (
+                "/tmp/work/.anvil/plan.yaml",
+                WorkspacePolicy::ControllerMetadataAllowed,
+                false,
+            ),
+            (
+                "/tmp/work/.git/config",
+                WorkspacePolicy::ControllerMetadataAllowed,
+                true,
+            ),
+        ] {
+            assert_eq!(
+                should_skip_path(root, Path::new(path), policy),
+                skipped,
+                "{path} under {policy:?}"
+            );
+        }
+    }
+
+    #[test]
     fn controller_metadata_policy_allows_anvil_but_not_git() {
         let root = Path::new("/tmp/work");
         assert!(
