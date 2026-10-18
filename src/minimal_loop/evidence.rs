@@ -10,6 +10,8 @@ pub(crate) mod command_diagnosis;
 #[path = "evidence/weak_sources.rs"]
 mod weak_sources;
 pub use weak_sources::WeakEvidenceSource;
+#[path = "evidence/runtime_verdict.rs"]
+mod runtime_verdict;
 #[path = "evidence/verification_repair_path.rs"]
 mod verification_repair_path;
 
@@ -1020,331 +1022,48 @@ pub fn verify_runtime_acceptance_with_browser_dirs_and_hints(
         };
     }
 
-    let workspace = collect_workspace_evidence(root);
     let investigation_acceptance =
         crate::minimal_loop::investigation_acceptance::evaluate_workspace(root);
     let browser_state_dimension_scan_text =
         browser_interaction_state_dimension_scan_text(root, browser_evidence_dirs);
-    let artifact_obligations = artifact_obligation_evidence_with_hints_and_scan_text(
-        root,
-        required_paths,
-        required_capabilities,
-        evidence_hint_tokens,
-        &browser_state_dimension_scan_text,
-    );
-    let mut required = BTreeSet::new();
-    let mut missing_capabilities = Vec::new();
-    for capability in required_capabilities {
-        let kinds = evidence_kinds_for_capability(capability);
-        if kinds.is_empty()
-            && !crate::planner::profiles::data::manifest::is_manifest_check_id(capability)
-            && !crate::planner::profiles::ingest::manifest::is_manifest_check_id(capability)
-        {
-            missing_capabilities.push(format!("unsupported_required_capability:{capability}"));
-        }
-        for kind in kinds {
-            required.insert(kind.as_str().to_string());
-        }
-    }
-    for evidence in required_evidence {
-        let trimmed = evidence.trim();
-        if !trimmed.is_empty() {
-            required.insert(trimmed.to_string());
-        }
-    }
-
-    let generic_interactive_contract = generic_interactive_contract_required(required_capabilities);
-    let mut missing_evidence = Vec::new();
-    let mut weak_evidence = Vec::new();
-    let mut diagnostics = Vec::new();
-    let mut evidence_tiers = BTreeMap::new();
-    let mut inconclusive_reasons = Vec::new();
     let browser_required = required_capabilities
         .iter()
         .any(|capability| capability.trim() == "browser_interaction");
-    let browser_interaction = browser_required
-        .then(|| browser_interaction_evidence_for_dirs(root, browser_evidence_dirs));
-    if let Some(evidence) = &browser_interaction {
-        record_browser_acceptance_evidence(
-            evidence,
-            &mut missing_evidence,
-            &mut inconclusive_reasons,
-        );
-    }
-    for evidence in &required {
-        if generic_interactive_contract && generic_interactive_evidence_key(evidence) {
-            continue;
-        }
-        match evidence.as_str() {
-            "implementation_artifact" => {
-                record_bool_evidence_tier(
-                    evidence,
-                    has_implementation_artifact(root, required_paths, &workspace),
-                    &mut missing_evidence,
-                    &mut evidence_tiers,
-                );
-            }
-            "test_artifact" => {
-                record_bool_evidence_tier(
-                    evidence,
-                    has_test_artifact(&workspace),
-                    &mut missing_evidence,
-                    &mut evidence_tiers,
-                );
-            }
-            "bound_verify_command" => {
-                record_bool_evidence_tier(
-                    evidence,
-                    has_bound_verify_command(verify_commands, &workspace),
-                    &mut missing_evidence,
-                    &mut evidence_tiers,
-                );
-            }
-            "non_zero_test_or_assertion_evidence" => {
-                record_bool_evidence_tier(
-                    evidence,
-                    has_assertion_or_test_evidence(&workspace),
-                    &mut missing_evidence,
-                    &mut evidence_tiers,
-                );
-            }
-            "build_command_or_dependency_missing_boundary" => {
-                record_bool_evidence_tier(
-                    evidence,
-                    has_build_command_or_dependency_boundary(
-                        verify_commands,
-                        deferred_verify_requirements,
-                        &workspace,
-                    ),
-                    &mut missing_evidence,
-                    &mut evidence_tiers,
-                );
-            }
-            "interactive_ui_source_evidence" => {
-                record_bool_evidence_tier(
-                    evidence,
-                    has_interactive_ui_source(&workspace),
-                    &mut missing_evidence,
-                    &mut evidence_tiers,
-                );
-            }
-            "non_static_screen_evidence" => {
-                record_bool_evidence_tier(
-                    evidence,
-                    has_non_static_screen_evidence(&workspace),
-                    &mut missing_evidence,
-                    &mut evidence_tiers,
-                );
-            }
-            "visible_interactive_surface_evidence" => {
-                record_bool_evidence_tier(
-                    evidence,
-                    has_visible_interactive_surface_evidence(&workspace),
-                    &mut missing_evidence,
-                    &mut evidence_tiers,
-                );
-            }
-            "user_input_handler_evidence" => {
-                record_source_signal(
-                    evidence,
-                    user_input_handler_signal(&workspace),
-                    &mut missing_evidence,
-                    &mut weak_evidence,
-                    &mut evidence_tiers,
-                );
-            }
-            "stateful_update_evidence" => {
-                record_bool_evidence_tier(
-                    evidence,
-                    has_stateful_update_evidence(&workspace),
-                    &mut missing_evidence,
-                    &mut evidence_tiers,
-                );
-            }
-            "challenge_or_adversary_evidence" => {
-                record_bool_evidence_tier(
-                    evidence,
-                    has_challenge_or_adversary_evidence(
-                        &workspace,
-                        evidence_hint_tokens,
-                        &browser_state_dimension_scan_text,
-                    ),
-                    &mut missing_evidence,
-                    &mut evidence_tiers,
-                );
-            }
-            "score_or_progression_evidence" => {
-                record_source_signal(
-                    evidence,
-                    score_or_progression_signal(&workspace, &browser_state_dimension_scan_text),
-                    &mut missing_evidence,
-                    &mut weak_evidence,
-                    &mut evidence_tiers,
-                );
-            }
-            "failure_or_collision_evidence" => {
-                record_source_signal(
-                    evidence,
-                    failure_or_collision_signal(&workspace, &browser_state_dimension_scan_text),
-                    &mut missing_evidence,
-                    &mut weak_evidence,
-                    &mut evidence_tiers,
-                );
-            }
-            "restart_or_recoverable_state_evidence" => {
-                record_source_signal(
-                    evidence,
-                    restart_or_recoverable_state_signal(&workspace),
-                    &mut missing_evidence,
-                    &mut weak_evidence,
-                    &mut evidence_tiers,
-                );
-            }
-            "persistence_evidence" => {
-                record_bool_evidence_tier(
-                    evidence,
-                    has_persistence_evidence(&workspace),
-                    &mut missing_evidence,
-                    &mut evidence_tiers,
-                );
-            }
-            "live_preview_evidence" => {
-                record_bool_evidence_tier(
-                    evidence,
-                    has_live_preview_evidence(&workspace),
-                    &mut missing_evidence,
-                    &mut evidence_tiers,
-                );
-            }
-            "nextjs_route_evidence" => {
-                record_bool_evidence_tier(
-                    evidence,
-                    has_nextjs_route_evidence(&workspace),
-                    &mut missing_evidence,
-                    &mut evidence_tiers,
-                );
-            }
-            "requested_content_evidence" => {
-                record_bool_evidence_tier(
-                    evidence,
-                    workspace.readme || required_paths.iter().any(|path| path.ends_with(".md")),
-                    &mut missing_evidence,
-                    &mut evidence_tiers,
-                );
-            }
-            "investigation_binding" => {
-                record_bool_evidence_tier(
-                    evidence,
-                    investigation_acceptance.fully_bound,
-                    &mut missing_evidence,
-                    &mut evidence_tiers,
-                );
-                if !investigation_acceptance.fully_bound {
-                    diagnostics.push(format!(
-                        "investigation_binding:{}",
-                        investigation_acceptance.reason
-                    ));
-                }
-            }
-            unknown => {
-                missing_evidence.push(format!("unsupported_required_evidence:{unknown}"));
-                evidence_tiers.insert(
-                    unknown.to_string(),
-                    EvidenceTier::Absent.as_str().to_string(),
-                );
-            }
-        }
-    }
-    if generic_interactive_contract {
-        record_generic_interactive_contract_evidence(
-            &workspace,
-            &required,
-            &mut missing_evidence,
-            &mut evidence_tiers,
-            &mut diagnostics,
-        );
-    }
-    diagnostics.extend(
-        route_bound_unattached_ref_diagnostics(root, resolve_profile_runtime("nextjs"))
-            .into_iter()
-            .map(|diagnostic| diagnostic.diagnostic),
-    );
-
-    collect_weak_verify_evidence(verify_commands, &workspace, &mut weak_evidence);
-    if !generic_interactive_contract {
-        collect_route_unbound_capability_evidence(
-            &workspace,
-            &required,
-            &missing_evidence,
+    let observations = runtime_verdict::Observations {
+        root,
+        workspace: collect_workspace_evidence(root),
+        investigation_fully_bound: investigation_acceptance.fully_bound,
+        investigation_reason: investigation_acceptance.reason,
+        artifact_obligations: artifact_obligation_evidence_with_hints_and_scan_text(
+            root,
+            required_paths,
+            required_capabilities,
             evidence_hint_tokens,
             &browser_state_dimension_scan_text,
-            &mut weak_evidence,
-            &mut diagnostics,
-        );
-    }
-    collect_weak_obligation_evidence(&artifact_obligations, &required, &mut weak_evidence);
-    let missing_obligations = missing_required_obligations(
-        required_obligations,
-        &artifact_obligations,
-        &workspace,
-        generic_interactive_contract,
-        investigation_acceptance.fully_bound,
-    );
-    let capability_evidence_bindings = capability_evidence_bindings(
-        required_capabilities,
-        &artifact_obligations,
-        &missing_evidence,
-    );
-    let obligation_repair_targets = obligation_repair_targets(
-        required_paths,
-        &artifact_obligations,
-        &workspace,
-        &missing_obligations,
-    );
-    diagnostics.sort();
-    diagnostics.dedup();
-    prune_non_gate_relevant_weak_evidence(&mut weak_evidence, &missing_evidence, &diagnostics);
-    let weak_evidence_blocks_completion = !weak_evidence.is_empty()
-        && source_first_completion_authority_required(
-            required_capabilities,
-            required_evidence,
-            required_obligations,
-        );
-    let evaluation = evaluate_requirements(
-        required_capabilities,
-        required_evidence,
-        required_obligations,
-        &missing_capabilities,
-        &missing_evidence,
-        &missing_obligations,
-        &[],
-        &inconclusive_reasons,
-        &weak_evidence,
-        weak_evidence_blocks_completion,
-    );
-    let browser_interaction = browser_interaction.unwrap_or_default();
-
-    RuntimeAcceptanceReport {
-        passed: evaluation.passed,
-        inconclusive: evaluation.inconclusive,
-        missing_capabilities,
-        missing_evidence,
-        missing_obligations,
-        weak_evidence_sources: weak_sources::collect(&weak_evidence, verify_commands, &workspace),
-        weak_evidence,
-        diagnostics,
-        unverified_evidence: Vec::new(),
-        evidence_tiers,
-        inconclusive_reasons,
-        artifact_obligations,
-        capability_evidence_bindings,
-        obligation_repair_targets,
-        browser_readiness_status: browser_interaction.browser_readiness_status,
-        browser_readiness_evidence_path: browser_interaction.browser_readiness_evidence_path,
-        interaction_evidence_status: browser_interaction.interaction_evidence_status,
-        interaction_evidence_path: browser_interaction.interaction_evidence_path,
-        primary_reason: evaluation.primary_reason,
-    }
+        ),
+        browser_state_dimension_scan_text,
+        browser_interaction: browser_required
+            .then(|| browser_interaction_evidence_for_dirs(root, browser_evidence_dirs)),
+        route_diagnostics: route_bound_unattached_ref_diagnostics(
+            root,
+            resolve_profile_runtime("nextjs"),
+        )
+        .into_iter()
+        .map(|diagnostic| diagnostic.diagnostic)
+        .collect(),
+    };
+    runtime_verdict::judge(
+        &runtime_verdict::Requirements {
+            paths: required_paths,
+            verify_commands,
+            capabilities: required_capabilities,
+            evidence: required_evidence,
+            obligations: required_obligations,
+            deferred_verify_requirements,
+            hint_tokens: evidence_hint_tokens,
+        },
+        observations,
+    )
 }
 
 fn source_first_completion_authority_required(
