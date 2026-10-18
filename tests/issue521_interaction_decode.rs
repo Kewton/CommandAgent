@@ -794,3 +794,63 @@ target_only: not_evaluated / "no_mutation_observed"
 blank_target: not_evaluated / "no_text_entry_surface"
 step_marks_not_evaluated: preserved / "no_text_entry_surface"
 evaluated: preserved / """##;
+
+#[test]
+fn nonzero_exit_overrides_ok_true_evidence() {
+    let fixture = format!(r#"{{"ok":true,{STEPS_OK},"before_marker":"a","after_marker":"b"}}"#);
+    let run = run_probe(Some(&fixture), 3);
+    let o = &run.observation;
+    assert!(!o.ok);
+    assert_eq!(o.status, "failed");
+    assert_eq!(
+        o.failure_kind,
+        "probe_infrastructure_failed:probe_command_failed"
+    );
+    assert_eq!(
+        o.error,
+        "probe script exited non-zero (3) despite ok:true evidence"
+    );
+    assert_eq!(
+        o.steps,
+        [
+            "start_transition",
+            "input_state_evaluated_after_start",
+            "input_state_change"
+        ]
+    );
+    assert_eq!(o.before_marker, "a");
+    assert_eq!(run.evidence["ok"], false);
+    assert_eq!(run.evidence["status"], "failed");
+    assert_eq!(
+        run.evidence["error"],
+        "probe script exited non-zero (3) despite ok:true evidence"
+    );
+}
+
+#[test]
+fn nonzero_exit_with_failed_or_unreadable_evidence_stays_failed() {
+    let failed = run_probe(
+        Some(r#"{"ok":false,"failure_kind":"probe_script_error","stage":"clicking","steps":[]}"#),
+        3,
+    );
+    assert!(!failed.observation.ok);
+    assert_eq!(
+        failed.observation.failure_kind,
+        "probe_infrastructure_failed:probe_script_error"
+    );
+    let unreadable = run_probe(Some("not json"), 3);
+    assert!(!unreadable.observation.ok);
+    assert_eq!(
+        unreadable.observation.failure_kind,
+        "probe_infrastructure_failed:probe_command_failed"
+    );
+}
+
+#[test]
+fn zero_exit_with_ok_true_evidence_still_passes() {
+    let fixture = format!(r#"{{"ok":true,{STEPS_OK}}}"#);
+    let run = run_probe(Some(&fixture), 0);
+    assert!(run.observation.ok);
+    assert_eq!(run.observation.status, "passed");
+    assert_eq!(run.observation.error, "");
+}

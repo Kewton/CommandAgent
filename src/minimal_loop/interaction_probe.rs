@@ -796,6 +796,7 @@ pub fn probe_browser_interaction_against_running_server_with_options(
                 }
                 if let Some(value) = read_interaction_value(evidence_path) {
                     let value = merge_script_stdout_failure_value(value, &logs);
+                    let value = fail_ok_evidence_after_nonzero_exit(value, status.code());
                     let observation = observation_from_value(
                         evidence_path,
                         &script_path,
@@ -1298,6 +1299,23 @@ fn merge_script_stdout_failure_value(mut value: Value, logs: &InteractionStdio) 
     if !logs.stderr_excerpt.is_empty() {
         value["stderr_excerpt"] = json!(logs.stderr_excerpt);
     }
+    value
+}
+
+/// A script that exits non-zero never counts as a success, even when it wrote
+/// `ok: true` evidence first. Steps and diagnostics stay as the explanation.
+fn fail_ok_evidence_after_nonzero_exit(mut value: Value, exit_code: Option<i32>) -> Value {
+    if value.get("ok").and_then(Value::as_bool) != Some(true) {
+        return value;
+    }
+    let exit = exit_code.map_or_else(|| "a signal".to_string(), |code| code.to_string());
+    value["ok"] = json!(false);
+    value["status"] = json!("failed");
+    value["failure_kind"] = json!("probe_command_failed");
+    value["browser_failure_kind"] = json!("probe_command_failed");
+    value["error"] = json!(format!(
+        "probe script exited non-zero ({exit}) despite ok:true evidence"
+    ));
     value
 }
 
