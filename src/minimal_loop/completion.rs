@@ -5,9 +5,9 @@ use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::config::Config;
-use crate::minimal_loop::build_verifier::{
-    self, BuildVerifierLifecycleObservation, BuildVerifierStatus, CompileError,
-};
+#[cfg(test)]
+use crate::minimal_loop::build_verifier::BuildVerifierStatus;
+use crate::minimal_loop::build_verifier::{self, BuildVerifierLifecycleObservation, CompileError};
 use crate::minimal_loop::dependency_setup::NodeDependencySetupAuthority;
 use crate::minimal_loop::evidence::{RuntimeAcceptanceReport, required_evidence_for_capability};
 use crate::minimal_loop::import_scan::{
@@ -20,6 +20,7 @@ use crate::planner::verify::{
 use crate::tools::path_guard::{
     resolve_existing, resolve_optional_existing, validate_workspace_relative,
 };
+use crate::verification::build_report::{self, BuildReportMode, BuildStatusInput};
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct CompletionContract {
@@ -299,42 +300,16 @@ impl CompletionContract {
                         offline,
                     );
                 let observation = lifecycle.final_observation();
-                if observation.status != BuildVerifierStatus::Passed {
-                    match observation.status {
-                        BuildVerifierStatus::DependencyMissing => {
-                            report.push_dependency_missing(format!(
-                                "dependency_setup_missing: {}",
-                                lifecycle.final_reason
-                            ));
-                        }
-                        BuildVerifierStatus::PolicyRejected => {
-                            report.push_command_failure(
-                                command.clone(),
-                                format!("build_verify_policy_rejected: {}", lifecycle.final_reason),
-                            );
-                        }
-                        BuildVerifierStatus::Blocked => {
-                            report.push_profile_failure(format!(
-                                "build_verify_blocked: command `{}` reason `{}`",
-                                command, lifecycle.final_reason
-                            ));
-                        }
-                        BuildVerifierStatus::Failed => {
-                            if observation.compile_errors.is_empty() {
-                                report.push_command_failure(
-                                    command.clone(),
-                                    format!("build_verify_failed: {}", lifecycle.final_reason),
-                                );
-                            } else {
-                                report.push_compile_errors(
-                                    command.clone(),
-                                    observation.compile_errors.clone(),
-                                );
-                            }
-                        }
-                        BuildVerifierStatus::Passed => {}
-                    }
-                }
+                build_report::push_build_status(
+                    &mut report,
+                    BuildStatusInput {
+                        mode: BuildReportMode::Required,
+                        status: observation.status,
+                        command: &command,
+                        reason: &lifecycle.final_reason,
+                        compile_errors: &observation.compile_errors,
+                    },
+                );
                 build_verifier_observations.push(lifecycle);
                 continue;
             }
@@ -419,46 +394,17 @@ impl CompletionContract {
                         offline,
                     );
                 let observation = lifecycle.final_observation();
-                if build_requirement.required_for_completion
-                    && observation.status != BuildVerifierStatus::Passed
-                {
-                    match observation.status {
-                        BuildVerifierStatus::DependencyMissing => {
-                            report.push_dependency_missing(format!(
-                                "dependency_setup_missing: {}",
-                                observation.primary_reason
-                            ));
-                        }
-                        BuildVerifierStatus::PolicyRejected => {
-                            report.push_command_failure(
-                                requirement.command.clone(),
-                                format!(
-                                    "build_verify_policy_rejected: {}",
-                                    observation.primary_reason
-                                ),
-                            );
-                        }
-                        BuildVerifierStatus::Blocked => {
-                            report.push_profile_failure(format!(
-                                "build_verify_blocked: command `{}` reason `{}`",
-                                requirement.command, observation.primary_reason
-                            ));
-                        }
-                        BuildVerifierStatus::Failed => {
-                            if observation.compile_errors.is_empty() {
-                                report.push_command_failure(
-                                    requirement.command.clone(),
-                                    format!("build_verify_failed: {}", observation.primary_reason),
-                                );
-                            } else {
-                                report.push_compile_errors(
-                                    requirement.command.clone(),
-                                    observation.compile_errors.clone(),
-                                );
-                            }
-                        }
-                        BuildVerifierStatus::Passed => {}
-                    }
+                if build_requirement.required_for_completion {
+                    build_report::push_build_status(
+                        &mut report,
+                        BuildStatusInput {
+                            mode: BuildReportMode::Deferred,
+                            status: observation.status,
+                            command: &requirement.command,
+                            reason: &observation.primary_reason,
+                            compile_errors: &observation.compile_errors,
+                        },
+                    );
                 }
                 build_verifier_observations.push(lifecycle);
                 continue;
