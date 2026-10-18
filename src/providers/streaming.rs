@@ -314,3 +314,111 @@ mod tests {
         assert!(!retry_allowed(1, 1, false));
     }
 }
+
+/// Test support shared by the provider modules: a mock server that holds its
+/// response open and reports when the client's connection closes.
+#[cfg(test)]
+pub(crate) mod cancel_test_support {
+    use super::CancelToken;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
+
+    const CLOSE_BUDGET: Duration = Duration::from_secs(1);
+    const SERVER_DEADLINE: Duration = Duration::from_secs(10);
+
+    /// Run `call` against a server that keeps the response open. The token is
+    /// cancelled 100 ms after the server holds the request; the server must
+    /// then see the connection close within one second. `first_chunk` is sent
+    /// as a streaming 200 response before holding.
+    pub(crate) fn assert_cancel_closes_connection<T>(
+        first_chunk: Option<&'static str>,
+        call: impl FnOnce(String, CancelToken) -> anyhow::Result<T>,
+    ) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+        let base_url = format!("http://{}", listener.local_addr().expect("address"));
+        let (started_tx, started_rx) = mpsc::channel();
+        let (eof_tx, eof_rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .expect("read timeout");
+            let mut data = Vec::new();
+            let mut buffer = [0_u8; 4096];
+            loop {
+                let read = stream.read(&mut buffer).expect("request");
+                assert!(read > 0, "client closed before sending the request");
+                data.extend_from_slice(&buffer[..read]);
+                let Some(end) = data.windows(4).position(|window| window == b"\r\n\r\n") else {
+                    continue;
+                };
+                let head = String::from_utf8_lossy(&data[..end]).to_ascii_lowercase();
+                let length = head
+                    .lines()
+                    .find_map(|line| line.strip_prefix("content-length:"))
+                    .and_then(|value| value.trim().parse::<usize>().ok())
+                    .unwrap_or(0);
+                if data.len() >= end + 4 + length {
+                    break;
+                }
+            }
+            if let Some(chunk) = first_chunk {
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n{chunk}"
+                )
+                .expect("first chunk");
+                stream.flush().expect("flush");
+            }
+            started_tx.send(()).expect("started");
+            stream
+                .set_read_timeout(Some(Duration::from_millis(50)))
+                .expect("read timeout");
+            let deadline = Instant::now() + SERVER_DEADLINE;
+            let mut sink = [0_u8; 64];
+            let eof = loop {
+                match stream.read(&mut sink) {
+                    Ok(0) => break Some(Instant::now()),
+                    Ok(_) => {}
+                    Err(err)
+                        if matches!(
+                            err.kind(),
+                            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                        ) => {}
+                    Err(_) => break Some(Instant::now()),
+                }
+                if Instant::now() >= deadline {
+                    break None;
+                }
+            };
+            let _ = eof_tx.send(eof);
+        });
+
+        let token = CancelToken::default();
+        let (fired_tx, fired_rx) = mpsc::channel();
+        let canceller = token.clone();
+        std::thread::spawn(move || {
+            started_rx.recv().expect("server holds the request");
+            std::thread::sleep(Duration::from_millis(100));
+            let fired = Instant::now();
+            canceller.cancel();
+            let _ = fired_tx.send(fired);
+        });
+
+        let result = call(base_url, token);
+        assert!(result.is_err(), "a cancelled call must not return a reply");
+        let fired = fired_rx.recv().expect("cancel fired");
+        let eof = eof_rx
+            .recv_timeout(Duration::from_secs(15))
+            .expect("server finished")
+            .expect("server never observed the connection closing");
+        let closed_after = eof.saturating_duration_since(fired);
+        eprintln!("cancel -> server EOF: {} ms", closed_after.as_millis());
+        assert!(
+            closed_after < CLOSE_BUDGET,
+            "server saw EOF {closed_after:?} after the cancel"
+        );
+    }
+}

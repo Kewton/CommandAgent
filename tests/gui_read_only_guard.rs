@@ -338,14 +338,33 @@ fn gui_trial_stop_ui_is_gate_two_only_keyboard_operable_and_smoked_at_both_base_
 #[test]
 fn gui_dependencies_stay_out_of_the_default_rust_build() {
     let manifest = std::fs::read_to_string("Cargo.toml").unwrap();
-    for dependency in ["axum", "tokio"] {
-        let declaration = manifest
+    let declaration = |dependency: &str| {
+        manifest
             .lines()
             .find(|line| line.starts_with(&format!("{dependency} =")))
-            .unwrap_or_else(|| panic!("missing {dependency} declaration"));
+            .unwrap_or_else(|| panic!("missing {dependency} declaration"))
+    };
+    let axum = declaration("axum");
+    assert!(
+        axum.contains("optional = true"),
+        "axum must remain optional: {axum}"
+    );
+
+    // `tokio` is always built for the provider HTTP runtime, but the GUI
+    // server's features must stay behind the `gui` feature.
+    let tokio = declaration("tokio");
+    let gui = manifest
+        .lines()
+        .find(|line| line.starts_with("gui = "))
+        .expect("missing gui feature");
+    for feature in ["fs", "macros", "rt-multi-thread", "net"] {
         assert!(
-            declaration.contains("optional = true"),
-            "{dependency} must remain optional: {declaration}"
+            !tokio.contains(&format!("\"{feature}\"")),
+            "tokio feature {feature} must not be on the default build: {tokio}"
+        );
+        assert!(
+            gui.contains(&format!("\"tokio/{feature}\"")),
+            "tokio/{feature} must be enabled only by the gui feature: {gui}"
         );
     }
     assert!(manifest.contains("required-features = [\"gui\"]"));

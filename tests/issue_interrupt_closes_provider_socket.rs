@@ -97,6 +97,15 @@ fn spawn_mock(
 }
 
 fn config_for(address: std::net::SocketAddr, cwd: &str) -> Config {
+    config_for_provider(address, cwd, "ollama", "--ollama-host")
+}
+
+fn config_for_provider(
+    address: std::net::SocketAddr,
+    cwd: &str,
+    provider: &str,
+    host_flag: &str,
+) -> Config {
     Config::from_cli(Cli::parse_from([
         "commandagent",
         "--cwd",
@@ -104,8 +113,8 @@ fn config_for(address: std::net::SocketAddr, cwd: &str) -> Config {
         "--model",
         "issue699-model",
         "--provider",
-        "ollama",
-        "--ollama-host",
+        provider,
+        host_flag,
         &format!("http://{address}"),
         "--chat-timeout-secs",
         CHAT_TIMEOUT_SECS,
@@ -248,4 +257,35 @@ fn streaming_interrupt_closes_the_socket_within_one_second() {
         !chunks_after_cancel.load(Ordering::SeqCst),
         "a chunk reached the renderer after the interrupt"
     );
+}
+
+#[test]
+fn lm_studio_interrupt_closes_the_socket_within_one_second() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+    let config = config_for_provider(
+        listener.local_addr().expect("address"),
+        &dir.path().to_string_lossy(),
+        "lm-studio",
+        "--lm-studio-host",
+    );
+    let events = config.eval_events_path.clone().expect("events path");
+    let (started, mock) = spawn_mock(listener, None);
+    let (cancel, fired_at) = interrupt_after_started(started);
+    let mut client = commandagent::providers::client_from_config(&config, false).expect("client");
+
+    let outcome = provider_call::chat_with_cancel(
+        client.as_mut(),
+        &config,
+        provider_call::ProviderChatRequest {
+            scope: ProviderCallScope::Executor,
+            model: &config.model,
+            messages: &[ConversationMessage::user("hello")],
+            tools: &[],
+            native_tools_enabled: false,
+        },
+        || cancel.load(Ordering::SeqCst),
+    );
+
+    assert_closed_within_budget(&mock, &fired_at, &outcome, &events);
 }
