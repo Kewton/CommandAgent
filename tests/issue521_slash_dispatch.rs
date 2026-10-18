@@ -175,11 +175,16 @@ fn run(line: &str, interrupted: bool) -> Outcome {
 }
 
 fn run_in(line: &str, interrupted: bool, setup: impl FnOnce(&Path)) -> Outcome {
+    run_with(line, interrupted, true, setup)
+}
+
+fn run_with(line: &str, interrupted: bool, yes: bool, setup: impl FnOnce(&Path)) -> Outcome {
     let _guard = lock();
     let dir = tempfile::tempdir().unwrap();
     setup(dir.path());
     let events_path = dir.path().join(".anvil/runs/test/events.jsonl");
-    let cfg = config(dir.path(), Some(events_path.clone()));
+    let mut cfg = config(dir.path(), Some(events_path.clone()));
+    cfg.yes = yes;
     let mut planner = FailingClient::new("planner");
     let mut execution = FailingClient::new("exec");
     let ui = RecordingUi::new(interrupted);
@@ -509,9 +514,10 @@ fn receipt_and_start_event_carry_the_parsed_arguments() {
     let status = run("/status --profile nextjs", false);
     assert_eq!(
         status.receipts,
-        vec![format!(
+        vec![
             "Accepted command\n- Input: /status --profile nextjs\n- Command: /status\n- Goal: (none)\n- Profile: nextjs (explicit)\n- Style: default (effective)\n- Prompt layout: stable (effective)\n- Run ID: test"
-        )]
+                .to_string()
+        ]
     );
     assert!(
         status
@@ -881,4 +887,133 @@ fn parse_slash_resolves_arguments_profile_and_goal() {
     let (profile, style, rest) = parse_profile_style(&words, &cfg);
     assert_eq!((profile.as_str(), style.as_str()), ("nextjs", "compact"));
     assert_eq!(rest, vec!["rest"]);
+}
+
+fn write_resumable_run(root: &Path) {
+    std::fs::create_dir_all(root.join(".anvil/plans")).unwrap();
+    std::fs::write(root.join("setup.txt"), "done").unwrap();
+    std::fs::write(
+        root.join(".anvil/plans/recovery-ultra-plan-test.yaml"),
+        r#"
+recovery_schema_version: "1"
+recovery_original_goal: "build app"
+recovery_failure_kind: "interrupted"
+recovery_profile: "generic"
+recovery_expected_completed_artifacts:
+  - "setup.txt"
+goal: "build app"
+profile: "generic"
+style: "recovery"
+intent: "recover"
+phases:
+  - id: "repair-phase"
+    prompt: "repair the remaining implementation"
+  - id: "verify-recovery"
+    prompt: "verify the recovered implementation"
+"#
+        .trim_start(),
+    )
+    .unwrap();
+    let previous_run = root.join(".anvil/runs/018f6666-resumable");
+    std::fs::create_dir_all(&previous_run).unwrap();
+    std::fs::write(
+        previous_run.join("events.jsonl"),
+        format!(
+            "{}\n{}\n",
+            serde_json::json!({
+                "event": "ultra_partial_artifact_summary",
+                "completed_phase_ids": ["scaffold"],
+                "failed_phase_id": "repair-phase",
+                "pending_phase_ids": ["verify"],
+                "recovery_ultra_plan_path": ".anvil/plans/recovery-ultra-plan-test.yaml"
+            }),
+            serde_json::json!({
+                "event": "tui_command_stop",
+                "ok": false,
+                "status": "interrupted",
+                "assurance_level": "partial",
+                "failure_kind": "tui_command_interrupted",
+                "effective_profile": "generic",
+                "requested_port": "",
+                "recovery_ultra_plan_path": ".anvil/plans/recovery-ultra-plan-test.yaml"
+            })
+        ),
+    )
+    .unwrap();
+}
+
+#[test]
+fn resume_with_yes_passes_confirmation_and_starts_the_recovery_run() {
+    let outcome = run_with("/resume 018f6666", false, true, write_resumable_run);
+    assert_eq!(
+        outcome.names(),
+        vec![
+            "tui_command_start",
+            "resume_start",
+            "ultra_context_initialized",
+            "ultra_phase_start",
+            "ultra_phase_context_attached",
+            "provider_turn_duration",
+            "provider_turn_duration",
+            "ultra_phase_failed",
+            "planner_error",
+            "recovery_prompt_saved",
+            "ultra_partial_artifact_summary",
+            "tui_command_stop",
+            "loop_stop"
+        ]
+    );
+    assert_eq!(outcome.planner_calls, 2);
+    assert_eq!(outcome.execution_calls, 0);
+    assert_eq!(outcome.receipts.len(), 1);
+    let resume_start = outcome.event("resume_start");
+    assert_eq!(resume_start["resumed_from"], "018f6666");
+    assert_eq!(
+        resume_start["resume_phase_ids"],
+        serde_json::json!(["repair-phase", "verify-recovery"])
+    );
+    assert_eq!(
+        resume_start["resume_completed_phase_ids"],
+        serde_json::json!(["scaffold"])
+    );
+    let result = outcome.result.clone().unwrap_err();
+    assert!(result.contains("TASK FAILED"), "{result}");
+    assert!(!result.contains("confirmation required"), "{result}");
+    assert!(
+        stop_fields(&outcome).contains(r#"ok=false status="failed""#),
+        "{}",
+        stop_fields(&outcome)
+    );
+}
+
+#[test]
+fn resume_without_yes_on_a_non_terminal_stdin_requires_confirmation_before_any_provider_call() {
+    use std::io::IsTerminal;
+    if std::io::stdin().is_terminal() {
+        // The interactive y/N branch would read the real terminal.
+        return;
+    }
+    let outcome = run_with("/resume 018f6666", false, false, write_resumable_run);
+    assert_eq!(
+        outcome.names(),
+        vec!["tui_command_start", "tui_command_stop", "loop_stop"]
+    );
+    assert_eq!(outcome.planner_calls, 0);
+    assert_eq!(outcome.execution_calls, 0);
+    let result = outcome.result.clone().unwrap_err();
+    assert!(result.contains("TASK FAILED"), "{result}");
+    assert!(
+        outcome.event("tui_command_stop")["stop_reason"]
+            .as_str()
+            .unwrap()
+            .contains("confirmation required; rerun with --yes"),
+        "{}",
+        stop_fields(&outcome)
+    );
+    assert!(
+        outcome.event("loop_stop")["primary_reason"]
+            .as_str()
+            .unwrap()
+            .contains("### Resume recovery run"),
+    );
 }
