@@ -8,7 +8,6 @@ mod surface_fit;
 
 #[path = "runner/recovery_probe_context.rs"]
 mod recovery_probe_context;
-#[allow(unused_imports)]
 use super::{
     BTreeMap, BTreeSet, Cell, ChatClient, CompileError, CompletionContract, Config, Duration,
     InteractionUi, PROFILE_REPAIR_FILE_EXCERPT_MAX_CHARS, Path, PathBuf, PromptLayout,
@@ -63,7 +62,6 @@ pub(super) struct FinalAcceptanceCycleDelta {
     pub(super) route_bound_changed_paths: Vec<String>,
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn runtime_missing_signals(report: &RuntimeAcceptanceReport) -> Vec<String> {
     let mut out = Vec::new();
     merge_unique_strings(&mut out, &report.missing_capabilities);
@@ -683,7 +681,7 @@ Regeneration mandate:\n\
     )
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "run state borrowed apart")]
 pub(super) fn try_final_acceptance_compile_regeneration(
     execution: &mut dyn ChatClient,
     config: &Config,
@@ -870,7 +868,7 @@ pub(super) fn try_final_acceptance_compile_regeneration(
     Ok(false)
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "flat event fields")]
 pub(super) fn emit_evidence_regeneration_event(
     config: &Config,
     fired: bool,
@@ -900,7 +898,7 @@ pub(super) fn emit_evidence_regeneration_event(
     );
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "flat event fields")]
 pub(super) fn emit_compile_regeneration_event(
     config: &Config,
     step_id: Option<&str>,
@@ -1173,7 +1171,7 @@ pub(super) fn final_acceptance_pending_evidence_guidance(
 }
 
 #[cfg(test)]
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "prompt inputs borrowed")]
 pub(super) fn final_acceptance_repair_prompt(
     root: &Path,
     layout: PromptLayout,
@@ -1203,7 +1201,7 @@ pub(super) fn final_acceptance_repair_prompt(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "prompt inputs + event path")]
 pub(super) fn final_acceptance_repair_prompt_with_events(
     root: &Path,
     layout: PromptLayout,
@@ -1248,7 +1246,7 @@ pub(super) fn final_acceptance_repair_prompt_with_events(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "stable-layout prompt inputs")]
 pub(super) fn final_acceptance_repair_prompt_stable(
     root: &Path,
     plan: &UltraPlan,
@@ -1358,7 +1356,7 @@ Final acceptance failure:\n\
     )
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "legacy-layout prompt inputs")]
 pub(super) fn final_acceptance_repair_prompt_legacy(
     root: &Path,
     plan: &UltraPlan,
