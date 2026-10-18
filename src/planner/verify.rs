@@ -3,9 +3,9 @@ use setup_command_policy::is_setup_or_dev_server_verify_command;
 
 use std::path::Path;
 
-use crate::minimal_loop::build_verifier::{
-    self, BuildVerifierLifecycleObservation, BuildVerifierStatus,
-};
+#[cfg(test)]
+use crate::minimal_loop::build_verifier::BuildVerifierStatus;
+use crate::minimal_loop::build_verifier::{self, BuildVerifierLifecycleObservation};
 use crate::minimal_loop::dependency_setup::{
     self, NodeDependencySetupAuthority, NodeDependencySetupObservation, NodeDependencySetupStatus,
 };
@@ -15,6 +15,7 @@ use crate::planner::profiles::step_checks;
 use crate::planner::step_plan::{ExpectedResult, PlanStep};
 use crate::planner::verify_semantics::checked_runtime_repair as cr;
 use crate::tools::path_guard::{resolve_existing, validate_workspace_relative};
+use crate::verification::build_report::{self, BuildReportMode, BuildStatusInput};
 use crate::{eval_events, tools::bash::BashOutcome};
 
 mod cli_documented_input;
@@ -1311,47 +1312,28 @@ fn record_build_lifecycle_result(
     lifecycle: &BuildVerifierLifecycleObservation,
 ) -> bool {
     let observation = lifecycle.final_observation();
-    match observation.status {
-        BuildVerifierStatus::Passed => true,
-        BuildVerifierStatus::DependencyMissing => {
-            let reason = lifecycle_reason_with_invalid_semver_remedy(
+    build_report::push_build_status_with(
+        report,
+        BuildStatusInput {
+            mode: BuildReportMode::Planner,
+            status: observation.status,
+            command,
+            reason: &lifecycle.final_reason,
+            compile_errors: &observation.compile_errors,
+        },
+        || {
+            lifecycle_reason_with_invalid_semver_remedy(
                 root,
                 dependency_lifecycle_report_reason(lifecycle),
-            );
-            report.push_dependency_missing(format!("dependency_setup_missing: {}", reason));
-            false
-        }
-        BuildVerifierStatus::PolicyRejected => {
-            report.push_command_failure(
-                command.to_string(),
-                format!("build_verify_policy_rejected: {}", lifecycle.final_reason),
-            );
-            false
-        }
-        BuildVerifierStatus::Blocked => {
-            report.push_profile_failure(format!(
-                "build_verify_blocked: command `{}` reason `{}`",
-                command, lifecycle.final_reason
-            ));
-            false
-        }
-        BuildVerifierStatus::Failed => {
-            let compile_errors = lifecycle.final_observation().compile_errors.clone();
-            if compile_errors.is_empty() {
-                let reason = lifecycle_reason_with_invalid_semver_remedy(
-                    root,
-                    lifecycle_failure_with_setup_output(lifecycle),
-                );
-                report.push_command_failure(
-                    command.to_string(),
-                    format!("dependency_setup_lifecycle_failed: {reason}"),
-                );
-            } else {
-                report.push_compile_errors(command.to_string(), compile_errors);
-            }
-            false
-        }
-    }
+            )
+        },
+        || {
+            lifecycle_reason_with_invalid_semver_remedy(
+                root,
+                lifecycle_failure_with_setup_output(lifecycle),
+            )
+        },
+    )
 }
 
 fn dependency_lifecycle_report_reason(lifecycle: &BuildVerifierLifecycleObservation) -> String {
