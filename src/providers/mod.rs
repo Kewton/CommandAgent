@@ -80,6 +80,9 @@ pub trait ChatClient: Send {
     fn take_response_metadata(&mut self) -> Option<ProviderResponseMetadata> {
         None
     }
+    /// Receive the cancel signal for the next call. Clients that own their HTTP
+    /// transport close the connection when it fires; others may ignore it.
+    fn set_cancel_token(&mut self, _token: streaming::CancelToken) {}
     fn supports_streaming(&self) -> bool {
         false
     }
