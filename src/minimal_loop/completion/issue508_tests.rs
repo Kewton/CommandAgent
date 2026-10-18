@@ -484,7 +484,9 @@ fn verify_commands_are_classified_by_their_outcome() {
             Some("command failed: false"),
         ),
         (
-            "nonexistent-bin-issue508 --flag",
+            // The marker is spelled out so it does not depend on the shell's
+            // own "not found" wording (dash and bash differ).
+            "sh -c 'echo nonexistent-bin-issue508: command not found >&2; exit 127'",
             Bucket::DependencyMissing,
             Some("nonexistent-bin-issue508"),
         ),
