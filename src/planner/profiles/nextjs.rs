@@ -1,4 +1,5 @@
 mod api_contract;
+mod contract_checks;
 mod dependency_family;
 mod domain;
 mod fix_reproducer;
@@ -21,6 +22,8 @@ pub(crate) use repair_excerpts::profile_invariant_relevant_paths;
 use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value};
+
+use self::contract_checks::Mode;
 
 use crate::minimal_loop::evidence_knowledge;
 use crate::minimal_loop::import_scan::{
@@ -66,44 +69,12 @@ pub fn verify(root: &Path, goal: &str) -> VerificationReport {
     let Ok(package): Result<Value, _> = serde_json::from_str(&content) else {
         return profile_failure(project.rel_path("package.json invalid"));
     };
-    let deps = package.get("dependencies").and_then(Value::as_object);
-    for dep in ["next", "react", "react-dom"] {
-        if deps.is_none_or(|deps| !deps.contains_key(dep)) {
-            return profile_failure(format!("dependency missing: {dep}"));
-        }
-    }
-    let typescript_required = scaffold_mode::detect(&project.path).uses_typescript();
-    if let Some(reason) = dependency_family::coherence_failure(&package, typescript_required) {
+    if let Some(reason) = contract_checks::dependency_failure(&project.path, &package) {
         return profile_failure(reason);
     }
-    let scripts = package.get("scripts").and_then(Value::as_object);
-    let build = scripts
-        .and_then(|scripts| scripts.get("build"))
-        .and_then(Value::as_str);
-    if build != Some("next build") || build.is_some_and(is_weakened_script) {
-        return profile_failure("scripts.build must be next build");
-    }
-    if scripts
-        .and_then(|scripts| scripts.get("dev"))
-        .and_then(Value::as_str)
-        .is_some_and(is_weakened_script)
-    {
-        return profile_failure("scripts.dev must run next dev");
-    }
     let port = requested_or_default_port(goal);
-    let dev = scripts
-        .and_then(|scripts| scripts.get("dev"))
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    if !script_runs_next_dev_on_port(dev, port) {
-        return profile_failure(format!("dev script must run next dev on port {port}"));
-    }
-    let start = scripts
-        .and_then(|scripts| scripts.get("start"))
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    if !start.is_empty() && !script_runs_next_start_on_port(start, port) {
-        return profile_failure(format!("start script must run next start on port {port}"));
+    if let Some(reason) = contract_checks::scripts_failure(&package, port, Mode::Final) {
+        return profile_failure(reason);
     }
     let Some(entry) = find_entrypoint(&project.path) else {
         let expected = knowledge::get().canonical.entrypoint_files.join(", ");
@@ -129,27 +100,10 @@ pub fn verify(root: &Path, goal: &str) -> VerificationReport {
             return profile_failure("tsconfig baseUrl/paths missing @/* alias");
         }
     }
-    if let Some(reason) = tsconfig_contract_failure(&project.path) {
-        return profile_failure(reason);
+    match contract_checks::source_failure(&project, &package, Mode::Final) {
+        Some(reason) => profile_failure(reason),
+        None => VerificationReport::pass(),
     }
-    if let Some(reason) = css_side_effect_import_contract_failure(&project.path) {
-        return profile_failure(reason);
-    }
-    if let Some(reason) = missing_app_relative_import_contract_failure(&project.path) {
-        return profile_failure(project.rel_path(&reason));
-    }
-    if let Some(reason) = api_contract::failure(&project.path)
-        .or_else(|| response_shape::request_failure(&project.path))
-    {
-        return profile_failure(project.rel_path(&reason));
-    }
-    if let Some(reason) = client_component_contract_failure(&project.path) {
-        return profile_failure(reason);
-    }
-    if let Some(reason) = tailwind_contract_failure(&project.path, &package) {
-        return profile_failure(reason);
-    }
-    VerificationReport::pass()
 }
 
 pub fn verify_invariant(root: &Path, goal: &str) -> VerificationReport {
@@ -165,57 +119,17 @@ pub fn verify_invariant(root: &Path, goal: &str) -> VerificationReport {
     let Ok(package): Result<Value, _> = serde_json::from_str(&content) else {
         return profile_failure(project.rel_path("package.json invalid"));
     };
-    let deps = package.get("dependencies").and_then(Value::as_object);
-    for dep in ["next", "react", "react-dom"] {
-        if deps.is_none_or(|deps| !deps.contains_key(dep)) {
-            return profile_failure(format!("dependency missing: {dep}"));
-        }
-    }
-    let typescript_required = scaffold_mode::detect(&project.path).uses_typescript();
-    if let Some(reason) = dependency_family::coherence_failure(&package, typescript_required) {
+    if let Some(reason) = contract_checks::dependency_failure(&project.path, &package) {
         return profile_failure(reason);
-    }
-    let scripts = package.get("scripts").and_then(Value::as_object);
-    let build = scripts
-        .and_then(|scripts| scripts.get("build"))
-        .and_then(Value::as_str);
-    if build.is_some_and(|build| build != "next build" || is_weakened_script(build)) {
-        return profile_failure("scripts.build must be next build");
     }
     let port = requested_or_default_port(goal);
-    let dev = scripts
-        .and_then(|scripts| scripts.get("dev"))
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    if !dev.is_empty() && !script_runs_next_dev_on_port(dev, port) {
-        return profile_failure(format!("dev script must run next dev on port {port}"));
-    }
-    let start = scripts
-        .and_then(|scripts| scripts.get("start"))
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    if !start.is_empty() && !script_runs_next_start_on_port(start, port) {
-        return profile_failure(format!("start script must run next start on port {port}"));
-    }
-    if let Some(reason) = tsconfig_contract_failure(&project.path) {
+    if let Some(reason) = contract_checks::scripts_failure(&package, port, Mode::Invariant) {
         return profile_failure(reason);
     }
-    if let Some(reason) = css_side_effect_import_contract_failure(&project.path) {
-        return profile_failure(reason);
+    match contract_checks::source_failure(&project, &package, Mode::Invariant) {
+        Some(reason) => profile_failure(reason),
+        None => VerificationReport::pass(),
     }
-    if let Some(reason) = missing_app_relative_import_contract_failure(&project.path) {
-        return profile_failure(project.rel_path(&reason));
-    }
-    if let Some(reason) = api_contract::failure(&project.path) {
-        return profile_failure(project.rel_path(&reason));
-    }
-    if let Some(reason) = client_component_contract_failure(&project.path) {
-        return profile_failure(reason);
-    }
-    if let Some(reason) = tailwind_contract_failure(&project.path, &package) {
-        return profile_failure(reason);
-    }
-    VerificationReport::pass()
 }
 
 fn script_runs_next_dev_on_port(script: &str, port: u16) -> bool {
