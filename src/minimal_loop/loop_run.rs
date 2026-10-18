@@ -2778,7 +2778,7 @@ fn emit_step_obligation_scope(
 }
 
 #[cfg(test)]
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "borrows loop state, no ctx type")]
 fn verify_completion_contract(
     root: &Path,
     eval_events_path: Option<&Path>,
@@ -2819,7 +2819,7 @@ fn verify_completion_contract(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "same borrows plus enforcement")]
 fn verify_completion_contract_with_enforcement(
     root: &Path,
     eval_events_path: Option<&Path>,
@@ -3296,7 +3296,7 @@ fn emit_provider_turn_timeout(
     );
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "stop fields mirror loop vars")]
 fn stop_for_provider_turn_timeout(
     config: &Config,
     user_prompt: &str,
@@ -3460,7 +3460,7 @@ fn save_provider_turn_timeout_handoff(
     })
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "stop fields mirror loop vars")]
 fn stop_for_model_empty_response(
     config: &Config,
     user_prompt: &str,
@@ -3655,7 +3655,7 @@ fn render_minimal_recovery_stop_reason(
     eval_events::render_stop_reason(&parts)
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "handoff fields from loop")]
 fn save_minimal_recovery_handoff(
     root: &Path,
     eval_events_path: Option<&Path>,

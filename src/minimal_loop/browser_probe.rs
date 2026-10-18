@@ -568,7 +568,7 @@ fn http_get_local_route(port: u16, route: &str) -> Result<HttpProbeResult, Strin
     })
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "probe state borrowed per field")]
 fn finish_without_spawn(
     root: &Path,
     started: Instant,
@@ -604,7 +604,7 @@ fn finish_without_spawn(
     observation
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "probe state borrowed per field")]
 fn finish_with_cleanup(
     root: &Path,
     started: Instant,

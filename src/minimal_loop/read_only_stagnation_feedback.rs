@@ -10,7 +10,7 @@ use super::stagnation_escalation::{
     ReadOnlyStagnationStage, WRITE_REQUIRED_NO_WRITE_LIMIT, WriteRequiredState,
 };
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "borrows disjoint loop state")]
 pub(crate) fn maybe_read_only_stagnation_feedback(
     eval_events_path: Option<&Path>,
     root: &Path,

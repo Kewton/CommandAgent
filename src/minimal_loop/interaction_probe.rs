@@ -1326,7 +1326,7 @@ fn read_interaction_value(path: &Path) -> Option<Value> {
         .filter(Value::is_object)
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "excerpt args stay separate")]
 fn observation_from_value(
     evidence_path: &Path,
     script_path: &Path,
@@ -2025,7 +2025,7 @@ fn effective_interaction_failure_kind<'a>(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "excerpt args stay separate")]
 fn failure_observation(
     root: &Path,
     evidence_path: &Path,

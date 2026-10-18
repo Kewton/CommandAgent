@@ -127,7 +127,7 @@ pub(super) fn maybe_short_circuit_satisfied_step(
     }))
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "event fields borrowed from run")]
 fn emit_step_short_circuited(
     config: &Config,
     options: &RunSessionOptions,
