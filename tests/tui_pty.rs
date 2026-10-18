@@ -5,6 +5,13 @@ use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
+#[path = "support/pty_wait.rs"]
+mod pty_wait;
+
+use pty_wait::{
+    PtySession, STARTUP_TIMEOUT, STEP_TIMEOUT, file_len, read_http_request, script_command,
+};
+
 #[test]
 #[ignore]
 fn tui_pty_smoke() {
@@ -20,8 +27,8 @@ fn tui_pty_smoke() {
     }
     let bin = env!("CARGO_BIN_EXE_commandagent");
     let tmp = tempfile::tempdir().unwrap();
-    let output = run_script_bsd(bin, tmp.path()).or_else(|_| run_script_linux(bin, tmp.path()));
-    let output = output.expect("script(1) PTY helper must be available for release/manual UAT");
+    let output = run_first_run_script(bin, tmp.path())
+        .expect("script(1) PTY helper must be available for release/manual UAT");
     let text = String::from_utf8_lossy(&output.stdout).to_string()
         + &String::from_utf8_lossy(&output.stderr);
     assert!(
@@ -697,75 +704,52 @@ fn run_receipt_screen_script(
         .map(|arg| shell_quote(&arg))
         .collect::<Vec<_>>()
         .join(" ");
+    // The terminal starts at 18x48 and is resized to 22x72 once the test
+    // creates `resize-go`; the shell then creates `resize-done`. The shell poll
+    // is bounded (1000 x 0.02s) and only waits for that file, so the resize is
+    // ordered by the test rather than by a fixed sleep.
+    let sync = tempfile::tempdir()?;
+    let resize_go = sync.path().join("resize-go");
+    let resize_done = sync.path().join("resize-done");
     let command_line = format!(
-        "stty rows 18 cols 48; (sleep 2.2; stty rows 22 cols 72 </dev/tty) & exec {} {args}",
-        shell_quote(bin)
+        "stty rows 18 cols 48; (i=0; while [ ! -e {go} ] && [ $i -lt 1000 ]; do sleep 0.02; i=$((i+1)); done; stty rows 22 cols 72 </dev/tty; : > {done}) & exec {} {args}",
+        shell_quote(bin),
+        go = shell_quote(&resize_go.to_string_lossy()),
+        done = shell_quote(&resize_done.to_string_lossy()),
     );
-    let mut command = std::process::Command::new("script");
-    if cfg!(target_os = "macos") {
-        command
-            .arg("-q")
-            .arg("/dev/null")
-            .arg("/bin/sh")
-            .arg("-c")
-            .arg(command_line);
-    } else {
-        command
-            .arg("-q")
-            .arg("-c")
-            .arg(command_line)
-            .arg("/dev/null");
-    }
+    let mut command = script_command(&command_line);
     if no_color {
         command.env("NO_COLOR", "1");
     }
-    let mut child = command
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()?;
-    let stdout = child.stdout.take().unwrap();
-    let stderr = child.stderr.take().unwrap();
-    let stdout_reader = thread::spawn(move || read_all(stdout));
-    let stderr_reader = thread::spawn(move || read_all(stderr));
-    let mut stdin = child.stdin.take().unwrap();
+    let mut session = PtySession::spawn(command)?;
     let transcript = state_dir.join("boundary-transcript.md");
-    thread::sleep(Duration::from_secs(2));
-    stdin.write_all(b"/hepl\r")?;
-    stdin.flush()?;
-    thread::sleep(Duration::from_millis(250));
+    session.wait_for_prompt(0, STARTUP_TIMEOUT)?;
+    let mark = session.mark();
+    session.send(b"/hepl\r")?;
+    session.wait_for_text_then_prompt("Unknown command: /hepl", mark, STEP_TIMEOUT)?;
+    std::fs::write(&resize_go, b"")?;
+    session.wait_for_file(&resize_done, STEP_TIMEOUT)?;
     // The long CJK request is submitted as plain text; Gate 1 then owns the
     // dispatch, and the receipt records the resulting profile instead of the
     // old direct `/ultra-plan-run` command line.
-    stdin.write_all(
+    let mark = session.mark();
+    let offset = file_len(&transcript);
+    session.send(
         "あなたが考える最高に面白くかっこいいスペースインベーダーゲームを、CJKの長い説明を保ったまま3011番ポートで作ってください\r"
             .as_bytes(),
     )?;
-    stdin.flush()?;
-    let card_hash = match wait_for_gate_one_hash(&transcript, Duration::from_secs(10)) {
-        Ok(card_hash) => card_hash,
-        Err(error) => {
-            let _ = child.kill();
-            drop(stdin);
-            let _ = finish_queue_child(child, stdout_reader, stderr_reader, Duration::from_secs(1));
-            return Err(error);
-        }
-    };
-    thread::sleep(Duration::from_millis(500));
-    stdin.write_all(format!("/confirm {card_hash}\r").as_bytes())?;
-    stdin.flush()?;
-    if wait_for_transcript_text(&transcript, "## Gate 4", Duration::from_secs(60)).is_err() {
-        let _ = child.kill();
-    } else {
-        thread::sleep(Duration::from_secs(1));
-        stdin.write_all(b"/status\r")?;
-        stdin.flush()?;
-        thread::sleep(Duration::from_secs(1));
-        stdin.write_all(b"/exit\r")?;
-        stdin.flush()?;
-    }
-    drop(stdin);
-    finish_queue_child(child, stdout_reader, stderr_reader, Duration::from_secs(60))
+    let card_hash = session.wait_for_gate_one_hash(&transcript, offset, STEP_TIMEOUT)?;
+    session.wait_for_text_then_prompt("Gate 1", mark, STEP_TIMEOUT)?;
+    let mark = session.mark();
+    let offset = file_len(&transcript);
+    session.send(format!("/confirm {card_hash}\r").as_bytes())?;
+    session.wait_for_transcript_text(&transcript, "## Gate 4", offset, Duration::from_secs(60))?;
+    session.wait_for_text_then_prompt("Failure and next action", mark, STEP_TIMEOUT)?;
+    let mark = session.mark();
+    session.send(b"/status\r")?;
+    session.wait_for_text_then_prompt("Session configuration", mark, STEP_TIMEOUT)?;
+    session.send(b"/exit\r")?;
+    session.finish(Duration::from_secs(60))
 }
 
 fn start_ultra_plan_ollama() -> (
@@ -788,7 +772,9 @@ fn start_ultra_plan_ollama() -> (
                     stream
                         .set_read_timeout(Some(Duration::from_secs(1)))
                         .unwrap();
-                    let request = read_http_request(&mut stream);
+                    let Ok(request) = read_http_request(&mut stream) else {
+                        continue;
+                    };
                     if request.starts_with("GET /api/tags ") {
                         let body = r#"{"models":[{"name":"m"}]}"#;
                         let response = format!(
@@ -1053,53 +1039,28 @@ fn run_stream_script(
     planner_command: &str,
     interrupt: bool,
 ) -> std::io::Result<std::process::Output> {
-    let command_line = queue_command_line(bin, cwd, state_dir, host);
-    let mut command = std::process::Command::new("script");
-    if cfg!(target_os = "macos") {
-        command
-            .arg("-q")
-            .arg("/dev/null")
-            .arg("/bin/sh")
-            .arg("-c")
-            .arg(command_line);
+    let mut command = script_command(&queue_command_line(bin, cwd, state_dir, host));
+    command.env("COMMANDAGENT_NO_MARKDOWN", "1");
+    let mut session = PtySession::spawn(command)?;
+    session.wait_for_prompt(0, STARTUP_TIMEOUT)?;
+    let mark = session.mark();
+    session.send(format!("{planner_command}\n").as_bytes())?;
+    session.wait_for_signal(
+        &signal,
+        "planner response signal at fake Ollama",
+        STEP_TIMEOUT,
+    )?;
+    if interrupt {
+        session.send(b"\x1b")?;
+        session.wait_for_text_then_prompt("INTERRUPTED", mark, STEP_TIMEOUT)?;
+        let mark = session.mark();
+        session.send(b"/status\n")?;
+        session.wait_for_text_then_prompt("### Status", mark, STEP_TIMEOUT)?;
     } else {
-        command
-            .arg("-q")
-            .arg("-c")
-            .arg(command_line)
-            .arg("/dev/null");
+        session.wait_for_text_then_prompt("step plan ready", mark, STEP_TIMEOUT)?;
     }
-    let mut child = command
-        .env("COMMANDAGENT_NO_MARKDOWN", "1")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()?;
-    let stdout = child.stdout.take().unwrap();
-    let stderr = child.stderr.take().unwrap();
-    let stdout_reader = thread::spawn(move || read_all(stdout));
-    let stderr_reader = thread::spawn(move || read_all(stderr));
-    let mut stdin = child.stdin.take().unwrap();
-    thread::sleep(Duration::from_secs(2));
-    stdin.write_all(format!("{planner_command}\n").as_bytes())?;
-    stdin.flush()?;
-    if signal.recv_timeout(Duration::from_secs(10)).is_err() {
-        let _ = child.kill();
-    } else {
-        if interrupt {
-            stdin.write_all(b"\x1b")?;
-            stdin.flush()?;
-            thread::sleep(Duration::from_millis(500));
-            stdin.write_all(b"/status\n")?;
-            stdin.flush()?;
-            thread::sleep(Duration::from_secs(1));
-        }
-        thread::sleep(Duration::from_millis(500));
-        stdin.write_all(b"/exit\n")?;
-        stdin.flush()?;
-    }
-    drop(stdin);
-    finish_queue_child(child, stdout_reader, stderr_reader, Duration::from_secs(20))
+    session.send(b"/exit\n")?;
+    session.finish(Duration::from_secs(20))
 }
 
 fn run_stream_script_gate_one(
@@ -1110,59 +1071,26 @@ fn run_stream_script_gate_one(
     completed: mpsc::Receiver<()>,
     request: &str,
 ) -> std::io::Result<std::process::Output> {
-    let command_line = queue_command_line(bin, cwd, state_dir, host);
-    let mut command = std::process::Command::new("script");
-    if cfg!(target_os = "macos") {
-        command
-            .arg("-q")
-            .arg("/dev/null")
-            .arg("/bin/sh")
-            .arg("-c")
-            .arg(command_line);
-    } else {
-        command
-            .arg("-q")
-            .arg("-c")
-            .arg(command_line)
-            .arg("/dev/null");
-    }
-    let mut child = command
-        .env("COMMANDAGENT_NO_MARKDOWN", "1")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()?;
-    let stdout = child.stdout.take().unwrap();
-    let stderr = child.stderr.take().unwrap();
-    let stdout_reader = thread::spawn(move || read_all(stdout));
-    let stderr_reader = thread::spawn(move || read_all(stderr));
-    let mut stdin = child.stdin.take().unwrap();
-    thread::sleep(Duration::from_secs(2));
-    stdin.write_all(format!("{request}\r").as_bytes())?;
-    stdin.flush()?;
-
+    let mut command = script_command(&queue_command_line(bin, cwd, state_dir, host));
+    command.env("COMMANDAGENT_NO_MARKDOWN", "1");
+    let mut session = PtySession::spawn(command)?;
+    session.wait_for_prompt(0, STARTUP_TIMEOUT)?;
     let transcript = state_dir.join("boundary-transcript.md");
-    let card_hash = match wait_for_gate_one_hash(&transcript, Duration::from_secs(10)) {
-        Ok(card_hash) => card_hash,
-        Err(error) => {
-            let _ = child.kill();
-            drop(stdin);
-            let _ = finish_queue_child(child, stdout_reader, stderr_reader, Duration::from_secs(1));
-            return Err(error);
-        }
-    };
-    thread::sleep(Duration::from_millis(500));
-    stdin.write_all(format!("/confirm {card_hash}\r").as_bytes())?;
-    stdin.flush()?;
-    if completed.recv_timeout(Duration::from_secs(10)).is_err() {
-        let _ = child.kill();
-    } else {
-        thread::sleep(Duration::from_millis(500));
-        stdin.write_all(b"/exit\r")?;
-        stdin.flush()?;
-    }
-    drop(stdin);
-    finish_queue_child(child, stdout_reader, stderr_reader, Duration::from_secs(20))
+    let mark = session.mark();
+    let offset = file_len(&transcript);
+    session.send(format!("{request}\r").as_bytes())?;
+    let card_hash = session.wait_for_gate_one_hash(&transcript, offset, STEP_TIMEOUT)?;
+    session.wait_for_text_then_prompt("Gate 1", mark, STEP_TIMEOUT)?;
+    let mark = session.mark();
+    session.send(format!("/confirm {card_hash}\r").as_bytes())?;
+    session.wait_for_signal(
+        &completed,
+        "overall plan response at fake Ollama",
+        STEP_TIMEOUT,
+    )?;
+    session.wait_for_text_then_prompt("overall plan ready", mark, STEP_TIMEOUT)?;
+    session.send(b"/exit\r")?;
+    session.finish(Duration::from_secs(20))
 }
 
 fn run_gate_four_interrupt_script(
@@ -1181,129 +1109,35 @@ fn run_gate_four_interrupt_script(
         .collect::<Vec<_>>()
         .join(" ");
     let command_line = format!("stty rows 24 cols 120; exec {} {args}", shell_quote(bin));
-    let mut command = std::process::Command::new("script");
-    if cfg!(target_os = "macos") {
-        command
-            .arg("-q")
-            .arg("/dev/null")
-            .arg("/bin/sh")
-            .arg("-c")
-            .arg(command_line);
-    } else {
-        command
-            .arg("-q")
-            .arg("-c")
-            .arg(command_line)
-            .arg("/dev/null");
-    }
-    let mut child = command
-        .env("COMMANDAGENT_NO_MARKDOWN", "1")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()?;
-    let stdout = child.stdout.take().unwrap();
-    let stderr = child.stderr.take().unwrap();
-    let stdout_reader = thread::spawn(move || read_all(stdout));
-    let stderr_reader = thread::spawn(move || read_all(stderr));
-    let mut stdin = child.stdin.take().unwrap();
-    thread::sleep(Duration::from_secs(2));
-    stdin.write_all(b"Fix a Next.js compile error\n")?;
-    stdin.flush()?;
-
+    let mut command = script_command(&command_line);
+    command.env("COMMANDAGENT_NO_MARKDOWN", "1");
+    let mut session = PtySession::spawn(command)?;
+    session.wait_for_prompt(0, STARTUP_TIMEOUT)?;
     let transcript = state_dir.join("boundary-transcript.md");
-    let card_hash = match wait_for_gate_one_hash(&transcript, Duration::from_secs(10)) {
-        Ok(card_hash) => card_hash,
-        Err(error) => {
-            let _ = child.kill();
-            drop(stdin);
-            let _ = finish_queue_child(child, stdout_reader, stderr_reader, Duration::from_secs(1));
-            return Err(error);
-        }
-    };
-    thread::sleep(Duration::from_millis(500));
-    stdin.write_all(format!("/confirm {card_hash}\n").as_bytes())?;
-    stdin.flush()?;
-    if started.recv_timeout(Duration::from_secs(10)).is_err() {
-        let _ = child.kill();
-        drop(stdin);
-        let output =
-            finish_queue_child(child, stdout_reader, stderr_reader, Duration::from_secs(1))?;
-        let text = String::from_utf8_lossy(&output.stdout).to_string()
-            + &String::from_utf8_lossy(&output.stderr);
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::TimedOut,
-            format!("planner call did not reach fake Ollama. output={text:?}"),
-        ));
-    }
+    let mark = session.mark();
+    let offset = file_len(&transcript);
+    session.send(b"Fix a Next.js compile error\n")?;
+    let card_hash = session.wait_for_gate_one_hash(&transcript, offset, STEP_TIMEOUT)?;
+    session.wait_for_text_then_prompt("Gate 1", mark, STEP_TIMEOUT)?;
+    session.send(format!("/confirm {card_hash}\n").as_bytes())?;
+    session.wait_for_signal(&started, "planner call at fake Ollama", STEP_TIMEOUT)?;
 
+    // Only a Gate 4 written after the interrupt counts; the offset is taken
+    // before the clock starts so the one-second SLA measures the product.
+    let offset = file_len(&transcript);
+    let mark = session.mark();
     let interrupted_at = Instant::now();
-    stdin.write_all(b"\x1b")?;
-    stdin.flush()?;
-    let gate_four_elapsed =
-        match wait_for_transcript_text(&transcript, "## Gate 4", Duration::from_secs(2)) {
-            Ok(()) => interrupted_at.elapsed(),
-            Err(error) => {
-                let _ = child.kill();
-                drop(stdin);
-                let _ =
-                    finish_queue_child(child, stdout_reader, stderr_reader, Duration::from_secs(1));
-                return Err(error);
-            }
-        };
+    session.send(b"\x1b")?;
+    session.wait_for_transcript_text(&transcript, "## Gate 4", offset, Duration::from_secs(2))?;
+    let gate_four_elapsed = interrupted_at.elapsed();
     let disconnect_elapsed = disconnected
         .recv_timeout(Duration::from_secs(2).saturating_sub(interrupted_at.elapsed()))
         .map(|()| interrupted_at.elapsed())
         .unwrap_or(Duration::MAX);
-    stdin.write_all(b"/exit\r")?;
-    stdin.flush()?;
-    drop(stdin);
-    let output = finish_queue_child(child, stdout_reader, stderr_reader, Duration::from_secs(20))?;
+    session.wait_for_text_then_prompt("Gate 4", mark, STEP_TIMEOUT)?;
+    session.send(b"/exit\r")?;
+    let output = session.finish(Duration::from_secs(20))?;
     Ok((output, gate_four_elapsed, disconnect_elapsed))
-}
-
-fn wait_for_gate_one_hash(path: &std::path::Path, timeout: Duration) -> std::io::Result<String> {
-    let deadline = Instant::now() + timeout;
-    loop {
-        if let Ok(transcript) = std::fs::read_to_string(path)
-            && let Some(start) = transcript.find("sha256:")
-        {
-            let hash = transcript[start..]
-                .chars()
-                .take_while(|ch| ch.is_ascii_alphanumeric() || *ch == ':')
-                .collect::<String>();
-            if hash.len() == "sha256:".len() + 64 {
-                return Ok(hash);
-            }
-        }
-        if Instant::now() >= deadline {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::TimedOut,
-                format!("Gate 1 hash did not appear in {}", path.display()),
-            ));
-        }
-        thread::sleep(Duration::from_millis(10));
-    }
-}
-
-fn wait_for_transcript_text(
-    path: &std::path::Path,
-    expected: &str,
-    timeout: Duration,
-) -> std::io::Result<()> {
-    let deadline = Instant::now() + timeout;
-    loop {
-        if std::fs::read_to_string(path).is_ok_and(|text| text.contains(expected)) {
-            return Ok(());
-        }
-        if Instant::now() >= deadline {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::TimedOut,
-                format!("{expected:?} did not appear in {}", path.display()),
-            ));
-        }
-        thread::sleep(Duration::from_millis(5));
-    }
 }
 
 struct StreamingOllama {
@@ -1335,7 +1169,9 @@ fn start_streaming_ollama(completion_after: usize) -> StreamingOllama {
                     stream
                         .set_read_timeout(Some(Duration::from_secs(1)))
                         .unwrap();
-                    let request = read_http_request(&mut stream);
+                    let Ok(request) = read_http_request(&mut stream) else {
+                        continue;
+                    };
                     if request.starts_with("GET /api/tags ") {
                         let body = r#"{"models":[{"name":"m"}]}"#;
                         let response = format!(
@@ -1419,55 +1255,6 @@ fn start_streaming_ollama(completion_after: usize) -> StreamingOllama {
     }
 }
 
-fn read_http_request(stream: &mut impl Read) -> String {
-    let mut request = Vec::new();
-    let mut buffer = [0_u8; 1024];
-    let mut expected = None;
-    // The accepted socket can be non-blocking, so the first read may observe
-    // `WouldBlock`/`TimedOut` before any bytes arrive. Retry until the declared
-    // body length is buffered (or a deadline passes) instead of returning an
-    // empty request that would hide the real `stream` flag.
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        if expected.is_some_and(|expected| request.len() >= expected) {
-            break;
-        }
-        if Instant::now() >= deadline {
-            break;
-        }
-        match stream.read(&mut buffer) {
-            Ok(0) => break,
-            Ok(read) => {
-                request.extend_from_slice(&buffer[..read]);
-                if expected.is_none()
-                    && let Some(header_end) =
-                        request.windows(4).position(|part| part == b"\r\n\r\n")
-                {
-                    let headers = String::from_utf8_lossy(&request[..header_end]);
-                    let content_length = headers.lines().find_map(|line| {
-                        line.split_once(':').and_then(|(name, value)| {
-                            name.eq_ignore_ascii_case("content-length")
-                                .then(|| value.trim().parse::<usize>().ok())
-                                .flatten()
-                        })
-                    });
-                    expected = Some(header_end + 4 + content_length.unwrap_or_default());
-                }
-            }
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                ) =>
-            {
-                thread::sleep(Duration::from_millis(1));
-            }
-            Err(_) => break,
-        }
-    }
-    String::from_utf8_lossy(&request).into_owned()
-}
-
 fn run_queue_script(
     bin: &str,
     cwd: &std::path::Path,
@@ -1515,66 +1302,42 @@ fn run_history_session_script(
     .collect::<Vec<_>>()
     .join(" ");
     let command_line = format!("stty rows 24 cols 80; exec {} {args}", shell_quote(bin));
-    let mut command = std::process::Command::new("script");
-    if cfg!(target_os = "macos") {
-        command
-            .arg("-q")
-            .arg("/dev/null")
-            .arg("/bin/sh")
-            .arg("-c")
-            .arg(command_line);
-    } else {
-        command
-            .arg("-q")
-            .arg("-c")
-            .arg(command_line)
-            .arg("/dev/null");
-    }
-    let mut child = command
+    let mut command = script_command(&command_line);
+    command
         .env("COMMANDAGENT_NO_SPINNER", "1")
         .env("COMMANDAGENT_NO_INTERRUPT", "1")
         .env("COMMANDAGENT_NO_MARKDOWN", "1")
-        .env("NO_COLOR", "1")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()?;
-    let stdout = child.stdout.take().unwrap();
-    let stderr = child.stderr.take().unwrap();
-    let stdout_reader = thread::spawn(move || read_all(stdout));
-    let stderr_reader = thread::spawn(move || read_all(stderr));
-    let mut stdin = child.stdin.take().unwrap();
-    thread::sleep(Duration::from_secs(2));
+        .env("NO_COLOR", "1");
+    let mut session = PtySession::spawn(command)?;
+    session.wait_for_prompt(0, STARTUP_TIMEOUT)?;
     if seed {
-        stdin.write_all(b"/help issue151-workspace-secret\r")?;
-        stdin.flush()?;
-        thread::sleep(Duration::from_secs(1));
+        let mark = session.mark();
+        session.send(b"/help issue151-workspace-secret\r")?;
+        session.wait_for_text_then_prompt("unknown help topic", mark, STEP_TIMEOUT)?;
     } else {
-        stdin.write_all(b"/h")?;
-        stdin.flush()?;
-        thread::sleep(Duration::from_millis(350));
-        stdin.write_all(b"elp\r")?;
-        stdin.flush()?;
-        thread::sleep(Duration::from_millis(250));
-        for line in [
-            b"/model executor-new\r".as_slice(),
-            b"/provider lm-studio\r",
-            b"/profile nextjs\r",
-            b"/help model\r",
-            b"/status\r",
-            b"/clear\r",
-            b"/last\r",
+        // Type the first command in two chunks; the first chunk must reach the
+        // line editor (echoed) before the rest completes the line.
+        let mark = session.mark();
+        session.send(b"/h")?;
+        session.wait_for_text("/h", mark, STEP_TIMEOUT)?;
+        session.send(b"elp\r")?;
+        session.wait_for_text_then_prompt("Commands:", mark, STEP_TIMEOUT)?;
+        for (line, output) in [
+            (b"/model executor-new\r".as_slice(), "Executor model set to"),
+            (b"/provider lm-studio\r", "Executor provider set to"),
+            (b"/profile nextjs\r", "Profile set to"),
+            (b"/help model\r", "Usage: /model <id>"),
+            (b"/status\r", "Session configuration"),
+            (b"/clear\r", "\x1b[2J"),
+            (b"/last\r", "Current execution"),
         ] {
-            stdin.write_all(line)?;
-            stdin.flush()?;
-            thread::sleep(Duration::from_millis(180));
+            let mark = session.mark();
+            session.send(line)?;
+            session.wait_for_text_then_prompt(output, mark, STEP_TIMEOUT)?;
         }
     }
-    thread::sleep(Duration::from_millis(500));
-    stdin.write_all(b"/exit\r")?;
-    stdin.flush()?;
-    drop(stdin);
-    finish_queue_child(child, stdout_reader, stderr_reader, Duration::from_secs(30))
+    session.send(b"/exit\r")?;
+    session.finish(Duration::from_secs(30))
 }
 
 fn run_queue_script_bsd(
@@ -1654,75 +1417,29 @@ fn run_queue_child(
     mut command: std::process::Command,
     chat_started: mpsc::Receiver<()>,
 ) -> std::io::Result<std::process::Output> {
-    let mut child = command
+    command
         .env("COMMANDAGENT_NO_SPINNER", "1")
-        .env("COMMANDAGENT_NO_MARKDOWN", "1")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()?;
-    let stdout = child.stdout.take().unwrap();
-    let stderr = child.stderr.take().unwrap();
-    let stdout_reader = thread::spawn(move || read_all(stdout));
-    let stderr_reader = thread::spawn(move || read_all(stderr));
-    let mut stdin = child.stdin.take().unwrap();
-    thread::sleep(Duration::from_secs(2));
-    stdin.write_all(b"/model-probe\n")?;
-    stdin.flush()?;
-    if chat_started.recv_timeout(Duration::from_secs(10)).is_err() {
-        drop(stdin);
-        let _ = child.kill();
-        let output = finish_queue_child(child, stdout_reader, stderr_reader, Duration::ZERO)?;
-        let text = String::from_utf8_lossy(&output.stdout).to_string()
-            + &String::from_utf8_lossy(&output.stderr);
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::TimedOut,
-            format!("model probe did not reach fake Ollama. output={text:?}"),
-        ));
+        .env("COMMANDAGENT_NO_MARKDOWN", "1");
+    let mut session = PtySession::spawn(command)?;
+    session.wait_for_prompt(0, STARTUP_TIMEOUT)?;
+    session.send(b"/model-probe\n")?;
+    session.wait_for_signal(
+        &chat_started,
+        "model probe request at fake Ollama",
+        STEP_TIMEOUT,
+    )?;
+    // The probe is now in flight, so each line is queued behind it. The footer
+    // notice confirms a line was queued before the next one is sent.
+    for (line, queued) in [
+        (b"/help\r".as_slice(), "queued: /help"),
+        (b"/status\r", "queued: /status"),
+    ] {
+        let mark = session.mark();
+        session.send(line)?;
+        session.wait_for_text(queued, mark, STEP_TIMEOUT)?;
     }
-    for line in [b"/help\r".as_slice(), b"/status\r", b"/exit\r"] {
-        stdin.write_all(line)?;
-        stdin.flush()?;
-        thread::sleep(Duration::from_millis(120));
-    }
-    drop(stdin);
-    finish_queue_child(child, stdout_reader, stderr_reader, Duration::from_secs(30))
-}
-
-fn read_all(mut input: impl Read) -> std::io::Result<Vec<u8>> {
-    let mut bytes = Vec::new();
-    input.read_to_end(&mut bytes)?;
-    Ok(bytes)
-}
-
-fn finish_queue_child(
-    mut child: std::process::Child,
-    stdout_reader: thread::JoinHandle<std::io::Result<Vec<u8>>>,
-    stderr_reader: thread::JoinHandle<std::io::Result<Vec<u8>>>,
-    timeout: Duration,
-) -> std::io::Result<std::process::Output> {
-    let deadline = std::time::Instant::now() + timeout;
-    let status = loop {
-        if let Some(status) = child.try_wait()? {
-            break status;
-        }
-        if std::time::Instant::now() >= deadline {
-            let _ = child.kill();
-            break child.wait()?;
-        }
-        thread::sleep(Duration::from_millis(20));
-    };
-    let stdout = stdout_reader
-        .join()
-        .map_err(|_| std::io::Error::other("stdout reader panicked"))??;
-    let stderr = stderr_reader
-        .join()
-        .map_err(|_| std::io::Error::other("stderr reader panicked"))??;
-    Ok(std::process::Output {
-        status,
-        stdout,
-        stderr,
-    })
+    session.send(b"/exit\r")?;
+    session.finish(Duration::from_secs(30))
 }
 
 fn start_delayed_ollama() -> (
@@ -1745,18 +1462,9 @@ fn start_delayed_ollama() -> (
                     stream
                         .set_read_timeout(Some(Duration::from_secs(1)))
                         .unwrap();
-                    let mut request = Vec::new();
-                    let mut buffer = [0_u8; 1024];
-                    while !request.windows(4).any(|window| window == b"\r\n\r\n") {
-                        let Ok(read) = stream.read(&mut buffer) else {
-                            break;
-                        };
-                        if read == 0 {
-                            break;
-                        }
-                        request.extend_from_slice(&buffer[..read]);
-                    }
-                    let request = String::from_utf8_lossy(&request);
+                    let Ok(request) = read_http_request(&mut stream) else {
+                        continue;
+                    };
                     let body = if request.starts_with("GET /api/tags ") {
                         r#"{"models":[{"name":"m"}]}"#
                     } else {
@@ -1813,31 +1521,15 @@ fn run_startup_diagnostic_script(
     .collect::<Vec<_>>()
     .join(" ");
     let command_line = format!("exec {} {args}", shell_quote(bin));
-    let mut command = std::process::Command::new("script");
-    if cfg!(target_os = "macos") {
-        command
-            .arg("-q")
-            .arg("/dev/null")
-            .arg("/bin/sh")
-            .arg("-c")
-            .arg(command_line);
-    } else {
-        command
-            .arg("-q")
-            .arg("-c")
-            .arg(command_line)
-            .arg("/dev/null");
-    }
-    let mut child = command
+    let mut command = script_command(&command_line);
+    command
         .env("COMMANDAGENT_NO_SPINNER", "1")
         .env("COMMANDAGENT_NO_INTERRUPT", "1")
-        .env("COMMANDAGENT_NO_MARKDOWN", "1")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()?;
-    child.stdin.as_mut().unwrap().write_all(b"/exit\n")?;
-    child.wait_with_output()
+        .env("COMMANDAGENT_NO_MARKDOWN", "1");
+    let mut session = PtySession::spawn(command)?;
+    session.wait_for_prompt(0, STARTUP_TIMEOUT)?;
+    session.send(b"/exit\n")?;
+    session.finish(Duration::from_secs(20))
 }
 
 fn start_tags_only_ollama() -> (String, thread::JoinHandle<()>) {
@@ -1859,7 +1551,11 @@ fn start_tags_only_ollama() -> (String, thread::JoinHandle<()>) {
                 Err(error) => panic!("fake Ollama accept failed: {error}"),
             }
         };
-        let request = read_http_request(&mut stream);
+        stream
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .unwrap();
+        let request = read_http_request(&mut stream)
+            .expect("fake Ollama must receive the complete startup probe request");
         assert!(request.starts_with("GET /api/tags "), "request={request:?}");
         let body = r#"{"models":[{"name":"installed:latest"}]}"#;
         write!(
@@ -1891,7 +1587,9 @@ fn start_classifier_ollama() -> (
                     stream
                         .set_read_timeout(Some(Duration::from_secs(1)))
                         .unwrap();
-                    let request = read_http_request(&mut stream);
+                    let Ok(request) = read_http_request(&mut stream) else {
+                        continue;
+                    };
                     let body = if request.starts_with("GET /api/tags ") {
                         r#"{"models":[{"name":"m"}]}"#.to_string()
                     } else {
@@ -1932,95 +1630,46 @@ fn run_classifier_script(
     host: &str,
     classified: mpsc::Receiver<()>,
 ) -> std::io::Result<std::process::Output> {
-    let command_line = queue_command_line(bin, cwd, state_dir, host);
-    let mut command = std::process::Command::new("script");
-    if cfg!(target_os = "macos") {
-        command
-            .arg("-q")
-            .arg("/dev/null")
-            .arg("/bin/sh")
-            .arg("-c")
-            .arg(command_line);
-    } else {
-        command
-            .arg("-q")
-            .arg("-c")
-            .arg(command_line)
-            .arg("/dev/null");
-    }
-    let mut child = command
-        .env("COMMANDAGENT_NO_MARKDOWN", "1")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()?;
-    let stdout = child.stdout.take().unwrap();
-    let stderr = child.stderr.take().unwrap();
-    let stdout_reader = thread::spawn(move || read_all(stdout));
-    let stderr_reader = thread::spawn(move || read_all(stderr));
-    let mut stdin = child.stdin.take().unwrap();
-    thread::sleep(Duration::from_secs(2));
-    stdin.write_all(b"create a CLI\n")?;
-    stdin.flush()?;
-    if classified.recv_timeout(Duration::from_secs(10)).is_err() {
-        let _ = child.kill();
-    } else {
-        thread::sleep(Duration::from_millis(900));
-        stdin.write_all(b"/exit\n")?;
-        stdin.flush()?;
-    }
-    drop(stdin);
-    finish_queue_child(child, stdout_reader, stderr_reader, Duration::from_secs(20))
+    let mut command = script_command(&queue_command_line(bin, cwd, state_dir, host));
+    command.env("COMMANDAGENT_NO_MARKDOWN", "1");
+    let mut session = PtySession::spawn(command)?;
+    session.wait_for_prompt(0, STARTUP_TIMEOUT)?;
+    let mark = session.mark();
+    session.send(b"create a CLI\n")?;
+    session.wait_for_signal(
+        &classified,
+        "classifier request at fake Ollama",
+        STEP_TIMEOUT,
+    )?;
+    session.wait_for_text_then_prompt("Gate 1 — 実行前の確認", mark, STEP_TIMEOUT)?;
+    session.send(b"/exit\n")?;
+    session.finish(Duration::from_secs(20))
 }
 
 fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-fn enter_first_run_guidance_command(child: &mut std::process::Child) -> std::io::Result<()> {
-    let mut stdin = child.stdin.take().unwrap();
-    thread::sleep(Duration::from_millis(1500));
-    stdin.write_all(b"/plan-run first request\n")?;
-    stdin.flush()?;
-    thread::sleep(Duration::from_millis(500));
-    stdin.write_all(b"/exit\n")?;
-    stdin.flush()
-}
-
-fn run_script_bsd(bin: &str, cwd: &std::path::Path) -> std::io::Result<std::process::Output> {
-    let mut child = std::process::Command::new("script")
-        .arg("-q")
-        .arg("/dev/null")
-        .arg(bin)
-        .arg("--yes")
-        .arg("--cwd")
-        .arg(cwd)
-        .arg("--no-footer")
+fn run_first_run_script(bin: &str, cwd: &std::path::Path) -> std::io::Result<std::process::Output> {
+    let command_line = format!(
+        "exec {} --yes --cwd {} --no-footer",
+        shell_quote(bin),
+        shell_quote(&cwd.to_string_lossy())
+    );
+    let mut command = script_command(&command_line);
+    command
         .env("COMMANDAGENT_NO_SPINNER", "1")
         .env("COMMANDAGENT_NO_INTERRUPT", "1")
-        .env("COMMANDAGENT_NO_MARKDOWN", "1")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()?;
-    enter_first_run_guidance_command(&mut child)?;
-    child.wait_with_output()
-}
-
-fn run_script_linux(bin: &str, cwd: &std::path::Path) -> std::io::Result<std::process::Output> {
-    let command = format!("{} --yes --cwd {} --no-footer", bin, cwd.to_string_lossy());
-    let mut child = std::process::Command::new("script")
-        .arg("-q")
-        .arg("-c")
-        .arg(command)
-        .arg("/dev/null")
-        .env("COMMANDAGENT_NO_SPINNER", "1")
-        .env("COMMANDAGENT_NO_INTERRUPT", "1")
-        .env("COMMANDAGENT_NO_MARKDOWN", "1")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()?;
-    enter_first_run_guidance_command(&mut child)?;
-    child.wait_with_output()
+        .env("COMMANDAGENT_NO_MARKDOWN", "1");
+    let mut session = PtySession::spawn(command)?;
+    session.wait_for_prompt(0, STARTUP_TIMEOUT)?;
+    let mark = session.mark();
+    session.send(b"/plan-run first request\n")?;
+    session.wait_for_text_then_prompt(
+        "D-3c Gate 1 confirmation is required before execution.",
+        mark,
+        STEP_TIMEOUT,
+    )?;
+    session.send(b"/exit\n")?;
+    session.finish(Duration::from_secs(20))
 }
