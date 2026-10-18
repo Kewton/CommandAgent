@@ -1,6 +1,6 @@
 use super::*;
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "borrowed state kept explicit")]
 pub(super) fn commit(
     config: &mut Config,
     plan: &mut UltraPlan,

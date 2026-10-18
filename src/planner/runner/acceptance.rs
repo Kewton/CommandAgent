@@ -1,6 +1,6 @@
 // Pure extraction from the E-5d responsibility map (pre-split runner.rs:5178-7299).
 // Event names, evidence fields, and emitted strings remain owned by the moved code.
-#[allow(unused_imports)]
+#[allow(unused_imports, reason = "shared import list")]
 use super::{
     APP_BEHAVIOR_PROBE_FAILURE_KINDS, BoundCompletionContract, BrowserInteractionProbeOptions,
     BrowserReadinessObservation, Child, CompileError, Config, DEV_SERVER_CLEANUP_KILL_TIMEOUT,
@@ -28,7 +28,7 @@ use super::{
     save_release_recovery_handoff, surface_fit_guidance_lines_from_value, verifier_env,
     verify_runtime_acceptance_with_browser_dirs_and_hints, write_release_evidence_json,
 };
-#[allow(unused_imports)]
+#[allow(unused_imports, reason = "shared import list")]
 use super::{DEV_SERVER_LIFECYCLE_STAGES, ReleaseRecoveryHandoffSummary};
 use crate::planner::profile_contract_observations::{non_recovery_failure_kind, registered_probe};
 use std::io::{Read, Write};
@@ -45,7 +45,7 @@ mod issue507_tests;
 #[path = "acceptance/test_transport.rs"]
 pub(super) mod test_transport;
 #[cfg(test)]
-#[allow(unused_imports)]
+#[allow(unused_imports, reason = "shared import list")]
 pub(super) use test_transport::{
     inferred_required_capabilities, inferred_required_evidence, inferred_required_obligations,
     run_nextjs_dev_route_probe,
@@ -1446,7 +1446,7 @@ pub(super) fn cleanup_stage_failure_kind<'a>(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "borrowed state kept explicit")]
 pub(super) fn emit_dev_server_cleanup_lifecycle_stage(
     config: &Config,
     ok: bool,
@@ -1540,7 +1540,7 @@ pub(super) fn emit_dev_server_unavailable_lifecycle(
     );
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "borrowed state kept explicit")]
 pub(super) fn emit_dev_server_lifecycle_stage(
     config: &Config,
     stage: &str,

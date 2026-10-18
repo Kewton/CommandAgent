@@ -110,7 +110,7 @@ pub(super) fn verify_obligation(
 }
 
 impl BoundRecoveryFix<'_> {
-    #[allow(clippy::result_large_err)]
+    #[allow(clippy::result_large_err, reason = "shared error contract")]
     pub(super) fn configure(
         &self,
         plan: &crate::planner::step_plan::StepPlan,

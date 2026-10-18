@@ -293,7 +293,7 @@ fn dev_server_writes_readiness_before_forced_cleanup_failure() {
 #[test]
 #[ignore]
 #[cfg(unix)]
-#[allow(clippy::zombie_processes)]
+#[allow(clippy::zombie_processes, reason = "child reaped by parent")]
 fn fake_dev_server_package_manager_child() {
     if crate::env_compat::var("COMMANDAGENT_FAKE_DEV_SERVER_CHILD")
         .ok()

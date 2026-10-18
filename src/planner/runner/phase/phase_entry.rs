@@ -17,7 +17,7 @@ pub(super) fn start(
     Ok(machine)
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "borrowed state kept explicit")]
 pub(super) fn prepare(
     planner: &mut dyn ChatClient,
     config: &Config,
