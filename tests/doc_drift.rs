@@ -1243,3 +1243,293 @@ fn additive_profile_overlay_decision_stays_bound_to_the_ledger() {
         );
     }
 }
+
+/// The `Actions (use one)` help group, pinned independently of the Clap
+/// definition so moving a flag in or out of the group fails this table.
+const ACTIONS_HELP_HEADING: &str = "Actions (use one)";
+const ACTION_FLAGS: &[&str] = &[
+    "--workflow",
+    "--prompt",
+    "--plan-steps",
+    "--plan-run",
+    "--run-plan",
+    "--ultra-plan",
+    "--ultra-plan-run",
+    "--run-ultra-plan",
+    "--validate-plan",
+    "--setup-interaction-probe",
+    "--runs",
+    "--ux-demo",
+    "--model-probe",
+    "--doctor",
+    "--extensions",
+    "--packs",
+    "--pack-verify",
+    "--pack-pin",
+    "--completions",
+    "--generate-man",
+    "--init-config",
+    "--validate-manifest",
+    "--init-profile",
+];
+
+/// Flags that declare a Clap `default_value`/`default_value_t`, with the
+/// default Clap fixes before `Config::from_cli` runs.
+const CLAP_DEFAULTS: &[(&str, &str)] = &[
+    ("--style", "default"),
+    ("--sandbox", "auto"),
+    ("--ollama-host", "http://localhost:11434"),
+    ("--lm-studio-host", "http://localhost:1234"),
+    ("--num-predict", "8192"),
+    ("--max-iterations", "12"),
+    ("--recovery-plan-auto-runs", "0"),
+    ("--chat-retries", "1"),
+];
+
+const EFFECTIVE_CHILD_ENV: &str = "COMMANDAGENT_DOC_DRIFT_EFFECTIVE_DEFAULTS_CHILD";
+const EFFECTIVE_CHILD_TEST: &str =
+    "effective_defaults_from_empty_environment_match_bilingual_references";
+
+/// Flags named in the prose that precedes the "Clap also generates" paragraph.
+fn invocation_prose_flags(markdown: &str, end_marker: &str, path: &str) -> BTreeSet<String> {
+    let (_, after) = markdown
+        .split_once("\n\n")
+        .unwrap_or_else(|| panic!("missing intro in {path}"));
+    let prose = after
+        .split_once(end_marker)
+        .unwrap_or_else(|| panic!("missing '{end_marker}' in {path}"))
+        .0;
+    prose
+        .split('`')
+        .skip(1)
+        .step_by(2)
+        .filter(|token| token.starts_with("--"))
+        .map(str::to_string)
+        .collect()
+}
+
+/// Cell `index` of every flag row, keyed by flag.
+fn cli_flag_cells(markdown: &str, index: usize) -> BTreeMap<String, String> {
+    markdown
+        .lines()
+        .filter_map(|line| {
+            let row = line.strip_prefix("| ")?.strip_suffix(" |")?;
+            let cells = row.split(" | ").collect::<Vec<_>>();
+            let flag = cells.first()?.strip_prefix('`')?.strip_suffix('`')?;
+            let cell = cells.get(index)?;
+            flag.starts_with("--")
+                .then(|| (flag.to_string(), cell.to_string()))
+        })
+        .collect()
+}
+
+#[test]
+fn actions_help_group_matches_pinned_table_and_bilingual_references() {
+    let table = ACTION_FLAGS
+        .iter()
+        .map(|flag| flag.to_string())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        table.len(),
+        ACTION_FLAGS.len(),
+        "ACTION_FLAGS has duplicates"
+    );
+    assert_eq!(table.len(), 23, "the Actions group is pinned at 23 flags");
+
+    let command = commandagent::provider_cli::command();
+    let clap_actions = command
+        .get_arguments()
+        .filter(|argument| !argument.is_hide_set())
+        .filter(|argument| argument.get_help_heading() == Some(ACTIONS_HELP_HEADING))
+        .filter_map(|argument| argument.get_long())
+        .map(|long| format!("--{long}"))
+        .collect::<BTreeSet<_>>();
+    assert_same_entries(
+        "Actions (use one) membership",
+        &table,
+        &clap_actions,
+        "tests/doc_drift.rs (ACTION_FLAGS)",
+        "src/cli.rs (help_heading = \"Actions (use one)\")",
+    );
+
+    for (path, end_marker) in [
+        (CLI_DOC, "\nClap also generates"),
+        (JA_CLI_DOC, "\nClap が生成する"),
+    ] {
+        let markdown = read_repo_file(path);
+        let prose = invocation_prose_flags(&markdown, end_marker, path);
+        assert_same_entries(
+            "Actions (use one) invocation prose",
+            &table,
+            &prose,
+            "tests/doc_drift.rs (ACTION_FLAGS)",
+            path,
+        );
+        let documented = first_cell_entries(&markdown, "--");
+        for flag in &table {
+            assert!(
+                documented.contains(flag),
+                "{path} has no flag-reference row for action {flag}"
+            );
+        }
+    }
+}
+
+#[test]
+fn clap_default_values_match_pinned_table_and_bilingual_references() {
+    let command = commandagent::provider_cli::command();
+    let clap_defaults = command
+        .get_arguments()
+        .filter(|argument| !argument.is_hide_set())
+        .filter(|argument| argument.get_long().is_some())
+        .filter_map(|argument| {
+            let values = argument.get_default_values();
+            let value = values.first()?.to_str()?.to_string();
+            assert_eq!(values.len(), 1, "unexpected multi-value default");
+            Some((format!("--{}", argument.get_long()?), value))
+        })
+        .collect::<BTreeMap<_, _>>();
+    let pinned = CLAP_DEFAULTS
+        .iter()
+        .map(|(flag, value)| (flag.to_string(), value.to_string()))
+        .collect::<BTreeMap<_, _>>();
+    assert_eq!(
+        pinned.len(),
+        8,
+        "the Clap default table is pinned at 8 rows"
+    );
+    assert_eq!(
+        clap_defaults, pinned,
+        "Clap default_value declarations differ from the pinned table"
+    );
+
+    for path in [CLI_DOC, JA_CLI_DOC] {
+        let defaults = cli_flag_cells(&read_repo_file(path), 2);
+        for (flag, value) in &pinned {
+            assert_eq!(
+                defaults.get(flag),
+                Some(&format!("`{value}`")),
+                "{flag} default differs between the Clap definition and {path}"
+            );
+        }
+    }
+}
+
+/// Effective defaults resolved by `Config::from_cli` for an empty fixture.
+/// The cells are literals so a drift on either side fails the test.
+const RESOLVED_DEFAULT_ROWS: &[(&str, &str)] = &[
+    ("num_predict", "8192"),
+    ("max_iterations", "12"),
+    ("chat_retries", "1"),
+    ("context_budget", "65536"),
+];
+const LOCAL_CHAT_TIMEOUT_SECS: u64 = 600;
+const REMOTE_CHAT_TIMEOUT_SECS: u64 = 180;
+
+fn resolve_config(fixture: &Path, extra: &[&str]) -> commandagent::config::Config {
+    let mut arguments = vec![
+        "commandagent".to_string(),
+        "--cwd".to_string(),
+        fixture.display().to_string(),
+    ];
+    arguments.extend(extra.iter().map(|argument| argument.to_string()));
+    let parsed = commandagent::provider_cli::parse_from(arguments).expect("parse fixture args");
+    commandagent::config::Config::from_cli_with_provider_options(
+        parsed.cli,
+        parsed.provider_options,
+    )
+    .expect("resolve fixture config")
+}
+
+fn resolved_defaults_row(markdown: &str, setting: &str) -> String {
+    let heading_end = markdown
+        .find("### Important resolved defaults")
+        .or_else(|| markdown.find("### 重要な解決後の既定値"))
+        .expect("resolved defaults heading");
+    let section = &markdown[heading_end..];
+    let section = &section[..section.find("\n### ").unwrap_or(section.len())];
+    let prefix = format!("| `{setting}` | ");
+    section
+        .lines()
+        .find_map(|line| line.strip_prefix(&prefix)?.strip_suffix(" |"))
+        .unwrap_or_else(|| panic!("missing resolved defaults row for {setting}"))
+        .to_string()
+}
+
+#[test]
+fn effective_defaults_from_empty_environment_match_bilingual_references() {
+    if std::env::var_os(EFFECTIVE_CHILD_ENV).is_none() {
+        // Re-run this test in a child with an empty environment and an empty
+        // HOME so no user configuration or variable can feed the expectation.
+        let home = tempfile::tempdir().expect("empty HOME");
+        let output = std::process::Command::new(std::env::current_exe().expect("test binary"))
+            .args(["--exact", EFFECTIVE_CHILD_TEST, "--nocapture"])
+            .env_clear()
+            .env("HOME", home.path())
+            .env(EFFECTIVE_CHILD_ENV, "1")
+            .current_dir(home.path())
+            .output()
+            .expect("spawn child test");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success() && stdout.contains("1 passed"),
+            "empty-environment child failed:\n{stdout}\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
+
+    let fixture = tempfile::tempdir().expect("empty workspace");
+    let local = resolve_config(fixture.path(), &[]);
+    let remote = resolve_config(
+        fixture.path(),
+        &["--provider", "openai", "--model", "gpt-test"],
+    );
+    let actual = BTreeMap::from([
+        ("num_predict", local.num_predict.to_string()),
+        ("max_iterations", local.max_iterations.to_string()),
+        ("chat_retries", local.chat_retries.to_string()),
+        ("context_budget", local.context_budget.to_string()),
+    ]);
+    for (setting, value) in RESOLVED_DEFAULT_ROWS {
+        assert_eq!(
+            actual.get(setting),
+            Some(&value.to_string()),
+            "Config::from_cli resolved {setting} differently from the pinned table"
+        );
+    }
+    assert_eq!(local.chat_timeout_secs, LOCAL_CHAT_TIMEOUT_SECS);
+    assert_eq!(remote.chat_timeout_secs, REMOTE_CHAT_TIMEOUT_SECS);
+
+    for path in [CLI_DOC, JA_CLI_DOC] {
+        let markdown = read_repo_file(path);
+        let flag_defaults = cli_flag_cells(&markdown, 2);
+        for (setting, value) in RESOLVED_DEFAULT_ROWS {
+            let cell = format!("`{value}`");
+            let row = resolved_defaults_row(&markdown, setting);
+            assert!(
+                row.contains(&cell),
+                "{path} resolved defaults row {setting} is {row:?}, expected {cell}"
+            );
+            let flag = format!("--{}", setting.replace('_', "-"));
+            assert_eq!(
+                flag_defaults.get(&flag),
+                Some(&cell),
+                "{path} flag-reference default for {flag} differs from Config::from_cli"
+            );
+        }
+        let timeout_row = resolved_defaults_row(&markdown, "chat_timeout_secs");
+        let timeout_cell = &flag_defaults["--chat-timeout-secs"];
+        for secs in [LOCAL_CHAT_TIMEOUT_SECS, REMOTE_CHAT_TIMEOUT_SECS] {
+            let cell = format!("`{secs}`");
+            assert!(
+                timeout_row.contains(&cell),
+                "{path} resolved chat_timeout_secs row is missing {cell}"
+            );
+            assert!(
+                timeout_cell.contains(&cell),
+                "{path} --chat-timeout-secs default is missing {cell}"
+            );
+        }
+    }
+}
