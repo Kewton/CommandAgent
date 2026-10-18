@@ -7,6 +7,7 @@ use serde_json::json;
 
 use crate::config::{Config, OllamaThink, Provider};
 use crate::eval_events;
+use crate::providers::streaming::CancelToken;
 use crate::providers::{AssistantReply, ChatClient, ProviderResponseMetadata, ResponseTiming};
 use crate::state::ConversationMessage;
 use crate::tools::registry::ToolSpec;
@@ -405,6 +406,10 @@ where
     let worker_model = model.clone();
     let worker_redaction = redaction.clone();
     let (tx, rx) = mpsc::sync_channel(1);
+    // Fires on every exit of this call (cancel, deadline, completion) so the
+    // worker's HTTP request is dropped and its connection closes.
+    let cancel_on_exit = CancelOnDrop(CancelToken::default());
+    worker_client.set_cancel_token(cancel_on_exit.0.clone());
     std::thread::spawn(move || {
         // Provider worker threads have no thread-local scope; install the
         // captured one so snippets they build are scrubbed before truncation.
@@ -867,6 +872,14 @@ pub fn is_aborted_by_user(error: &str) -> bool {
 
 pub fn is_scoped_timeout(scope: ProviderCallScope, error: &str) -> bool {
     error.contains(scope.timeout_kind())
+}
+
+struct CancelOnDrop(CancelToken);
+
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        self.0.cancel();
+    }
 }
 
 /// Production wait clock: the real monotonic `Instant` captured at call start.

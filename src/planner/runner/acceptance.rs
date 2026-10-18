@@ -39,6 +39,9 @@ mod plan_final_probe;
 mod profile_contract_event;
 use profile_contract_event::emit_probe_event;
 #[cfg(test)]
+#[path = "acceptance/issue507_tests.rs"]
+mod issue507_tests;
+#[cfg(test)]
 #[path = "acceptance/test_transport.rs"]
 pub(super) mod test_transport;
 #[cfg(test)]

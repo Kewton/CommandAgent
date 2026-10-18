@@ -469,6 +469,10 @@ impl ChatClient for PrefetchedPlanner {
         self.fallback.take_response_metadata()
     }
 
+    fn set_cancel_token(&mut self, token: crate::providers::streaming::CancelToken) {
+        self.fallback.set_cancel_token(token);
+    }
+
     fn supports_streaming(&self) -> bool {
         self.fallback.supports_streaming()
     }
@@ -689,5 +693,53 @@ mod tests {
         assert_eq!(first.content, "prefetched");
         assert_eq!(second.content, "fallback");
         assert_eq!(*calls.lock().unwrap(), 1);
+    }
+
+    #[test]
+    fn prefetched_planner_forwards_the_cancel_token_to_the_fallback() {
+        use crate::providers::streaming::CancelToken;
+
+        #[derive(Clone)]
+        struct Recording(Arc<Mutex<Vec<CancelToken>>>);
+
+        impl ChatClient for Recording {
+            fn label(&self) -> &str {
+                "recording"
+            }
+
+            fn boxed_clone(&self) -> Box<dyn ChatClient> {
+                Box::new(self.clone())
+            }
+
+            fn set_cancel_token(&mut self, token: CancelToken) {
+                self.0.lock().unwrap().push(token);
+            }
+
+            fn chat(
+                &mut self,
+                _model: &str,
+                _messages: &[ConversationMessage],
+                _tools: &[ToolSpec],
+                _native_tools_enabled: bool,
+            ) -> anyhow::Result<AssistantReply> {
+                Ok(AssistantReply::text("fallback"))
+            }
+        }
+
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let fallback = Recording(Arc::clone(&received));
+        let planner = PrefetchedPlanner::new(&fallback, AssistantReply::text("prefetched"));
+
+        // The same order `provider_call` uses: clone for the worker, then hand
+        // it the call's token.
+        let mut worker = planner.boxed_clone();
+        let token = CancelToken::default();
+        worker.set_cancel_token(token.clone());
+
+        let recorded = received.lock().unwrap();
+        assert_eq!(recorded.len(), 1, "the fallback never got the token");
+        assert!(!recorded[0].is_cancelled());
+        token.cancel();
+        assert!(recorded[0].is_cancelled(), "a different token arrived");
     }
 }

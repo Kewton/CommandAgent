@@ -23,7 +23,7 @@ include = [
 
 [features]
 default = []
-gui = ["dep:axum", "dep:tokio"]
+gui = ["dep:axum", "tokio/fs", "tokio/macros", "tokio/net", "tokio/rt-multi-thread"]
 
 [dependencies]
 aho-corasick = "1"
@@ -46,7 +46,7 @@ sha2 = "0.10"
 signal-hook = "0.3"
 tempfile = "3"
 thiserror = "2"
-tokio = { version = "1", features = ["fs", "macros", "net", "rt-multi-thread"], optional = true }
+tokio = { version = "1", features = ["rt", "sync", "time"] }
 toml = "0.8"
 unicode-width = "0.1"
 url = "2"

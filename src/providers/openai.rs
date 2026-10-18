@@ -2,7 +2,7 @@ use std::fmt;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use reqwest::blocking::Client;
+use reqwest::Client;
 use serde_json::{Value, json};
 
 use crate::config::{Config, OpenAiApi, Provider, load_process_api_key};
@@ -10,6 +10,7 @@ use crate::eval_events;
 use crate::state::ConversationMessage;
 use crate::tools::registry::ToolSpec;
 
+use super::streaming::{CancelToken, HttpCall};
 use super::{
     AssistantReply, ChatClient, ProviderResponseMetadata, openai_chat_completions, openai_responses,
 };
@@ -21,6 +22,7 @@ const OPENAI_REASONING_EFFORT_ENV: &str = "COMMANDAGENT_OPENAI_REASONING_EFFORT"
 pub struct OpenAiClient {
     api_key: String,
     http: Client,
+    cancel: CancelToken,
     base_url: String,
     max_predict: usize,
     retries: usize,
@@ -48,13 +50,11 @@ impl fmt::Debug for OpenAiClient {
 impl OpenAiClient {
     pub fn from_env(config: &Config) -> anyhow::Result<Self> {
         let api_key = load_process_api_key("OPENAI_API_KEY")?;
-        let http = Client::builder()
-            .connect_timeout(std::time::Duration::from_secs(config.chat_timeout_secs))
-            .timeout(std::time::Duration::from_secs(config.chat_timeout_secs))
-            .build()?;
+        let http = super::streaming::http_client(config.chat_timeout_secs)?;
         Ok(Self {
             api_key,
             http,
+            cancel: CancelToken::default(),
             base_url: OPENAI_BASE_URL.to_string(),
             max_predict: config.num_predict,
             retries: config.chat_retries,
@@ -98,11 +98,8 @@ impl OpenAiClient {
     ) -> Self {
         Self {
             api_key: api_key.into(),
-            http: Client::builder()
-                .connect_timeout(std::time::Duration::from_secs(2))
-                .timeout(std::time::Duration::from_secs(2))
-                .build()
-                .expect("test OpenAI client"),
+            http: super::streaming::http_client(2).expect("test OpenAI client"),
+            cancel: CancelToken::default(),
             base_url: base_url.into(),
             max_predict: 128,
             retries: 0,
@@ -225,23 +222,25 @@ impl OpenAiClient {
         api: &str,
         body: &Value,
     ) -> anyhow::Result<(String, usize)> {
+        let call = HttpCall::new(&self.cancel)?;
         for attempt in 0..=self.retries {
-            match self
-                .http
-                .post(format!("{}{endpoint}", self.base_url))
-                .bearer_auth(&self.api_key)
-                .json(body)
-                .send()
-            {
+            match call.run(async {
+                self.http
+                    .post(format!("{}{endpoint}", self.base_url))
+                    .bearer_auth(&self.api_key)
+                    .json(body)
+                    .send()
+                    .await
+            })? {
                 Ok(response) if response.status().is_success() => {
-                    return Ok((response.text()?, attempt + 1));
+                    return Ok((call.run(response.text())??, attempt + 1));
                 }
                 Ok(response)
                     if attempt == self.retries
                         || !is_retryable_status(response.status().as_u16()) =>
                 {
                     let status = response.status();
-                    let response_body = response.text().unwrap_or_default();
+                    let response_body = call.run(response.text())?.unwrap_or_default();
                     eval_events::emit(
                         self.eval_events_path.as_deref(),
                         json!({
@@ -372,6 +371,10 @@ impl ChatClient for OpenAiClient {
 
     fn take_response_metadata(&mut self) -> Option<ProviderResponseMetadata> {
         self.response_metadata.take()
+    }
+
+    fn set_cancel_token(&mut self, token: CancelToken) {
+        self.cancel = token;
     }
 
     fn supports_native_tools(&self, _model: &str) -> bool {
@@ -616,5 +619,26 @@ mod tests {
         );
         assert_eq!(body["input"][0]["type"], "function_call");
         assert_eq!(body["input"][0]["call_id"], "call-1");
+    }
+}
+
+#[cfg(test)]
+mod cancel_tests {
+    use super::*;
+    use crate::providers::streaming::cancel_test_support::assert_cancel_closes_connection;
+
+    #[test]
+    fn cancel_closes_the_chat_request() {
+        assert_cancel_closes_connection(None, |base_url, token| {
+            let mut client = OpenAiClient::for_test("sk-test-not-real", base_url, None);
+            client.set_cancel_token(token);
+            ChatClient::chat(
+                &mut client,
+                "gpt-test",
+                &[ConversationMessage::user("hi")],
+                &[],
+                false,
+            )
+        });
     }
 }
