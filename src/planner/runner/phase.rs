@@ -2677,7 +2677,7 @@ pub(super) fn emit_completion_contract_bound(
 }
 
 // Intermediate invariant repair and phase/recovery event boundary.
-#[allow(clippy::too_many_arguments, reason = "borrowed state kept explicit")]
+#[allow(clippy::too_many_arguments, reason = "run state borrowed apart")]
 pub(super) fn repair_intermediate_profile_invariant(
     execution: &mut dyn ChatClient,
     ultra_session: &mut SessionSnapshot,
@@ -2903,7 +2903,7 @@ pub(super) fn repair_intermediate_profile_invariant(
     Ok(retry)
 }
 
-#[allow(clippy::too_many_arguments, reason = "borrowed state kept explicit")]
+#[allow(clippy::too_many_arguments, reason = "flat event fields")]
 pub(super) fn emit_profile_invariant_repair_event(
     config: &Config,
     plan: &UltraPlan,
@@ -3319,7 +3319,7 @@ pub(super) fn ultra_plan_signal_text(plan: &UltraPlan) -> String {
         format!("{}\n{}", plan.goal, phase_text)
     }
 }
-#[allow(clippy::too_many_arguments, reason = "borrowed state kept explicit")]
+#[allow(clippy::too_many_arguments, reason = "flat event fields")]
 pub(super) fn emit_ultra_phase_event(
     config: &Config,
     event: &str,
@@ -3601,7 +3601,7 @@ pub(super) fn render_failure_stop_reason(
     eval_events::render_stop_reason(&parts)
 }
 
-#[allow(clippy::too_many_arguments, reason = "borrowed state kept explicit")]
+#[allow(clippy::too_many_arguments, reason = "flat handoff fields")]
 pub(super) fn save_release_recovery_handoff(
     config: &Config,
     profile: &str,
