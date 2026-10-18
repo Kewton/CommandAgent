@@ -382,6 +382,8 @@ const LINUX_EXCLUDED_INDIRECT_IDS: &[&str] = &["hardlink-outside"];
 #[cfg(target_os = "linux")]
 fn kernel_landlock_abi() -> u32 {
     const LANDLOCK_CREATE_RULESET_VERSION: libc::c_uint = 1;
+    // SAFETY: with a null attr pointer, size 0 and the VERSION flag, landlock_create_ruleset only
+    // returns the ABI number; it reads no memory and creates no file descriptor.
     let ret = unsafe {
         libc::syscall(
             libc::SYS_landlock_create_ruleset,
@@ -1199,6 +1201,8 @@ except OSError as error:
 /// never opens the worker's or the user's real terminal.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn open_pty() -> (std::fs::File, std::fs::File, PathBuf) {
+    // SAFETY: posix_openpt takes only flags and allocates a brand-new pty master that this test
+    // owns; O_NOCTTY keeps it from becoming the process's controlling terminal.
     let master = unsafe { libc::posix_openpt(libc::O_RDWR | libc::O_NOCTTY) };
     assert!(
         master >= 0,
@@ -1206,30 +1210,39 @@ fn open_pty() -> (std::fs::File, std::fs::File, PathBuf) {
         std::io::Error::last_os_error()
     );
     assert_eq!(
+        // SAFETY: `master` is the valid pty master fd opened above and still owned here.
         unsafe { libc::grantpt(master) },
         0,
         "grantpt: {}",
         std::io::Error::last_os_error()
     );
     assert_eq!(
+        // SAFETY: `master` is the valid pty master fd opened above and still owned here.
         unsafe { libc::unlockpt(master) },
         0,
         "unlockpt: {}",
         std::io::Error::last_os_error()
     );
+    // SAFETY: `master` is the valid pty master fd; the returned pointer is read below before any
+    // other ptsname call can overwrite its static buffer (the test calls it only here).
     let name = unsafe { libc::ptsname(master) };
     assert!(
         !name.is_null(),
         "ptsname: {}",
         std::io::Error::last_os_error()
     );
+    // SAFETY: F_GETFL on the owned `master` fd takes no pointer argument.
     let flags = unsafe { libc::fcntl(master, libc::F_GETFL) };
+    // SAFETY: F_SETFL on the owned `master` fd takes an integer flag set only.
     let _ = unsafe { libc::fcntl(master, libc::F_SETFL, flags | libc::O_NONBLOCK) };
     let slave_path = PathBuf::from(
+        // SAFETY: `name` was checked non-null above and points to the NUL-terminated slave path
+        // that ptsname wrote into its static buffer; it is copied out immediately.
         unsafe { CStr::from_ptr(name) }
             .to_string_lossy()
             .into_owned(),
     );
+    // SAFETY: `name` is the same non-null NUL-terminated pty slave path; open keeps no pointer.
     let slave = unsafe { libc::open(name, libc::O_RDWR | libc::O_NOCTTY) };
     assert!(
         slave >= 0,
@@ -1237,7 +1250,11 @@ fn open_pty() -> (std::fs::File, std::fs::File, PathBuf) {
         std::io::Error::last_os_error()
     );
     (
+        // SAFETY: `master` is a valid open fd this function owns and uses nowhere else, so the
+        // File takes sole ownership and closes it once.
         unsafe { std::fs::File::from_raw_fd(master) },
+        // SAFETY: `slave` is a valid open fd this function owns and uses nowhere else, so the
+        // File takes sole ownership and closes it once.
         unsafe { std::fs::File::from_raw_fd(slave) },
         slave_path,
     )
@@ -1246,8 +1263,12 @@ fn open_pty() -> (std::fs::File, std::fs::File, PathBuf) {
 /// A `Stdio` for a duplicate of `file`, so the caller keeps the original open.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn dup_stdio(file: &std::fs::File) -> Stdio {
+    // SAFETY: the fd comes from the borrowed `file`, which is open for the call; dup returns a
+    // new independent descriptor.
     let fd = unsafe { libc::dup(file.as_raw_fd()) };
     assert!(fd >= 0, "dup: {}", std::io::Error::last_os_error());
+    // SAFETY: `fd` is the fresh descriptor dup just returned (checked >= 0) and nothing else
+    // owns it, so the File may take ownership and close it.
     Stdio::from(unsafe { std::fs::File::from_raw_fd(fd) })
 }
 
@@ -1330,6 +1351,7 @@ fn bounded_child_runs_in_its_own_session_and_process_group() {
     let pid: i32 = parts.next().expect("pid").parse().expect("pid number");
     assert_eq!(pgrp, pid, "the child's group id must equal its pid: {text}");
     assert_eq!(sid, pid, "the child must lead its own session: {text}");
+    // SAFETY: getsid(0) only reads the calling process's own session id.
     let caller_sid = unsafe { libc::getsid(0) };
     assert_ne!(
         sid, caller_sid,
@@ -1353,12 +1375,17 @@ fn issue667_tiocsti_session_probe() {
     }
     let (master, slave, _slave_path) = open_pty();
     assert_ne!(
+        // SAFETY: setsid takes no arguments; this probe runs as its own re-spawned test process
+        // (gated by the env var), so becoming a session leader leaves the shared test process
+        // and the user's session untouched.
         unsafe { libc::setsid() },
         -1,
         "setsid: {}",
         std::io::Error::last_os_error()
     );
     assert_eq!(
+        // SAFETY: `slave` is the open slave of the pty this probe created; TIOCSCTTY with arg 0
+        // makes that private pty the new session's controlling terminal, never the user's real one.
         unsafe { libc::ioctl(slave.as_raw_fd(), TIOCSCTTY_REQUEST, 0) },
         0,
         "TIOCSCTTY: {}",
@@ -1366,13 +1393,18 @@ fn issue667_tiocsti_session_probe() {
     );
     // The probe now owns a controlling terminal; the kernel sends SIGHUP to the
     // session leader when it exits, so ignore it and finish normally.
+    // SAFETY: SIG_IGN installs only the ignore disposition, no handler code, in this
+    // single-purpose probe process.
     unsafe {
         libc::signal(libc::SIGHUP, libc::SIG_IGN);
     }
     // Echo injected bytes back to the master, so the master side is the evidence
     // that an injection happened.
+    // SAFETY: termios is plain C data for which the all-zero pattern is valid; tcgetattr below
+    // fills it in.
     let mut termios: libc::termios = unsafe { std::mem::zeroed() };
     assert_eq!(
+        // SAFETY: `slave` is the open private pty slave; `&mut termios` is a valid exclusive pointer.
         unsafe { libc::tcgetattr(slave.as_raw_fd(), &mut termios) },
         0,
         "tcgetattr: {}",
@@ -1380,6 +1412,7 @@ fn issue667_tiocsti_session_probe() {
     );
     termios.c_lflag |= libc::ECHO;
     assert_eq!(
+        // SAFETY: `slave` is the open private pty slave; `&termios` is a valid initialized struct.
         unsafe { libc::tcsetattr(slave.as_raw_fd(), libc::TCSANOW, &termios) },
         0,
         "tcsetattr: {}",
@@ -1538,23 +1571,32 @@ fn issue667_stdin_probe() {
     }
     let (_master, slave, _slave_path) = open_pty();
     assert_ne!(
+        // SAFETY: setsid takes no arguments; this probe runs as its own re-spawned test process
+        // (gated by the env var), so becoming a session leader leaves the shared test process
+        // and the user's session untouched.
         unsafe { libc::setsid() },
         -1,
         "setsid: {}",
         std::io::Error::last_os_error()
     );
     assert_eq!(
+        // SAFETY: `slave` is the open slave of the pty this probe created; TIOCSCTTY with arg 0
+        // makes that private pty the new session's controlling terminal, never the user's real one.
         unsafe { libc::ioctl(slave.as_raw_fd(), TIOCSCTTY_REQUEST, 0) },
         0,
         "TIOCSCTTY: {}",
         std::io::Error::last_os_error()
     );
+    // SAFETY: SIG_IGN installs only the ignore disposition, no handler code, in this
+    // single-purpose probe process.
     unsafe {
         libc::signal(libc::SIGHUP, libc::SIG_IGN);
     }
     // Make the pty the probe's own standard input, so a child that leaves stdin
     // unset inherits a terminal and the launcher has to detach it.
     assert_ne!(
+        // SAFETY: `slave` is open and owned by this probe; dup2 replaces fd 0 of this separate
+        // probe process only, so no other process's stdin changes.
         unsafe { libc::dup2(slave.as_raw_fd(), 0) },
         -1,
         "dup2: {}",
@@ -1688,23 +1730,32 @@ fn issue667_devnull_fd_probe() {
     }
     let (_master, slave, _slave_path) = open_pty();
     assert_ne!(
+        // SAFETY: setsid takes no arguments; this probe runs as its own re-spawned test process
+        // (gated by the env var), so becoming a session leader leaves the shared test process
+        // and the user's session untouched.
         unsafe { libc::setsid() },
         -1,
         "setsid: {}",
         std::io::Error::last_os_error()
     );
     assert_eq!(
+        // SAFETY: `slave` is the open slave of the pty this probe created; TIOCSCTTY with arg 0
+        // makes that private pty the new session's controlling terminal, never the user's real one.
         unsafe { libc::ioctl(slave.as_raw_fd(), TIOCSCTTY_REQUEST, 0) },
         0,
         "TIOCSCTTY: {}",
         std::io::Error::last_os_error()
     );
+    // SAFETY: SIG_IGN installs only the ignore disposition, no handler code, in this
+    // single-purpose probe process.
     unsafe {
         libc::signal(libc::SIGHUP, libc::SIG_IGN);
     }
     // Make the pty the probe's own standard input, so a child that leaves stdin
     // unset inherits a terminal and the launcher opens `/dev/null` for it.
     assert_ne!(
+        // SAFETY: `slave` is open and owned by this probe; dup2 replaces fd 0 of this separate
+        // probe process only, so no other process's stdin changes.
         unsafe { libc::dup2(slave.as_raw_fd(), 0) },
         -1,
         "dup2: {}",
@@ -1849,17 +1900,24 @@ fn issue667_terminal_read_probe() {
     }
     let (mut master, slave, slave_path) = open_pty();
     assert_ne!(
+        // SAFETY: setsid takes no arguments; this probe runs as its own re-spawned test process
+        // (gated by the env var), so becoming a session leader leaves the shared test process
+        // and the user's session untouched.
         unsafe { libc::setsid() },
         -1,
         "setsid: {}",
         std::io::Error::last_os_error()
     );
     assert_eq!(
+        // SAFETY: `slave` is the open slave of the pty this probe created; TIOCSCTTY with arg 0
+        // makes that private pty the new session's controlling terminal, never the user's real one.
         unsafe { libc::ioctl(slave.as_raw_fd(), TIOCSCTTY_REQUEST, 0) },
         0,
         "TIOCSCTTY: {}",
         std::io::Error::last_os_error()
     );
+    // SAFETY: SIG_IGN installs only the ignore disposition, no handler code, in this
+    // single-purpose probe process.
     unsafe {
         libc::signal(libc::SIGHUP, libc::SIG_IGN);
     }
@@ -1976,6 +2034,8 @@ fn run_terminal_read_child(
         .expect("run the terminal-read child");
     // Drop anything the child left queued so a previous mode's line is not read
     // by the next one.
+    // SAFETY: `slave` is the borrowed, open slave of the probe's own pty; tcflush takes only the
+    // fd and a queue selector and discards input on that private pty.
     unsafe {
         libc::tcflush(slave.as_raw_fd(), libc::TCIFLUSH);
     }

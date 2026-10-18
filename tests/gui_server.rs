@@ -5375,6 +5375,8 @@ fn await_listen_line(
             events: libc::POLLIN,
             revents: 0,
         };
+        // SAFETY: `poll_fd` is a live local for the call and nfds is 1; the fd belongs to
+        // `stdout`, which this closure borrows, so it stays open; the 0 timeout never blocks.
         let ready = unsafe { libc::poll(&mut poll_fd, 1, 0) };
         if ready < 0 {
             return gui_wait::Poll::Failed(format!(
@@ -6030,6 +6032,7 @@ fn parse_json_lines(text: &str) -> Vec<serde_json::Value> {
 
 #[cfg(unix)]
 fn assert_process_group_absent(process_group: i32) {
+    // SAFETY: signal 0 only probes whether the group exists; it delivers no signal.
     assert_eq!(unsafe { libc::kill(-process_group, 0) }, -1);
     assert_eq!(
         std::io::Error::last_os_error().raw_os_error(),
@@ -6332,6 +6335,8 @@ fn management_documents_refuse_symlinks_and_non_files_below_the_run() {
     std::fs::create_dir(run_root.join("dir.md")).unwrap();
     let fifo = run_root.join("fifo.md");
     let name = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+    // SAFETY: `name` is a NUL-terminated CString that outlives the call; mkfifo only creates a
+    // fifo inside this test's tempdir and keeps no pointer to it.
     assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
 
     let mut server = Server::start_dashboard_only_at_repository_root(repository.path());

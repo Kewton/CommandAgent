@@ -162,6 +162,8 @@ pub(crate) fn decide_availability(
 /// reporting an unsupported or disabled Landlock (`ENOSYS`/`EOPNOTSUPP`) or a
 /// seccomp filter denying the syscall; the `Err` carries the raw `errno`.
 fn query_abi() -> Result<u32, i32> {
+    // SAFETY: with a null attr pointer, size 0 and the VERSION flag, landlock_create_ruleset only
+    // returns the ABI number; it reads no memory and creates no file descriptor to leak.
     let ret = unsafe {
         libc::syscall(
             libc::SYS_landlock_create_ruleset,
@@ -718,9 +720,13 @@ fn existing(path: Option<PathBuf>) -> Option<PathBuf> {
 /// `landlock_restrict_self`. Error values are built with
 /// [`std::io::Error::from_raw_os_error`], which does not allocate.
 fn apply_restriction(ruleset_fd: libc::c_int) -> std::io::Result<()> {
+    // SAFETY: prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) takes only integer arguments, is
+    // async-signal-safe, and allocates nothing, as the pre_exec contract above requires.
     if unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) } != 0 {
         return Err(std::io::Error::from_raw_os_error(errno()));
     }
+    // SAFETY: a raw syscall with only integer arguments (the ruleset fd the caller still owns,
+    // and zero flags), so it touches no memory and allocates nothing in the forked child.
     let rc = unsafe {
         libc::syscall(
             libc::SYS_landlock_restrict_self,
@@ -736,6 +742,8 @@ fn apply_restriction(ruleset_fd: libc::c_int) -> std::io::Result<()> {
 
 /// Read `errno` without allocating.
 fn errno() -> libc::c_int {
+    // SAFETY: __errno_location returns a valid pointer to the calling thread's errno, which is
+    // read immediately on that same thread and needs no allocation.
     unsafe { *libc::__errno_location() }
 }
 
