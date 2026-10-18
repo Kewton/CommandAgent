@@ -269,6 +269,193 @@ const CASES: &[(&str, &str, &str)] = &[
         "[Word(\"a\"), Symbol('/'), Symbol('2')] unsafe={} receivers={}",
     ),
     ("line_comment_then_regexp_newline", "a // c\n/x/", "None"),
+    (
+        "jsx_less_than_digit",
+        "a <1",
+        "[Word(\"a\"), Symbol('<'), Symbol('1')] unsafe={} receivers={}",
+    ),
+    ("jsx_after_yield_word", "yield <b", "None"),
+    ("jsx_after_await_word", "await <b", "None"),
+    (
+        "jsx_after_return_slash_ok",
+        "return /x/",
+        "[Word(\"return\"), Opaque] unsafe={\"x\"} receivers={}",
+    ),
+    (
+        "block_comment_without_newline_then_regexp",
+        "a = /* c */ /x/",
+        "[Word(\"a\"), Symbol('='), Opaque] unsafe={\"x\"} receivers={}",
+    ),
+    (
+        "regexp_class_closes",
+        "a = /[a]/",
+        "[Word(\"a\"), Symbol('='), Opaque] unsafe={\"a\"} receivers={}",
+    ),
+    (
+        "regexp_class_closed_then_slash",
+        "a = /[a]b/",
+        "[Word(\"a\"), Symbol('='), Opaque] unsafe={\"a\", \"b\"} receivers={}",
+    ),
+    (
+        "regexp_flags_only_ascii",
+        "a = /x/g1",
+        "[Word(\"a\"), Symbol('='), Opaque, Symbol('1')] unsafe={\"xg\"} receivers={}",
+    ),
+    (
+        "regexp_after_throw",
+        "throw /x/",
+        "[Word(\"throw\"), Opaque] unsafe={\"x\"} receivers={}",
+    ),
+    (
+        "regexp_after_case",
+        "case /x/",
+        "[Word(\"case\"), Opaque] unsafe={\"x\"} receivers={}",
+    ),
+    (
+        "regexp_after_delete",
+        "delete /x/",
+        "[Word(\"delete\"), Opaque] unsafe={\"x\"} receivers={}",
+    ),
+    (
+        "regexp_after_void",
+        "void /x/",
+        "[Word(\"void\"), Opaque] unsafe={\"x\"} receivers={}",
+    ),
+    (
+        "regexp_after_typeof",
+        "typeof /x/",
+        "[Word(\"typeof\"), Opaque] unsafe={\"x\"} receivers={}",
+    ),
+    (
+        "regexp_after_new",
+        "new /x/",
+        "[Word(\"new\"), Opaque] unsafe={\"x\"} receivers={}",
+    ),
+    (
+        "regexp_after_in",
+        "a in /x/",
+        "[Word(\"a\"), Word(\"in\"), Opaque] unsafe={\"x\"} receivers={}",
+    ),
+    (
+        "regexp_after_instanceof",
+        "a instanceof /x/",
+        "[Word(\"a\"), Word(\"instanceof\"), Opaque] unsafe={\"x\"} receivers={}",
+    ),
+    (
+        "regexp_after_else",
+        "else /x/",
+        "[Word(\"else\"), Opaque] unsafe={\"x\"} receivers={}",
+    ),
+    (
+        "regexp_after_do",
+        "do /x/",
+        "[Word(\"do\"), Opaque] unsafe={\"x\"} receivers={}",
+    ),
+    (
+        "division_after_dotted_keyword",
+        "a.typeof / 2",
+        "[Word(\"a\"), Symbol('.'), Word(\"typeof\"), Symbol('/'), Symbol('2')] unsafe={} receivers={}",
+    ),
+    (
+        "division_after_in_property",
+        "a.in / 2",
+        "[Word(\"a\"), Symbol('.'), Word(\"in\"), Symbol('/'), Symbol('2')] unsafe={} receivers={}",
+    ),
+    (
+        "regexp_after_while_paren",
+        "while (a) /x/",
+        "[Word(\"while\"), Symbol('('), Word(\"a\"), Symbol(')'), Opaque] unsafe={\"x\"} receivers={}",
+    ),
+    (
+        "regexp_after_for_paren",
+        "for (a;;) /x/",
+        "[Word(\"for\"), Symbol('('), Word(\"a\"), Symbol(';'), Symbol(';'), Symbol(')'), Opaque] unsafe={\"x\"} receivers={}",
+    ),
+    (
+        "regexp_after_with_paren",
+        "with (a) /x/",
+        "[Word(\"with\"), Symbol('('), Word(\"a\"), Symbol(')'), Opaque] unsafe={\"x\"} receivers={}",
+    ),
+    (
+        "regexp_after_switch_paren",
+        "switch (a) /x/",
+        "[Word(\"switch\"), Symbol('('), Word(\"a\"), Symbol(')'), Opaque] unsafe={\"x\"} receivers={}",
+    ),
+    (
+        "regexp_after_catch_paren",
+        "catch (e) /x/",
+        "[Word(\"catch\"), Symbol('('), Word(\"e\"), Symbol(')'), Opaque] unsafe={\"x\"} receivers={}",
+    ),
+    (
+        "regexp_after_for_await_paren",
+        "for await (a of b) /x/",
+        "[Word(\"for\"), Word(\"await\"), Symbol('('), Word(\"a\"), Word(\"of\"), Word(\"b\"), Symbol(')'), Opaque] unsafe={\"x\"} receivers={}",
+    ),
+    (
+        "division_after_dotted_if_paren",
+        "a.if (b) /x/",
+        "[Word(\"a\"), Symbol('.'), Word(\"if\"), Symbol('('), Word(\"b\"), Symbol(')'), Symbol('/'), Word(\"x\"), Symbol('/')] unsafe={} receivers={}",
+    ),
+    (
+        "regexp_after_nested_control_paren",
+        "if ((a)) /x/",
+        "[Word(\"if\"), Symbol('('), Symbol('('), Word(\"a\"), Symbol(')'), Symbol(')'), Opaque] unsafe={\"x\"} receivers={}",
+    ),
+    (
+        "division_after_nested_call_paren",
+        "f((a)) / 2",
+        "[Word(\"f\"), Symbol('('), Symbol('('), Word(\"a\"), Symbol(')'), Symbol(')'), Symbol('/'), Symbol('2')] unsafe={} receivers={}",
+    ),
+    (
+        "division_after_dotted_for_await",
+        "a.for await (b) / 2",
+        "None",
+    ),
+    (
+        "division_after_opaque_regexp",
+        "/x/ / 2",
+        "[Opaque, Symbol('/'), Symbol('2')] unsafe={\"x\"} receivers={}",
+    ),
+    (
+        "division_after_escaped_string",
+        "'a\\n' / 2",
+        "[Opaque, Symbol('/'), Symbol('2')] unsafe={} receivers={}",
+    ),
+    (
+        "division_after_digit_symbol",
+        "a = 1 / 2",
+        "[Word(\"a\"), Symbol('='), Symbol('1'), Symbol('/'), Symbol('2')] unsafe={} receivers={}",
+    ),
+    (
+        "minus_then_regexp",
+        "a - /x/",
+        "[Word(\"a\"), Symbol('-'), Opaque] unsafe={\"x\"} receivers={}",
+    ),
+    (
+        "template_dollar_without_brace",
+        "a = `$x`",
+        "[Word(\"a\"), Symbol('='), Opaque] unsafe={} receivers={}",
+    ),
+    (
+        "template_dotted_chain",
+        "a = `${a.b.c}`",
+        "[Word(\"a\"), Symbol('='), Opaque] unsafe={\"a\"} receivers={}",
+    ),
+    (
+        "template_leading_spread",
+        "a = `${...a}`",
+        "[Word(\"a\"), Symbol('='), Opaque] unsafe={\"a\"} receivers={}",
+    ),
+    (
+        "template_unterminated_text_ok",
+        "a = `${b}c${d}`",
+        "[Word(\"a\"), Symbol('='), Opaque] unsafe={\"b\", \"d\"} receivers={}",
+    ),
+    (
+        "depth_exactly_64_with_text",
+        "a = `x${`y${b}`}`",
+        "[Word(\"a\"), Symbol('='), Opaque] unsafe={\"b\"} receivers={}",
+    ),
 ];
 
 const REFUSALS: &[(&str, &str, &str)] = &[
@@ -343,6 +530,40 @@ const REFUSALS: &[(&str, &str, &str)] = &[
         "a = `${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${`${b}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`}`",
         "None",
     ),
+    ("jsx_fragment_open_only", "a = <>", "None"),
+    ("jsx_fragment_after_paren", "f(<>", "None"),
+    ("jsx_close_only", "a = </", "None"),
+    ("single_quote_newline_then_word", "a = 'x\ny", "None"),
+    ("double_quote_newline_then_word", "a = \"x\ny", "None"),
+    ("single_quote_cr_then_word", "a = 'x\ry", "None"),
+    ("double_quote_cr_then_word", "a = \"x\ry", "None"),
+    ("regexp_cr", "a = /x\r/", "None"),
+    ("regexp_escape_at_eof", "a = /\\", "None"),
+    ("regexp_class_newline", "a = /[\n]/", "None"),
+    (
+        "regexp_after_block_comment_with_newline",
+        "a /* c\n */ /x/",
+        "None",
+    ),
+    (
+        "regexp_after_block_comment_with_cr",
+        "a /* c\r */ /x/",
+        "None",
+    ),
+    ("block_comment_star_at_eof", "a /* c *", "None"),
+    (
+        "regexp_after_unmatched_paren",
+        "a) /x/",
+        "[Word(\"a\"), Symbol(')'), Symbol('/'), Word(\"x\"), Symbol('/')] unsafe={} receivers={}",
+    ),
+    ("regexp_after_yield_word_property", "yield /x/", "None"),
+    (
+        "division_after_string_escape_newline",
+        "'a\\n'\n/ 2",
+        "None",
+    ),
+    ("template_unterminated_escape", "a = `\\", "None"),
+    ("template_unterminated_nested", "a = `${`x}`", "None"),
 ];
 
 const SOURCES: &[(&str, &str, &str)] = &[
