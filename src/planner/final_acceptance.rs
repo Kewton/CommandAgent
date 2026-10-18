@@ -8,7 +8,6 @@ mod surface_fit;
 
 #[path = "runner/recovery_probe_context.rs"]
 mod recovery_probe_context;
-#[allow(unused_imports, reason = "names shared with children")]
 use super::{
     BTreeMap, BTreeSet, Cell, ChatClient, CompileError, CompletionContract, Config, Duration,
     InteractionUi, PROFILE_REPAIR_FILE_EXCERPT_MAX_CHARS, Path, PathBuf, PromptLayout,
@@ -63,7 +62,6 @@ pub(super) struct FinalAcceptanceCycleDelta {
     pub(super) route_bound_changed_paths: Vec<String>,
 }
 
-#[allow(clippy::too_many_arguments, reason = "takes one argument; stale")]
 pub(super) fn runtime_missing_signals(report: &RuntimeAcceptanceReport) -> Vec<String> {
     let mut out = Vec::new();
     merge_unique_strings(&mut out, &report.missing_capabilities);

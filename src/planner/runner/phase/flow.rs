@@ -1,4 +1,3 @@
-#[allow(unused_imports, reason = "names shared with children")]
 use super::{
     ChatClient, Config, DependencyReconciliationTrigger, EscalationCarryoverHandle,
     FINAL_ACCEPTANCE_COMPILE_NO_SNAPSHOT_EXTRA_ATTEMPTS,

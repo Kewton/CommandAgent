@@ -1,5 +1,4 @@
 // StepPlan execution, bounded repair, and phase-owned context (pre-split runner.rs:960-3602).
-#[allow(unused_imports, reason = "names shared with children")]
 use super::{
     BTreeSet, BoundCompletionContract, BuildVerifierLifecycleObservation, BuildVerifierObservation,
     BuildVerifierRequirement, BuildVerifierStatus, CarriedPressure, ChatClient,
