@@ -276,7 +276,7 @@ impl GateFixture {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "fixture mirrors event fields")]
 fn completion_event(
     profile: &str,
     runtime_acceptance_status: &str,

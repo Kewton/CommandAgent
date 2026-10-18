@@ -5784,7 +5784,7 @@ impl Server {
         self.request_with_host(method, path, body, token, origin, &host, extra_headers)
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "raw HTTP wire parts")]
     fn request_with_host(
         &self,
         method: &str,
