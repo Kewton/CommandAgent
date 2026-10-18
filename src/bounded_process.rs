@@ -89,6 +89,7 @@ fn child_env_allowed(key: &std::ffi::OsStr, source: EnvSource) -> bool {
         return false;
     };
     matches!(key, "PATH" | "HOME" | "LANG" | "TERM")
+        || (source == EnvSource::Parent && matches!(key, "RUSTUP_HOME" | "CARGO_HOME"))
         || key.starts_with("LC_")
         || key.starts_with("npm_config_")
         || (source == EnvSource::Explicit
@@ -695,6 +696,110 @@ mod tests {
     }
 
     #[test]
+    fn child_env_inherits_toolchain_homes_but_not_unknown_variables() {
+        let _guard = ENV_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _env_guard = TestEnvGuard::set([
+            ("RUSTUP_HOME", "/opt/test-rustup"),
+            ("CARGO_HOME", "/opt/test-cargo"),
+            ("COMMANDAGENT_TEST_UNKNOWN_PARENT_VAR", "unknown"),
+        ]);
+        let mut command = Command::new("sh");
+        command
+            .arg("-c")
+            .arg("env | sort")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        let output = run_with_timeout(&mut command, TEST_TIMEOUT).unwrap();
+
+        assert!(output.success(), "{output:?}");
+        let env = String::from_utf8(output.stdout).unwrap();
+        assert!(env.contains("RUSTUP_HOME=/opt/test-rustup"), "{env}");
+        assert!(env.contains("CARGO_HOME=/opt/test-cargo"), "{env}");
+        assert!(
+            !env.contains("COMMANDAGENT_TEST_UNKNOWN_PARENT_VAR"),
+            "{env}"
+        );
+    }
+
+    /// Issue #669: a toolchain installed outside `$HOME` (the official rust
+    /// image: `RUSTUP_HOME=/usr/local/rustup`, `CARGO_HOME=/usr/local/cargo`)
+    /// must run `cargo --version` through the real OS sandbox wrap. Without the
+    /// two variables the rustup proxy looks under `$HOME/.rustup` and fails.
+    /// The test reports why it did not run instead of passing silently.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn sandboxed_cargo_runs_with_toolchain_outside_home() {
+        use crate::tools::os_sandbox::{self, SandboxAvailability, SandboxMode, SandboxPolicy};
+
+        struct ResetSandbox;
+        impl Drop for ResetSandbox {
+            fn drop(&mut self) {
+                os_sandbox::reset_for_test();
+            }
+        }
+
+        let _guard = ENV_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_default();
+        let outside_home = |name: &str| {
+            std::env::var_os(name)
+                .map(PathBuf::from)
+                .filter(|path| path.is_absolute() && !path.starts_with(&home))
+        };
+        if outside_home("RUSTUP_HOME").is_none() || outside_home("CARGO_HOME").is_none() {
+            eprintln!(
+                "SKIPPED sandboxed_cargo_runs_with_toolchain_outside_home: RUSTUP_HOME and \
+                 CARGO_HOME are not both set outside $HOME"
+            );
+            return;
+        }
+        if let SandboxAvailability::Unavailable(reason) = os_sandbox::probe() {
+            eprintln!(
+                "SKIPPED sandboxed_cargo_runs_with_toolchain_outside_home: no OS sandbox \
+                 backend: {reason}"
+            );
+            return;
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = dir.path().join("ws");
+        let run_tmp = dir.path().join("run-tmp");
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::create_dir_all(&run_tmp).unwrap();
+        let _reset = ResetSandbox;
+        os_sandbox::install_for_test(
+            SandboxMode::Required,
+            SandboxPolicy::with_home(&workspace, &run_tmp, home),
+            SandboxAvailability::Available,
+        );
+
+        let mut process = Command::new("sh");
+        process
+            .arg("-c")
+            .arg("cargo --version")
+            .current_dir(&workspace);
+        let mut process = os_sandbox::wrap_command(process).expect("available sandbox wraps");
+        process
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        let output = run_with_timeout(&mut process, TEST_TIMEOUT).unwrap();
+
+        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        assert!(output.success(), "stdout={stdout:?} stderr={stderr:?}");
+        assert!(stdout.starts_with("cargo "), "stdout={stdout:?}");
+    }
+
+    #[test]
     fn child_env_unsets_inherited_node_env() {
         let current_exe = std::env::current_exe().unwrap();
         let status = Command::new(current_exe)
@@ -978,26 +1083,32 @@ mod tests {
     }
 
     struct TestEnvGuard {
-        keys: Vec<&'static str>,
+        saved: Vec<(&'static str, Option<std::ffi::OsString>)>,
     }
 
     impl TestEnvGuard {
         fn set<const N: usize>(pairs: [(&'static str, &'static str); N]) -> Self {
-            let keys = pairs.iter().map(|(key, _)| *key).collect();
+            let saved = pairs
+                .iter()
+                .map(|(key, _)| (*key, std::env::var_os(key)))
+                .collect();
             for (key, value) in pairs {
                 unsafe {
                     std::env::set_var(key, value);
                 }
             }
-            Self { keys }
+            Self { saved }
         }
     }
 
     impl Drop for TestEnvGuard {
         fn drop(&mut self) {
-            for key in &self.keys {
+            for (key, previous) in &self.saved {
                 unsafe {
-                    std::env::remove_var(key);
+                    match previous {
+                        Some(value) => std::env::set_var(key, value),
+                        None => std::env::remove_var(key),
+                    }
                 }
             }
         }
