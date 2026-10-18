@@ -126,7 +126,6 @@ impl ContractRepair {
 
 #[cfg(test)]
 mod tests {
-    use super::super::*;
     use super::*;
     use crate::providers::AssistantReply;
     use std::sync::{Arc, Mutex};
