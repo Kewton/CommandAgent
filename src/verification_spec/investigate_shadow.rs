@@ -299,7 +299,6 @@ fn observation_from_run(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn observation_from_diagnosis(
     run: &InvestigationRunEvidence,
     diagnosis: &DiagnosisClaim,

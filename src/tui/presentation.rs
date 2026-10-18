@@ -1177,7 +1177,6 @@ fn lock_state() -> MutexGuard<'static, PresentationState> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-#[allow(dead_code)]
 fn _path_exists(path: &Path) -> bool {
     path.exists()
 }

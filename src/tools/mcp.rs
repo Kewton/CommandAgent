@@ -34,7 +34,6 @@ pub trait McpClient: fmt::Debug + Send + Sync {
     fn call_read_only_tool(&self, call: McpToolCall<'_>) -> anyhow::Result<String>;
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn read_only_tool(
     name: impl Into<String>,
     description: impl Into<String>,

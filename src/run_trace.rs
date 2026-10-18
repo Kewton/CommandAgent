@@ -32,7 +32,7 @@ pub(crate) fn enabled() -> bool {
     TRACE_ENABLED.get()
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "borrowed inputs of the trace")]
 pub(crate) fn record_provider_exchange(
     events_path: Option<&Path>,
     scope: &str,
@@ -62,7 +62,7 @@ pub(crate) fn record_provider_exchange(
     .map(Some)
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "borrowed inputs of the trace")]
 fn record_provider_exchange_in(
     run_dir: &Path,
     scope: &str,

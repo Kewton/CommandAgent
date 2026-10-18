@@ -123,7 +123,6 @@ exit 2\n"
     #[test]
     #[ignore]
     #[cfg(unix)]
-    #[allow(clippy::zombie_processes)]
     fn profile_transport_dev_server_child() {
         if std::env::var("COMMANDAGENT_TUI_PROFILE_TRANSPORT_CHILD")
             .ok()

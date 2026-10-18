@@ -139,7 +139,7 @@ impl LmStudioClient {
         )
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "mirrors provider config fields")]
     pub(crate) fn new_openai_compatible(
         base_url: String,
         api_key_env: Option<String>,
@@ -163,7 +163,7 @@ impl LmStudioClient {
         )
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "mirrors provider config fields")]
     fn new_inner(
         kind: CompatibleKind,
         base_url: String,

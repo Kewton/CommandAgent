@@ -1192,7 +1192,7 @@ fn project_recovery_resolution(events: &[Value]) -> RecoveryResolution {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "flags mirror projected fields")]
 fn project_technical(
     terminal_name: &str,
     failure_kind: Option<&BoundedText>,
