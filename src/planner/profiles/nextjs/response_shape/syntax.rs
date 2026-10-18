@@ -207,3 +207,6 @@ impl Source {
         result
     }
 }
+
+#[cfg(test)]
+mod tests;
