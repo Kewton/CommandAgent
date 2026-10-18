@@ -12,6 +12,23 @@ use pty_wait::{
     PtySession, STARTUP_TIMEOUT, STEP_TIMEOUT, file_len, read_http_request, script_command,
 };
 
+/// The byte a terminal sends for a real Ctrl-C keypress.
+const CTRL_C: &[u8] = b"\x03";
+
+/// Product contract: Gate 4 and the closed HTTP connection both follow an
+/// interrupt within this bound. Setup waits use their own, separate bounds.
+const INTERRUPT_SLA: Duration = Duration::from_secs(1);
+
+/// Instants taken at each observation point of the Gate 4 interrupt run.
+struct InterruptTimes {
+    /// Test side, immediately before the Ctrl-C byte is written.
+    ctrl_c_sent: Instant,
+    /// Transcript side, when the poll saw the post-interrupt Gate 4 marker.
+    gate_four_seen: Instant,
+    /// Mock thread side, when the server read the socket EOF.
+    socket_eof: Option<Instant>,
+}
+
 #[test]
 #[ignore]
 fn tui_pty_smoke() {
@@ -349,7 +366,7 @@ fn tui_pty_suppresses_planner_stream_with_spinner_and_footer_cleanup() {
         saw_stream,
         stop,
         server,
-    } = start_streaming_ollama(1);
+    } = start_streaming_ollama(1, StreamMode::Complete);
     let output = run_stream_script(
         bin,
         tmp.path(),
@@ -388,7 +405,7 @@ fn tui_pty_suppresses_planner_stream_with_spinner_and_footer_cleanup() {
         saw_stream,
         stop,
         server,
-    } = start_streaming_ollama(3);
+    } = start_streaming_ollama(3, StreamMode::Complete);
     let output = run_stream_script_gate_one(
         bin,
         tmp.path(),
@@ -469,7 +486,7 @@ fn tui_pty_planner_stream_interrupt_cleans_spinner_footer_and_status() {
         saw_stream,
         stop,
         server,
-    } = start_streaming_ollama(1);
+    } = start_streaming_ollama(1, StreamMode::HoldUntilClosed);
     let output = run_stream_script(
         bin,
         tmp.path(),
@@ -478,10 +495,10 @@ fn tui_pty_planner_stream_interrupt_cleans_spinner_footer_and_status() {
         started,
         "/plan-steps interrupt-test",
         true,
-    )
-    .expect("script(1) PTY helper and streaming fake Ollama must be available");
+    );
     stop.store(true, Ordering::SeqCst);
     server.join().unwrap();
+    let output = output.expect("script(1) PTY helper and streaming fake Ollama must be available");
 
     let text = String::from_utf8_lossy(&output.stdout).to_string()
         + &String::from_utf8_lossy(&output.stderr);
@@ -500,15 +517,15 @@ fn tui_pty_planner_stream_interrupt_cleans_spinner_footer_and_status() {
     assert!(text.contains("planning steps"), "output={text:?}");
     assert!(
         text.contains("INTERRUPTED") && !text.contains("step plan ready"),
-        "Esc did not interrupt the in-flight planner turn. output={text:?}"
+        "Ctrl-C did not interrupt the in-flight planner turn. output={text:?}"
     );
     assert!(
         text.contains("\r\x1b[2K"),
-        "spinner was not cleared after Esc. output={text:?}"
+        "spinner was not cleared after Ctrl-C. output={text:?}"
     );
     assert!(
         text.contains("\x1b[r") && text.contains("commandagent>"),
-        "footer/raw terminal cleanup did not restore the prompt after Esc. output={text:?}"
+        "footer/raw terminal cleanup did not restore the prompt after Ctrl-C. output={text:?}"
     );
     let status_output = text
         .rsplit_once("### Status")
@@ -546,12 +563,23 @@ fn tui_pty_planner_interrupt_closes_http_and_reaches_gate_four_within_one_second
         saw_stream,
         stop,
         server,
-    } = start_streaming_ollama(1);
-    let (output, gate_four_elapsed, disconnect_elapsed) =
-        run_gate_four_interrupt_script(bin, tmp.path(), &state_dir, &host, started, disconnected)
-            .expect("script(1) PTY helper and interruptible fake Ollama must be available");
+    } = start_streaming_ollama(1, StreamMode::HoldUntilClosed);
+    let run =
+        run_gate_four_interrupt_script(bin, tmp.path(), &state_dir, &host, started, disconnected);
     stop.store(true, Ordering::SeqCst);
     server.join().unwrap();
+    let (output, times) =
+        run.expect("script(1) PTY helper and interruptible fake Ollama must be available");
+    let gate_four_elapsed = times
+        .gate_four_seen
+        .saturating_duration_since(times.ctrl_c_sent);
+    let disconnect_elapsed = times
+        .socket_eof
+        .map(|eof| eof.saturating_duration_since(times.ctrl_c_sent));
+    eprintln!(
+        "interrupt timing: Ctrl-C -> Gate 4 marker {gate_four_elapsed:?}, \
+         Ctrl-C -> server socket EOF {disconnect_elapsed:?}, limit {INTERRUPT_SLA:?}"
+    );
 
     let text = String::from_utf8_lossy(&output.stdout).to_string()
         + &String::from_utf8_lossy(&output.stderr);
@@ -563,13 +591,18 @@ fn tui_pty_planner_interrupt_closes_http_and_reaches_gate_four_within_one_second
         saw_stream.load(Ordering::SeqCst),
         "planner request did not enable stream with --stream off"
     );
-    assert!(
-        gate_four_elapsed < Duration::from_secs(1),
-        "Gate 4 took {gate_four_elapsed:?} after Esc. output={text:?}"
+    let measured = format!(
+        "Ctrl-C -> Gate 4 marker {gate_four_elapsed:?}; Ctrl-C -> server socket EOF \
+         {disconnect_elapsed:?}; limit {INTERRUPT_SLA:?}"
     );
     assert!(
-        disconnect_elapsed < Duration::from_secs(1),
-        "Ollama HTTP connection stayed open for {disconnect_elapsed:?} after Esc"
+        gate_four_elapsed < INTERRUPT_SLA,
+        "Gate 4 was not reached within the limit after Ctrl-C ({measured}). output={text:?}"
+    );
+    assert!(
+        disconnect_elapsed.is_some_and(|elapsed| elapsed < INTERRUPT_SLA),
+        "Ollama HTTP connection was not closed within the limit after Ctrl-C ({measured}). \
+         output={text:?}"
     );
     assert!(
         text.contains("Gate 4") && text.to_ascii_lowercase().contains("interrupted"),
@@ -1051,7 +1084,7 @@ fn run_stream_script(
         STEP_TIMEOUT,
     )?;
     if interrupt {
-        session.send(b"\x1b")?;
+        session.send(CTRL_C)?;
         session.wait_for_text_then_prompt("INTERRUPTED", mark, STEP_TIMEOUT)?;
         let mark = session.mark();
         session.send(b"/status\n")?;
@@ -1099,8 +1132,8 @@ fn run_gate_four_interrupt_script(
     state_dir: &std::path::Path,
     host: &str,
     started: mpsc::Receiver<()>,
-    disconnected: mpsc::Receiver<()>,
-) -> std::io::Result<(std::process::Output, Duration, Duration)> {
+    disconnected: mpsc::Receiver<Instant>,
+) -> std::io::Result<(std::process::Output, InterruptTimes)> {
     let mut args = queue_cli_args(cwd, state_dir, host);
     args.extend(["--stream".to_string(), "off".to_string()]);
     let args = args
@@ -1122,35 +1155,62 @@ fn run_gate_four_interrupt_script(
     session.send(format!("/confirm {card_hash}\n").as_bytes())?;
     session.wait_for_signal(&started, "planner call at fake Ollama", STEP_TIMEOUT)?;
 
-    // Only a Gate 4 written after the interrupt counts; the offset is taken
-    // before the clock starts so the one-second SLA measures the product.
+    // The planner stream has started (the mock sent its first chunk and holds
+    // the stream open). Only a Gate 4 written after the interrupt counts; the
+    // offset is taken before the clock starts. The waits below are setup
+    // ceilings that let the three instants be observed; the one-second
+    // contract is asserted by the caller from the recorded instants.
     let offset = file_len(&transcript);
     let mark = session.mark();
-    let interrupted_at = Instant::now();
-    session.send(b"\x1b")?;
-    session.wait_for_transcript_text(&transcript, "## Gate 4", offset, Duration::from_secs(2))?;
-    let gate_four_elapsed = interrupted_at.elapsed();
-    let disconnect_elapsed = disconnected
-        .recv_timeout(Duration::from_secs(2).saturating_sub(interrupted_at.elapsed()))
-        .map(|()| interrupted_at.elapsed())
-        .unwrap_or(Duration::MAX);
+    let ctrl_c_sent = Instant::now();
+    session.send(CTRL_C)?;
+    let gate_four_seen =
+        session.wait_for_transcript_text_at(&transcript, "## Gate 4", offset, STEP_TIMEOUT)?;
+    // The EOF instant was taken on the mock thread; receiving it here later
+    // does not move it.
+    let socket_eof = disconnected.recv_timeout(STEP_TIMEOUT).ok();
     session.wait_for_text_then_prompt("Gate 4", mark, STEP_TIMEOUT)?;
     session.send(b"/exit\r")?;
     let output = session.finish(Duration::from_secs(20))?;
-    Ok((output, gate_four_elapsed, disconnect_elapsed))
+    Ok((
+        output,
+        InterruptTimes {
+            ctrl_c_sent,
+            gate_four_seen,
+            socket_eof,
+        },
+    ))
 }
 
 struct StreamingOllama {
     host: String,
     started: mpsc::Receiver<()>,
     completed: mpsc::Receiver<()>,
-    disconnected: mpsc::Receiver<()>,
+    /// Instant at which the server thread read the socket EOF.
+    disconnected: mpsc::Receiver<Instant>,
     saw_stream: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
     server: thread::JoinHandle<()>,
 }
 
-fn start_streaming_ollama(completion_after: usize) -> StreamingOllama {
+/// How the fake planner stream ends after its first chunk.
+#[derive(Clone, Copy)]
+enum StreamMode {
+    /// Send the rest after a short pause and finish.
+    Complete,
+    /// Hold the stream open until the client closes the socket (recorded as an
+    /// EOF instant) or the test stops the server; only then is the rest sent.
+    HoldUntilClosed,
+}
+
+/// Poll interval of the held stream for the stop flag. A client close wakes the
+/// blocking read at once, so this never delays the EOF instant.
+const HOLD_POLL: Duration = Duration::from_millis(20);
+
+/// Setup bound on how long a held stream waits for the client to close it.
+const HOLD_CAP: Duration = Duration::from_secs(30);
+
+fn start_streaming_ollama(completion_after: usize, stream_mode: StreamMode) -> StreamingOllama {
     let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
     listener.set_nonblocking(true).unwrap();
     let host = format!("http://{}", listener.local_addr().unwrap());
@@ -1206,35 +1266,47 @@ fn start_streaming_ollama(completion_after: usize) -> StreamingOllama {
                     let _ = stream.write_all(first.as_bytes());
                     let _ = stream.flush();
                     let _ = started_tx.try_send(());
-                    thread::sleep(Duration::from_millis(300));
+                    match stream_mode {
+                        StreamMode::Complete => thread::sleep(Duration::from_millis(300)),
+                        StreamMode::HoldUntilClosed => {
+                            // Keep the stream open until the client really
+                            // closes the socket. The EOF instant is taken
+                            // here, on the server thread, by the read that
+                            // sees it; the parent only receives it.
+                            stream.set_read_timeout(Some(HOLD_POLL)).unwrap();
+                            let hold_deadline = Instant::now() + HOLD_CAP;
+                            let mut closed = false;
+                            while !thread_stop.load(Ordering::SeqCst)
+                                && Instant::now() < hold_deadline
+                            {
+                                let mut probe = [0_u8; 1];
+                                match stream.read(&mut probe) {
+                                    Ok(0) => closed = true,
+                                    Ok(_) => {}
+                                    Err(error)
+                                        if matches!(
+                                            error.kind(),
+                                            std::io::ErrorKind::WouldBlock
+                                                | std::io::ErrorKind::TimedOut
+                                                | std::io::ErrorKind::Interrupted
+                                        ) => {}
+                                    Err(_) => closed = true,
+                                }
+                                if closed {
+                                    let _ = disconnected_tx.try_send(Instant::now());
+                                    break;
+                                }
+                            }
+                            if closed {
+                                continue;
+                            }
+                        }
+                    }
                     let _ = stream.write_all(second.as_bytes());
                     let _ = stream.write_all(terminal.as_bytes());
                     let _ = stream.flush();
                     if chat_count == completion_after {
                         let _ = completed_tx.try_send(());
-                    }
-                    stream
-                        .set_read_timeout(Some(Duration::from_millis(20)))
-                        .unwrap();
-                    let disconnect_deadline = Instant::now() + Duration::from_millis(600);
-                    while Instant::now() < disconnect_deadline {
-                        let mut probe = [0_u8; 1];
-                        match stream.read(&mut probe) {
-                            Ok(0) => {
-                                let _ = disconnected_tx.try_send(());
-                                break;
-                            }
-                            Ok(_) => {}
-                            Err(error)
-                                if matches!(
-                                    error.kind(),
-                                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                                ) => {}
-                            Err(_) => {
-                                let _ = disconnected_tx.try_send(());
-                                break;
-                            }
-                        }
                     }
                 }
                 Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
