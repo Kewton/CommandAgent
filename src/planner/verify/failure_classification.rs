@@ -5,7 +5,7 @@ use crate::tools::bash::{BashOutcome, BashOutcomeKind, environment_failure_kind}
 
 use super::{NormalizedVerifyCommand, VerifyCommandRunResult, handle_verify_command_timeout};
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "verify run state stays borrowed")]
 pub(super) fn early(
     command: &NormalizedVerifyCommand,
     root: &Path,

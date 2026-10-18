@@ -1,4 +1,3 @@
-#[allow(unused_imports)]
 use super::{
     BoundCompletionContract, BrowserInteractionProbeOptions, BrowserReadinessObservation,
     CompletionContract, Config, DependencyReconciliationTrigger, Duration,
@@ -25,7 +24,6 @@ use super::{
     ultra_plan_signal_text, verification_report_mentions_dependency_setup_missing,
     verify_runtime_acceptance_with_browser_dirs_and_hints,
 };
-#[allow(unused_imports)]
 use super::{ContractRequirements, ReleaseRecoveryHandoffSummary, contract_origin_for_acceptance};
 use crate::planner::adjudication::{
     GateObservation, append_gate_observation, dedup_strings, disconnected_gate_observations_reason,
@@ -141,7 +139,7 @@ pub(super) fn release_recovery_acceptance_layer(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "forwards gate fields to base")]
 pub(super) fn earned_assurance_from_release_gate(
     profile: &str,
     base_level: &str,
@@ -378,7 +376,7 @@ fn weak_source_evidence_covered_by_runtime(
     runtime_acceptance_satisfied_evidence(acceptance, evidence.trim())
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "borrowed acceptance inputs")]
 pub(super) fn bind_completion_contract_for_acceptance(
     config: &Config,
     scope: &str,

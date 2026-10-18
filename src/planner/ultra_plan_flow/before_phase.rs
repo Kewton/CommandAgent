@@ -1,6 +1,6 @@
 use super::*;
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "dispatches runtime borrows")]
 pub(super) fn run(
     planner: &mut dyn ChatClient,
     fix_runtime: Option<&mut crate::planner::fix_runtime::FixRuntime>,

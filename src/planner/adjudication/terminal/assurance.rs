@@ -1,6 +1,6 @@
 use crate::planner::adjudication::core::GateObservation;
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "borrowed report fields, no copy")]
 pub(crate) fn projected_assurance(
     assurance_level: &str,
     assurance_reason: &str,

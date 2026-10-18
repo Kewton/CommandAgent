@@ -1,4 +1,3 @@
-#[allow(unused_imports)]
 use super::{
     AcceptanceGateTelemetry, ProfileBehaviorProbeReport, ReleaseGateSummary,
     earned_assurance_from_release_gate,

@@ -34,7 +34,7 @@ pub struct FixEvidenceObservation {
 }
 
 impl FixEvidenceObservation {
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "mirrors fix evidence schema")]
     pub fn new(
         requirement_id: &str,
         binding_id: &str,
