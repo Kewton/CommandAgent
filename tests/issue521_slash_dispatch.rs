@@ -155,11 +155,17 @@ struct Outcome {
 }
 
 impl Outcome {
+    // `time_profile` is emitted only when the summed time exceeds 0 ms, so drop the one after the stop.
     fn names(&self) -> Vec<&str> {
-        self.events
-            .iter()
-            .map(|event| event["event"].as_str().unwrap_or(""))
-            .collect()
+        let mut names: Vec<&str> = Vec::new();
+        for event in &self.events {
+            let name = event["event"].as_str().unwrap_or("");
+            if name == "time_profile" && names.last() == Some(&"tui_command_stop") {
+                continue;
+            }
+            names.push(name);
+        }
+        names
     }
 
     fn event(&self, name: &str) -> &serde_json::Value {
