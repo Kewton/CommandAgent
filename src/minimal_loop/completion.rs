@@ -3447,3 +3447,7 @@ export class SpaceInvadersEngine {\n\
         );
     }
 }
+
+#[cfg(test)]
+#[path = "completion/issue508_tests.rs"]
+mod issue508_tests;
