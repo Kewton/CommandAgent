@@ -254,3 +254,7 @@ fn branch<'a>(tokens: &'a [&'a str], start: usize) -> Option<(&'a [&'a str], usi
         Some((tokens.get(start..end)?, end))
     }
 }
+
+#[cfg(test)]
+#[path = "node_checks/tests.rs"]
+mod tests;
