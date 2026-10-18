@@ -365,31 +365,51 @@ fn dev_route_failure_kind_prefers_the_tailwind_pipeline_failure_for_error_status
     assert_eq!(classify_dev_route_failure_kind(200, body), None);
 }
 
-const CHILD_EXPECT: &str = "ISSUE507_CHILD_EXPECT";
-const CHILD_MARKER: &str = "ISSUE507_CHILD_MARKER";
+// The bounded runner passes only allow-listed variables to a child, so the
+// parent signals "run as child" with an `npm_config_` variable and hands the
+// expectation, the marker and the probe variables over in a control file
+// under the child's `HOME`.
+const CHILD_FLAG: &str = "npm_config_issue507_child";
+const CHILD_CONTROL: &str = "issue507-child-control";
+const CHILD_STAMP: &str = "ISSUE507_CHILD_CHECKED";
 
 /// Child half of the dev-server-probe checks. The probe switch reads process
 /// environment variables, so the parent test starts this test in its own
-/// process with the variables set; mutating the shared test process would race
-/// with the other tests that rely on the same switch. Without the expectation
-/// variable it does nothing.
+/// process; mutating the shared test process would race with the other tests
+/// that rely on the same switch. Outside a parent run it does nothing.
 #[test]
 fn dev_server_probe_runtime_enabled_child() {
-    let Ok(expect) = std::env::var(CHILD_EXPECT) else {
+    if std::env::var_os(CHILD_FLAG).is_none() {
         return;
-    };
+    }
+    let home = std::env::var("HOME").expect("child HOME");
+    let control = std::fs::read_to_string(std::path::Path::new(&home).join(CHILD_CONTROL))
+        .expect("child control file");
+    let mut expect = None;
+    let mut marker = false;
+    for line in control.lines() {
+        match line.split_once('=') {
+            Some(("expect", value)) => expect = Some(value == "true"),
+            Some(("marker", value)) => marker = value == "1",
+            Some(("env", pair)) => {
+                let (key, value) = pair.split_once('=').expect("env pair");
+                // SAFETY: the parent runs this child alone with --test-threads=1.
+                unsafe { std::env::set_var(key, value) };
+            }
+            _ => panic!("bad control line: {line}"),
+        }
+    }
+    let expect = expect.expect("expect line");
     let dir = tempfile::tempdir().unwrap();
-    if std::env::var(CHILD_MARKER).as_deref() == Ok("1") {
+    if marker {
         std::fs::create_dir_all(dir.path().join(".anvil")).unwrap();
         std::fs::write(dir.path().join(".anvil/enable-dev-server-probe-tests"), "1").unwrap();
     }
     let config = generic_config(dir.path());
+    let got = dev_server_probe_runtime_enabled(&config);
 
-    assert_eq!(
-        dev_server_probe_runtime_enabled(&config),
-        expect == "true",
-        "expected enabled={expect}"
-    );
+    println!("{CHILD_STAMP} expect={expect} got={got}");
+    assert_eq!(got, expect, "expected enabled={expect}");
 }
 
 fn assert_dev_server_probe_enabled(expect: bool, marker: bool, env: &[(&str, &str)]) {
@@ -397,6 +417,12 @@ fn assert_dev_server_probe_enabled(expect: bool, marker: bool, env: &[(&str, &st
         "{}::dev_server_probe_runtime_enabled_child",
         module_path!().split_once("::").unwrap().1
     );
+    let home = tempfile::tempdir().unwrap();
+    let mut control = format!("expect={expect}\nmarker={}\n", u8::from(marker));
+    for (key, value) in env {
+        control.push_str(&format!("env={key}={value}\n"));
+    }
+    std::fs::write(home.path().join(CHILD_CONTROL), control).unwrap();
     let mut command = Command::new(std::env::current_exe().unwrap());
     command
         .args([
@@ -407,16 +433,8 @@ fn assert_dev_server_probe_enabled(expect: bool, marker: bool, env: &[(&str, &st
         ])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .env(CHILD_EXPECT, expect.to_string())
-        .env(CHILD_MARKER, if marker { "1" } else { "0" });
-    for name in ["DEV_SERVER_PROBE", "TEST_DEV_SERVER_PROBE"] {
-        command
-            .env_remove(format!("COMMANDAGENT_{name}"))
-            .env_remove(format!("ANVIL_{name}"));
-    }
-    for (key, value) in env {
-        command.env(key, value);
-    }
+        .env("HOME", home.path())
+        .env(CHILD_FLAG, "1");
     let output =
         crate::bounded_process::run_with_timeout(&mut command, Duration::from_secs(120)).unwrap();
     let text = format!(
@@ -429,7 +447,8 @@ fn assert_dev_server_probe_enabled(expect: bool, marker: bool, env: &[(&str, &st
         output.status.is_some_and(|status| status.success()),
         "{text}"
     );
-    assert!(text.contains("1 passed"), "child did not run: {text}");
+    let stamp = format!("{CHILD_STAMP} expect={expect} got={expect}");
+    assert!(text.contains(&stamp), "child did not decide: {text}");
 }
 
 // kills: acceptance.rs:899 replace -> true; 903:12 delete !; 904:12 delete !
