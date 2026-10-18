@@ -82,6 +82,10 @@ impl HttpCall {
         })
     }
 
+    pub fn is_cancelled(&self) -> bool {
+        self.cancel.is_cancelled()
+    }
+
     pub fn run<F: Future>(&self, future: F) -> anyhow::Result<F::Output> {
         if self.cancel.is_cancelled() {
             return Err(aborted_by_user());

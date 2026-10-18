@@ -141,6 +141,9 @@ impl ChatClient for GeminiClient {
                         on_chunk(chunk)
                     });
                     match parsed {
+                        Err(_) if call.is_cancelled() => {
+                            return Err(super::streaming::aborted_by_user());
+                        }
                         Ok(reply) => {
                             eval_events::emit(
                                 self.eval_events_path.as_deref(),
@@ -678,5 +681,39 @@ mod cancel_tests {
                 )
             },
         );
+    }
+
+    #[test]
+    fn cancel_mid_stream_records_no_parse_error_or_retry() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let events = dir.path().join("events.jsonl");
+        let events_for_client = events.clone();
+        assert_cancel_closes_connection(
+            Some("data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"partial\"}]}}]}\n\n"),
+            move |base_url, token| {
+                let mut client = GeminiClient::for_test(base_url);
+                client.retries = 2;
+                client.eval_events_path = Some(events_for_client);
+                client.set_cancel_token(token);
+                client.chat_stream(
+                    "gemini-test",
+                    &[ConversationMessage::user("hi")],
+                    &[],
+                    false,
+                    &mut |_chunk| Ok(()),
+                )
+            },
+        );
+        let recorded = std::fs::read_to_string(&events).unwrap_or_default();
+        for forbidden in [
+            "provider_parse_error",
+            "provider_retry",
+            "provider_response",
+        ] {
+            assert!(
+                !recorded.contains(forbidden),
+                "{forbidden} recorded: {recorded}"
+            );
+        }
     }
 }
