@@ -293,10 +293,24 @@ impl PtySession {
         from: usize,
         timeout: Duration,
     ) -> std::io::Result<()> {
+        self.wait_for_transcript_text_at(path, expected, from, timeout)
+            .map(|_| ())
+    }
+
+    /// Like [`Self::wait_for_transcript_text`], and returns the instant at
+    /// which the poll first saw `expected`, taken in the same check that read
+    /// the transcript.
+    pub fn wait_for_transcript_text_at(
+        &mut self,
+        path: &Path,
+        expected: &str,
+        from: usize,
+        timeout: Duration,
+    ) -> std::io::Result<Instant> {
         self.poll_until(
             &format!("{expected:?} in {} after byte {from}", path.display()),
             timeout,
-            |_| read_after(path, from).contains(expected).then_some(()),
+            |_| read_after(path, from).contains(expected).then(Instant::now),
         )
         .map_err(|error| with_transcript_tail(error, path))
     }
