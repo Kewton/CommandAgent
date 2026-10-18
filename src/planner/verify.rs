@@ -808,7 +808,7 @@ fn verify_step_with_setup_observed_with_options(
     (report, build_lifecycles)
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "install setup borrows report")]
 fn prepare_verify_commands_with_install_substitution(
     root: &Path,
     step: &PlanStep,
@@ -895,7 +895,7 @@ fn prepare_verify_commands_with_install_substitution(
     out
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "install setup borrows report")]
 fn run_verify_install_substitution(
     root: &Path,
     command: &str,

@@ -27,7 +27,7 @@ pub(crate) struct RequirementEvaluation {
     pub(crate) primary_reason: String,
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "one borrowed list per bucket")]
 pub(crate) fn evaluate_requirements(
     required_capabilities: &[String],
     required_evidence: &[String],

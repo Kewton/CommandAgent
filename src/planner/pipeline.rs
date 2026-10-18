@@ -49,7 +49,7 @@ impl PhaseRun {
         })
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "forwards borrows to pipeline")]
     pub(super) fn resolve(
         &mut self,
         planner: &mut dyn ChatClient,
@@ -140,7 +140,7 @@ impl PhasePlanPipeline {
         Self { pending: None }
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "planner reused for fallback")]
     fn resolve(
         &mut self,
         planner: &mut dyn ChatClient,
@@ -180,7 +180,7 @@ impl PhasePlanPipeline {
         )
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "prefetch borrows plan context")]
     fn start_next(
         &mut self,
         planner: &dyn ChatClient,

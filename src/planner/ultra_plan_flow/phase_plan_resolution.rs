@@ -1,6 +1,6 @@
 use super::*;
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "forwards phase planner borrows")]
 pub(super) fn resolve(
     planner: &mut dyn ChatClient,
     phase_prompt: &str,

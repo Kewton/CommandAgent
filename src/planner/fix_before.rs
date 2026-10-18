@@ -1,7 +1,7 @@
 use super::*;
 use crate::planner::fix_reproducer_defect::BeforePhaseOutcome;
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "planner/runtime borrow order")]
 pub(super) fn run(
     planner: &mut dyn ChatClient,
     runtime: &mut crate::planner::fix_runtime::FixRuntime,

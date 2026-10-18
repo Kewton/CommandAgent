@@ -1,6 +1,6 @@
 use super::*;
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "planner/runtime borrow order")]
 pub(super) fn run(
     planner: &mut dyn ChatClient,
     runtime: &mut crate::planner::investigation_runtime::InvestigationRuntime,

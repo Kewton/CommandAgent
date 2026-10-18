@@ -31,7 +31,7 @@ pub(crate) struct ReproducerRun {
     pub(crate) stderr_tail: String,
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "inputs map to evidence fields")]
 pub(crate) fn run_reproducer(
     config: &Config,
     run_id: &str,

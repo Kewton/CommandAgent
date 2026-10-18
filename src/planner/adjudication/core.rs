@@ -140,7 +140,7 @@ pub(crate) fn runtime_acceptance_status(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "borrowed gate fields, no bundle")]
 pub(crate) fn earned_assurance_from_base(
     profile: &str,
     base_level: &str,
