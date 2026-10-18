@@ -290,7 +290,7 @@ where
     )
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "borrowed call and trace inputs")]
 fn chat_with_cancel_inner_with_overrides<F>(
     client: &mut dyn ChatClient,
     config: &Config,
@@ -801,7 +801,7 @@ fn scrub_tool_specs(context: &crate::sensitive_data::RedactionContext, tools: &m
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "borrowed call and trace inputs")]
 fn record_provider_trace(
     config: &Config,
     scope: ProviderCallScope,

@@ -70,7 +70,7 @@ impl TaskFamilyId {
     }
 
     /// Source-compatible spelling for historical band code and classifier output.
-    #[allow(non_upper_case_globals)]
+    #[allow(non_upper_case_globals, reason = "keeps the legacy Stats spelling")]
     pub const Stats: Self = Self::Generic;
 }
 

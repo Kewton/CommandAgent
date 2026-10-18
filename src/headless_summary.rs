@@ -59,13 +59,13 @@ impl Source {
         self.pack.is_some()
     }
 
-    #[allow(dead_code)] // Staged API for Issue #221's interrupted-run consumer.
+    #[allow(dead_code, reason = "staged API for Issue #221 consumer")]
     pub(crate) fn with_terminal_status(mut self, status: TerminalStatus) -> Self {
         self.terminal_status = Some(status);
         self
     }
 
-    #[allow(dead_code)] // Staged API for Issue #221's exit-code consumer.
+    #[allow(dead_code, reason = "staged API for Issue #221 consumer")]
     pub(crate) fn with_exit_code(mut self, exit_code: i32) -> Self {
         self.exit_code = Some(exit_code);
         self

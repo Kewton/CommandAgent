@@ -8,7 +8,7 @@ pub(crate) enum SummaryLanguage {
 }
 
 impl SummaryLanguage {
-    #[allow(dead_code)] // Staged API for the follow-up CLI `--lang` consumer.
+    #[allow(dead_code, reason = "staged API for CLI --lang consumer")]
     pub(crate) fn parse(value: &str) -> Result<Self, String> {
         match value.trim().to_ascii_lowercase().as_str() {
             "en" => Ok(Self::English),

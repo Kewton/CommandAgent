@@ -1212,7 +1212,6 @@ pub fn append_completion_summary(
     );
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn write_tui_command_completion_summary(
     path: Option<&Path>,
     command: &str,
