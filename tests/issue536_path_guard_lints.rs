@@ -287,3 +287,64 @@ fn brace_expansion_limit_rejects_one_past_the_cap() {
     assert!(!bash_rejects(&root, "touch src/{1..16}{1..16}.txt"));
     assert!(bash_rejects(&root, "touch src/{1..16}{1..17}.txt"));
 }
+
+#[test]
+fn missing_leading_slash_salvage_rejects_parent_components() {
+    let (_temp, root) = workspace("proj");
+    let anchored = components(&root);
+
+    for raw in [
+        format!("Users/{anchored}/../a.rs"),
+        format!("Users/{anchored}/src/.."),
+        format!("Users/{anchored}//../a.rs"),
+        format!("Users/{anchored}/./../a.rs"),
+        format!("Users/{anchored}/.././/a.rs"),
+        format!("Users/../{anchored}/a.rs"),
+        format!("Users/{anchored}/src/../a.rs"),
+    ] {
+        let message = render(normalize_absolute_workspace_path(&root, &raw));
+        assert!(
+            message.starts_with("err:path may not contain ..;"),
+            "{raw}: {message}"
+        );
+    }
+}
+
+#[test]
+fn missing_leading_slash_salvage_without_parent_components_is_unchanged() {
+    let (_temp, root) = workspace("proj");
+    let anchored = components(&root);
+
+    for (raw, expected) in [
+        (format!("Users/{anchored}/./src/a.rs"), "ok:src/a.rs"),
+        (format!("Users/{anchored}//src//a.rs"), "ok:src/a.rs"),
+        (format!("Users/{anchored}/a..b"), "ok:a..b"),
+        (format!("Users/{anchored}/..foo/a.rs"), "ok:..foo/a.rs"),
+    ] {
+        assert_eq!(
+            render(normalize_absolute_workspace_path(&root, &raw)),
+            expected,
+            "{raw}"
+        );
+    }
+}
+
+#[test]
+fn missing_leading_slash_parent_rejection_matches_the_absolute_form() {
+    let (_temp, root) = workspace("proj");
+    let anchored = components(&root);
+
+    let missing = render(normalize_absolute_workspace_path(
+        &root,
+        &format!("Users/{anchored}/src/../a.rs"),
+    ));
+    let absolute = render(normalize_absolute_workspace_path(
+        &root,
+        &format!("/{anchored}/src/../a.rs"),
+    ));
+    assert!(
+        absolute.starts_with("err:path may not contain ..;"),
+        "{absolute}"
+    );
+    assert_eq!(missing, absolute);
+}
