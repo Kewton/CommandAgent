@@ -479,3 +479,74 @@ fn bash_guidance_without_parent_components_is_unchanged() {
         assert_eq!(rejection.nearest_relative, expected, "{command}");
     }
 }
+
+fn read_fixture() -> (tempfile::TempDir, PathBuf) {
+    let (temp, root) = workspace("proj");
+    std::fs::create_dir_all(root.join("x")).unwrap();
+    std::fs::write(root.join("x/b.rs"), "SECRET_XB\n").unwrap();
+    (temp, root)
+}
+
+#[test]
+fn read_fallback_rejects_parent_components() {
+    let (_temp, root) = read_fixture();
+    let anchored = components(&root);
+    let context = tool_context(&root, &["x/b.rs"]);
+    let registry = ToolRegistry::default();
+
+    for raw in ["x/../b.rs".to_string(), format!("/{anchored}/x\\..\\b.rs")] {
+        let result = registry.execute("Read", &json!({"path": raw}), &context);
+        match result {
+            Ok(output) => panic!("{raw} must be rejected, read: {output}"),
+            Err(error) => assert!(!error.to_string().contains("SECRET_XB"), "{raw}: {error}"),
+        }
+    }
+}
+
+#[test]
+fn read_fallback_without_parent_components_is_unchanged() {
+    let (_temp, root) = read_fixture();
+    let context = tool_context(&root, &["x/b.rs"]);
+    let registry = ToolRegistry::default();
+
+    let output = registry
+        .execute("Read", &json!({"path": "/stale/old/x/b.rs"}), &context)
+        .unwrap();
+    assert!(output.contains("SECRET_XB"), "{output}");
+}
+
+#[test]
+fn edit_fallback_rejects_parent_components() {
+    let (_temp, root) = read_fixture();
+    let anchored = components(&root);
+    let context = tool_context(&root, &["x/b.rs"]);
+    let registry = ToolRegistry::default();
+
+    for raw in [
+        format!("/{anchored}/x/../b.rs"),
+        "/stale/x/../x/b.rs".to_string(),
+    ] {
+        let result = registry.execute(
+            "Edit",
+            &json!({"path": raw, "old_string": "SECRET_XB", "new_string": "CHANGED"}),
+            &context,
+        );
+        assert!(result.is_err(), "{raw} must be rejected");
+        assert_eq!(
+            std::fs::read_to_string(root.join("x/b.rs")).unwrap(),
+            "SECRET_XB\n",
+            "{raw} changed x/b.rs"
+        );
+        assert!(!root.join("b.rs").exists(), "{raw} created b.rs");
+    }
+}
+
+#[test]
+fn bash_cd_parent_guidance_drops_no_parent_components() {
+    let (_temp, root) = workspace("proj");
+
+    let rejection = path_confinement_rejection("cd .. && touch x", &root)
+        .unwrap_or_else(|| panic!("cd .. && touch x must be rejected"));
+    assert_eq!(rejection.nearest_relative, ".");
+    assert!(!rejection.message.contains("`x`"), "{}", rejection.message);
+}
