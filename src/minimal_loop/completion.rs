@@ -3455,3 +3455,5 @@ mod issue508_tests;
 #[cfg(test)]
 #[path = "completion/issue511_tests.rs"]
 mod issue511_tests;
+
+mod feedback;
