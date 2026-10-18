@@ -88,6 +88,9 @@ mod plan_step_events;
 pub(super) mod recovery_fix;
 #[path = "phase/state.rs"]
 mod state;
+#[path = "phase/step_failure_handoff.rs"]
+mod step_failure_handoff;
+use step_failure_handoff::StepFailureHandoff;
 #[path = "phase/step_plan_execution.rs"]
 mod step_plan_execution;
 #[path = "phase/transition.rs"]
@@ -2137,208 +2140,18 @@ pub(super) fn run_step(
             }
         }
     }
-    eval_events::emit(
-        config.eval_events_path.as_deref(),
-        json!({
-            "event": "loop_stop",
-            "reason": final_failure_kind,
-            "step_id": step.id,
-            "repair_target": final_repair_target.as_str(),
-            "repair_stop_reason": repair_stop_reason.clone().unwrap_or_default(),
-            "local_repair_exhausted": true,
-        }),
-    );
-    let repair_report_path = match save_repair_report_with_context(
-        &config.workspace_root,
-        &step.id,
-        &current_report,
-        &context,
-    ) {
-        Ok(path) => path,
-        Err(err) => {
-            outcome.primary_failure = Some(err.to_string());
-            outcome.stop_reason = Some("repair_report_save_error".to_string());
-            outcome.partial = true;
-            return Err(StepRunError {
-                message: err.to_string(),
-                outcome,
-            });
-        }
-    };
-    let step_handoff = RecoveryHandoff {
-        profile: config.profile.clone(),
-        original_goal: context
-            .overall_goal
-            .clone()
-            .unwrap_or_else(|| plan.goal.clone()),
-        failed_phase: None,
-        failed_step: Some(step.id.clone()),
-        failure_kind: final_failure_kind.to_string(),
-        failure_evidence: std::iter::once(current_report.primary_reason())
-            .chain(reachability_blocked_evidence(
-                &terminal_blocked_requirements,
-            ))
-            .chain(
-                current_report
-                    .command_failures
-                    .iter()
-                    .map(|failure| format!("{}: {}", failure.command, failure.reason)),
-            )
-            .chain(
-                current_report
-                    .verifier_command_false_negatives
-                    .iter()
-                    .map(|failure| {
-                        format!(
-                            "deterministic_verify_command_bug: {}: {}",
-                            failure.command, failure.reason
-                        )
-                    }),
-            )
-            .collect(),
-        missing_paths: current_report.missing_paths.clone(),
-        missing_capabilities: vec![final_repair_target.as_str().to_string()],
-        verify_commands: handoff_commands(config, &context.verify_commands),
-        changed_paths: context.changed_files.clone(),
-        repair_targets: vec![final_repair_target.as_str().to_string()],
-    };
-    let recovery_plan_path =
-        match save_recovery_ultra_plan(&config.workspace_root, &step.id, &step_handoff) {
-            Ok(path) => Some(path),
-            Err(err) => {
-                let repair_report_display = handoff_path(&repair_report_path);
-                eval_events::emit(
-                    config.eval_events_path.as_deref(),
-                    json!({
-                        "event": "recovery_ultra_plan_save_failed",
-                        "recovery_handoff_kind": final_failure_kind,
-                        "step_id": step.id,
-                        "recovery_prompt_path": repair_report_display,
-                        "reason": eval_events::body_snippet(&err.to_string()),
-                        "recovery_yaml_missing": true,
-                    }),
-                );
-                None
-            }
-        };
-    let validation =
-        validate_recovery_artifacts(&repair_report_path, recovery_plan_path.as_deref());
-    let raw_suggested_command =
-        suggested_ultra_recovery_command(&repair_report_path, &config.profile);
-    let suggested_command = if validation.prompt_command_available() {
-        raw_suggested_command
-    } else {
-        String::new()
-    };
-    let suggested_yaml_command = recovery_plan_path
-        .as_ref()
-        .filter(|_| validation.yaml_command_available())
-        .map(|path| suggested_recovery_ultra_plan_command(path));
-    let repair_report_display = handoff_path(&repair_report_path);
-    let recovery_plan_display = optional_handoff_path(recovery_plan_path.as_ref());
-    eval_events::emit(
-        config.eval_events_path.as_deref(),
-        json!({
-            "event": "recovery_prompt_saved",
-            "recovery_handoff_kind": final_failure_kind,
-            "step_id": step.id,
-            "recovery_prompt_path": &repair_report_display,
-            "recovery_ultra_plan_path": &recovery_plan_display,
-            "recovery_yaml_missing": recovery_plan_path.is_none(),
-            "recovery_prompt_exists": validation.prompt_exists,
-            "recovery_prompt_parse_ok": validation.prompt_parse_ok,
-            "recovery_prompt_parse_error": validation.prompt_parse_error.as_deref().unwrap_or_default(),
-            "recovery_yaml_exists": validation.yaml_exists,
-            "recovery_yaml_parse_ok": validation.yaml_parse_ok,
-            "recovery_yaml_parse_error": validation.yaml_parse_error.as_deref().unwrap_or_default(),
-            "recovery_command_targets_valid": validation.command_targets_valid(),
-            "suggested_recovery_command": suggested_command.clone(),
-            "suggested_recovery_yaml_command": suggested_yaml_command.clone().unwrap_or_default(),
-            "recovery_profile": config.profile,
-            "local_repair_exhausted": true,
-            "failure_kind": final_failure_kind,
-            "status": "incomplete",
-        }),
-    );
-    let yaml_summary = recovery_plan_path
-        .as_ref()
-        .map(|path| {
-            let display = handoff_path(path);
-            if validation.yaml_parse_ok {
-                format!("Recovery UltraPlan YAML saved: {display}")
-            } else {
-                format!(
-                    "Recovery UltraPlan YAML invalid: {} ({})",
-                    display,
-                    validation
-                        .yaml_parse_error
-                        .as_deref()
-                        .unwrap_or("recovery_yaml_invalid")
-                )
-            }
-        })
-        .unwrap_or_else(|| {
-            "Recovery UltraPlan YAML missing: failed to save valid recovery plan".to_string()
-        });
-    let prompt_command_summary = if validation.prompt_command_available() {
-        format!("Suggested command: {suggested_command}")
-    } else {
-        format!(
-            "Suggested command: unavailable because recovery prompt validation failed ({})",
-            validation
-                .prompt_parse_error
-                .as_deref()
-                .unwrap_or("recovery_prompt_invalid")
-        )
-    };
-    let yaml_command_summary = suggested_yaml_command
-        .as_ref()
-        .map(|command| format!("Suggested YAML command: {command}"))
-        .unwrap_or_else(|| {
-            "Suggested YAML command: unavailable because recovery YAML is missing".to_string()
-        });
-    let artifact_check_summary = recovery_artifact_check_summary(&validation);
-    eval_events::write_run_summary(
-        config.eval_events_path.as_deref(),
-        &format!(
-            "Status: incomplete\n{}\n{}\nRecovery prompt saved: {}\n{}\n{}\nFailure: {}",
-            yaml_summary,
-            yaml_command_summary,
-            repair_report_display,
-            prompt_command_summary,
-            artifact_check_summary,
-            eval_events::body_snippet(&current_report.primary_reason())
-        ),
-    );
-    let prompt_message = if validation.prompt_command_available() {
-        format!("suggested command: {suggested_command}")
-    } else {
-        "suggested command unavailable because recovery prompt validation failed".to_string()
-    };
-    let yaml_message = suggested_yaml_command
-        .as_ref()
-        .map(|command| format!("suggested YAML command: {command}"))
-        .unwrap_or_else(|| {
-            "suggested YAML command unavailable because recovery YAML is missing".to_string()
-        });
-    let message = eval_events::render_stop_reason(&eval_events::StopReasonParts {
-        free_text: format!(
-            "step {} failed verification after bounded repair: {}; failure_kind={}; incomplete; {}",
-            step.id,
-            current_report.primary_reason(),
-            final_failure_kind,
-            artifact_check_summary
-        ),
-        paths: vec![
-            format!("repair prompt saved: {repair_report_display}"),
-            yaml_summary,
-        ],
-        commands: vec![prompt_message, yaml_message],
-    });
-    outcome.primary_failure = Some(current_report.primary_reason());
-    outcome.stop_reason = Some(final_failure_kind.to_string());
-    outcome.partial = true;
-    Err(StepRunError { message, outcome })
+    Err(StepFailureHandoff {
+        config,
+        plan_goal: &plan.goal,
+        step_id: &step.id,
+        report: &current_report,
+        context: &context,
+        failure_kind: &final_failure_kind,
+        repair_target: final_repair_target,
+        repair_stop_reason: repair_stop_reason.as_deref(),
+        blocked_requirements: &terminal_blocked_requirements,
+    }
+    .into_error(outcome))
 }
 
 pub(super) fn step_verify_setup_authority(
