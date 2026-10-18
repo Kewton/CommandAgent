@@ -13,39 +13,10 @@ use crate::minimal_loop::import_scan::{
 use crate::minimal_loop::verifier_env;
 use crate::planner::profile::{build_oracle_for_command, profile_for_build_requirement};
 use crate::planner::verify::{NormalizedVerifyCommand, normalize_verify_command};
+pub use crate::verification::diagnostics::{BuildVerifierStatus, CompileError};
 
 const MAX_COMPILE_ERROR_DIAGNOSTICS: usize = 5;
 mod typescript;
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct CompileError {
-    pub path: String,
-    pub line: usize,
-    pub column: usize,
-    pub message: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub excerpt: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub symbol: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub route_bound: Option<bool>,
-}
-
-impl CompileError {
-    pub fn location(&self) -> String {
-        if self.line > 0 && self.column > 0 {
-            format!("{}:{}:{}", self.path, self.line, self.column)
-        } else if self.line > 0 {
-            format!("{}:{}", self.path, self.line)
-        } else {
-            self.path.clone()
-        }
-    }
-
-    pub fn summary(&self) -> String {
-        format!("{} {}", self.location(), self.message)
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FullCommandOutput {
@@ -124,28 +95,6 @@ pub struct BuildVerifierRequirement {
     pub status: String,
     pub requires_dependency_setup: bool,
     pub required_for_completion: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum BuildVerifierStatus {
-    PolicyRejected,
-    DependencyMissing,
-    Blocked,
-    Passed,
-    Failed,
-}
-
-impl BuildVerifierStatus {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::PolicyRejected => "policy_rejected",
-            Self::DependencyMissing => "dependency_missing",
-            Self::Blocked => "blocked",
-            Self::Passed => "passed",
-            Self::Failed => "failed",
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
