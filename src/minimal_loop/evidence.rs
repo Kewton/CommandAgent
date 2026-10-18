@@ -10,6 +10,9 @@ pub(crate) mod command_diagnosis;
 #[path = "evidence/weak_sources.rs"]
 mod weak_sources;
 pub use weak_sources::WeakEvidenceSource;
+#[cfg(test)]
+#[path = "evidence/runtime_verdict/tests.rs"]
+mod runtime_verdict_baseline_tests;
 #[path = "evidence/verification_repair_path.rs"]
 mod verification_repair_path;
 
