@@ -7,5 +7,6 @@
 //! for these types. Running, probing, and repairing stay in their original
 //! modules; the old paths re-export these types.
 
+pub mod build_report;
 pub mod diagnostics;
 pub mod report;
