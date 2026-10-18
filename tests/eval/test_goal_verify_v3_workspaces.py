@@ -10,10 +10,11 @@ counter in a headless browser.
 import json
 import os
 import shutil
-import socket
+import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 import urllib.error
@@ -22,9 +23,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from eval_lib.goal_verify_executors_v3 import execute_registered
 from eval_lib.goal_verify_workspaces_v3 import prepare_workspace_stage
+from support import next_ready
+from support.next_ready import NextStartError, next_server
 
 FIXTURES = ROOT / "tests/fixtures/goal_verify_v3"
 REGISTRY = ROOT / "eval/goal_verify/v0/phase6-real-workspaces-v3.json"
@@ -189,55 +193,141 @@ class NextCellsStaticTest(unittest.TestCase):
             self.assertTrue((reference / "package-lock.json").is_file())
 
 
-def _free_port_available(port: int) -> bool:
-    with socket.socket() as sock:
-        return sock.connect_ex(("127.0.0.1", port)) != 0
+class NextReadyHelperTest(unittest.TestCase):
+    """Real child processes: the helper must never wait forever or leak a child."""
+
+    def _pid_gone(self, pid: int) -> bool:
+        probe = subprocess.run(["ps", "-p", str(pid)], capture_output=True, check=False)
+        return probe.returncode != 0
+
+    def test_reads_announced_port_and_reaps_child(self):
+        child = "import time; print('- Local:         http://localhost:54321', flush=True); time.sleep(60)"
+        with next_server(ROOT, timeout=10, argv=[sys.executable, "-c", child]) as server:
+            self.assertEqual(server.port, 54321)
+            pid = server.process.pid
+        self.assertIsNotNone(server.process.returncode)
+        self.assertTrue(self._pid_gone(pid))
+
+    def test_silent_child_times_out_and_is_killed(self):
+        child = "import time; time.sleep(60)"
+        started = time.monotonic()
+        holder = {}
+        with self.assertRaises(NextStartError):
+            with next_server(ROOT, timeout=1, argv=[sys.executable, "-c", child]) as server:
+                holder["server"] = server
+        self.assertLess(time.monotonic() - started, 30)
+
+    def test_child_exit_before_announcement_fails_fast(self):
+        child = "import sys; print('boom'); sys.exit(3)"
+        with self.assertRaises(NextStartError) as raised:
+            with next_server(ROOT, timeout=30, argv=[sys.executable, "-c", child]):
+                pass
+        self.assertIn("boom", str(raised.exception))
+
+    def test_stop_after_leader_was_reaped_sends_no_signal(self):
+        process = subprocess.Popen([sys.executable, "-c", "pass"], start_new_session=True)
+        process.wait()
+        sent = []
+        original = next_ready.os.killpg
+        next_ready.os.killpg = lambda pgid, sig: sent.append((pgid, sig))
+        try:
+            reader = threading.Thread(target=lambda: None)
+            reader.start()
+            next_ready._stop(process, reader)
+        finally:
+            next_ready.os.killpg = original
+        self.assertEqual(sent, [])
+
+    def test_group_signal_refuses_init_and_caller_ids(self):
+        class Leader:
+            returncode = None
+
+            def __init__(self, pid):
+                self.pid = pid
+
+        sent = []
+        original = next_ready.os.killpg
+        next_ready.os.killpg = lambda pgid, sig: sent.append((pgid, sig))
+        try:
+            for pid in (0, 1):
+                with self.assertRaises(AssertionError):
+                    next_ready._signal_group(Leader(pid), signal.SIGTERM)
+        finally:
+            next_ready.os.killpg = original
+        self.assertEqual(sent, [])
+
+    def test_port_zero_is_not_accepted_as_an_announcement(self):
+        child = "import time; print('Local: http://localhost:0', flush=True); time.sleep(60)"
+        with self.assertRaises(NextStartError):
+            with next_server(ROOT, timeout=1, argv=[sys.executable, "-c", child]):
+                pass
+
+
+def _provisioned_root() -> Path:
+    configured = os.environ.get("GOAL_VERIFY_V3_PROVISIONED")
+    if not configured:
+        raise unittest.SkipTest("set GOAL_VERIFY_V3_PROVISIONED to the offline provision directory")
+    return Path(configured)
+
+
+def _fetch(port: int, route: str, timeout: float = 60.0) -> str:
+    """Poll the announced port until it answers 200, bounded by a monotonic deadline."""
+    deadline = time.monotonic() + timeout
+    last_error: Exception | None = None
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}{route}", timeout=2) as response:
+                if response.status == 200:
+                    return response.read().decode("utf-8")
+        except (OSError, urllib.error.URLError) as exc:
+            last_error = exc
+        time.sleep(0.2)
+    raise AssertionError(f"server on port {port} did not answer {route}: {last_error}")
 
 
 @unittest.skipUnless(os.environ.get("GOAL_VERIFY_V3_NEXT") == "1", "set GOAL_VERIFY_V3_NEXT=1 with provisioned node_modules")
 class NextCellsBuildAndServeTest(unittest.TestCase):
-    def _build_and_get(self, case_id: str, port: int, route: str) -> str:
-        reference = FIXTURES / case_id / "reference"
-        self.assertTrue((reference / "node_modules/next").is_dir(), "node_modules not provisioned")
-        self.assertTrue(_free_port_available(port), f"port {port} busy")
-        build = _run(reference, "npm", "run", "build", timeout=600)
+    def _build(self, case_id: str, tmp: str) -> Path:
+        workspaces = {row["case_id"]: row for row in _load(REGISTRY)["workspaces"]}
+        workspace = prepare_workspace_stage(
+            root=ROOT,
+            workspace=workspaces[case_id],
+            stage="reference",
+            destination=Path(tmp) / "reference",
+            provisioned_root=_provisioned_root(),
+        )
+        self.assertTrue((workspace / "node_modules/next").is_dir(), "node_modules not provisioned")
+        build = _run(workspace, "npm", "run", "build", timeout=600)
         self.assertEqual(build.returncode, 0, build.stdout[-2000:] + build.stderr[-2000:])
-        server = subprocess.Popen(["npm", "run", "start", "--", "-p", str(port)], cwd=reference, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=dict(os.environ, NEXT_TELEMETRY_DISABLED="1"))
-        try:
-            body = ""
-            for _ in range(60):
-                try:
-                    with urllib.request.urlopen(f"http://127.0.0.1:{port}{route}", timeout=2) as response:
-                        self.assertEqual(response.status, 200)
-                        body = response.read().decode("utf-8")
-                        break
-                except (OSError, urllib.error.URLError):
-                    time.sleep(1)
-            self.assertTrue(body, "server did not answer")
-            if os.environ.get("GOAL_VERIFY_V3_PLAYWRIGHT") == "1" and case_id == "create-build-only-functional":
-                script = (
-                    "const { chromium } = require('playwright');"
-                    "(async () => { const b = await chromium.launch(); const p = await b.newPage();"
-                    f"await p.goto('http://127.0.0.1:{port}/'); await p.click('#increment'); await p.click('#increment');"
-                    "console.log(await p.textContent('#count')); await b.close(); })();"
-                )
-                probe = _run(reference, "node", "-e", script, timeout=120)
-                self.assertEqual(probe.stdout.strip(), "2", probe.stderr[-500:])
-            return body
-        finally:
-            server.terminate()
-            try:
-                server.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                server.kill()
+        return workspace
+
+    def _build_and_get(self, case_id: str, route: str) -> str:
+        with tempfile.TemporaryDirectory(prefix=f"gv3-next-{case_id}-") as tmp:
+            reference = self._build(case_id, tmp)
+            with next_server(reference) as server:
+                self.assertGreater(server.port, 0)
+                body = _fetch(server.port, route)
+                if os.environ.get("GOAL_VERIFY_V3_PLAYWRIGHT") == "1" and case_id == "create-build-only-functional":
+                    script = (
+                        "const { chromium } = require('playwright-core');"
+                        "(async () => { const b = await chromium.launch({headless: true,"
+                        " executablePath: '.goal-verify-tools/chromium/headless_shell',"
+                        " args: ['--disable-gpu', '--single-process', '--no-zygote']});"
+                        " const p = await b.newPage();"
+                        f"await p.goto('http://127.0.0.1:{server.port}/'); await p.click('#increment'); await p.click('#increment');"
+                        "console.log(await p.textContent('#count')); await b.close(); })();"
+                    )
+                    probe = _run(reference, "node", "-e", script, timeout=120)
+                    self.assertEqual(probe.stdout.strip(), "2", probe.stderr[-500:])
+                return body
 
     def test_counter_app_serves_increment_and_count(self):
-        body = self._build_and_get("create-build-only-functional", 4174, "/")
+        body = self._build_and_get("create-build-only-functional", "/")
         self.assertIn('id="increment"', body)
         self.assertIn('id="count"', body)
 
     def test_play_app_serves_heading_and_blue_background(self):
-        body = self._build_and_get("create-ui-copy-style-port-path", 4173, "/play")
+        body = self._build_and_get("create-ui-copy-style-port-path", "/play")
         self.assertIn("開始", body)
         self.assertIn("background-color:blue", body)
 
