@@ -143,6 +143,7 @@ The inventory also reads tracked `scripts/**/*.sh`, `scripts/**/*.py`, and
 | `scripts/eval_lib/goal_verify_workspaces_v3.py` | `shutil.rmtree(` | 1 | destination cleanup |
 | `scripts/eval_lib/goal_verify_live_v4.py` | `shutil.rmtree(` | 2 | destination cleanup |
 | `scripts/nextjs_domain_oracle.py` | `shutil.rmtree(` | 1 | scratch cleanup |
+| `tests/cli_cases/harness.py` | `os.killpg(` | 1 | reap the process group a providerless CLI case started (`start_new_session`, so the group is the case's own); the helper refuses pgid <= 1 and the harness's own group before the call, and treats an already-gone group as done |
 | `tests/eval/support/next_ready.py` | `os.killpg(` | 1 | stop the opt-in Next.js `npm start` group (SIGTERM, then SIGKILL) only while its leader is unreaped; `assert pgid > 1` directly before the call; a reaped leader gets no signal |
 | `tests/eval/test_heavy_lock.py` | `os.kill(` | 1 | liveness probe (`signal 0`) |
 

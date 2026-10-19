@@ -568,32 +568,89 @@ def detect_guard() -> NetworkGuard:
 # ------------------------------------------------------------ process control
 
 
-def _signal_group(pgid: int, sig: int) -> bool:
-    """Signal an owned process group; False once it is gone."""
-    if pgid <= 1 or pgid == os.getpgrp():
-        raise HarnessError(f"refusing to signal process group {pgid}")
+def _signal_group(process: subprocess.Popen, sig: int) -> None:
+    """Signal the case's own process group, only while its leader is unreaped.
+
+    A reaped leader frees its pid for reuse, so the group id could then name an
+    unrelated process group (same defence as tests/eval/support/next_ready.py).
+    """
+    if process.returncode is not None:
+        return
+    pgid = process.pid
+    assert pgid > 1
+    if pgid == os.getpgrp():
+        raise HarnessError(f"refusing to signal the harness's own process group {pgid}")
     try:
         os.killpg(pgid, sig)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
+    except (ProcessLookupError, PermissionError):
         # macOS reports EPERM for a group that only holds zombies.
-        return False
+        pass
+
+
+def _process_table() -> list[tuple[int, int, str]]:
+    """Every process as (pid, pgid, state), read without touching any of them."""
+    ps = shutil.which("ps", path=os.pathsep.join(BASE_PATH))
+    if not ps:
+        raise HarnessError("ps is required to watch the case process group")
+    proc = subprocess.run(
+        [ps, "-A", "-o", "pid=,pgid=,stat="],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        stdin=subprocess.DEVNULL,
+        env={"PATH": os.pathsep.join(BASE_PATH)},
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise HarnessError(f"ps failed (exit {proc.returncode}): {proc.stderr[-200:]}")
+    rows = []
+    for line in proc.stdout.splitlines():
+        fields = line.split()
+        if len(fields) >= 3 and fields[0].isdigit() and fields[1].isdigit():
+            rows.append((int(fields[0]), int(fields[1]), fields[2]))
+    return rows
+
+
+def _leader_has_exited(pid: int) -> bool:
+    """True once the leader is a zombie; it stays unreaped until ``wait()``."""
+    for row_pid, _pgid, state in _process_table():
+        if row_pid == pid:
+            return state.startswith("Z")
     return True
 
 
-def reap_group(pgid: int, grace_sec: float = 0.3) -> bool:
-    """Kill whatever is left of an owned group; True if something had to be killed."""
-    deadline = time.monotonic() + grace_sec
-    while _signal_group(pgid, 0):
+def _live_members(pgid: int) -> list[int]:
+    """Live (non-zombie) processes of the group other than its leader."""
+    return [
+        pid
+        for pid, group, state in _process_table()
+        if group == pgid and pid != pgid and not state.startswith("Z")
+    ]
+
+
+def _wait_for_leader_exit(process: subprocess.Popen, timeout_sec: float) -> bool:
+    """Wait for the leader to exit without reaping it; False on timeout."""
+    deadline = time.monotonic() + timeout_sec
+    while not _leader_has_exited(process.pid):
         if time.monotonic() >= deadline:
-            break
+            return False
         time.sleep(0.02)
-    leaked = _signal_group(pgid, 0)
-    for _ in range(50):
-        if not _signal_group(pgid, signal.SIGKILL):
-            break
+    return True
+
+
+def _stop_group(process: subprocess.Popen, *, leader_exited: bool) -> bool:
+    """Kill what remains of the case's group, then reap the leader.
+
+    Returns True when members were still alive after the leader had exited
+    (a leak). The leader stays unreaped until the final ``wait()`` so the
+    group id cannot have been reused when the signal is sent.
+    """
+    leaked = leader_exited and bool(_live_members(process.pid))
+    _signal_group(process, signal.SIGKILL)
+    deadline = time.monotonic() + 3
+    while _live_members(process.pid) and time.monotonic() < deadline:
         time.sleep(0.02)
+    process.wait()
     return leaked
 
 
@@ -668,13 +725,8 @@ def run_case(
                 stderr=err_file,
                 start_new_session=True,
             )
-            try:
-                proc.wait(timeout=case.timeout_sec)
-            except subprocess.TimeoutExpired:
-                timed_out = True
-                _signal_group(proc.pid, signal.SIGKILL)
-                proc.wait()
-            leaked = reap_group(proc.pid)
+            timed_out = not _wait_for_leader_exit(proc, case.timeout_sec)
+            leaked = _stop_group(proc, leader_exited=not timed_out)
         exit_code = None if timed_out else proc.returncode
         stdout, stderr = _clip(out_path), _clip(err_path)
         failures = judge(case, exit_code, stdout, stderr, root)

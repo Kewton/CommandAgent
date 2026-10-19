@@ -17,10 +17,12 @@ import errno
 import json
 import os
 import shlex
+import signal
 import socket
 import subprocess
 import sys
 import time
+import types
 from pathlib import Path
 
 import pytest
@@ -33,22 +35,23 @@ from cli_cases import harness  # noqa: E402
 OWNED_DOMAINS = ("cli", "config")
 OWNED_TOTAL = 85
 
-# Old audit failures whose expectation the PM has not ruled on yet. They are not
-# registered as cases: the manifest lists them under pending_adjudication, and this
-# set must change together with that list and with the PM's ruling, never silently.
-PENDING_ADJUDICATION = frozenset(
-    {
-        "BB-CLI-005",
-        "BB-CLI-041",
-        "BB-CLI-042",
-        "BB-CLI-049",
-        "BB-CLI-050",
-        "BB-CLI-051",
-        "BB-CFG-008",
-        "BB-CFG-018",
-        "BB-CFG-020",
-    }
-)
+# The audit's 12 failures included eight CLI/config cases. The PM ruled (2026-10) that
+# all eight are fixed in the current binary, so they are registered with their original
+# expectations; none is an xfail. BB-CFG-018 was not in the audit's failures but now
+# differs from its old expectation: configuration.md:113-116 registers ${ENV}
+# expansions as secrets and never shows them in --doctor, so it expects
+# `<redacted> (source=preset` instead of `env-model-0927 (source=preset`.
+OLD_FAILURE_RULINGS = {
+    "BB-CLI-005": "fixed: cli-reference.md:44 lists openai-compatible; the error now does too",
+    "BB-CLI-041": "fixed: headless.md exit 2 for config rejected before a run",
+    "BB-CLI-042": "fixed: headless.md exit 2 for an action selector conflict",
+    "BB-CLI-049": "fixed: issue515 generated_action_conflicts_exit_two_before_a_run",
+    "BB-CLI-050": "fixed: issue515 generated_actions_conflict_with_a_trailing_goal",
+    "BB-CLI-051": "fixed: issue515 generated_action_conflicts_exit_two_before_a_run",
+    "BB-CFG-008": "fixed: configuration.md:219-220 skips an unparsable file",
+    "BB-CFG-020": "fixed: configuration.md:113-116 never shows a ${ENV} expansion",
+}
+PENDING_ADJUDICATION: frozenset[str] = frozenset()
 # Strict xfail is only for current defects the PM has approved (case id, tracking
 # issue and reason). None are approved.
 APPROVED_XFAIL: frozenset[str] = frozenset()
@@ -168,7 +171,17 @@ def test_registered_cases_match_the_manifest() -> None:
     assert len(owned) == OWNED_TOTAL
     assert set(MANIFEST["pending_adjudication"]) == PENDING_ADJUDICATION
     assert set(ids) == owned - PENDING_ADJUDICATION
-    assert len(ids) + len(PENDING_ADJUDICATION) == OWNED_TOTAL
+    assert len(ids) == OWNED_TOTAL
+    assert not MANIFEST["pending_adjudication"]
+    for case_id in OLD_FAILURE_RULINGS:
+        assert case_id in CASES_BY_ID
+        assert not CASES_BY_ID[case_id].xfail
+
+
+def test_env_expansion_case_expects_the_redacted_value() -> None:
+    expected = CASES_BY_ID["BB-CFG-018"].expected
+    assert expected.stdout_contains == ("<redacted> (source=preset",)
+    assert "env-model-0927" in expected.must_not_contain
 
 
 def test_manifest_counts_cover_all_149_cases() -> None:
@@ -529,10 +542,60 @@ def test_timeout_kills_the_whole_process_tree(
     assert_gone(int(result.stdout.split()[0]))
 
 
-def test_the_harness_never_signals_a_foreign_process_group() -> None:
-    for pgid in (0, 1, os.getpgrp()):
-        with pytest.raises(harness.HarnessError):
-            harness.reap_group(pgid)
+class _Recorder:
+    def __init__(self) -> None:
+        self.calls: list[tuple[int, int]] = []
+
+    def __call__(self, pgid: int, sig: int) -> None:
+        self.calls.append((pgid, sig))
+
+
+def test_group_signal_is_sent_only_while_the_leader_is_unreaped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recorder = _Recorder()
+    monkeypatch.setattr(harness.os, "killpg", recorder)
+    finished = subprocess.Popen(["true"], start_new_session=True)
+    finished.wait()  # reaped: its pid may be reused, so no signal may follow
+    harness._signal_group(finished, signal.SIGKILL)
+    assert recorder.calls == []
+    running = subprocess.Popen(["sleep", "30"], start_new_session=True)
+    try:
+        harness._signal_group(running, signal.SIGKILL)
+        assert recorder.calls == [(running.pid, signal.SIGKILL)]
+    finally:
+        running.kill()
+        running.wait()
+
+
+def test_the_harness_never_signals_a_foreign_process_group(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recorder = _Recorder()
+    monkeypatch.setattr(harness.os, "killpg", recorder)
+    for pid in (0, 1):
+        with pytest.raises(AssertionError):
+            harness._signal_group(types.SimpleNamespace(pid=pid, returncode=None), 9)
+    with pytest.raises(harness.HarnessError):
+        harness._signal_group(
+            types.SimpleNamespace(pid=os.getpgrp(), returncode=None), 9
+        )
+    assert recorder.calls == []
+
+
+def test_a_case_that_exits_first_is_waited_for_without_reaping_it() -> None:
+    quick = subprocess.Popen(["true"], start_new_session=True)
+    try:
+        assert harness._wait_for_leader_exit(quick, 10)
+        assert quick.returncode is None, "the leader must stay unreaped until wait()"
+    finally:
+        quick.wait()
+    slow = subprocess.Popen(["sleep", "30"], start_new_session=True)
+    try:
+        assert not harness._wait_for_leader_exit(slow, 0.2)
+    finally:
+        slow.kill()
+        slow.wait()
 
 
 # ------------------------------------------------------------- network guard

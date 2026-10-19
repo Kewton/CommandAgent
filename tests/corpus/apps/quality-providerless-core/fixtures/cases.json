@@ -173,17 +173,7 @@
         "BB-REPL-001"
       ]
     },
-    "pending_adjudication": [
-      "BB-CLI-005",
-      "BB-CLI-041",
-      "BB-CLI-042",
-      "BB-CLI-049",
-      "BB-CLI-050",
-      "BB-CLI-051",
-      "BB-CFG-008",
-      "BB-CFG-020",
-      "BB-CFG-018"
-    ]
+    "pending_adjudication": []
   },
   "cases": [
     {
@@ -263,6 +253,27 @@
         "stdout_contains": [],
         "stderr_contains": [
           "invalid value 'nope' for '--provider"
+        ],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    },
+    {
+      "id": "BB-CLI-005",
+      "area": "cli-args",
+      "purpose": "Invalid --provider error lists every documented provider including openai-compatible",
+      "source": "docs/guide/ja/cli-reference.md#フラグ一覧",
+      "setup": [],
+      "command": "\"$BIN\" --provider nope </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": 2,
+        "stdout_contains": [],
+        "stderr_contains": [
+          "openai-compatible"
         ],
         "must_not_contain": [
           "panicked at"
@@ -1013,6 +1024,47 @@
       }
     },
     {
+      "id": "BB-CLI-041",
+      "area": "cli-args",
+      "purpose": "Configuration rejected before a run exits 2 per headless contract",
+      "source": "docs/user/headless.md#exit-codes",
+      "setup": [],
+      "command": "\"$BIN\" --summary-json --planner-provider openai --prompt hi --ollama-host \"$OLLAMA_UNREACHABLE\" </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": 2,
+        "stdout_contains": [],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at",
+          "commandagent.headless-summary/v1"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    },
+    {
+      "id": "BB-CLI-042",
+      "area": "cli-args",
+      "purpose": "Action-selector conflict (runtime check) exits 2 per headless contract",
+      "source": "docs/user/headless.md#exit-codes",
+      "setup": [],
+      "command": "\"$BIN\" --prompt x --plan-steps g </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": 2,
+        "stdout_contains": [],
+        "stderr_contains": [
+          "only one action selector can be used at a time"
+        ],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    },
+    {
       "id": "BB-CLI-043",
       "area": "cli-args",
       "purpose": "Mutually exclusive actions are rejected and neither runs: --doctor --runs",
@@ -1136,6 +1188,73 @@
         "stderr_contains": [],
         "must_not_contain": [
           "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": [
+          "$T/ws/.commandagent/config.toml"
+        ]
+      }
+    },
+    {
+      "id": "BB-CLI-049",
+      "area": "cli-args",
+      "purpose": "Mutually exclusive actions are rejected and neither runs: --completions zsh --doctor",
+      "source": "docs/guide/ja/cli-reference.md#排他関係と組み合わせ",
+      "setup": [],
+      "command": "\"$BIN\" --completions zsh --doctor --ollama-host \"$OLLAMA_UNREACHABLE\" </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": "nonzero",
+        "stdout_contains": [],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at",
+          "#compdef commandagent"
+        ],
+        "files_exist": [],
+        "files_absent": [
+          "$T/ws/.commandagent/config.toml"
+        ]
+      }
+    },
+    {
+      "id": "BB-CLI-050",
+      "area": "cli-args",
+      "purpose": "Mutually exclusive actions are rejected and neither runs: --completions bash --prompt x",
+      "source": "docs/guide/ja/cli-reference.md#排他関係と組み合わせ",
+      "setup": [],
+      "command": "\"$BIN\" --completions bash --prompt x --ollama-host \"$OLLAMA_UNREACHABLE\" </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": "nonzero",
+        "stdout_contains": [],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at",
+          "_clap_complete_commandagent"
+        ],
+        "files_exist": [],
+        "files_absent": [
+          "$T/ws/.commandagent/config.toml"
+        ]
+      }
+    },
+    {
+      "id": "BB-CLI-051",
+      "area": "cli-args",
+      "purpose": "Mutually exclusive actions are rejected and neither runs: --generate-man --ux-demo",
+      "source": "docs/guide/ja/cli-reference.md#排他関係と組み合わせ",
+      "setup": [],
+      "command": "\"$BIN\" --generate-man --ux-demo </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": "nonzero",
+        "stdout_contains": [],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at",
+          ".TH commandagent",
+          "Terminal summary"
         ],
         "files_exist": [],
         "files_absent": [
@@ -1375,6 +1494,31 @@
       }
     },
     {
+      "id": "BB-CFG-008",
+      "area": "config",
+      "purpose": "Broken workspace file is skipped for top-level lookup; lower file value still applies",
+      "source": "docs/guide/ja/configuration.md#トップレベルキー",
+      "setup": [
+        "mkdir -p .commandagent && printf 'bogus_key = 1\\n' > .commandagent/config.toml",
+        "mkdir -p \"$HOME/.commandagent\" && printf 'footer = \"off\"\\n' > \"$HOME/.commandagent/config.toml\""
+      ],
+      "command": "\"$BIN\" --doctor --ollama-host \"$OLLAMA_UNREACHABLE\" </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": "nonzero",
+        "stdout_contains": [
+          "disabled by resolved footer configuration"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at",
+          "✗ Configuration"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    },
+    {
       "id": "BB-CFG-009",
       "area": "config",
       "purpose": "Unknown preset key is rejected naming preset.<name>.<key> and line",
@@ -1583,6 +1727,32 @@
       }
     },
     {
+      "id": "BB-CFG-018",
+      "area": "config",
+      "purpose": "Set ${ENV} reference resolves into the field and doctor shows it redacted",
+      "source": "docs/guide/ja/configuration.md#preset",
+      "setup": [
+        "export CL1_MODEL=env-model-0927",
+        "mkdir -p .commandagent && printf '[preset.p]\\nmodel = \\\"${CL1_MODEL}\\\"\\n' > .commandagent/config.toml"
+      ],
+      "command": "\"$BIN\" --preset p --doctor --ollama-host \"$OLLAMA_UNREACHABLE\" </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": "nonzero",
+        "stdout_contains": [
+          "<redacted> (source=preset"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at",
+          "env-model-0927"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      },
+      "note": "The audit expected the expanded value (env-model-0927 (source=preset) in the doctor output. docs/guide/ja/configuration.md:113-116 now registers ${ENV} expansions as secrets and never shows them in --doctor, so the expectation is <redacted> (source=preset and the value must not appear."
+    },
+    {
       "id": "BB-CFG-019",
       "area": "config",
       "purpose": "Invalid value from ${ENV} in context_budget does not echo the variable value",
@@ -1602,6 +1772,31 @@
         "must_not_contain": [
           "panicked at",
           "CANARY-SAMPLE-709-c001"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    },
+    {
+      "id": "BB-CFG-020",
+      "area": "config",
+      "purpose": "Invalid value from ${ENV} in base_url does not echo the variable value",
+      "source": "docs/guide/ja/configuration.md#preset",
+      "setup": [
+        "export CL1_SECRET=CANARY-SAMPLE-709-c002",
+        "mkdir -p .commandagent && printf '[preset.p]\\nprovider = \\\"openai-compatible\\\"\\nbase_url = \\\"${CL1_SECRET}\\\"\\n' > .commandagent/config.toml"
+      ],
+      "command": "\"$BIN\" --preset p --doctor --ollama-host \"$OLLAMA_UNREACHABLE\" </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": "nonzero",
+        "stdout_contains": [
+          "✗ Configuration"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at",
+          "CANARY-SAMPLE-709-c002"
         ],
         "files_exist": [],
         "files_absent": []
