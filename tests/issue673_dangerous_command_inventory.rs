@@ -113,6 +113,7 @@ const DECLARED: &[(&str, &str, usize)] = &[
         2,
     ),
     ("scripts/nextjs_domain_oracle.py", "shutil.rmtree(", 1),
+    ("tests/cli_cases/harness.py", "os.killpg(", 1),
     ("tests/eval/support/next_ready.py", "os.killpg(", 1),
     ("tests/eval/test_heavy_lock.py", "os.kill(", 1),
 ];
