@@ -1,6 +1,7 @@
 # Quality lints
 
-Status: introduced by #707 (parent #536). Later lint work (#718) appends here.
+Status: introduced by #707 (parent #536). #718 appends the crate-wide
+`allow_attributes_without_reason` and `undocumented_unsafe_blocks` lints below.
 
 ## Enforced boundary
 
@@ -58,6 +59,37 @@ byte range is not reported by `indexing_slicing`.
 The two `find_brace` byte indexes are not in the issue's static list of four;
 clippy reported them, so they were fixed. The `str` slices are guarded by
 `find`/`rfind` offsets on char boundaries and are left as they are.
+
+## Crate-wide lints (#718)
+
+`Cargo.toml` enables two lints for every target of the package, under
+`[lints.clippy]`, at `deny`:
+
+- `allow_attributes_without_reason`
+- `undocumented_unsafe_blocks`
+
+They run through the existing clippy calls (`scripts/ci.sh` and the GUI job),
+which already pass `-D warnings`; no extra clippy invocation exists for them.
+`deny` matches the #707 boundary lints. The panic-class lints above stay
+limited to `path_guard`; these two do not widen them.
+
+Writing a reason: every `#[allow(..)]` carries `reason = "..."` that says why
+the lint fires and is accepted, not what the lint is. rustfmt keeps an
+attribute on one line only when its arguments fit in 70 characters, so keep
+the reason short or give each lint its own attribute:
+
+```rust
+#[allow(clippy::too_many_arguments, reason = "each run input is explicit")]
+```
+
+Writing a safety comment: every `unsafe { .. }` block is preceded by a
+`// SAFETY:` comment that states the invariant the caller upholds, for
+example which pointer is valid or which syscall precondition holds. Do not
+silence either lint with a blanket `#![allow]` or a crate-level exclusion.
+
+Enabled with 0 diagnostics on macOS, on `x86_64-unknown-linux-gnu`
+(`cargo-zigbuild`), with `--features gui`, and for `gui_server`. The only
+pre-existing site was `build.rs` (`dead_code` on the shared `env_compat`).
 
 ## Verification
 
