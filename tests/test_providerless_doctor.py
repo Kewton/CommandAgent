@@ -18,7 +18,6 @@ Build the binary first (``cargo build --bin commandagent``) or point
 
 from __future__ import annotations
 
-import json
 import re
 import sys
 from pathlib import Path
@@ -40,13 +39,15 @@ EXPECTATIONS_PATH = CORPUS_DIR / "expectations.toml"
 OWNED_DOMAINS = ("doctor",)
 OWNED_TOTAL = 35
 
-# Cases whose audit expectation no longer matches the current specification. They
-# are neither registered nor given an expectation until the PM rules on each one
-# (docs: headless.md:14-17 says --ux-demo never writes a summary and --runs writes
-# one only for a pack; cli-reference.md:70 says --doctor probes the provider host).
-PENDING_ADJUDICATION = frozenset(
+# The PM ruled (2026-10) that the five cases whose audit expectation no longer matched
+# the specification are rewritten to the current specification and registered, none as
+# an xfail: BB-DOC-003 (cli-reference.md:70, doctor checks the provider host),
+# BB-DOC-026/028/029 (headless.md:14-17, no summary for --ux-demo or an empty --runs)
+# and BB-DOC-030 (a failed --run-plan run is recorded and listed by --runs).
+REWRITTEN_CASES = frozenset(
     {"BB-DOC-003", "BB-DOC-026", "BB-DOC-028", "BB-DOC-029", "BB-DOC-030"}
 )
+PENDING_ADJUDICATION: frozenset[str] = frozenset()
 # Strict xfail is only for current defects the PM has approved (case id, tracking
 # issue and reason). None are approved.
 APPROVED_XFAIL: frozenset[str] = frozenset()
@@ -196,6 +197,7 @@ def test_registered_cases_match_the_core_manifest() -> None:
     registered = [case.id for case in CASES]
     assert len(registered) == len(set(registered)), "duplicate registered ids"
     assert set(MANIFEST["pending_adjudication"]) == PENDING_ADJUDICATION
+    assert len(registered) == OWNED_TOTAL
     assert set(registered) | PENDING_ADJUDICATION == set(core_ids)
     assert not set(registered) & PENDING_ADJUDICATION
     assert len(registered) == OWNED_TOTAL - len(PENDING_ADJUDICATION)
@@ -206,12 +208,26 @@ def test_core_manifest_still_covers_all_149_cases() -> None:
     assert sum(CORE_MANIFEST["counts"].values()) == 149
 
 
-def test_pending_cases_carry_no_expectation() -> None:
-    text = CASES_PATH.read_text(encoding="utf-8")
-    body = json.loads(text)["cases"]
-    assert not {case["id"] for case in body} & PENDING_ADJUDICATION
-    for case_id in PENDING_ADJUDICATION:
-        assert text.count(f'"{case_id}"') == 2, "only the manifest may name it"
+def test_rewritten_cases_are_registered_with_the_current_specification() -> None:
+    assert not MANIFEST["pending_adjudication"]
+    for case_id in REWRITTEN_CASES:
+        case = CASES_BY_ID[case_id]
+        assert not case.xfail
+        assert case.note, case_id
+    doctor = CASES_BY_ID["BB-DOC-003"]
+    assert mock_start() in doctor.setup
+    assert mock_wait_hit() in doctor.command
+    assert mock_stop() in doctor.command
+    assert "hits=0" in doctor.expected.must_not_contain
+    for case_id in ("BB-DOC-028", "BB-DOC-029"):
+        forbidden = CASES_BY_ID[case_id].expected.must_not_contain
+        assert "headless-summary" in forbidden
+        assert "SUMMARY_JSON_PRESENT" in forbidden
+    assert CASES_BY_ID["BB-DOC-026"].expected.stdout_contains == (
+        "No runs found for this workspace.",
+        "ONLY_NO_RUNS_LINE",
+    )
+    assert "run_plan_rc=1" in CASES_BY_ID["BB-DOC-030"].expected.stdout_contains
 
 
 def test_expectations_toml_pins_the_same_manifest() -> None:

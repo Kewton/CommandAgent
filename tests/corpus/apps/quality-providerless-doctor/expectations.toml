@@ -5,7 +5,7 @@ source = "H-37 providerless black-box doctor/direct-action child (#710): 35 BB-D
 # The 35 doctor ids and their count are pinned against fixtures/cases.json here. The walker
 # cannot run the cases; tests/test_providerless_doctor.py compares the registration with the
 # #709 manifest in quality-providerless-core and runs the cases against the built binary.
-# Five ids are pending PM adjudication and are listed in the manifest but not registered.
+# All 35 ids are registered; none is pending adjudication.
 
 [json_fields]
 fixtures/cases.json:schema = "commandagent.providerless-cli-cases/v1"

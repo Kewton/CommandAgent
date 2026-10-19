@@ -44,13 +44,7 @@
         "BB-DOC-035"
       ]
     },
-    "pending_adjudication": [
-      "BB-DOC-003",
-      "BB-DOC-026",
-      "BB-DOC-028",
-      "BB-DOC-029",
-      "BB-DOC-030"
-    ]
+    "pending_adjudication": []
   },
   "cases": [
     {
@@ -97,6 +91,39 @@
         "files_exist": [],
         "files_absent": []
       }
+    },
+    {
+      "id": "BB-DOC-003",
+      "area": "doctor",
+      "purpose": "doctor connects to the configured host (loopback mock receives a connection)",
+      "source": "docs/guide/ja/cli-reference.md#フラグ一覧",
+      "setup": [
+        "exec 3< <(python3 -I -c '\nimport os, signal, socket, sys\n\nhits = 0\n\ndef stop(*_):\n    raise SystemExit\n\nsignal.signal(signal.SIGTERM, stop)\nserver = socket.socket()\nserver.bind((\"127.0.0.1\", 0))\nserver.listen(8)\nserver.settimeout(float(sys.argv[1]))\nprint(server.getsockname()[1], os.getpid(), flush=True)\ntry:\n    while True:\n        conn, _ = server.accept()\n        hits += 1\n        conn.close()\n        print(\"hit\", flush=True)\nexcept (SystemExit, socket.timeout):\n    pass\nfinally:\n    print(\"hits=%d\" % hits, flush=True)\n' 30)\nread -r -t 20 -u 3 PORT MPID || { echo MOCK_NOT_READY; exit 1; }"
+      ],
+      "command": "\"$BIN\" --doctor --ollama-host \"http://127.0.0.1:$PORT\" </dev/null >\"$T/d.out\" 2>&1; echo doctor_rc=$?\nread -r -t 20 -u 3 HIT || echo MOCK_NO_HIT\nkill -TERM \"$MPID\"\nread -r -t 20 -u 3 REPORT || echo MOCK_NO_REPORT\nread -r -t 20 -u 3 _ || true\necho \"$REPORT\"\ncat \"$T/d.out\"",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "doctor_rc=1",
+          "hits=",
+          "CommandAgent doctor: failed",
+          "✗ Ollama",
+          "/api/tags unreachable",
+          "doctor found failed checks"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at",
+          "hits=0",
+          "MOCK_NOT_READY",
+          "MOCK_NO_HIT",
+          "MOCK_NO_REPORT"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      },
+      "note": "Audit expectation (doctor makes no network request) is obsolete: cli-reference.md:70 says --doctor checks the provider host. The case now expects a connection to a case-owned loopback mock (OS-assigned port, ready line, deadline, stopped and collected before the case ends); the mock closes the connection, so the Ollama check fails and doctor exits 1."
     },
     {
       "id": "BB-DOC-004",
@@ -586,6 +613,31 @@
       }
     },
     {
+      "id": "BB-DOC-026",
+      "area": "doctor",
+      "purpose": "--summary-json with --runs on an empty workspace prints only the no-runs line",
+      "source": "docs/user/headless.md#json-schema",
+      "setup": [],
+      "command": "out=$(\"$BIN\" --summary-json --runs </dev/null); rc=$?; printf \"%s\\n\" \"$out\"; if [ \"$out\" = \"No runs found for this workspace.\" ]; then echo ONLY_NO_RUNS_LINE; fi; exit $rc",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "No runs found for this workspace.",
+          "ONLY_NO_RUNS_LINE"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at",
+          "headless-summary",
+          "events_path"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      },
+      "note": "Audit expectation (a summary line whose events_path exists) is obsolete: headless.md:14-17 writes a --runs summary only for a pack; tests/issue521_direct_actions.rs::summary_json_is_projected_for_failed_runs_but_not_for_ux_demo_or_empty_runs asserts stdout is only the no-runs line."
+    },
+    {
       "id": "BB-DOC-027",
       "area": "doctor",
       "purpose": "--ux-demo runs offline and exits 0",
@@ -605,6 +657,90 @@
         "files_exist": [],
         "files_absent": []
       }
+    },
+    {
+      "id": "BB-DOC-028",
+      "area": "doctor",
+      "purpose": "--ux-demo --summary-json prints the terminal summary and no summary JSON",
+      "source": "docs/user/headless.md#json-schema",
+      "setup": [],
+      "command": "\"$BIN\" --ux-demo --summary-json </dev/null > \"$T/u.txt\"; rc=$?\nif tail -n 1 \"$T/u.txt\" | jq -e . >/dev/null 2>&1; then echo SUMMARY_JSON_PRESENT; else echo NO_SUMMARY_JSON; fi\ncat \"$T/u.txt\"\nexit $rc",
+      "timeout_sec": 120,
+      "expected": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "NO_SUMMARY_JSON",
+          "### Terminal summary",
+          "- Status: interrupted",
+          "| task_status | interrupted |",
+          "- Next action: resume_or_rerun_command"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at",
+          "SUMMARY_JSON_PRESENT",
+          "headless-summary"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      },
+      "note": "Audit expectation (final line is the v1 summary object) is obsolete: headless.md:14-15 says --ux-demo never writes a summary; tests/headless_summary.rs::ux_demo_summary_json_is_suppressed_without_recording_a_run."
+    },
+    {
+      "id": "BB-DOC-029",
+      "area": "doctor",
+      "purpose": "--ux-demo --summary-json shows the human status and no summary JSON",
+      "source": "docs/user/headless.md#json-schema",
+      "setup": [],
+      "command": "\"$BIN\" --ux-demo --summary-json </dev/null > \"$T/u.txt\"; rc=$?\nhuman=$(grep -o \"Status: [a-z]*\" \"$T/u.txt\" | tail -n 1 | cut -d\" \" -f2); echo \"human=$human\"\nif tail -n 1 \"$T/u.txt\" | jq -e . >/dev/null 2>&1; then echo SUMMARY_JSON_PRESENT; else echo NO_SUMMARY_JSON; fi\necho \"last=$(tail -n 1 \"$T/u.txt\")\"\nexit $rc",
+      "timeout_sec": 120,
+      "expected": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "human=interrupted",
+          "NO_SUMMARY_JSON"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at",
+          "SUMMARY_JSON_PRESENT",
+          "headless-summary"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      },
+      "note": "Audit expectation (JSON status agrees with the human status) is obsolete: headless.md:14-15 says --ux-demo never writes a summary; the human summary still reports Status: interrupted (tests/issue521_direct_actions.rs::ux_demo_prints_the_scripted_interruption_without_recording_a_run)."
+    },
+    {
+      "id": "BB-DOC-030",
+      "area": "doctor",
+      "purpose": "--runs lists a failed run recorded by --run-plan and --events --filter phase reads it",
+      "source": "docs/guide/ja/cli-reference.md#フラグ一覧",
+      "setup": [
+        "printf 'goal: x\\nsteps: [\\n' > bad.yaml"
+      ],
+      "command": "\"$BIN\" --run-plan bad.yaml </dev/null >/dev/null 2>&1; echo \"run_plan_rc=$?\"\nid=$(\"$BIN\" --runs --json </dev/null | jq -r \".runs[0].run_id // .runs[0].id // empty\"); echo \"id=$id\"\n[ -n \"$id\" ] || exit 9\necho \"status=$(\"$BIN\" --runs --json </dev/null | jq -r \".runs[0].status\")\"\n\"$BIN\" --runs \"$id\" --events --filter phase </dev/null",
+      "timeout_sec": 150,
+      "expected": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "run_plan_rc=1",
+          "status=failed",
+          "Events for ",
+          "(filter=phase)"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at",
+          "id=null",
+          "id=\n"
+        ],
+        "files_exist": [
+          "$T/ws/.commandagent/runs"
+        ],
+        "files_absent": []
+      },
+      "note": "Audit premise (--ux-demo leaves a run) is obsolete: --ux-demo records no run (headless.md:14-15). The case now records a failed run with --run-plan on an invalid plan file (no provider started; tests/issue521_direct_actions.rs records failed runs) and checks --runs --json lists it and --events --filter phase reads it."
     },
     {
       "id": "BB-DOC-031",
