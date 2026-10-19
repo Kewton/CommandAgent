@@ -1,6 +1,7 @@
 use super::*;
 
-#[allow(clippy::result_large_err, clippy::too_many_arguments)]
+#[allow(clippy::result_large_err, reason = "error carries the run outcome")]
+#[allow(clippy::too_many_arguments, reason = "each run input is explicit")]
 pub(in crate::planner::runner) fn run_step_plan_with_session_with_ui(
     client: &mut dyn ChatClient,
     session: &mut SessionSnapshot,
@@ -25,7 +26,8 @@ pub(in crate::planner::runner) fn run_step_plan_with_session_with_ui(
         None,
     )
 }
-#[allow(clippy::result_large_err, clippy::too_many_arguments)]
+#[allow(clippy::result_large_err, reason = "error carries the run outcome")]
+#[allow(clippy::too_many_arguments, reason = "each run input is explicit")]
 pub(in crate::planner::runner) fn run_step_plan_with_session_with_ui_and_run_authority(
     client: &mut dyn ChatClient,
     session: &mut SessionSnapshot,
@@ -78,10 +80,6 @@ pub(in crate::planner::runner) fn run_step_plan_with_session_with_ui_and_run_aut
     let mut final_required_evidence =
         runtime.required_evidence(&plan.goal, &final_required_capabilities);
     if let Some(contract) = bound_contract.as_ref().map(|bound| &bound.contract) {
-        merge_unique_strings(
-            &mut final_required_capabilities,
-            &contract.required_capabilities,
-        );
         merge_unique_strings(&mut final_required_evidence, &contract.required_evidence);
     }
     let contract_enforcement = if verify_final_contract {
