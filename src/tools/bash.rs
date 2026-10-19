@@ -1105,6 +1105,9 @@ fn is_system_prefix_allowed(path: &Path) -> bool {
 }
 
 fn nearest_relative_form(candidate: &str, root: &Path) -> String {
+    if super::registry::has_parent_component(candidate) {
+        return ".".to_string();
+    }
     let raw = Path::new(candidate);
     let raw_components = normal_components(raw);
     let root_components = normal_components(root);
