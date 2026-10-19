@@ -63,6 +63,19 @@ jobs:
           # outcome and never fail the job: the probe reports UNVERIFIED in that case.
           sudo sysctl -w dev.tty.legacy_tiocsti=1 || echo "could not write dev.tty.legacy_tiocsti (exit $?): the TIOCSTI probe reports UNVERIFIED"
           sysctl -n dev.tty.legacy_tiocsti || echo "could not read dev.tty.legacy_tiocsti (exit $?)"
+      - name: Allow user namespaces for the providerless network guard
+        run: |
+          # tests/cli_cases/harness.py runs each providerless case in a new user and network
+          # namespace (bwrap first, then unshare) so that outside connections are refused.
+          # ubuntu-24.04 restricts unprivileged user namespaces through AppArmor, which makes
+          # every guard fail. The runner is a VM discarded after each job, so this setting
+          # applies to this job only; it follows the dev.tty.legacy_tiocsti step above.
+          # The guard and the tests do not run under sudo. If no guard works, the guard
+          # fixture still fails the pytest run, so a case is never skipped.
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          sysctl -n kernel.apparmor_restrict_unprivileged_userns
       - name: Repository acceptance suite
         env:
           COMMANDAGENT_PROBE_VERDICT_FILE: ${{ runner.temp }}/probe-verdicts.txt

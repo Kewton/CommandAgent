@@ -90,6 +90,34 @@ def attempt(kind):
 
 print(json.dumps({"tcp": attempt("tcp"), "udp": attempt("udp")}))
 """
+# A fresh Linux network namespace holds a loopback interface that is down, which
+# would refuse the connections a case makes to its own loopback mock. This helper
+# runs inside the new namespace, raises ``lo`` and then execs the real command, so
+# only loopback is added; every external destination stays unreachable.
+LOOPBACK_UP_SOURCE = """
+import fcntl, os, socket, struct, sys
+IFF_UP, SIOCGIFFLAGS, SIOCSIFFLAGS = 0x1, 0x8913, 0x8914
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+try:
+    ifreq = struct.pack("16sH22x", b"lo", 0)
+    flags = struct.unpack("16sH22x", fcntl.ioctl(sock, SIOCGIFFLAGS, ifreq))[1]
+    ifreq = struct.pack("16sH22x", b"lo", flags | IFF_UP)
+    fcntl.ioctl(sock, SIOCSIFFLAGS, ifreq)
+finally:
+    sock.close()
+os.execvp(sys.argv[1], sys.argv[1:])
+"""
+# Cases own loopback mocks, so a guard is only usable when a connection to a
+# listener on 127.0.0.1 works inside it.
+LOOPBACK_PROBE_SOURCE = """
+import socket
+server = socket.socket()
+server.bind(("127.0.0.1", 0))
+server.listen(1)
+client = socket.create_connection(server.getsockname(), 3)
+conn, _ = server.accept()
+print("loopback-ok")
+"""
 DARWIN_SANDBOX_PROFILE = (
     "(version 1)(allow default)(deny network-outbound)"
     '(allow network-outbound (remote ip "localhost:*"))'
@@ -490,20 +518,27 @@ def _guard_candidates() -> list[NetworkGuard]:
                 )
             )
     else:
-        unshare = shutil.which("unshare")
-        if unshare:
-            candidates.append(
-                NetworkGuard(
-                    "unshare-user-net", (unshare, "--net", "--map-root-user", "--")
-                )
-            )
-            candidates.append(NetworkGuard("unshare-net", (unshare, "--net", "--")))
+        # bwrap brings loopback up in its new network namespace itself and is
+        # permitted by the distribution's AppArmor profile on hosts that restrict
+        # unprivileged user namespaces, so it is tried first.
         bwrap = shutil.which("bwrap")
         if bwrap:
             candidates.append(
                 NetworkGuard(
                     "bwrap-net", (bwrap, "--unshare-net", "--dev-bind", "/", "/", "--")
                 )
+            )
+        unshare = shutil.which("unshare")
+        if unshare:
+            loopback = (sys.executable, "-I", "-c", LOOPBACK_UP_SOURCE)
+            candidates.append(
+                NetworkGuard(
+                    "unshare-user-net",
+                    (unshare, "--net", "--map-root-user", "--", *loopback),
+                )
+            )
+            candidates.append(
+                NetworkGuard("unshare-net", (unshare, "--net", "--", *loopback))
             )
     return candidates
 
@@ -545,6 +580,24 @@ def require_denied(
     return outcome
 
 
+def require_loopback(guard: NetworkGuard) -> None:
+    """Raise unless a connection to a listener on 127.0.0.1 works inside ``guard``."""
+    proc = subprocess.run(
+        [*guard.prefix, sys.executable, "-I", "-c", LOOPBACK_PROBE_SOURCE],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env={"PATH": os.pathsep.join(BASE_PATH)},
+        stdin=subprocess.DEVNULL,
+        check=False,
+    )
+    if "loopback-ok" not in proc.stdout:
+        raise HarnessError(
+            f"network guard {guard.name} does not allow loopback (exit "
+            f"{proc.returncode}): {proc.stderr[-300:]}"
+        )
+
+
 _GUARD_CACHE: list[NetworkGuard] = []
 
 
@@ -556,6 +609,7 @@ def detect_guard() -> NetworkGuard:
     for guard in _guard_candidates():
         try:
             require_denied(guard)
+            require_loopback(guard)
         except HarnessError as exc:
             reasons.append(str(exc))
             continue
