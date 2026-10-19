@@ -1,0 +1,52 @@
+case_id = "quality-providerless-doctor"
+source = "H-37 providerless black-box doctor/direct-action child (#710): 35 BB-DOC cases of the 149-case manifest"
+
+# The corpus walker (tests/corpus_regression.rs) only understands the sections below.
+# The 35 doctor ids and their count are pinned against fixtures/cases.json here. The walker
+# cannot run the cases; tests/test_providerless_doctor.py compares the registration with the
+# #709 manifest in quality-providerless-core and runs the cases against the built binary.
+# Five ids are pending PM adjudication and are listed in the manifest but not registered.
+
+[json_fields]
+fixtures/cases.json:schema = "commandagent.providerless-cli-cases/v1"
+fixtures/cases.json:manifest.total = "35"
+fixtures/cases.json:manifest.counts.doctor = "35"
+
+[fixture_contains]
+fixtures/cases.json = [
+  "BB-DOC-001",
+  "BB-DOC-002",
+  "BB-DOC-003",
+  "BB-DOC-004",
+  "BB-DOC-005",
+  "BB-DOC-006",
+  "BB-DOC-007",
+  "BB-DOC-008",
+  "BB-DOC-009",
+  "BB-DOC-010",
+  "BB-DOC-011",
+  "BB-DOC-012",
+  "BB-DOC-013",
+  "BB-DOC-014",
+  "BB-DOC-015",
+  "BB-DOC-016",
+  "BB-DOC-017",
+  "BB-DOC-018",
+  "BB-DOC-019",
+  "BB-DOC-020",
+  "BB-DOC-021",
+  "BB-DOC-022",
+  "BB-DOC-023",
+  "BB-DOC-024",
+  "BB-DOC-025",
+  "BB-DOC-026",
+  "BB-DOC-027",
+  "BB-DOC-028",
+  "BB-DOC-029",
+  "BB-DOC-030",
+  "BB-DOC-031",
+  "BB-DOC-032",
+  "BB-DOC-033",
+  "BB-DOC-034",
+  "BB-DOC-035"
+]
