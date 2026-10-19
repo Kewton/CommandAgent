@@ -6,9 +6,8 @@ source = "H-37 providerless black-box docs/install/REPL child (#711): 29 cases o
 # The walker cannot run the cases; tests/test_providerless_docs_install.py compares the
 # registration with the #709 manifest in quality-providerless-core, checks that the three
 # children together cover all 149 ids, and runs the cases against the built binary.
-# BB-DOCS-001, BB-DOCS-004 and BB-DOCS-012 are listed in manifest.pending_adjudication
-# (the old expectation no longer matches the current behaviour and specification); they are
-# registered only after the PM rules on them, so they are not listed under fixture_contains.
+# All 29 ids are registered; none is pending adjudication (the PM ruled BB-DOCS-001,
+# BB-DOCS-004 and BB-DOCS-012 fixed and enabled, 2026-10-19).
 
 [json_fields]
 fixtures/cases.json:schema = "commandagent.providerless-cli-cases/v1"
@@ -19,13 +18,16 @@ fixtures/cases.json:manifest.counts.repl = "1"
 
 [fixture_contains]
 fixtures/cases.json = [
+  "BB-DOCS-001",
   "BB-DOCS-002",
   "BB-DOCS-003",
+  "BB-DOCS-004",
   "BB-DOCS-005",
   "BB-DOCS-006",
   "BB-DOCS-007",
   "BB-DOCS-010",
   "BB-DOCS-011",
+  "BB-DOCS-012",
   "BB-DOCS-013",
   "BB-DOCS-014",
   "BB-DOCS-015",

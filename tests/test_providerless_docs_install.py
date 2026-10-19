@@ -64,12 +64,13 @@ OWNED_TOTAL = 29
 MANIFEST_TOTAL = 149
 CORE_TOTAL, DOCTOR_TOTAL = 85, 35
 
-# The audit's old failures that no longer match the current behaviour and specification.
-# The PM rules on them; until then they are manifest.pending_adjudication, are not in
-# cases.json, and are not run: BB-DOCS-001 (the reference now claims 67 flags),
-# BB-DOCS-004 (--workflow joined the Actions group and the reference list) and
-# BB-DOCS-012 (a ${ENV} expansion is redacted in --doctor).
-PENDING_ADJUDICATION = frozenset({"BB-DOCS-001", "BB-DOCS-004", "BB-DOCS-012"})
+# The PM ruled (2026-10-19) that the three audit failures whose expectation no longer
+# matched the current behaviour and specification are fixed and enabled, none as an
+# xfail: BB-DOCS-001 (67 flags, cli-reference.md:25), BB-DOCS-004 (--workflow is in the
+# Actions group and list, cli-reference.md:13) and BB-DOCS-012 (a ${ENV} expansion is
+# redacted in --doctor, configuration.md:113-115).
+REWRITTEN_CASES = frozenset({"BB-DOCS-001", "BB-DOCS-004", "BB-DOCS-012"})
+PENDING_ADJUDICATION: frozenset[str] = frozenset()
 # Strict xfail is only for current defects the PM has approved (case id, tracking
 # issue and reason). None are approved.
 APPROVED_XFAIL: frozenset[str] = frozenset()
@@ -299,6 +300,21 @@ def test_three_children_cover_all_149_cases_without_gap_or_overlap() -> None:
     assert set().union(*parts) == set(core_ids), "a manifest id is missing"
     # 85 + 35 + 29 = 149 with the pending ids counted as this child's.
     assert CORE_TOTAL + DOCTOR_TOTAL + OWNED_TOTAL == MANIFEST_TOTAL
+
+
+def test_rewritten_cases_are_registered_with_the_current_specification() -> None:
+    assert not MANIFEST["pending_adjudication"]
+    for case_id in REWRITTEN_CASES:
+        case = CASES_BY_ID[case_id]
+        assert not case.xfail
+        assert "Old expectation" in case.note, case_id
+    assert CASES_BY_ID["BB-DOCS-001"].expected.stdout_contains == ("COUNT=67",)
+    assert "for f in --workflow --prompt " in CASES_BY_ID["BB-DOCS-004"].command
+    doctor = CASES_BY_ID["BB-DOCS-012"].expected
+    assert "<redacted> (source=preset" in doctor.stdout_contains
+    assert "detail=preset:team_base" in doctor.stdout_contains
+    for expanded in ("alice-exec", "team-plan"):
+        assert expanded in doctor.must_not_contain
 
 
 def test_expectations_toml_pins_the_same_manifest() -> None:

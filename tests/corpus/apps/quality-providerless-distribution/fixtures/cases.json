@@ -44,13 +44,31 @@
         "BB-REPL-001"
       ]
     },
-    "pending_adjudication": [
-      "BB-DOCS-001",
-      "BB-DOCS-004",
-      "BB-DOCS-012"
-    ]
+    "pending_adjudication": []
   },
   "cases": [
+    {
+      "id": "BB-DOCS-001",
+      "area": "docs",
+      "purpose": "--help has exactly the 67 application flags claimed by the reference",
+      "source": "docs/guide/ja/cli-reference.md#呼び出し方",
+      "setup": [],
+      "command": "\"$BIN\" --help </dev/null | grep -oE '^ +(-[a-zA-Z], )?--[a-z0-9-]+' | grep -oE -- '--[a-z0-9-]+' | grep -vxE -- '--help|--version' | sort -u | wc -l | tr -d ' ' | sed 's/^/COUNT=/'",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "COUNT=67"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      },
+      "note": "Old expectation: COUNT=66. Fixed: docs/guide/ja/cli-reference.md:25 and docs/guide/en/cli-reference.md:26 claim 67 flags, pinned by tests/doc_drift.rs public_cli_flags_match_bilingual_references_and_advertised_counts; PM ruling 2026-10-19 fixes the count at 67."
+    },
     {
       "id": "BB-DOCS-002",
       "area": "docs",
@@ -98,6 +116,28 @@
         "files_exist": [],
         "files_absent": []
       }
+    },
+    {
+      "id": "BB-DOCS-004",
+      "area": "docs",
+      "purpose": "Reference action-selector list matches the help Actions group",
+      "source": "docs/guide/ja/cli-reference.md#呼び出し方",
+      "setup": [],
+      "command": "\"$BIN\" --help </dev/null | awk '/^Actions \\(use one\\):/{f=1;next} /^[A-Z]/{f=0} f' | grep -oE '^ +--[a-z0-9-]+' | tr -d ' ' | sort > a.txt; for f in --workflow --prompt --plan-steps --plan-run --run-plan --ultra-plan --ultra-plan-run --run-ultra-plan --validate-plan --setup-interaction-probe --runs --ux-demo --model-probe --doctor --extensions --packs --pack-verify --pack-pin --completions --generate-man --init-config --validate-manifest --init-profile; do echo $f; done | sort > b.txt; diff a.txt b.txt && echo ACTIONS_MATCH",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "ACTIONS_MATCH"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      },
+      "note": "Old expectation: an action list without --workflow (audit finding DD-10). Fixed: --workflow is in the Actions (use one) group (src/cli.rs) and in cli-reference.md:13, pinned by tests/doc_drift.rs actions_help_group_matches_pinned_table_and_bilingual_references; the list now has 23 selectors. PM ruling 2026-10-19."
     },
     {
       "id": "BB-DOCS-005",
@@ -211,6 +251,36 @@
         "files_exist": [],
         "files_absent": []
       }
+    },
+    {
+      "id": "BB-DOCS-012",
+      "area": "docs",
+      "purpose": "configuration.md team_base/alice extends example resolves with env",
+      "source": "docs/guide/ja/configuration.md#preset",
+      "setup": [
+        "export TEAM_LLM_URL=http://127.0.0.1:9/v1 TEAM_EXECUTOR_MODEL=team-exec TEAM_PLANNER_MODEL=team-plan ALICE_EXECUTOR_MODEL=alice-exec",
+        "mkdir -p .commandagent && printf '[preset.team_base]\\nprovider = \\\"openai-compatible\\\"\\nbase_url = \\\"${TEAM_LLM_URL}\\\"\\nmodel = \\\"${TEAM_EXECUTOR_MODEL}\\\"\\nplanner_model = \\\"${TEAM_PLANNER_MODEL}\\\"\\n\\n[preset.alice]\\nextends = \\\"team_base\\\"\\nmodel = \\\"${ALICE_EXECUTOR_MODEL}\\\"\\n' > .commandagent/config.toml"
+      ],
+      "command": "\"$BIN\" --preset alice --doctor --ollama-host \"$OLLAMA_UNREACHABLE\" </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": "nonzero",
+        "stdout_contains": [
+          "<redacted> (source=preset",
+          "detail=preset:team_base"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at",
+          "✗ Configuration",
+          "alice-exec",
+          "team-exec",
+          "team-plan"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      },
+      "note": "Old expectation: alice-exec and team-plan shown in --doctor. Fixed: docs/guide/ja/configuration.md:113-115 says a ${ENV} expansion is never shown in --doctor, so the model and planner model print as <redacted>; the expanded values must not appear (same form as BB-CFG-018). PM ruling 2026-10-19."
     },
     {
       "id": "BB-DOCS-013",
