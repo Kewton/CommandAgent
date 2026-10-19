@@ -63,6 +63,14 @@ jobs:
           # outcome and never fail the job: the probe reports UNVERIFIED in that case.
           sudo sysctl -w dev.tty.legacy_tiocsti=1 || echo "could not write dev.tty.legacy_tiocsti (exit $?): the TIOCSTI probe reports UNVERIFIED"
           sysctl -n dev.tty.legacy_tiocsti || echo "could not read dev.tty.legacy_tiocsti (exit $?)"
+      - name: Install bubblewrap for the providerless network guard
+        run: |
+          # tests/cli_cases/harness.py runs each providerless case in a new network
+          # namespace (bwrap first, then unshare). This only installs the tool. It does
+          # not change any user-namespace or sysctl setting; when no guard works the
+          # guard fixture fails the pytest run, so a case is never skipped.
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends bubblewrap
       - name: Repository acceptance suite
         env:
           COMMANDAGENT_PROBE_VERDICT_FILE: ${{ runner.temp }}/probe-verdicts.txt
