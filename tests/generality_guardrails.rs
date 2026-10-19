@@ -326,8 +326,8 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
         },
         ChokepointBudget {
             path: "src/planner/runner/phase.rs",
-            total_baseline: 3_779,
-            production_baseline: 3_779,
+            total_baseline: 3_667,
+            production_baseline: 3_667,
             test_baseline: 0,
         },
         ChokepointBudget {
@@ -344,9 +344,9 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
         },
         ChokepointBudget {
             path: "src/planner/runner/phase/transition.rs",
-            total_baseline: 269,
+            total_baseline: 268,
             production_baseline: 175,
-            test_baseline: 94,
+            test_baseline: 92,
         },
         ChokepointBudget {
             path: "src/planner/runner/phase/phase_boundary.rs",
@@ -369,7 +369,7 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
         ChokepointBudget {
             path: "src/minimal_loop/loop_run.rs",
             total_baseline: 6_934,
-            production_baseline: 4_449,
+            production_baseline: 4_418,
             test_baseline: 2_485,
         },
         ChokepointBudget {
@@ -386,8 +386,8 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
         },
         ChokepointBudget {
             path: "src/minimal_loop/loop_run/state.rs",
-            total_baseline: 148,
-            production_baseline: 148,
+            total_baseline: 109,
+            production_baseline: 109,
             test_baseline: 0,
         },
         ChokepointBudget {
@@ -411,13 +411,13 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
         ChokepointBudget {
             path: "src/minimal_loop/repair_pressure.rs",
             total_baseline: 746,
-            production_baseline: 278,
+            production_baseline: 277,
             test_baseline: 468,
         },
         ChokepointBudget {
             path: "src/planner/repair_targeting.rs",
-            total_baseline: 597,
-            production_baseline: 459,
+            total_baseline: 589,
+            production_baseline: 448,
             test_baseline: 138,
         },
         ChokepointBudget {
@@ -446,21 +446,21 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
         },
         ChokepointBudget {
             path: "src/planner/adjudication/investigate.rs",
-            total_baseline: 211,
-            production_baseline: 211,
+            total_baseline: 203,
+            production_baseline: 203,
             test_baseline: 0,
         },
         ChokepointBudget {
             path: "src/planner/investigation_binding.rs",
-            total_baseline: 196,
-            production_baseline: 194,
+            total_baseline: 161,
+            production_baseline: 159,
             test_baseline: 2,
         },
         ChokepointBudget {
             path: "src/planner/investigation_binding/tests.rs",
-            total_baseline: 80,
+            total_baseline: 75,
             production_baseline: 0,
-            test_baseline: 80,
+            test_baseline: 75,
         },
         ChokepointBudget {
             path: "src/planner/adjudication/fix.rs",
@@ -470,8 +470,8 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
         },
         ChokepointBudget {
             path: "src/planner/adjudication/create.rs",
-            total_baseline: 2_186,
-            production_baseline: 2_172,
+            total_baseline: 2_152,
+            production_baseline: 2_138,
             test_baseline: 14,
         },
         ChokepointBudget {
@@ -482,8 +482,8 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
         },
         ChokepointBudget {
             path: "src/planner/adjudication/terminal.rs",
-            total_baseline: 16,
-            production_baseline: 16,
+            total_baseline: 7,
+            production_baseline: 7,
             test_baseline: 0,
         },
         ChokepointBudget {
@@ -494,21 +494,21 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
         },
         ChokepointBudget {
             path: "src/planner/runner/phase/flow.rs",
-            total_baseline: 1_656,
-            production_baseline: 1_656,
+            total_baseline: 1_574,
+            production_baseline: 1_574,
             test_baseline: 0,
         },
         ChokepointBudget {
             path: "src/planner/fix_runtime.rs",
-            total_baseline: 919,
-            production_baseline: 650,
+            total_baseline: 879,
+            production_baseline: 607,
             test_baseline: 269,
         },
         ChokepointBudget {
             path: "src/planner/fix_runtime/data_isolate.rs",
-            total_baseline: 279,
-            production_baseline: 149,
-            test_baseline: 130,
+            total_baseline: 84,
+            production_baseline: 82,
+            test_baseline: 2,
         },
         ChokepointBudget {
             path: "src/planner/fix_runtime/data_isolate/presence_filter.rs",
@@ -530,9 +530,9 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
         },
         ChokepointBudget {
             path: "src/planner/fix_reproducer.rs",
-            total_baseline: 223,
-            production_baseline: 145,
-            test_baseline: 78,
+            total_baseline: 64,
+            production_baseline: 62,
+            test_baseline: 2,
         },
         ChokepointBudget {
             path: "src/planner/fix_reproducer/tests.rs",
@@ -542,8 +542,8 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
         },
         ChokepointBudget {
             path: "src/planner/fix_plan_synthesis.rs",
-            total_baseline: 361,
-            production_baseline: 359,
+            total_baseline: 351,
+            production_baseline: 349,
             test_baseline: 2,
         },
         ChokepointBudget {
@@ -560,8 +560,8 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
         },
         ChokepointBudget {
             path: "src/planner/investigation_plan_synthesis.rs",
-            total_baseline: 208,
-            production_baseline: 162,
+            total_baseline: 205,
+            production_baseline: 159,
             test_baseline: 46,
         },
         ChokepointBudget {
@@ -590,8 +590,8 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
         },
         ChokepointBudget {
             path: "src/planner/ultra_plan_flow/phase_plan_resolution.rs",
-            total_baseline: 34,
-            production_baseline: 34,
+            total_baseline: 26,
+            production_baseline: 26,
             test_baseline: 0,
         },
         ChokepointBudget {
@@ -602,69 +602,69 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
         },
         ChokepointBudget {
             path: "src/planner/fix_diagnostics.rs",
-            total_baseline: 377,
-            production_baseline: 241,
+            total_baseline: 358,
+            production_baseline: 222,
             test_baseline: 136,
         },
         ChokepointBudget {
             path: "src/planner/fix_diagnostics/reproducer_execution.rs",
-            total_baseline: 38,
-            production_baseline: 38,
+            total_baseline: 29,
+            production_baseline: 29,
             test_baseline: 0,
         },
         ChokepointBudget {
             path: "src/planner/assurance.rs",
-            total_baseline: 50,
-            production_baseline: 50,
+            total_baseline: 49,
+            production_baseline: 49,
             test_baseline: 0,
         },
         ChokepointBudget {
             path: "src/planner/profiles/nextjs.rs",
-            total_baseline: 3_684,
-            production_baseline: 2_361,
+            total_baseline: 3_499,
+            production_baseline: 2_161,
             test_baseline: 1_323,
         },
         ChokepointBudget {
             path: "src/planner/profiles/nextjs/domain.rs",
             total_baseline: 309,
             production_baseline: 294,
-            test_baseline: 15,
+            test_baseline: 14,
         },
         ChokepointBudget {
             path: "src/planner/profiles/nextjs/repair_excerpts.rs",
             total_baseline: 60,
             production_baseline: 40,
-            test_baseline: 20,
+            test_baseline: 19,
         },
         ChokepointBudget {
             path: "src/minimal_loop/evidence.rs",
-            total_baseline: 6_702,
-            production_baseline: 4_088,
+            total_baseline: 6_527,
+            production_baseline: 3_819,
             test_baseline: 2_694,
         },
         ChokepointBudget {
             path: "src/planner/capability_catalog.rs",
             total_baseline: 614,
             production_baseline: 407,
-            test_baseline: 207,
+            test_baseline: 205,
         },
         ChokepointBudget {
             path: "src/planner/profile_manifest.rs",
-            total_baseline: 713,
-            production_baseline: 443,
+            total_baseline: 438,
+            production_baseline: 167,
             test_baseline: 270,
         },
         ChokepointBudget {
             path: "src/planner/profile_admission.rs",
-            total_baseline: 98,
-            production_baseline: 33,
+            total_baseline: 89,
+            production_baseline: 22,
             test_baseline: 65,
         },
         ChokepointBudget {
             path: "src/planner/profile_manifest/check_phase_scope.rs",
-            total_baseline: 94,
-            production_baseline: 62,
-            test_baseline: 32,
+            total_baseline: 89,
+            production_baseline: 58,
+            test_baseline: 31,
         },
         ChokepointBudget {
             path: "src/planner/profile_manifest/schema_v1.rs",
@@ -686,8 +686,8 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
         },
         ChokepointBudget {
             path: "src/minimal_loop/pipeline_probe.rs",
-            total_baseline: 455,
-            production_baseline: 362,
+            total_baseline: 454,
+            production_baseline: 360,
             test_baseline: 93,
         },
         ChokepointBudget {
@@ -704,8 +704,8 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
         },
         ChokepointBudget {
             path: "src/planner/profiles/data/checks.rs",
-            total_baseline: 452,
-            production_baseline: 304,
+            total_baseline: 403,
+            production_baseline: 252,
             test_baseline: 148,
         },
         ChokepointBudget {
@@ -716,14 +716,14 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
         },
         ChokepointBudget {
             path: "src/planner/profiles/data/pre_satisfied.rs",
-            total_baseline: 107,
-            production_baseline: 59,
+            total_baseline: 102,
+            production_baseline: 54,
             test_baseline: 48,
         },
         ChokepointBudget {
             path: "src/planner/profiles/data/inspection_schema.rs",
-            total_baseline: 403,
-            production_baseline: 328,
+            total_baseline: 330,
+            production_baseline: 255,
             test_baseline: 75,
         },
         ChokepointBudget {
@@ -752,9 +752,9 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
         },
         ChokepointBudget {
             path: "src/planner/profiles/data/claims_binding.rs",
-            total_baseline: 228,
-            production_baseline: 174,
-            test_baseline: 54,
+            total_baseline: 166,
+            production_baseline: 164,
+            test_baseline: 2,
         },
         ChokepointBudget {
             path: "src/planner/profiles/data/claims_binding/candidates.rs",
@@ -776,8 +776,8 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
         },
         ChokepointBudget {
             path: "src/planner/profiles/data/claims_binding/matching.rs",
-            total_baseline: 48,
-            production_baseline: 48,
+            total_baseline: 39,
+            production_baseline: 39,
             test_baseline: 0,
         },
         ChokepointBudget {
@@ -796,19 +796,19 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
             path: "src/planner/profiles/data/manifest.rs",
             total_baseline: 308,
             production_baseline: 192,
-            test_baseline: 116,
+            test_baseline: 115,
         },
         ChokepointBudget {
             path: "src/planner/profiles/data/runtime.rs",
-            total_baseline: 344,
-            production_baseline: 248,
+            total_baseline: 306,
+            production_baseline: 209,
             test_baseline: 96,
         },
         ChokepointBudget {
             path: "src/planner/setup_step_policy.rs",
-            total_baseline: 910,
-            production_baseline: 417,
-            test_baseline: 493,
+            total_baseline: 769,
+            production_baseline: 404,
+            test_baseline: 365,
         },
         ChokepointBudget {
             path: "src/planner/setup_step_policy/preset_conversion.rs",
@@ -824,15 +824,15 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
         },
         ChokepointBudget {
             path: "src/planner/verify.rs",
-            total_baseline: 4_757,
-            production_baseline: 3_029,
+            total_baseline: 4_593,
+            production_baseline: 2_846,
             test_baseline: 1_728,
         },
         ChokepointBudget {
             path: "src/planner/verify/shell_control.rs",
-            total_baseline: 161,
+            total_baseline: 150,
             production_baseline: 100,
-            test_baseline: 61,
+            test_baseline: 50,
         },
         ChokepointBudget {
             path: "src/planner/verify/shell_rewrite.rs",
@@ -848,14 +848,14 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
         },
         ChokepointBudget {
             path: "src/planner/profiles/data/manifest/fix_reproducer.rs",
-            total_baseline: 394,
-            production_baseline: 136,
+            total_baseline: 362,
+            production_baseline: 104,
             test_baseline: 258,
         },
         ChokepointBudget {
             path: "src/planner/profiles/data/step_policy.rs",
-            total_baseline: 634,
-            production_baseline: 470,
+            total_baseline: 540,
+            production_baseline: 376,
             test_baseline: 164,
         },
         ChokepointBudget {
@@ -884,9 +884,9 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
         },
         ChokepointBudget {
             path: "src/planner/repair.rs",
-            total_baseline: 1_063,
-            production_baseline: 775,
-            test_baseline: 288,
+            total_baseline: 1_055,
+            production_baseline: 772,
+            test_baseline: 283,
         },
         ChokepointBudget {
             path: "src/planner/profiles/data/repair_policy.rs",
@@ -902,8 +902,8 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
         },
         ChokepointBudget {
             path: "src/planner/profiles/data/repair_policy/inspection_guidance.rs",
-            total_baseline: 12,
-            production_baseline: 12,
+            total_baseline: 11,
+            production_baseline: 11,
             test_baseline: 0,
         },
         ChokepointBudget {
@@ -915,20 +915,173 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
         ChokepointBudget {
             path: "src/completion_metadata/data.rs",
             total_baseline: 153,
-            production_baseline: 37,
+            production_baseline: 36,
             test_baseline: 116,
         },
         ChokepointBudget {
             path: "src/completion_metadata/intent.rs",
-            total_baseline: 188,
-            production_baseline: 85,
+            total_baseline: 185,
+            production_baseline: 82,
             test_baseline: 103,
         },
         ChokepointBudget {
             path: "src/minimal_loop/tool_feedback.rs",
-            total_baseline: 66,
-            production_baseline: 48,
+            total_baseline: 62,
+            production_baseline: 44,
             test_baseline: 18,
+        },
+        // Issue #736: growth budgets registered from measurements taken after
+        // the #721-#735 extractions. The first four files had no budget; the
+        // rest are leaves those extractions created.
+        ChokepointBudget {
+            path: "src/config.rs",
+            total_baseline: 3_560,
+            production_baseline: 1_924,
+            test_baseline: 1_636,
+        },
+        ChokepointBudget {
+            path: "src/eval_events.rs",
+            total_baseline: 4_488,
+            production_baseline: 3_050,
+            test_baseline: 1_438,
+        },
+        ChokepointBudget {
+            path: "src/minimal_loop/interaction_probe.rs",
+            total_baseline: 3_898,
+            production_baseline: 1_835,
+            test_baseline: 2_063,
+        },
+        ChokepointBudget {
+            path: "src/minimal_loop/completion.rs",
+            total_baseline: 3_246,
+            production_baseline: 1_824,
+            test_baseline: 1_422,
+        },
+        ChokepointBudget {
+            path: "src/config/resolution.rs",
+            total_baseline: 468,
+            production_baseline: 468,
+            test_baseline: 0,
+        },
+        ChokepointBudget {
+            path: "src/direct_action_dispatch.rs",
+            total_baseline: 222,
+            production_baseline: 222,
+            test_baseline: 0,
+        },
+        ChokepointBudget {
+            path: "src/eval_events/completion_render.rs",
+            total_baseline: 382,
+            production_baseline: 382,
+            test_baseline: 0,
+        },
+        ChokepointBudget {
+            path: "src/minimal_loop/completion/feedback.rs",
+            total_baseline: 445,
+            production_baseline: 185,
+            test_baseline: 260,
+        },
+        ChokepointBudget {
+            path: "src/minimal_loop/evidence/runtime_verdict.rs",
+            total_baseline: 296,
+            production_baseline: 293,
+            test_baseline: 3,
+        },
+        ChokepointBudget {
+            path: "src/minimal_loop/evidence/runtime_verdict/tests.rs",
+            total_baseline: 497,
+            production_baseline: 497,
+            test_baseline: 0,
+        },
+        ChokepointBudget {
+            path: "src/minimal_loop/evidence/verify_command_classification/node_checks/tests.rs",
+            total_baseline: 498,
+            production_baseline: 498,
+            test_baseline: 0,
+        },
+        ChokepointBudget {
+            path: "src/minimal_loop/evidence/verify_command_classification/node_checks/tokens.rs",
+            total_baseline: 123,
+            production_baseline: 123,
+            test_baseline: 0,
+        },
+        ChokepointBudget {
+            path: "src/minimal_loop/interaction_probe/observation_decode.rs",
+            total_baseline: 709,
+            production_baseline: 709,
+            test_baseline: 0,
+        },
+        ChokepointBudget {
+            path: "src/minimal_loop/loop_run/contract_outcome.rs",
+            total_baseline: 730,
+            production_baseline: 126,
+            test_baseline: 604,
+        },
+        ChokepointBudget {
+            path: "src/planner/profiles/nextjs/contract_checks.rs",
+            total_baseline: 94,
+            production_baseline: 94,
+            test_baseline: 0,
+        },
+        ChokepointBudget {
+            path: "src/planner/profiles/nextjs/response_shape/syntax/tests.rs",
+            total_baseline: 169,
+            production_baseline: 169,
+            test_baseline: 0,
+        },
+        ChokepointBudget {
+            path: "src/planner/profiles/nextjs/response_shape/syntax/tokenize.rs",
+            total_baseline: 94,
+            production_baseline: 94,
+            test_baseline: 0,
+        },
+        ChokepointBudget {
+            path: "src/planner/recovery_observation_policy/nextjs_outputs/syntax/lexer/scan.rs",
+            total_baseline: 203,
+            production_baseline: 203,
+            test_baseline: 0,
+        },
+        ChokepointBudget {
+            path: "src/planner/recovery_observation_policy/nextjs_outputs/syntax/lexer/tests.rs",
+            total_baseline: 619,
+            production_baseline: 619,
+            test_baseline: 0,
+        },
+        ChokepointBudget {
+            path: "src/planner/runner/phase/step_failure_handoff.rs",
+            total_baseline: 595,
+            production_baseline: 232,
+            test_baseline: 363,
+        },
+        ChokepointBudget {
+            path: "src/tui/slash/command_dispatch.rs",
+            total_baseline: 201,
+            production_baseline: 201,
+            test_baseline: 0,
+        },
+        ChokepointBudget {
+            path: "src/verification/build_report.rs",
+            total_baseline: 92,
+            production_baseline: 92,
+            test_baseline: 0,
+        },
+        ChokepointBudget {
+            path: "src/verification/diagnostics.rs",
+            total_baseline: 205,
+            production_baseline: 85,
+            test_baseline: 120,
+        },
+        ChokepointBudget {
+            path: "src/verification/mod.rs",
+            total_baseline: 12,
+            production_baseline: 12,
+            test_baseline: 0,
+        },
+        ChokepointBudget {
+            path: "src/verification/report.rs",
+            total_baseline: 615,
+            production_baseline: 213,
+            test_baseline: 402,
         },
     ] {
         let text = std::fs::read_to_string(budget.path)
