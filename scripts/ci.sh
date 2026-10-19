@@ -3,7 +3,7 @@ set -euo pipefail
 
 export RUSTFLAGS="-D warnings"
 
-echo "Ignored Rust tests: 32 (documented in docs/dev/ci-ignored-tests.md)"
+echo "Ignored Rust tests: 68 on Linux, 66 on macOS; the 10 PTY cases run nightly via scripts/ci-pty.sh (documented in docs/dev/ci-ignored-tests.md)"
 cargo fmt --all -- --check
 cargo clippy --all-targets -- -D warnings
 cargo test --all-targets

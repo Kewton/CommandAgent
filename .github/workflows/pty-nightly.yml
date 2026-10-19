@@ -1,0 +1,37 @@
+name: pty-nightly
+
+# The ten #[ignore]d cases of tests/tui_pty.rs are not part of ci.yml. This workflow runs
+# exactly those ten by name once a night, and on demand, through scripts/ci-pty.sh. The
+# script fails on a missing TTY, a case count other than ten, a timeout, or a failed case.
+
+on:
+  schedule:
+    - cron: '23 17 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pty-nightly
+  cancel-in-progress: false
+
+jobs:
+  pty:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+      - name: Record the PTY helper
+        run: |
+          # The cases open their pseudo-terminal through script(1) from util-linux.
+          command -v script
+          uname -sr
+      - name: PTY cases (10, by name)
+        run: bash scripts/ci-pty.sh
