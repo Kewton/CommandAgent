@@ -32,6 +32,19 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-deny@0.20.2
+      - name: Allow user namespaces for the providerless network guard
+        run: |
+          # scripts/ci.sh runs the providerless cases through tests/cli_cases/harness.py, which
+          # puts each case in a new user and network namespace (bwrap first, then unshare) so
+          # that outside connections are refused. ubuntu-24.04 restricts unprivileged user
+          # namespaces through AppArmor, which makes every guard fail. The runner is a VM
+          # discarded after each job, so this setting applies to this job only; ci.yml has the
+          # same step. The guard and the tests do not run under sudo. If no guard works, the
+          # guard fixture still fails the pytest run, so a case is never skipped.
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          sysctl -n kernel.apparmor_restrict_unprivileged_userns
       - name: Repository acceptance suite
         run: bash scripts/ci.sh
       - name: scrub changed files
