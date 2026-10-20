@@ -1,0 +1,14 @@
+case_id = "issue697-gemini-cancel-terminal"
+
+[json_fields]
+fixtures/cases.json:schema_version = "commandagent.gemini_cancel_terminal.v0"
+fixtures/cases.json:cancelled_after_complete_buffer.callback_cancels_token = "true"
+fixtures/cases.json:cancelled_after_complete_buffer.outcome = "aborted_by_user"
+fixtures/cases.json:cancelled_after_complete_buffer.provider_response = "0"
+fixtures/cases.json:cancelled_after_complete_buffer.provider_parse_error = "0"
+fixtures/cases.json:cancelled_after_complete_buffer.provider_retry = "0"
+fixtures/cases.json:uncancelled_control.callback_cancels_token = "false"
+fixtures/cases.json:uncancelled_control.outcome = "ok"
+fixtures/cases.json:uncancelled_control.provider_response = "1"
+fixtures/cases.json:uncancelled_control.provider_parse_error = "0"
+fixtures/cases.json:uncancelled_control.provider_retry = "0"
