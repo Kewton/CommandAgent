@@ -240,6 +240,12 @@ command before the shell starts.
   grant, and a cache that did not exist at install is not granted until the next
   install. No re-check happens per command. Read denial of the secret locations
   is separate and still applies.
+- Attribute changes are a Linux limit (it predates Issue #772). Landlock has no
+  access right for `chmod`, `chown`, or `utimes`, so on Linux a sandboxed
+  command can change the mode, owner, or timestamps of a file it can reach by
+  path, even where it may not write. The isolation still refuses writing,
+  creating, removing, and renaming content outside the allowed locations; the
+  macOS Seatbelt backend also refuses the attribute changes.
 - Private-registry npm fails inside the isolation (Issue #669, a documented
   limit). The home npm config (`~/.npmrc`) is a read-denied secret, so an `npm`
   that needs a registry token from it fails, both in model Bash and in the

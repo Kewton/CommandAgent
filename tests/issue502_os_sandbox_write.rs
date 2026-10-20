@@ -2497,15 +2497,22 @@ mod cache_policy_os {
             value,
             "{context}: the canary content changed"
         );
-        let mode = std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode, 0o640, "{context}: the canary mode changed");
+        // Landlock cannot restrict attribute changes (chmod, chown, utimes), so
+        // the mode is only guaranteed by the macOS Seatbelt backend.
+        #[cfg(target_os = "macos")]
+        {
+            let mode = std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o640, "{context}: the canary mode changed");
+        }
     }
 
-    /// Attempt a write, a chmod, and a removal of `through`; each must fail.
+    /// Attempt a write and a removal of `through`; each must fail on both
+    /// backends. A chmod must fail on macOS; Landlock has no right for attribute
+    /// changes, so on Linux it is attempted but only the content is judged (a
+    /// limit that predates #772, recorded in `SECURITY.md`).
     fn assert_mutations_fail(fixture: &Fixture, through: &Path, context: &str) {
         for command in [
             format!("echo pwned > '{}'", through.display()),
-            format!("chmod 777 '{}'", through.display()),
             format!("rm -f '{}'", through.display()),
         ] {
             let output = run_wrapped(&fixture.root, &command);
@@ -2515,6 +2522,15 @@ mod cache_policy_os {
                 String::from_utf8_lossy(&output.stderr)
             );
         }
+        let chmod = run_wrapped(&fixture.root, &format!("chmod 777 '{}'", through.display()));
+        #[cfg(target_os = "macos")]
+        assert!(
+            !chmod.success(),
+            "{context}: chmod must be denied; stderr={}",
+            String::from_utf8_lossy(&chmod.stderr)
+        );
+        #[cfg(target_os = "linux")]
+        let _ = chmod;
     }
 
     /// `.npm` linked (directly or through a second link) at the home, a secret,
