@@ -120,6 +120,7 @@ fn event_lines(workspace: &Path) -> Vec<String> {
     }
     files.sort();
     let mut lines = Vec::new();
+    let mut after_stop = false;
     for file in files {
         let Ok(text) = std::fs::read_to_string(file) else {
             continue;
@@ -135,6 +136,13 @@ fn event_lines(workspace: &Path) -> Vec<String> {
             ) {
                 continue;
             }
+            // `time_profile` is emitted only when the summed time exceeds 0 ms, so drop at
+            // most one right after the stop; any other one stays in the sequence and fails.
+            if name == "time_profile" && after_stop {
+                after_stop = false;
+                continue;
+            }
+            after_stop = name == "tui_command_stop";
             let field = |key: &str| value[key].as_str().unwrap_or("-").to_owned();
             lines.push(match name {
                 "run_start" => format!("run_start action={}", field("action")),
@@ -205,7 +213,7 @@ fn provider_failure_snapshot(
          error: {cause}\n{HINT}\n--events--\n\
          run_start action={action}\nintent_resolved\nplan_preset_resolved\n{turns}\
          tui_command_stop command={command} status=failed failure_kind=direct_cli_command_failed \
-         stop_reason={cause} {HINT}\ntime_profile\n\
+         stop_reason={cause} {HINT}\n\
          run_stop status=failed failure_kind=process_failure stop_reason={cause} {HINT}\n"
     )
 }
@@ -219,7 +227,7 @@ fn prompt_runs_the_session_loop_against_the_executor_provider() {
          run_start action=Prompt(\"hi\")\nintent_resolved\nplan_preset_resolved\n\
          step_obligation_scope\nprovider_turn_duration\nfallback_decision\n\
          tui_command_stop command=--prompt status=failed failure_kind=direct_cli_command_failed \
-         stop_reason={REQUEST_FAILED} {HINT}\ntime_profile\n\
+         stop_reason={REQUEST_FAILED} {HINT}\n\
          run_stop status=failed failure_kind=process_failure \
          stop_reason={REQUEST_FAILED} {HINT}\n"
     );
@@ -237,7 +245,7 @@ fn plan_steps_generates_a_step_plan_with_the_planner_provider() {
          run_start action=PlanSteps(\"g\")\nintent_resolved\nplan_preset_resolved\n\
          provider_turn_duration\nprovider_turn_duration\n\
          tui_command_stop command=--plan-steps status=failed \
-         failure_kind=direct_cli_command_failed stop_reason={reason}\ntime_profile\n\
+         failure_kind=direct_cli_command_failed stop_reason={reason}\n\
          run_stop status=failed failure_kind=process_failure stop_reason={reason}\n"
     );
     assert_eq!(run_snapshot(&["--plan-steps", "g"]), expected);
@@ -657,4 +665,43 @@ fn doctor_reports_failed_checks_without_recording_a_run() {
             .any(|line| line == "error: doctor found failed checks")
     );
     assert!(event_lines(dir.path()).is_empty());
+}
+
+fn write_events(dir: &Path, names: &[&str]) {
+    let run = dir.join(".commandagent/runs/r1");
+    std::fs::create_dir_all(&run).unwrap();
+    let body: String = names
+        .iter()
+        .map(|name| format!("{{\"event\":\"{name}\"}}\n"))
+        .collect();
+    std::fs::write(run.join("events.jsonl"), body).unwrap();
+}
+
+fn lines_for(names: &[&str]) -> Vec<String> {
+    let dir = tempfile::tempdir().unwrap();
+    write_events(dir.path(), names);
+    event_lines(dir.path())
+}
+
+#[test]
+fn event_lines_drops_only_one_time_profile_right_after_the_stop() {
+    let without = lines_for(&["run_start", "tui_command_stop", "run_stop"]);
+    assert_eq!(
+        lines_for(&["run_start", "tui_command_stop", "time_profile", "run_stop"]),
+        without
+    );
+    assert_eq!(
+        lines_for(&["run_start", "time_profile", "tui_command_stop", "run_stop"]),
+        [&without[0], "time_profile", &without[1], &without[2]]
+    );
+    assert_eq!(
+        lines_for(&[
+            "run_start",
+            "tui_command_stop",
+            "time_profile",
+            "time_profile",
+            "run_stop"
+        ]),
+        [&without[0], &without[1], "time_profile", &without[2]]
+    );
 }
