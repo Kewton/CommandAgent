@@ -67,29 +67,66 @@ pub fn home_secret_locations_with(home: &Path, cargo_home: Option<&Path>) -> Vec
     if home.as_os_str().is_empty() {
         return Vec::new();
     }
-    let home = canonicalize_or_keep(home);
-    let mut locations: Vec<PathBuf> = HOME_SECRET_LOCATIONS
-        .iter()
-        .map(|relative| canonicalize_or_keep(&home.join(relative)))
-        .collect();
+    let lexical_home = home;
+    let home = resolve_nearest_existing(home);
+    let mut locations: Vec<PathBuf> = Vec::new();
+    for relative in HOME_SECRET_LOCATIONS {
+        push_unique(
+            &mut locations,
+            resolve_nearest_existing(&home.join(relative)),
+        );
+        push_unique(&mut locations, lexical_home.join(relative));
+    }
     if let Some(cargo_home) = cargo_home.filter(|path| path.is_absolute()) {
-        let cargo_home = canonicalize_or_keep(cargo_home);
+        let resolved_cargo_home = resolve_nearest_existing(cargo_home);
         for relative in HOME_SECRET_LOCATIONS {
             if let Some(name) = relative.strip_prefix(CARGO_HOME_PREFIX) {
-                let location = canonicalize_or_keep(&cargo_home.join(name));
-                if !locations.contains(&location) {
-                    locations.push(location);
-                }
+                push_unique(
+                    &mut locations,
+                    resolve_nearest_existing(&resolved_cargo_home.join(name)),
+                );
+                push_unique(&mut locations, cargo_home.join(name));
             }
         }
     }
     locations
 }
 
-/// Canonicalize a path, keeping it as-is when it does not exist or cannot be
-/// resolved.
-fn canonicalize_or_keep(path: &Path) -> PathBuf {
-    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+fn push_unique(locations: &mut Vec<PathBuf>, location: PathBuf) {
+    if !locations.contains(&location) {
+        locations.push(location);
+    }
+}
+
+/// Resolve a path through every symlink that exists. A path that does not exist
+/// yet (a secret a process creates during the run) keeps its missing tail: the
+/// nearest existing ancestor is canonicalized and the remaining names are
+/// appended to that real path, so the denial follows a symlinked ancestor to its
+/// target (Issue #788). Callers that must also deny the spelling as written keep
+/// the original path beside this one. The result is a snapshot taken when the
+/// sandbox is installed; a relink by a process outside the sandbox afterwards is
+/// not prevented.
+pub(super) fn resolve_nearest_existing(path: &Path) -> PathBuf {
+    if let Ok(resolved) = path.canonicalize() {
+        return resolved;
+    }
+    let mut missing = Vec::new();
+    let mut current = path;
+    while let Some(name) = current.file_name() {
+        missing.push(name);
+        let Some(parent) = current
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+        else {
+            break;
+        };
+        if let Ok(mut resolved) = parent.canonicalize() {
+            resolved.extend(missing.iter().rev());
+            return resolved;
+        }
+        current = parent;
+    }
+    path.to_path_buf()
 }
 
 /// The workspace credential basenames denied for reading, mirroring #501's
@@ -198,7 +235,7 @@ fn case_fold(pattern: &str) -> String {
 /// The regex-escaped, canonicalized workspace root.
 #[cfg(target_os = "macos")]
 fn rooted_regex(workspace: &Path) -> String {
-    escape_regex(&canonicalize_or_keep(workspace).to_string_lossy())
+    escape_regex(&resolve_nearest_existing(workspace).to_string_lossy())
 }
 
 /// Escape the regex metacharacters in a literal path so it can be embedded in a
@@ -224,7 +261,10 @@ mod tests {
 
     #[test]
     fn home_secret_locations_are_under_home_and_empty_home_is_empty() {
-        let home = Path::new("/home/alice");
+        // A canonical home, so the written and resolved spellings coincide
+        // (`/home` is a link on macOS).
+        let dir = tempfile::tempdir().unwrap();
+        let home = &dir.path().canonicalize().unwrap().join("alice");
         let locations = home_secret_locations_with(home, None);
         assert_eq!(locations.len(), HOME_SECRET_LOCATIONS.len());
         assert!(locations.contains(&home.join(".ssh")));
@@ -287,6 +327,51 @@ mod tests {
         let re_deny = workspace_template_under_secret_regex(&link);
         assert!(re_deny.contains(r"\.[sS][sS][hH]"), "{re_deny}");
         assert!(re_deny.ends_with('$'), "{re_deny}");
+    }
+}
+
+#[cfg(test)]
+mod missing_secret_tests {
+    use super::{home_secret_locations_with, resolve_nearest_existing};
+
+    #[test]
+    fn a_missing_path_is_resolved_through_its_nearest_existing_parent() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().canonicalize().unwrap();
+        let real = base.join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        std::os::unix::fs::symlink(&real, base.join("link")).unwrap();
+
+        assert_eq!(
+            resolve_nearest_existing(&base.join("link/a/b")),
+            real.join("a/b")
+        );
+        assert_eq!(resolve_nearest_existing(&base.join("link")), real);
+        assert_eq!(
+            resolve_nearest_existing(std::path::Path::new("relative/missing")),
+            std::path::Path::new("relative/missing")
+        );
+    }
+
+    #[test]
+    fn a_missing_cargo_credential_under_a_linked_cargo_is_denied_by_both_spellings() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().canonicalize().unwrap();
+        let home = base.join("home");
+        let real = base.join("real-cargo");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(&real).unwrap();
+        std::os::unix::fs::symlink(&real, home.join(".cargo")).unwrap();
+
+        let locations = home_secret_locations_with(&home, None);
+        assert!(
+            locations.contains(&real.join("credentials.toml")),
+            "{locations:?}"
+        );
+        assert!(
+            locations.contains(&home.join(".cargo/credentials.toml")),
+            "{locations:?}"
+        );
     }
 }
 
