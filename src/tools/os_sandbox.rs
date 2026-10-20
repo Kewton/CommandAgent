@@ -703,6 +703,45 @@ pub fn reset_for_test() {
     set_read_allow_limit_for_test(None);
 }
 
+/// The one lock every lib test that installs or resets the process-wide
+/// sandbox state takes, whichever module it lives in.
+#[cfg(test)]
+static SANDBOX_STATE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Serializes tests over the process-wide sandbox state (installed policy,
+/// events path, read-allow limit override) and clears that state on both ends.
+///
+/// Lock order, fixed for every caller: a test that also mutates the process
+/// environment takes its module's env lock FIRST and this guard SECOND, so the
+/// guards drop in the reverse order (this one first). Tests that never touch
+/// the environment take only this guard. No path takes them the other way
+/// round, so the two locks cannot deadlock. [`Drop`] runs [`reset_for_test`]
+/// while `_lock` is still held, so the reset is protected too, on success,
+/// failure and unwinding alike.
+#[cfg(test)]
+pub(crate) struct SandboxTestState {
+    _lock: std::sync::MutexGuard<'static, ()>,
+}
+
+#[cfg(test)]
+impl SandboxTestState {
+    pub(crate) fn acquire() -> Self {
+        let lock = SANDBOX_STATE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        // A previous test that unwound before its reset must not leak state.
+        reset_for_test();
+        Self { _lock: lock }
+    }
+}
+
+#[cfg(test)]
+impl Drop for SandboxTestState {
+    fn drop(&mut self) {
+        reset_for_test();
+    }
+}
+
 /// Remove the installed run temp directory and end the run's sandbox. After this
 /// the sandbox is no longer reported as applied and `required` refuses instead of
 /// passing a command through, so a child spawned while shutting down never runs
@@ -947,10 +986,6 @@ fn resolve_cache_paths(home: &Path) -> CachePaths {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-
-    /// The installed state is process-wide, so these tests serialize.
-    static SANDBOX_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     /// Issue #658: the `--offline` dev-server allow list is the port the run
     /// will use — the goal's port, else the profile default — so a sandboxed
@@ -1002,10 +1037,7 @@ mod tests {
 
     #[test]
     fn required_and_unavailable_is_refused_with_the_honest_kind() {
-        let _serial = SANDBOX_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let _guard = TestStateGuard;
+        let _state = SandboxTestState::acquire();
         install_for_test(
             SandboxMode::Required,
             policy(),
@@ -1021,10 +1053,7 @@ mod tests {
 
     #[test]
     fn auto_and_unavailable_continues_and_warns_once() {
-        let _serial = SANDBOX_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let _guard = TestStateGuard;
+        let _state = SandboxTestState::acquire();
         install_for_test(
             SandboxMode::Auto,
             policy(),
@@ -1041,10 +1070,7 @@ mod tests {
 
     #[test]
     fn off_never_wraps_and_never_warns() {
-        let _serial = SANDBOX_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let _guard = TestStateGuard;
+        let _state = SandboxTestState::acquire();
         install_for_test(
             SandboxMode::Off,
             policy(),
@@ -1063,10 +1089,7 @@ mod tests {
     /// passing the command through unconfined.
     #[test]
     fn required_refuses_when_available_without_a_policy() {
-        let _serial = SANDBOX_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let _guard = TestStateGuard;
+        let _state = SandboxTestState::acquire();
         *INSTALLED.lock().expect("sandbox state") = Some(Installed {
             policy: None,
             mode: SandboxMode::Required,
@@ -1084,10 +1107,7 @@ mod tests {
     /// `auto` keeps its previous behavior for the same state.
     #[test]
     fn wrap_auto_continues_when_available_without_a_policy() {
-        let _serial = SANDBOX_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let _guard = TestStateGuard;
+        let _state = SandboxTestState::acquire();
         *INSTALLED.lock().expect("sandbox state") = Some(Installed {
             policy: None,
             mode: SandboxMode::Auto,
@@ -1104,10 +1124,7 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn unavailable_landlock_decision_continues_auto_and_refuses_required() {
-        let _serial = SANDBOX_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let _guard = TestStateGuard;
+        let _state = SandboxTestState::acquire();
         let SandboxAvailability::Unavailable(reason) =
             landlock::decide_availability("5.4.0-generic", Ok(0), Ok(()))
         else {
@@ -1143,10 +1160,7 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn auto_downgrades_when_the_backend_wrap_fails() {
-        let _serial = SANDBOX_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let _guard = TestStateGuard;
+        let _state = SandboxTestState::acquire();
         let _hook = WrapFailureHookGuard;
         landlock::test_hooks::force_wrap_failure(true);
 
@@ -1185,10 +1199,7 @@ mod tests {
     /// and fields, once, so the events file no longer ends on a stale "applied".
     #[test]
     fn a_downgrade_re_emits_the_status_event_once() {
-        let _serial = SANDBOX_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let _guard = TestStateGuard;
+        let _state = SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         let events = dir.path().join("events.jsonl");
         install_for_test(SandboxMode::Auto, policy(), SandboxAvailability::Available);
@@ -1311,14 +1322,6 @@ mod tests {
     impl Drop for WrapFailureHookGuard {
         fn drop(&mut self) {
             landlock::test_hooks::force_wrap_failure(false);
-        }
-    }
-
-    struct TestStateGuard;
-
-    impl Drop for TestStateGuard {
-        fn drop(&mut self) {
-            reset_for_test();
         }
     }
 }
