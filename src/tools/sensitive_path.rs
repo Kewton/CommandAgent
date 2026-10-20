@@ -149,6 +149,11 @@ fn path_rule(components: &[String]) -> Option<&'static str> {
     if contains_sequence(components, &[".aws", "credentials"]) {
         return Some("aws_credentials");
     }
+    if contains_sequence(components, &[".cargo", "credentials.toml"])
+        || contains_sequence(components, &[".cargo", "credentials"])
+    {
+        return Some("cargo_credentials");
+    }
     if contains_sequence(components, &[".docker", "config.json"]) {
         return Some("docker_config");
     }
@@ -379,6 +384,8 @@ pub fn find_exclusion_expression() -> String {
         "-iname '*.p12'".to_string(),
         "-iname '*.pfx'".to_string(),
         "-ipath '*/.aws/credentials'".to_string(),
+        "-ipath '*/.cargo/credentials.toml'".to_string(),
+        "-ipath '*/.cargo/credentials'".to_string(),
         "-ipath '*/.docker/config.json'".to_string(),
         "-ipath '*/.config/gcloud/application_default_credentials.json'".to_string(),
         format!("\\( {template_directory_patterns} \\) -type d"),
@@ -602,6 +609,9 @@ mod tests {
             ("sub/.env", "dotenv"),
             ("config/.aws/credentials", "aws_credentials"),
             (".docker/config.json", "docker_config"),
+            (".cargo/credentials.toml", "cargo_credentials"),
+            (".Cargo/Credentials", "cargo_credentials"),
+            ("home/.cargo/credentials", "cargo_credentials"),
             (
                 ".config/gcloud/application_default_credentials.json",
                 "gcloud_credentials",
