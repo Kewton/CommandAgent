@@ -36,22 +36,54 @@ const HOME_SECRET_LOCATIONS: &[&str] = &[
     ".kube",
     ".config/gh",
     ".config/gcloud",
+    ".cargo/credentials.toml",
+    ".cargo/credentials",
 ];
 
-/// The home secret locations as canonical absolute paths under `home`. Returns
-/// an empty list when `home` is empty, so a run without `HOME` denies nothing
-/// rather than resolving names relative to the process working directory. Each
-/// location is canonicalized, so a symlinked location (`~/.ssh` pointing outside
-/// the home) denies its target as well.
+/// The prefix that marks a [`HOME_SECRET_LOCATIONS`] entry as a file of the
+/// cargo home. The same entries are re-rooted under `$CARGO_HOME` (Issue #695),
+/// so the cargo credential names live in the list once.
+const CARGO_HOME_PREFIX: &str = ".cargo/";
+
+/// The home secret locations as canonical absolute paths under `home`, plus the
+/// cargo credential files under the `CARGO_HOME` of this process (Issue #695).
+/// Returns an empty list when `home` is empty, so a run without `HOME` denies
+/// nothing rather than resolving names relative to the process working
+/// directory. Each location is canonicalized, so a symlinked location (`~/.ssh`
+/// pointing outside the home) denies its target as well.
+///
+/// The child inherits `CARGO_HOME` from this process only, so reading it here
+/// denies the credentials of the cargo home the child will use, whether it sits
+/// inside the home or outside it (for example `/usr/local/cargo`).
 pub fn home_secret_locations(home: &Path) -> Vec<PathBuf> {
+    let cargo_home = std::env::var_os("CARGO_HOME").map(PathBuf::from);
+    home_secret_locations_with(home, cargo_home.as_deref())
+}
+
+/// [`home_secret_locations`] with an explicit `CARGO_HOME`. A relative or empty
+/// `CARGO_HOME` is ignored: it would resolve against the child's working
+/// directory, not a fixed location.
+pub fn home_secret_locations_with(home: &Path, cargo_home: Option<&Path>) -> Vec<PathBuf> {
     if home.as_os_str().is_empty() {
         return Vec::new();
     }
     let home = canonicalize_or_keep(home);
-    HOME_SECRET_LOCATIONS
+    let mut locations: Vec<PathBuf> = HOME_SECRET_LOCATIONS
         .iter()
         .map(|relative| canonicalize_or_keep(&home.join(relative)))
-        .collect()
+        .collect();
+    if let Some(cargo_home) = cargo_home.filter(|path| path.is_absolute()) {
+        let cargo_home = canonicalize_or_keep(cargo_home);
+        for relative in HOME_SECRET_LOCATIONS {
+            if let Some(name) = relative.strip_prefix(CARGO_HOME_PREFIX) {
+                let location = canonicalize_or_keep(&cargo_home.join(name));
+                if !locations.contains(&location) {
+                    locations.push(location);
+                }
+            }
+        }
+    }
+    locations
 }
 
 /// Canonicalize a path, keeping it as-is when it does not exist or cannot be
@@ -90,6 +122,8 @@ const WORKSPACE_CREDENTIAL_PATH_SEQUENCES: &[&str] = &[
     r"\.aws/credentials",
     r"\.docker/config\.json",
     r"\.config/gcloud/application_default_credentials\.json",
+    r"\.cargo/credentials\.toml",
+    r"\.cargo/credentials",
 ];
 
 /// The strict dotenv template basenames re-allowed as files.
@@ -191,7 +225,7 @@ mod tests {
     #[test]
     fn home_secret_locations_are_under_home_and_empty_home_is_empty() {
         let home = Path::new("/home/alice");
-        let locations = home_secret_locations(home);
+        let locations = home_secret_locations_with(home, None);
         assert_eq!(locations.len(), HOME_SECRET_LOCATIONS.len());
         assert!(locations.contains(&home.join(".ssh")));
         assert!(locations.contains(&home.join(".docker/config.json")));
@@ -253,5 +287,69 @@ mod tests {
         let re_deny = workspace_template_under_secret_regex(&link);
         assert!(re_deny.contains(r"\.[sS][sS][hH]"), "{re_deny}");
         assert!(re_deny.ends_with('$'), "{re_deny}");
+    }
+}
+
+#[cfg(test)]
+mod cargo_credential_tests {
+    use super::{Path, home_secret_locations_with};
+
+    #[test]
+    fn home_list_denies_both_cargo_credential_files_but_not_the_caches() {
+        let home = Path::new("/home/alice");
+        let locations = home_secret_locations_with(home, None);
+        assert!(locations.contains(&home.join(".cargo/credentials.toml")));
+        assert!(locations.contains(&home.join(".cargo/credentials")));
+        for cache in [".cargo/registry", ".cargo/git", ".cargo/.package-cache"] {
+            assert!(
+                !locations
+                    .iter()
+                    .any(|location| home.join(cache).starts_with(location)),
+                "{cache} must stay readable: {locations:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn cargo_home_outside_the_home_adds_its_credential_files() {
+        let home = Path::new("/home/alice");
+        let cargo_home = Path::new("/opt/cargo-home-695");
+        let locations = home_secret_locations_with(home, Some(cargo_home));
+        assert!(locations.contains(&cargo_home.join("credentials.toml")));
+        assert!(locations.contains(&cargo_home.join("credentials")));
+        assert!(!locations.contains(&cargo_home.to_path_buf()));
+        assert!(locations.contains(&home.join(".cargo/credentials.toml")));
+    }
+
+    #[test]
+    fn relative_or_empty_cargo_home_is_ignored_and_a_default_one_is_not_duplicated() {
+        let home = Path::new("/home/alice");
+        let base = home_secret_locations_with(home, None);
+        assert_eq!(home_secret_locations_with(home, Some(Path::new(""))), base);
+        assert_eq!(
+            home_secret_locations_with(home, Some(Path::new("relative/cargo"))),
+            base
+        );
+        assert_eq!(
+            home_secret_locations_with(home, Some(&home.join(".cargo"))),
+            base
+        );
+    }
+
+    #[test]
+    fn symlinked_cargo_home_denies_its_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let real = dir.path().join("real-cargo");
+        let link = dir.path().join("link-cargo");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(&real).unwrap();
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        let locations = home_secret_locations_with(&home, Some(&link));
+        assert!(
+            locations.contains(&real.canonicalize().unwrap().join("credentials.toml")),
+            "{locations:?}"
+        );
     }
 }

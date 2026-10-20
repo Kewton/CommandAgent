@@ -1095,3 +1095,242 @@ fn assert_home_closed(fixture: &Fixture) {
         "unused-canary",
     );
 }
+
+// ---------------------------------------------------------------------------
+// cargo credentials (Issue #695): the cargo credential files are read-denied on
+// both backends and the lexical guard, while the registry and git caches keep
+// their existing access. Every canary lives in a temporary fake home.
+// ---------------------------------------------------------------------------
+
+/// The content of every fake cargo credential (never a real token).
+const CARGO_CANARY: &str = "CARGO_TOKEN_CANARY_695";
+/// The content of a readable cargo cache entry.
+const CARGO_CACHE_OK: &str = "CARGO_CACHE_OK_695";
+
+/// Sets `CARGO_HOME` for this process and restores it on drop. The wrap reads
+/// the parent's `CARGO_HOME`, as the child inherits it; the sandbox lock keeps
+/// the sandbox tests from overlapping.
+struct CargoHomeGuard(Option<std::ffi::OsString>);
+
+impl CargoHomeGuard {
+    fn set(value: &Path) -> Self {
+        let previous = std::env::var_os("CARGO_HOME");
+        // SAFETY: the tests that install a sandbox hold `SANDBOX_LOCK`, and no
+        // other test in this binary reads `CARGO_HOME`.
+        unsafe { std::env::set_var("CARGO_HOME", value) };
+        Self(previous)
+    }
+}
+
+impl Drop for CargoHomeGuard {
+    fn drop(&mut self) {
+        // SAFETY: see `CargoHomeGuard::set`.
+        unsafe {
+            match &self.0 {
+                Some(previous) => std::env::set_var("CARGO_HOME", previous),
+                None => std::env::remove_var("CARGO_HOME"),
+            }
+        }
+    }
+}
+
+/// Add the fake cargo credentials and cache entries to the fixture's home.
+fn add_cargo_home_files(fixture: &Fixture) {
+    let cargo = fixture.home.join(".cargo");
+    std::fs::create_dir_all(cargo.join("registry/cache")).unwrap();
+    std::fs::create_dir_all(cargo.join("git/db")).unwrap();
+    std::fs::write(
+        cargo.join("credentials.toml"),
+        format!("token = \"{CARGO_CANARY}\"\n"),
+    )
+    .unwrap();
+    std::fs::write(cargo.join("credentials"), format!("{CARGO_CANARY}\n")).unwrap();
+    std::fs::write(
+        cargo.join("registry/cache/crate"),
+        format!("{CARGO_CACHE_OK}\n"),
+    )
+    .unwrap();
+    std::fs::write(cargo.join("git/db/object"), format!("{CARGO_CACHE_OK}\n")).unwrap();
+    std::os::unix::fs::symlink(
+        cargo.join("credentials.toml"),
+        fixture.root.join("cargo-token.txt"),
+    )
+    .unwrap();
+}
+
+/// Whether the OS read layer of this platform can run here.
+fn read_layer_ready() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        if !backend_available() {
+            eprintln!("SKIP: sandbox backend unavailable (nested sandbox?)");
+            return false;
+        }
+        true
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if !require_landlock_backend() {
+            eprintln!("SKIP: Landlock backend unavailable");
+            return false;
+        }
+        true
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        false
+    }
+}
+
+/// The cargo credential files are unreadable, directly and through a symlink,
+/// and the cargo caches stay readable and writable.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn applied_cargo_credentials_are_denied_but_caches_stay_usable() {
+    let _guard = sandbox_lock();
+    if !read_layer_ready() {
+        return;
+    }
+    let fixture = fixture();
+    add_cargo_home_files(&fixture);
+    install_available(&fixture);
+    let cargo = fixture.home.join(".cargo");
+
+    for name in ["credentials.toml", "credentials"] {
+        assert_read_denied(
+            &fixture.root,
+            &format!("cat '{}'", cargo.join(name).display()),
+            &[],
+            CARGO_CANARY,
+        );
+    }
+    // A non-secret symlink name resolves to the denied target.
+    assert!(command_references_secret("cat cargo-token.txt").is_none());
+    assert_read_denied(&fixture.root, "cat cargo-token.txt", &[], CARGO_CANARY);
+    // The lexical guard names the same credentials.
+    assert!(command_references_secret("cat ~/.cargo/credentials.toml").is_some());
+    assert!(command_references_secret("cat ~/.cargo/credentials").is_some());
+    assert!(command_references_secret("cat ~/.cargo/registry/cache/crate").is_none());
+
+    // Positive control: the registry and git caches are still readable ...
+    assert_read_allowed(
+        &fixture.root,
+        &format!("cat '{}'", cargo.join("registry/cache/crate").display()),
+        CARGO_CACHE_OK,
+    );
+    assert_read_allowed(
+        &fixture.root,
+        &format!("cat '{}'", cargo.join("git/db/object").display()),
+        CARGO_CACHE_OK,
+    );
+    // ... and the registry cache is still writable.
+    let written = cargo.join("registry/cache/written");
+    let output = run_wrapped(&fixture.root, &format!("echo ok > '{}'", written.display()));
+    assert!(
+        output.success(),
+        "the registry cache stays writable; stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(written.exists());
+
+    os_sandbox::reset_for_test();
+}
+
+/// A `CARGO_HOME` outside the home has its credential files denied too, and its
+/// other contents stay readable. The directory is a temporary fake.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn applied_cargo_home_outside_the_home_denies_its_credentials() {
+    let _guard = sandbox_lock();
+    if !read_layer_ready() {
+        return;
+    }
+    let fixture = fixture();
+    let cargo_home = fixture._dir.path().join("cargo-home-outside");
+    std::fs::create_dir_all(cargo_home.join("registry")).unwrap();
+    std::fs::write(
+        cargo_home.join("credentials.toml"),
+        format!("{CARGO_CANARY}\n"),
+    )
+    .unwrap();
+    std::fs::write(cargo_home.join("credentials"), format!("{CARGO_CANARY}\n")).unwrap();
+    std::fs::write(
+        cargo_home.join("registry/entry"),
+        format!("{CARGO_CACHE_OK}\n"),
+    )
+    .unwrap();
+    let _cargo_home = CargoHomeGuard::set(&cargo_home);
+    install_available(&fixture);
+
+    for name in ["credentials.toml", "credentials"] {
+        assert_read_denied(
+            &fixture.root,
+            &format!("cat '{}'", cargo_home.join(name).display()),
+            &[],
+            CARGO_CANARY,
+        );
+    }
+    assert_read_allowed(
+        &fixture.root,
+        &format!("cat '{}'", cargo_home.join("registry/entry").display()),
+        CARGO_CACHE_OK,
+    );
+
+    os_sandbox::reset_for_test();
+}
+
+/// A symlinked `~/.cargo` denies the credentials at its target.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn applied_symlinked_cargo_directory_denies_its_credentials() {
+    let _guard = sandbox_lock();
+    if !read_layer_ready() {
+        return;
+    }
+    let fixture = fixture();
+    let home = fixture._dir.path().join("home3");
+    let outside = fixture._dir.path().join("outside-cargo");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(
+        outside.join("credentials.toml"),
+        format!("{CARGO_CANARY}\n"),
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(&outside, home.join(".cargo")).unwrap();
+    install_available_for(
+        &fixture.root,
+        &fixture._dir.path().join("home3-run-tmp"),
+        &home,
+    );
+
+    assert_read_denied(
+        &fixture.root,
+        &format!("cat '{}/.cargo/credentials.toml'", home.display()),
+        &[],
+        CARGO_CANARY,
+    );
+    os_sandbox::reset_for_test();
+}
+
+/// macOS volumes are case-insensitive by default: a differently cased name
+/// reaches the same file and is denied too.
+#[cfg(target_os = "macos")]
+#[test]
+fn applied_cargo_credentials_are_denied_under_a_different_case() {
+    let _guard = sandbox_lock();
+    if !read_layer_ready() {
+        return;
+    }
+    let fixture = fixture();
+    add_cargo_home_files(&fixture);
+    install_available(&fixture);
+
+    assert_read_denied(
+        &fixture.root,
+        &format!("cat '{}/.CARGO/CREDENTIALS.TOML'", fixture.home.display()),
+        &[],
+        CARGO_CANARY,
+    );
+    os_sandbox::reset_for_test();
+}

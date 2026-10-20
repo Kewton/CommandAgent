@@ -245,6 +245,16 @@ command before the shell starts.
   registry, git, and `.package-cache` under such a `CARGO_HOME` are denied.
   A `cargo` that downloads dependencies, and `cargo install`, fail; an offline
   build with no dependencies to fetch works.
+- The cargo registry credentials are read-denied (Issue #695). `credentials.toml`
+  and the legacy `credentials` under `~/.cargo` are in the home secret list on
+  both macOS and Linux, and the lexical guard refuses the same names under any
+  `.cargo` directory. When the parent's `CARGO_HOME` is an absolute path, the
+  two files under it are denied as well, inside or outside the home (for
+  example `/usr/local/cargo`). A relative `CARGO_HOME` is ignored. Because
+  `cargo publish` and a private registry need that token, their authentication
+  fails inside the isolation; run them outside the isolation when needed. The
+  registry and git caches under `~/.cargo` stay readable and writable as
+  before.
 
 macOS `mktemp` ignores `TMPDIR` and targets the per-user temp directory, which
 the sandbox denies. A `mktemp` inside the run temp directory (`mktemp -p
