@@ -1,0 +1,42 @@
+case_id = "issue697-path-hint"
+source = "Issue #781 nearest_expected_path advises only candidates with a a shared path component"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[json_fields]
+fixtures/cases.json:empty_candidates.advice = "null"
+fixtures/cases.json:empty_candidates.denial = "path_confinement_error"
+fixtures/cases.json:all_zero_overlap.advice = "null"
+fixtures/cases.json:all_zero_overlap.denial = "path_confinement_error"
+fixtures/cases.json:one_positive_component.advice = "lib/layout.tsx"
+fixtures/cases.json:one_positive_component.denial = "stale_absolute_path_recoverable"
+fixtures/cases.json:multiple_components.advice = "web/app/layout.tsx"
+fixtures/cases.json:multiple_components.denial = "stale_absolute_path_recoverable"
+fixtures/cases.json:tie_keeps_last.advice = "b/page.tsx"
+fixtures/cases.json:tie_keeps_last.denial = "stale_absolute_path_recoverable"
+fixtures/cases.json:invalid_candidates_only.advice = "null"
+fixtures/cases.json:invalid_candidates_only.denial = "path_confinement_error"
+fixtures/cases.json:parent_component_in_raw.advice = "null"
+fixtures/cases.json:parent_component_in_raw.denial = "path_confinement_error"
+fixtures/cases.json:src_only_common_component.advice = "src/lib.rs"
+fixtures/cases.json:src_only_common_component.denial = "stale_absolute_path_recoverable"
+fixtures/cases.json:existing_stale_test_shape.advice = "src/app/page.tsx"
+fixtures/cases.json:existing_stale_test_shape.denial = "stale_absolute_path_recoverable"
