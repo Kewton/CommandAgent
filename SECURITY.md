@@ -251,10 +251,10 @@ command before the shell starts.
   `.cargo` directory. When the parent's `CARGO_HOME` is an absolute path, the
   two files under it are denied as well, inside or outside the home (for
   example `/usr/local/cargo`). A relative `CARGO_HOME` is ignored. Because
-  `cargo publish` and a private registry need that token, they fail inside the
-  isolation; pass the token through `CARGO_REGISTRIES_<NAME>_TOKEN` in the
-  parent environment or run them outside the isolation. The registry and git
-  caches under `~/.cargo` stay readable and writable as before.
+  `cargo publish` and a private registry need that token, their authentication
+  fails inside the isolation; run them outside the isolation when needed. The
+  registry and git caches under `~/.cargo` stay readable and writable as
+  before.
 
 macOS `mktemp` ignores `TMPDIR` and targets the per-user temp directory, which
 the sandbox denies. A `mktemp` inside the run temp directory (`mktemp -p
