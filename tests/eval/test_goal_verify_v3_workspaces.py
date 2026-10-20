@@ -44,7 +44,11 @@ def _load(path: Path) -> dict:
 def _copy_stage(case_id: str, stage: str) -> Path:
     source = FIXTURES / case_id / stage
     target = Path(tempfile.mkdtemp(prefix=f"gv3-{case_id}-{stage}-")) / stage
-    shutil.copytree(source, target, ignore=shutil.ignore_patterns("node_modules", ".next", "__pycache__"))
+    shutil.copytree(
+        source,
+        target,
+        ignore=shutil.ignore_patterns("node_modules", ".next", "__pycache__"),
+    )
     return target
 
 
@@ -70,24 +74,47 @@ class RegistryShapeTest(unittest.TestCase):
             root = ROOT / workspace["root"]
             self.assertTrue(root.is_dir(), workspace["case_id"])
             for stage in workspace["stages"]:
-                self.assertTrue((root / stage).is_dir(), f"{workspace['case_id']}/{stage}")
-            self.assertIn(workspace["candidate_oracle_execution_stage"], workspace["stages"])
-            self.assertIn(workspace["product_run"]["initial_stage"], workspace["stages"])
+                self.assertTrue(
+                    (root / stage).is_dir(), f"{workspace['case_id']}/{stage}"
+                )
+            self.assertIn(
+                workspace["candidate_oracle_execution_stage"], workspace["stages"]
+            )
+            self.assertIn(
+                workspace["product_run"]["initial_stage"], workspace["stages"]
+            )
 
     def test_primary_cells_are_exactly_the_seven_registered_workspaces(self):
         capabilities = _load(CAPABILITIES)
-        primary = sorted(case["case_id"] for case in capabilities["cases"] if case["lane"] == "primary")
-        registered = sorted(workspace["case_id"] for workspace in self.registry["workspaces"])
+        primary = sorted(
+            case["case_id"]
+            for case in capabilities["cases"]
+            if case["lane"] == "primary"
+        )
+        registered = sorted(
+            workspace["case_id"] for workspace in self.registry["workspaces"]
+        )
         self.assertEqual(primary, registered)
-        unavailable = sorted(case["case_id"] for case in capabilities["cases"] if case["lane"] != "primary")
-        self.assertEqual(unavailable, sorted(c["case_id"] for c in self.registry["executor_unavailable_cells"]))
+        unavailable = sorted(
+            case["case_id"]
+            for case in capabilities["cases"]
+            if case["lane"] != "primary"
+        )
+        self.assertEqual(
+            unavailable,
+            sorted(c["case_id"] for c in self.registry["executor_unavailable_cells"]),
+        )
 
-    def test_adapters_reference_existing_workspace_stages_and_no_snapshot_executors(self):
+    def test_adapters_reference_existing_workspace_stages_and_no_snapshot_executors(
+        self,
+    ):
         adapters = _load(ADAPTERS)["adapters"]
         by_case = {w["case_id"]: w for w in self.registry["workspaces"]}
         for adapter in adapters:
             executor = adapter["executor"]
-            self.assertFalse(executor["kind"].startswith("snapshot"), adapter["adapter_id"])
+            self.assertFalse(
+                executor["kind"].startswith("snapshot"), adapter["adapter_id"]
+            )
             if executor["kind"] == "unavailable":
                 self.assertNotIn(adapter["case_id"], by_case)
                 continue
@@ -103,7 +130,13 @@ class RegistryShapeTest(unittest.TestCase):
             if server:
                 self.assertTrue(server["loopback_only"])
                 ports.add((adapter["case_id"], server["port"]))
-        self.assertEqual(ports, {("create-build-only-functional", 4174), ("create-ui-copy-style-port-path", 4173)})
+        self.assertEqual(
+            ports,
+            {
+                ("create-build-only-functional", 4174),
+                ("create-ui-copy-style-port-path", 4173),
+            },
+        )
         for workspace in self.registry["workspaces"]:
             if workspace["profile"] == "nextjs" and workspace["intent"] == "create":
                 self.assertEqual(workspace["provisioning"]["mode"], "vendored_tarball")
@@ -112,8 +145,12 @@ class RegistryShapeTest(unittest.TestCase):
 class CliCellTest(unittest.TestCase):
     def test_known_values(self):
         reference = _copy_stage("create-cli-known-multiple-inputs", "reference")
-        self.assertEqual(_run(reference, sys.executable, "sum_cli.py", "2", "3").stdout, "5\n")
-        self.assertEqual(_run(reference, sys.executable, "sum_cli.py", "-1", "1").stdout, "0\n")
+        self.assertEqual(
+            _run(reference, sys.executable, "sum_cli.py", "2", "3").stdout, "5\n"
+        )
+        self.assertEqual(
+            _run(reference, sys.executable, "sum_cli.py", "-1", "1").stdout, "0\n"
+        )
         initial = FIXTURES / "create-cli-known-multiple-inputs/initial"
         self.assertEqual([p.name for p in initial.iterdir()], [".gitkeep"])
 
@@ -126,7 +163,9 @@ class FixReproducedAfterRegressionTest(unittest.TestCase):
         self.assertEqual(_run(after, sys.executable, "cli.py", "7").returncode, 0)
         self.assertEqual(_run(before, *PYTEST).returncode, 0)
         self.assertEqual(_run(after, *PYTEST).returncode, 0)
-        self.assertEqual(_run(after, sys.executable, "scripts/contract_check.py").returncode, 0)
+        self.assertEqual(
+            _run(after, sys.executable, "scripts/contract_check.py").returncode, 0
+        )
         readme = (after / "README.md").read_text(encoding="utf-8")
         self.assertIn("pytest-tests", readme)
         self.assertIn("contract-check", readme)
@@ -139,8 +178,12 @@ class FixBaselineNotReproducedSubstitutionTest(unittest.TestCase):
         crash = _run(before, sys.executable, "app.py", "fixture/a.json")
         self.assertEqual(crash.returncode, 1)
         self.assertIn("Traceback", crash.stderr)
-        self.assertEqual(_run(before, sys.executable, "app.py", "fixture/b.json").returncode, 0)
-        self.assertEqual(_run(after, sys.executable, "app.py", "fixture/a.json").returncode, 0)
+        self.assertEqual(
+            _run(before, sys.executable, "app.py", "fixture/b.json").returncode, 0
+        )
+        self.assertEqual(
+            _run(after, sys.executable, "app.py", "fixture/a.json").returncode, 0
+        )
         a_before = (before / "fixture/a.json").read_bytes()
         a_after = (after / "fixture/a.json").read_bytes()
         self.assertEqual(a_before, a_after, "fixtures must be identical across stages")
@@ -154,7 +197,9 @@ class FixAfterNotRunRegressionShrunkTest(unittest.TestCase):
         self.assertEqual(_run(before, sys.executable, "repro.py").returncode, 1)
         self.assertEqual(_run(after, sys.executable, "repro.py").returncode, 0)
         self.assertEqual(_run(after, *PYTEST).returncode, 0)
-        self.assertEqual(_run(after, sys.executable, "scripts/contract_check.py").returncode, 0)
+        self.assertEqual(
+            _run(after, sys.executable, "scripts/contract_check.py").returncode, 0
+        )
 
 
 class FixExistingTestsOnlyDependencyMissingTest(unittest.TestCase):
@@ -172,10 +217,15 @@ class FixExistingTestsOnlyDependencyMissingTest(unittest.TestCase):
 
 class NextCellsStaticTest(unittest.TestCase):
     def test_initial_stages_contain_only_a_named_package(self):
-        for case_id in ("create-build-only-functional", "create-ui-copy-style-port-path"):
+        for case_id in (
+            "create-build-only-functional",
+            "create-ui-copy-style-port-path",
+        ):
             initial = FIXTURES / case_id / "initial"
             self.assertEqual([p.name for p in initial.iterdir()], ["package.json"])
-            self.assertEqual(sorted(_load(initial / "package.json")), ["name", "private"])
+            self.assertEqual(
+                sorted(_load(initial / "package.json")), ["name", "private"]
+            )
 
     def test_reference_sources_carry_the_required_markers(self):
         counter = FIXTURES / "create-build-only-functional/reference"
@@ -185,11 +235,18 @@ class NextCellsStaticTest(unittest.TestCase):
         self.assertIn("useState(0)", page)
         play = FIXTURES / "create-ui-copy-style-port-path/reference"
         self.assertIn("開始", (play / "app/play/page.js").read_text(encoding="utf-8"))
-        self.assertIn('backgroundColor: "blue"', (play / "app/layout.js").read_text(encoding="utf-8"))
+        self.assertIn(
+            'backgroundColor: "blue"',
+            (play / "app/layout.js").read_text(encoding="utf-8"),
+        )
         for reference in (counter, play):
             package = _load(reference / "package.json")
-            self.assertEqual(package["scripts"], {"build": "next build", "start": "next start"})
-            self.assertEqual(sorted(package["dependencies"]), ["next", "react", "react-dom"])
+            self.assertEqual(
+                package["scripts"], {"build": "next build", "start": "next start"}
+            )
+            self.assertEqual(
+                sorted(package["dependencies"]), ["next", "react", "react-dom"]
+            )
             self.assertTrue((reference / "package-lock.json").is_file())
 
 
@@ -202,7 +259,9 @@ class NextReadyHelperTest(unittest.TestCase):
 
     def test_reads_announced_port_and_reaps_child(self):
         child = "import time; print('- Local:         http://localhost:54321', flush=True); time.sleep(60)"
-        with next_server(ROOT, timeout=10, argv=[sys.executable, "-c", child]) as server:
+        with next_server(
+            ROOT, timeout=10, argv=[sys.executable, "-c", child]
+        ) as server:
             self.assertEqual(server.port, 54321)
             pid = server.process.pid
         self.assertIsNotNone(server.process.returncode)
@@ -213,7 +272,9 @@ class NextReadyHelperTest(unittest.TestCase):
         started = time.monotonic()
         holder = {}
         with self.assertRaises(NextStartError):
-            with next_server(ROOT, timeout=1, argv=[sys.executable, "-c", child]) as server:
+            with next_server(
+                ROOT, timeout=1, argv=[sys.executable, "-c", child]
+            ) as server:
                 holder["server"] = server
         self.assertLess(time.monotonic() - started, 30)
 
@@ -225,7 +286,9 @@ class NextReadyHelperTest(unittest.TestCase):
         self.assertIn("boom", str(raised.exception))
 
     def test_stop_after_leader_was_reaped_sends_no_signal(self):
-        process = subprocess.Popen([sys.executable, "-c", "pass"], start_new_session=True)
+        process = subprocess.Popen(
+            [sys.executable, "-c", "pass"], start_new_session=True
+        )
         process.wait()
         sent = []
         original = next_ready.os.killpg
@@ -266,7 +329,9 @@ class NextReadyHelperTest(unittest.TestCase):
 def _provisioned_root() -> Path:
     configured = os.environ.get("GOAL_VERIFY_V3_PROVISIONED")
     if not configured:
-        raise unittest.SkipTest("set GOAL_VERIFY_V3_PROVISIONED to the offline provision directory")
+        raise unittest.SkipTest(
+            "set GOAL_VERIFY_V3_PROVISIONED to the offline provision directory"
+        )
     return Path(configured)
 
 
@@ -276,7 +341,9 @@ def _fetch(port: int, route: str, timeout: float = 60.0) -> str:
     last_error: Exception | None = None
     while time.monotonic() < deadline:
         try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{port}{route}", timeout=2) as response:
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{port}{route}", timeout=2
+            ) as response:
                 if response.status == 200:
                     return response.read().decode("utf-8")
         except (OSError, urllib.error.URLError) as exc:
@@ -285,7 +352,10 @@ def _fetch(port: int, route: str, timeout: float = 60.0) -> str:
     raise AssertionError(f"server on port {port} did not answer {route}: {last_error}")
 
 
-@unittest.skipUnless(os.environ.get("GOAL_VERIFY_V3_NEXT") == "1", "set GOAL_VERIFY_V3_NEXT=1 with provisioned node_modules")
+@unittest.skipUnless(
+    os.environ.get("GOAL_VERIFY_V3_NEXT") == "1",
+    "set GOAL_VERIFY_V3_NEXT=1 with provisioned node_modules",
+)
 class NextCellsBuildAndServeTest(unittest.TestCase):
     def _build(self, case_id: str, tmp: str) -> Path:
         workspaces = {row["case_id"]: row for row in _load(REGISTRY)["workspaces"]}
@@ -296,9 +366,13 @@ class NextCellsBuildAndServeTest(unittest.TestCase):
             destination=Path(tmp) / "reference",
             provisioned_root=_provisioned_root(),
         )
-        self.assertTrue((workspace / "node_modules/next").is_dir(), "node_modules not provisioned")
+        self.assertTrue(
+            (workspace / "node_modules/next").is_dir(), "node_modules not provisioned"
+        )
         build = _run(workspace, "npm", "run", "build", timeout=600)
-        self.assertEqual(build.returncode, 0, build.stdout[-2000:] + build.stderr[-2000:])
+        self.assertEqual(
+            build.returncode, 0, build.stdout[-2000:] + build.stderr[-2000:]
+        )
         return workspace
 
     def _build_and_get(self, case_id: str, route: str) -> str:
@@ -307,7 +381,10 @@ class NextCellsBuildAndServeTest(unittest.TestCase):
             with next_server(reference) as server:
                 self.assertGreater(server.port, 0)
                 body = _fetch(server.port, route)
-                if os.environ.get("GOAL_VERIFY_V3_PLAYWRIGHT") == "1" and case_id == "create-build-only-functional":
+                if (
+                    os.environ.get("GOAL_VERIFY_V3_PLAYWRIGHT") == "1"
+                    and case_id == "create-build-only-functional"
+                ):
                     script = (
                         "const { chromium } = require('playwright-core');"
                         "(async () => { const b = await chromium.launch({headless: true,"

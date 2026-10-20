@@ -1,0 +1,78 @@
+{
+  "empty_candidates": {
+    "raw": "/Users/example/old-run/src/app/layout.tsx",
+    "expected_paths": [],
+    "advice": null,
+    "denial": "path_confinement_error"
+  },
+  "all_zero_overlap": {
+    "raw": "/Users/example/old-run/docs/readme.md",
+    "expected_paths": [
+      "src/app/page.tsx",
+      "lib/util.ts"
+    ],
+    "advice": null,
+    "denial": "path_confinement_error"
+  },
+  "one_positive_component": {
+    "raw": "/Users/example/old-run/src/app/layout.tsx",
+    "expected_paths": [
+      "src/app/page.tsx",
+      "lib/layout.tsx"
+    ],
+    "advice": "lib/layout.tsx",
+    "denial": "stale_absolute_path_recoverable"
+  },
+  "multiple_components": {
+    "raw": "/Users/example/old-run/src/app/layout.tsx",
+    "expected_paths": [
+      "lib/layout.tsx",
+      "web/app/layout.tsx",
+      "src/app/page.tsx"
+    ],
+    "advice": "web/app/layout.tsx",
+    "denial": "stale_absolute_path_recoverable"
+  },
+  "tie_keeps_last": {
+    "raw": "/Users/example/old-run/src/page.tsx",
+    "expected_paths": [
+      "a/page.tsx",
+      "b/page.tsx"
+    ],
+    "advice": "b/page.tsx",
+    "denial": "stale_absolute_path_recoverable"
+  },
+  "invalid_candidates_only": {
+    "raw": "/Users/example/old-run/src/app/layout.tsx",
+    "expected_paths": [
+      "../src/app/layout.tsx",
+      "/etc/layout.tsx"
+    ],
+    "advice": null,
+    "denial": "path_confinement_error"
+  },
+  "parent_component_in_raw": {
+    "raw": "/Users/example/old-run/../src/app/page.tsx",
+    "expected_paths": [
+      "src/app/page.tsx"
+    ],
+    "advice": null,
+    "denial": "path_confinement_error"
+  },
+  "src_only_common_component": {
+    "raw": "/Users/example/old-run/src/main.rs",
+    "expected_paths": [
+      "src/lib.rs"
+    ],
+    "advice": "src/lib.rs",
+    "denial": "stale_absolute_path_recoverable"
+  },
+  "existing_stale_test_shape": {
+    "raw": "/Users/example/old-run/src/app/layout.tsx",
+    "expected_paths": [
+      "src/app/page.tsx"
+    ],
+    "advice": "src/app/page.tsx",
+    "denial": "stale_absolute_path_recoverable"
+  }
+}
