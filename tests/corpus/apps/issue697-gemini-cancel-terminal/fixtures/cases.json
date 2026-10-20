@@ -1,0 +1,18 @@
+{
+  "schema_version": "commandagent.gemini_cancel_terminal.v0",
+  "stream": "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"done\"}]},\"finishReason\":\"STOP\"}]}\n\ndata: [DONE]\n\n",
+  "cancelled_after_complete_buffer": {
+    "callback_cancels_token": true,
+    "outcome": "aborted_by_user",
+    "provider_response": 0,
+    "provider_parse_error": 0,
+    "provider_retry": 0
+  },
+  "uncancelled_control": {
+    "callback_cancels_token": false,
+    "outcome": "ok",
+    "provider_response": 1,
+    "provider_parse_error": 0,
+    "provider_retry": 0
+  }
+}
