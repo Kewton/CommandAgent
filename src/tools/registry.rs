@@ -607,8 +607,13 @@ fn nearest_expected_path(raw: &str, expected_paths: &[String]) -> Option<String>
     expected_paths
         .iter()
         .filter(|path| super::path_guard::validate_workspace_relative(path).is_ok())
-        .max_by_key(|path| common_suffix_len(&raw_components, &path_components(path)))
-        .cloned()
+        .filter_map(|path| {
+            let components = path_components(path);
+            let shares_component = components.iter().any(|part| raw_components.contains(part));
+            shares_component.then(|| (common_suffix_len(&raw_components, &components), path))
+        })
+        .max_by_key(|(suffix_len, _)| *suffix_len)
+        .map(|(_, path)| path.clone())
 }
 
 fn common_suffix_len(left: &[String], right: &[String]) -> usize {
@@ -1269,6 +1274,84 @@ mod tests {
         assert!(event_text.contains(r#""method":"required_path""#));
         assert!(event_text.contains(r#""accepted":false"#));
         assert!(event_text.contains(r#""normalized":"src/app/page.tsx""#));
+    }
+
+    fn path_hint_cases() -> serde_json::Value {
+        serde_json::from_str(include_str!(
+            "../../tests/corpus/apps/issue697-path-hint/fixtures/cases.json"
+        ))
+        .unwrap()
+    }
+
+    fn path_hint_expected(case: &serde_json::Value) -> Vec<String> {
+        case["expected_paths"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|path| path.as_str().unwrap().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn nearest_expected_path_matches_issue697_path_hint_cases() {
+        for (name, case) in path_hint_cases().as_object().unwrap() {
+            let raw = case["raw"].as_str().unwrap();
+            let expected = path_hint_expected(case);
+            assert_eq!(
+                nearest_expected_path(raw, &expected).as_deref(),
+                case["advice"].as_str(),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn zero_overlap_expected_paths_keep_the_original_write_refusal() {
+        let registry = ToolRegistry::default();
+        for (name, case) in path_hint_cases().as_object().unwrap() {
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path().join("current/workspace");
+            std::fs::create_dir_all(&root).unwrap();
+            let mut expected_paths = path_hint_expected(case);
+            if expected_paths.is_empty() {
+                expected_paths.push("unrelated/file.txt".to_string());
+            }
+            let context = ToolContext {
+                root: root.clone(),
+                mode: ExecutionMode::Act,
+                auto_approve: true,
+                interactive_approval: false,
+                offline: false,
+                workspace_policy: WorkspacePolicy::NormalTask,
+                eval_events_path: None,
+                expected_paths,
+                protected_paths: Vec::new(),
+            };
+            let raw = case["raw"].as_str().unwrap();
+
+            let err = registry
+                .execute("Write", &json!({"path": raw, "content": "no"}), &context)
+                .unwrap_err();
+
+            let message = err.to_string();
+            assert_eq!(
+                tool_error_kind(&err),
+                case["denial"].as_str().unwrap(),
+                "{name}: {message}"
+            );
+            match case["advice"].as_str() {
+                Some(advice) => assert!(
+                    message.contains(&format!("use workspace-relative path `{advice}`")),
+                    "{name}: {message}"
+                ),
+                None => assert!(
+                    !message.contains("use workspace-relative path `"),
+                    "{name}: {message}"
+                ),
+            }
+            let written = std::fs::read_dir(&root).unwrap().count();
+            assert_eq!(written, 0, "{name}: workspace must stay untouched");
+        }
     }
 
     #[test]
