@@ -220,12 +220,38 @@ command before the shell starts.
   with `applied=false` and the reason; the event name and fields are unchanged.
 - The dependency caches (cargo registry/git/package-cache, npm, pip, Playwright
   browsers) stay writable so builds and tests work; they remain a contamination
-  path outside the workspace. On macOS they live under `~/Library/Caches` and
-  `~/.cargo`; on Linux under `~/.cargo`, `~/.npm`, and `~/.cache`. pnpm and yarn
-  stores are not allowed in this stage. A cache is allowed only when its
-  symlinks resolve to a location under the home; one that points elsewhere
-  (for example `~/.npm` linked at another directory) is not writable and the
-  `reason` counts it.
+  path outside the workspace. The list is per OS: `~/.cargo` and `~/.npm` on
+  both, `~/Library/Caches/pip` and `~/Library/Caches/ms-playwright` on macOS
+  only, `~/.cache/pip` and `~/.cache/ms-playwright` on Linux only, so Linux
+  never gets a `Library/Caches` allowance. pnpm and yarn stores are not allowed
+  in this stage. A cache is allowed only when it exists with the expected type
+  and, with every symlink resolved, is a strict descendant of the resolved home
+  that does not overlap a home secret location in either direction. The home
+  itself, a secret, a secret's child, and a secret's ancestor (`~/.config` for
+  `~/.config/gh`) are refused, as are a link to a location outside the home, a
+  dangling link, and a file where a directory is expected (Issue #772). The
+  `reason` counts the refused caches and names why. The decision is taken once,
+  when the isolation is installed, and the backends receive the resolved path,
+  so a cache name relinked later does not move the grant. That narrows the gap
+  between check and use but does not close it: the grant stays on the location
+  resolved at install time (Seatbelt matches by path, Landlock by directory
+  inode), so a process outside the sandbox that renames or replaces the
+  resolved directory or one of its parents afterwards can void or move the
+  grant, and a cache that did not exist at install is not granted until the next
+  install. No re-check happens per command. A hard link to a secret that was
+  created outside the isolation before the install, and that sits inside an
+  allowed cache (or the workspace), stays writable from inside the isolation: it
+  is the same inode under a non-secret name. This holds since Issue #502 and is
+  not new in #772. Read denial of the secret locations is separate and still
+  applies. A `CARGO_HOME` outside the home (for example `/usr/local/cargo`) is
+  not a cache: its registry and git directories are not allowed for writing,
+  exactly as before #772.
+- Attribute changes are a Linux limit (it predates Issue #772). Landlock has no
+  access right for `chmod`, `chown`, or `utimes`, so on Linux a sandboxed
+  command can change the mode, owner, or timestamps of a file it can reach by
+  path, even where it may not write. The isolation still refuses writing,
+  creating, removing, and renaming content outside the allowed locations; the
+  macOS Seatbelt backend also refuses the attribute changes.
 - Private-registry npm fails inside the isolation (Issue #669, a documented
   limit). The home npm config (`~/.npmrc`) is a read-denied secret, so an `npm`
   that needs a registry token from it fails, both in model Bash and in the

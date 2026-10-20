@@ -468,7 +468,6 @@ pub(crate) fn allowed_paths(policy: &SandboxPolicy) -> Vec<PathBuf> {
     paths.extend(existing(policy.caches.npm.clone()));
     paths.extend(existing(policy.caches.pip.clone()));
     paths.extend(existing(policy.caches.playwright.clone()));
-    paths.extend(cache_paths(&policy.home));
     for device in DEVICE_PATHS {
         let path = PathBuf::from(device);
         if path.exists() {
@@ -689,22 +688,6 @@ fn expand_read_allow_limited(
 #[cfg(test)]
 fn expand_read_allow_from(root: &std::path::Path, denied: &[PathBuf]) -> Vec<PathBuf> {
     expand_read_allow_limited(root, denied, usize::MAX).expect("no limit")
-}
-
-/// The Linux dependency caches allowed for writing (decision 2). Only those that
-/// exist are returned.
-fn cache_paths(home: &std::path::Path) -> Vec<PathBuf> {
-    [
-        home.join(".cargo/registry"),
-        home.join(".cargo/git"),
-        home.join(".cargo/.package-cache"),
-        home.join(".npm"),
-        home.join(".cache/pip"),
-        home.join(".cache/ms-playwright"),
-    ]
-    .into_iter()
-    .filter(|path| path.exists() && super::cache_stays_in_home(home, path))
-    .collect()
 }
 
 fn existing(path: Option<PathBuf>) -> Option<PathBuf> {
