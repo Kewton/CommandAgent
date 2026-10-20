@@ -19,8 +19,14 @@ from pathlib import Path
 CASES = Path(__file__).resolve().parents[1] / "tests/corpus/apps/nextjs-domain-oracles/cases.json"
 
 
+class RacePreconditionError(RuntimeError):
+    """The scheduler barrier did not measure a race. Not a case result: it is
+    deliberately outside the exceptions `record` turns into a failed case, so
+    an unmet precondition can never be mistaken for an expected failure."""
+
+
 class Oracle:
-    def __init__(self, base_url, workspace, adapter, arm_race=None):
+    def __init__(self, base_url, workspace, adapter, arm_race=None, race_report=None, race_required=False):
         self.url = base_url.rstrip("/")
         self.root = Path(workspace).resolve()
         if not (self.root / ".issue442-oracle-scratch").is_file():
@@ -30,6 +36,8 @@ class Oracle:
         self.a = adapter
         self.cases = json.loads(CASES.read_text())
         self.arm_race = arm_race
+        self.race_report = race_report
+        self.race_required = race_required
         self.names = [adapter["parent"], adapter["child"]]
         if any(name not in {"staff", "shifts", "products", "orders", "departments", "expenses"} for name in self.names):
             raise ValueError("unsupported file adapter")
@@ -195,6 +203,9 @@ class Oracle:
             self.arm_race()
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
             replies = list(pool.map(lambda body: self.request("POST", name, body), bodies))
+        report = self.race_report() if self.race_report else None
+        if self.race_required and (report or {}).get("state") != "measured":
+            raise RacePreconditionError("race barrier did not measure the race: " + json.dumps(report))
         assert [status for status, _ in replies] == [201, 201], replies
         ids = [self.unwrap(name, value)["id"] for _, value in replies]
         after = self.consistent(name)
