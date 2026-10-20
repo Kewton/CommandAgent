@@ -238,8 +238,14 @@ command before the shell starts.
   inode), so a process outside the sandbox that renames or replaces the
   resolved directory or one of its parents afterwards can void or move the
   grant, and a cache that did not exist at install is not granted until the next
-  install. No re-check happens per command. Read denial of the secret locations
-  is separate and still applies.
+  install. No re-check happens per command. A hard link to a secret that was
+  created outside the isolation before the install, and that sits inside an
+  allowed cache (or the workspace), stays writable from inside the isolation: it
+  is the same inode under a non-secret name. This holds since Issue #502 and is
+  not new in #772. Read denial of the secret locations is separate and still
+  applies. A `CARGO_HOME` outside the home (for example `/usr/local/cargo`) is
+  not a cache: its registry and git directories are not allowed for writing,
+  exactly as before #772.
 - Attribute changes are a Linux limit (it predates Issue #772). Landlock has no
   access right for `chmod`, `chown`, or `utimes`, so on Linux a sandboxed
   command can change the mode, owner, or timestamps of a file it can reach by
