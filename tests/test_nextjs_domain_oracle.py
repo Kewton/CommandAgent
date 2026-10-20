@@ -30,7 +30,7 @@ def replay_events(workspace):
     events = []
     for line in (workspace / "server.log").read_text().splitlines():
         if line.startswith(LOG_PREFIX):
-            events.append(json.loads(line[len(LOG_PREFIX):]))
+            events.append(json.loads(line[len(LOG_PREFIX) :]))
     return events
 
 
@@ -86,16 +86,25 @@ def test_frozen_domain_oracles(run, correct, tmp_path):
     adapter = json.loads((fixture / "adapter.json").read_text())
     expected = set() if correct else set(adapter["expected_failures"])
     with replay(fixture, tmp_path, correct) as served:
-        oracle = wire_race(Oracle(served.url, tmp_path, adapter), required=not correct and "concurrent-create" in expected)
+        oracle = wire_race(
+            Oracle(served.url, tmp_path, adapter),
+            required=not correct and "concurrent-create" in expected,
+        )
         before = oracle.snapshot()
         try:
             results = oracle.run()
         except RacePreconditionError as error:
-            raise AssertionError(f"{error}\nreplay log:\n{replay_log_tail(tmp_path)}") from error
+            raise AssertionError(
+                f"{error}\nreplay log:\n{replay_log_tail(tmp_path)}"
+            ) from error
         assert oracle.snapshot() == before
         report = oracle.race_report()
     failed = {result["case"] for result in results if not result["passed"]}
-    detail = json.dumps(results, ensure_ascii=False, indent=2) + "\nreplay log:\n" + replay_log_tail(tmp_path)
+    detail = (
+        json.dumps(results, ensure_ascii=False, indent=2)
+        + "\nreplay log:\n"
+        + replay_log_tail(tmp_path)
+    )
     assert failed == expected, detail
     if correct:
         # The control serializes whole transactions: the barrier must not have
@@ -236,7 +245,9 @@ export async function POST(request) {
 }
 export async function GET() { return Response.json(await load()); }
 """
-UNSAFE = UNSAFE_ROUTE.replace("__SERIAL__", "return Response.json(await create(row), { status: 201 });")
+UNSAFE = UNSAFE_ROUTE.replace(
+    "__SERIAL__", "return Response.json(await create(row), { status: 201 });"
+)
 SERIAL = UNSAFE_ROUTE.replace(
     "__SERIAL__",
     "const run = chain.then(() => create(row)); chain = run.catch(() => {});"
@@ -248,13 +259,17 @@ def synthetic_fixture(root, route):
     """A disposable fixture with a controlled multi-read create route."""
     (root / "src/app/api/staff").mkdir(parents=True)
     (root / "src/app/api/staff/route.ts").write_text(route)
-    (root / "adapter.json").write_text(json.dumps({"parent": "staff", "child": "shifts"}))
+    (root / "adapter.json").write_text(
+        json.dumps({"parent": "staff", "child": "shifts"})
+    )
     return root
 
 
 def post_json(url, body):
     request = urllib.request.Request(
-        url, data=json.dumps(body).encode(), method="POST",
+        url,
+        data=json.dumps(body).encode(),
+        method="POST",
         headers={"Content-Type": "application/json"},
     )
     with urllib.request.urlopen(request, timeout=10) as response:
@@ -273,8 +288,12 @@ def run_controlled_race(tmp_path, route):
     with replay(fixture, workspace, False) as served:
         post_json(served.url + "/__replay/race", {})
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-            replies = list(pool.map(
-                lambda i: post_json(served.url + "/api/staff", {"id": str(i)}), range(2)))
+            replies = list(
+                pool.map(
+                    lambda i: post_json(served.url + "/api/staff", {"id": str(i)}),
+                    range(2),
+                )
+            )
         rows = json.loads((workspace / "data/staff.json").read_text())
         report = get_json(served.url + "/__replay/barrier")
     return replies, rows, report, workspace
@@ -289,7 +308,11 @@ def test_unsafe_multi_read_writer_loses_an_update(tmp_path):
     assert report["state"] == "measured", report
     assert [level["ordinal"] for level in report["levels"]] == [1, 2], report
     assert {level["released_by"] for level in report["levels"]} == {"rendezvous"}
-    ordinals = [(e["request"], e["ordinal"]) for e in replay_events(workspace) if e["event"] == "read"]
+    ordinals = [
+        (e["request"], e["ordinal"])
+        for e in replay_events(workspace)
+        if e["event"] == "read"
+    ]
     assert sorted(ordinals) == [(1, 1), (1, 2), (2, 1), (2, 2)], ordinals
 
 
@@ -298,7 +321,9 @@ def test_serial_multi_read_writer_keeps_both_rows(tmp_path):
     assert [status for status, _ in replies] == [201, 201]
     assert sorted(row["id"] for row in rows) == ["0", "1"], rows
     # A serial writer cannot rendezvous: that is reported, never "measured".
-    assert report["state"] == "unmet" and "timeout at read ordinal 1" in report["reason"], report
+    assert (
+        report["state"] == "unmet" and "timeout at read ordinal 1" in report["reason"]
+    ), report
 
 
 def test_oracle_fails_explicitly_when_the_barrier_is_unmet(tmp_path):
@@ -345,13 +370,22 @@ def test_two_independent_replays_run_concurrently_and_are_reaped(tmp_path):
         served = [stack.enter_context(replay(fixture, d, False)) for d in dirs]
         assert served[0].port != served[1].port
         assert served[0].pid != served[1].pid
-        post_json(served[0].url + "/api/departments", {"name": "only-in-a", "monthlyBudget": 1})
+        post_json(
+            served[0].url + "/api/departments",
+            {"name": "only-in-a", "monthlyBudget": 1},
+        )
         assert (dirs[0] / "data/departments.json").is_file()
-        assert not (dirs[1] / "data/departments.json").exists(), "write leaked across replays"
+        assert not (dirs[1] / "data/departments.json").exists(), (
+            "write leaked across replays"
+        )
 
         def run(index):
-            oracle = wire_race(Oracle(served[index].url, dirs[index], adapter), required=True)
-            return {r["case"] for r in oracle.run() if not r["passed"]}, oracle.race_report()
+            oracle = wire_race(
+                Oracle(served[index].url, dirs[index], adapter), required=True
+            )
+            return {
+                r["case"] for r in oracle.run() if not r["passed"]
+            }, oracle.race_report()
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
             outcomes = list(pool.map(run, range(2)))
