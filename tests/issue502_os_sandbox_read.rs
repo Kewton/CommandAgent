@@ -1334,3 +1334,78 @@ fn applied_cargo_credentials_are_denied_under_a_different_case() {
     );
     os_sandbox::reset_for_test();
 }
+
+/// Issue #772: a cache name linked at the home, a secret, its ancestor, or its
+/// child must not reopen the secret for reading (the write grant of a cache also
+/// carries read). The home is a tempdir fake and the canaries are fake values;
+/// the read is driven through the OS backend with the lexical guard bypassed.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn a_cache_link_to_a_secret_does_not_reopen_its_read() {
+    use std::os::unix::fs::symlink;
+
+    // Target directory relative to the home (empty is the home), the canary
+    // file below it (always a secret, or inside one: a plain file in the home is
+    // readable by design), and a short, multibyte, marker-like, or identifier-like fake value.
+    const TARGETS: &[(&str, &str, &str)] = &[
+        ("", ".ssh/canary", "q7"),
+        (".ssh", "canary", "日本語697"),
+        (".aws", "canary", "CANARY_697"),
+        (".config", "gh/canary", "credential697"),
+        (".config/gh", "canary", "q7"),
+        (".ssh/sub", "canary", "日本語697"),
+    ];
+
+    let _guard = sandbox_lock();
+    if !read_layer_ready() {
+        return;
+    }
+    let fixture = fixture();
+    let npm = fixture.home.join(".npm");
+    let hop = fixture.home.join("hop");
+    for (dir, name, value) in TARGETS {
+        let file = fixture.home.join(dir).join(name);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, value).unwrap();
+    }
+    for (dir, name, value) in TARGETS {
+        let target = fixture.home.join(dir);
+        for route in ["direct", "nested"] {
+            let _ = std::fs::remove_file(&npm);
+            let _ = std::fs::remove_file(&hop);
+            if route == "direct" {
+                symlink(&target, &npm).unwrap();
+            } else {
+                symlink(&target, &hop).unwrap();
+                symlink(&hop, &npm).unwrap();
+            }
+            install_available(&fixture);
+            let output = run_wrapped(
+                &fixture.root,
+                &format!("cat '{}'", npm.join(name).display()),
+            );
+            // A short value cannot be searched for in output that echoes a
+            // random tempdir name, so the evidence is the failed read and an
+            // empty stdout.
+            assert!(
+                !output.success() && output.stdout.is_empty(),
+                "{dir:?} via {route}: the read must stay denied for {value:?}; stdout={:?} stderr={:?}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+
+    // Positive control: a real npm cache inside the home stays readable.
+    let _ = std::fs::remove_file(&npm);
+    let _ = std::fs::remove_file(&hop);
+    std::fs::create_dir_all(npm.join("_cacache")).unwrap();
+    std::fs::write(npm.join("_cacache/entry"), "NPM_CACHE_OK_772").unwrap();
+    install_available(&fixture);
+    assert_read_allowed(
+        &fixture.root,
+        &format!("cat '{}'", npm.join("_cacache/entry").display()),
+        "NPM_CACHE_OK_772",
+    );
+    os_sandbox::reset_for_test();
+}

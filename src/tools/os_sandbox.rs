@@ -35,6 +35,9 @@ use std::sync::Mutex;
 
 use clap::ValueEnum;
 
+/// The dependency-cache write allowance shared by both backends (Issue #772).
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+pub mod cache_policy;
 #[cfg(target_os = "linux")]
 pub mod landlock;
 #[cfg(target_os = "macos")]
@@ -389,7 +392,7 @@ fn read_isolation(_policy: Option<&SandboxPolicy>) -> ReadIsolation {
 /// the network-isolation clause of Issue #658 when `--offline` cannot be
 /// enforced (no ABI4), and the read-isolation clause (effective or not, in the
 /// same words as macOS since Issue #668). Both platforms then name a known
-/// dependency cache that was refused because it resolves outside the home.
+/// dependency cache that was refused, with the reason (Issue #772).
 /// macOS enforces the network layer inside Seatbelt, so it has no network
 /// clause.
 fn backend_note(
@@ -896,80 +899,49 @@ fn apply_backend(
     }
 }
 
-/// The known cache locations, relative to the home, that this platform allows.
-/// Used to count the ones a symlink pointed outside the home (Issue #668).
-const CACHE_LOCATIONS: &[&str] = &[
-    ".cargo/registry",
-    ".cargo/git",
-    ".cargo/.package-cache",
-    ".npm",
-    // macOS locations.
-    #[cfg(target_os = "macos")]
-    "Library/Caches/pip",
-    #[cfg(target_os = "macos")]
-    "Library/Caches/ms-playwright",
-    // Linux locations (`landlock::cache_paths`).
-    #[cfg(target_os = "linux")]
-    ".cache/pip",
-    #[cfg(target_os = "linux")]
-    ".cache/ms-playwright",
-];
-
-/// Whether a known cache location, once its symlinks are resolved, is still
-/// under the home. A cache that points outside the home (`~/.npm` linked at an
-/// unrelated directory) is not granted write: the sandbox would otherwise open
-/// the link's target (Issue #668). An empty home or an unresolvable path is not
-/// inside.
-pub(crate) fn cache_stays_in_home(home: &Path, cache: &Path) -> bool {
-    if home.as_os_str().is_empty() {
-        return false;
-    }
-    match (home.canonicalize(), cache.canonicalize()) {
-        (Ok(home), Ok(cache)) => cache.starts_with(home),
-        _ => false,
-    }
-}
-
-/// The reason clause naming the known caches that exist but were refused
-/// because they resolve outside the home, or `None` when there are none.
+/// The reason clause naming the known caches that exist but were refused, with
+/// the reason for each, or `None` when there are none (Issue #772).
 fn cache_note(policy: Option<&SandboxPolicy>) -> Option<String> {
-    let home = &policy?.home;
-    if home.as_os_str().is_empty() {
-        return None;
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        let home = &policy?.home;
+        cache_policy::refusal_note(&cache_policy::resolve(home, cache_policy::current_os()))
     }
-    let refused = CACHE_LOCATIONS
-        .iter()
-        .map(|relative| home.join(relative))
-        .filter(|path| path.exists() && !cache_stays_in_home(home, path))
-        .count();
-    (refused > 0).then(|| {
-        format!(
-            "{refused} dependency cache location(s) resolve outside the home and are not writable"
-        )
-    })
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        let _ = policy;
+        None
+    }
 }
 
+/// The writable caches for this platform, as resolved by [`cache_policy`]. The
+/// backends receive the resolved path of each.
 fn resolve_cache_paths(home: &Path) -> CachePaths {
-    if home.as_os_str().is_empty() {
-        return CachePaths::default();
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        use cache_policy::{CacheSlot, CacheVerdict};
+        let mut caches = CachePaths::default();
+        for (slot, verdict) in cache_policy::resolve(home, cache_policy::current_os()) {
+            let CacheVerdict::Allowed(path) = verdict else {
+                continue;
+            };
+            let field = match slot {
+                CacheSlot::CargoRegistry => &mut caches.cargo_registry,
+                CacheSlot::CargoGit => &mut caches.cargo_git,
+                CacheSlot::CargoPackageCache => &mut caches.cargo_package_cache,
+                CacheSlot::Npm => &mut caches.npm,
+                CacheSlot::Pip => &mut caches.pip,
+                CacheSlot::Playwright => &mut caches.playwright,
+            };
+            *field = Some(path);
+        }
+        caches
     }
-    let home = home.to_path_buf();
-    CachePaths {
-        cargo_registry: existing_dir(&home, home.join(".cargo/registry")),
-        cargo_git: existing_dir(&home, home.join(".cargo/git")),
-        cargo_package_cache: existing_file(&home, home.join(".cargo/.package-cache")),
-        npm: existing_dir(&home, home.join(".npm")),
-        pip: existing_dir(&home, home.join("Library/Caches/pip")),
-        playwright: existing_dir(&home, home.join("Library/Caches/ms-playwright")),
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        let _ = home;
+        CachePaths::default()
     }
-}
-
-fn existing_dir(home: &Path, path: PathBuf) -> Option<PathBuf> {
-    (path.is_dir() && cache_stays_in_home(home, &path)).then_some(path)
-}
-
-fn existing_file(home: &Path, path: PathBuf) -> Option<PathBuf> {
-    (path.is_file() && cache_stays_in_home(home, &path)).then_some(path)
 }
 
 #[cfg(test)]
@@ -1277,7 +1249,7 @@ mod tests {
         assert_eq!(caches.npm, None, "{caches:?}");
         assert_eq!(
             caches.cargo_git,
-            Some(home.join(".cargo/git")),
+            Some(home.join("real-cargo-git")),
             "{caches:?}"
         );
 

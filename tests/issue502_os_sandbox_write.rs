@@ -2409,3 +2409,273 @@ fn a_cache_symlinked_outside_the_home_cannot_be_written_through() {
     );
     os_sandbox::reset_for_test();
 }
+
+/// Issue #772: the dependency-cache write allowance, measured on the OS backend
+/// directly (`run_wrapped` bypasses the lexical guard). Every home is a tempdir
+/// fake; the canaries are fake values, never real credentials.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod cache_policy_os {
+    use std::os::unix::fs::{PermissionsExt, symlink};
+    use std::path::{Path, PathBuf};
+
+    use commandagent::tools::os_sandbox::cache_policy::{
+        self, CacheKind, CacheOs, current_os, entries,
+    };
+    use commandagent::tools::os_sandbox::{self, SandboxAvailability, SandboxMode, SandboxPolicy};
+
+    use super::{Fixture, fixture, run_tmp_path, run_wrapped, sandbox_lock};
+
+    /// Short, multibyte, marker-like, and identifier-like fake values.
+    const CANARY_SHORT: &str = "q7";
+    const CANARY_MULTIBYTE: &str = "日本語697";
+    const CANARY_MARKER: &str = "CANARY_697";
+    const CANARY_IDENTIFIER: &str = "credential697";
+
+    /// A cache name pointed at: the home itself, a secret, a secret's ancestor
+    /// (`.config`), a secret's child. Each row: target directory relative to the
+    /// home (empty is the home), canary file name inside it, canary value.
+    const DENIED_TARGETS: &[(&str, &str, &str)] = &[
+        ("", "canary-home", CANARY_SHORT),
+        (".ssh", "canary", CANARY_MULTIBYTE),
+        (".aws", "canary", CANARY_MARKER),
+        (".config", "canary", CANARY_IDENTIFIER),
+        (".config/gh", "canary", CANARY_SHORT),
+        (".ssh/sub", "canary", CANARY_MULTIBYTE),
+    ];
+
+    fn os_layer_ready() -> bool {
+        #[cfg(target_os = "macos")]
+        {
+            if !super::backend_available() {
+                eprintln!("SKIP: sandbox backend unavailable (nested sandbox?)");
+                return false;
+            }
+            true
+        }
+        #[cfg(target_os = "linux")]
+        {
+            if !super::require_landlock_backend() {
+                eprintln!("SKIP: Landlock backend unavailable");
+                return false;
+            }
+            true
+        }
+    }
+
+    fn home_of(fixture: &Fixture) -> PathBuf {
+        fixture._dir.path().canonicalize().unwrap().join("home")
+    }
+
+    fn install(fixture: &Fixture, home: &Path) {
+        let run_tmp = run_tmp_path(fixture);
+        std::fs::create_dir_all(&run_tmp).unwrap();
+        os_sandbox::install_for_test(
+            SandboxMode::Auto,
+            SandboxPolicy::with_home(&fixture.root, &run_tmp, home.to_path_buf()),
+            SandboxAvailability::Available,
+        );
+    }
+
+    /// Create the fake secret tree and return each canary's path.
+    fn seed_canaries(home: &Path) -> Vec<(PathBuf, &'static str)> {
+        DENIED_TARGETS
+            .iter()
+            .map(|(dir, name, value)| {
+                let dir = home.join(dir);
+                std::fs::create_dir_all(&dir).unwrap();
+                let path = dir.join(name);
+                std::fs::write(&path, value).unwrap();
+                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
+                (path, *value)
+            })
+            .collect()
+    }
+
+    fn assert_canary_intact(path: &Path, value: &str, context: &str) {
+        assert_eq!(
+            std::fs::read_to_string(path).unwrap_or_default(),
+            value,
+            "{context}: the canary content changed"
+        );
+        let mode = std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o640, "{context}: the canary mode changed");
+    }
+
+    /// Attempt a write, a chmod, and a removal of `through`; each must fail.
+    fn assert_mutations_fail(fixture: &Fixture, through: &Path, context: &str) {
+        for command in [
+            format!("echo pwned > '{}'", through.display()),
+            format!("chmod 777 '{}'", through.display()),
+            format!("rm -f '{}'", through.display()),
+        ] {
+            let output = run_wrapped(&fixture.root, &command);
+            assert!(
+                !output.success(),
+                "{context}: `{command}` must be denied; stderr={}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+
+    /// `.npm` linked (directly or through a second link) at the home, a secret,
+    /// its ancestor, or its child grants no write; the ordinary path is denied
+    /// too. The canary content and mode never change.
+    #[test]
+    fn a_cache_link_to_the_home_or_a_secret_grants_no_write() {
+        let _guard = sandbox_lock();
+        if !os_layer_ready() {
+            return;
+        }
+        let fixture = fixture();
+        let home = home_of(&fixture);
+        let canaries = seed_canaries(&home);
+        let mut reason_checked = false;
+
+        for ((dir, name, _), (canary, value)) in DENIED_TARGETS.iter().zip(&canaries) {
+            let target = home.join(dir);
+            let npm = home.join(".npm");
+            let hop = home.join("hop");
+            for route in ["direct", "nested", "ordinary"] {
+                let _ = std::fs::remove_file(&npm);
+                let _ = std::fs::remove_file(&hop);
+                let through = match route {
+                    "direct" => {
+                        symlink(&target, &npm).unwrap();
+                        npm.join(name)
+                    }
+                    "nested" => {
+                        symlink(&target, &hop).unwrap();
+                        symlink(&hop, &npm).unwrap();
+                        npm.join(name)
+                    }
+                    _ => canary.clone(),
+                };
+                install(&fixture, &home);
+                let context = format!("{dir:?} via {route}");
+                assert_mutations_fail(&fixture, &through, &context);
+                assert_canary_intact(canary, value, &context);
+                if route != "ordinary" && !reason_checked {
+                    let status = os_sandbox::status().expect("installed");
+                    assert!(
+                        status.reason.as_deref().is_some_and(|reason| {
+                            reason.contains("overlap a protected credential location")
+                                || reason.contains("resolve to the home itself")
+                        }),
+                        "the reason must say why the cache was refused: {status:?}"
+                    );
+                    reason_checked = true;
+                }
+            }
+        }
+        os_sandbox::reset_for_test();
+    }
+
+    /// Positive control: every cache of this OS's list (the same list the unit
+    /// tests use) stays writable, and the other OS's own locations do not.
+    #[test]
+    fn the_caches_of_this_os_stay_writable_and_the_other_os_list_does_not() {
+        let _guard = sandbox_lock();
+        if !os_layer_ready() {
+            return;
+        }
+        let fixture = fixture();
+        let home = home_of(&fixture);
+        let own = entries(current_os());
+        let other_os = match current_os() {
+            CacheOs::Linux => CacheOs::MacOs,
+            CacheOs::MacOs => CacheOs::Linux,
+        };
+        let foreign: Vec<_> = entries(other_os)
+            .into_iter()
+            .filter(|cache| !own.iter().any(|mine| mine.relative == cache.relative))
+            .collect();
+        assert!(!foreign.is_empty());
+        for cache in own.iter().chain(&foreign) {
+            let path = home.join(cache.relative);
+            match cache.kind {
+                CacheKind::Dir => std::fs::create_dir_all(&path).unwrap(),
+                CacheKind::File => {
+                    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                    std::fs::write(&path, "").unwrap();
+                }
+            }
+        }
+        install(&fixture, &home);
+
+        for cache in &own {
+            let path = home.join(cache.relative);
+            let target = match cache.kind {
+                CacheKind::Dir => path.join("ok"),
+                CacheKind::File => path,
+            };
+            let output = run_wrapped(&fixture.root, &format!("echo ok >> '{}'", target.display()));
+            assert!(
+                output.success(),
+                "{} must stay writable; stderr={}",
+                cache.relative,
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        for cache in &foreign {
+            let path = home.join(cache.relative);
+            let target = match cache.kind {
+                CacheKind::Dir => path.join("pwned"),
+                CacheKind::File => path,
+            };
+            let output = run_wrapped(
+                &fixture.root,
+                &format!("echo pwned >> '{}'", target.display()),
+            );
+            assert!(
+                !output.success(),
+                "{} belongs to the other OS and must not be writable",
+                cache.relative
+            );
+        }
+        // The shared policy also reports no refusal for these real caches.
+        assert!(cache_policy::refusal_note(&cache_policy::resolve(&home, current_os())).is_none());
+        os_sandbox::reset_for_test();
+    }
+
+    /// A cache linked outside the home, a dangling link, and a non-directory are
+    /// not write grants, and the outside canary is unchanged.
+    #[test]
+    fn outside_dangling_and_non_directory_caches_grant_no_write() {
+        let _guard = sandbox_lock();
+        if !os_layer_ready() {
+            return;
+        }
+        let fixture = fixture();
+        let base = fixture._dir.path().canonicalize().unwrap();
+        let home = home_of(&fixture);
+        let outside = base.join("outside-cache");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("canary"), CANARY_MARKER).unwrap();
+        std::fs::create_dir_all(home.join(".cargo/.package-cache")).unwrap();
+        std::fs::write(home.join(".cargo/registry"), CANARY_SHORT).unwrap();
+        symlink(&outside, home.join(".npm")).unwrap();
+        symlink(base.join("missing"), home.join(".cargo/git")).unwrap();
+        install(&fixture, &home);
+
+        let attempts = [
+            home.join(".npm/canary"),
+            home.join(".cargo/git/new"),
+            home.join(".cargo/registry"),
+            home.join(".cargo/.package-cache/new"),
+        ];
+        for path in &attempts {
+            let output = run_wrapped(&fixture.root, &format!("echo pwned > '{}'", path.display()));
+            assert!(!output.success(), "{} must be denied", path.display());
+        }
+        assert_eq!(
+            std::fs::read_to_string(outside.join("canary")).unwrap(),
+            CANARY_MARKER
+        );
+        assert_eq!(
+            std::fs::read_to_string(home.join(".cargo/registry")).unwrap(),
+            CANARY_SHORT
+        );
+        assert!(!home.join(".cargo/.package-cache/new").exists());
+        os_sandbox::reset_for_test();
+    }
+}
