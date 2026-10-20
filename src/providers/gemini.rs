@@ -141,7 +141,9 @@ impl ChatClient for GeminiClient {
                         on_chunk(chunk)
                     });
                     match parsed {
-                        Err(_) if call.is_cancelled() => {
+                        // A cancel observed before commit wins even when the
+                        // buffered stream parsed cleanly.
+                        _ if call.is_cancelled() => {
                             return Err(super::streaming::aborted_by_user());
                         }
                         Ok(reply) => {
@@ -715,5 +717,132 @@ mod cancel_tests {
                 "{forbidden} recorded: {recorded}"
             );
         }
+    }
+
+    fn serve_complete_stream(stream_body: &'static str) -> String {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
+        let base_url = format!("http://{}", listener.local_addr().expect("address"));
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .expect("read timeout");
+            let mut data = Vec::new();
+            let mut buffer = [0_u8; 4096];
+            loop {
+                let read = stream.read(&mut buffer).expect("request");
+                if read == 0 {
+                    return;
+                }
+                data.extend_from_slice(&buffer[..read]);
+                let Some(end) = data.windows(4).position(|window| window == b"\r\n\r\n") else {
+                    continue;
+                };
+                let head = String::from_utf8_lossy(&data[..end]).to_ascii_lowercase();
+                let length = head
+                    .lines()
+                    .find_map(|line| line.strip_prefix("content-length:"))
+                    .and_then(|value| value.trim().parse::<usize>().ok())
+                    .unwrap_or(0);
+                if data.len() >= end + 4 + length {
+                    break;
+                }
+            }
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n{stream_body}"
+            )
+            .expect("stream");
+            stream.flush().expect("flush");
+        });
+        base_url
+    }
+
+    fn event_names(events: &std::path::Path) -> Vec<String> {
+        std::fs::read_to_string(events)
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+            .filter_map(|event| {
+                event
+                    .get("event")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            })
+            .collect()
+    }
+
+    /// Run the corpus case: the callback receives the complete final chunk and
+    /// optionally cancels the token, so the parser still returns `Ok`.
+    fn run_complete_buffer_case(case: &str) {
+        let cases: Value = serde_json::from_str(include_str!(
+            "../../tests/corpus/apps/issue697-gemini-cancel-terminal/fixtures/cases.json"
+        ))
+        .expect("cases.json");
+        let stream_body: &'static str = Box::leak(
+            cases["stream"]
+                .as_str()
+                .expect("stream")
+                .to_string()
+                .into_boxed_str(),
+        );
+        let expected = &cases[case];
+        let cancels = expected["callback_cancels_token"]
+            .as_bool()
+            .expect("cancels");
+        let dir = tempfile::tempdir().expect("tempdir");
+        let events = dir.path().join("events.jsonl");
+        let mut client = GeminiClient::for_test(serve_complete_stream(stream_body));
+        client.retries = 2;
+        client.eval_events_path = Some(events.clone());
+        let token = CancelToken::default();
+        client.set_cancel_token(token.clone());
+        let mut chunks = Vec::new();
+        let result = client.chat_stream(
+            "gemini-test",
+            &[ConversationMessage::user("hi")],
+            &[],
+            false,
+            &mut |chunk| {
+                chunks.push(chunk.to_string());
+                if cancels {
+                    token.cancel();
+                }
+                Ok(())
+            },
+        );
+        assert_eq!(chunks, ["done"], "the complete chunk reaches the callback");
+        match expected["outcome"].as_str().expect("outcome") {
+            "aborted_by_user" => {
+                let err = result.expect_err("a cancelled call must not return a reply");
+                assert!(err.to_string().contains("aborted_by_user"), "{err}");
+            }
+            "ok" => assert_eq!(result.expect("reply").content, "done"),
+            other => panic!("unknown outcome {other}"),
+        }
+        let names = event_names(&events);
+        for event in [
+            "provider_response",
+            "provider_parse_error",
+            "provider_retry",
+        ] {
+            let count = names.iter().filter(|name| *name == event).count() as u64;
+            assert_eq!(
+                count,
+                expected[event].as_u64().expect("count"),
+                "{case}: {event} in {names:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn cancel_after_complete_buffer_records_no_terminal_response() {
+        run_complete_buffer_case("cancelled_after_complete_buffer");
+    }
+
+    #[test]
+    fn complete_buffer_without_cancel_records_one_provider_response() {
+        run_complete_buffer_case("uncancelled_control");
     }
 }

@@ -472,15 +472,14 @@ mod tests {
     /// pinned through it.
     #[test]
     fn compile_regeneration_context_reaches_the_model_prompt() {
-        // kills: final_acceptance.rs:760 delete field profile (Next.js contract advisory)
-        // kills: final_acceptance.rs:761 delete field overall_goal
-        // kills: final_acceptance.rs:763 delete field expected_paths
-        // kills: final_acceptance.rs:765 delete field workspace_root (current file content)
-        // kills: final_acceptance.rs:766 delete field prompt_layout (stable rules prefix)
-        // The remaining fields (required_final_artifacts, missing_paths,
-        // compile_reanchored_retry: 762, 764, 767) are not read by
-        // `build_compile_regeneration_prompt_with_context`, so no behaviour
-        // observable from here depends on them.
+        // kills: final_acceptance.rs:758 delete field profile (Next.js contract advisory)
+        // kills: final_acceptance.rs:759 delete field overall_goal
+        // kills: final_acceptance.rs:760 delete field expected_paths
+        // kills: final_acceptance.rs:761 delete field workspace_root (current file content)
+        // kills: final_acceptance.rs:762 delete field prompt_layout (stable rules prefix)
+        // `build_compile_regeneration_prompt_with_context` does not read
+        // required_final_artifacts, missing_paths or compile_reanchored_retry,
+        // so the function leaves them to `RepairContext::default()`.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         copy_tree(
