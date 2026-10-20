@@ -1,0 +1,66 @@
+{
+  "schema_version": "commandagent.dependency_missing_classification.v0",
+  "cases": {
+    "dash_npm_no_trailing_colon": {
+      "command": "npm test",
+      "reason": "sh: 1: npm: not found",
+      "dependency_missing": true
+    },
+    "dash_relative_executable": {
+      "command": "./node_modules/.bin/tsc --noEmit",
+      "reason": "outcome: Failed\nstderr:\nsh: 1: ./node_modules/.bin/tsc: not found",
+      "dependency_missing": true
+    },
+    "dash_invoked_by_path": {
+      "command": "npm run build",
+      "reason": "/bin/dash: 1: npm: not found",
+      "dependency_missing": true
+    },
+    "bash_command_not_found": {
+      "command": "node app.js",
+      "reason": "bash: node: command not found",
+      "dependency_missing": true
+    },
+    "sh_line_command_not_found": {
+      "command": "npm test",
+      "reason": "sh: line 1: npm: command not found",
+      "dependency_missing": true
+    },
+    "dash_other_executable": {
+      "command": "npm test",
+      "reason": "sh: 1: tsc: not found",
+      "dependency_missing": false
+    },
+    "dash_executable_prefix_only": {
+      "command": "npm test",
+      "reason": "sh: 1: npmx: not found",
+      "dependency_missing": false
+    },
+    "dash_non_numeric_line": {
+      "command": "npm test",
+      "reason": "sh: x: npm: not found",
+      "dependency_missing": false
+    },
+    "assertion_error_not_found_in": {
+      "command": "python3 -m unittest test_markdown_lint.py",
+      "reason": "AssertionError: '2: Heading level jumps' not found in '1: Invalid heading format'",
+      "dependency_missing": false
+    },
+    "assertion_sentence_quoting_dash_text": {
+      "command": "npm test",
+      "reason": "expected 'sh: 1: npm: not found' in output",
+      "dependency_missing": false
+    },
+    "build_failure_module_not_found": {
+      "command": "npm run build",
+      "reason": "Module not found: Can't resolve './missing'",
+      "dependency_missing": false
+    }
+  },
+  "deferred_blocking_reason": {
+    "requirement_command": "npm run build",
+    "requirement_status": "pending",
+    "requirement_reason": "needs setup",
+    "sentence": "deferred verify requirement pending: command `npm run build` status `pending` reason `needs setup`"
+  }
+}

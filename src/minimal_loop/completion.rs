@@ -22,6 +22,8 @@ use crate::tools::path_guard::{
 };
 use crate::verification::build_report::{self, BuildReportMode, BuildStatusInput};
 
+use self::dependency_missing::is_dependency_missing_error;
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct CompletionContract {
     #[serde(default)]
@@ -412,11 +414,7 @@ impl CompletionContract {
             if self.deferred_requirement_covered(root, requirement, profile_passed) {
                 continue;
             }
-            report.push_profile_failure(self.deferred_requirement_blocking_reason(
-                root,
-                requirement,
-                profile_passed,
-            ));
+            report.push_profile_failure(self.deferred_requirement_blocking_reason(requirement));
         }
         let acceptance = self.runtime_acceptance_report(root);
         if !acceptance.passed {
@@ -568,17 +566,8 @@ impl CompletionContract {
 
     fn deferred_requirement_blocking_reason(
         &self,
-        root: &Path,
         requirement: &DeferredVerifyRequirement,
-        profile_passed: bool,
     ) -> String {
-        if !profile_passed {
-            return format!(
-                "deferred verify requirement pending: command `{}` status `{}` reason `{}`",
-                requirement.command, requirement.status, requirement.reason
-            );
-        }
-        let _ = root;
         format!(
             "deferred verify requirement pending: command `{}` status `{}` reason `{}`",
             requirement.command, requirement.status, requirement.reason
@@ -1572,27 +1561,6 @@ fn evidence_repair_guidance(failure: &str) -> Vec<String> {
         );
     }
     lines
-}
-
-fn is_dependency_missing_error(command: &str, reason: &str) -> bool {
-    let lower = reason.to_ascii_lowercase();
-    let first_word = command.split_whitespace().next().unwrap_or_default();
-    let executable_markers = [
-        "command not found",
-        "not found:",
-        "no such file or directory",
-        "failed to spawn command",
-    ];
-    if !executable_markers
-        .iter()
-        .any(|marker| lower.contains(marker))
-    {
-        return false;
-    }
-    if lower.contains("assertionerror") || lower.contains("not found in") {
-        return false;
-    }
-    first_word.is_empty() || lower.contains(&first_word.to_ascii_lowercase())
 }
 
 fn target_candidates_from_failure(command: &str, reason: &str) -> BTreeSet<String> {
@@ -3243,4 +3211,5 @@ mod issue508_tests;
 #[path = "completion/issue511_tests.rs"]
 mod issue511_tests;
 
+mod dependency_missing;
 mod feedback;
