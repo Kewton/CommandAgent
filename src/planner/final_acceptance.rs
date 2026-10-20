@@ -757,12 +757,9 @@ pub(super) fn try_final_acceptance_compile_regeneration(
     let repair_context = RepairContext {
         profile: Some(plan.profile.clone()),
         overall_goal: Some(plan.goal.clone()),
-        required_final_artifacts: expected_paths.to_vec(),
         expected_paths: expected_paths.to_vec(),
-        missing_paths: acceptance_report.missing_paths.clone(),
         workspace_root: Some(config.workspace_root.clone()),
         prompt_layout: config.prompt_layout,
-        compile_reanchored_retry: true,
         ..RepairContext::default()
     };
     let regeneration_prompt = build_compile_regeneration_prompt_with_context(
