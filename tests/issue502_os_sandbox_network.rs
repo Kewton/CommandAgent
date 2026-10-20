@@ -422,10 +422,101 @@ fn assert_dependency_setup_child_stdin_is_null(child_test: &str) {
         output.status
     );
     // A name that no longer matches runs 0 tests and still exits 0.
-    assert!(
-        stdout.contains("1 passed"),
-        "the child check must have run exactly one test: {stdout}"
+    if let Err(reason) = child_ran_exactly_one_test(&stdout, child_test) {
+        panic!("the child check must have run exactly one test: {reason}\n{stdout}");
+    }
+}
+
+/// Read the libtest output of a `--exact` child run: exactly one `test result:`
+/// line saying `1 passed; 0 failed`, and exactly one `test <name> ...` line for
+/// the requested name. `11 passed`, `0 passed`, a failure, or another test's name
+/// is an error.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn child_ran_exactly_one_test(stdout: &str, name: &str) -> Result<(), String> {
+    let summaries: Vec<&str> = stdout
+        .lines()
+        .filter(|line| line.starts_with("test result:"))
+        .collect();
+    let [summary] = summaries.as_slice() else {
+        return Err(format!(
+            "expected one summary line, found {}",
+            summaries.len()
+        ));
+    };
+    let count = |label: &str| {
+        summary
+            .trim_start_matches("test result:")
+            .split(';')
+            .map(str::trim)
+            .find_map(|part| {
+                let part = part.trim_start_matches("ok.").trim();
+                part.strip_suffix(label)?.trim().parse::<u32>().ok()
+            })
+    };
+    if count("passed") != Some(1) {
+        return Err(format!("expected 1 passed: {summary}"));
+    }
+    if count("failed") != Some(0) {
+        return Err(format!("expected 0 failed: {summary}"));
+    }
+    let prefix = format!("test {name} ... ");
+    let named = stdout
+        .lines()
+        .filter(|line| line.starts_with(&prefix))
+        .count();
+    if named != 1 {
+        return Err(format!("expected one `test {name}` line, found {named}"));
+    }
+    Ok(())
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn child_summary_requires_exactly_one_passed_named_test() {
+    let name = "some_child_check";
+    let good = format!(
+        "running 1 test\ntest {name} ... ok\n\n\
+         test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.01s\n"
     );
+    assert_eq!(child_ran_exactly_one_test(&good, name), Ok(()));
+
+    let with_passed =
+        |summary: &str| format!("running 1 test\ntest {name} ... ok\n\ntest result: {summary}\n");
+    for (label, summary) in [
+        (
+            "zero",
+            "ok. 0 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out",
+        ),
+        (
+            "eleven",
+            "ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out",
+        ),
+        (
+            "twenty-one",
+            "ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out",
+        ),
+        (
+            "mixed",
+            "FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out",
+        ),
+        (
+            "failed only",
+            "FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out",
+        ),
+    ] {
+        assert!(
+            child_ran_exactly_one_test(&with_passed(summary), name).is_err(),
+            "{label} must be rejected"
+        );
+    }
+
+    // The summary says 1 passed, but the test that ran is another one.
+    let other = "test other_check ... ok\n\ntest result: ok. 1 passed; 0 failed;\n";
+    assert!(child_ran_exactly_one_test(other, name).is_err());
+    // No summary at all, and two summaries, are both rejected.
+    assert!(child_ran_exactly_one_test(&format!("test {name} ... ok\n"), name).is_err());
+    let twice = format!("{good}{good}");
+    assert!(child_ran_exactly_one_test(&twice, name).is_err());
 }
 
 /// The body of the child checks. It runs in its own process so its stdin can be a
@@ -637,6 +728,30 @@ fn mptcp_verdict(stdout: &str) -> String {
     }
 }
 
+/// The MPTCP verdict, valid only when the plain TCP controls ran under the same
+/// installed policy against the same listeners: the allowed port must be
+/// reachable (`CONNECT_OK`) and the disallowed port must be refused
+/// (`PermissionError`). A control that fails makes the measurement `UNVERIFIED`,
+/// never a `REFUSED` or `ALLOWED` MPTCP verdict.
+#[cfg(target_os = "linux")]
+fn mptcp_verdict_with_tcp_control(
+    plain_allowed_port: &str,
+    plain_disallowed_port: &str,
+    mptcp_stdout: &str,
+) -> String {
+    if plain_allowed_port != "CONNECT_OK" {
+        return format!(
+            "UNVERIFIED (plain TCP control: the allowed listener was not reachable: {plain_allowed_port:?})"
+        );
+    }
+    if !plain_disallowed_port.contains("PermissionError") {
+        return format!(
+            "UNVERIFIED (plain TCP control: the disallowed port was not refused: {plain_disallowed_port:?})"
+        );
+    }
+    mptcp_verdict(mptcp_stdout)
+}
+
 /// Append one probe verdict line to the file named by
 /// `COMMANDAGENT_PROBE_VERDICT_FILE`, as the TIOCSTI probe in
 /// `issue502_os_sandbox_write.rs` does, so `scripts/check-probe-verdicts.sh`
@@ -666,6 +781,34 @@ fn linux_mptcp_verdict_reads_the_probe_output() {
     assert!(mptcp_verdict("").starts_with("UNVERIFIED ("));
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_mptcp_verdict_is_valid_only_when_the_tcp_controls_hold() {
+    let refused = "PermissionError";
+    for mptcp in ["REFUSED\n", "ALLOWED\n"] {
+        assert_eq!(
+            mptcp_verdict_with_tcp_control("CONNECT_OK", refused, mptcp),
+            mptcp.trim()
+        );
+    }
+    // The plain TCP connect to the disallowed port went through: the policy did
+    // not confine plain TCP, so an MPTCP verdict says nothing.
+    for plain in ["CONNECT_OK", "", "ConnectionRefusedError"] {
+        for mptcp in ["REFUSED\n", "ALLOWED\n"] {
+            let verdict = mptcp_verdict_with_tcp_control("CONNECT_OK", plain, mptcp);
+            assert!(verdict.starts_with("UNVERIFIED ("), "{plain:?}: {verdict}");
+        }
+    }
+    // The allowed listener was not reachable: the negative control proves nothing.
+    for allowed in [refused, "", "TimeoutError"] {
+        let verdict = mptcp_verdict_with_tcp_control(allowed, refused, "REFUSED\n");
+        assert!(
+            verdict.starts_with("UNVERIFIED ("),
+            "{allowed:?}: {verdict}"
+        );
+    }
+}
+
 /// Issue #672: from inside an `--offline` isolation, connect once from an MPTCP
 /// socket to a loopback port the run does not allow, and record the outcome
 /// (`REFUSED`, `ALLOWED`, or `UNVERIFIED (reason)`) in the probe verdict file.
@@ -691,13 +834,21 @@ fn linux_offline_mptcp_connect_to_a_disallowed_port_is_recorded() {
         );
         let script = fixture.root.join("mptcp.py");
         std::fs::write(&script, MPTCP_CONNECT_PY).unwrap();
+        // The plain TCP controls and the MPTCP probe share the installed policy,
+        // the host, the live listeners and the disallowed port.
+        let plain_allowed = connect_device(&fixture, "127.0.0.1", allowed_port);
+        let plain_disallowed = connect_device(&fixture, "127.0.0.1", other_port);
         let output = run_wrapped(
             &fixture.root,
             &format!("python3 {} 127.0.0.1 {other_port}", script.display()),
         );
         os_sandbox::cleanup();
         os_sandbox::reset_for_test();
-        mptcp_verdict(&String::from_utf8_lossy(&output.stdout))
+        mptcp_verdict_with_tcp_control(
+            &plain_allowed,
+            &plain_disallowed,
+            &String::from_utf8_lossy(&output.stdout),
+        )
     };
     let mptcp_enabled = std::fs::read_to_string("/proc/sys/net/mptcp/enabled")
         .map(|value| value.trim().to_string())
