@@ -135,6 +135,15 @@ fn event_lines(workspace: &Path) -> Vec<String> {
             ) {
                 continue;
             }
+            // `time_profile` is emitted only when the summed time exceeds 0 ms, so drop the
+            // one right after the stop; one anywhere else stays in the sequence and fails.
+            if name == "time_profile"
+                && lines
+                    .last()
+                    .is_some_and(|last: &String| last.starts_with("tui_command_stop"))
+            {
+                continue;
+            }
             let field = |key: &str| value[key].as_str().unwrap_or("-").to_owned();
             lines.push(match name {
                 "run_start" => format!("run_start action={}", field("action")),
@@ -205,7 +214,7 @@ fn provider_failure_snapshot(
          error: {cause}\n{HINT}\n--events--\n\
          run_start action={action}\nintent_resolved\nplan_preset_resolved\n{turns}\
          tui_command_stop command={command} status=failed failure_kind=direct_cli_command_failed \
-         stop_reason={cause} {HINT}\ntime_profile\n\
+         stop_reason={cause} {HINT}\n\
          run_stop status=failed failure_kind=process_failure stop_reason={cause} {HINT}\n"
     )
 }
@@ -219,7 +228,7 @@ fn prompt_runs_the_session_loop_against_the_executor_provider() {
          run_start action=Prompt(\"hi\")\nintent_resolved\nplan_preset_resolved\n\
          step_obligation_scope\nprovider_turn_duration\nfallback_decision\n\
          tui_command_stop command=--prompt status=failed failure_kind=direct_cli_command_failed \
-         stop_reason={REQUEST_FAILED} {HINT}\ntime_profile\n\
+         stop_reason={REQUEST_FAILED} {HINT}\n\
          run_stop status=failed failure_kind=process_failure \
          stop_reason={REQUEST_FAILED} {HINT}\n"
     );
@@ -237,7 +246,7 @@ fn plan_steps_generates_a_step_plan_with_the_planner_provider() {
          run_start action=PlanSteps(\"g\")\nintent_resolved\nplan_preset_resolved\n\
          provider_turn_duration\nprovider_turn_duration\n\
          tui_command_stop command=--plan-steps status=failed \
-         failure_kind=direct_cli_command_failed stop_reason={reason}\ntime_profile\n\
+         failure_kind=direct_cli_command_failed stop_reason={reason}\n\
          run_stop status=failed failure_kind=process_failure stop_reason={reason}\n"
     );
     assert_eq!(run_snapshot(&["--plan-steps", "g"]), expected);
