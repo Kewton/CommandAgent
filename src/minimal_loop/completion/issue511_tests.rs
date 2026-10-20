@@ -131,21 +131,25 @@ fn deferred_status_summary_passes_non_build_status_through() {
 
 #[test]
 fn deferred_requirement_blocking_reason_names_command_status_and_reason() {
-    // kills: completion.rs:631 deferred_requirement_blocking_reason -> "" / "xyzzy"
-    // (the `delete !` mutant at 631:12 is equivalent: both branches build the
-    // same message, so only the message itself is pinned.)
-    let root = tempfile::tempdir().unwrap();
+    // kills: completion.rs deferred_requirement_blocking_reason -> "" / "xyzzy"
+    // The sentence is the same whether or not the profile passed; the profile
+    // outcome still gates through `deferred_requirement_covered`.
     let c = contract();
     let requirement = deferred("npm run build", Some(NEXT), "pending");
     let expected = "deferred verify requirement pending: command `npm run build` status `pending` reason `needs setup`";
     assert_eq!(
-        c.deferred_requirement_blocking_reason(root.path(), &requirement, false),
+        c.deferred_requirement_blocking_reason(&requirement),
         expected
     );
-    assert_eq!(
-        c.deferred_requirement_blocking_reason(root.path(), &requirement, true),
-        expected
+    let root = tempfile::tempdir().unwrap();
+    assert!(!c.deferred_requirement_covered(root.path(), &requirement, true));
+    assert!(!c.deferred_requirement_covered(root.path(), &requirement, false));
+    let covered = deferred(
+        "npm run build",
+        Some(NEXT),
+        "covered_by_static_profile_check",
     );
+    assert!(c.deferred_requirement_covered(root.path(), &covered, false));
 }
 
 #[test]
@@ -990,6 +994,28 @@ fn is_dependency_missing_error_table() {
         ),
         ("node app.js", "node: command not found in registry", false),
         ("python3 x.py", "sh: foo: command not found", false),
+        // Real dash output: no trailing colon after `not found`.
+        ("npm test", "sh: 1: npm: not found", true),
+        ("npm test", "/bin/dash: 1: npm: not found", true),
+        ("npm test", "sh: line 1: npm: command not found", true),
+        ("npm test", "sh: 1: tsc: not found", false),
+        ("npm test", "sh: 1: npmx: not found", false),
+        ("npm test", "sh: x: npm: not found", false),
+        (
+            "npm test",
+            "expected 'sh: 1: npm: not found' in output",
+            false,
+        ),
+        (
+            "npm test",
+            "AssertionError: 'sh: 1: npm: not found' not found in 'ok'",
+            false,
+        ),
+        (
+            "npm run build",
+            "Module not found: Can't resolve './missing'",
+            false,
+        ),
     ];
     for (command, reason, expected) in rows {
         assert_eq!(
@@ -1219,4 +1245,94 @@ fn unittest_target_path_table() {
     for (command, expected) in rows {
         assert_eq!(unittest_target_path(command), *expected, "{command}");
     }
+}
+
+#[test]
+fn dependency_missing_cases_fixture_table() {
+    let cases: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../tests/corpus/apps/issue697-dependency-missing/fixtures/cases.json"
+    ))
+    .unwrap();
+    let rows = cases["cases"].as_object().unwrap();
+    assert!(rows.len() >= 10, "{} fixture rows", rows.len());
+    for (id, row) in rows {
+        let command = row["command"].as_str().unwrap();
+        let reason = row["reason"].as_str().unwrap();
+        assert_eq!(
+            is_dependency_missing_error(command, reason),
+            row["dependency_missing"].as_bool().unwrap(),
+            "{id}: {command} / {reason}"
+        );
+    }
+    let deferred_row = &cases["deferred_blocking_reason"];
+    let requirement = DeferredVerifyRequirement {
+        command: s(deferred_row["requirement_command"].as_str().unwrap()),
+        reason: s(deferred_row["requirement_reason"].as_str().unwrap()),
+        authority: s("postcheck"),
+        profile: None,
+        status: s(deferred_row["requirement_status"].as_str().unwrap()),
+    };
+    assert_eq!(
+        contract().deferred_requirement_blocking_reason(&requirement),
+        deferred_row["sentence"].as_str().unwrap()
+    );
+}
+
+/// Runs a command with a real dash (argv0 `sh`, as `sh -c` is on Linux) and
+/// an empty PATH, so the executable is genuinely missing.
+#[cfg(unix)]
+#[test]
+fn real_dash_missing_executable_is_dependency_missing_not_success() {
+    use std::os::unix::process::CommandExt;
+
+    let Some(dash) = ["/bin/dash", "/usr/bin/dash"]
+        .into_iter()
+        .find(|path| Path::new(path).exists())
+    else {
+        if cfg!(target_os = "linux") {
+            panic!("Linux verification hosts must provide dash");
+        }
+        eprintln!("dash is not installed on this host; skipping real-dash check");
+        return;
+    };
+    let empty_path = tempfile::tempdir().unwrap();
+    let command = "npm test";
+    let mut process = std::process::Command::new(dash);
+    process
+        .arg0("sh")
+        .arg("-c")
+        .arg(command)
+        .current_dir(empty_path.path())
+        .env("PATH", empty_path.path())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let output =
+        crate::bounded_process::run_with_timeout(&mut process, std::time::Duration::from_secs(20))
+            .unwrap();
+    assert!(!output.success());
+    assert_eq!(output.status.and_then(|status| status.code()), Some(127));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(stderr.trim(), "sh: 1: npm: not found");
+    let reason = format!("command failed: {command}\nstatus: 127\nstderr:\n{stderr}");
+    assert!(is_dependency_missing_error(command, &reason), "{reason}");
+    assert!(
+        !is_dependency_missing_error("tsc --noEmit", &reason),
+        "{reason}"
+    );
+}
+
+#[test]
+fn missing_executable_verify_command_reports_dependency_missing() {
+    let root = tempfile::tempdir().unwrap();
+    let mut c = contract();
+    c.verify_commands = vec![s("commandagent-missing-executable-776 --version")];
+    let report = c.verify(root.path());
+    assert!(!report.is_pass(), "{report:?}");
+    assert!(
+        matches!(
+            report.status,
+            crate::planner::verify::VerifyStatus::DependencyMissing(_)
+        ),
+        "{report:?}"
+    );
 }
