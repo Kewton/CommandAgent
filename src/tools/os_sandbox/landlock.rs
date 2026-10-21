@@ -524,7 +524,9 @@ pub(crate) fn read_allow_plan(policy: &SandboxPolicy, limit: usize) -> ReadAllow
         return ReadAllowPlan::Full(paths);
     }
     if !policy.home.as_os_str().is_empty() {
-        denied.push(canonicalize_or_keep(&policy.home));
+        denied.push(super::secret_locations::resolve_nearest_existing(
+            &policy.home,
+        ));
     }
     let paths = expand_read_allow_limited(Path::new("/"), &denied, usize::MAX)
         .expect("an unlimited expansion always completes");
@@ -593,7 +595,7 @@ fn list_only_paths() -> Vec<PathBuf> {
 pub(crate) fn read_isolation_gaps(writable: &[PathBuf], denied: &[PathBuf]) -> Vec<PathBuf> {
     let writable: Vec<PathBuf> = writable
         .iter()
-        .map(|path| canonicalize_or_keep(path))
+        .map(|path| super::secret_locations::resolve_nearest_existing(path))
         .collect();
     denied
         .iter()
@@ -605,12 +607,6 @@ pub(crate) fn read_isolation_gaps(writable: &[PathBuf], denied: &[PathBuf]) -> V
         })
         .cloned()
         .collect()
-}
-
-/// Canonicalize a path, keeping it as-is when it does not exist or cannot be
-/// resolved.
-fn canonicalize_or_keep(path: &Path) -> PathBuf {
-    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
 }
 
 /// Rewrite a deny list into a read-allow list for Landlock.

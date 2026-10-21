@@ -163,10 +163,13 @@ pub fn judge(home: &Path, relative: &str, kind: CacheKind, secrets: &[PathBuf]) 
     if !resolved.starts_with(&home) {
         return CacheVerdict::Refused(CacheRefusal::OutsideHome);
     }
-    if secrets
-        .iter()
-        .any(|secret| resolved.starts_with(secret) || secret.starts_with(&resolved))
-    {
+    // A secret that does not exist yet keeps its spelling in the list; resolving
+    // its nearest existing ancestor the same way the secret list does keeps a
+    // symlinked or differently cased ancestor from hiding the overlap (Issue #788).
+    if secrets.iter().any(|secret| {
+        let secret = secret_locations::resolve_nearest_existing(secret);
+        resolved.starts_with(&secret) || secret.starts_with(&resolved)
+    }) {
         return CacheVerdict::Refused(CacheRefusal::CredentialOverlap);
     }
     let right_kind = match kind {
@@ -375,6 +378,27 @@ mod tests {
         symlink(h.home.join("hop2"), h.home.join(".npm")).unwrap();
         assert_eq!(
             verdict(&h, ".npm", CacheKind::Dir),
+            CacheVerdict::Refused(CacheRefusal::CredentialOverlap)
+        );
+    }
+
+    #[test]
+    fn a_missing_secret_below_a_linked_ancestor_still_overlaps_its_cache() {
+        let h = home();
+        let dotfiles = h.home.join("dotfiles/config");
+        std::fs::create_dir_all(&dotfiles).unwrap();
+        // `~/.config` is a link and `~/.config/gh` does not exist yet, so the
+        // secret is only known by its spelling.
+        symlink(&dotfiles, h.home.join(".config")).unwrap();
+        symlink(&dotfiles, h.home.join(".npm")).unwrap();
+        assert_eq!(
+            verdict(&h, ".npm", CacheKind::Dir),
+            CacheVerdict::Refused(CacheRefusal::CredentialOverlap)
+        );
+        // `judge` resolves a secret it is handed as written the same way.
+        let lexical = vec![h.home.join(".config/gh")];
+        assert_eq!(
+            judge(&h.home, ".npm", CacheKind::Dir, &lexical),
             CacheVerdict::Refused(CacheRefusal::CredentialOverlap)
         );
     }

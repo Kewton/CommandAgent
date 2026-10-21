@@ -16,7 +16,7 @@
 //! location denies its target and a workspace under a symlinked root still
 //! matches. No secret bytes and no credential value ever appear here.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 /// Home-relative secret locations whose reads are denied (Issue #657). Aligned
 /// with #501's credential rule (`sensitive_name_rule` and `path_rule`) plus the
@@ -67,29 +67,113 @@ pub fn home_secret_locations_with(home: &Path, cargo_home: Option<&Path>) -> Vec
     if home.as_os_str().is_empty() {
         return Vec::new();
     }
-    let home = canonicalize_or_keep(home);
-    let mut locations: Vec<PathBuf> = HOME_SECRET_LOCATIONS
-        .iter()
-        .map(|relative| canonicalize_or_keep(&home.join(relative)))
-        .collect();
+    let lexical_home = home;
+    let home = resolve_nearest_existing(home);
+    let mut locations: Vec<PathBuf> = Vec::new();
+    for relative in HOME_SECRET_LOCATIONS {
+        push_unique(
+            &mut locations,
+            resolve_nearest_existing(&home.join(relative)),
+        );
+        push_unique(&mut locations, lexical_home.join(relative));
+    }
     if let Some(cargo_home) = cargo_home.filter(|path| path.is_absolute()) {
-        let cargo_home = canonicalize_or_keep(cargo_home);
+        let resolved_cargo_home = resolve_nearest_existing(cargo_home);
         for relative in HOME_SECRET_LOCATIONS {
             if let Some(name) = relative.strip_prefix(CARGO_HOME_PREFIX) {
-                let location = canonicalize_or_keep(&cargo_home.join(name));
-                if !locations.contains(&location) {
-                    locations.push(location);
-                }
+                push_unique(
+                    &mut locations,
+                    resolve_nearest_existing(&resolved_cargo_home.join(name)),
+                );
+                push_unique(&mut locations, cargo_home.join(name));
             }
         }
     }
     locations
 }
 
-/// Canonicalize a path, keeping it as-is when it does not exist or cannot be
-/// resolved.
-fn canonicalize_or_keep(path: &Path) -> PathBuf {
-    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+fn push_unique(locations: &mut Vec<PathBuf>, location: PathBuf) {
+    if !locations.contains(&location) {
+        locations.push(location);
+    }
+}
+
+/// The most dangling links one resolution follows before it stops and keeps the
+/// rest as written, so a link cycle ends.
+const MAX_DANGLING_LINKS: usize = 40;
+
+/// Resolve a path through every symlink on it. A path that does not exist yet (a
+/// secret a process creates during the run) keeps its missing tail: the existing
+/// part is canonicalized and the remaining names are appended to that real path,
+/// so the denial follows a symlinked ancestor to its target (Issue #788). An
+/// ancestor that is a dangling link is followed by `read_link` (a relative
+/// target is taken from the link's directory), at most [`MAX_DANGLING_LINKS`]
+/// times; past that, or when the target cannot be read, the rest stays as
+/// written. Callers that must also deny the spelling as written keep the original
+/// path beside this one. The result is a snapshot taken when the sandbox is
+/// installed; a relink by a process outside the sandbox afterwards is not
+/// prevented.
+pub(super) fn resolve_nearest_existing(path: &Path) -> PathBuf {
+    let mut budget = MAX_DANGLING_LINKS;
+    resolve_with_budget(path, &mut budget)
+}
+
+fn resolve_with_budget(path: &Path, budget: &mut usize) -> PathBuf {
+    if let Ok(resolved) = path.canonicalize() {
+        return resolved;
+    }
+    if !path.is_absolute() {
+        return path.to_path_buf();
+    }
+    let components: Vec<Component> = path.components().collect();
+    let mut resolved = PathBuf::from("/");
+    for (index, component) in components.iter().enumerate() {
+        let name = match component {
+            Component::Normal(name) => name,
+            Component::ParentDir => {
+                resolved.pop();
+                continue;
+            }
+            _ => continue,
+        };
+        let candidate = resolved.join(name);
+        let is_link = std::fs::symlink_metadata(&candidate)
+            .map(|meta| meta.file_type().is_symlink())
+            .unwrap_or(false);
+        if let Ok(real) = candidate.canonicalize() {
+            resolved = real;
+        } else if is_link {
+            // A dangling or cyclic link: follow it by hand within the budget.
+            let target = std::fs::read_link(&candidate).ok();
+            match target {
+                Some(target) if *budget > 0 => {
+                    *budget -= 1;
+                    let target = if target.is_absolute() {
+                        target
+                    } else {
+                        resolved.join(target)
+                    };
+                    resolved = resolve_with_budget(&target, budget);
+                }
+                _ => resolved = candidate,
+            }
+        } else {
+            // Nothing exists here, so nothing below can be a link.
+            resolved = candidate;
+        }
+        if index + 1 < components.len() && !resolved.exists() && !is_link {
+            resolved.extend(
+                components[index + 1..]
+                    .iter()
+                    .filter_map(|rest| match rest {
+                        Component::Normal(name) => Some(*name),
+                        _ => None,
+                    }),
+            );
+            return resolved;
+        }
+    }
+    resolved
 }
 
 /// The workspace credential basenames denied for reading, mirroring #501's
@@ -198,7 +282,7 @@ fn case_fold(pattern: &str) -> String {
 /// The regex-escaped, canonicalized workspace root.
 #[cfg(target_os = "macos")]
 fn rooted_regex(workspace: &Path) -> String {
-    escape_regex(&canonicalize_or_keep(workspace).to_string_lossy())
+    escape_regex(&resolve_nearest_existing(workspace).to_string_lossy())
 }
 
 /// Escape the regex metacharacters in a literal path so it can be embedded in a
@@ -224,7 +308,10 @@ mod tests {
 
     #[test]
     fn home_secret_locations_are_under_home_and_empty_home_is_empty() {
-        let home = Path::new("/home/alice");
+        // A canonical home, so the written and resolved spellings coincide
+        // (`/home` is a link on macOS).
+        let dir = tempfile::tempdir().unwrap();
+        let home = &dir.path().canonicalize().unwrap().join("alice");
         let locations = home_secret_locations_with(home, None);
         assert_eq!(locations.len(), HOME_SECRET_LOCATIONS.len());
         assert!(locations.contains(&home.join(".ssh")));
@@ -287,6 +374,74 @@ mod tests {
         let re_deny = workspace_template_under_secret_regex(&link);
         assert!(re_deny.contains(r"\.[sS][sS][hH]"), "{re_deny}");
         assert!(re_deny.ends_with('$'), "{re_deny}");
+    }
+}
+
+#[cfg(test)]
+mod missing_secret_tests {
+    use super::{home_secret_locations_with, resolve_nearest_existing};
+
+    #[test]
+    fn a_missing_path_is_resolved_through_its_nearest_existing_parent() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().canonicalize().unwrap();
+        let real = base.join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        std::os::unix::fs::symlink(&real, base.join("link")).unwrap();
+
+        assert_eq!(
+            resolve_nearest_existing(&base.join("link/a/b")),
+            real.join("a/b")
+        );
+        assert_eq!(resolve_nearest_existing(&base.join("link")), real);
+        assert_eq!(
+            resolve_nearest_existing(std::path::Path::new("relative/missing")),
+            std::path::Path::new("relative/missing")
+        );
+    }
+
+    #[test]
+    fn a_dangling_link_is_followed_by_hand_and_a_cycle_ends() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().canonicalize().unwrap();
+        std::fs::create_dir_all(base.join("real")).unwrap();
+        // Absolute and relative dangling targets, and a chain of them.
+        std::os::unix::fs::symlink(base.join("real/ssh"), base.join("abs")).unwrap();
+        std::os::unix::fs::symlink("real/ssh", base.join("rel")).unwrap();
+        std::os::unix::fs::symlink(base.join("abs"), base.join("chain")).unwrap();
+        for link in ["abs", "rel", "chain"] {
+            assert_eq!(
+                resolve_nearest_existing(&base.join(link).join("id")),
+                base.join("real/ssh/id"),
+                "{link}"
+            );
+        }
+        // A cycle ends and keeps the rest as written.
+        std::os::unix::fs::symlink(base.join("b"), base.join("a")).unwrap();
+        std::os::unix::fs::symlink(base.join("a"), base.join("b")).unwrap();
+        let cyclic = resolve_nearest_existing(&base.join("a/id"));
+        assert!(cyclic.ends_with("id"), "{cyclic:?}");
+    }
+
+    #[test]
+    fn a_missing_cargo_credential_under_a_linked_cargo_is_denied_by_both_spellings() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().canonicalize().unwrap();
+        let home = base.join("home");
+        let real = base.join("real-cargo");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(&real).unwrap();
+        std::os::unix::fs::symlink(&real, home.join(".cargo")).unwrap();
+
+        let locations = home_secret_locations_with(&home, None);
+        assert!(
+            locations.contains(&real.join("credentials.toml")),
+            "{locations:?}"
+        );
+        assert!(
+            locations.contains(&home.join(".cargo/credentials.toml")),
+            "{locations:?}"
+        );
     }
 }
 

@@ -2653,6 +2653,146 @@ mod cache_policy_os {
         os_sandbox::reset_for_test();
     }
 
+    /// A link inside an allowed cache that points at a secret grants no write
+    /// through it (Issue #788, R-83a N3): the grant is the cache's real
+    /// directory, and the link's target lies outside it. The cache itself stays
+    /// writable. Content is judged on both backends; the mode only on macOS.
+    #[test]
+    fn a_link_inside_a_cache_to_a_secret_grants_no_write() {
+        let _guard = sandbox_lock();
+        if !os_layer_ready() {
+            return;
+        }
+        let fixture = fixture();
+        let home = home_of(&fixture);
+        let canaries = seed_canaries(&home);
+        let (ssh_canary, ssh_value) = &canaries[1];
+        let npm = home.join(".npm");
+        std::fs::create_dir_all(&npm).unwrap();
+        symlink(home.join(".ssh"), npm.join("dir-link")).unwrap();
+        symlink(ssh_canary, npm.join("file-link")).unwrap();
+        install(&fixture, &home);
+
+        assert_mutations_fail(&fixture, &npm.join("dir-link/canary"), "dir link");
+        // Removing the link itself is a change inside the cache and is allowed;
+        // writing through it into the secret is not.
+        let output = run_wrapped(
+            &fixture.root,
+            &format!("echo pwned > '{}'", npm.join("file-link").display()),
+        );
+        assert!(
+            !output.success(),
+            "a write through the file link must be denied; stderr={}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_canary_intact(ssh_canary, ssh_value, "link inside the cache");
+
+        let output = run_wrapped(
+            &fixture.root,
+            &format!("echo ok > '{}'", npm.join("written").display()),
+        );
+        assert!(
+            output.success(),
+            "the cache itself stays writable; stderr={}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        os_sandbox::reset_for_test();
+    }
+
+    /// Positive control for the test above: a cache that is a link to another
+    /// non-secret place inside the home is writable through its resolved path.
+    #[test]
+    fn a_cache_linked_elsewhere_inside_the_home_stays_writable() {
+        let _guard = sandbox_lock();
+        if !os_layer_ready() {
+            return;
+        }
+        let fixture = fixture();
+        let home = home_of(&fixture);
+        let elsewhere = home.join("elsewhere");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        symlink(&elsewhere, home.join(".npm")).unwrap();
+        install(&fixture, &home);
+
+        let output = run_wrapped(
+            &fixture.root,
+            &format!("echo ok > '{}'", home.join(".npm/written").display()),
+        );
+        assert!(
+            output.success(),
+            "a cache linked inside the home stays writable; stderr={}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(elsewhere.join("written").exists());
+        os_sandbox::reset_for_test();
+    }
+
+    /// Issue #788 (R-83a N1): `~/.config` is a link and `~/.config/gh` does not
+    /// exist yet. A cache linked to the same real directory must not be writable,
+    /// or the sandboxed command could create the missing secret there.
+    #[test]
+    fn a_cache_beside_a_missing_secret_under_a_linked_ancestor_grants_no_write() {
+        let _guard = sandbox_lock();
+        if !os_layer_ready() {
+            return;
+        }
+        let fixture = fixture();
+        let home = home_of(&fixture);
+        let dotfiles = home.join("dotfiles/config");
+        std::fs::create_dir_all(&dotfiles).unwrap();
+        symlink(&dotfiles, home.join(".config")).unwrap();
+        symlink(&dotfiles, home.join(".npm")).unwrap();
+        install(&fixture, &home);
+
+        let output = run_wrapped(
+            &fixture.root,
+            &format!("mkdir '{}'", home.join(".npm/gh").display()),
+        );
+        assert!(
+            !output.success(),
+            "the missing secret location must not be creatable; stderr={}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(!dotfiles.join("gh").exists());
+        os_sandbox::reset_for_test();
+    }
+
+    /// Issue #788: `~/.ssh` is a dangling link to `~/real/ssh` and `~/.npm` is a
+    /// link to `~/real`. The cache then holds the place the link points at, so it
+    /// grants no write: a command could otherwise create `~/.ssh/authorized_keys`.
+    #[test]
+    fn a_cache_over_the_target_of_a_dangling_secret_link_grants_no_write() {
+        let _guard = sandbox_lock();
+        if !os_layer_ready() {
+            return;
+        }
+        let fixture = fixture();
+        let home = home_of(&fixture);
+        let real = home.join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        symlink(real.join("ssh"), home.join(".ssh")).unwrap();
+        symlink(&real, home.join(".npm")).unwrap();
+        install(&fixture, &home);
+
+        for command in [
+            format!("mkdir -p '{}'", home.join(".npm/ssh").display()),
+            format!(
+                "echo pwn > '{}'",
+                home.join(".npm/authorized_keys").display()
+            ),
+        ] {
+            let output = run_wrapped(&fixture.root, &command);
+            assert!(
+                !output.success(),
+                "`{command}` must be denied; stderr={}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        assert!(!real.join("ssh").exists());
+        assert!(!real.join("authorized_keys").exists());
+        os_sandbox::reset_for_test();
+    }
+
     /// A cache linked outside the home, a dangling link, and a non-directory are
     /// not write grants, and the outside canary is unchanged.
     #[test]
