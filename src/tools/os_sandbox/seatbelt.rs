@@ -243,8 +243,7 @@ fn define_text(command: &mut Command, name: &str, value: &str) {
 }
 
 fn canonical(path: &Path) -> String {
-    path.canonicalize()
-        .unwrap_or_else(|_| path.to_path_buf())
+    secret_locations::resolve_nearest_existing(path)
         .to_string_lossy()
         .into_owned()
 }
@@ -252,6 +251,32 @@ fn canonical(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Issue #805: a `-D` path parameter is resolved by the same function as the
+    /// secret locations, so a missing tail under a symlinked ancestor follows the
+    /// link (the old copy kept the symlinked spelling), and an existing path is
+    /// unchanged.
+    #[cfg(unix)]
+    #[test]
+    fn canonical_resolves_a_missing_tail_like_the_secret_locations() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().canonicalize().unwrap();
+        std::fs::create_dir(base.join("real")).unwrap();
+        std::os::unix::fs::symlink(base.join("real"), base.join("link")).unwrap();
+
+        let missing = base.join("link/a/b");
+        let expected = base.join("real/a/b");
+        assert_eq!(canonical(&missing), expected.to_string_lossy());
+        assert_eq!(
+            canonical(&missing),
+            secret_locations::resolve_nearest_existing(&missing).to_string_lossy()
+        );
+        assert_eq!(
+            canonical(&base.join("link")),
+            base.join("real").to_string_lossy()
+        );
+        assert_eq!(canonical(Path::new("relative/missing")), "relative/missing");
+    }
 
     #[test]
     fn profile_denies_each_home_location_and_re_allows_templates_last() {
