@@ -1774,35 +1774,14 @@ preset 'a' extends 'ghost': preset 'ghost' not found in <WS>/.commandagent/confi
 <WS>/.commandagent/config.toml:2 unknown config key 'preset.p.bogus'"#,
         },
         Case {
-            name: "unknown top-level key is tolerated by the preset-free path",
+            name: "unknown top-level key is rejected by the preset-free path",
             files: &[("ws:.commandagent/config.toml", "bogus = \"x\"\n")],
             args: &[],
             options: no_options(),
             fake_env: None,
-            forbid: &[],
-            expect: r#"OK
-model="qwen3.6:27b-coding-nvfp4" src="default"
-provider=Ollama src="default"
-planner_model="qwen3.6:27b-coding-nvfp4" src="default"
-planner_provider=Ollama src="default"
-planner_think=Some(False) src="default"
-ollama_think=None
-classifier_model="qwen3.6:27b-coding-nvfp4" src="default:planner"
-classifier_provider=Ollama src="default:planner"
-context_budget=65536 src="default"
-chat_timeout_secs=600 src="default:local_provider" field_src="default:local_provider"
-prompt_layout=Legacy src="default"
-plan_preset=None src="default:qwen27_planner"
-plan_preset_origin=default
-profile="generic" explicit=false src="default"
-narration=Normal src="default"
-no_footer=false src="default"
-stream=true src="default:repl"
-openai_api=ChatCompletions
-tool_protocol=None
-action=Repl
-openai_compatible=none
-labels=ollama/ollama/ollama"#,
+            forbid: &["\"x\""],
+            expect: r#"ERR
+<WS>/.commandagent/config.toml:1 unknown config key 'bogus'"#,
         },
         Case {
             name: "invalid preset provider value",
@@ -1838,12 +1817,7 @@ labels=ollama/ollama/ollama"#,
             fake_env: None,
             forbid: &[],
             expect: r#"ERR
-<WS>/.commandagent/config.toml contains invalid TOML syntax: TOML parse error at line 2, column 9
-  |
-2 | model = bare
-  |         ^
-invalid string
-expected `"`, `'`"#,
+<WS>/.commandagent/config.toml:2 contains invalid TOML syntax"#,
         },
         Case {
             name: "non-numeric context budget in a preset",
@@ -1866,12 +1840,7 @@ expected `"`, `'`"#,
             fake_env: None,
             forbid: &[],
             expect: r#"ERR
-<WS>/.commandagent/config.toml contains invalid TOML syntax: TOML parse error at line 1, column 10
-  |
-1 | [preset.p
-  |          ^
-invalid table header
-expected `.`, `]`"#,
+<WS>/.commandagent/config.toml:1 contains invalid TOML syntax"#,
         },
         Case {
             name: "empty preset section header is rejected as invalid TOML",
@@ -1881,12 +1850,7 @@ expected `.`, `]`"#,
             fake_env: None,
             forbid: &[],
             expect: r#"ERR
-<WS>/.commandagent/config.toml contains invalid TOML syntax: TOML parse error at line 1, column 8
-  |
-1 | [preset.]
-  |        ^
-invalid table header
-expected `.`, `]`"#,
+<WS>/.commandagent/config.toml:1 contains invalid TOML syntax"#,
         },
         Case {
             name: "draft profile needs an extension root",
@@ -1912,4 +1876,185 @@ draft profile `mystery-draft` requires an extension root that declares profiles/
 <WS>/.commandagent/config.toml:2 preset.p.narration expects narration normal|quiet"#,
         },
     ]);
+}
+
+const UNKNOWN_ERR: &str = "unknown config key 'bogus'";
+
+fn expect_err_containing(case: &Case, needles: &[&str]) {
+    let actual = run_case(case);
+    assert!(
+        actual.starts_with("ERR\n"),
+        "case `{}` must fail at startup: {actual}",
+        case.name
+    );
+    for needle in needles {
+        assert!(
+            actual.contains(needle),
+            "case `{}` diagnostic lacks `{needle}`: {actual}",
+            case.name
+        );
+    }
+    for secret in case.forbid {
+        assert!(
+            !actual.contains(secret),
+            "case `{}` leaked a value: {actual}",
+            case.name
+        );
+    }
+}
+
+fn leak_files(files: Vec<(&'static str, &'static str)>) -> &'static [(&'static str, &'static str)] {
+    Box::leak(files.into_boxed_slice())
+}
+
+#[test]
+fn unknown_top_level_key_is_an_error_in_every_layer_and_mode() {
+    let layers = [
+        (
+            "ws:.commandagent/config.toml",
+            "<WS>/.commandagent/config.toml",
+        ),
+        ("ws:.anvil/config.toml", "<WS>/.anvil/config.toml"),
+        (
+            "home:.commandagent/config.toml",
+            "<HOME>/.commandagent/config.toml",
+        ),
+        ("home:.anvil/config.toml", "<HOME>/.anvil/config.toml"),
+    ];
+    let invocations: [&[&str]; 4] = [
+        &[],
+        &["--preset", "ok"],
+        &["--model", "flag-model"],
+        &["--preset", "ok", "--model", "flag-model"],
+    ];
+    for (index, (location, display)) in layers.iter().enumerate() {
+        // A valid preset lives in the next layer, so a selected preset would
+        // resolve fine were the unknown key not rejected.
+        let preset_location = layers[(index + 1) % layers.len()].0;
+        for args in invocations {
+            let case = Case {
+                name: "unknown key in layer",
+                files: leak_files(vec![
+                    (location, "bogus = \"secret-value-1\"\n"),
+                    (preset_location, "[preset.ok]\nmodel = \"m\"\n"),
+                ]),
+                args,
+                options: no_options(),
+                fake_env: None,
+                forbid: &["secret-value-1"],
+                expect: "",
+            };
+            expect_err_containing(&case, &[display, ":1 ", UNKNOWN_ERR]);
+        }
+    }
+}
+
+#[test]
+fn broken_upper_layer_is_not_skipped_for_a_lower_layer() {
+    // Unknown key above, valid footer below: the old behaviour applied the
+    // lower footer; it must now be an error naming the upper file and line.
+    expect_err_containing(
+        &Case {
+            name: "unknown key above a valid lower layer",
+            files: &[
+                ("ws:.commandagent/config.toml", "# c\nbogus = 1\n"),
+                ("home:.commandagent/config.toml", "footer = \"off\"\n"),
+            ],
+            args: &[],
+            options: no_options(),
+            fake_env: None,
+            forbid: &[],
+            expect: "",
+        },
+        &["<WS>/.commandagent/config.toml:2 ", UNKNOWN_ERR],
+    );
+    // Broken lower layer below a valid upper layer is an error too.
+    expect_err_containing(
+        &Case {
+            name: "invalid TOML below a valid upper layer",
+            files: &[
+                ("ws:.commandagent/config.toml", "footer = \"off\"\n"),
+                ("home:.anvil/config.toml", "footer = oops-secret\n"),
+            ],
+            args: &[],
+            options: no_options(),
+            fake_env: None,
+            forbid: &["oops-secret"],
+            expect: "",
+        },
+        &["<HOME>/.anvil/config.toml:1 contains invalid TOML syntax"],
+    );
+}
+
+#[test]
+fn unreadable_config_path_is_an_error() {
+    // A directory where `config.toml` should be a file cannot be read.
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+    let workspace = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let root = workspace.path().canonicalize().unwrap();
+    fs::create_dir_all(root.join(".commandagent").join("config.toml")).unwrap();
+    // SAFETY: env mutation is serialised by `ENV_LOCK`.
+    unsafe {
+        std::env::set_var("HOME", home.path());
+    }
+    let cli = Cli::try_parse_from(["commandagent", "--cwd", root.to_str().unwrap()]).unwrap();
+    let error = Config::from_cli_with_provider_options(cli, no_options())
+        .map(|_| ())
+        .expect_err("an unreadable config layer must fail startup");
+    assert!(format!("{error:#}").contains("failed to read"), "{error:#}");
+}
+
+#[test]
+fn known_top_level_keys_unknown_sections_and_legacy_files_still_load() {
+    let case = Case {
+        name: "all known keys plus an unknown section",
+        files: &[
+            (
+                "ws:.commandagent/config.toml",
+                "narration = \"quiet\"\nfooter = \"off\"\nstream = \"off\"\nprompt_layout = \"stable\"\nplan_preset = \"none\"\n\n[other.section]\nanything = 1\n",
+            ),
+            // Extensionless legacy file keeps its lenient line scanner.
+            (
+                "ws:.anvil/config",
+                "bogus line without equals\nunknown = 1\n",
+            ),
+        ],
+        args: &[],
+        options: no_options(),
+        fake_env: None,
+        forbid: &[],
+        expect: "",
+    };
+    let actual = run_case(&case);
+    assert!(actual.starts_with("OK\n"), "{actual}");
+    assert!(
+        actual.contains("narration=Quiet src=\"config:config.toml\""),
+        "{actual}"
+    );
+    assert!(
+        actual.contains("no_footer=true src=\"config:config.toml\""),
+        "{actual}"
+    );
+    assert!(
+        actual.contains("stream=false src=\"config:config.toml\""),
+        "{actual}"
+    );
+    assert!(
+        actual.contains("prompt_layout=Stable src=\"config:config.toml\""),
+        "{actual}"
+    );
+    assert!(
+        actual.contains("plan_preset=None src=\"config:config.toml\""),
+        "{actual}"
+    );
+    // CLI flag still wins over the config file.
+    let flagged = run_case(&Case {
+        args: &["--footer", "on"],
+        ..case
+    });
+    assert!(
+        flagged.contains("no_footer=false src=\"flag\""),
+        "{flagged}"
+    );
 }

@@ -13,6 +13,7 @@ use crate::planner::intent::detect_intent;
 use crate::planner::profile::{ProfileInference, infer_profile, resolve_profile_runtime};
 
 mod resolution;
+mod validation;
 use resolution::{
     ProviderResolution, load_named_preset, merge_preset, parse_preset_key, preset_missing_keys,
     resolve_named_preset, resolve_providers,
@@ -661,6 +662,7 @@ impl Config {
             .unwrap_or(std::env::current_dir().context("failed to read current directory")?)
             .canonicalize()
             .context("failed to canonicalize workspace root")?;
+        validation::validate_config_files(&workspace_root)?;
         let preset = load_named_preset(&workspace_root, cli.preset.as_deref())?;
         let extension_root = cli
             .extension_root
@@ -1180,8 +1182,9 @@ fn parse_config_file_if_present(path: &Path) -> anyhow::Result<Option<ConfigFile
 }
 
 fn parse_config_file(path: &Path, text: &str) -> anyhow::Result<ConfigFile> {
-    text.parse::<toml::Table>()
-        .with_context(|| format!("{} contains invalid TOML syntax", path.display()))?;
+    if let Err(error) = text.parse::<toml::Table>() {
+        bail!("{}", validation::invalid_toml_location(path, text, &error));
+    }
     let mut file = ConfigFile::default();
     let mut section = ConfigSection::Top;
     for (index, raw_line) in text.lines().enumerate() {
