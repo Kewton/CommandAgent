@@ -2087,4 +2087,16 @@ fn unselected_preset_with_unset_env_reference_does_not_block_startup() {
         selected.contains("COMMANDAGENT_TEST_UNSET_ENV_782"),
         "{selected}"
     );
+    // Selecting a different preset starts and uses that preset's values.
+    let other_selected = run_case(&Case {
+        name: "another preset selected while one references an unset env var",
+        files: &[("ws:.commandagent/config.toml", FILE)],
+        args: &["--preset", "ok"],
+        options: no_options(),
+        fake_env: None,
+        forbid: &[],
+        expect: "",
+    });
+    assert!(other_selected.starts_with("OK\n"), "{other_selected}");
+    assert!(other_selected.contains("model=\"m\""), "{other_selected}");
 }

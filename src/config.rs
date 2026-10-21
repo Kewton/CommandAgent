@@ -995,7 +995,7 @@ fn planner_model_tier(model: &str) -> PlannerModelTier {
 
 fn config_file_narration(root: &Path) -> Option<Sourced<NarrationMode>> {
     for path in config_paths(root) {
-        if let Ok(Some(file)) = parse_config_file_if_present(&path)
+        if let Ok(Some(file)) = parse_config_file_if_present(&path, None)
             && let Some(narration) = file.narration
         {
             return Some(narration);
@@ -1006,7 +1006,7 @@ fn config_file_narration(root: &Path) -> Option<Sourced<NarrationMode>> {
 
 fn config_file_footer(root: &Path) -> Option<Sourced<FooterMode>> {
     for path in config_paths(root) {
-        if let Ok(Some(file)) = parse_config_file_if_present(&path)
+        if let Ok(Some(file)) = parse_config_file_if_present(&path, None)
             && let Some(footer) = file.footer
         {
             return Some(footer);
@@ -1017,7 +1017,7 @@ fn config_file_footer(root: &Path) -> Option<Sourced<FooterMode>> {
 
 fn config_file_stream(root: &Path) -> Option<Sourced<bool>> {
     for path in config_paths(root) {
-        if let Ok(Some(file)) = parse_config_file_if_present(&path)
+        if let Ok(Some(file)) = parse_config_file_if_present(&path, None)
             && let Some(stream) = file.stream
         {
             return Some(stream);
@@ -1028,7 +1028,7 @@ fn config_file_stream(root: &Path) -> Option<Sourced<bool>> {
 
 fn config_file_prompt_layout(root: &Path) -> Option<Sourced<PromptLayout>> {
     for path in config_paths(root) {
-        if let Ok(Some(file)) = parse_config_file_if_present(&path)
+        if let Ok(Some(file)) = parse_config_file_if_present(&path, None)
             && let Some(prompt_layout) = file.prompt_layout
         {
             return Some(prompt_layout);
@@ -1039,7 +1039,7 @@ fn config_file_prompt_layout(root: &Path) -> Option<Sourced<PromptLayout>> {
 
 fn config_file_plan_preset(root: &Path) -> Option<Sourced<PlanPreset>> {
     for path in config_paths(root) {
-        if let Ok(Some(file)) = parse_config_file_if_present(&path)
+        if let Ok(Some(file)) = parse_config_file_if_present(&path, None)
             && let Some(plan_preset) = file.plan_preset
         {
             return Some(plan_preset);
@@ -1121,35 +1121,37 @@ pub(crate) fn inspect_config_files(root: &Path, preset_name: Option<&str>) -> Co
     let mut inspection_errors = Vec::new();
     let paths = config_paths(root)
         .into_iter()
-        .map(|path| match parse_config_file_if_present(&path) {
-            Ok(Some(file)) => {
-                if let Some(name) = preset_name
-                    && let Some(preset) = file.presets.get(name)
-                {
-                    preset_found = true;
-                    merge_preset(&mut merged, preset);
+        .map(
+            |path| match parse_config_file_if_present(&path, preset_name) {
+                Ok(Some(file)) => {
+                    if let Some(name) = preset_name
+                        && let Some(preset) = file.presets.get(name)
+                    {
+                        preset_found = true;
+                        merge_preset(&mut merged, preset);
+                    }
+                    ConfigPathInspection {
+                        path,
+                        exists: true,
+                        parse_error: None,
+                    }
                 }
-                ConfigPathInspection {
+                Ok(None) => ConfigPathInspection {
                     path,
-                    exists: true,
+                    exists: false,
                     parse_error: None,
+                },
+                Err(error) => {
+                    let error = format!("{error:#}");
+                    inspection_errors.push(error.clone());
+                    ConfigPathInspection {
+                        path,
+                        exists: true,
+                        parse_error: Some(error),
+                    }
                 }
-            }
-            Ok(None) => ConfigPathInspection {
-                path,
-                exists: false,
-                parse_error: None,
             },
-            Err(error) => {
-                let error = format!("{error:#}");
-                inspection_errors.push(error.clone());
-                ConfigPathInspection {
-                    path,
-                    exists: true,
-                    parse_error: Some(error),
-                }
-            }
-        })
+        )
         .collect();
     let preset = preset_name.map(|name| {
         if preset_found {
@@ -1173,15 +1175,24 @@ pub(crate) fn inspect_config_files(root: &Path, preset_name: Option<&str>) -> Co
     }
 }
 
-fn parse_config_file_if_present(path: &Path) -> anyhow::Result<Option<ConfigFile>> {
+/// Parses `path`; only the `[preset.<selected>]` section is expanded and
+/// validated, so an unselected preset cannot block startup.
+fn parse_config_file_if_present(
+    path: &Path,
+    selected: Option<&str>,
+) -> anyhow::Result<Option<ConfigFile>> {
     match std::fs::read_to_string(path) {
-        Ok(text) => parse_config_file(path, &text).map(Some),
+        Ok(text) => parse_config_file(path, &text, selected).map(Some),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(err) => Err(err).with_context(|| format!("failed to read {}", path.display())),
     }
 }
 
-fn parse_config_file(path: &Path, text: &str) -> anyhow::Result<ConfigFile> {
+fn parse_config_file(
+    path: &Path,
+    text: &str,
+    selected: Option<&str>,
+) -> anyhow::Result<ConfigFile> {
     if let Err(error) = text.parse::<toml::Table>() {
         bail!("{}", validation::invalid_toml_location(path, text, &error));
     }
@@ -1206,7 +1217,11 @@ fn parse_config_file(path: &Path, text: &str) -> anyhow::Result<ConfigFile> {
                         line_no
                     );
                 }
-                ConfigSection::Preset(name.to_string())
+                if selected == Some(name) {
+                    ConfigSection::Preset(name.to_string())
+                } else {
+                    ConfigSection::Other
+                }
             } else {
                 ConfigSection::Other
             };
@@ -1338,7 +1353,7 @@ pub(crate) fn preset_names(root: &Path) -> Vec<String> {
 
 pub(crate) fn configured_extension_root(root: &Path) -> anyhow::Result<Option<PathBuf>> {
     for path in config_paths(root) {
-        if let Ok(Some(file)) = parse_config_file_if_present(&path)
+        if let Ok(Some(file)) = parse_config_file_if_present(&path, None)
             && let Some(value) = file.extension_root
         {
             let configured = PathBuf::from(value.value);
