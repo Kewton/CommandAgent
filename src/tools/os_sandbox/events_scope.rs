@@ -48,8 +48,10 @@ pub(super) fn current_path() -> Option<PathBuf> {
         .clone()
 }
 
-/// Announce the status event. Without a path nothing is written to disk, but the
-/// event still goes through `eval_events::emit`, which projects it to the TUI.
+/// Announce the status event. Without a path nothing is written to disk. The event
+/// still goes through `eval_events::emit`, but the status bus and presentation
+/// have no branch for `bash_sandbox_status` yet, so it is not shown in the TUI (a
+/// separate Issue).
 #[cfg(any(target_os = "linux", test))]
 pub(super) fn announce(path: Option<&std::path::Path>, event: serde_json::Value) {
     #[cfg(test)]

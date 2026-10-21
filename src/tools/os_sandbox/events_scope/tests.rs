@@ -142,7 +142,7 @@ fn routing_cases_follow_the_corpus_table() {
         assert_eq!(
             path_less as u64,
             expect["path_less_emits"].as_u64().unwrap(),
-            "{id}: path-less projection"
+            "{id}: path-less emit"
         );
 
         let event = &calls[0].1;

@@ -1671,6 +1671,7 @@ mod tests {
 
     #[test]
     fn cli_run_fault_injection_finalizes_with_internal_panic_handoff() {
+        let _state = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         let events = dir.path().join(".anvil/runs/internal-panic/events.jsonl");
         let mut cfg = config(dir.path().to_path_buf());
@@ -1756,6 +1757,7 @@ mod tests {
 
     #[test]
     fn cli_run_keeps_handoff_when_completion_drop_also_panics() {
+        let _state = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         let events = dir.path().join(".anvil/runs/double-panic/events.jsonl");
         let mut cfg = config(dir.path().to_path_buf());
