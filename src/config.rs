@@ -12,11 +12,12 @@ pub use crate::planner::adjudication::contract::IntentId;
 use crate::planner::intent::detect_intent;
 use crate::planner::profile::{ProfileInference, infer_profile, resolve_profile_runtime};
 
+mod env_deferral;
 mod resolution;
 mod validation;
 use resolution::{
-    ProviderResolution, load_named_preset, merge_preset, parse_preset_key, preset_missing_keys,
-    resolve_named_preset, resolve_providers,
+    ProviderResolution, load_named_preset, merge_preset, preset_missing_keys, resolve_named_preset,
+    resolve_providers,
 };
 
 pub const LOCAL_PROVIDER_CHAT_TIMEOUT_SECS: u64 = 600;
@@ -1175,8 +1176,9 @@ pub(crate) fn inspect_config_files(root: &Path, preset_name: Option<&str>) -> Co
     }
 }
 
-/// Parses `path`; only the `[preset.<selected>]` section is expanded and
-/// validated, so an unselected preset cannot block startup.
+/// Parses `path`; `${ENV}` references are expanded only in the
+/// `[preset.<selected>]` section, so an unselected preset cannot block startup.
+/// Every preset key still gets the usual key and value-shape validation.
 fn parse_config_file_if_present(
     path: &Path,
     selected: Option<&str>,
@@ -1217,11 +1219,7 @@ fn parse_config_file(
                         line_no
                     );
                 }
-                if selected == Some(name) {
-                    ConfigSection::Preset(name.to_string())
-                } else {
-                    ConfigSection::Other
-                }
+                ConfigSection::Preset(name.to_string())
             } else {
                 ConfigSection::Other
             };
@@ -1237,7 +1235,16 @@ fn parse_config_file(
             ConfigSection::Preset(name) => {
                 let source = format!("preset:{name}");
                 let preset = file.presets.entry(name.clone()).or_default();
-                parse_preset_key(path, line_no, name, key, value, &source, preset)?;
+                env_deferral::parse_preset_key_deferring_env(
+                    path,
+                    line_no,
+                    name,
+                    key,
+                    value,
+                    &source,
+                    preset,
+                    selected != Some(name.as_str()),
+                )?;
             }
             ConfigSection::Other => {}
         }
@@ -1406,6 +1413,7 @@ fn parse_string_value(
 }
 
 fn expand_env_references(value: &str) -> anyhow::Result<String> {
+    let defer = env_deferral::env_expansion_is_deferred();
     let mut output = String::new();
     let mut remaining = value;
     while let Some(start) = remaining.find("${") {
@@ -1423,6 +1431,11 @@ fn expand_env_references(value: &str) -> anyhow::Result<String> {
             || !characters.all(|character| character == '_' || character.is_ascii_alphanumeric())
         {
             bail!("contains invalid environment reference '${{{name}}}'");
+        }
+        if defer {
+            env_deferral::note_env_expansion_deferred();
+            remaining = &reference[end + 1..];
+            continue;
         }
         let resolved = std::env::var(name)
             .with_context(|| format!("environment variable {name} is not set or is not Unicode"))?;
