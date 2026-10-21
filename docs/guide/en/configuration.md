@@ -203,7 +203,9 @@ Keys such as `model` are valid inside a preset but invalid at top level.
 > failed Configuration check without contacting a provider. Earlier versions
 > silently skipped such a file and used a lower-priority file or the default, so
 > a typo or a broken higher-priority file could go unnoticed. The diagnostic
-> names the file, line and key only, never a value. Fix or remove the reported
+> names the file, line and key only, never a value. Startup checks only syntax, unknown top-level keys and
+> read failures; `${ENV}` expansion and the contents of a preset are still
+> validated only when that preset is selected. Fix or remove the reported
 > line to continue.
 
 Valid configuration resolves as before: flag, then preset, then config file,

@@ -2058,3 +2058,33 @@ fn known_top_level_keys_unknown_sections_and_legacy_files_still_load() {
         "{flagged}"
     );
 }
+
+#[test]
+fn unselected_preset_with_unset_env_reference_does_not_block_startup() {
+    const FILE: &str = "[preset.other]\nmodel = \"${COMMANDAGENT_TEST_UNSET_ENV_782}\"\n\n[preset.ok]\nmodel = \"m\"\n";
+    let actual = run_case(&Case {
+        name: "unselected preset references an unset env var",
+        files: &[("ws:.commandagent/config.toml", FILE)],
+        args: &[],
+        options: no_options(),
+        fake_env: None,
+        forbid: &[],
+        expect: "",
+    });
+    assert!(actual.starts_with("OK\n"), "{actual}");
+    // Selecting that preset still reports the unset variable.
+    let selected = run_case(&Case {
+        name: "selected preset with an unset env var",
+        files: &[("ws:.commandagent/config.toml", FILE)],
+        args: &["--preset", "other"],
+        options: no_options(),
+        fake_env: None,
+        forbid: &[],
+        expect: "",
+    });
+    assert!(selected.starts_with("ERR\n"), "{selected}");
+    assert!(
+        selected.contains("COMMANDAGENT_TEST_UNSET_ENV_782"),
+        "{selected}"
+    );
+}
