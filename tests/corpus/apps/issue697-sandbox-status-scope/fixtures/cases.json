@@ -1,0 +1,45 @@
+{
+  "contract": {
+    "event": "bash_sandbox_status",
+    "fields": ["applied", "backend", "event", "mode", "reason", "schema_version"],
+    "downgrades_per_run": 1,
+    "restore_reinstates_backend": false
+  },
+  "cases": [
+    {
+      "id": "parent-child-parent",
+      "parent": "file",
+      "children": ["file"],
+      "downgrade": "child:0",
+      "expect": {"parent_lines": 0, "children_lines": [1], "path_less_emits": 0}
+    },
+    {
+      "id": "none-child-none",
+      "parent": "none",
+      "children": ["file"],
+      "downgrade": "child:0",
+      "expect": {"parent_lines": null, "children_lines": [1], "path_less_emits": 0}
+    },
+    {
+      "id": "child-without-path",
+      "parent": "file",
+      "children": ["none"],
+      "downgrade": "child:0",
+      "expect": {"parent_lines": 0, "children_lines": [null], "path_less_emits": 1}
+    },
+    {
+      "id": "downgrade-after-child-returns",
+      "parent": "file",
+      "children": ["file"],
+      "downgrade": "parent",
+      "expect": {"parent_lines": 1, "children_lines": [0], "path_less_emits": 0}
+    },
+    {
+      "id": "consecutive-children",
+      "parent": "file",
+      "children": ["file", "file"],
+      "downgrade": "child:1",
+      "expect": {"parent_lines": 0, "children_lines": [0, 1], "path_less_emits": 0}
+    }
+  ]
+}
