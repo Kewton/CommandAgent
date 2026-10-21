@@ -108,6 +108,13 @@ snapshot-qualified ID when repeatable comparisons matter. CommandAgent records
 the requested and returned model IDs plus `system_fingerprint` in the provider
 turn event so endpoint drift can be audited without exposing credentials.
 
+The `gpt-5.6` alias rejection applies to every role that uses the built-in
+OpenAI provider: executor, planner, and classifier. It is a check on the
+built-in OpenAI provider only and is not applied to the generic
+`openai-compatible` transport, which forwards the model ID unchanged. In the
+REPL, `/model <id>` and a `/provider openai` switch run the executor check again
+before the new selection is applied.
+
 OpenAI Chat Completions reasoning effort is opt-in. Set
 `COMMANDAGENT_OPENAI_REASONING_EFFORT` in the process environment only when an
 explicit effort value is required. If it is unset or empty, CommandAgent omits
@@ -179,6 +186,12 @@ existing Escape/Ctrl-C provider cancellation boundary remains active.
 LM Studio uses this same transport with its existing `lm-studio`,
 `--lm-studio-host`, and `LM_STUDIO_API_TOKEN` names. Those settings remain
 backward compatible and are not automatically rewritten to the generic form.
+
+The interactive `/provider` command accepts only `ollama`, `lm-studio`,
+`openai`, and `gemini`, so it cannot select this generic provider. Configure it
+for a role with `--provider`, `--base-url`, and `--api-key-env`, or a preset,
+and restart CommandAgent to change it. Whenever the executor, planner, or
+classifier resolves to `openai-compatible`, its base URL is required.
 
 ## Ollama host and models
 

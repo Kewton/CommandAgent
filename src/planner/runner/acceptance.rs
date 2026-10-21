@@ -1,6 +1,5 @@
 // Pure extraction from the E-5d responsibility map (pre-split runner.rs:5178-7299).
 // Event names, evidence fields, and emitted strings remain owned by the moved code.
-#[allow(unused_imports)]
 use super::{
     APP_BEHAVIOR_PROBE_FAILURE_KINDS, BoundCompletionContract, BrowserInteractionProbeOptions,
     BrowserReadinessObservation, Child, CompileError, Config, DEV_SERVER_CLEANUP_KILL_TIMEOUT,
@@ -28,7 +27,6 @@ use super::{
     save_release_recovery_handoff, surface_fit_guidance_lines_from_value, verifier_env,
     verify_runtime_acceptance_with_browser_dirs_and_hints, write_release_evidence_json,
 };
-#[allow(unused_imports)]
 use super::{DEV_SERVER_LIFECYCLE_STAGES, ReleaseRecoveryHandoffSummary};
 use crate::planner::profile_contract_observations::{non_recovery_failure_kind, registered_probe};
 use std::io::{Read, Write};
@@ -38,6 +36,17 @@ mod plan_final_probe;
 #[path = "acceptance/profile_contract_event.rs"]
 mod profile_contract_event;
 use profile_contract_event::emit_probe_event;
+#[cfg(test)]
+#[path = "acceptance/issue507_tests.rs"]
+mod issue507_tests;
+#[cfg(test)]
+#[path = "acceptance/test_transport.rs"]
+pub(super) mod test_transport;
+#[cfg(test)]
+pub(super) use test_transport::{
+    inferred_required_capabilities, inferred_required_evidence, inferred_required_obligations,
+    run_nextjs_dev_route_probe,
+};
 pub(super) fn emit_browser_probe_event(
     config: &Config,
     observation: &BrowserReadinessObservation,
@@ -233,40 +242,12 @@ pub(super) fn annotate_interaction_evidence_with_source_diagnostics(
     }
 }
 
-#[cfg(test)]
-pub(super) fn inferred_required_capabilities(profile: &str, goal: &str) -> Vec<String> {
-    resolve_profile_runtime(profile).required_capabilities(goal)
-}
-
-#[cfg(test)]
-pub(super) fn inferred_required_evidence(
-    profile: &str,
-    goal: &str,
-    required_capabilities: &[String],
-) -> Vec<String> {
-    resolve_profile_runtime(profile).required_evidence(goal, required_capabilities)
-}
-
 pub(super) fn runtime_required_evidence(
     runtime: &dyn ProfileRuntime,
     goal: &str,
     required_capabilities: &[String],
 ) -> Vec<String> {
     runtime.required_evidence(goal, required_capabilities)
-}
-
-#[cfg(test)]
-pub(super) fn inferred_required_obligations(
-    profile: &str,
-    goal: &str,
-    required_capabilities: &[String],
-) -> Vec<String> {
-    let profile_id = ProfileId::parse(profile);
-    ProfileRuntimeRegistry::resolve(&profile_id).required_obligations(
-        &profile_id,
-        goal,
-        required_capabilities,
-    )
 }
 
 pub(super) fn run_profile_behavior_probe(
@@ -393,16 +374,6 @@ pub(super) struct HttpProbeResult {
     pub(super) body_excerpt: String,
 }
 
-#[cfg(test)]
-pub(super) fn run_nextjs_dev_route_probe(config: &Config, evidence_path: &Path) -> Value {
-    run_nextjs_dev_route_probe_with_interaction_options(
-        config,
-        evidence_path,
-        BrowserInteractionProbeOptions::default(),
-        None,
-    )
-}
-
 pub(super) fn run_nextjs_dev_route_probe_with_interaction_options(
     config: &Config,
     evidence_path: &Path,
@@ -473,7 +444,12 @@ pub(super) fn run_nextjs_dev_route_probe_with_runtime(
         }
     };
 
-    if localhost_port_accepts_connection(spec.port) {
+    #[cfg(test)]
+    let dynamic_transport = test_transport::enabled(&config.workspace_root);
+    #[cfg(not(test))]
+    let dynamic_transport = false;
+
+    if !dynamic_transport && localhost_port_accepts_connection(spec.port) {
         let owner = dev_server_port_owner(spec.port);
         if let Some(owner) = &owner
             && owner
@@ -503,7 +479,7 @@ pub(super) fn run_nextjs_dev_route_probe_with_runtime(
         }
     }
 
-    if localhost_port_accepts_connection(spec.port) {
+    if !dynamic_transport && localhost_port_accepts_connection(spec.port) {
         let owner = dev_server_port_owner(spec.port);
         let failure_kind = "port_in_use";
         let owner_text = owner
@@ -550,6 +526,9 @@ pub(super) fn run_nextjs_dev_route_probe_with_runtime(
             );
         }
     };
+
+    #[cfg(test)]
+    let transport = test_transport::begin(&config.workspace_root, dynamic_transport);
 
     let mut command =
         verifier_env::normalized_command_at_root(&spec.package_manager, &config.workspace_root);
@@ -760,7 +739,12 @@ pub(super) fn run_nextjs_dev_route_probe_with_runtime(
             }
         }
 
-        match http_get_local_route(spec.port, &spec.route) {
+        #[cfg(test)]
+        let poll_port = transport.poll_port(&config.workspace_root, spec.port);
+        #[cfg(not(test))]
+        let poll_port = spec.port;
+
+        match http_get_local_route(poll_port, &spec.route) {
             Ok(response) => {
                 emit_dev_server_lifecycle_stage(
                     config,
@@ -830,7 +814,7 @@ pub(super) fn run_nextjs_dev_route_probe_with_runtime(
                     let interaction =
                         interaction_probe::probe_browser_interaction_against_running_server_with_options(
                             &config.workspace_root,
-                            spec.port,
+                            poll_port,
                             run_dir,
                             &interaction_path,
                             Duration::from_secs(120),
@@ -1338,6 +1322,13 @@ pub(super) fn signal_dev_server_process_group(
 ) -> std::io::Result<()> {
     let pid =
         i32::try_from(pid).map_err(|_| std::io::Error::other("child pid does not fit pid_t"))?;
+    // Last, non-mutatable defense (Issue #673). The group target comes from
+    // `std::process::Child::id()`, so `-pid < -1` always holds for the real
+    // value; the check is a fortress against a mutation that rewrites the
+    // converted value to 0 (the caller's own group) or 1 (init). cargo-mutants
+    // does not rewrite comparisons inside `assert!`, and this is written
+    // directly in the function that calls `kill`.
+    assert!(-pid < -1, "refusing to signal process group {pid}");
     // SAFETY: `kill` is called with a process-group id derived from the child
     // pid returned by `std::process::Child` and a libc signal constant.
     let rc = unsafe { libc::kill(-pid, signal) };
@@ -1379,6 +1370,9 @@ pub(super) fn dev_server_process_group_exists(pgid: u32) -> bool {
     let Ok(pgid) = i32::try_from(pgid) else {
         return false;
     };
+    // Last, non-mutatable defense (Issue #673), written directly in the
+    // function that calls `kill`.
+    assert!(-pgid < -1, "refusing to signal process group {pgid}");
     // SAFETY: signal 0 performs existence/permission checking only, using
     // a process-group id derived from a child process spawned by this probe.
     let rc = unsafe { libc::kill(-pgid, 0) };
@@ -1449,7 +1443,7 @@ pub(super) fn cleanup_stage_failure_kind<'a>(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "flat dev-server event fields")]
 pub(super) fn emit_dev_server_cleanup_lifecycle_stage(
     config: &Config,
     ok: bool,
@@ -1543,7 +1537,7 @@ pub(super) fn emit_dev_server_unavailable_lifecycle(
     );
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "flat dev-server event fields")]
 pub(super) fn emit_dev_server_lifecycle_stage(
     config: &Config,
     stage: &str,

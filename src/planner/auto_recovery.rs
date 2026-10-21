@@ -15,12 +15,19 @@ use crate::planner::ultra_plan::UltraPlan;
 use crate::providers::ChatClient;
 use crate::tui::InteractionUi;
 
+mod preflight_audit;
+mod preflight_effects;
+mod retry;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RecoveryCandidate {
     path: PathBuf,
     plan: UltraPlan,
     handoff: crate::planner::repair::RecoveryHandoff,
     verify_command_source: String,
+    original_intent: Option<String>,
+    inspection_context: Option<crate::planner::recovery_inspection::InspectionContext>,
+    retry_identity: Option<Vec<u8>>,
 }
 
 #[derive(Debug)]
@@ -28,6 +35,7 @@ enum AttemptFailure {
     Interrupted,
     Recoverable(Box<RecoveryCandidate>),
     NonRecoverable,
+    Stopped(CandidateStop),
 }
 
 #[derive(Debug)]
@@ -39,6 +47,8 @@ struct AttemptOutcome {
 #[derive(Debug, Default)]
 struct AttemptCapture {
     active: bool,
+    original_intent: Option<String>,
+    inspection_context: Option<crate::planner::recovery_inspection::InspectionContext>,
     candidate: Option<RecoveryCandidate>,
 }
 
@@ -53,6 +63,8 @@ impl AttemptCaptureGuard {
         ATTEMPT_CAPTURE.with(|capture| {
             *capture.borrow_mut() = AttemptCapture {
                 active: true,
+                original_intent: None,
+                inspection_context: None,
                 candidate: None,
             };
         });
@@ -97,13 +109,39 @@ fn record_candidate(
         plan,
         handoff,
         verify_command_source: "failure_handoff".to_string(),
+        original_intent: None,
+        inspection_context: None,
+        retry_identity: None,
     });
 }
 
-fn record_typed_candidate(candidate: RecoveryCandidate) {
+pub(crate) fn record_execution_origin(config: &Config, intent: &str) -> anyhow::Result<()> {
+    let inherited = if intent == "recover" {
+        crate::planner::recovery_inspection::load(config)?
+    } else {
+        None
+    };
+    let intent = inherited
+        .as_ref()
+        .map(|context| context.original_intent.as_str())
+        .unwrap_or(intent);
+    ATTEMPT_CAPTURE.with(|capture| {
+        let mut capture = capture.borrow_mut();
+        if capture.active && capture.original_intent.is_none() && matches!(intent, "create" | "fix")
+        {
+            capture.original_intent = Some(intent.to_string());
+            capture.inspection_context = inherited.clone();
+        }
+    });
+    Ok(())
+}
+
+fn record_typed_candidate(mut candidate: RecoveryCandidate) {
     ATTEMPT_CAPTURE.with(|capture| {
         let mut capture = capture.borrow_mut();
         if capture.active {
+            candidate.original_intent = capture.original_intent.clone();
+            candidate.inspection_context = capture.inspection_context.clone();
             let replace = capture.candidate.as_ref().is_none_or(|current| {
                 candidate.handoff.failed_step.is_some() || current.handoff.failed_step.is_none()
             });
@@ -124,6 +162,9 @@ pub(crate) fn record_handoff_candidate(
         plan,
         handoff: handoff.clone(),
         verify_command_source: "failure_handoff".to_string(),
+        original_intent: None,
+        inspection_context: None,
+        retry_identity: None,
     });
 }
 
@@ -155,7 +196,7 @@ enum InitialExecution<'a> {
 trait RecoveryDriver {
     type Prepared;
 
-    fn preflight(&mut self, _candidate: &RecoveryCandidate) -> RecoveryPreflight {
+    fn preflight(&mut self, _candidate: &RecoveryCandidate, _used: u8) -> RecoveryPreflight {
         RecoveryPreflight::NotConfigured
     }
     fn prepare(&mut self, candidate: &RecoveryCandidate) -> Result<Self::Prepared, CandidateStop>;
@@ -191,8 +232,12 @@ struct RunnerRecoveryDriver<'a> {
 impl RecoveryDriver for RunnerRecoveryDriver<'_> {
     type Prepared = crate::runs::ResumePlan;
 
-    fn preflight(&mut self, candidate: &RecoveryCandidate) -> RecoveryPreflight {
-        recovery_preflight(self.config, candidate, 0)
+    fn preflight(&mut self, candidate: &RecoveryCandidate, used: u8) -> RecoveryPreflight {
+        recovery_preflight(
+            self.config,
+            candidate,
+            if used == 0 { 0 } else { 64 + used },
+        )
     }
 
     fn prepare(&mut self, candidate: &RecoveryCandidate) -> Result<Self::Prepared, CandidateStop> {
@@ -224,6 +269,14 @@ impl RecoveryDriver for RunnerRecoveryDriver<'_> {
         let treatment_config =
             crate::planner::recovery_contract_binding::bind_config(self.config, &treatment)
                 .map_err(|_| CandidateStop::TreatmentContractBindFailed)?;
+        crate::planner::recovery_inspection::bind_context(
+            self.config,
+            &treatment_config,
+            candidate.original_intent.as_deref(),
+            &candidate.handoff,
+            candidate.inspection_context.as_ref(),
+        )
+        .map_err(|_| CandidateStop::TreatmentContractBindFailed)?;
         let observer_identity = recovery_observer_identity(self.config)
             .ok_or(CandidateStop::ObserverIdentityBindFailed)?;
         if recovery_observer_identity(&treatment_config).as_ref() != Some(&observer_identity) {
@@ -309,24 +362,21 @@ impl RecoveryDriver for RunnerRecoveryDriver<'_> {
             );
         };
         emit_treatment_delta(self.config, used, &snapshot, &treatment);
-        if outcome.result.is_err() {
-            return retain_control(
-                self.config,
-                used,
-                snapshot,
-                outcome,
-                "recovery_execution_failed",
-                false,
-            );
+        if let Err(reason) = retry::check_boundary(
+            self.config,
+            &treatment_config,
+            &snapshot,
+            &observer_identity,
+        ) {
+            return retain_control(self.config, used, snapshot, outcome, &reason, false);
         }
-        if recovery_observer_identity(&treatment_config).as_ref() != Some(&observer_identity) {
-            return retain_control(
+        if outcome.result.is_err() {
+            return retry::reject_execution(
                 self.config,
+                &treatment_config,
                 used,
                 snapshot,
                 outcome,
-                "recovery_observer_authority_changed",
-                false,
             );
         }
         match recovery_preflight(&treatment_config, candidate, used.saturating_add(128)) {
@@ -358,9 +408,17 @@ impl RecoveryDriver for RunnerRecoveryDriver<'_> {
                     false,
                 )
             }
-            RecoveryPreflight::Failed { reason } => {
+            RecoveryPreflight::Failed { reason, identity } => {
                 emit_preflight(self.config, candidate, "post_recovery", "fail", &reason);
-                retain_control(self.config, used, snapshot, outcome, &reason, true)
+                retry::reject_verification(
+                    self.config,
+                    &treatment_config,
+                    used,
+                    snapshot,
+                    candidate,
+                    outcome,
+                    (&reason, identity),
+                )
             }
             RecoveryPreflight::VerificationInconsistency { reason } => {
                 emit_preflight(
@@ -466,6 +524,11 @@ fn run_with_ui(
         return execute_initial(initial, planner, execution, config, ui);
     }
 
+    let _recovery_authority = crate::planner::recovery_contract_authority::begin_run(config);
+    let _repair_authority = crate::planner::recovery_repair_obligation::authority::begin_run();
+    let _verifier_authority =
+        crate::planner::recovery_inspection::verifier_obligations::authority::begin_run();
+
     emit(
         config,
         "recovery_plan_auto_run_configured",
@@ -476,7 +539,16 @@ fn run_with_ui(
         execute_initial(initial, planner, execution, config, ui)
     });
     let recovery_config = if outcome.result.is_err() {
-        match crate::planner::recovery_contract_authority::bind_for_recovery(config) {
+        let failed_plan_verify_commands = match outcome.failure.as_ref() {
+            Some(AttemptFailure::Recoverable(candidate)) => {
+                candidate.handoff.verify_commands.as_slice()
+            }
+            _ => &[],
+        };
+        match crate::planner::recovery_contract_authority::bind_for_recovery(
+            config,
+            failed_plan_verify_commands,
+        ) {
             Ok(config) => config,
             Err(binding_error) => {
                 let initial_error = outcome.result.expect_err("failed result checked above");
@@ -549,9 +621,27 @@ fn drive(
                 );
                 return Err(error);
             }
+            AttemptFailure::Stopped(reason) => {
+                emit(
+                    config,
+                    "recovery_plan_auto_run_stopped",
+                    controller.used,
+                    reason.code(),
+                );
+                return Err(error);
+            }
             AttemptFailure::Recoverable(candidate) => *candidate,
         };
-        let preflight_failure_reason = match driver.preflight(&candidate) {
+        let Some(used) = controller.next_run() else {
+            emit(
+                config,
+                "recovery_plan_auto_run_stopped",
+                controller.used,
+                "limit_reached",
+            );
+            return Err(error);
+        };
+        let preflight_failure_reason = match driver.preflight(&candidate, used - 1) {
             RecoveryPreflight::NotConfigured => {
                 emit_preflight(
                     config,
@@ -563,14 +653,14 @@ fn drive(
                 emit(
                     config,
                     "recovery_plan_auto_run_stopped",
-                    controller.used,
+                    used - 1,
                     "no_registered_pre_recovery_observation",
                 );
                 return Err(error.context(
                     "automatic Recovery Plan stopped: no registered pre-recovery observation",
                 ));
             }
-            RecoveryPreflight::Failed { reason } => {
+            RecoveryPreflight::Failed { reason, .. } => {
                 emit_preflight(config, &candidate, "pre_recovery", "fail", &reason);
                 Some(reason)
             }
@@ -579,13 +669,13 @@ fn drive(
                 emit(
                     config,
                     "recovery_suppressed_current_success",
-                    controller.used,
+                    used - 1,
                     "current_success_protected",
                 );
                 emit(
                     config,
                     "recovery_plan_auto_run_stopped",
-                    controller.used,
+                    used - 1,
                     "current_success_protected",
                 );
                 return Err(error.context(
@@ -603,13 +693,13 @@ fn drive(
                 emit(
                     config,
                     "recovery_suppressed_verification_inconsistency",
-                    controller.used,
+                    used - 1,
                     "verification_inconsistency",
                 );
                 emit(
                     config,
                     "recovery_plan_auto_run_stopped",
-                    controller.used,
+                    used - 1,
                     "verification_inconsistency",
                 );
                 return Err(error.context(format!(
@@ -621,22 +711,13 @@ fn drive(
                 emit(
                     config,
                     "recovery_plan_auto_run_stopped",
-                    controller.used,
+                    used - 1,
                     "preflight_unavailable",
                 );
                 return Err(error.context(format!(
                     "automatic Recovery Plan stopped: preflight unavailable: {reason}"
                 )));
             }
-        };
-        let Some(used) = controller.next_run() else {
-            emit(
-                config,
-                "recovery_plan_auto_run_stopped",
-                controller.used,
-                "limit_reached",
-            );
-            return Err(error);
         };
         let candidate = if let Some(reason) = preflight_failure_reason.as_deref()
             && candidate.verify_command_source != "completion_contract"
@@ -651,8 +732,9 @@ fn drive(
                         reason.code(),
                     );
                     return Err(error.context(format!(
-                        "automatic Recovery Plan stopped: {}",
-                        reason.code()
+                        "automatic Recovery Plan stopped: {} ({})",
+                        recovery_stop_summary(reason.code()),
+                        reason.code(),
                     )));
                 }
             }
@@ -669,13 +751,19 @@ fn drive(
                     reason.code(),
                 );
                 return Err(error.context(format!(
-                    "automatic Recovery Plan stopped: {}",
-                    reason.code()
+                    "automatic Recovery Plan stopped: {} ({})",
+                    recovery_stop_summary(reason.code()),
+                    reason.code(),
                 )));
             }
         };
         let normalized = driver.normalized(&prepared)?;
-        if !controller.observe_plan(normalized) {
+        if !controller.observe_plan(normalized)
+            || candidate
+                .retry_identity
+                .as_ref()
+                .is_some_and(|identity| !controller.seen_failures.insert(identity.clone()))
+        {
             emit(
                 config,
                 "recovery_plan_auto_run_stopped",
@@ -693,8 +781,9 @@ fn drive(
                 reason.code(),
             );
             return Err(error.context(format!(
-                "automatic Recovery Plan stopped: {}",
-                reason.code()
+                "automatic Recovery Plan stopped: {} ({})",
+                recovery_stop_summary(reason.code()),
+                reason.code(),
             )));
         }
         outcome = driver.execute(prepared);
@@ -715,7 +804,7 @@ fn drive(
 enum RecoveryPreflight {
     NotConfigured,
     CurrentSuccess { reason: String },
-    Failed { reason: String },
+    Failed { reason: String, identity: Vec<u8> },
     VerificationInconsistency { reason: String },
     Unavailable { reason: String },
 }
@@ -762,9 +851,31 @@ fn recovery_preflight(
             };
         }
     };
+    preflight_audit::run(config, &checkpoint, || {
+        recovery_preflight_observation(
+            config,
+            candidate,
+            checkpoint_attempt,
+            &checkpoint,
+            &contract,
+            capability_commands,
+            nextjs_observer_required,
+        )
+    })
+}
+
+fn recovery_preflight_observation(
+    config: &Config,
+    candidate: &RecoveryCandidate,
+    checkpoint_attempt: u8,
+    checkpoint: &crate::planner::recovery_snapshot::RecoveryBoundarySnapshot,
+    contract: &crate::minimal_loop::completion::CompletionContract,
+    capability_commands: Vec<String>,
+    nextjs_observer_required: bool,
+) -> RecoveryPreflight {
     let observation = match crate::planner::recovery_snapshot::prepare_preflight_observation(
         &config.workspace_root,
-        &checkpoint,
+        checkpoint,
         checkpoint_attempt,
     ) {
         Ok(observation) => observation,
@@ -785,7 +896,7 @@ fn recovery_preflight(
         };
     observation_config.eval_events_path = None;
     let effect_policy = crate::planner::recovery_observation_policy::RecoveryObservationPolicy::for_contract_at_workspace(
-        &contract,
+        contract,
         &observation,
     );
     crate::eval_events::emit(
@@ -795,7 +906,7 @@ fn recovery_preflight(
             "source": "product_visible_completion_contract",
             "allowed_generated_paths": &effect_policy.allowed_generated_paths,
             "protected_change_disposition": "reject_and_retain_control",
-            "registered_data_input_fixture": crate::planner::recovery_observation_policy::registered_data_input_fixture(&contract),
+            "registered_data_input_fixture": crate::planner::recovery_observation_policy::registered_data_input_fixture(contract),
             "external_oracle_used": false,
         }),
     );
@@ -811,15 +922,24 @@ fn recovery_preflight(
                 };
             }
         };
+    let mut effects = preflight_effects::Effects::new(
+        config,
+        &observation,
+        &effect_policy.allowed_generated_paths,
+        checkpoint,
+    );
     let nextjs_observer_result = if nextjs_observer_required {
         Some(observe_nextjs_recovery_capabilities(
             config,
-            &contract,
+            contract,
             &observation,
         ))
     } else {
         None
     };
+    if nextjs_observer_required {
+        effects.record("nextjs_capabilities");
+    }
     let mut verify_commands = contract.verify_commands.clone();
     for command in capability_commands {
         push_unique(&mut verify_commands, command);
@@ -844,6 +964,7 @@ fn recovery_preflight(
         config.offline,
         None,
     );
+    effects.record("registered_verification");
     let completion_acceptance = if report.is_pass() {
         Some(
             crate::planner::runner::recovery_acceptance::runtime_acceptance_report(
@@ -854,6 +975,9 @@ fn recovery_preflight(
     } else {
         None
     };
+    if completion_acceptance.is_some() {
+        effects.record("completion_acceptance");
+    }
     let observed_sha256 = crate::planner::recovery_snapshot::current_preflight_source_sha256(
         &observation,
         &effect_policy.allowed_generated_paths,
@@ -871,23 +995,10 @@ fn recovery_preflight(
             reason: format!("preflight_source_observation_failed:{error}"),
         };
     }
-    match crate::planner::recovery_snapshot::current_source_sha256(&config.workspace_root) {
-        Ok(hash) if hash == checkpoint.snapshot_sha256 => {}
-        Ok(_) => {
-            let reason = match crate::planner::recovery_snapshot::restore_transaction(
-                &config.workspace_root,
-                &checkpoint,
-            ) {
-                Ok(_) => "preflight_control_source_mutation_rejected_and_restored".to_string(),
-                Err(error) => format!("preflight_control_source_restore_failed:{error}"),
-            };
-            return RecoveryPreflight::Unavailable { reason };
-        }
-        Err(error) => {
-            return RecoveryPreflight::Unavailable {
-                reason: format!("preflight_control_source_observation_failed:{error}"),
-            };
-        }
+    if let Some(error) = effects.error {
+        return RecoveryPreflight::Unavailable {
+            reason: format!("preflight_effect_observation_failed:{error}"),
+        };
     }
     if let Some(Err(outcome)) = nextjs_observer_result {
         return outcome;
@@ -897,7 +1008,7 @@ fn recovery_preflight(
             Ok(acceptance)
                 if completion_acceptance_passes_after_registered_observation(
                     &acceptance,
-                    &contract,
+                    contract,
                 ) =>
             {
                 RecoveryPreflight::CurrentSuccess {
@@ -929,6 +1040,7 @@ fn recovery_preflight(
         }
     } else {
         RecoveryPreflight::Failed {
+            identity: retry::observation_identity(&report, &observation),
             reason: report.primary_reason(),
         }
     }
@@ -968,11 +1080,7 @@ fn observe_nextjs_recovery_capabilities(
     );
     if !readiness.ok {
         let reason = format!("nextjs_route_observation_failed:{}", readiness.failure_kind);
-        return if readiness.status.starts_with("skipped") {
-            Err(RecoveryPreflight::Unavailable { reason })
-        } else {
-            Err(RecoveryPreflight::Failed { reason })
-        };
+        return Err(retry::readiness_failure(&readiness, observation, reason));
     }
     let evidence_path =
         crate::minimal_loop::interaction_probe::browser_interaction_evidence_path(observation);
@@ -1000,7 +1108,10 @@ fn observe_nextjs_recovery_capabilities(
     {
         Err(RecoveryPreflight::Unavailable { reason })
     } else {
-        Err(RecoveryPreflight::Failed { reason })
+        Err(RecoveryPreflight::Failed {
+            identity: failure_kind.as_bytes().to_vec(),
+            reason,
+        })
     }
 }
 
@@ -1142,7 +1253,10 @@ fn bind_candidate_verify_commands(
                 ),
             );
         }
-        let plan = crate::planner::repair::build_recovery_ultra_plan(&candidate.handoff);
+        let plan = crate::planner::repair::build_recovery_ultra_plan_at_root(
+            Some(&config.workspace_root),
+            &candidate.handoff,
+        );
         let scope = contract_bound_scope(candidate.handoff.failed_step.as_deref());
         let path = crate::planner::repair::save_recovery_ultra_plan(
             &config.workspace_root,
@@ -1323,6 +1437,7 @@ struct AutoRecoveryController {
     limit: u8,
     used: u8,
     seen_plans: BTreeSet<Vec<u8>>,
+    seen_failures: BTreeSet<Vec<u8>>,
 }
 
 impl AutoRecoveryController {
@@ -1331,6 +1446,7 @@ impl AutoRecoveryController {
             limit,
             used: 0,
             seen_plans: BTreeSet::new(),
+            seen_failures: BTreeSet::new(),
         }
     }
 
@@ -1425,6 +1541,7 @@ fn normalized_plan(plan: &UltraPlan) -> anyhow::Result<Vec<u8>> {
 }
 
 fn emit(config: &Config, event: &str, used: u8, stop_reason: &str) {
+    let stop_summary = recovery_stop_summary(stop_reason);
     crate::eval_events::emit(
         config.eval_events_path.as_deref(),
         json!({
@@ -1433,8 +1550,32 @@ fn emit(config: &Config, event: &str, used: u8, stop_reason: &str) {
             "recovery_plan_auto_runs_used": used,
             "recovery_plan_auto_run_current": used,
             "recovery_plan_auto_run_stop_reason": stop_reason,
+            "recovery_plan_auto_run_stop_summary": stop_summary,
         }),
     );
+}
+
+fn recovery_stop_summary(stop_reason: &str) -> String {
+    match stop_reason {
+        "contract_command_bind_failed" => {
+            "the completion contract has no registered verification command for Recovery"
+                .to_string()
+        }
+        "completion_contract_binding_failed" => {
+            "the completion contract could not be bound for Recovery".to_string()
+        }
+        "no_registered_pre_recovery_observation" => {
+            "no registered pre-Recovery observation is available".to_string()
+        }
+        "preflight_unavailable" => "the Recovery preflight observation is unavailable".to_string(),
+        "current_success_protected" => {
+            "the current workspace already satisfies the registered success checks".to_string()
+        }
+        "verification_inconsistency" => {
+            "registered observations conflict with completion evidence".to_string()
+        }
+        other => other.replace('_', " "),
+    }
 }
 
 fn emit_preflight(
@@ -1549,10 +1690,30 @@ fn retain_control(
     config: &Config,
     used: u8,
     snapshot: crate::planner::recovery_snapshot::RecoveryBoundarySnapshot,
-    mut outcome: AttemptOutcome,
+    outcome: AttemptOutcome,
     reason: &str,
     regression: bool,
 ) -> AttemptOutcome {
+    retain_control_then(config, used, snapshot, outcome, reason, regression, || {
+        Ok(None)
+    })
+}
+
+fn retain_control_then(
+    config: &Config,
+    used: u8,
+    snapshot: crate::planner::recovery_snapshot::RecoveryBoundarySnapshot,
+    mut outcome: AttemptOutcome,
+    reason: &str,
+    regression: bool,
+    continuation: impl FnOnce() -> Result<Option<RecoveryCandidate>, CandidateStop>,
+) -> AttemptOutcome {
+    let interrupted = matches!(outcome.failure, Some(AttemptFailure::Interrupted));
+    outcome.failure = Some(if interrupted {
+        AttemptFailure::Interrupted
+    } else {
+        AttemptFailure::NonRecoverable
+    });
     let restore =
         crate::planner::recovery_snapshot::retain_control(&config.workspace_root, &snapshot);
     match restore {
@@ -1579,6 +1740,24 @@ fn retain_control(
                     "automatic Recovery treatment rejected: {reason}"
                 ));
             }
+            if !interrupted {
+                match continuation() {
+                    Ok(Some(candidate)) => {
+                        retry::announce_continuation(config, used, &candidate);
+                        outcome.failure = Some(AttemptFailure::Recoverable(Box::new(candidate)));
+                    }
+                    Ok(None) => {}
+                    Err(reason) => {
+                        outcome.result = outcome.result.map_err(|error| {
+                            error.context(format!(
+                                "automatic Recovery continuation stopped: {}",
+                                reason.code()
+                            ))
+                        });
+                        outcome.failure = Some(AttemptFailure::Stopped(reason));
+                    }
+                }
+            }
         }
         Err(error) => {
             emit_transaction_event(
@@ -1593,7 +1772,6 @@ fn retain_control(
             ));
         }
     }
-    outcome.failure = Some(AttemptFailure::NonRecoverable);
     outcome
 }
 
@@ -1742,6 +1920,45 @@ mod tests {
     use clap::Parser;
     use std::collections::VecDeque;
 
+    mod issue458 {
+        include!("auto_recovery/issue458_tests.rs");
+    }
+
+    mod issue456 {
+        include!("auto_recovery/issue456_tests.rs");
+    }
+
+    mod issue467 {
+        include!("auto_recovery/issue467_tests.rs");
+    }
+
+    mod issue475 {
+        include!("auto_recovery/issue475_tests.rs");
+    }
+
+    #[cfg(unix)]
+    mod issue485 {
+        include!("auto_recovery/issue485_tests.rs");
+    }
+
+    mod issue440 {
+        include!("auto_recovery/issue440_tests.rs");
+    }
+
+    mod issue428 {
+        include!("auto_recovery/issue428_tests.rs");
+    }
+
+    #[cfg(unix)]
+    mod issue448 {
+        include!("auto_recovery/issue448_tests.rs");
+    }
+
+    #[cfg(unix)]
+    mod issue448_contract {
+        include!("auto_recovery/issue448_contract_tests.rs");
+    }
+
     #[derive(Clone)]
     struct UnusedClient;
 
@@ -1802,6 +2019,9 @@ mod tests {
                 ..crate::planner::repair::RecoveryHandoff::default()
             },
             verify_command_source: "failure_handoff".to_string(),
+            original_intent: None,
+            inspection_context: None,
+            retry_identity: None,
         }
     }
 
@@ -1852,7 +2072,7 @@ mod tests {
     impl RecoveryDriver for ScriptedDriver {
         type Prepared = UltraPlan;
 
-        fn preflight(&mut self, _candidate: &RecoveryCandidate) -> RecoveryPreflight {
+        fn preflight(&mut self, _candidate: &RecoveryCandidate, _used: u8) -> RecoveryPreflight {
             self.preflight.clone()
         }
 
@@ -1885,12 +2105,17 @@ mod tests {
         }
     }
 
+    mod issue425 {
+        include!("auto_recovery/issue425_tests.rs");
+    }
+
     fn driver(outcomes: Vec<AttemptOutcome>) -> ScriptedDriver {
         ScriptedDriver {
             prepare_error: None,
             outcomes: outcomes.into(),
             starts: Vec::new(),
             preflight: RecoveryPreflight::Failed {
+                identity: vec![],
                 reason: "scripted_registered_observation_failed".to_string(),
             },
         }
@@ -1935,6 +2160,47 @@ mod tests {
         let initial = failed(recoverable(contract_bound_candidate("first")));
         assert_eq!(drive(&config, initial, &mut driver).unwrap(), "recovered");
         assert_eq!(driver.starts, vec![1]);
+    }
+
+    #[test]
+    fn generated_nextjs_contract_allows_first_recovery_run_after_build_failure() {
+        let root = tempfile::tempdir().unwrap();
+        let config = config(root.path(), 2);
+        let contract_path = crate::planner::completion_contract_path::generated_path(
+            root.path(),
+            config.eval_events_path.as_deref(),
+            "completion-contract-ultra-plan-run.json",
+        );
+        std::fs::write(
+            &contract_path,
+            r#"{"goal":"Create a Next.js app","required_paths":[],"verify_commands":[],"profile":"nextjs"}"#,
+        )
+        .unwrap();
+        let bound = crate::planner::recovery_contract_authority::bind_for_recovery(
+            &config,
+            &["npm run build".to_string()],
+        )
+        .unwrap();
+        let mut recovery = candidate("Create a Next.js app");
+        recovery.plan.profile = "nextjs".to_string();
+        recovery.handoff.profile = "nextjs".to_string();
+        recovery.handoff.failed_phase = Some("core-implementation".to_string());
+        recovery.handoff.verify_commands = vec!["npm run build".to_string()];
+        recovery.handoff.repair_targets = vec!["src/app/page.tsx".to_string()];
+        let mut driver = driver(vec![success("recovered")]);
+        driver.preflight = RecoveryPreflight::Failed {
+            identity: vec![],
+            reason: "implementation_compile_error: src/app/page.tsx".to_string(),
+        };
+
+        assert_eq!(
+            drive(&bound, failed(recoverable(recovery)), &mut driver).unwrap(),
+            "recovered"
+        );
+        assert_eq!(driver.starts, vec![1]);
+        let events = std::fs::read_to_string(config.eval_events_path.unwrap()).unwrap();
+        assert!(events.contains("recovery_generated_completion_contract_completed"));
+        assert!(!events.contains("contract_command_bind_failed"));
     }
 
     #[test]
@@ -2015,6 +2281,9 @@ mod tests {
                 ..crate::planner::repair::RecoveryHandoff::default()
             },
             verify_command_source: "failure_handoff".to_string(),
+            original_intent: None,
+            inspection_context: None,
+            retry_identity: None,
         };
         assert_eq!(
             prepare_candidate(&config, &missing).unwrap_err(),
@@ -2031,6 +2300,9 @@ mod tests {
                 ..crate::planner::repair::RecoveryHandoff::default()
             },
             verify_command_source: "failure_handoff".to_string(),
+            original_intent: None,
+            inspection_context: None,
+            retry_identity: None,
         };
         assert_eq!(
             prepare_candidate(&config, &invalid).unwrap_err(),
@@ -2054,6 +2326,9 @@ mod tests {
                 ..crate::planner::repair::RecoveryHandoff::default()
             },
             verify_command_source: "failure_handoff".to_string(),
+            original_intent: None,
+            inspection_context: None,
+            retry_identity: None,
         };
         assert_eq!(
             prepare_candidate(&config, &review).unwrap_err(),
@@ -2075,6 +2350,9 @@ mod tests {
                 ..crate::planner::repair::RecoveryHandoff::default()
             },
             verify_command_source: "failure_handoff".to_string(),
+            original_intent: None,
+            inspection_context: None,
+            retry_identity: None,
         };
         assert_eq!(
             prepare_candidate(&config, &escaped).unwrap_err(),
@@ -2089,6 +2367,29 @@ mod tests {
         assert_eq!(controller.next_run(), Some(2));
         assert_eq!(controller.next_run(), None);
         assert_eq!(controller.used, 2);
+    }
+
+    #[test]
+    fn contract_command_bind_stop_has_human_readable_summary() {
+        let root = tempfile::tempdir().unwrap();
+        let config = config(root.path(), 1);
+
+        emit(
+            &config,
+            "recovery_plan_auto_run_stopped",
+            0,
+            CandidateStop::ContractCommandBindFailed.code(),
+        );
+
+        let events = std::fs::read_to_string(config.eval_events_path.unwrap()).unwrap();
+        assert!(
+            events.contains(
+                "\"recovery_plan_auto_run_stop_reason\":\"contract_command_bind_failed\""
+            )
+        );
+        assert!(events.contains(
+            "\"recovery_plan_auto_run_stop_summary\":\"the completion contract has no registered verification command for Recovery\""
+        ));
     }
 
     #[test]
@@ -2621,6 +2922,8 @@ mod tests {
         ));
         assert!(!root.path().join("injected.txt").exists());
     }
+
+    include!("recovery_json_preflight_tests.rs");
 
     #[test]
     fn preflight_does_not_treat_build_as_browser_capability_success() {

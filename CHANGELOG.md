@@ -8,8 +8,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- Stop repeated output-limit responses without tool calls after two occurrences
+  since the last successful Write/Edit, retaining Recovery handoff and per-turn
+  execution telemetry (#440).
+
 ### Added
 
+- Replay archived Next.js create failures through real Recovery tools, registered
+  checks, Browser observation and candidate adoption; recognize provable JSON
+  rename destinations without granting dynamic helper paths (#459).
+- Retain whole-project TypeScript diagnostics after Next.js type failures, group
+  shared import contracts for repair, and check proven local JSON-wrapper request
+  mismatches with archived assignment/build/browser regressions (#457).
 - Redesign GUI Overview as a product landing page for the verified-result flow,
   honest safety principles, first use, extension boundaries, and live readiness.
 - Define the GUI extension boundary as four dependent layers, with consistent
@@ -18,6 +28,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Add explicit `--allow` tool-class policy, Git workspace warnings and exit
   diffs, and doctor-visible `--offline` scope.
 - Add the repository's MIT License, contribution guide, and changelog.
+- Add Next.js domain generation rules, conservative API response-shape checks,
+  and frozen HTTP/file oracles for data protection and business constraints (#442).
 - Add documented `just` development tasks and a reproducible Dev Container.
 - Reorganize CLI, GUI, and extension documentation by reader, with stable GUI
   compatibility anchors, simultaneous EN/JA indexes, and an in-app help map.
@@ -38,6 +50,27 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Retry eligible rejected Recovery treatments from retained control within the
+  configured run limit, with fresh diagnostics, safe continuation plans and
+  semantic cycle detection. Keep unavailable observations and unsafe adoption
+  non-retryable (#458).
+
+- Bind create-origin Recovery inspection to read-only work while retaining API
+  diagnostics and bounded related definitions through repair and registered
+  verification. Preserve original context across Recovery continuations (#456).
+
+- Classify Node verification from the executed script, retain future test and
+  exact hook checks, and identify weak-evidence commands in final acceptance (#439).
+- Register exact Recovery JSON outputs from real Next.js routes containing
+  harmless templates, regex, division, and one local writer helper. Reject
+  hidden identity mutation and retain isolated observation/source gates (#429).
+
+- Require implement steps to replace their expected engine scaffold pages even
+  when earlier API routes satisfy the run contract. Preserve verified existing
+  artifacts and Bash changes, and record step IDs and source hashes for
+  iteration short-circuit decisions (#420).
+- Let successful form-style browser interactions pass the release gate when an
+  input changes state on a visible surface with no start control.
 - Explain GUI Trial automatic-intent ambiguity with actionable `作成` / `修正`
   retry guidance while retaining route candidates as technical detail.
 - Let GUI Trial show an honest unmeasured Gate 1 card for unclassified

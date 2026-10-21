@@ -1,0 +1,13 @@
+{
+  "source_session": "01a0941c-ab59-73b3-a34e-30b3cd1c9a9a",
+  "source_events_sha256": "21226b29e6d76de5063a804c78a786008bd523c96df287395377c42f7cd307bf",
+  "scope": "Scripted control cases, not captured model replies or live recovery-rate measurements",
+  "repeat_limit": 2,
+  "cases": [
+    {"name":"same-and-alias", "batches":[["a"],["./a"],["a"]], "stop":true},
+    {"name":"unrelated-success", "batches":[["a"],["ready.txt"],["a"],["ready.txt"],["a"]], "stop":true},
+    {"name":"alternating", "batches":[["a"],["b"],["a"],["b"],["a"]], "stop":true},
+    {"name":"same-batch", "batches":[["a","./a","a"]], "stop":true},
+    {"name":"distinct-inspection", "batches":[["a","b","c","d","ready.txt"]], "stop":false}
+  ]
+}

@@ -10,8 +10,10 @@ use crate::planner::adjudication::{
     terminal_status,
 };
 
+mod completion_render;
 pub mod failure_explanation;
 mod human_summary;
+pub(crate) mod provider_turn;
 mod recovery_resolution;
 pub(crate) mod summary_language;
 pub(crate) mod terminal_report;
@@ -22,6 +24,8 @@ const SNIPPET_LIMIT: usize = 500;
 const SUMMARY_LIMIT: usize = 8_000;
 pub const GENERIC_REDUCED_ASSURANCE_REASON: &str =
     "generic profile — no capability contract, no behavioral verification";
+/// Next action for a completed run whose final acceptance was never checked.
+pub(crate) const ACCEPTANCE_UNVERIFIED_NEXT_ACTION: &str = "run_acceptance_or_review_changes";
 pub const GENERIC_STATIC_ASSURANCE_REASON: &str = "generic profile — minimal interactive contract verified statically; no behavioral verification";
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -139,6 +143,7 @@ pub fn is_eval_events_override() -> bool {
 }
 
 pub fn emit(path: Option<&Path>, mut event: Value) {
+    redact_event(path, &mut event);
     timing::stamp_phase_boundary(&mut event);
     crate::tui::status_bus::publish_eval_projection(&event);
     crate::tui::presentation::project_event(&event);
@@ -150,20 +155,38 @@ pub fn emit(path: Option<&Path>, mut event: Value) {
             .entry("schema_version")
             .or_insert_with(|| Value::String("1".to_string()));
     }
-    if let Err(err) = append(path, &event) {
+    if let Err(err) = append_or_buffer(path, &event) {
         eprintln!("warning: failed to write COMMANDAGENT_EVAL_EVENTS: {err}");
+    }
+}
+
+/// Scrub an event with the run scope's exact-value catalog *before* any UI
+/// publish, buffer, spool, or failsafe write, so the same protected payload is
+/// used everywhere. The catalog scrub never fails; a dynamic key would expose a
+/// secret only by name and is rewritten in place.
+fn redact_event(path: Option<&Path>, event: &mut Value) {
+    if let Some(context) = crate::sensitive_data::active_for(path) {
+        context.scrub_value_lenient(event);
     }
 }
 
 pub(crate) fn append_event_failsafe(path: Option<&Path>, mut event: Value) -> anyhow::Result<()> {
     let path = path.ok_or_else(|| anyhow::anyhow!("eval events path is unavailable"))?;
+    redact_event(Some(path), &mut event);
     timing::stamp_phase_boundary(&mut event);
     if let Value::Object(ref mut object) = event {
         object
             .entry("schema_version")
             .or_insert_with(|| Value::String("1".to_string()));
     }
-    append(path, &event)
+    append_or_buffer(path, &event)
+}
+
+fn append_or_buffer(path: &Path, event: &Value) -> anyhow::Result<()> {
+    if provider_turn::buffer(path, event)? {
+        return Ok(());
+    }
+    append(path, event)
 }
 
 fn append(path: &Path, event: &Value) -> anyhow::Result<()> {
@@ -1190,7 +1213,6 @@ pub fn append_completion_summary(
     );
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn write_tui_command_completion_summary(
     path: Option<&Path>,
     command: &str,
@@ -2623,301 +2645,14 @@ fn render_completion_summary(
     failure_kind: &str,
     projection: &CompletionProjection,
 ) -> String {
-    let mut lines = vec![
-        format!("Status: {}", projection.status),
-        format!("Lifecycle: {lifecycle_stage}"),
-        format!("Process: {}", process_lifecycle_status(projection)),
-        format!("Session/REPL status: {}", session_status(lifecycle_stage)),
-    ];
-    let stop_reason = render_stop_reason_text(stop_reason);
-    if let Some(action) = action {
-        lines.push(format!("Action: {action}"));
-    }
-    if let Some(command) = command {
-        lines.push(format!("Command: {command}"));
-    }
-    lines.extend([
-        format!("Command status: {}", projection.command_completion),
-        format!("Command completion: {}", projection.command_completion),
-        format!("Task status: {}", projection.task_status),
-        format!(
-            "Effective profile: {}",
-            missing_if_empty(&projection.effective_profile)
-        ),
-        format!(
-            "Prompt layout: {}",
-            missing_if_empty(&projection.prompt_layout)
-        ),
-        format!("Contract origin: {}", projection.contract_origin),
-        format!("Runtime acceptance: {}", projection.runtime_acceptance),
-        format!("Final acceptance: {}", projection.final_acceptance),
-        format!("Release gate: {}", projection.release_gate),
-        format!("Requested port: {}", missing_if_empty(&projection.requested_port)),
-        format!(
-            "Evidence arbitration: {}",
-            missing_if_empty(&projection.evidence_arbitration_summary)
-        ),
-        format!(
-            "Depth profile: {}",
-            missing_if_empty(&projection.depth_profile_summary)
-        ),
-        format!(
-            "completion_contract_verification_enabled={}",
-            projection.completion_contract_verification_enabled
-        ),
-        format!(
-            "completion_contract_path_merge_enabled={}",
-            projection.completion_contract_path_merge_enabled
-        ),
-        format!(
-            "completion_contract_path={}",
-            missing_if_empty(&projection.completion_contract_path)
-        ),
-        format!(
-            "completion_contract_generated={}",
-            projection.completion_contract_generated
-        ),
-        format!(
-            "external_contract_checked={}",
-            projection.external_contract_checked
-        ),
-        format!("external_contract_ok={}", projection.external_contract_ok),
-        format!(
-            "browser_readiness_applicable={}",
-            projection.browser_readiness_applicable
-        ),
-        format!(
-            "browser_readiness_execution_status={}",
-            projection.browser_readiness_execution_status
-        ),
-        format!(
-            "interaction_evidence_applicable={}",
-            projection.interaction_evidence_applicable
-        ),
-        format!(
-            "interaction_evidence_execution_status={}",
-            projection.interaction_evidence_execution_status
-        ),
-        format!("Planner repaired: {}", projection.planner_repaired),
-        format!("Planner release risk: {}", projection.planner_release_risk),
-        format!(
-            "Planner diagnostics: normalizations={} retries={} quality_warnings={} quality_issues={}",
-            projection.planner_verify_normalization_count,
-            projection.planner_retry_count,
-            projection.planner_quality_warning_count,
-            projection.planner_quality_issue_count
-        ),
-        format!(
-            "Context truncation warning: {}",
-            if projection.context_truncation_warning_count > 0 {
-                format!(
-                    "suspected (warnings={})",
-                    projection.context_truncation_warning_count
-                )
-            } else {
-                "none".to_string()
-            }
-        ),
-        format!(
-            "Release quality completion: {}",
-            projection.release_quality_completion
-        ),
-        "Release gate reasons:".to_string(),
-        render_summary_bullets(&projection.release_gate_reasons),
-        format!("Browser readiness: {}", projection.browser_readiness),
-        format!(
-            "Browser readiness evidence: {}",
-            missing_if_empty(&projection.browser_readiness_evidence_path)
-        ),
-        format!("Interaction evidence: {}", projection.interaction_evidence),
-        format!(
-            "Interaction evidence path: {}",
-            missing_if_empty(&projection.interaction_evidence_path)
-        ),
-        format!(
-            "State dimensions changed: {}",
-            if projection.state_dimensions_changed.is_empty() {
-                "none".to_string()
-            } else {
-                projection.state_dimensions_changed.join(", ")
-            }
-        ),
-        format!(
-            "Action hooks: {}",
-            if projection.action_hooks.is_empty() {
-                "none".to_string()
-            } else {
-                projection.action_hooks.join(", ")
-            }
-        ),
-        format!(
-            "Surface fit: {}",
-            missing_if_empty(&projection.surface_fit_summary)
-        ),
-        format!(
-            "Text entry target: {}",
-            missing_if_empty(&projection.text_entry_target)
-        ),
-        format!("Typed token: {}", missing_if_empty(&projection.typed_token)),
-        format!(
-            "Token echoed: {}",
-            missing_if_empty(&projection.token_echoed)
-        ),
-        format!(
-            "Text input state change: {}",
-            missing_if_empty(&projection.text_input_state_change)
-        ),
-        format!("Next action: {}", projection.next_action),
-        format!("Recovery next action: {}", projection.next_action),
-        format!("Stop reason: {stop_reason}"),
-    ]);
-    if !projection.profile.is_empty() {
-        lines.push(format!("Profile: {}", projection.profile));
-    }
-    if !projection.profile_inferred.is_empty() {
-        lines.push(format!(
-            "profile_inferred: {} (from: {})",
-            projection.profile_inferred, projection.profile_inference_source
-        ));
-    }
-    if !projection.assurance_level.is_empty() {
-        let suffix = if projection.assurance_reason.is_empty() {
-            String::new()
-        } else {
-            format!(" ({})", projection.assurance_reason)
-        };
-        lines.push(format!(
-            "Assurance: {}{}",
-            projection.assurance_level, suffix
-        ));
-    }
-    if !projection.unverified_evidence.is_empty() {
-        lines.push("Unverified (probe required):".to_string());
-        lines.push(render_summary_bullets(&projection.unverified_evidence));
-        if projection
-            .unverified_evidence
-            .iter()
-            .any(|evidence| evidence.contains(":unverified:probe_unavailable"))
-        {
-            lines.push(
-                crate::minimal_loop::interaction_probe::INTERACTION_PROBE_SETUP_REMEDIATION
-                    .to_string(),
-            );
-        }
-        if projection
-            .unverified_evidence
-            .iter()
-            .any(|evidence| evidence.contains(":unverified:terminal_state_not_reached"))
-        {
-            lines.push(
-                "Restart verification: either expose an in-play restart control, or accept the partial classification (the restart exists but cannot be behaviorally verified by the generic probe)."
-                    .to_string(),
-            );
-        }
-    }
-    if !projection.surface_fit_guidance.is_empty() {
-        lines.push(format!(
-            "Surface fit guidance: {}",
-            projection.surface_fit_guidance
-        ));
-    }
-    if interaction_unverified_probe_unavailable(
-        &projection.release_gate,
-        &projection.release_gate_reasons,
-    ) {
-        lines.push(
-            format!(
-                "Interaction verification: interaction_unverified:probe_unavailable; {}.",
-                crate::minimal_loop::interaction_probe::INTERACTION_PROBE_SETUP_REMEDIATION
-            )
-            .to_string(),
-        );
-    }
-    if projection
-        .evidence_arbitration_summary
-        .starts_with("static (probe infrastructure failure:")
-        || projection.release_gate_reasons.iter().any(|reason| {
-            reason.contains("probe_dependency_missing")
-                || reason.contains("probe_infrastructure_failed")
-        })
-    {
-        lines.push(
-            "Interaction verification: app interaction untested (probe infrastructure failure)."
-                .to_string(),
-        );
-    }
-    if projection.probe_preflight_status == "failed" {
-        let remediation = if projection.probe_preflight_remediation.trim().is_empty() {
-            crate::minimal_loop::interaction_probe::INTERACTION_PROBE_SETUP_REMEDIATION
-        } else {
-            projection.probe_preflight_remediation.trim()
-        };
-        lines.push(format!(
-            "Interaction probe preflight: failed; preflight時点から基盤未準備: {}; {}.",
-            missing_if_empty(&projection.probe_preflight_reason),
-            remediation
-        ));
-    }
-    let host_env_contamination = crate::minimal_loop::verifier_env::host_env_contamination();
-    if !host_env_contamination.is_empty() {
-        lines.push(format!(
-            "Host env: {} detected (verifiers ran with a cleaned environment)",
-            host_env_contamination.join(", ")
-        ));
-    }
-    if !projection.plan_adherence_present.is_empty()
-        || !projection.plan_adherence_missing.is_empty()
-    {
-        lines.extend([
-            "Plan adherence:".to_string(),
-            "Present tokens:".to_string(),
-            render_summary_bullets(&projection.plan_adherence_present),
-            "Missing tokens:".to_string(),
-            render_summary_bullets(&projection.plan_adherence_missing),
-        ]);
-    }
-    if !projection.compile_rollback_summaries.is_empty() {
-        lines.push("Compile rollback applied:".to_string());
-        lines.push(render_summary_bullets(
-            &projection.compile_rollback_summaries,
-        ));
-    }
-    if !projection.recovery_prompt_path.is_empty()
-        || !projection.recovery_ultra_plan_path.is_empty()
-        || !projection.suggested_recovery_command.is_empty()
-        || !projection.suggested_recovery_yaml_command.is_empty()
-    {
-        lines.extend([
-            "Recovery handoff:".to_string(),
-            format!(
-                "- Recovery prompt saved: {}",
-                missing_if_empty(&projection.recovery_prompt_path)
-            ),
-            format!(
-                "- Recovery UltraPlan YAML saved: {}",
-                missing_if_empty(&projection.recovery_ultra_plan_path)
-            ),
-            format!(
-                "- Suggested command: {}",
-                missing_if_empty(&projection.suggested_recovery_command)
-            ),
-            format!(
-                "- Suggested YAML command: {}",
-                missing_if_empty(&projection.suggested_recovery_yaml_command)
-            ),
-        ]);
-    }
-    if !failure_kind.is_empty() {
-        lines.push(format!("Failure kind: {failure_kind}"));
-    }
-    if lifecycle_stage == "tui_command" && projection.command_completion == "failed" {
-        let first_stop_line = stop_reason.lines().next().unwrap_or("unknown");
-        lines.push(format!(
-            "TUI command failed: {}",
-            body_snippet(first_stop_line)
-        ));
-    }
-    lines.join("\n")
+    completion_render::render(
+        lifecycle_stage,
+        action,
+        command,
+        stop_reason,
+        failure_kind,
+        projection,
+    )
 }
 
 fn render_tui_command_completion_summary(
@@ -3031,37 +2766,6 @@ fn render_phase_bullets_with_status(items: &[String], status: &str) -> String {
     }
 }
 
-fn session_status(lifecycle_stage: &str) -> &'static str {
-    match lifecycle_stage {
-        "tui_command" => "repl_ready",
-        "process" => "process_exited",
-        _ => "unknown",
-    }
-}
-
-fn process_lifecycle_status(projection: &CompletionProjection) -> String {
-    if matches!(
-        projection.command_completion.as_str(),
-        "aborted" | "interrupted"
-    ) {
-        projection.command_completion.clone()
-    } else {
-        "REPL exited cleanly (not task status)".to_string()
-    }
-}
-
-fn render_summary_bullets(items: &[String]) -> String {
-    if items.is_empty() {
-        "- none".to_string()
-    } else {
-        items
-            .iter()
-            .map(|item| format!("- {item}"))
-            .collect::<Vec<_>>()
-            .join("\n")
-    }
-}
-
 fn missing_if_empty(value: &str) -> &str {
     if value.is_empty() { "missing" } else { value }
 }
@@ -3105,7 +2809,10 @@ pub fn argument_shape(arguments: &Value) -> Value {
 }
 
 pub fn body_snippet(body: &str) -> String {
-    let mut clean = body.replace('\n', " ");
+    // Scrub the complete value first: newline flattening and whitespace
+    // normalization must not be able to hide a registered value's fragments.
+    let scrubbed = crate::sensitive_data::scrub_active(body);
+    let mut clean = scrubbed.replace('\n', " ");
     clean = clean.replace('\r', " ");
     clean = redact_secret_like(&clean);
     clean = redact_home_paths(&clean);
@@ -3116,7 +2823,8 @@ pub fn body_snippet(body: &str) -> String {
 /// Reproducer output is injected into a later model prompt, so bounding and the
 /// same secret/home-path redaction used by event snippets are mandatory.
 pub(crate) fn body_tail_snippet(body: &str) -> String {
-    let mut clean = body
+    let scrubbed = crate::sensitive_data::scrub_active(body);
+    let mut clean = scrubbed
         .split('\n')
         .map(redact_secret_like)
         .collect::<Vec<_>>()
@@ -3130,7 +2838,8 @@ pub(crate) fn body_tail_snippet(body: &str) -> String {
 }
 
 pub fn body_snippet_whole_tokens(body: &str) -> String {
-    let mut clean = body.replace('\n', " ");
+    let scrubbed = crate::sensitive_data::scrub_active(body);
+    let mut clean = scrubbed.replace('\n', " ");
     clean = clean.replace('\r', " ");
     clean = redact_secret_like(&clean);
     clean = redact_home_paths(&clean);
@@ -3138,7 +2847,8 @@ pub fn body_snippet_whole_tokens(body: &str) -> String {
 }
 
 pub(crate) fn scrub_sensitive_text(value: &str) -> String {
-    let clean = value
+    let scrubbed = crate::sensitive_data::scrub_active(value);
+    let clean = scrubbed
         .split('\n')
         .map(redact_secret_like)
         .collect::<Vec<_>>()
@@ -3173,7 +2883,13 @@ fn truncate_whole_tokens(value: &str, limit: usize) -> String {
 }
 
 fn summary_body(body: &str) -> String {
-    let clean = body.replace("\r\n", "\n").replace('\r', "\n");
+    // A `Status:`/`Result:` value is protected only when it is a fixed machine
+    // identifier; any other value (free text, or a secret) is scrubbed like the
+    // rest of the body. The full body is still scrubbed as one string so a
+    // multiline secret cannot survive as two fragments.
+    let (protected, fixed) = protect_fixed_summary_values(body);
+    let scrubbed = crate::sensitive_data::scrub_active(&protected);
+    let clean = scrubbed.replace("\r\n", "\n").replace('\r', "\n");
     let clean = redact_home_paths(&clean);
     let mut out = String::new();
     let mut len = 0usize;
@@ -3190,7 +2906,59 @@ fn summary_body(body: &str) -> String {
         out.push_str(&line);
         len += line_len;
     }
-    out
+    restore_fixed_summary_values(&out, &fixed)
+}
+
+/// Replace a *fixed* `Status:`/`Result:` machine value with a placeholder so the
+/// catalog scrub cannot rewrite it, remembering the original value. A value that
+/// is not a fixed identifier is left in place so the scrub covers it.
+fn protect_fixed_summary_values(body: &str) -> (String, Vec<(String, String)>) {
+    let mut text = String::new();
+    let mut fixed = Vec::new();
+    for (index, line) in body.split('\n').enumerate() {
+        if index > 0 {
+            text.push('\n');
+        }
+        match fixed_summary_value(line) {
+            Some((label, separator, value))
+                if crate::sensitive_data::is_fixed_identifier(value) =>
+            {
+                // The trailing sentinel keeps placeholder `1` from matching
+                // inside placeholder `10` (or `101`), so restore cannot corrupt
+                // a fixed value (Issue #548 row 16).
+                let placeholder = format!("\u{1}commandagentfixedvalue{}\u{1}", fixed.len());
+                text.push_str(label);
+                text.push_str(separator);
+                text.push_str(&placeholder);
+                fixed.push((placeholder, value.to_string()));
+            }
+            _ => text.push_str(line),
+        }
+    }
+    (text, fixed)
+}
+
+fn fixed_summary_value(line: &str) -> Option<(&str, &str, &str)> {
+    let trimmed = line.trim_start();
+    for label in ["Status:", "Result:"] {
+        if let Some(rest) = trimmed.strip_prefix(label) {
+            let (separator, value) = match rest.strip_prefix(' ') {
+                Some(value) => (" ", value),
+                None => ("", rest),
+            };
+            let label_end = line.len() - trimmed.len() + label.len();
+            return Some((&line[..label_end], separator, value));
+        }
+    }
+    None
+}
+
+fn restore_fixed_summary_values(text: &str, fixed: &[(String, String)]) -> String {
+    let mut restored = text.to_string();
+    for (placeholder, value) in fixed {
+        restored = restored.replace(placeholder.as_str(), value);
+    }
+    restored
 }
 
 fn argument_value_summary(key: &str, value: &Value) -> Value {
@@ -3224,13 +2992,17 @@ fn argument_value_summary(key: &str, value: &Value) -> Value {
 }
 
 fn safe_preview(value: &str) -> String {
-    let mut clean = value.replace('\n', "\\n").replace('\r', "\\r");
+    let scrubbed = crate::sensitive_data::scrub_active(value);
+    let mut clean = scrubbed.replace('\n', "\\n").replace('\r', "\\r");
     clean = redact_secret_like(&clean);
     clean = redact_home_paths(&clean);
     clean.chars().take(120).collect()
 }
 
 fn redact_secret_like(value: &str) -> String {
+    // Use the run's actual marker, so the heuristic never reintroduces a
+    // registered value through a literal marker.
+    let marker = crate::sensitive_data::active_marker();
     value
         .split_whitespace()
         .map(|part| {
@@ -3238,13 +3010,20 @@ fn redact_secret_like(value: &str) -> String {
                 || part.starts_with("AIza")
                 || part.to_ascii_lowercase().contains("api_key")
             {
-                "<redacted>"
+                marker.as_str()
             } else {
                 part
             }
         })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// The legacy format/home heuristics only, without the catalog scrub. Used by
+/// the trace exporter alongside the shared catalog scrub so a fixed identifier
+/// is never rewritten twice.
+pub(crate) fn scrub_legacy_heuristics(value: &str) -> String {
+    redact_home_paths(&redact_secret_like(value))
 }
 
 fn redact_home_paths(value: &str) -> String {
@@ -3316,6 +3095,29 @@ mod tests {
         assert!(snippet.chars().count() <= SNIPPET_LIMIT);
         let summary = summary_body(&format!("{}\n{}", "日本語".repeat(1_000), body));
         assert!(summary.chars().count() <= SUMMARY_LIMIT);
+    }
+
+    #[test]
+    fn snippets_scrub_before_newline_and_whitespace_normalization() {
+        crate::sensitive_data::reset_scopes_for_tests();
+        let multiline = "H05_NEWLINE_alpha\nH05_NEWLINE_beta";
+        let spaced = "H05_SPACE_alpha  H05_SPACE_beta";
+        let mut catalog = crate::sensitive_data::SecretCatalog::new();
+        catalog.register(multiline);
+        catalog.register(spaced);
+        crate::sensitive_data::install_scope(
+            catalog,
+            None,
+            Some(std::path::Path::new("/tmp/h05-eval-events")),
+        );
+
+        assert!(!body_snippet(multiline).contains("H05_NEWLINE"));
+        assert!(!body_snippet(spaced).contains("H05_SPACE"));
+        assert!(!body_tail_snippet(multiline).contains("H05_NEWLINE"));
+        assert!(!summary_body(multiline).contains("H05_NEWLINE"));
+        let preview = argument_value_summary("command", &json!(multiline)).to_string();
+        assert!(!preview.contains("H05_NEWLINE"), "{preview}");
+        crate::sensitive_data::reset_scopes_for_tests();
     }
 
     #[test]
@@ -4553,5 +4355,134 @@ mod tests {
         assert!(!block.contains(&workspace.display().to_string()), "{block}");
         assert!(block.contains("Run summary:"));
         assert!(block.contains("summary.md"));
+    }
+
+    fn issue500_fixture() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/corpus/apps/issue500-unverified-minimal-loop/fixtures/e2e-3b-events.jsonl")
+    }
+
+    #[test]
+    fn issue500_unverified_minimal_loop_run_is_not_projected_as_release_ready() {
+        let path = issue500_fixture();
+        let snapshot = latest_completion_snapshot(Some(&path));
+        assert_eq!(snapshot.final_acceptance_status, "not_checked");
+        assert_eq!(snapshot.assurance_level, "reduced");
+
+        let projection = project_completion(true, &snapshot);
+
+        assert_eq!(projection.command_completion, "completed");
+        assert_eq!(projection.status, "complete");
+        assert_eq!(projection.release_quality_completion, "not_checked");
+        assert_eq!(projection.next_action, ACCEPTANCE_UNVERIFIED_NEXT_ACTION);
+        assert_eq!(projection.assurance_level, "reduced");
+
+        let events = read_event_values(Some(&path));
+        let run_stop = events
+            .iter()
+            .rfind(|event| event.get("event").and_then(Value::as_str) == Some("run_stop"))
+            .unwrap();
+        assert_eq!(
+            run_stop["release_quality_completion"],
+            projection.release_quality_completion.as_str()
+        );
+        assert_eq!(run_stop["next_action"], projection.next_action.as_str());
+
+        let summary = render_completion_summary(
+            "process",
+            Some("Prompt"),
+            None,
+            "completed",
+            "",
+            &projection,
+        );
+        assert!(
+            summary.contains("Release quality completion: not_checked"),
+            "{summary}"
+        );
+        assert!(
+            summary.contains("Next action: run_acceptance_or_review_changes"),
+            "{summary}"
+        );
+        assert!(!summary.contains("release_ready"), "{summary}");
+        assert!(!summary.contains("Next action: none"), "{summary}");
+
+        let card = render_terminal_summary_card(Some(&path), "completed", &projection);
+        assert!(
+            card.contains("- Next action: run_acceptance_or_review_changes"),
+            "{card}"
+        );
+        assert!(!card.contains("Next action: none"), "{card}");
+    }
+
+    #[test]
+    fn issue500_release_quality_follows_acceptance_evidence() {
+        for (ok, gate, acceptance, quality, next_action) in [
+            (
+                true,
+                "",
+                "",
+                "not_checked",
+                ACCEPTANCE_UNVERIFIED_NEXT_ACTION,
+            ),
+            (
+                true,
+                "not_applicable",
+                "not_checked",
+                "not_checked",
+                ACCEPTANCE_UNVERIFIED_NEXT_ACTION,
+            ),
+            (
+                true,
+                "not_checked",
+                "not_checked",
+                "not_checked",
+                ACCEPTANCE_UNVERIFIED_NEXT_ACTION,
+            ),
+            (
+                true,
+                "pass",
+                "not_checked",
+                "not_checked",
+                ACCEPTANCE_UNVERIFIED_NEXT_ACTION,
+            ),
+            (true, "", "full_success", "release_ready", "none"),
+            (true, "pass", "full_success", "release_ready", "none"),
+            (
+                true,
+                "partial",
+                "full_success",
+                "partial",
+                "collect_missing_release_evidence_or_continue_release_recovery",
+            ),
+            (
+                true,
+                "failed",
+                "full_success",
+                "failed",
+                "repair_release_gate_failure",
+            ),
+            (
+                true,
+                "not_checked",
+                "failed",
+                "failed",
+                "repair_final_acceptance_failure",
+            ),
+            (false, "", "", "not_checked", "fix_command_failure"),
+        ] {
+            let mut snapshot = CompletionSnapshot::empty();
+            snapshot.release_gate_status = gate.to_string();
+            snapshot.final_acceptance_status = acceptance.to_string();
+            let projection = project_completion(ok, &snapshot);
+            assert_eq!(
+                projection.release_quality_completion, quality,
+                "ok={ok} gate={gate:?} acceptance={acceptance:?}"
+            );
+            assert_eq!(
+                projection.next_action, next_action,
+                "ok={ok} gate={gate:?} acceptance={acceptance:?}"
+            );
+        }
     }
 }

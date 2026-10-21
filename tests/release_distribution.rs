@@ -70,7 +70,11 @@ done
 printf '%s\n' "$url" >> "$INSTALL_TEST_LOG"
 case "$url" in
   */releases/latest)
+    [ -n "$INSTALL_TEST_LATEST_TAG" ] || exit 22
     printf '{"tag_name":"%s"}\n' "$INSTALL_TEST_LATEST_TAG"
+    ;;
+  *"/releases?per_page="*)
+    printf '%s\n' "$INSTALL_TEST_RELEASES_JSON"
     ;;
   */releases/download/*)
     [ -n "$output" ] || exit 2
@@ -122,6 +126,17 @@ esac
     }
 
     fn run(&self, args: &[&str], os: &str, arch: &str) -> Output {
+        self.run_with_releases(args, os, arch, &format!("v{VERSION}"), "[]")
+    }
+
+    fn run_with_releases(
+        &self,
+        args: &[&str],
+        os: &str,
+        arch: &str,
+        latest_tag: &str,
+        releases_json: &str,
+    ) -> Output {
         let path = format!("{}:/usr/bin:/bin", self.fake_bin.display());
         Command::new("/bin/sh")
             .arg(&self.script)
@@ -131,7 +146,8 @@ esac
             .env("TMPDIR", &self.temp_root)
             .env("INSTALL_TEST_ASSETS", &self.assets)
             .env("INSTALL_TEST_LOG", &self.log)
-            .env("INSTALL_TEST_LATEST_TAG", format!("v{VERSION}"))
+            .env("INSTALL_TEST_LATEST_TAG", latest_tag)
+            .env("INSTALL_TEST_RELEASES_JSON", releases_json)
             .env("INSTALL_TEST_OS", os)
             .env("INSTALL_TEST_ARCH", arch)
             .env_remove("GITHUB_TOKEN")
@@ -205,6 +221,61 @@ fn latest_release_is_verified_and_installed_into_default_directory() {
         String::from_utf8(installed_output.stdout).unwrap(),
         "commandagent 1.2.3 fixture\n"
     );
+}
+
+#[test]
+fn newest_published_prerelease_is_installed_when_no_stable_release_exists() {
+    let fixture = InstallFixture::new();
+    fixture.add_release("1.3.0-rc.2", TARGET);
+    // Compact JSON: a newer draft, then the newest published pre-release with
+    // nested author/asset objects, then an older pre-release.
+    let releases = concat!(
+        r#"[{"tag_name":"v1.4.0-rc.1","body":"a, b","draft":true,"prerelease":true},"#,
+        r#"{"author":{"login":"x","id":1},"tag_name":"v1.3.0-rc.2","draft":false,"#,
+        r#""prerelease":true,"assets":[{"name":"a.tar.gz","size":1}]},"#,
+        r#"{"tag_name":"v1.3.0-rc.1","draft":false,"prerelease":true}]"#,
+    );
+
+    let output = fixture.run_with_releases(&[], "Darwin", "x86_64", "", releases);
+    let text = combined(&output);
+    let installed = fixture.home.join(".local/bin/commandagent");
+
+    assert!(output.status.success(), "{text}");
+    assert!(
+        text.contains("No stable release found; using pre-release v1.3.0-rc.2."),
+        "{text}"
+    );
+    assert!(fixture.log_text().contains("/releases/latest"));
+    assert!(fixture.log_text().contains("/releases?per_page=30"));
+    assert!(
+        fixture
+            .log_text()
+            .contains("commandagent-1.3.0-rc.2-x86_64-apple-darwin.tar.gz")
+    );
+    let installed_output = Command::new(installed).output().unwrap();
+    assert_eq!(
+        String::from_utf8(installed_output.stdout).unwrap(),
+        "commandagent 1.3.0-rc.2 fixture\n"
+    );
+}
+
+#[test]
+fn missing_published_release_fails_without_installing_a_binary() {
+    let fixture = InstallFixture::new();
+    let drafts_only = r#"[{"tag_name":"v2.0.0","draft":true,"prerelease":false}]"#;
+
+    for releases in ["[]", drafts_only] {
+        let output = fixture.run_with_releases(&[], "Darwin", "x86_64", "", releases);
+        let text = combined(&output);
+
+        assert!(!output.status.success(), "{text}");
+        assert!(
+            text.contains("no published CommandAgent release was found"),
+            "{text}"
+        );
+        assert!(!fixture.home.join(".local/bin/commandagent").exists());
+        assert!(!fixture.log_text().contains("/releases/download/"));
+    }
 }
 
 #[test]

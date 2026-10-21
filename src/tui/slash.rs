@@ -1,7 +1,5 @@
 use std::any::Any;
-use std::io::{self, IsTerminal, Write};
 use std::panic::{AssertUnwindSafe, PanicHookInfo};
-use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use anyhow::bail;
@@ -9,6 +7,8 @@ use serde_json::json;
 
 use crate::config::Config;
 use crate::providers::ChatClient;
+
+mod command_dispatch;
 
 static PANIC_HOOK_LOCK: Mutex<()> = Mutex::new(());
 type PanicHook = Box<dyn Fn(&PanicHookInfo<'_>) + Sync + Send + 'static>;
@@ -473,58 +473,8 @@ pub fn handle_command(
             .unwrap_or(80),
     );
     ui.render_command_receipt(&receipt)?;
-    match command.kind {
-        SlashCommandKind::Help => {
-            if words.len() > 2 {
-                bail!("usage: /help [command]");
-            }
-            return words
-                .get(1)
-                .map_or_else(|| Ok(render_help()), |topic| render_command_help(topic));
-        }
-        SlashCommandKind::Confirm => {
-            bail!(
-                "/confirm is available only after a Gate 1 card; type a plain-text request first"
-            );
-        }
-        SlashCommandKind::Status => {
-            return Ok(render_ordered_status(&config));
-        }
-        SlashCommandKind::Model
-        | SlashCommandKind::Provider
-        | SlashCommandKind::Profile
-        | SlashCommandKind::Clear
-        | SlashCommandKind::Last => {
-            bail!("{} is available only in the interactive REPL", command.name);
-        }
-        SlashCommandKind::Doctor => {
-            return Ok(crate::doctor::diagnose(&config).render_human());
-        }
-        SlashCommandKind::Packs => {
-            let extension_root = crate::config::configured_extension_root(&config.workspace_root)?;
-            return crate::pack_actions::render_list(
-                &config.profile,
-                config.resolved_run_intent().as_str(),
-                extension_root.as_deref(),
-            );
-        }
-        SlashCommandKind::Pack => {
-            bail!("/pack is available only from Gate 4; use /pack <id@version>");
-        }
-        SlashCommandKind::Plan => return Ok(crate::tui::presentation::render_current_plan()),
-        SlashCommandKind::Runs => {
-            return Ok(crate::runs::render_runs_table(&config.workspace_root));
-        }
-        SlashCommandKind::Exit => return Ok(String::new()),
-        SlashCommandKind::Resume
-        | SlashCommandKind::PlanSteps
-        | SlashCommandKind::PlanRun
-        | SlashCommandKind::RunPlan
-        | SlashCommandKind::UltraPlan
-        | SlashCommandKind::UltraPlanRun
-        | SlashCommandKind::RunUltraPlan
-        | SlashCommandKind::SetupInteractionProbe
-        | SlashCommandKind::ModelProbe => {}
+    if let Some(result) = command_dispatch::immediate_result(command, &words, &config) {
+        return result;
     }
     crate::tui::presentation::accept_command(&parsed, &config);
     if let Some(inference) = config.profile_inference {
@@ -563,106 +513,7 @@ pub fn handle_command(
     let panic_diagnostic = Arc::new(Mutex::new(None));
     let panic_hook_guard = PanicHookGuard::install(Arc::clone(&panic_diagnostic));
     let command_result = std::panic::catch_unwind(AssertUnwindSafe(|| {
-        crate::preflight::run_for_slash_command(&config, &parsed.command, &parsed.goal)?;
-        match command.kind {
-            SlashCommandKind::PlanSteps => {
-                let plan =
-                    crate::planner::generate_step_plan_with_ui(planner, &parsed.goal, &config, ui)?;
-                let path = crate::planner::save_step_plan(&config.workspace_root, &plan)?;
-                Ok(path.display().to_string())
-            }
-            SlashCommandKind::PlanRun => crate::planner::generate_and_run_step_plan_with_ui(
-                planner,
-                execution,
-                &parsed.goal,
-                &config,
-                ui,
-            ),
-            SlashCommandKind::RunPlan => crate::planner::run_plan_file_with_ui(
-                execution,
-                Path::new(&parsed.goal),
-                &config,
-                ui,
-            ),
-            SlashCommandKind::UltraPlan => {
-                let plan = crate::planner::generate_ultra_plan_with_ui(
-                    planner,
-                    &parsed.goal,
-                    &config,
-                    ui,
-                )?;
-                let path = crate::planner::save_ultra_plan(&config.workspace_root, &plan)?;
-                Ok(path.display().to_string())
-            }
-            SlashCommandKind::UltraPlanRun => {
-                crate::planner::auto_recovery::generate_and_run_with_ui(
-                    planner,
-                    execution,
-                    &parsed.goal,
-                    &config,
-                    ui,
-                )
-            }
-            SlashCommandKind::RunUltraPlan => crate::planner::auto_recovery::run_file_with_ui(
-                planner,
-                execution,
-                Path::new(&parsed.goal),
-                &config,
-                ui,
-            ),
-            SlashCommandKind::Resume => {
-                let resume = crate::runs::prepare_resume(&config.workspace_root, &parsed.goal)?;
-                if let Some(error) = resume.workspace_drift_error() {
-                    bail!("{error}");
-                }
-                confirm_resume(&config, &resume)?;
-                let progress = crate::tui::presentation::PlanProgress {
-                    completed_phases: resume.completed_phase_ids.clone(),
-                    current_phase: None,
-                    current_step: None,
-                };
-                crate::tui::presentation::emit_ultra_plan_card(&resume.plan, &progress);
-                let plan_card =
-                    crate::tui::presentation::render_ultra_plan_card(&resume.plan, &progress);
-                crate::runs::emit_resume_start(&config, &resume);
-                let output = crate::planner::auto_recovery::run_plan_with_ui(
-                    planner,
-                    execution,
-                    &resume.plan,
-                    &config,
-                    ui,
-                )?;
-                Ok(format!(
-                    "{}\n\n{}\n\n{}",
-                    resume.confirmation_card(),
-                    plan_card,
-                    output
-                ))
-            }
-            SlashCommandKind::SetupInteractionProbe => {
-                let report =
-                crate::minimal_loop::interaction_probe::setup_interaction_probe_with_stdout_progress()?;
-                Ok(report.summary_lines().join("\n"))
-            }
-            SlashCommandKind::ModelProbe => {
-                let output = crate::model_probe::run_configured(&config, planner, execution)?;
-                Ok(output.card)
-            }
-            SlashCommandKind::Help
-            | SlashCommandKind::Confirm
-            | SlashCommandKind::Status
-            | SlashCommandKind::Model
-            | SlashCommandKind::Provider
-            | SlashCommandKind::Profile
-            | SlashCommandKind::Clear
-            | SlashCommandKind::Last
-            | SlashCommandKind::Doctor
-            | SlashCommandKind::Packs
-            | SlashCommandKind::Pack
-            | SlashCommandKind::Runs
-            | SlashCommandKind::Plan
-            | SlashCommandKind::Exit => unreachable!("handled before command execution"),
-        }
+        command_dispatch::run_command(command, &parsed, &config, planner, execution, ui)
     }));
     drop(panic_hook_guard);
     let result = match command_result {
@@ -886,27 +737,6 @@ fn order_status_card(rendered: &str) -> String {
     ordered.join("\n")
 }
 
-fn confirm_resume(config: &Config, resume: &crate::runs::ResumePlan) -> anyhow::Result<()> {
-    let card = resume.confirmation_card();
-    if config.yes {
-        eprintln!("{card}");
-        return Ok(());
-    }
-    if !io::stdin().is_terminal() {
-        bail!("{card}\n\nconfirmation required; rerun with --yes");
-    }
-    eprintln!("{card}");
-    eprint!("Resume recovery plan? [y/N] ");
-    io::stderr().flush()?;
-    let mut answer = String::new();
-    io::stdin().read_line(&mut answer)?;
-    if matches!(answer.trim(), "y" | "Y" | "yes" | "YES" | "Yes") {
-        Ok(())
-    } else {
-        bail!("resume cancelled by user")
-    }
-}
-
 fn emit_panic_caught(config: &Config, command: &str, diagnostic: &PanicDiagnostic) {
     crate::eval_events::emit(
         config.eval_events_path.as_deref(),
@@ -935,7 +765,7 @@ fn panic_payload_message(payload: &(dyn Any + Send)) -> String {
 }
 
 #[cfg(test)]
-fn emit_tui_command_stop(
+pub(crate) fn emit_tui_command_stop(
     config: &Config,
     command: &str,
     result: &anyhow::Result<String>,
@@ -1232,6 +1062,18 @@ pub fn expand_goal_references(goal: &str, config: &Config) -> anyhow::Result<Str
     Ok(out)
 }
 
+/// Reject a goal-less planning command before it reaches the provider.
+///
+/// Mirrors the direct CLI, which rejects `--ultra-plan` without a trailing goal
+/// (`config::required_goal`). Without this, `/ultra-plan` would send
+/// `Goal: (none)` to the planner and fail only at the provider.
+fn require_slash_goal(goal: &str, command: &str) -> anyhow::Result<()> {
+    if goal.trim().is_empty() {
+        bail!("{command} requires a goal; usage: {command} <goal>");
+    }
+    Ok(())
+}
+
 pub fn parse_words(input: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut current = String::new();
@@ -1288,6 +1130,8 @@ mod tests {
     use crate::providers::{AssistantReply, ChatClient};
     use crate::state::ConversationMessage;
     use crate::tools::registry::ToolSpec;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[derive(Clone)]
     struct DummyClient;
@@ -1309,6 +1153,32 @@ mod tests {
             _native_tools_enabled: bool,
         ) -> anyhow::Result<AssistantReply> {
             Ok(AssistantReply::text("unused"))
+        }
+    }
+
+    #[derive(Clone)]
+    struct CountingClient {
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl ChatClient for CountingClient {
+        fn label(&self) -> &str {
+            "counting"
+        }
+
+        fn boxed_clone(&self) -> Box<dyn ChatClient> {
+            Box::new(self.clone())
+        }
+
+        fn chat(
+            &mut self,
+            _model: &str,
+            _messages: &[ConversationMessage],
+            _tools: &[ToolSpec],
+            _native_tools_enabled: bool,
+        ) -> anyhow::Result<AssistantReply> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(AssistantReply::text("unexpected"))
         }
     }
 
@@ -1611,6 +1481,43 @@ mod tests {
         assert!(output.starts_with("CommandAgent doctor:"), "{output}");
         assert!(output.contains("OpenAI key"), "{output}");
         assert!(output.contains("Playwright probe"), "{output}");
+    }
+
+    #[test]
+    fn ultra_plan_without_a_goal_is_rejected_before_the_provider() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = config();
+        config.workspace_root = dir.path().to_path_buf();
+        config.state_dir = dir.path().join("state");
+        std::fs::create_dir_all(&config.state_dir).unwrap();
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mut planner = CountingClient {
+            calls: Arc::clone(&calls),
+        };
+        let mut execution = CountingClient {
+            calls: Arc::clone(&calls),
+        };
+
+        let result = handle_command(
+            "/ultra-plan",
+            &config,
+            &mut planner,
+            &mut execution,
+            &crate::tui::NOOP_UI,
+        );
+
+        assert!(result.is_err(), "an empty goal must be rejected");
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            0,
+            "the planner provider must not be called for a goal-less /ultra-plan"
+        );
+        let error = result.unwrap_err().to_string();
+        assert!(
+            error.contains("requires a goal"),
+            "the rejection must name the missing goal: {error}"
+        );
     }
 
     #[test]

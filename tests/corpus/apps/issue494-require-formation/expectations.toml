@@ -1,0 +1,32 @@
+case_id = "issue494-require-formation"
+source = "Frozen L2 CommonJS require formation input, loader controls, and contract hashes"
+required_paths = ["module.cjs"]
+verify_commands = ["node -p \"const actual=require('./module.cjs');require('node:assert/strict').deepStrictEqual(Object.keys(actual).sort(),[\\\"value\\\"]);actual\""]
+required_capabilities = []
+required_evidence = ["implementation_artifact"]
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+acceptance_passed = true
+primary_reason = "pass"
+
+[weak_evidence]
+absent = ["node_smoke_without_assertion"]
+
+[compile]
+expect = "not_checked"
+
+[json_fields]
+cases.json:runtime.node_version = "v24.1.0"
+cases.json:original.target = "./src/lib/types.ts"
+cases.json:positive.correspondence = "true"
+cases.json:saved_proposal_a.correspondence = "false"
+cases.json:dynamic_import_b.correspondence = "false"
+cases.json:frozen.contract_sha256 = "eb2b04647a28ab10508c21e9c1cd026bea293a1c7f95dda261f4bd5529d8c9ab"
+cases.json:frozen.saved_input_sha256 = "1237d48e3a33d21cc22f9016407a08b2d5d092e6e8301ea5a23c640d00daefa3"
+
+[fixture_contains]
+cases.json = ["source_text_substring_a", "dynamic_import_b", "same_loader_commonjs", "wrong_owner", "invalid_owner_order", "configured", "recovery"]
+saved-input.json = ["implement-types-and-store", "node -p", "types-ok", "store-ok", "Object.keys(actual).sort()"]
+frozen-contract.json = ["npm run build", "60302", "implementation_artifact"]
+esm/entry.mjs = ["await Promise.resolve()", "export const ready = true"]

@@ -3,7 +3,7 @@
 mod report_signature;
 pub(super) use report_signature::verification_report_signature;
 
-#[allow(unused_imports)]
+#[allow(unused_imports, reason = "names used by test modules")]
 use super::{
     AssistantReply, BTreeSet, ChatClient, CompletionContract, Config, Duration,
     GeneratedStepPlanFieldDefault, IntentId, InteractionUi, MissingImport, NOOP_UI, Path, PathBuf,
@@ -19,8 +19,8 @@ use super::{
     render_requested_features_not_detected_line, render_step_plan, render_ultra_plan,
     repair_generated_step_plan_contract, repair_targeting, resolve_existing,
     resolve_profile_runtime, run_step_plan_with_session_with_ui, runtime_required_evidence,
-    sanitize_step_plan_against_policy, scan_relative_imports, signals, step_plan_quality_report,
-    step_plan_quality_warnings, ultra_plan_phase_signal_text, workspace_relative_handoff_path,
+    scan_relative_imports, signals, step_plan_quality_report, step_plan_quality_warnings,
+    ultra_plan_phase_signal_text, workspace_relative_handoff_path,
 };
 
 pub(super) const STEP_TURN_MAX_ITERATIONS: usize = 8;
@@ -358,7 +358,7 @@ pub fn generate_step_plan_with_ui(
     generate_step_plan_with_ui_for_phase(client, goal, config, ui, None, false, false)
 }
 
-pub(super) fn generate_step_plan_with_ui_for_phase(
+pub(crate) fn generate_step_plan_with_ui_for_phase(
     client: &mut dyn ChatClient,
     goal: &str,
     config: &Config,
@@ -371,6 +371,7 @@ pub(super) fn generate_step_plan_with_ui_for_phase(
         anyhow::bail!("interrupted by user");
     }
     let fix_before = crate::planner::fix_runtime::is_before_prompt(goal);
+    crate::planner::recovery_inspection::has_origin(config)?;
     let model = model_for(config, true);
     if phase_label.is_some()
         && let Some(plan) = deterministic_step_plan_for_phase(
@@ -398,6 +399,7 @@ pub(super) fn generate_step_plan_with_ui_for_phase(
     let mut lint_categories_seen = BTreeSet::new();
     let mut empty_response_count = 0usize;
     let mut session_mode = PlannerSessionMode::Standard;
+    let mut admission = crate::planner::recovery_step_plan_binding::admission::Admission::default();
     for attempt in 1..=3 {
         let messages = step_plan_messages(&prompt);
         let reply =
@@ -435,6 +437,7 @@ pub(super) fn generate_step_plan_with_ui_for_phase(
             );
             if attempt < 3 {
                 prompt = build_empty_step_plan_compact_prompt(goal, attempt);
+                admission.append_retry_context(&mut prompt)?;
                 session_mode = if empty_response_count >= 2 {
                     PlannerSessionMode::FreshCompact
                 } else {
@@ -445,6 +448,7 @@ pub(super) fn generate_step_plan_with_ui_for_phase(
         }
         match parse_generated_step_plan_json_with_report(&reply.content, goal) {
             Ok((mut plan, generated_sanitization)) => {
+                let model_plan = plan.clone();
                 emit_planner_schema_field_defaults(
                     config,
                     client.label(),
@@ -464,7 +468,7 @@ pub(super) fn generate_step_plan_with_ui_for_phase(
                     &verify_before_repair,
                     &verify_after_repair,
                 );
-                strengthen_step_plan_for_profile(&mut plan, config);
+                admission.strengthen(config, &mut plan);
                 let python_cli_canonicalized =
                     crate::planner::python_cli_plan_synthesis::canonicalize_implementation_plan(
                         &mut plan,
@@ -481,8 +485,7 @@ pub(super) fn generate_step_plan_with_ui_for_phase(
                     phase_label.is_none() || final_phase,
                     config.eval_events_path.as_deref(),
                 );
-                let sanitizer_report =
-                    sanitize_step_plan_against_policy(&mut plan, Some(&config.workspace_root));
+                let sanitizer_report = admission.sanitize(&mut plan, Some(&config.workspace_root));
                 let preset_converted = if fix_before {
                     runtime.bind_empty_fix_verify_steps(
                         &mut plan,
@@ -500,11 +503,19 @@ pub(super) fn generate_step_plan_with_ui_for_phase(
                     )
                 };
                 let recovery_contract_bound =
-                    crate::planner::recovery_step_plan_binding::bind_generated(
-                        config,
-                        phase_label,
-                        &mut plan,
-                    )?;
+                    match admission.check(config, phase_label, &model_plan, &mut plan, attempt)? {
+                        crate::planner::recovery_step_plan_binding::admission::Decision::Ready(
+                            bound,
+                        ) => bound,
+                        crate::planner::recovery_step_plan_binding::admission::Decision::Retry(
+                            feedback,
+                        ) => {
+                            last_valid_plan = None;
+                            prompt = feedback;
+                            session_mode = PlannerSessionMode::Standard;
+                            continue;
+                        }
+                    };
                 let plan_was_sanitized = verify_was_normalized
                     || !generated_sanitization.is_empty()
                     || !sanitizer_report.is_empty()
@@ -524,6 +535,13 @@ pub(super) fn generate_step_plan_with_ui_for_phase(
                     Some(&config.workspace_root),
                 );
                 sanitizer_report.append_policy_errors(&mut lint_report);
+                crate::planner::python_cli_plan_synthesis::append_entrypoint_placement_lint(
+                    &mut lint_report,
+                    &plan,
+                    &config.workspace_root,
+                    &config.profile,
+                    config.resolved_run_intent() == IntentId::Create,
+                );
                 if lint_report.is_pass() {
                     let quality_context = plan_quality_context(config, goal);
                     let quality_report = step_plan_quality_report(&plan, &quality_context);
@@ -547,6 +565,7 @@ pub(super) fn generate_step_plan_with_ui_for_phase(
                                 &quality_report,
                             );
                             prompt = build_quality_retry_prompt(goal, &quality_report, attempt);
+                            admission.append_retry_context(&mut prompt)?;
                             session_mode = PlannerSessionMode::Standard;
                             continue;
                         }
@@ -564,7 +583,7 @@ pub(super) fn generate_step_plan_with_ui_for_phase(
                         }
                     }
                     emit_step_plan_presentation(phase_label, &plan, Some(&sanitizer_report));
-                    return Ok(plan);
+                    return admission.finish(config, phase_label, plan);
                 }
                 if let Some(plan) = last_valid_plan.clone() {
                     emit_planner_quality_retry_degraded(
@@ -577,7 +596,7 @@ pub(super) fn generate_step_plan_with_ui_for_phase(
                     );
                     if attempt >= 3 {
                         emit_step_plan_presentation(phase_label, &plan, None);
-                        return Ok(plan);
+                        return admission.finish(config, phase_label, plan);
                     }
                     let message = lint_report.primary_message();
                     last_error = Some(message.clone());
@@ -586,6 +605,7 @@ pub(super) fn generate_step_plan_with_ui_for_phase(
                     }
                     prompt =
                         build_lint_retry_prompt(goal, &lint_report, attempt, &lint_categories_seen);
+                    admission.append_retry_context(&mut prompt)?;
                     session_mode = PlannerSessionMode::Standard;
                     continue;
                 }
@@ -598,6 +618,7 @@ pub(super) fn generate_step_plan_with_ui_for_phase(
                 }
                 prompt =
                     build_lint_retry_prompt(goal, &lint_report, attempt, &lint_categories_seen);
+                admission.append_retry_context(&mut prompt)?;
                 session_mode = PlannerSessionMode::Standard;
             }
             Err(err) => {
@@ -612,10 +633,11 @@ pub(super) fn generate_step_plan_with_ui_for_phase(
                         &err.to_string(),
                     );
                     if attempt >= 3 {
-                        return Ok(plan);
+                        return admission.finish(config, phase_label, plan);
                     }
                     last_error = Some(err.to_string());
                     prompt = build_schema_retry_prompt(goal, &err.to_string(), attempt);
+                    admission.append_retry_context(&mut prompt)?;
                     session_mode = PlannerSessionMode::Standard;
                     continue;
                 }
@@ -630,13 +652,14 @@ pub(super) fn generate_step_plan_with_ui_for_phase(
                     attempt,
                 );
                 prompt = build_schema_retry_prompt(goal, &err.to_string(), attempt);
+                admission.append_retry_context(&mut prompt)?;
                 session_mode = PlannerSessionMode::Standard;
             }
         }
     }
     if let Some(plan) = last_valid_plan {
         emit_step_plan_presentation(phase_label, &plan, None);
-        return Ok(plan);
+        return admission.finish(config, phase_label, plan);
     }
     if empty_response_count == 3 {
         anyhow::bail!(
@@ -653,7 +676,7 @@ pub(super) fn generate_step_plan_with_ui_for_phase(
             last_error.as_deref().unwrap_or("unknown parse error"),
         );
         emit_step_plan_presentation(phase_label, &plan, None);
-        return Ok(plan);
+        return admission.finish(config, phase_label, plan);
     }
     if let Some(report) = last_lint_report {
         return Err(anyhow::Error::new(
@@ -689,6 +712,7 @@ pub(super) fn deterministic_step_plan_for_phase(
     };
     let template_id = template.template_id;
     let mut plan = template.plan;
+    let model_plan = plan.clone();
     let verify_before_repair = collect_step_verify_commands(&plan);
     repair_generated_step_plan_contract(&mut plan);
     let verify_after_repair = collect_step_verify_commands(&plan);
@@ -700,7 +724,8 @@ pub(super) fn deterministic_step_plan_for_phase(
         &verify_before_repair,
         &verify_after_repair,
     );
-    strengthen_step_plan_for_profile(&mut plan, config);
+    let mut admission = crate::planner::recovery_step_plan_binding::admission::Admission::default();
+    admission.strengthen(config, &mut plan);
     repair_generated_step_plan_contract(&mut plan);
     let _ = resolve_profile_runtime(&config.profile).canonicalize_create_plan(
         &mut plan,
@@ -708,9 +733,12 @@ pub(super) fn deterministic_step_plan_for_phase(
         phase_label.is_none() || final_phase,
         config.eval_events_path.as_deref(),
     );
-    let sanitizer_report =
-        sanitize_step_plan_against_policy(&mut plan, Some(&config.workspace_root));
-    crate::planner::recovery_step_plan_binding::bind_generated(config, phase_label, &mut plan)?;
+    let sanitizer_report = admission.sanitize(&mut plan, Some(&config.workspace_root));
+    if let crate::planner::recovery_step_plan_binding::admission::Decision::Retry(feedback) =
+        admission.check(config, phase_label, &model_plan, &mut plan, 1)?
+    {
+        anyhow::bail!("deterministic template requires explicit verifier scope: {feedback}");
+    }
     emit_planner_plan_sanitized(config, provider, model, 1, &sanitizer_report);
     let mut lint_report =
         crate::planner::lint::lint_template_contract(&plan, Some(&config.workspace_root));
@@ -761,8 +789,108 @@ pub fn save_step_plan(root: &Path, plan: &StepPlan) -> anyhow::Result<PathBuf> {
     let dir = crate::runtime_paths::plans_dir(root);
     std::fs::create_dir_all(&dir)?;
     let path = dir.join(format!("plan-{}.yaml", uuid::Uuid::now_v7()));
-    std::fs::write(&path, crate::planner::plan::render_editable_step_plan(plan))?;
+    let plan = protect_step_plan(root, plan)?;
+    std::fs::write(
+        &path,
+        crate::planner::plan::render_editable_step_plan(&plan),
+    )?;
     Ok(path)
+}
+
+/// Scrub free text with the run scope registered for `root`, or return it
+/// unchanged when no scope is installed. Every custom save boundary that
+/// persists free text (a repair note, a recovery prompt) shares this so the
+/// exact-value catalog is the only substitution algorithm.
+pub(crate) fn scrub_saved_text(root: &Path, text: &str) -> String {
+    crate::sensitive_data::active_for(Some(root))
+        .map(|context| context.scrub_text(text))
+        .unwrap_or_else(|| text.to_string())
+}
+
+/// Refuse to execute a plan file whose runnable content still contains a
+/// registered secret, mirroring the save boundary.
+pub(crate) fn refuse_saved_plan_run(root: &Path, text: &str) -> anyhow::Result<()> {
+    if let Some(context) = crate::sensitive_data::active_for(Some(root)) {
+        context.refuse_runnable("plan", text)?;
+    }
+    Ok(())
+}
+
+/// Refuse to persist a runnable plan (UltraPlan, recovery YAML) that contains a
+/// registered secret anywhere. A runnable plan cannot be safely redacted: the
+/// redacted instruction could be executed and falsely pass, so the plan is
+/// rejected honestly instead of saved. A secret-free plan is returned unchanged.
+pub(crate) fn refuse_saved_plan(root: &Path, text: &str) -> anyhow::Result<String> {
+    refuse_saved_plan_run(root, text)?;
+    Ok(text.to_string())
+}
+
+/// Refuse when any of `commands` still contains a registered secret. Used by the
+/// recovery handoff, whose commands are shown to a model and must not be
+/// persisted as a redacted, re-runnable instruction.
+pub(crate) fn refuse_runnable_commands(
+    root: &Path,
+    field: &str,
+    commands: &[String],
+) -> anyhow::Result<()> {
+    if let Some(context) = crate::sensitive_data::active_for(Some(root)) {
+        for command in commands {
+            context.refuse_runnable(field, command)?;
+        }
+    }
+    Ok(())
+}
+
+/// Refuse a secret-bearing runnable command/path, then scrub the remaining free
+/// text of a StepPlan. The plan is scrubbed field by field before it is
+/// rendered, so a value YAML escapes (`"`, `\n`) is matched as the parsed
+/// scalar rather than as its escaped text form.
+fn protect_step_plan(root: &Path, plan: &StepPlan) -> anyhow::Result<StepPlan> {
+    let Some(context) = crate::sensitive_data::active_for(Some(root)) else {
+        return Ok(plan.clone());
+    };
+    refuse_plan_commands(&context, plan)?;
+    let mut scrubbed = plan.clone();
+    scrubbed.goal = context.scrub_text(&scrubbed.goal);
+    for step in &mut scrubbed.steps {
+        step.id = context.scrub_text(&step.id);
+        step.kind = context.scrub_text(&step.kind);
+        step.expected_result = context.scrub_text(&step.expected_result);
+        step.instruction = context.scrub_text(&step.instruction);
+        step.verify = step
+            .verify
+            .iter()
+            .map(|value| context.scrub_text(value))
+            .collect();
+        step.expected_paths = step
+            .expected_paths
+            .iter()
+            .map(|value| context.scrub_text(value))
+            .collect();
+    }
+    Ok(scrubbed)
+}
+
+fn refuse_plan_commands(
+    context: &crate::sensitive_data::RedactionContext,
+    plan: &StepPlan,
+) -> anyhow::Result<()> {
+    for step in &plan.steps {
+        for command in &step.verify {
+            context.refuse_runnable("step.verify", command)?;
+        }
+        for path in &step.expected_paths {
+            context.refuse_runnable("step.expected_paths", path)?;
+        }
+    }
+    Ok(())
+}
+
+fn refuse_step_plan_run(root: &Path, plan: &StepPlan) -> anyhow::Result<()> {
+    let Some(context) = crate::sensitive_data::active_for(Some(root)) else {
+        return Ok(());
+    };
+    refuse_plan_commands(&context, plan)
 }
 
 pub fn run_plan_file(
@@ -784,6 +912,7 @@ pub fn run_plan_file_with_ui(
         anyhow::anyhow!("failed to read plan file `{}`: {error}", path.display())
     })?;
     let plan = parse_step_plan(&text)?;
+    refuse_step_plan_run(&config.workspace_root, &plan)?;
     run_step_plan_with_ui(client, &plan, config, ui)
 }
 
@@ -2741,39 +2870,6 @@ pub(super) fn is_agent_metadata_entry(name: &str) -> bool {
     ) || name.starts_with("commandagent-eval-")
 }
 
-pub(super) fn strengthen_step_plan_for_profile(plan: &mut StepPlan, config: &Config) {
-    let runtime = resolve_profile_runtime(&config.profile);
-    let is_scaffold = plan.goal.to_ascii_lowercase().contains("scaffold");
-    let Some(target_index) = plan
-        .steps
-        .iter()
-        .rposition(|step| matches!(step.step_kind(), StepKind::Setup | StepKind::Implement))
-        .or_else(|| {
-            is_scaffold.then(|| {
-                plan.steps
-                    .iter()
-                    .rposition(|step| step.step_kind() == StepKind::Report)
-            })?
-        })
-    else {
-        return;
-    };
-    let target = &mut plan.steps[target_index];
-    if is_scaffold {
-        for path in runtime.expected_scaffold_paths(&config.workspace_root, &plan.goal) {
-            if path.ends_with("package.json") && !target.expected_paths.contains(&path) {
-                target.expected_paths.push(path);
-            }
-        }
-        if !target.expected_paths.is_empty() && target.kind == "report" {
-            target.kind = "implement".to_string();
-        }
-    }
-    if let Some(guidance) = runtime.guidance(&plan.goal) {
-        target.instruction = format!("{}\n\nProfile contract:\n{}", target.instruction, guidance);
-    }
-}
-
 pub(super) fn build_step_prompt(
     plan: &StepPlan,
     step: &PlanStep,
@@ -2940,7 +3036,7 @@ pub(super) fn emit_step_prompt_contract(
     );
 }
 
-#[allow(dead_code)]
+#[allow(dead_code, reason = "only used by driver_tests")]
 pub(super) fn prompt_with_required_paths(instruction: &str, paths: &[String]) -> String {
     if paths.is_empty() || instruction.contains("Required final artifacts:") {
         return instruction.to_string();
@@ -3217,7 +3313,7 @@ pub(super) fn phase_goal_one_liner(prompt: &str) -> String {
     }
 }
 
-#[allow(dead_code)]
+#[allow(dead_code, reason = "no callers; kept for debug")]
 pub(super) fn _format_report(report: &VerificationReport) -> String {
     format!("{:?}", report.status)
 }

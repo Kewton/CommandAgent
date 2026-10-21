@@ -1,0 +1,10 @@
+case_id = "missing-read-correction"
+source = "Deterministic production-loop replay of the ordinary missing Read boundary observed in R0 session 01a0941c-ab59-73b3-a34e-30b3cd1c9a9a"
+required_paths = ["cases.json", "verify.cjs", "implementation.cjs"]
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+cases.json = ["unrelated-success", "alternating", "distinct-inspection", "repeat_limit"]
+verify.cjs = ["loadProjects()", "deepEqual"]

@@ -1,0 +1,59 @@
+{
+  "schema_version": "commandagent.public-projection/v1",
+  "marker": "<redacted>",
+  "execution_root_label": "<execution-root>",
+  "workspaces": {
+    "alpha": {
+      "catalog_source": "repository root dotenv plus built-in provider keys",
+      "run_detail": {
+        "id": "run-alpha",
+        "acceptance_path": "acceptance-sheet.md",
+        "state": "pass",
+        "acceptance": "# Acceptance\n\nStatus: <redacted>\n"
+      },
+      "evidence": {
+        "id": "evidence.json",
+        "path": "evidence.json",
+        "content": "{\"event\":\"run_stop\",\"message\":\"<redacted>\",\"status\":\"completed\",\"verdict\":\"pass\"}"
+      }
+    },
+    "beta": {
+      "catalog_source": "execution root dotenv plus built-in provider keys",
+      "events_tail": {
+        "id": "events.jsonl",
+        "path": "events.jsonl",
+        "content": "{\"event\":\"run_start\",\"note\":\"<redacted>\"}\n{\"event\":\"run_stop\",\"status\":\"completed\"}\n"
+      },
+      "artifacts": {
+        "id": "events.jsonl",
+        "path": "events.jsonl",
+        "size_bytes": 96
+      },
+      "sheet": {
+        "request": "<redacted>",
+        "stop_section": "<redacted>"
+      }
+    }
+  },
+  "separation": {
+    "rule": "catalogs never merge; an alpha secret stays visible in a beta response and a beta secret stays visible in an alpha response",
+    "alpha_only_visible_in_beta": "alpha-only-canary-value",
+    "beta_only_visible_in_alpha": "beta-only-canary-value"
+  },
+  "display_projection": {
+    "events_tail": "never refuses; a fixed schema key name is kept and a dynamic key that carries a secret is projected to a distinct safe key",
+    "artifact_body": "schema-preserving projection that never fails"
+  },
+  "refusals": {
+    "run_evidence": {
+      "status": 422,
+      "code": "secret_projection_refused",
+      "reason": "refusing to project a value whose dynamic key would expose a secret at root"
+    }
+  },
+  "clean_fixtures": {
+    "r25_markdown_input": "plain answer\n",
+    "r25_markdown_output": "plain answer\n",
+    "r30_request": "create ingest"
+  }
+}

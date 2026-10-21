@@ -1,0 +1,268 @@
+{
+  "session_id": "01a09b8b-f70e-7aa1-84f1-40a18d62da17",
+  "historical_head": "b7b65f8fd75793f2075491889c66372b02a06d14",
+  "production_parent": "0a8222643683c764fa5f9ac8bd3e5b2b47ef7728",
+  "central_event_path": "/Users/maenokota/share/work/localwork/commandagent_trial/.commandagent/runs/01a09b8b-f70e-7aa1-84f1-40a18d62da17/events.jsonl",
+  "central_event_sha256": "524d9f569a6dd702b89180e2f1acfff82b458f7afafaaf0d1da297f1a90f1122",
+  "central_event_count": 86,
+  "event_projection": [
+    {
+      "line": 69,
+      "event": "ultra_phase_failed",
+      "line_sha256_including_newline": "1e7c2e7de0d8dd0ca0875aea889f2310d405338a503ee3c429540eec26963d37",
+      "retained_fields": [
+        "event",
+        "schema_version",
+        "phase_id",
+        "stage",
+        "ok",
+        "reason",
+        "step_count"
+      ]
+    },
+    {
+      "line": 72,
+      "event": "ultra_partial_artifact_summary",
+      "line_sha256_including_newline": "782776583b25f138d3af6c26db1a58eff6c1c8fa370ec48c53e6ef5caabeac56",
+      "retained_fields": [
+        "event",
+        "schema_version",
+        "completed_phase_ids",
+        "failed_phase_id",
+        "failure_kind",
+        "pending_phase_ids",
+        "status"
+      ]
+    },
+    {
+      "line": 78,
+      "event": "recovery_preflight_effect_observation",
+      "line_sha256_including_newline": "94fd55186bf57d2ebbb5ae3287a0d84afbe28503dc3e6d68813c61f161c811db",
+      "retained_fields": [
+        "event",
+        "schema_version",
+        "stage",
+        "status"
+      ]
+    },
+    {
+      "line": 79,
+      "event": "recovery_preflight_effect_observation",
+      "line_sha256_including_newline": "ec1293fd226c9aa7a09599fbf8819bcc63487639bad9b8bcc63c66ffd5f1f0ab",
+      "retained_fields": [
+        "event",
+        "schema_version",
+        "stage",
+        "status"
+      ]
+    },
+    {
+      "line": 80,
+      "event": "recovery_preflight_control_audit",
+      "line_sha256_including_newline": "825c4c79e75632596ba2baf395ee1f89d4902a1c4a6887997d01fcb915bd8fb7",
+      "retained_fields": [
+        "event",
+        "schema_version",
+        "control_audited",
+        "control_status",
+        "control_retained",
+        "observation_isolated",
+        "restore_invoked",
+        "restore_succeeded",
+        "isolated_outcome",
+        "isolated_reason"
+      ]
+    },
+    {
+      "line": 81,
+      "event": "recovery_preflight_observation",
+      "line_sha256_including_newline": "c5da54f0860ce2761f14e400013d6c6dc840935c1857766903e3022df2055628",
+      "retained_fields": [
+        "event",
+        "schema_version",
+        "source",
+        "status",
+        "reason",
+        "observation_isolated",
+        "observation_phase",
+        "read_only",
+        "external_oracle_used",
+        "recovery_failed_step",
+        "recovery_handoff_kind",
+        "registered_verify_command_count",
+        "verify_command_count",
+        "completion_contract_sha256",
+        "observer_ids"
+      ]
+    },
+    {
+      "line": 82,
+      "event": "recovery_suppressed_verification_inconsistency",
+      "line_sha256_including_newline": "77a3dd249166e43d68a0cf5f3b8bfd5d7e6d19f847ee91a943a5cb357a4a4935",
+      "retained_fields": [
+        "event",
+        "schema_version",
+        "recovery_plan_auto_runs",
+        "recovery_plan_auto_runs_used",
+        "recovery_plan_auto_run_current",
+        "recovery_plan_auto_run_stop_reason"
+      ]
+    },
+    {
+      "line": 83,
+      "event": "recovery_plan_auto_run_stopped",
+      "line_sha256_including_newline": "800c85a2da6b94c6062422f8ca11e84faaa929c32537c93508179119079fd11e",
+      "retained_fields": [
+        "event",
+        "schema_version",
+        "recovery_plan_auto_runs",
+        "recovery_plan_auto_runs_used",
+        "recovery_plan_auto_run_current",
+        "recovery_plan_auto_run_stop_reason"
+      ]
+    },
+    {
+      "line": 86,
+      "event": "run_stop",
+      "line_sha256_including_newline": "eee572d42761fd78e2f411a6d0bba6f951ead469e6f963fd6e62a69a89cc7401",
+      "retained_fields": [
+        "event",
+        "schema_version",
+        "ok",
+        "status",
+        "task_status",
+        "command_completion_state",
+        "final_acceptance_status",
+        "runtime_acceptance_status",
+        "assurance_level"
+      ]
+    }
+  ],
+  "files": [
+    {
+      "source": "/Users/maenokota/share/work/localwork/commandagent_trial/sessions/01a09b8b-f70e-7aa1-84f1-40a18d62da17/package.json",
+      "source_sha256": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+      "fixture": "scaffold/package.json",
+      "fixture_sha256": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7"
+    },
+    {
+      "source": "/Users/maenokota/share/work/localwork/commandagent_trial/sessions/01a09b8b-f70e-7aa1-84f1-40a18d62da17/tsconfig.json",
+      "source_sha256": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c",
+      "fixture": "scaffold/tsconfig.json",
+      "fixture_sha256": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+    },
+    {
+      "source": "/Users/maenokota/share/work/localwork/commandagent_trial/sessions/01a09b8b-f70e-7aa1-84f1-40a18d62da17/postcss.config.js",
+      "source_sha256": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+      "fixture": "scaffold/postcss.config.js",
+      "fixture_sha256": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a"
+    },
+    {
+      "source": "/Users/maenokota/share/work/localwork/commandagent_trial/sessions/01a09b8b-f70e-7aa1-84f1-40a18d62da17/tailwind.config.ts",
+      "source_sha256": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+      "fixture": "scaffold/tailwind.config.ts",
+      "fixture_sha256": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8"
+    },
+    {
+      "source": "/Users/maenokota/share/work/localwork/commandagent_trial/sessions/01a09b8b-f70e-7aa1-84f1-40a18d62da17/src/app/layout.tsx",
+      "source_sha256": "e4390d4d4067cdfdcab53478bb5701155d51cf3daa0cc80e8fd4d4d3957f1978",
+      "fixture": "scaffold/src/app/layout.tsx",
+      "fixture_sha256": "e4390d4d4067cdfdcab53478bb5701155d51cf3daa0cc80e8fd4d4d3957f1978"
+    },
+    {
+      "source": "/Users/maenokota/share/work/localwork/commandagent_trial/sessions/01a09b8b-f70e-7aa1-84f1-40a18d62da17/src/app/page.tsx",
+      "source_sha256": "013b9e9015d3da335226c7f55a34c9da4cd4523921674b25e5210a36b88e2ed8",
+      "fixture": "scaffold/src/app/page.tsx",
+      "fixture_sha256": "013b9e9015d3da335226c7f55a34c9da4cd4523921674b25e5210a36b88e2ed8"
+    },
+    {
+      "source": "/Users/maenokota/share/work/localwork/commandagent_trial/sessions/01a09b8b-f70e-7aa1-84f1-40a18d62da17/src/app/globals.css",
+      "source_sha256": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+      "fixture": "scaffold/src/app/globals.css",
+      "fixture_sha256": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec"
+    },
+    {
+      "source": "/Users/maenokota/share/work/localwork/commandagent_trial/sessions/01a09b8b-f70e-7aa1-84f1-40a18d62da17/src/app/global.d.ts",
+      "source_sha256": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+      "fixture": "scaffold/src/app/global.d.ts",
+      "fixture_sha256": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa"
+    },
+    {
+      "source": "/Users/maenokota/share/work/localwork/commandagent_trial/sessions/01a09b8b-f70e-7aa1-84f1-40a18d62da17/next-env.d.ts",
+      "source_sha256": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+      "fixture": "scaffold/next-env.d.ts",
+      "fixture_sha256": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01"
+    },
+    {
+      "source": "/Users/maenokota/share/work/localwork/commandagent_trial/sessions/01a09b8b-f70e-7aa1-84f1-40a18d62da17/.commandagent/completion-contract-ultra-plan-run.json",
+      "source_sha256": "eb2b04647a28ab10508c21e9c1cd026bea293a1c7f95dda261f4bd5529d8c9ab",
+      "fixture": "completion-contract.json",
+      "fixture_sha256": "eb2b04647a28ab10508c21e9c1cd026bea293a1c7f95dda261f4bd5529d8c9ab"
+    },
+    {
+      "source": "/Users/maenokota/share/work/localwork/commandagent_trial/sessions/01a09b8b-f70e-7aa1-84f1-40a18d62da17/.commandagent/plans/ultra-plan-01a09b8b-f823-71d1-a943-f560cf5b0b68.yaml",
+      "source_sha256": "daf9b856281c18ed9081c854ea97280defb81a0dae41e9a591f36eb39795c369",
+      "fixture": "original-plan.yaml",
+      "fixture_sha256": "daf9b856281c18ed9081c854ea97280defb81a0dae41e9a591f36eb39795c369"
+    }
+  ],
+  "interaction_source": {
+    "path": "/Users/maenokota/share/work/localwork/commandagent_trial/sessions/01a09b8b-f70e-7aa1-84f1-40a18d62da17/.commandagent/recovery-observations/attempt-0/workspace/.commandagent/evidence/browser-interaction.json",
+    "sha256": "0d6f074610f80bee2994cde96c39f2e72dbd627456356edb029b074b5e7cb009",
+    "retained_fields": [
+      "ok",
+      "status",
+      "probe_mode",
+      "contract_hook_status",
+      "action_hooks",
+      "state_dimensions_changed",
+      "start_transition",
+      "input_state_evaluated_after_start",
+      "input_state_change",
+      "state_changed",
+      "visible_state_changed",
+      "steps",
+      "before_marker",
+      "after_marker",
+      "interaction_performed",
+      "input_event_observed",
+      "failure_category"
+    ]
+  },
+  "references": [
+    {
+      "path": "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/workspace/management/runs/20260914-integrated-r0-evaluation-478-480-01/runs/R0/source-observation.json",
+      "sha256": "0425bb05ae5e8fbd5a0839c394a7f6436f7a59795c40b0d2a34c529d525f1dcc"
+    },
+    {
+      "path": "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/workspace/management/runs/20260914-integrated-r0-evaluation-478-480-01/runs/R0/engine-audit.json",
+      "sha256": "0a5840d7bfd48f8d79712179e9dec1e45f2d718b117594b606aaa198945c09ca"
+    },
+    {
+      "path": "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/workspace/management/runs/20260914-integrated-r0-evaluation-478-480-01/runs/R0/r0-gate.json",
+      "sha256": "b31155d85124eea58d2cffa00181c474ab2e2bfb791de83203d26e5ceb846e5b"
+    },
+    {
+      "path": "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/workspace/management/runs/20260914-integrated-r0-evaluation-478-480-01/reports/execution-summary.md",
+      "sha256": "11e1d2335265a1fcf6e2e0e375cf3229430241eac0b9c01c877875766feda6ce"
+    },
+    {
+      "path": "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/workspace/management/runs/20260914-integrated-r0-evaluation-478-480-01/reports/review-resolution.md",
+      "sha256": "9d81bcd4935c07722f337ad9d80c1c859b9438807753a48a64ccaef2d8c34b7b"
+    }
+  ],
+  "historical_observations": {
+    "registered_build": "passed",
+    "generic_interaction": "passed",
+    "implementation_artifact": "missing",
+    "recovery_used": 0,
+    "recovery_limit": 2,
+    "control_before_sha256": "fa089da5485a5df6d9626cc3b7a58e9fc200ed29d72d1d0f556e0c9d44bdc989",
+    "control_after_sha256": "fa089da5485a5df6d9626cc3b7a58e9fc200ed29d72d1d0f556e0c9d44bdc989",
+    "restore_invoked": false,
+    "restore_succeeded": false,
+    "terminal": "failed",
+    "internal_r0_gate": "unknown",
+    "external_reference_goal": "reference_goal_fail"
+  }
+}

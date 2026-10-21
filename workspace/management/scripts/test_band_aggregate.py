@@ -3,8 +3,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from contextlib import redirect_stderr
@@ -14,6 +17,48 @@ from types import SimpleNamespace
 from unittest import mock
 
 import band_aggregate as band
+
+DIRECTIVE_BASE_SUITE = "workspace/management/bench/suites/cli-create-luna.toml"
+DIRECTIVE_ROUND1_SCRIPT = (
+    "workspace/management/bench/directives/cli-c3-bon0/round-1.txt"
+)
+ZERO_SHA256 = "0" * 64
+
+
+def directive_suite_toml(*, base_sha256: str, round1_script: str) -> str:
+    return (
+        "[directive_suite]\n"
+        'schema_version = "commandagent.eval.directive-suite/v0"\n'
+        'id = "cli-c3-bon0"\n'
+        'status = "registered_unexecuted"\n'
+        'profile = "cli"\n'
+        'intent = "create"\n'
+        f'base_suite = "{DIRECTIVE_BASE_SUITE}"\n'
+        f'base_suite_sha256 = "{base_sha256}"\n'
+        'measurement_plan = "BoN-0"\n'
+        'target_atom = "cli_output_claims"\n'
+        'target_anchor = "cli.readme.observed_stdout"\n'
+        "max_rounds = 3\n"
+        "\n"
+        "[[rounds]]\n"
+        "round = 1\n"
+        f'script = "{round1_script}"\n'
+        f'sha256 = "{ZERO_SHA256}"\n'
+        "\n"
+        "[[rounds]]\n"
+        "round = 2\n"
+        'script = "workspace/management/bench/directives/cli-c3-bon0/round-2.txt"\n'
+        f'sha256 = "{ZERO_SHA256}"\n'
+        "\n"
+        "[[rounds]]\n"
+        "round = 3\n"
+        'script = "workspace/management/bench/directives/cli-c3-bon0/round-3.txt"\n'
+        f'sha256 = "{ZERO_SHA256}"\n'
+    )
+
+
+def real_base_suite_sha256() -> str:
+    return hashlib.sha256((band.ROOT / DIRECTIVE_BASE_SUITE).read_bytes()).hexdigest()
 
 
 def bon_settlement_document(*, local_full: int = 1) -> dict[str, object]:
@@ -145,6 +190,71 @@ class ScoreAxisTests(unittest.TestCase):
         self.assertEqual(suite["max_rounds"], 3)
         self.assertEqual([item["round"] for item in suite["rounds"]], [1, 2, 3])
         self.assertRegex(suite["manifest_sha256"], r"^[0-9a-f]{64}$")
+
+    def test_directive_suite_pin_mismatch_aborts(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "directive-suite.toml"
+            path.write_text(
+                directive_suite_toml(
+                    base_sha256=ZERO_SHA256,
+                    round1_script=DIRECTIVE_ROUND1_SCRIPT,
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(AssertionError, "directive suite pin mismatch"):
+                band.load_scripted_directive_suite(path)
+
+    def test_directive_suite_pin_format_is_validated(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "directive-suite.toml"
+            path.write_text(
+                directive_suite_toml(
+                    base_sha256="not-a-sha256",
+                    round1_script=DIRECTIVE_ROUND1_SCRIPT,
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(AssertionError, "invalid SHA-256 pin"):
+                band.load_scripted_directive_suite(path)
+
+    def test_directive_suite_rejects_parent_relative_path(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "directive-suite.toml"
+            path.write_text(
+                directive_suite_toml(
+                    base_sha256=real_base_suite_sha256(),
+                    round1_script="../escape-round-1.txt",
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(AssertionError, "escapes the repository"):
+                band.load_scripted_directive_suite(path)
+
+    def test_directive_suite_pin_check_survives_optimization(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "directive-suite.toml"
+            path.write_text(
+                directive_suite_toml(
+                    base_sha256=ZERO_SHA256,
+                    round1_script=DIRECTIVE_ROUND1_SCRIPT,
+                ),
+                encoding="utf-8",
+            )
+            scripts_dir = Path(band.__file__).resolve().parent
+            code = (
+                "import sys\n"
+                f"sys.path.insert(0, {str(scripts_dir)!r})\n"
+                "from pathlib import Path\n"
+                "import band_aggregate\n"
+                f"band_aggregate.load_scripted_directive_suite(Path({str(path)!r}))\n"
+            )
+            completed = subprocess.run(
+                [sys.executable, "-O", "-c", code],
+                capture_output=True,
+                text=True,
+            )
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("directive suite pin mismatch", completed.stderr)
 
     def test_bon_six_is_a_separate_pending_configuration(self) -> None:
         self.assertEqual(

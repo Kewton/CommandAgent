@@ -164,7 +164,6 @@ pub(crate) fn seed_from_options(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn seed_read_only_streak(
     carryover: Option<&EscalationCarryoverHandle>,
     eval_events_path: Option<&Path>,
@@ -221,7 +220,6 @@ pub(crate) fn record_write_required_exhaustion(carryover: Option<&EscalationCarr
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_escalation_carryover_event(
     eval_events_path: Option<&Path>,
     seed: EscalationCarryoverSeed,
@@ -254,7 +252,6 @@ pub(crate) fn emit_escalation_carryover_event(
     );
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn run_final_acceptance_repair_with_carryover(
     execution: &mut dyn ChatClient,
     ultra_session: &mut SessionSnapshot,

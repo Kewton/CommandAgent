@@ -307,3 +307,30 @@ queue: E-5e removed the only audited upper adjudication `unwrap` and defined
 producer-side panic policy, but did not claim a process-wide unwind migration.
 Other historical low-priority/watch queues retain their local status and are
 not Phase E exit claims.
+
+
+## Issue #440: maximum-length response stop (2026-09-08)
+
+The minimal loop consumes at most two output-limit replies without returned
+tool calls since the last successful Write/Edit. It stops immediately on the
+second; it does not request a third. The internal session limit also supports
+the original I1 three-reply fixture, which stops on source event 629 before the
+next request. Short replies, Reads, and failed edits preserve the streak.
+Detection uses measured completion tokens versus the effective `num_predict`,
+not the synthesized `finish_reason`. Missing usage and a zero limit budget are
+not treated as evidence of reaching the output limit.
+
+`max_length_no_tool_call_repeated` remains an honest failure and saves the
+existing Recovery prompt/YAML plus typed candidate, including matching count
+and total provider duration. The 15-minute step cap and acceptance checks are
+unchanged. #439 must be combined before the orchestrator's revalidation campaign.
+
+Existing `provider_turn_duration.tools` still counts offered tool specs. Added
+`tool_calls_in_response` counts normalized returned calls and
+`write_or_edit_succeeded` records successful execution in that response's
+batch. Loop events also include `num_predict` and `output_limit_reached`.
+A scoped event-file buffer preserves provider/tool ordering while execution
+facts are finalized. UI projections remain immediate. Both event writers use
+the same path; the tail spills to an anonymous temporary file after 64 KiB,
+and flushes before post-tool verification or on scope exit. Nested provider
+telemetry retains its own facts. Event names and schema version remain intact.

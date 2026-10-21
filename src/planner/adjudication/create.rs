@@ -1,4 +1,3 @@
-#[allow(unused_imports)]
 use super::{
     BoundCompletionContract, BrowserInteractionProbeOptions, BrowserReadinessObservation,
     CompletionContract, Config, DependencyReconciliationTrigger, Duration,
@@ -25,7 +24,6 @@ use super::{
     ultra_plan_signal_text, verification_report_mentions_dependency_setup_missing,
     verify_runtime_acceptance_with_browser_dirs_and_hints,
 };
-#[allow(unused_imports)]
 use super::{ContractRequirements, ReleaseRecoveryHandoffSummary, contract_origin_for_acceptance};
 use crate::planner::adjudication::{
     GateObservation, append_gate_observation, dedup_strings, disconnected_gate_observations_reason,
@@ -141,7 +139,7 @@ pub(super) fn release_recovery_acceptance_layer(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "forwards gate fields to base")]
 pub(super) fn earned_assurance_from_release_gate(
     profile: &str,
     base_level: &str,
@@ -378,7 +376,7 @@ fn weak_source_evidence_covered_by_runtime(
     runtime_acceptance_satisfied_evidence(acceptance, evidence.trim())
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "borrowed acceptance inputs")]
 pub(super) fn bind_completion_contract_for_acceptance(
     config: &Config,
     scope: &str,
@@ -418,7 +416,9 @@ pub(super) fn bind_completion_contract_for_acceptance(
     let contract = CompletionContract {
         protected_paths: Vec::new(),
         required_paths: required_paths.to_vec(),
-        verify_commands: Vec::new(),
+        verify_commands: crate::planner::recovery_contract_authority::generated_verify_commands(
+            config, scope, profile, goal,
+        )?,
         fix_reproducer_command: None,
         // A step-scoped generated contract must not re-run the profile
         // verifier with the narrower step goal. Recovery consumes the
@@ -440,6 +440,7 @@ pub(super) fn bind_completion_contract_for_acceptance(
     }
     let text = serde_json::to_string_pretty(&contract)?;
     std::fs::write(&path, format!("{text}\n"))?;
+    crate::planner::recovery_contract_authority::record_generated_contract(config, scope, &path);
     let bound = BoundCompletionContract {
         contract,
         path: display_path_for_event(&config.workspace_root, &path),
@@ -798,10 +799,18 @@ pub(super) fn ultra_final_acceptance_report_inner(
     } else {
         None
     };
+    let mut command_diagnoses = crate::minimal_loop::evidence::command_diagnosis::collect(
+        &config.workspace_root,
+        &verify_commands,
+    );
+    if let Some(report) = &external_report {
+        crate::minimal_loop::evidence::command_diagnosis::annotate(&mut command_diagnoses, report);
+    }
     eval_events::emit(
         config.eval_events_path.as_deref(),
         json!({
             "event": "ultra_final_acceptance",
+            "command_diagnoses":command_diagnoses,
             "cycle_index": cycle_index,
             "profile": effective_profile.clone(),
             "effective_profile": effective_profile.clone(),
@@ -846,6 +855,7 @@ pub(super) fn ultra_final_acceptance_report_inner(
             "missing_evidence": acceptance.missing_evidence.clone(),
             "missing_obligations": acceptance.missing_obligations.clone(),
             "weak_evidence": acceptance.weak_evidence.clone(),
+            "weak_evidence_sources": acceptance.weak_evidence_sources.clone(),
             "runtime_acceptance_diagnostics": acceptance.diagnostics.clone(),
             "unverified_evidence": acceptance.unverified_evidence.clone(),
             "evidence_tiers": acceptance.evidence_tiers.clone(),
@@ -1945,21 +1955,10 @@ pub(super) fn explicit_release_evidence_failure(
             }
         }
         ReleaseEvidenceKind::Interaction => {
-            let transition_observed =
-                bool_field_deep(value, details, &["start_transition", "transition_observed"])
-                    == Some(true)
-                    || string_array_field_contains_deep(
-                        value,
-                        details,
-                        "steps",
-                        "start_transition",
-                    )
-                    || string_array_field_contains_deep(
-                        value,
-                        details,
-                        "steps",
-                        "recovery_transition",
-                    );
+            let interaction_entry_observed =
+                crate::planner::interaction_qualification::release_interaction_entry_observed(
+                    value, details,
+                );
             if bool_field_deep(value, details, &["canvas_found", "canvas_available"]) == Some(false)
             {
                 return Some("canvas_unavailable".to_string());
@@ -1987,7 +1986,7 @@ pub(super) fn explicit_release_evidence_failure(
             if bool_field_deep(value, details, &["state_changed", "visible_state_changed"])
                 == Some(false)
             {
-                if !transition_observed {
+                if !interaction_entry_observed {
                     return Some("start_transition_missing".to_string());
                 }
                 if bool_field_deep(value, details, &["input_state_evaluated_after_start"])
@@ -2016,32 +2015,9 @@ pub(super) fn release_evidence_has_required_detail(
             ) == Some(true)
         }
         ReleaseEvidenceKind::Interaction => {
-            let transition_observed =
-                bool_field_deep(value, details, &["start_transition", "transition_observed"])
-                    == Some(true)
-                    || string_array_field_contains_deep(
-                        value,
-                        details,
-                        "steps",
-                        "start_transition",
-                    )
-                    || string_array_field_contains_deep(
-                        value,
-                        details,
-                        "steps",
-                        "recovery_transition",
-                    );
-            let input_state_changed = bool_field_deep(
-                value,
-                details,
-                &[
-                    "input_state_change",
-                    "state_changed",
-                    "visible_state_changed",
-                ],
-            ) == Some(true)
-                || string_array_field_contains_deep(value, details, "steps", "input_state_change");
-            transition_observed && input_state_changed
+            crate::planner::interaction_qualification::release_interaction_detail_observed(
+                value, details,
+            )
         }
     }
 }
@@ -2173,24 +2149,4 @@ pub(super) fn text_field(value: &Value, keys: &[&str]) -> Option<String> {
     keys.iter()
         .find_map(|key| value.get(*key).and_then(Value::as_str))
         .map(|text| text.trim().to_ascii_lowercase())
-}
-
-pub(super) fn string_array_field_contains_deep(
-    value: &Value,
-    details: Option<&Value>,
-    key: &str,
-    needle: &str,
-) -> bool {
-    string_array_field_contains(value, key, needle)
-        || details.is_some_and(|details| string_array_field_contains(details, key, needle))
-}
-
-pub(super) fn string_array_field_contains(value: &Value, key: &str, needle: &str) -> bool {
-    value
-        .get(key)
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .any(|item| item == needle)
 }

@@ -164,6 +164,8 @@ curl -fsSL https://raw.githubusercontent.com/Kewton/CommandAgent/main/scripts/in
 ```
 
 SHA-256 検証後 `~/.local/bin` に配置します（`--version`、`--prefix` で指定可能）。
+`--version` を省略すると最新の安定版を、安定版がまだ無い間は最新の
+プレリリースを導入します。
 リモートスクリプトのパイプ実行にはリスクがあります。`scripts/setup.sh` はバイナリ
 取得ではなく、ソースビルドと開発環境の準備を行います。crates.io メタデータを整備し
 `cargo publish --dry-run` を確認しますが、公開は行いません。公開前にパッケージ名、

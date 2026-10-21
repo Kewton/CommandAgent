@@ -5,16 +5,14 @@ use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::config::Config;
-use crate::eval_events;
-use crate::minimal_loop::build_verifier::{
-    self, BuildVerifierLifecycleObservation, BuildVerifierStatus, CompileError,
-};
+#[cfg(test)]
+use crate::minimal_loop::build_verifier::BuildVerifierStatus;
+use crate::minimal_loop::build_verifier::{self, BuildVerifierLifecycleObservation, CompileError};
 use crate::minimal_loop::dependency_setup::NodeDependencySetupAuthority;
 use crate::minimal_loop::evidence::{RuntimeAcceptanceReport, required_evidence_for_capability};
 use crate::minimal_loop::import_scan::{
     ImportedDefinitionExcerpt, imported_symbol_definition_excerpt,
 };
-use crate::minimal_loop::repair_target::{RepairTarget, classify_repair_target};
 use crate::planner::verify::{
     NormalizedVerifyCommand, VerificationReport, normalize_planner_verify_command,
     normalize_verify_command, validate_verify_command,
@@ -22,6 +20,9 @@ use crate::planner::verify::{
 use crate::tools::path_guard::{
     resolve_existing, resolve_optional_existing, validate_workspace_relative,
 };
+use crate::verification::build_report::{self, BuildReportMode, BuildStatusInput};
+
+use self::dependency_missing::is_dependency_missing_error;
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct CompletionContract {
@@ -301,42 +302,16 @@ impl CompletionContract {
                         offline,
                     );
                 let observation = lifecycle.final_observation();
-                if observation.status != BuildVerifierStatus::Passed {
-                    match observation.status {
-                        BuildVerifierStatus::DependencyMissing => {
-                            report.push_dependency_missing(format!(
-                                "dependency_setup_missing: {}",
-                                lifecycle.final_reason
-                            ));
-                        }
-                        BuildVerifierStatus::PolicyRejected => {
-                            report.push_command_failure(
-                                command.clone(),
-                                format!("build_verify_policy_rejected: {}", lifecycle.final_reason),
-                            );
-                        }
-                        BuildVerifierStatus::Blocked => {
-                            report.push_profile_failure(format!(
-                                "build_verify_blocked: command `{}` reason `{}`",
-                                command, lifecycle.final_reason
-                            ));
-                        }
-                        BuildVerifierStatus::Failed => {
-                            if observation.compile_errors.is_empty() {
-                                report.push_command_failure(
-                                    command.clone(),
-                                    format!("build_verify_failed: {}", lifecycle.final_reason),
-                                );
-                            } else {
-                                report.push_compile_errors(
-                                    command.clone(),
-                                    observation.compile_errors.clone(),
-                                );
-                            }
-                        }
-                        BuildVerifierStatus::Passed => {}
-                    }
-                }
+                build_report::push_build_status(
+                    &mut report,
+                    BuildStatusInput {
+                        mode: BuildReportMode::Required,
+                        status: observation.status,
+                        command: &command,
+                        reason: &lifecycle.final_reason,
+                        compile_errors: &observation.compile_errors,
+                    },
+                );
                 build_verifier_observations.push(lifecycle);
                 continue;
             }
@@ -421,46 +396,17 @@ impl CompletionContract {
                         offline,
                     );
                 let observation = lifecycle.final_observation();
-                if build_requirement.required_for_completion
-                    && observation.status != BuildVerifierStatus::Passed
-                {
-                    match observation.status {
-                        BuildVerifierStatus::DependencyMissing => {
-                            report.push_dependency_missing(format!(
-                                "dependency_setup_missing: {}",
-                                observation.primary_reason
-                            ));
-                        }
-                        BuildVerifierStatus::PolicyRejected => {
-                            report.push_command_failure(
-                                requirement.command.clone(),
-                                format!(
-                                    "build_verify_policy_rejected: {}",
-                                    observation.primary_reason
-                                ),
-                            );
-                        }
-                        BuildVerifierStatus::Blocked => {
-                            report.push_profile_failure(format!(
-                                "build_verify_blocked: command `{}` reason `{}`",
-                                requirement.command, observation.primary_reason
-                            ));
-                        }
-                        BuildVerifierStatus::Failed => {
-                            if observation.compile_errors.is_empty() {
-                                report.push_command_failure(
-                                    requirement.command.clone(),
-                                    format!("build_verify_failed: {}", observation.primary_reason),
-                                );
-                            } else {
-                                report.push_compile_errors(
-                                    requirement.command.clone(),
-                                    observation.compile_errors.clone(),
-                                );
-                            }
-                        }
-                        BuildVerifierStatus::Passed => {}
-                    }
+                if build_requirement.required_for_completion {
+                    build_report::push_build_status(
+                        &mut report,
+                        BuildStatusInput {
+                            mode: BuildReportMode::Deferred,
+                            status: observation.status,
+                            command: &requirement.command,
+                            reason: &observation.primary_reason,
+                            compile_errors: &observation.compile_errors,
+                        },
+                    );
                 }
                 build_verifier_observations.push(lifecycle);
                 continue;
@@ -468,11 +414,7 @@ impl CompletionContract {
             if self.deferred_requirement_covered(root, requirement, profile_passed) {
                 continue;
             }
-            report.push_profile_failure(self.deferred_requirement_blocking_reason(
-                root,
-                requirement,
-                profile_passed,
-            ));
+            report.push_profile_failure(self.deferred_requirement_blocking_reason(requirement));
         }
         let acceptance = self.runtime_acceptance_report(root);
         if !acceptance.passed {
@@ -624,17 +566,8 @@ impl CompletionContract {
 
     fn deferred_requirement_blocking_reason(
         &self,
-        root: &Path,
         requirement: &DeferredVerifyRequirement,
-        profile_passed: bool,
     ) -> String {
-        if !profile_passed {
-            return format!(
-                "deferred verify requirement pending: command `{}` status `{}` reason `{}`",
-                requirement.command, requirement.status, requirement.reason
-            );
-        }
-        let _ = root;
         format!(
             "deferred verify requirement pending: command `{}` status `{}` reason `{}`",
             requirement.command, requirement.status, requirement.reason
@@ -680,171 +613,14 @@ pub(crate) fn format_verify_feedback_with_contract(
     report: &VerificationReport,
     contract: Option<&CompletionContract>,
 ) -> String {
-    let mut lines = vec![
-        "Deterministic completion verification failed. Fix the implementation and retry."
-            .to_string(),
-    ];
-    let target = classify_repair_target(report);
-    lines.push(format!(
-        "Repair target: {}. {}",
-        target.as_str(),
-        target.guidance()
-    ));
-    if matches!(
-        target,
-        RepairTarget::CapabilityMissing | RepairTarget::EmptyApp | RepairTarget::Implementation
-    ) {
-        lines.push(format!(
-            "Target implementation files: {}",
-            target_implementation_files(report, contract).join(", ")
-        ));
-    }
-    if !report.missing_paths.is_empty() {
-        lines.push(format!(
-            "Missing required paths: {}",
-            report.missing_paths.join(", ")
-        ));
-    }
-    if !report.compile_errors.is_empty() {
-        lines.push("Compile repair details:".to_string());
-        lines.extend(
-            compile_repair_prompt_section(
-                &report.compile_errors,
-                CompileRepairPromptProtection::default(),
-            )
-            .lines()
-            .map(str::to_string),
-        );
-    }
-    for reason in &report.dependency_missing {
-        lines.push(format!("Dependency missing: {reason}"));
-    }
-    for failure in &report.command_failures {
-        if failure
-            .reason
-            .contains("test_framework_mismatch:pytest_style_under_unittest")
-        {
-            lines.push(
-                "Test framework mismatch: `python3 -m unittest` does not discover pytest-style free functions. Convert tests to `unittest.TestCase` methods or update the allowed verify command."
-                    .to_string(),
-            );
-        }
-        lines.push(format!(
-            "Command failed: `{}`\n{}",
-            failure.command,
-            eval_events::body_snippet(&failure.reason)
-        ));
-        let targets = target_candidates_from_failure(&failure.command, &failure.reason);
-        if !targets.is_empty() {
-            lines.push(format!(
-                "Likely target files: {}",
-                targets.into_iter().collect::<Vec<_>>().join(", ")
-            ));
-        }
-        if let Some(excerpt) = assertion_excerpt(&failure.reason) {
-            lines.push(format!(
-                "Failure excerpt: {}",
-                eval_events::body_snippet(&excerpt)
-            ));
-        }
-    }
-    for failure in &report.verifier_command_false_negatives {
-        lines.push(format!(
-            "Verifier command false negative: `{}`\n{}",
-            failure.command,
-            eval_events::body_snippet(&failure.reason)
-        ));
-        if failure.reason.contains("verify_command_timeout") {
-            lines.push(
-                "The verify command hangs - replace it with a bounded check. Do not spend implementation-edit turns on this OracleError unless a separate artifact failure is present."
-                    .to_string(),
-            );
-        } else {
-            lines.push(
-                "The verify command is malformed; the artifact may already satisfy the requirement."
-                    .to_string(),
-            );
-        }
-    }
-    for failure in &report.profile_failures {
-        lines.push(format!("Profile contract failed: {failure}"));
-        if failure.contains("CSS side-effect imports require")
-            && failure.contains("declare module \"*.css\"")
-        {
-            lines.push(
-                "Next.js CSS repair: replace or create `src/app/global.d.ts` with exactly `declare module \"*.css\";` on its own line."
-                    .to_string(),
-            );
-        }
-        if failure.contains("must start with \"use client\"") {
-            lines.push(
-                "Next.js client component repair: put `\"use client\";` as the first non-empty statement in the interactive app page before imports."
-                    .to_string(),
-            );
-        }
-        if failure.contains("missing_required_capabilities")
-            || failure.contains("missing_required_evidence")
-            || failure.contains("weak_verification_evidence")
-            || failure.contains("unverified runtime evidence")
-        {
-            lines.push(
-                "Capability evidence guidance: add the smallest concrete test/check/UI evidence requested by the task, then keep the existing verification strong enough to exercise that evidence."
-                    .to_string(),
-            );
-            lines.extend(evidence_repair_guidance(failure));
-        }
-    }
-    lines.push(
-        "Repair guidance: inspect the smallest relevant file range, then make a concrete Write/Edit change to the implementation, setup, or generated test artifact that actually owns the failure. Do not bypass verification or weaken assertions without evidence that the generated test contradicts the requested behavior."
-            .to_string(),
-    );
-    lines.join("\n")
+    feedback::format_verify_feedback_with_contract(report, contract)
 }
 
 pub(crate) fn target_implementation_files(
     report: &VerificationReport,
     contract: Option<&CompletionContract>,
 ) -> Vec<String> {
-    let mut paths = BTreeSet::new();
-    for error in &report.compile_errors {
-        if looks_like_implementation_target_path(&error.path) {
-            paths.insert(error.path.clone());
-        }
-    }
-    if !paths.is_empty() {
-        return paths.into_iter().collect();
-    }
-    if let Some(contract) = contract {
-        paths.extend(
-            contract
-                .required_paths
-                .iter()
-                .filter(|path| looks_like_implementation_target_path(path))
-                .cloned(),
-        );
-    }
-    if paths.is_empty() {
-        paths.extend(
-            report
-                .missing_paths
-                .iter()
-                .filter(|path| looks_like_implementation_target_path(path))
-                .cloned(),
-        );
-    }
-    if paths.is_empty() {
-        for failure in &report.command_failures {
-            paths.extend(
-                target_candidates_from_failure(&failure.command, &failure.reason)
-                    .into_iter()
-                    .filter(|path| looks_like_implementation_target_path(path)),
-            );
-        }
-    }
-    if paths.is_empty() {
-        paths.insert("src/app/page.tsx".to_string());
-    }
-    paths.into_iter().collect()
+    feedback::target_implementation_files(report, contract)
 }
 
 pub(crate) fn compile_error_repair_guidance(errors: &[CompileError]) -> Vec<String> {
@@ -1785,27 +1561,6 @@ fn evidence_repair_guidance(failure: &str) -> Vec<String> {
         );
     }
     lines
-}
-
-fn is_dependency_missing_error(command: &str, reason: &str) -> bool {
-    let lower = reason.to_ascii_lowercase();
-    let first_word = command.split_whitespace().next().unwrap_or_default();
-    let executable_markers = [
-        "command not found",
-        "not found:",
-        "no such file or directory",
-        "failed to spawn command",
-    ];
-    if !executable_markers
-        .iter()
-        .any(|marker| lower.contains(marker))
-    {
-        return false;
-    }
-    if lower.contains("assertionerror") || lower.contains("not found in") {
-        return false;
-    }
-    first_word.is_empty() || lower.contains(&first_word.to_ascii_lowercase())
 }
 
 fn target_candidates_from_failure(command: &str, reason: &str) -> BTreeSet<String> {
@@ -3447,3 +3202,14 @@ export class SpaceInvadersEngine {\n\
         );
     }
 }
+
+#[cfg(test)]
+#[path = "completion/issue508_tests.rs"]
+mod issue508_tests;
+
+#[cfg(test)]
+#[path = "completion/issue511_tests.rs"]
+mod issue511_tests;
+
+mod dependency_missing;
+mod feedback;

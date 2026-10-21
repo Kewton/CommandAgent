@@ -661,7 +661,10 @@ pub fn run_node_dependency_setup(
     run_node_dependency_setup_with_program(root, requirement, Path::new("npm"))
 }
 
-pub(crate) fn run_node_dependency_setup_with_program(
+/// Run the Node dependency setup with an explicit npm program. Public so an
+/// integration test can drive the launch with a fake npm and measure the OS
+/// sandbox of Issue #658 without a network install.
+pub fn run_node_dependency_setup_with_program(
     root: &Path,
     requirement: &NodeDependencySetupRequirement,
     npm_program: &Path,
@@ -749,7 +752,26 @@ fn run_node_dependency_setup_with_program_timeout_and_offline(
     let mut command = verifier_env::normalized_command_at_root(npm_program, root);
     command
         .args(["install", "--ignore-scripts"])
-        .current_dir(root)
+        .current_dir(root);
+    // Issue #658: run the install inside the stage-1 OS sandbox, so a build
+    // backend or lifecycle script cannot write outside the workspace. Standard
+    // I/O is set after the wrap: macOS `seatbelt::wrap` rebuilds the command and
+    // does not transfer stdio, so a pre-wrap `.stdin(Stdio::null())` would be
+    // lost and the child would inherit the parent's stdin.
+    let mut command = match crate::tools::os_sandbox::wrap_dependency_setup(command) {
+        Ok(command) => command,
+        Err(refusal) => {
+            return sandbox_refused_observation(
+                requirement,
+                "npm install --ignore-scripts".to_string(),
+                refusal.summary(),
+                started,
+                timeout,
+                Some(before_lock),
+            );
+        }
+    };
+    command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -899,6 +921,36 @@ fn setup_dependency_label_ready(root: &Path, path: &str) -> bool {
     false
 }
 
+/// The honest failure for a `required` run whose OS backend is unavailable
+/// (Issue #658): the dependency setup is refused rather than run unconfined. The
+/// reason is the sandbox refusal summary, so the existing observation and its
+/// primary reason name the unavailability without a new status value or event.
+fn sandbox_refused_observation(
+    requirement: &NodeDependencySetupRequirement,
+    command: String,
+    reason: String,
+    started: Instant,
+    timeout: Duration,
+    lockfile_before: Option<bool>,
+) -> NodeDependencySetupObservation {
+    NodeDependencySetupObservation {
+        status: NodeDependencySetupStatus::Failed,
+        setup_kind: requirement.setup_kind,
+        package_manager: requirement.package_manager,
+        authority: requirement.setup_authority,
+        attempted: true,
+        command,
+        primary_reason: reason,
+        output_snippet: String::new(),
+        changed_paths: Vec::new(),
+        duration_ms: Some(started.elapsed().as_millis()),
+        timeout_ms: Some(timeout.as_millis()),
+        lockfile_present_before: lockfile_before,
+        lockfile_present_after: lockfile_before,
+        lockfile_created: lockfile_before.map(|_| false),
+    }
+}
+
 fn run_python_cli_dependency_setup(
     root: &Path,
     requirement: &NodeDependencySetupRequirement,
@@ -909,10 +961,25 @@ fn run_python_cli_dependency_setup(
     let mut changed_paths = Vec::new();
     let command_text = "python -m venv .venv && .venv/bin/python -m pip install -e .".to_string();
     let mut command = verifier_env::normalized_command_at_root("sh", root);
+    command.arg("-c").arg(&command_text).current_dir(root);
+    // Issue #658: the pip build backend is arbitrary code, so run the setup
+    // inside the stage-1 OS sandbox and keep its writes in the workspace. Standard
+    // I/O is set after the wrap: macOS `seatbelt::wrap` rebuilds the command and
+    // does not transfer stdio.
+    let mut command = match crate::tools::os_sandbox::wrap_dependency_setup(command) {
+        Ok(command) => command,
+        Err(refusal) => {
+            return sandbox_refused_observation(
+                requirement,
+                command_text.clone(),
+                refusal.summary(),
+                started,
+                timeout,
+                None,
+            );
+        }
+    };
     command
-        .arg("-c")
-        .arg(&command_text)
-        .current_dir(root)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

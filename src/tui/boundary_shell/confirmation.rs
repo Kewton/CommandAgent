@@ -402,6 +402,7 @@ pub fn persist_confirmation(
     if actual_hash != expected_hash {
         bail!("Gate 1 card changed before confirmation");
     }
+    refuse_secret_identity(identity)?;
     std::fs::create_dir_all(root)
         .with_context(|| format!("create confirmation directory {}", root.display()))?;
     let record_path = root.join(format!(
@@ -440,6 +441,101 @@ pub fn persist_confirmation(
     };
     confirmed.validate()?;
     Ok(confirmed)
+}
+
+/// Refuse to persist a confirmation whose identity still contains a registered
+/// secret. The identity is the hash source, so it is refused rather than
+/// rewritten: replacing the text after hashing would break the card binding and
+/// forge an approval.
+///
+/// The check runs on each field's raw value, not on the serialized JSON, so an
+/// escaped secret (`"`/`\`) is still recognised.
+fn refuse_secret_identity(identity: &ConfirmationIdentity) -> anyhow::Result<()> {
+    let Some(context) = crate::sensitive_data::current() else {
+        return Ok(());
+    };
+    if context.is_empty() {
+        return Ok(());
+    }
+    for (field, value) in identity_fields(identity) {
+        context
+            .refuse_identity(&field, value)
+            .map_err(|refusal| anyhow::anyhow!("{refusal}"))?;
+    }
+    Ok(())
+}
+
+/// Every free-text field of an identity, including the nested pins/pack/manifest
+/// strings, as `(field name, raw value)` pairs.
+fn identity_fields(identity: &ConfirmationIdentity) -> Vec<(String, &str)> {
+    let mut fields = vec![
+        ("request".to_string(), identity.request.as_str()),
+        ("workspace".to_string(), identity.workspace.as_str()),
+        ("profile".to_string(), identity.profile.as_str()),
+        ("intent".to_string(), identity.intent.as_str()),
+        ("task_family".to_string(), identity.task_family.as_str()),
+        ("contract_ref".to_string(), identity.contract_ref.as_str()),
+        ("band_rate".to_string(), identity.band_rate.as_str()),
+        ("band_arm".to_string(), identity.band_arm.as_str()),
+        (
+            "band_measurement".to_string(),
+            identity.band_measurement.as_str(),
+        ),
+        ("band_source".to_string(), identity.band_source.as_str()),
+        ("full_meaning".to_string(), identity.full_meaning.as_str()),
+        (
+            "pins.planner_provider".to_string(),
+            identity.pins.planner_provider.as_str(),
+        ),
+        (
+            "pins.planner_model".to_string(),
+            identity.pins.planner_model.as_str(),
+        ),
+        (
+            "pins.executor_provider".to_string(),
+            identity.pins.executor_provider.as_str(),
+        ),
+        (
+            "pins.executor_model".to_string(),
+            identity.pins.executor_model.as_str(),
+        ),
+        ("pins.preset".to_string(), identity.pins.preset.as_str()),
+    ];
+    for (index, value) in identity.route_bases.iter().enumerate() {
+        fields.push((format!("route_bases[{index}]"), value.as_str()));
+    }
+    for (index, value) in identity.contract_checks.iter().enumerate() {
+        fields.push((format!("contract_checks[{index}]"), value.as_str()));
+    }
+    if let PackSelection::Pinned {
+        id,
+        version,
+        hash,
+        point,
+        ..
+    } = &identity.pack
+    {
+        fields.push(("pack.id".to_string(), id.as_str()));
+        fields.push(("pack.version".to_string(), version.as_str()));
+        fields.push(("pack.hash".to_string(), hash.as_str()));
+        fields.push(("pack.point".to_string(), point.as_str()));
+    }
+    if let Some(manifest) = identity.draft_manifest.as_ref() {
+        fields.push((
+            "draft_manifest.source".to_string(),
+            manifest.source.as_str(),
+        ));
+        fields.push(("draft_manifest.path".to_string(), manifest.path.as_str()));
+        fields.push(("draft_manifest.hash".to_string(), manifest.hash.as_str()));
+        fields.push((
+            "draft_manifest.assurance_ceiling".to_string(),
+            manifest.assurance_ceiling.as_str(),
+        ));
+        if let Some(base) = manifest.base_profile.as_deref() {
+            fields.push(("draft_manifest.base_profile".to_string(), base));
+        }
+    }
+    fields
 }
 
 pub fn load_latest_confirmation(root: &Path) -> anyhow::Result<Option<ConfirmedDispatch>> {

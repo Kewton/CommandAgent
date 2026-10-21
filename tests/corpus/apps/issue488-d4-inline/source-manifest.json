@@ -1,0 +1,21 @@
+{
+  "baseline": "85dd5fdd12b831deb49e7b3fe9e996c01f1fab67",
+  "historical_C5": "f0aceed8c44748855a543ae7a122e3ffefb43cbc",
+  "historical_commands_sha256": "80197a586620817913c26df2734f3f37dcc657b7178e6228a118a1a142a5051a",
+  "scope": "Exact saved commands; new reduced fixtures; no parent WIP or old recorder reused",
+  "fixture_sha256": {
+    "README.md": "25ebc6ed816c321de51ed724cd1468f27c0e4e6439c9b99efef05aeff223b3b5",
+    "business-controls.json": "8840bc6912d58529cd3a12bfd9e14b17d4a129dc1edf9533deec3f9e949f4211",
+    "commands.json": "2c01b21a975644a43c18c7bd62d7192ba93129018b9acc6e94606ac27f921df2",
+    "contract.json": "ebb697c35564072213040a6e2c3ada6bab7fcc123e545fc13fd38ae1db046668",
+    "expectations.toml": "75c327b98f556a69626fb25c198429e163c5bfc7a2c8baa4bf967a681301470c",
+    "fixtures/input.txt": "128701f00239df5e4689fdbc0b34775e7cb11659812792db3cba379acc079629",
+    "fixtures/normal.txt": "b4a1e73e67c78876def8e8bb79730292791e80408e4ac2d6bd9c1a666e36579c",
+    "fixtures/primary.txt": "e3036b9bf7f1360f29ca791419238ea3ea9ee6e3e2a6f0095d0c2cdece11b753",
+    "fixtures/snapshot.txt": "b1a26dce6be7db96b5bea2e99ac1f9d198bec554e149ad96d400f93f1871e180",
+    "fixtures/state.txt": "83a1932662e98232e2861134c044604d8b2cbabfc18a8155427f279bdca5481a",
+    "matrix.json": "94ff26c76bca36fb75a9acc0bc127beadfd3f328f6009dc32c2bcf431d04acbb",
+    "refusals.json": "a27c5f26db924f2b5ead0ad859de4950410eabe7ace85d4e72c90607dcee67ed",
+    "src/app/page.tsx": "b4a1e73e67c78876def8e8bb79730292791e80408e4ac2d6bd9c1a666e36579c"
+  }
+}

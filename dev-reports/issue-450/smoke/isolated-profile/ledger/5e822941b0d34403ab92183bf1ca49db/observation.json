@@ -1,0 +1,32 @@
+{
+  "ticket_id": "5e822941b0d34403ab92183bf1ca49db",
+  "stage": "complete",
+  "http": {
+    "ok": true,
+    "status": 200
+  },
+  "isolated_profile": true,
+  "tabs_count": 1,
+  "url": "http://127.0.0.1:60716/",
+  "conditions": {
+    "browser_version": "152.0.7977.77",
+    "automation_version": "1.54.0",
+    "headless": false,
+    "viewport": {
+      "width": 1000,
+      "height": 800
+    },
+    "locale": "en-US",
+    "timezone": "Asia/Tokyo"
+  },
+  "before": "before.txt",
+  "action": {
+    "role": "button",
+    "name": "Check browser",
+    "before": "Ready for browser check",
+    "after": "Browser action confirmed"
+  },
+  "after": "after.txt",
+  "screenshot": "screenshot.png",
+  "owned_resources_closed": true
+}

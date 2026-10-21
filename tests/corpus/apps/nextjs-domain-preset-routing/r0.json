@@ -1,0 +1,22 @@
+{
+  "kind": "Source-derived preset tasks and parsed saved plan; not a captured complete provider prompt",
+  "session_id": "01a07ceb-0644-7fa2-b829-2cb27f031421",
+  "phase_id": "core-implementation",
+  "goal": "小さな代理店向けのプロジェクト管理アプリを構築してください。ユーザーはプロジェクトの作成、期限付きタスクの追加、チームメンバーへの割り当てができ、進捗状況（未着手・進行中・完了）でタスクを絞り込めるようにします。60302ポートで起動可能なNext.jsアプリとして開発してください。",
+  "old_commit": "36f73eeb312c105a62ed488ce54e480b9e3c8855",
+  "regression_commit": "ab5c3d1461ede2a294a281dc56a5dc82ca97494e",
+  "old_core_task": "Implement the core task-specific behavior for: 小さな代理店向けのプロジェクト管理アプリを構築してください。ユーザーはプロジェクトの作成、期限付きタスクの追加、チームメンバーへの割り当てができ、進捗状況（未着手・進行中・完了）でタスクを絞り込めるようにします。60302ポートで起動可能なNext.jsアプリとして開発してください。. Keep one route-bound implementation, extend the instrumented skeleton instead of replacing it, and keep the implementation in the Next.js route-bound source.",
+  "regressed_core_task": "Implement the core task-specific behavior for: 小さな代理店向けのプロジェクト管理アプリを構築してください。ユーザーはプロジェクトの作成、期限付きタスクの追加、チームメンバーへの割り当てができ、進捗状況（未着手・進行中・完了）でタスクを絞り込めるようにします。60302ポートで起動可能なNext.jsアプリとして開発してください。. Keep one route-bound implementation, implement the requested interface and replace unrelated scaffold content, and keep the implementation in the Next.js route-bound source. For TypeScript apps, put shared domain and request/response types in src/lib/types.ts and import the same types from page and route modules. Use imported helpers and export every function consumed by another module. Decide one JSON response shape per operation (bare array, {items}, or {item}) and make the UI read exactly what the route returns. Check Response.ok before accepting a mutation; return errors as {error, details?} and display them in the UI. Connect each requested UI action through its API to persistence and reload the committed result.",
+  "observed_template": "nextjs-port-scripts",
+  "expected_template": null,
+  "observed_step_expected_paths": [
+    "package.json",
+    "tsconfig.json",
+    "postcss.config.js",
+    "tailwind.config.ts",
+    "src/app/layout.tsx",
+    "src/app/page.tsx",
+    "src/app/globals.css",
+    "src/app/global.d.ts"
+  ]
+}

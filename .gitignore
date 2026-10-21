@@ -12,3 +12,10 @@ __pycache__/
 workspace/management/runs/**/run*.log
 .pytest_cache/
 .ruff_cache/
+# cmate-orchestrate run artifacts (runtime state)
+/.commandmate/orchestrate/
+# CommandMate / Command Code tool state installed per worktree (not deliverables)
+/.commandcode/
+/.claude/skills/cmate-*/
+/.agents/skills/cmate-*/
+/.commandmate/tasks/

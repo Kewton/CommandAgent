@@ -5,6 +5,7 @@ import argparse
 from pathlib import Path
 
 from eval_lib.goal_verify_recovery_live_v4 import run_recovery_smoke
+from eval_lib.heavy_lock import heavy_lock
 
 
 def main() -> int:
@@ -18,14 +19,15 @@ def main() -> int:
     parser.add_argument("--commandagent-bin", type=Path, required=True)
     parser.add_argument("--limit", type=int)
     args = parser.parse_args()
-    summary = run_recovery_smoke(
-        root=args.root.resolve(),
-        contract_path=args.contract.resolve(),
-        run_dir=args.run_dir.resolve(),
-        execution_root=args.execution_root.resolve(),
-        commandagent_bin=args.commandagent_bin.resolve(),
-        limit=args.limit,
-    )
+    with heavy_lock(run_dir=args.run_dir.resolve(), invocation="goal_verify_recovery_v4"):
+        summary = run_recovery_smoke(
+            root=args.root.resolve(),
+            contract_path=args.contract.resolve(),
+            run_dir=args.run_dir.resolve(),
+            execution_root=args.execution_root.resolve(),
+            commandagent_bin=args.commandagent_bin.resolve(),
+            limit=args.limit,
+        )
     print(summary)
     return 0
 

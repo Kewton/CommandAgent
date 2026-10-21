@@ -1,0 +1,8 @@
+[
+  "import fs from 'fs'; const t = `${eval(\"fs.writeFile = replacement\")}`; fs.writeFile('data/fake.json', '[]');",
+  "import fs from 'fs'; const t = `${Function(\"fs\", \"fs.writeFile = replacement\")(fs)}`; fs.writeFile('data/fake.json', '[]');",
+  "import fs from 'fs'; const t = `${new Function(\"fs\", \"fs.writeFile = replacement\")(fs)}`; fs.writeFile('data/fake.json', '[]');",
+  "import fs from 'fs'; const t = `${globalThis[\"eval\"](\"fs.writeFile = replacement\")}`; fs.writeFile('data/fake.json', '[]');",
+  "import fs from 'fs'; const t = `${(() => {}).constructor(\"fs\", \"fs.writeFile = replacement\")(fs)}`; fs.writeFile('data/fake.json', '[]');",
+  "import fs from 'fs'; const evaluate = eval; const t = `${evaluate(\"fs.writeFile = replacement\")}`; fs.writeFile('data/fake.json', '[]');"
+]

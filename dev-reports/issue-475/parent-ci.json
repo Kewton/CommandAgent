@@ -1,0 +1,23 @@
+[
+  {
+    "name": "Next.js domain oracles",
+    "status": "completed",
+    "conclusion": "success",
+    "head_sha": "e43b2d86760a77b5250afbb260106ea21abba947",
+    "html_url": "https://github.com/Kewton/CommandAgent/actions/runs/34689412802"
+  },
+  {
+    "name": "CI",
+    "status": "completed",
+    "conclusion": "success",
+    "head_sha": "e43b2d86760a77b5250afbb260106ea21abba947",
+    "html_url": "https://github.com/Kewton/CommandAgent/actions/runs/34689412790"
+  },
+  {
+    "name": "acceptance",
+    "status": "completed",
+    "conclusion": "success",
+    "head_sha": "e43b2d86760a77b5250afbb260106ea21abba947",
+    "html_url": "https://github.com/Kewton/CommandAgent/actions/runs/34689412791"
+  }
+]

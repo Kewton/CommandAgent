@@ -1,0 +1,38 @@
+{
+  "app_change_independent": true,
+  "inventory": [
+    {
+      "command": "npm run build",
+      "kind": "Build"
+    },
+    {
+      "command": "node -e \"import('./src/lib/types.ts')\"",
+      "kind": "Weak(\"node_smoke_without_assertion\")"
+    },
+    {
+      "command": "node -e \"import('./src/lib/store.ts')\"",
+      "kind": "Weak(\"node_smoke_without_assertion\")"
+    },
+    {
+      "command": "node -e \"const fs=require('fs');['src/app/api/projects/route.ts','src/app/api/projects/[id]/route.ts','src/app/api/tasks/route.ts','src/app/api/tasks/[id]/route.ts','src/app/api/members/route.ts'].forEach(f=>{if(!fs.existsSync(f))throw new Error('missing '+f)})\"",
+      "kind": "Weak(\"node_smoke_without_assertion\")"
+    },
+    {
+      "command": "node -e \"const fs=require('fs');const p=fs.readFileSync('src/app/page.tsx','utf8');if(!p.includes('data-anvil-action'))throw new Error('missing anvil');if(!p.includes('data-anvil-state'))throw new Error('missing state');if(!p.includes('use client'))throw new Error('missing use client')\"",
+      "kind": "Weak(\"node_smoke_without_assertion\")"
+    },
+    {
+      "command": "node -p \"['dev'].every(function(k){return String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='next' ? a.slice(i+1).find(function(x){return x})==k : false}) ? String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='--port=60302' ? true : t=='-p' ? a.slice(i+1).find(function(x){return x})=='60302' : t=='-p60302' ? true : t=='--port' ? a.slice(i+1).find(function(x){return x})=='60302' : false}) : false}) ? true : process.exit(1)\"",
+      "kind": "Weak(\"node_smoke_without_assertion\")"
+    },
+    {
+      "command": "node -p \"['start'].every(function(k){return Object(require('./package.json').scripts)[k] ? String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='next' ? a.slice(i+1).find(function(x){return x})==k : false}) ? String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='--port=60302' ? true : t=='-p' ? a.slice(i+1).find(function(x){return x})=='60302' : t=='-p60302' ? true : t=='--port' ? a.slice(i+1).find(function(x){return x})=='60302' : false}) : false : true}) ? true : process.exit(1)\"",
+      "kind": "Weak(\"node_smoke_without_assertion\")"
+    },
+    {
+      "command": "node -p \"String(require('./package.json').scripts.build)=='next build' ? true : process.exit(1)\"",
+      "kind": "Weak(\"node_smoke_without_assertion\")"
+    }
+  ],
+  "source": "actual verify_command_kind before/after app changes"
+}

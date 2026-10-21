@@ -1,0 +1,37 @@
+{
+  "frozen_from_commit": "ab5c3d1461ede2a294a281dc56a5dc82ca97494e",
+  "sources": [
+    {
+      "source": "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/workspace/tmp/0908/diagnostics/r0-step-scope/diagnosis.md",
+      "sha256": "5d8c5cd2b3af4b59a43ba8fbe94437d4d2567963fbc850c9b793346e36e7cd9a"
+    },
+    {
+      "source": "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/workspace/tmp/0908/diagnostics/r0-step-scope/diagnosis.json",
+      "sha256": "91937e6164890a156e550d1bd544bf083bd973b87c6ac00d0f44f301f7754111"
+    },
+    {
+      "source": "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/workspace/tmp/0908/diagnostics/r0-step-scope/source-comparison.json",
+      "sha256": "a0720a873e444c202bb7e69554713282974308885e6ca041124b33b9350eca5c"
+    },
+    {
+      "source": "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/workspace/tmp/0908/diagnostics/r0-step-scope/selector-static-comparison.json",
+      "sha256": "98eb9cf48b45453105c9d3b9fc0284be81977c35a59495a408531468437f809b"
+    },
+    {
+      "source": "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/workspace/tmp/0908/diagnostics/r0-step-scope/step-plan-derived-from-yaml.json",
+      "sha256": "b8fa09e00e13ef3a7ac4670e129c92a34bf89a9dbd5dea2911ded4db579dfd4e"
+    },
+    {
+      "source": "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/workspace/tmp/0908/diagnostics/r0-step-scope/selector-replay/replay-scope.json",
+      "sha256": "147dcc65d8fb67c84abd746db551a2eca8bb362344edfd5e174e60ea57d5dc22"
+    },
+    {
+      "source": "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/workspace/tmp/0908/diagnostics/r0-step-scope/selector-replay/execution-results.json",
+      "sha256": "89183c72b5dd2ab79d01981572f4b6d5491fa3c1427f74db3a11045fc1a39a89"
+    }
+  ],
+  "fixture_sha256": {
+    "r0.json": "bea4dd18e9724cb9738619fd07e9cb364c15b7c92b331feb414b969b9bf9860c"
+  },
+  "limits": "Source-derived tasks and historical template choice; no full provider prompt, copied selector execution, live campaign recovery, or B-1 effect claimed."
+}

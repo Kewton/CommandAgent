@@ -37,6 +37,47 @@ crate and the `commandagent` binary both live at the repository root. Read
   requests, or publish releases unless the user has authorized that external
   action.
 
+## Issue-driven parallel development
+
+The default way to develop Issues in parallel is the chain
+user → PM → development leader → workers, defined in
+`docs/dev/parallel-dev-harness.md`. The Codex `$orchestrate` and `$pm` skills
+remain available when the user invokes them by name.
+
+- **PM**: the Claude Code session `commandagent-develop` / `claude`
+  (see `CLAUDE.md`). It delegates with `cmate-delegate`.
+- **Development leader**: the Claude Code session `commandagent-develop` /
+  `claude-3` (alias `Claude_Dev`, Claude Sonnet 5.5). It runs `cmate-orchestrate` with the `rust-commandagent`
+  profile on the PM's briefs, supervises workers, and reports to the PM. It
+  may delegate helper tasks with `cmate-delegate`. It runs with auto-yes and a
+  stop pattern; prompts that stay open go to the PM, and it does not ask the
+  user directly. auto-yes answers tool prompts only and does not grant the
+  authority described below.
+- **Helpers**: they keep the leader and workers moving and do not take their
+  work over. Codex_Sub (`codex-3`) investigates what blocks them: unclear
+  requirements, root causes, unexpected behavior, and plan review, returning
+  findings with `file:line` evidence. Antigravity (`antigravity`) takes clear,
+  mechanical tasks. Helpers follow the brief they receive and do not implement
+  Issue code.
+- **Workers**: Command Code sessions in each Issue worktree. A worker
+  implements exactly one Issue, follows the dispatch contract and
+  `cmate-worker-development`, does not delegate to other sessions, and does not
+  push, create PRs, or merge.
+
+Authority in this chain:
+
+- The user's instruction naming Issues authorizes planning, worktree creation,
+  `commandmate sync` for those worktrees, and dispatch for those Issues. The
+  PM approves the plan and dispatch.
+- PR creation and merge require the user's approval. The user has delegated
+  both to the PM: merge approval (2026-09-30) and PR creation for Issues whose
+  dispatch the user approved (2026-10-13). The PM approves PR creation only
+  when every condition in `docs/dev/parallel-dev-harness.md` section 3, step 5
+  holds, and runs a merge only when every condition in step 6 holds; otherwise
+  it asks the user.
+- Issue edits, CommandMate start or stop, and cleanup of worktrees still need
+  the user's own authorization.
+
 ## OpenAI API credentials
 
 - For an authorized OpenAI live probe, load `OPENAI_API_KEY` from the

@@ -532,7 +532,7 @@ mod tests {
         )
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "fixture mirrors event fields")]
     fn terminal(
         plan: &str,
         execution: &str,

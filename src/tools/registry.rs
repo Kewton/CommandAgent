@@ -116,6 +116,11 @@ impl ToolRegistry {
         enforce_mode(name, context.mode)?;
         let recovered = recover_tool_arguments(name, arguments.clone());
         let arguments = &recovered.arguments;
+        if let Some(rejection) =
+            super::sensitive_path::argument_reference_rejection(name, arguments, &context.root)
+        {
+            return Err(rejection);
+        }
         crate::minimal_loop::protected_paths::enforce_tool_mutation(
             &context.root,
             context.eval_events_path.as_deref(),
@@ -166,7 +171,6 @@ impl ToolRegistry {
                             "normalized": eval_events::body_snippet(&normalization.normalized),
                         }),
                     );
-                    command = normalization.normalized;
                 }
                 if let Some(rejection) =
                     crate::tools::bash::path_confinement_rejection(&command, &context.root)
@@ -183,8 +187,13 @@ impl ToolRegistry {
             }
             "Read" => {
                 let raw = required_string(arguments, "path")?;
-                let path =
-                    resolve_policy_checked_path(context, "Read", raw, PathResolution::Existing)?;
+                let failure = super::read_missing::ReadFailureContext::capture(context, raw);
+                let path = resolve_policy_checked_path(
+                    context,
+                    "Read",
+                    raw,
+                    PathResolution::Read(&failure),
+                )?;
                 let start_line = optional_usize(arguments, "start_line");
                 let end_line = optional_usize(arguments, "end_line");
                 let decision = self
@@ -213,7 +222,8 @@ impl ToolRegistry {
                             start_line,
                             end_line,
                             context.workspace_policy,
-                        )?;
+                        )
+                        .map_err(|error| failure.classify(error, Some(&path)))?;
                         self.repeated_reads().record_full_read(pending, &output);
                         Ok(output)
                     }
@@ -290,9 +300,9 @@ impl ToolRegistry {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-enum PathResolution {
-    Existing,
+#[derive(Clone, Copy)]
+enum PathResolution<'a> {
+    Read(&'a super::read_missing::ReadFailureContext),
     Create,
 }
 
@@ -300,10 +310,10 @@ fn resolve_policy_checked_path(
     context: &ToolContext,
     tool: &str,
     raw: &str,
-    resolution: PathResolution,
+    resolution: PathResolution<'_>,
 ) -> anyhow::Result<PathBuf> {
     let mut normalized = normalize_path_arg(context, tool, raw)?;
-    if matches!(resolution, PathResolution::Existing)
+    if matches!(resolution, PathResolution::Read(_))
         && !context.root.join(&normalized).exists()
         && let Some(fallback) = required_path_suffix_fallback(&normalized, &context.expected_paths)
         && context.root.join(&fallback).exists()
@@ -325,7 +335,12 @@ fn resolve_policy_checked_path(
         context.workspace_policy,
     )?;
     let path = match resolution {
-        PathResolution::Existing => resolve_existing(&context.root, &normalized)?,
+        PathResolution::Read(failure) => {
+            #[cfg(test)]
+            super::read_missing::test_hook::after_path_selection(context, &normalized);
+            resolve_existing(&context.root, &normalized)
+                .map_err(|error| failure.classify_lookup(error, &normalized))?
+        }
         PathResolution::Create => resolve_for_create(&context.root, &normalized)?,
     };
     ensure_tool_path_allowed(&context.root, &path, context.workspace_policy)?;
@@ -521,21 +536,20 @@ fn emit_bash_path_confinement_rejected(
     command: &str,
     rejection: &crate::tools::bash::BashPathConfinementRejection,
 ) {
-    eval_events::emit(
-        context.eval_events_path.as_deref(),
-        json!({
-            "event": "bash_path_confinement_rejected",
-            "schema_version": "1",
-            "blocked": true,
-            "reason": rejection.reason,
-            "operation": rejection.operation,
-            "command": eval_events::body_snippet(command),
-            "path": rejection.path,
-            "root": rejection.root,
-            "nearest_relative": rejection.nearest_relative,
-            "guidance": rejection.guidance,
-        }),
-    );
+    let mut event = json!({
+        "event": "bash_path_confinement_rejected",
+        "schema_version": "1",
+        "blocked": true,
+        "reason": rejection.reason,
+        "operation": rejection.operation,
+        "command": eval_events::body_snippet(command),
+        "path": rejection.path,
+        "root": rejection.root,
+        "nearest_relative": rejection.nearest_relative,
+        "guidance": rejection.guidance,
+    });
+    super::placeholder_path::add_event_fields(&mut event, command);
+    eval_events::emit(context.eval_events_path.as_deref(), event);
 }
 
 fn emit_edit_anchor_salvaged(context: &ToolContext, path: &str, output: &str) {
@@ -567,6 +581,9 @@ fn required_path_suffix_candidate_count(raw: &str, expected_paths: &[String]) ->
 }
 
 fn required_path_suffix_matches(raw: &str, expected_paths: &[String]) -> Vec<String> {
+    if has_parent_component(raw) {
+        return Vec::new();
+    }
     let raw_components = path_components(raw);
     expected_paths
         .iter()
@@ -583,12 +600,20 @@ fn required_path_suffix_matches(raw: &str, expected_paths: &[String]) -> Vec<Str
 }
 
 fn nearest_expected_path(raw: &str, expected_paths: &[String]) -> Option<String> {
+    if has_parent_component(raw) {
+        return None;
+    }
     let raw_components = path_components(raw);
     expected_paths
         .iter()
         .filter(|path| super::path_guard::validate_workspace_relative(path).is_ok())
-        .max_by_key(|path| common_suffix_len(&raw_components, &path_components(path)))
-        .cloned()
+        .filter_map(|path| {
+            let components = path_components(path);
+            let shares_component = components.iter().any(|part| raw_components.contains(part));
+            shares_component.then(|| (common_suffix_len(&raw_components, &components), path))
+        })
+        .max_by_key(|(suffix_len, _)| *suffix_len)
+        .map(|(_, path)| path.clone())
 }
 
 fn common_suffix_len(left: &[String], right: &[String]) -> usize {
@@ -597,6 +622,14 @@ fn common_suffix_len(left: &[String], right: &[String]) -> usize {
         .zip(right.iter().rev())
         .take_while(|(left, right)| left == right)
         .count()
+}
+
+/// True when any component of `raw` is `..`. `path_components` drops it, so a
+/// path that has one must never be salvaged or suggested from its remainder.
+pub(super) fn has_parent_component(raw: &str) -> bool {
+    std::path::Path::new(raw)
+        .components()
+        .any(|component| matches!(component, std::path::Component::ParentDir))
 }
 
 fn path_components(raw: &str) -> Vec<String> {
@@ -617,6 +650,9 @@ pub fn required_string<'a>(value: &'a Value, key: &str) -> anyhow::Result<&'a st
 }
 
 pub fn tool_error_kind(err: &anyhow::Error) -> &'static str {
+    if super::read_missing::from_error(err).is_some() {
+        return "read_path_missing";
+    }
     let message = err.to_string();
     if message.starts_with("missing string argument `") {
         "missing_arg"
@@ -675,7 +711,13 @@ pub fn tool_error_kind(err: &anyhow::Error) -> &'static str {
 }
 
 pub fn recoverable_tool_error(err: &anyhow::Error) -> bool {
+    if super::read_missing::from_error(err).is_some() {
+        return true;
+    }
     if super::hidden_path::access_from_error(err).is_some() {
+        return true;
+    }
+    if super::sensitive_path::refusal_from_error(err).is_some() {
         return true;
     }
     matches!(
@@ -1232,6 +1274,84 @@ mod tests {
         assert!(event_text.contains(r#""method":"required_path""#));
         assert!(event_text.contains(r#""accepted":false"#));
         assert!(event_text.contains(r#""normalized":"src/app/page.tsx""#));
+    }
+
+    fn path_hint_cases() -> serde_json::Value {
+        serde_json::from_str(include_str!(
+            "../../tests/corpus/apps/issue697-path-hint/fixtures/cases.json"
+        ))
+        .unwrap()
+    }
+
+    fn path_hint_expected(case: &serde_json::Value) -> Vec<String> {
+        case["expected_paths"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|path| path.as_str().unwrap().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn nearest_expected_path_matches_issue697_path_hint_cases() {
+        for (name, case) in path_hint_cases().as_object().unwrap() {
+            let raw = case["raw"].as_str().unwrap();
+            let expected = path_hint_expected(case);
+            assert_eq!(
+                nearest_expected_path(raw, &expected).as_deref(),
+                case["advice"].as_str(),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn zero_overlap_expected_paths_keep_the_original_write_refusal() {
+        let registry = ToolRegistry::default();
+        for (name, case) in path_hint_cases().as_object().unwrap() {
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path().join("current/workspace");
+            std::fs::create_dir_all(&root).unwrap();
+            let mut expected_paths = path_hint_expected(case);
+            if expected_paths.is_empty() {
+                expected_paths.push("unrelated/file.txt".to_string());
+            }
+            let context = ToolContext {
+                root: root.clone(),
+                mode: ExecutionMode::Act,
+                auto_approve: true,
+                interactive_approval: false,
+                offline: false,
+                workspace_policy: WorkspacePolicy::NormalTask,
+                eval_events_path: None,
+                expected_paths,
+                protected_paths: Vec::new(),
+            };
+            let raw = case["raw"].as_str().unwrap();
+
+            let err = registry
+                .execute("Write", &json!({"path": raw, "content": "no"}), &context)
+                .unwrap_err();
+
+            let message = err.to_string();
+            assert_eq!(
+                tool_error_kind(&err),
+                case["denial"].as_str().unwrap(),
+                "{name}: {message}"
+            );
+            match case["advice"].as_str() {
+                Some(advice) => assert!(
+                    message.contains(&format!("use workspace-relative path `{advice}`")),
+                    "{name}: {message}"
+                ),
+                None => assert!(
+                    !message.contains("use workspace-relative path `"),
+                    "{name}: {message}"
+                ),
+            }
+            let written = std::fs::read_dir(&root).unwrap().count();
+            assert_eq!(written, 0, "{name}: workspace must stay untouched");
+        }
     }
 
     #[test]
@@ -1928,5 +2048,76 @@ mod tests {
             .unwrap_err();
         assert_eq!(tool_error_kind(&err), "path_confinement_error");
         assert!(!recoverable_tool_error(&err));
+    }
+
+    #[test]
+    fn credential_paths_survive_yes_and_allow() {
+        use crate::tools::allow_policy::{AllowTarget, install};
+
+        let registry = ToolRegistry::default();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(".env"), "PRIVATE_TOKEN=H01_CANARY\n").unwrap();
+        std::fs::write(dir.path().join(".env.example"), "PLACEHOLDER=1\n").unwrap();
+        let context = ToolContext {
+            root: dir.path().to_path_buf(),
+            mode: ExecutionMode::Act,
+            auto_approve: true,
+            interactive_approval: false,
+            offline: false,
+            workspace_policy: WorkspacePolicy::NormalTask,
+            eval_events_path: None,
+            expected_paths: Vec::new(),
+            protected_paths: Vec::new(),
+        };
+
+        let ceilings = [
+            (true, Vec::new()),
+            (false, vec![AllowTarget::Read]),
+            (false, vec![AllowTarget::Write]),
+            (false, vec![AllowTarget::BashVerify]),
+            (
+                false,
+                vec![
+                    AllowTarget::Read,
+                    AllowTarget::Write,
+                    AllowTarget::BashVerify,
+                ],
+            ),
+        ];
+        for (yes, allowed) in ceilings {
+            let _policy = install(yes, &allowed);
+            for (tool, arguments) in [
+                ("Read", json!({"path": ".env"})),
+                ("Glob", json!({"pattern": ".env"})),
+                ("Grep", json!({"pattern": "TOKEN", "glob": ".env"})),
+                ("Write", json!({"path": ".env", "content": "x"})),
+                (
+                    "Edit",
+                    json!({"path": ".env", "old_string": "a", "new_string": "b"}),
+                ),
+                ("Bash", json!({"command": "cat .env"})),
+            ] {
+                let error = registry.execute(tool, &arguments, &context).unwrap_err();
+                assert_eq!(
+                    tool_error_kind(&error),
+                    "workspace_policy_blocked",
+                    "yes={yes} allow={allowed:?} {tool}: {error}"
+                );
+                assert!(!error.to_string().contains("H01_CANARY"), "{tool}");
+            }
+        }
+
+        let _all = install(true, &[]);
+        let template = registry
+            .execute("Read", &json!({"path": ".env.example"}), &context)
+            .unwrap();
+        assert!(template.contains("PLACEHOLDER=1"), "{template}");
+        registry
+            .execute(
+                "Write",
+                &json!({"path": ".env.template", "content": "PLACEHOLDER=2\n"}),
+                &context,
+            )
+            .unwrap();
     }
 }

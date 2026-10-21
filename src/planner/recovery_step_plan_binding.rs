@@ -8,6 +8,16 @@ use crate::planner::step_plan::{PlanStep, StepKind, StepPlan};
 
 const INSPECTION_PHASE_ID: &str = "inspect-current-state";
 const CONTRACT_VERIFY_STEP_ID: &str = "recovery-contract-verify";
+pub(crate) mod admission;
+pub(crate) mod formation_scope;
+#[cfg(test)]
+mod issue466_tests;
+mod literal_marker_formation;
+pub(crate) mod package_owner_scope;
+mod package_script_formation;
+pub(crate) mod profile_augmentation;
+mod reader_obligations;
+mod verifier_formation;
 
 pub(crate) fn bind_generated(
     config: &Config,
@@ -17,10 +27,13 @@ pub(crate) fn bind_generated(
     let Some(phase_id) = phase_id else {
         return Ok(false);
     };
-    if crate::planner::recovery_contract_binding::load_fix_origin(config)?.is_none() {
+    if !crate::planner::recovery_inspection::has_origin(config)? {
         return Ok(false);
     }
-    bind_contract(config, phase_id, step_plan)
+    let mut bound = step_plan.clone();
+    let changed = bind_contract(config, phase_id, &mut bound)?;
+    *step_plan = bound;
+    Ok(changed)
 }
 
 pub(crate) fn is_host_owned_final_success_step(
@@ -31,10 +44,7 @@ pub(crate) fn is_host_owned_final_success_step(
     phase_id.is_some_and(|phase_id| phase_id != INSPECTION_PHASE_ID)
         && step.id.starts_with(CONTRACT_VERIFY_STEP_ID)
         && step.step_kind() == StepKind::Verify
-        && crate::planner::recovery_contract_binding::load_fix_origin(config)
-            .ok()
-            .flatten()
-            .is_some()
+        && crate::planner::recovery_inspection::has_origin(config).unwrap_or(false)
 }
 
 fn bind_contract(
@@ -52,9 +62,53 @@ fn bind_contract(
     let original_steps = step_plan.steps.clone();
     let original_commands = commands(&original_steps);
     let removed_step_ids = if phase_id == INSPECTION_PHASE_ID {
-        bind_read_only_inspection(step_plan, &contract)
+        let removed = bind_read_only_inspection(step_plan, &contract);
+        if let Some(context) = crate::planner::recovery_inspection::load(config)? {
+            let template = step_plan.steps[0].clone();
+            step_plan.steps = inspection_instructions(&context.instruction)?
+                .into_iter()
+                .enumerate()
+                .map(|(index, instruction)| {
+                    let mut step = template.clone();
+                    if index > 0 {
+                        step.id = format!("inspect-recovery-state-{}", index + 1);
+                    }
+                    step.instruction = instruction;
+                    step
+                })
+                .collect();
+        }
+        removed
     } else {
-        bind_final_success_verification(step_plan, &contract)
+        let preserved = crate::planner::recovery_inspection::verifier_obligations::bind(
+            config, &contract, step_plan,
+        )?;
+        let removed = bind_final_success_verification(step_plan, &contract);
+        for original in preserved {
+            if let Some(owner) = step_plan.steps.iter_mut().find(|s| s.id == original.id) {
+                owner.verify = original.verify;
+                owner.expected_result = original.expected_result;
+            }
+        }
+        if let Some(context) = crate::planner::recovery_inspection::load(config)? {
+            let final_step = step_plan
+                .steps
+                .last_mut()
+                .expect("host final verification was appended");
+            for original in &context.verifier_steps {
+                for check in &original.verify {
+                    if !final_step.verify.contains(check) {
+                        final_step.verify.push(check.clone());
+                    }
+                }
+                for path in &original.expected_paths {
+                    if !final_step.expected_paths.contains(path) {
+                        final_step.expected_paths.push(path.clone());
+                    }
+                }
+            }
+        }
+        removed
     };
     let bound_commands = commands(&step_plan.steps);
 
@@ -80,6 +134,32 @@ fn bind_contract(
         }),
     );
     Ok(true)
+}
+
+// Preserve diagnostic text rather than truncating it to pass StepPlan lint.
+// Large contexts stay inside the existing instruction and step-count limits.
+fn inspection_instructions(instruction: &str) -> anyhow::Result<Vec<String>> {
+    let mut chunks = Vec::new();
+    let mut chunk = String::new();
+    for line in instruction.split_inclusive('\n') {
+        if chunk.chars().count() + line.chars().count() > 2500 && !chunk.is_empty() {
+            chunks.push(std::mem::take(&mut chunk));
+        }
+        for ch in line.chars() {
+            if chunk.chars().count() == 2500 {
+                chunks.push(std::mem::take(&mut chunk));
+            }
+            chunk.push(ch);
+        }
+    }
+    if !chunk.is_empty() {
+        chunks.push(chunk);
+    }
+    anyhow::ensure!(
+        chunks.len() <= 12,
+        "Recovery inspection exceeds the bounded StepPlan context capacity"
+    );
+    Ok(chunks)
 }
 
 fn bind_read_only_inspection(plan: &mut StepPlan, contract: &CompletionContract) -> Vec<String> {
@@ -143,6 +223,60 @@ fn commands(steps: &[PlanStep]) -> Vec<String> {
         .iter()
         .flat_map(|step| step.verify.iter().cloned())
         .collect()
+}
+
+pub(crate) fn lint(
+    config: &Config,
+    plan: &StepPlan,
+    phase: Option<&str>,
+) -> crate::planner::lint::PlanLintReport {
+    let mut report =
+        crate::planner::lint::lint_plan_for_execution(plan, Some(&config.workspace_root));
+    let checked = (|| -> anyhow::Result<()> {
+        let Some(context) = crate::planner::recovery_inspection::load(config)? else {
+            return Ok(());
+        };
+        if context.verifier_steps.is_empty() || phase == Some(INSPECTION_PHASE_ID) {
+            return Ok(());
+        }
+        let contract = CompletionContract::load_for_config(config)?
+            .ok_or_else(|| anyhow::anyhow!("Recovery verifier contract missing"))?;
+        let mut rebound = plan.clone();
+        crate::planner::recovery_inspection::verifier_obligations::bind(
+            config,
+            &contract,
+            &mut rebound,
+        )?;
+        anyhow::ensure!(
+            rebound == *plan,
+            "Recovery verifier executing plan lost original requirements or producer binding"
+        );
+        let final_step = plan
+            .steps
+            .last()
+            .ok_or_else(|| anyhow::anyhow!("Recovery final check missing"))?;
+        anyhow::ensure!(
+            final_step.step_kind() == StepKind::Verify
+                && final_step.expected_result == "pass"
+                && contract
+                    .verify_commands
+                    .iter()
+                    .all(|c| final_step.verify.contains(c))
+                && context.verifier_steps.iter().all(|s| s
+                    .verify
+                    .iter()
+                    .all(|c| final_step.verify.contains(c))
+                    && s.expected_paths
+                        .iter()
+                        .all(|p| final_step.expected_paths.contains(p))),
+            "Recovery verifier executing plan lost original final verification"
+        );
+        Ok(())
+    })();
+    if let Err(error) = checked {
+        report.push("recovery_verifier_binding", error.to_string());
+    }
+    report
 }
 
 #[cfg(test)]

@@ -1,0 +1,1925 @@
+{
+  "schema_version": 1,
+  "kind": "real locked builds; scripted HTTP/interaction inputs; normal Next.js finish/promotion",
+  "command": "cargo test --lib issue448_original_contract_finish_matrix -- --nocapture",
+  "node": "v24.1.0",
+  "npm": "11.3.0",
+  "dependencies": {
+    "next": "14.2.35",
+    "typescript": "5.9.3",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "install_command": "npm ci --include=dev --no-audit --no-fund",
+  "install_exit_code": 0,
+  "original_corpus_sha256": {
+    "cases.json": "098061bc522d352dfff18f05339453fd1b9bab7ad99b23557ec2189c3df0a75a",
+    "evidence/build-results.json": "460a509354fb44966e460844f79234f4ef1084990f9d917e3a16c4a7d80ce478",
+    "evidence/original-completion-contract.json": "eb2b04647a28ab10508c21e9c1cd026bea293a1c7f95dda261f4bd5529d8c9ab",
+    "evidence/original-diagnostics.txt": "b88d1fdd83f3c3424643e9e2fc3fadf2fbf3671abb4f4dd806b863e043b65211",
+    "evidence/recovery-events.json": "a48204cde7c7f5c67da19a3f5e0712a1a561e5598937e9dfb85b565e399c36db",
+    "expectations.toml": "bae62313a3b6c9165d7124aa5025578070b823d63b709d7b62370a553222a089",
+    "fixture-sha256.json": "f71568d5cce2d1c5aaa210c745054b7dba9bf9af09a043349603ff587096cff6",
+    "original/next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+    "original/package-lock.json": "b7bc835a316fbadb51b4a5af4083e8c8951c4fc8448179c4cecf4c18cbd88e1e",
+    "original/package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+    "original/postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+    "original/src/app/api/projects/route.ts": "98b04945a4b7e900f711a54f30d5874c31da2eb35780e89486efeda11a5c5e81",
+    "original/src/app/api/tasks/[id]/route.ts": "0cccc64a16fc5a3b0a932a18c6741f746abb4ad2add8f6578327f40f1b9f46bf",
+    "original/src/app/api/tasks/route.ts": "15e8aa5f419ede38a48c060d540a8876b5a1a33e4e607c0d128ec6f4bfd71c40",
+    "original/src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+    "original/src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+    "original/src/app/layout.tsx": "e4390d4d4067cdfdcab53478bb5701155d51cf3daa0cc80e8fd4d4d3957f1978",
+    "original/src/app/page.tsx": "013b9e9015d3da335226c7f55a34c9da4cd4523921674b25e5210a36b88e2ed8",
+    "original/src/lib/types.ts": "5a739f35ecd44ee050db202c0da77e7d560b5b830024124eb0a5b79c67260baf",
+    "original/tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+    "original/tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c",
+    "overlays/export/src/lib/types.ts": "faff3339f57a024c5ea5d9620d2f65cab449ff5bbff3229ecf00e9d515598df8",
+    "overlays/projects-promise/src/app/api/projects/route.ts": "ee33495b397a6fb2d8445e36f630c269f45a00a03af66475d4d0495b942cc92b",
+    "overlays/promise/src/app/api/projects/route.ts": "ee33495b397a6fb2d8445e36f630c269f45a00a03af66475d4d0495b942cc92b",
+    "overlays/promise/src/app/api/tasks/route.ts": "e958a15f206e1fdfb507475b294e10b0998e7c344850b0501745a332a2f79858",
+    "overlays/ui-only/src/app/page.tsx": "31771fd3215614a3ba22ab7e38d6279dc39c5cc4a853a9356b5246445cfa3e24",
+    "provenance.json": "3db65123b5750258ea4eda6d255402f340d952fc8cb3d172f96fee7a6d77bcb8",
+    "reproduction.md": "77386596d781dbfdae5619e3c4d67ec854a5a4c8549235508f010963af9f22ba"
+  },
+  "results": [
+    {
+      "build_exit_code": 0,
+      "build_mode": "real",
+      "commands": [
+        "npm run build",
+        "npm run build [real] exit=0",
+        "npm run start",
+        "npm run build",
+        "npm run build [real] exit=0"
+      ],
+      "contract_sha256": "eb2b04647a28ab10508c21e9c1cd026bea293a1c7f95dda261f4bd5529d8c9ab",
+      "control_after_sha256": "dade31d74d8ef67222a30c1e72b746a4517b6eb73fe26d1f4f8cf590af0e976e",
+      "control_before_sha256": "51886308021729dfb57421a6c6c99ad2a835b70cba8d377e02f0fd34f1824106",
+      "decision": {
+        "decision": "promoted",
+        "event": "recovery_promotion_decision",
+        "external_oracle_used": false,
+        "reason": "registered_final_success_passed",
+        "recovery_plan_auto_run_current": 1,
+        "schema_version": "1"
+      },
+      "interaction": {
+        "action_hooks": [],
+        "after_marker": "scripted-project-list-after",
+        "before_marker": "scripted-project-list-before",
+        "candidate_table": [],
+        "canvas_blank_after_inputs": null,
+        "canvas_blank_after_start": null,
+        "canvas_blank_before_start": null,
+        "canvas_not_redrawn_after_start": false,
+        "canvas_snapshots": [],
+        "cold_start_ms": null,
+        "contract_hook_status": "missing",
+        "duration_ms": 0,
+        "echo_latency_ms": null,
+        "failure_category": "",
+        "http_mutation_observations": [],
+        "informational_failure_kinds": [],
+        "input_after_marker": "",
+        "input_before_marker": "",
+        "input_contract_state_change": true,
+        "input_dispatches": [],
+        "input_event_observed": true,
+        "input_state_change": true,
+        "input_state_evaluated_after_start": true,
+        "interaction_performed": true,
+        "interaction_success": true,
+        "measured_navigation_ms": null,
+        "ok": true,
+        "persistence_after_reload": "not_evaluated",
+        "persistence_after_reload_marker": "",
+        "persistence_after_reload_reason": "no_text_entry_surface",
+        "persistence_before_reload_marker": "",
+        "persistence_changed_dimensions": [],
+        "playwright_resolution": {
+          "location": "issue448_scripted_observation",
+          "module_dir": "test/node_modules/playwright",
+          "module_path": "test/node_modules/playwright/index.js",
+          "node_path": null,
+          "version": "fixture"
+        },
+        "playwright_resolution_location": "issue448_scripted_observation",
+        "playwright_version": "fixture",
+        "primary_start_transition": true,
+        "primary_start_transition_missing": false,
+        "probe": {
+          "child_reaped": true,
+          "child_spawned": false,
+          "output_excerpt": "",
+          "playwright_resolution_location": "issue448_scripted_observation",
+          "script_path": "/private<workspace>/.commandagent/recovery-treatments/attempt-1/workspace/.commandagent/recovery-observations/attempt-129/workspace/.commandagent/evidence/browser-interaction-probe.cjs",
+          "stage": ""
+        },
+        "probe_mode": "heuristic",
+        "recovery_after_marker": "",
+        "recovery_before_marker": "",
+        "recovery_transition": false,
+        "recovery_transition_status": "unknown",
+        "remediation": "",
+        "restart_hook_count_after_start": 0,
+        "restart_hook_reachable_after_start": false,
+        "stage": "",
+        "start_control_found": true,
+        "start_transition": true,
+        "state_changed": true,
+        "state_dimensions_changed": [
+          "projects"
+        ],
+        "status": "passed",
+        "steps": [
+          "surface_visible",
+          "start_transition",
+          "control_input_dispatched",
+          "input_state_evaluated_after_start",
+          "input_state_change"
+        ],
+        "surface_fit": null,
+        "text_entry": "not_evaluated",
+        "text_entry_target": "",
+        "text_input_state_change": false,
+        "token_echo_after_reload_latency_ms": null,
+        "token_echoed": false,
+        "token_echoed_after_reload": false,
+        "typed_token": "",
+        "url": "http://127.0.0.1:60302/",
+        "visible_state_changed": true
+      },
+      "kind": "scripted HTTP and interaction inputs through original Next.js observer; no browser/model run",
+      "observer": {
+        "event": "recovery_capability_observer_bound",
+        "external_oracle_used": false,
+        "observation_isolated": true,
+        "observer_id": "nextjs_browser_interaction_v1",
+        "persistence_required": false,
+        "port": 60302,
+        "profile": "nextjs",
+        "required_capabilities": [
+          "stateful_interaction",
+          "user_input_or_action",
+          "visible_state_change"
+        ],
+        "schema_version": "1"
+      },
+      "readiness": {
+        "dev_server": {
+          "child_reaped": true,
+          "child_spawned": true,
+          "command": "npm run start",
+          "elapsed_ms": 6372,
+          "has_canvas": false,
+          "interactive_control_count": 0,
+          "output_excerpt": "running 1 test test minimal_loop::browser_probe::tests::browser_probe_mock_server_child ... ok test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2470 filtered out; finished in 0.49s",
+          "port": 60302,
+          "profile": "nextjs",
+          "route": "/",
+          "ssr_has_canvas": false,
+          "ssr_interactive_control_count": 0,
+          "title_text_excerpt": ""
+        },
+        "has_canvas": false,
+        "http_status": 200,
+        "interactive_control_count": 0,
+        "ok": true,
+        "output_excerpt": "running 1 test test minimal_loop::browser_probe::tests::browser_probe_mock_server_child ... ok test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2470 filtered out; finished in 0.49s",
+        "route": "/",
+        "route_rendered": true,
+        "route_rendered_quality": "rendered_without_expected_surface",
+        "ssr_has_canvas": false,
+        "ssr_interactive_control_count": 0,
+        "status": "ready",
+        "surface_marker_authority": "ssr",
+        "title_text_excerpt": ""
+      },
+      "required_capabilities": [
+        "stateful_interaction",
+        "user_input_or_action",
+        "visible_state_change"
+      ],
+      "required_evidence": [
+        "nextjs_route_evidence",
+        "build_command_or_dependency_missing_boundary",
+        "implementation_artifact",
+        "visible_interactive_surface_evidence",
+        "user_input_handler_evidence",
+        "stateful_update_evidence",
+        "interactive_ui_source_evidence",
+        "non_static_screen_evidence"
+      ],
+      "required_obligations": [
+        "implementation"
+      ],
+      "scenario": "all_original_observations_pass",
+      "source_sha256": {
+        "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+        "package-lock.json": "b7bc835a316fbadb51b4a5af4083e8c8951c4fc8448179c4cecf4c18cbd88e1e",
+        "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+        "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+        "src/app/api/projects/route.ts": "ee33495b397a6fb2d8445e36f630c269f45a00a03af66475d4d0495b942cc92b",
+        "src/app/api/tasks/[id]/route.ts": "0cccc64a16fc5a3b0a932a18c6741f746abb4ad2add8f6578327f40f1b9f46bf",
+        "src/app/api/tasks/route.ts": "e958a15f206e1fdfb507475b294e10b0998e7c344850b0501745a332a2f79858",
+        "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+        "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+        "src/app/layout.tsx": "e4390d4d4067cdfdcab53478bb5701155d51cf3daa0cc80e8fd4d4d3957f1978",
+        "src/app/page.tsx": "31771fd3215614a3ba22ab7e38d6279dc39c5cc4a853a9356b5246445cfa3e24",
+        "src/lib/types.ts": "faff3339f57a024c5ea5d9620d2f65cab449ff5bbff3229ecf00e9d515598df8",
+        "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+        "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+      },
+      "static_acceptance": {
+        "artifact_obligations": [
+          {
+            "evidence": [],
+            "path": "package.json",
+            "required_capabilities_supported": [],
+            "role": "setup",
+            "route_bound": false,
+            "satisfies_implementation": false
+          },
+          {
+            "evidence": [],
+            "path": "tsconfig.json",
+            "required_capabilities_supported": [],
+            "role": "setup",
+            "route_bound": false,
+            "satisfies_implementation": false
+          },
+          {
+            "evidence": [],
+            "path": "postcss.config.js",
+            "required_capabilities_supported": [],
+            "role": "setup",
+            "route_bound": false,
+            "satisfies_implementation": false
+          },
+          {
+            "evidence": [],
+            "path": "tailwind.config.ts",
+            "required_capabilities_supported": [],
+            "role": "setup",
+            "route_bound": false,
+            "satisfies_implementation": false
+          },
+          {
+            "evidence": [],
+            "path": "src/app/layout.tsx",
+            "required_capabilities_supported": [],
+            "role": "scaffold",
+            "route_bound": true,
+            "satisfies_implementation": false
+          },
+          {
+            "evidence": [
+              "challenge_or_adversary_evidence",
+              "implementation_artifact",
+              "interactive_ui_source_evidence",
+              "non_static_screen_evidence",
+              "stateful_update_evidence",
+              "user_input_handler_evidence",
+              "visible_interactive_surface_evidence"
+            ],
+            "path": "src/app/page.tsx",
+            "required_capabilities_supported": [
+              "stateful_interaction",
+              "user_input_or_action",
+              "visible_state_change"
+            ],
+            "role": "implementation",
+            "route_bound": true,
+            "satisfies_implementation": true
+          },
+          {
+            "evidence": [],
+            "path": "src/app/globals.css",
+            "required_capabilities_supported": [],
+            "role": "style",
+            "route_bound": true,
+            "satisfies_implementation": false
+          },
+          {
+            "evidence": [],
+            "path": "src/app/global.d.ts",
+            "required_capabilities_supported": [],
+            "role": "scaffold",
+            "route_bound": false,
+            "satisfies_implementation": false
+          }
+        ],
+        "capability_evidence_bindings": [
+          {
+            "artifact_paths": [
+              "src/app/page.tsx"
+            ],
+            "capability": "stateful_interaction",
+            "missing_evidence": [],
+            "required_evidence": [
+              "implementation_artifact",
+              "visible_interactive_surface_evidence",
+              "user_input_handler_evidence",
+              "stateful_update_evidence",
+              "interactive_ui_source_evidence",
+              "non_static_screen_evidence"
+            ],
+            "satisfied_evidence": [
+              "implementation_artifact",
+              "visible_interactive_surface_evidence",
+              "user_input_handler_evidence",
+              "stateful_update_evidence",
+              "interactive_ui_source_evidence",
+              "non_static_screen_evidence"
+            ]
+          },
+          {
+            "artifact_paths": [
+              "src/app/page.tsx"
+            ],
+            "capability": "user_input_or_action",
+            "missing_evidence": [],
+            "required_evidence": [
+              "implementation_artifact",
+              "visible_interactive_surface_evidence",
+              "user_input_handler_evidence",
+              "interactive_ui_source_evidence"
+            ],
+            "satisfied_evidence": [
+              "implementation_artifact",
+              "visible_interactive_surface_evidence",
+              "user_input_handler_evidence",
+              "interactive_ui_source_evidence"
+            ]
+          },
+          {
+            "artifact_paths": [
+              "src/app/page.tsx"
+            ],
+            "capability": "visible_state_change",
+            "missing_evidence": [],
+            "required_evidence": [
+              "implementation_artifact",
+              "visible_interactive_surface_evidence",
+              "stateful_update_evidence",
+              "interactive_ui_source_evidence"
+            ],
+            "satisfied_evidence": [
+              "implementation_artifact",
+              "visible_interactive_surface_evidence",
+              "stateful_update_evidence",
+              "interactive_ui_source_evidence"
+            ]
+          }
+        ],
+        "evidence_tiers": {
+          "build_command_or_dependency_missing_boundary": "strong",
+          "implementation_artifact": "strong",
+          "interactive_ui_source_evidence": "strong",
+          "nextjs_route_evidence": "strong",
+          "non_static_screen_evidence": "strong",
+          "stateful_update_evidence": "strong",
+          "user_input_handler_evidence": "strong",
+          "visible_interactive_surface_evidence": "strong"
+        },
+        "missing_capabilities": [],
+        "missing_evidence": [],
+        "missing_obligations": [],
+        "passed": true,
+        "primary_reason": "pass",
+        "weak_evidence": []
+      },
+      "verify_commands": [
+        "npm run build"
+      ]
+    },
+    {
+      "build_exit_code": 1,
+      "build_mode": "real",
+      "commands": [
+        "npm run build",
+        "npm run build [real] exit=1",
+        "npm run build",
+        "npm run build [real] exit=1"
+      ],
+      "contract_sha256": "eb2b04647a28ab10508c21e9c1cd026bea293a1c7f95dda261f4bd5529d8c9ab",
+      "control_after_sha256": "51886308021729dfb57421a6c6c99ad2a835b70cba8d377e02f0fd34f1824106",
+      "control_before_sha256": "51886308021729dfb57421a6c6c99ad2a835b70cba8d377e02f0fd34f1824106",
+      "decision": {
+        "decision": "rejected",
+        "event": "recovery_promotion_decision",
+        "external_oracle_used": false,
+        "reason": "nextjs_route_observation_failed:build_verifier_failed",
+        "recovery_plan_auto_run_current": 1,
+        "schema_version": "1"
+      },
+      "interaction": null,
+      "kind": "scripted HTTP and interaction inputs through original Next.js observer; no browser/model run",
+      "observer": {
+        "event": "recovery_capability_observer_bound",
+        "external_oracle_used": false,
+        "observation_isolated": true,
+        "observer_id": "nextjs_browser_interaction_v1",
+        "persistence_required": false,
+        "port": 60302,
+        "profile": "nextjs",
+        "required_capabilities": [
+          "stateful_interaction",
+          "user_input_or_action",
+          "visible_state_change"
+        ],
+        "schema_version": "1"
+      },
+      "readiness": {
+        "browser_failure_kind": "build_verifier_failed",
+        "build_output_path": "/private<workspace>/.commandagent/recovery-treatments/attempt-1/workspace/.commandagent/recovery-observations/attempt-129/workspace/.commandagent/evidence/build-verifier-npm-run-build.log",
+        "compile_errors": [
+          {
+            "column": 3,
+            "excerpt": "21 |   const prev = writeLock;\n22 |   writeLock = next;\n23 |   return prev.then(() => release!);\n|   ^\n24 | }\n25 |\n26 | const DATA_DIR = join(process.cwd(), \"data\");",
+            "line": 23,
+            "message": "Type error: Type 'Promise<void | (() => void)>' is not assignable to type 'Promise<void>'.",
+            "path": "src/app/api/projects/route.ts",
+            "route_bound": true
+          }
+        ],
+        "dev_server": {
+          "build_output_path": "/private<workspace>/.commandagent/recovery-treatments/attempt-1/workspace/.commandagent/recovery-observations/attempt-129/workspace/.commandagent/evidence/build-verifier-npm-run-build.log",
+          "child_reaped": false,
+          "child_spawned": false,
+          "command": "npm run start",
+          "compile_errors": [
+            {
+              "column": 3,
+              "excerpt": "21 |   const prev = writeLock;\n22 |   writeLock = next;\n23 |   return prev.then(() => release!);\n|   ^\n24 | }\n25 |\n26 | const DATA_DIR = join(process.cwd(), \"data\");",
+              "line": 23,
+              "message": "Type error: Type 'Promise<void | (() => void)>' is not assignable to type 'Promise<void>'.",
+              "path": "src/app/api/projects/route.ts",
+              "route_bound": true
+            }
+          ],
+          "elapsed_ms": 4365,
+          "has_canvas": false,
+          "interactive_control_count": 0,
+          "output_excerpt": "command failed: npm run build outcome: CommandFailed status: exit status: 1 elapsed_ms: 4343 summary: Attempted import error: 'isValidTaskStatus' is not exported from '@/lib/types' (imported as 'isValidTaskStatus'). Failed to compile. Type error: Type 'Promise<void | (() => void)>' is not assignable to type 'Promise<void>'. stdout: > commandagent-nextjs-app@1.0.0 build > next build ▲ Next.js 14.2.35 Creating an optimized production build ... ⚠ Compiled with warnings ./src/app/api/tasks/[id]/rout",
+          "port": 60302,
+          "profile": "nextjs",
+          "route": "/",
+          "ssr_has_canvas": false,
+          "ssr_interactive_control_count": 0,
+          "title_text_excerpt": ""
+        },
+        "failure_kind": "build_verifier_failed",
+        "has_canvas": false,
+        "interactive_control_count": 0,
+        "ok": false,
+        "output_excerpt": "command failed: npm run build outcome: CommandFailed status: exit status: 1 elapsed_ms: 4343 summary: Attempted import error: 'isValidTaskStatus' is not exported from '@/lib/types' (imported as 'isValidTaskStatus'). Failed to compile. Type error: Type 'Promise<void | (() => void)>' is not assignable to type 'Promise<void>'. stdout: > commandagent-nextjs-app@1.0.0 build > next build ▲ Next.js 14.2.35 Creating an optimized production build ... ⚠ Compiled with warnings ./src/app/api/tasks/[id]/rout",
+        "route": "/",
+        "route_rendered": false,
+        "route_rendered_quality": "rendered_without_expected_surface",
+        "ssr_has_canvas": false,
+        "ssr_interactive_control_count": 0,
+        "status": "failed",
+        "surface_marker_authority": "ssr",
+        "title_text_excerpt": ""
+      },
+      "required_capabilities": [
+        "stateful_interaction",
+        "user_input_or_action",
+        "visible_state_change"
+      ],
+      "required_evidence": [
+        "nextjs_route_evidence",
+        "build_command_or_dependency_missing_boundary",
+        "implementation_artifact",
+        "visible_interactive_surface_evidence",
+        "user_input_handler_evidence",
+        "stateful_update_evidence",
+        "interactive_ui_source_evidence",
+        "non_static_screen_evidence"
+      ],
+      "required_obligations": [
+        "implementation"
+      ],
+      "scenario": "build_failure",
+      "source_sha256": {
+        "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+        "package-lock.json": "b7bc835a316fbadb51b4a5af4083e8c8951c4fc8448179c4cecf4c18cbd88e1e",
+        "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+        "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+        "src/app/api/projects/route.ts": "98b04945a4b7e900f711a54f30d5874c31da2eb35780e89486efeda11a5c5e81",
+        "src/app/api/tasks/[id]/route.ts": "0cccc64a16fc5a3b0a932a18c6741f746abb4ad2add8f6578327f40f1b9f46bf",
+        "src/app/api/tasks/route.ts": "15e8aa5f419ede38a48c060d540a8876b5a1a33e4e607c0d128ec6f4bfd71c40",
+        "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+        "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+        "src/app/layout.tsx": "e4390d4d4067cdfdcab53478bb5701155d51cf3daa0cc80e8fd4d4d3957f1978",
+        "src/app/page.tsx": "31771fd3215614a3ba22ab7e38d6279dc39c5cc4a853a9356b5246445cfa3e24",
+        "src/lib/types.ts": "5a739f35ecd44ee050db202c0da77e7d560b5b830024124eb0a5b79c67260baf",
+        "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+        "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+      },
+      "static_acceptance": {
+        "artifact_obligations": [
+          {
+            "evidence": [],
+            "path": "package.json",
+            "required_capabilities_supported": [],
+            "role": "setup",
+            "route_bound": false,
+            "satisfies_implementation": false
+          },
+          {
+            "evidence": [],
+            "path": "tsconfig.json",
+            "required_capabilities_supported": [],
+            "role": "setup",
+            "route_bound": false,
+            "satisfies_implementation": false
+          },
+          {
+            "evidence": [],
+            "path": "postcss.config.js",
+            "required_capabilities_supported": [],
+            "role": "setup",
+            "route_bound": false,
+            "satisfies_implementation": false
+          },
+          {
+            "evidence": [],
+            "path": "tailwind.config.ts",
+            "required_capabilities_supported": [],
+            "role": "setup",
+            "route_bound": false,
+            "satisfies_implementation": false
+          },
+          {
+            "evidence": [],
+            "path": "src/app/layout.tsx",
+            "required_capabilities_supported": [],
+            "role": "scaffold",
+            "route_bound": true,
+            "satisfies_implementation": false
+          },
+          {
+            "evidence": [
+              "challenge_or_adversary_evidence",
+              "implementation_artifact",
+              "interactive_ui_source_evidence",
+              "non_static_screen_evidence",
+              "stateful_update_evidence",
+              "user_input_handler_evidence",
+              "visible_interactive_surface_evidence"
+            ],
+            "path": "src/app/page.tsx",
+            "required_capabilities_supported": [
+              "stateful_interaction",
+              "user_input_or_action",
+              "visible_state_change"
+            ],
+            "role": "implementation",
+            "route_bound": true,
+            "satisfies_implementation": true
+          },
+          {
+            "evidence": [],
+            "path": "src/app/globals.css",
+            "required_capabilities_supported": [],
+            "role": "style",
+            "route_bound": true,
+            "satisfies_implementation": false
+          },
+          {
+            "evidence": [],
+            "path": "src/app/global.d.ts",
+            "required_capabilities_supported": [],
+            "role": "scaffold",
+            "route_bound": false,
+            "satisfies_implementation": false
+          }
+        ],
+        "capability_evidence_bindings": [
+          {
+            "artifact_paths": [
+              "src/app/page.tsx"
+            ],
+            "capability": "stateful_interaction",
+            "missing_evidence": [],
+            "required_evidence": [
+              "implementation_artifact",
+              "visible_interactive_surface_evidence",
+              "user_input_handler_evidence",
+              "stateful_update_evidence",
+              "interactive_ui_source_evidence",
+              "non_static_screen_evidence"
+            ],
+            "satisfied_evidence": [
+              "implementation_artifact",
+              "visible_interactive_surface_evidence",
+              "user_input_handler_evidence",
+              "stateful_update_evidence",
+              "interactive_ui_source_evidence",
+              "non_static_screen_evidence"
+            ]
+          },
+          {
+            "artifact_paths": [
+              "src/app/page.tsx"
+            ],
+            "capability": "user_input_or_action",
+            "missing_evidence": [],
+            "required_evidence": [
+              "implementation_artifact",
+              "visible_interactive_surface_evidence",
+              "user_input_handler_evidence",
+              "interactive_ui_source_evidence"
+            ],
+            "satisfied_evidence": [
+              "implementation_artifact",
+              "visible_interactive_surface_evidence",
+              "user_input_handler_evidence",
+              "interactive_ui_source_evidence"
+            ]
+          },
+          {
+            "artifact_paths": [
+              "src/app/page.tsx"
+            ],
+            "capability": "visible_state_change",
+            "missing_evidence": [],
+            "required_evidence": [
+              "implementation_artifact",
+              "visible_interactive_surface_evidence",
+              "stateful_update_evidence",
+              "interactive_ui_source_evidence"
+            ],
+            "satisfied_evidence": [
+              "implementation_artifact",
+              "visible_interactive_surface_evidence",
+              "stateful_update_evidence",
+              "interactive_ui_source_evidence"
+            ]
+          }
+        ],
+        "evidence_tiers": {
+          "build_command_or_dependency_missing_boundary": "strong",
+          "implementation_artifact": "strong",
+          "interactive_ui_source_evidence": "strong",
+          "nextjs_route_evidence": "strong",
+          "non_static_screen_evidence": "strong",
+          "stateful_update_evidence": "strong",
+          "user_input_handler_evidence": "strong",
+          "visible_interactive_surface_evidence": "strong"
+        },
+        "missing_capabilities": [],
+        "missing_evidence": [],
+        "missing_obligations": [],
+        "passed": true,
+        "primary_reason": "pass",
+        "weak_evidence": []
+      },
+      "verify_commands": [
+        "npm run build"
+      ]
+    },
+    {
+      "build_exit_code": 0,
+      "build_mode": "real",
+      "commands": [
+        "npm run build",
+        "npm run build [real] exit=0",
+        "npm run start",
+        "npm run build",
+        "npm run build [real] exit=0"
+      ],
+      "contract_sha256": "eb2b04647a28ab10508c21e9c1cd026bea293a1c7f95dda261f4bd5529d8c9ab",
+      "control_after_sha256": "51886308021729dfb57421a6c6c99ad2a835b70cba8d377e02f0fd34f1824106",
+      "control_before_sha256": "51886308021729dfb57421a6c6c99ad2a835b70cba8d377e02f0fd34f1824106",
+      "decision": {
+        "decision": "rejected",
+        "event": "recovery_promotion_decision",
+        "external_oracle_used": false,
+        "reason": "nextjs_interaction_observation_failed:no_state_change",
+        "recovery_plan_auto_run_current": 1,
+        "schema_version": "1"
+      },
+      "interaction": {
+        "action_hooks": [],
+        "after_marker": "scripted-project-list-after",
+        "before_marker": "scripted-project-list-before",
+        "browser_failure_kind": "no_state_change",
+        "candidate_table": [],
+        "canvas_blank_after_inputs": null,
+        "canvas_blank_after_start": null,
+        "canvas_blank_before_start": null,
+        "canvas_not_redrawn_after_start": false,
+        "canvas_snapshots": [],
+        "cold_start_ms": null,
+        "contract_hook_status": "missing",
+        "duration_ms": 0,
+        "echo_latency_ms": null,
+        "failure_category": "app",
+        "failure_kind": "no_state_change",
+        "http_mutation_observations": [],
+        "informational_failure_kinds": [],
+        "input_after_marker": "",
+        "input_before_marker": "",
+        "input_contract_state_change": false,
+        "input_dispatches": [],
+        "input_event_observed": true,
+        "input_state_change": false,
+        "input_state_evaluated_after_start": true,
+        "interaction_performed": false,
+        "interaction_success": false,
+        "measured_navigation_ms": null,
+        "ok": false,
+        "persistence_after_reload": "not_evaluated",
+        "persistence_after_reload_marker": "",
+        "persistence_after_reload_reason": "no_text_entry_surface",
+        "persistence_before_reload_marker": "",
+        "persistence_changed_dimensions": [],
+        "playwright_resolution": {
+          "location": "issue448_scripted_observation",
+          "module_dir": "test/node_modules/playwright",
+          "module_path": "test/node_modules/playwright/index.js",
+          "node_path": null,
+          "version": "fixture"
+        },
+        "playwright_resolution_location": "issue448_scripted_observation",
+        "playwright_version": "fixture",
+        "primary_start_transition": true,
+        "primary_start_transition_missing": false,
+        "probe": {
+          "child_reaped": true,
+          "child_spawned": false,
+          "output_excerpt": "",
+          "playwright_resolution_location": "issue448_scripted_observation",
+          "script_path": "/private<workspace>/.commandagent/recovery-treatments/attempt-1/workspace/.commandagent/recovery-observations/attempt-129/workspace/.commandagent/evidence/browser-interaction-probe.cjs",
+          "stage": ""
+        },
+        "probe_mode": "heuristic",
+        "recovery_after_marker": "",
+        "recovery_before_marker": "",
+        "recovery_transition": false,
+        "recovery_transition_status": "unknown",
+        "remediation": "",
+        "restart_hook_count_after_start": 0,
+        "restart_hook_reachable_after_start": false,
+        "stage": "",
+        "start_control_found": true,
+        "start_transition": true,
+        "state_changed": false,
+        "state_dimensions_changed": [],
+        "status": "failed",
+        "steps": [
+          "surface_visible",
+          "start_transition",
+          "control_input_dispatched"
+        ],
+        "surface_fit": null,
+        "text_entry": "not_evaluated",
+        "text_entry_target": "",
+        "text_input_state_change": false,
+        "token_echo_after_reload_latency_ms": null,
+        "token_echoed": false,
+        "token_echoed_after_reload": false,
+        "typed_token": "",
+        "url": "http://127.0.0.1:60302/",
+        "visible_state_changed": false
+      },
+      "kind": "scripted HTTP and interaction inputs through original Next.js observer; no browser/model run",
+      "observer": {
+        "event": "recovery_capability_observer_bound",
+        "external_oracle_used": false,
+        "observation_isolated": true,
+        "observer_id": "nextjs_browser_interaction_v1",
+        "persistence_required": false,
+        "port": 60302,
+        "profile": "nextjs",
+        "required_capabilities": [
+          "stateful_interaction",
+          "user_input_or_action",
+          "visible_state_change"
+        ],
+        "schema_version": "1"
+      },
+      "readiness": {
+        "dev_server": {
+          "child_reaped": true,
+          "child_spawned": true,
+          "command": "npm run start",
+          "elapsed_ms": 5285,
+          "has_canvas": false,
+          "interactive_control_count": 0,
+          "output_excerpt": "running 1 test test minimal_loop::browser_probe::tests::browser_probe_mock_server_child ... ok test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2470 filtered out; finished in 0.49s",
+          "port": 60302,
+          "profile": "nextjs",
+          "route": "/",
+          "ssr_has_canvas": false,
+          "ssr_interactive_control_count": 0,
+          "title_text_excerpt": ""
+        },
+        "has_canvas": false,
+        "http_status": 200,
+        "interactive_control_count": 0,
+        "ok": true,
+        "output_excerpt": "running 1 test test minimal_loop::browser_probe::tests::browser_probe_mock_server_child ... ok test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2470 filtered out; finished in 0.49s",
+        "route": "/",
+        "route_rendered": true,
+        "route_rendered_quality": "rendered_without_expected_surface",
+        "ssr_has_canvas": false,
+        "ssr_interactive_control_count": 0,
+        "status": "ready",
+        "surface_marker_authority": "ssr",
+        "title_text_excerpt": ""
+      },
+      "required_capabilities": [
+        "stateful_interaction",
+        "user_input_or_action",
+        "visible_state_change"
+      ],
+      "required_evidence": [
+        "nextjs_route_evidence",
+        "build_command_or_dependency_missing_boundary",
+        "implementation_artifact",
+        "visible_interactive_surface_evidence",
+        "user_input_handler_evidence",
+        "stateful_update_evidence",
+        "interactive_ui_source_evidence",
+        "non_static_screen_evidence"
+      ],
+      "required_obligations": [
+        "implementation"
+      ],
+      "scenario": "failed_interaction",
+      "source_sha256": {
+        "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+        "package-lock.json": "b7bc835a316fbadb51b4a5af4083e8c8951c4fc8448179c4cecf4c18cbd88e1e",
+        "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+        "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+        "src/app/api/projects/route.ts": "ee33495b397a6fb2d8445e36f630c269f45a00a03af66475d4d0495b942cc92b",
+        "src/app/api/tasks/[id]/route.ts": "0cccc64a16fc5a3b0a932a18c6741f746abb4ad2add8f6578327f40f1b9f46bf",
+        "src/app/api/tasks/route.ts": "e958a15f206e1fdfb507475b294e10b0998e7c344850b0501745a332a2f79858",
+        "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+        "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+        "src/app/layout.tsx": "e4390d4d4067cdfdcab53478bb5701155d51cf3daa0cc80e8fd4d4d3957f1978",
+        "src/app/page.tsx": "31771fd3215614a3ba22ab7e38d6279dc39c5cc4a853a9356b5246445cfa3e24",
+        "src/lib/types.ts": "faff3339f57a024c5ea5d9620d2f65cab449ff5bbff3229ecf00e9d515598df8",
+        "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+        "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+      },
+      "static_acceptance": {
+        "artifact_obligations": [
+          {
+            "evidence": [],
+            "path": "package.json",
+            "required_capabilities_supported": [],
+            "role": "setup",
+            "route_bound": false,
+            "satisfies_implementation": false
+          },
+          {
+            "evidence": [],
+            "path": "tsconfig.json",
+            "required_capabilities_supported": [],
+            "role": "setup",
+            "route_bound": false,
+            "satisfies_implementation": false
+          },
+          {
+            "evidence": [],
+            "path": "postcss.config.js",
+            "required_capabilities_supported": [],
+            "role": "setup",
+            "route_bound": false,
+            "satisfies_implementation": false
+          },
+          {
+            "evidence": [],
+            "path": "tailwind.config.ts",
+            "required_capabilities_supported": [],
+            "role": "setup",
+            "route_bound": false,
+            "satisfies_implementation": false
+          },
+          {
+            "evidence": [],
+            "path": "src/app/layout.tsx",
+            "required_capabilities_supported": [],
+            "role": "scaffold",
+            "route_bound": true,
+            "satisfies_implementation": false
+          },
+          {
+            "evidence": [
+              "challenge_or_adversary_evidence",
+              "implementation_artifact",
+              "interactive_ui_source_evidence",
+              "non_static_screen_evidence",
+              "stateful_update_evidence",
+              "user_input_handler_evidence",
+              "visible_interactive_surface_evidence"
+            ],
+            "path": "src/app/page.tsx",
+            "required_capabilities_supported": [
+              "stateful_interaction",
+              "user_input_or_action",
+              "visible_state_change"
+            ],
+            "role": "implementation",
+            "route_bound": true,
+            "satisfies_implementation": true
+          },
+          {
+            "evidence": [],
+            "path": "src/app/globals.css",
+            "required_capabilities_supported": [],
+            "role": "style",
+            "route_bound": true,
+            "satisfies_implementation": false
+          },
+          {
+            "evidence": [],
+            "path": "src/app/global.d.ts",
+            "required_capabilities_supported": [],
+            "role": "scaffold",
+            "route_bound": false,
+            "satisfies_implementation": false
+          }
+        ],
+        "capability_evidence_bindings": [
+          {
+            "artifact_paths": [
+              "src/app/page.tsx"
+            ],
+            "capability": "stateful_interaction",
+            "missing_evidence": [],
+            "required_evidence": [
+              "implementation_artifact",
+              "visible_interactive_surface_evidence",
+              "user_input_handler_evidence",
+              "stateful_update_evidence",
+              "interactive_ui_source_evidence",
+              "non_static_screen_evidence"
+            ],
+            "satisfied_evidence": [
+              "implementation_artifact",
+              "visible_interactive_surface_evidence",
+              "user_input_handler_evidence",
+              "stateful_update_evidence",
+              "interactive_ui_source_evidence",
+              "non_static_screen_evidence"
+            ]
+          },
+          {
+            "artifact_paths": [
+              "src/app/page.tsx"
+            ],
+            "capability": "user_input_or_action",
+            "missing_evidence": [],
+            "required_evidence": [
+              "implementation_artifact",
+              "visible_interactive_surface_evidence",
+              "user_input_handler_evidence",
+              "interactive_ui_source_evidence"
+            ],
+            "satisfied_evidence": [
+              "implementation_artifact",
+              "visible_interactive_surface_evidence",
+              "user_input_handler_evidence",
+              "interactive_ui_source_evidence"
+            ]
+          },
+          {
+            "artifact_paths": [
+              "src/app/page.tsx"
+            ],
+            "capability": "visible_state_change",
+            "missing_evidence": [],
+            "required_evidence": [
+              "implementation_artifact",
+              "visible_interactive_surface_evidence",
+              "stateful_update_evidence",
+              "interactive_ui_source_evidence"
+            ],
+            "satisfied_evidence": [
+              "implementation_artifact",
+              "visible_interactive_surface_evidence",
+              "stateful_update_evidence",
+              "interactive_ui_source_evidence"
+            ]
+          }
+        ],
+        "evidence_tiers": {
+          "build_command_or_dependency_missing_boundary": "strong",
+          "implementation_artifact": "strong",
+          "interactive_ui_source_evidence": "strong",
+          "nextjs_route_evidence": "strong",
+          "non_static_screen_evidence": "strong",
+          "stateful_update_evidence": "strong",
+          "user_input_handler_evidence": "strong",
+          "visible_interactive_surface_evidence": "strong"
+        },
+        "missing_capabilities": [],
+        "missing_evidence": [],
+        "missing_obligations": [],
+        "passed": true,
+        "primary_reason": "pass",
+        "weak_evidence": []
+      },
+      "verify_commands": [
+        "npm run build"
+      ]
+    },
+    {
+      "build_exit_code": 0,
+      "build_mode": "real",
+      "commands": [
+        "npm run build",
+        "npm run build [real] exit=0",
+        "npm run start",
+        "npm run build",
+        "npm run build [real] exit=0"
+      ],
+      "contract_sha256": "eb2b04647a28ab10508c21e9c1cd026bea293a1c7f95dda261f4bd5529d8c9ab",
+      "control_after_sha256": "51886308021729dfb57421a6c6c99ad2a835b70cba8d377e02f0fd34f1824106",
+      "control_before_sha256": "51886308021729dfb57421a6c6c99ad2a835b70cba8d377e02f0fd34f1824106",
+      "decision": {
+        "decision": "rejected",
+        "event": "recovery_promotion_decision",
+        "external_oracle_used": false,
+        "reason": "nextjs_interaction_observation_unavailable:No such file or directory (os error 2)",
+        "recovery_plan_auto_run_current": 1,
+        "schema_version": "1"
+      },
+      "interaction": null,
+      "kind": "scripted HTTP and interaction inputs through original Next.js observer; no browser/model run",
+      "observer": {
+        "event": "recovery_capability_observer_bound",
+        "external_oracle_used": false,
+        "observation_isolated": true,
+        "observer_id": "nextjs_browser_interaction_v1",
+        "persistence_required": false,
+        "port": 60302,
+        "profile": "nextjs",
+        "required_capabilities": [
+          "stateful_interaction",
+          "user_input_or_action",
+          "visible_state_change"
+        ],
+        "schema_version": "1"
+      },
+      "readiness": {
+        "dev_server": {
+          "child_reaped": true,
+          "child_spawned": true,
+          "command": "npm run start",
+          "elapsed_ms": 5300,
+          "has_canvas": false,
+          "interactive_control_count": 0,
+          "output_excerpt": "running 1 test test minimal_loop::browser_probe::tests::browser_probe_mock_server_child ... ok test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2470 filtered out; finished in 0.49s",
+          "port": 60302,
+          "profile": "nextjs",
+          "route": "/",
+          "ssr_has_canvas": false,
+          "ssr_interactive_control_count": 0,
+          "title_text_excerpt": ""
+        },
+        "has_canvas": false,
+        "http_status": 200,
+        "interactive_control_count": 0,
+        "ok": true,
+        "output_excerpt": "running 1 test test minimal_loop::browser_probe::tests::browser_probe_mock_server_child ... ok test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2470 filtered out; finished in 0.49s",
+        "route": "/",
+        "route_rendered": true,
+        "route_rendered_quality": "rendered_without_expected_surface",
+        "ssr_has_canvas": false,
+        "ssr_interactive_control_count": 0,
+        "status": "ready",
+        "surface_marker_authority": "ssr",
+        "title_text_excerpt": ""
+      },
+      "required_capabilities": [
+        "stateful_interaction",
+        "user_input_or_action",
+        "visible_state_change"
+      ],
+      "required_evidence": [
+        "nextjs_route_evidence",
+        "build_command_or_dependency_missing_boundary",
+        "implementation_artifact",
+        "visible_interactive_surface_evidence",
+        "user_input_handler_evidence",
+        "stateful_update_evidence",
+        "interactive_ui_source_evidence",
+        "non_static_screen_evidence"
+      ],
+      "required_obligations": [
+        "implementation"
+      ],
+      "scenario": "missing_interaction",
+      "source_sha256": {
+        "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+        "package-lock.json": "b7bc835a316fbadb51b4a5af4083e8c8951c4fc8448179c4cecf4c18cbd88e1e",
+        "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+        "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+        "src/app/api/projects/route.ts": "ee33495b397a6fb2d8445e36f630c269f45a00a03af66475d4d0495b942cc92b",
+        "src/app/api/tasks/[id]/route.ts": "0cccc64a16fc5a3b0a932a18c6741f746abb4ad2add8f6578327f40f1b9f46bf",
+        "src/app/api/tasks/route.ts": "e958a15f206e1fdfb507475b294e10b0998e7c344850b0501745a332a2f79858",
+        "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+        "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+        "src/app/layout.tsx": "e4390d4d4067cdfdcab53478bb5701155d51cf3daa0cc80e8fd4d4d3957f1978",
+        "src/app/page.tsx": "31771fd3215614a3ba22ab7e38d6279dc39c5cc4a853a9356b5246445cfa3e24",
+        "src/lib/types.ts": "faff3339f57a024c5ea5d9620d2f65cab449ff5bbff3229ecf00e9d515598df8",
+        "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+        "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+      },
+      "static_acceptance": {
+        "artifact_obligations": [
+          {
+            "evidence": [],
+            "path": "package.json",
+            "required_capabilities_supported": [],
+            "role": "setup",
+            "route_bound": false,
+            "satisfies_implementation": false
+          },
+          {
+            "evidence": [],
+            "path": "tsconfig.json",
+            "required_capabilities_supported": [],
+            "role": "setup",
+            "route_bound": false,
+            "satisfies_implementation": false
+          },
+          {
+            "evidence": [],
+            "path": "postcss.config.js",
+            "required_capabilities_supported": [],
+            "role": "setup",
+            "route_bound": false,
+            "satisfies_implementation": false
+          },
+          {
+            "evidence": [],
+            "path": "tailwind.config.ts",
+            "required_capabilities_supported": [],
+            "role": "setup",
+            "route_bound": false,
+            "satisfies_implementation": false
+          },
+          {
+            "evidence": [],
+            "path": "src/app/layout.tsx",
+            "required_capabilities_supported": [],
+            "role": "scaffold",
+            "route_bound": true,
+            "satisfies_implementation": false
+          },
+          {
+            "evidence": [
+              "challenge_or_adversary_evidence",
+              "implementation_artifact",
+              "interactive_ui_source_evidence",
+              "non_static_screen_evidence",
+              "stateful_update_evidence",
+              "user_input_handler_evidence",
+              "visible_interactive_surface_evidence"
+            ],
+            "path": "src/app/page.tsx",
+            "required_capabilities_supported": [
+              "stateful_interaction",
+              "user_input_or_action",
+              "visible_state_change"
+            ],
+            "role": "implementation",
+            "route_bound": true,
+            "satisfies_implementation": true
+          },
+          {
+            "evidence": [],
+            "path": "src/app/globals.css",
+            "required_capabilities_supported": [],
+            "role": "style",
+            "route_bound": true,
+            "satisfies_implementation": false
+          },
+          {
+            "evidence": [],
+            "path": "src/app/global.d.ts",
+            "required_capabilities_supported": [],
+            "role": "scaffold",
+            "route_bound": false,
+            "satisfies_implementation": false
+          }
+        ],
+        "capability_evidence_bindings": [
+          {
+            "artifact_paths": [
+              "src/app/page.tsx"
+            ],
+            "capability": "stateful_interaction",
+            "missing_evidence": [],
+            "required_evidence": [
+              "implementation_artifact",
+              "visible_interactive_surface_evidence",
+              "user_input_handler_evidence",
+              "stateful_update_evidence",
+              "interactive_ui_source_evidence",
+              "non_static_screen_evidence"
+            ],
+            "satisfied_evidence": [
+              "implementation_artifact",
+              "visible_interactive_surface_evidence",
+              "user_input_handler_evidence",
+              "stateful_update_evidence",
+              "interactive_ui_source_evidence",
+              "non_static_screen_evidence"
+            ]
+          },
+          {
+            "artifact_paths": [
+              "src/app/page.tsx"
+            ],
+            "capability": "user_input_or_action",
+            "missing_evidence": [],
+            "required_evidence": [
+              "implementation_artifact",
+              "visible_interactive_surface_evidence",
+              "user_input_handler_evidence",
+              "interactive_ui_source_evidence"
+            ],
+            "satisfied_evidence": [
+              "implementation_artifact",
+              "visible_interactive_surface_evidence",
+              "user_input_handler_evidence",
+              "interactive_ui_source_evidence"
+            ]
+          },
+          {
+            "artifact_paths": [
+              "src/app/page.tsx"
+            ],
+            "capability": "visible_state_change",
+            "missing_evidence": [],
+            "required_evidence": [
+              "implementation_artifact",
+              "visible_interactive_surface_evidence",
+              "stateful_update_evidence",
+              "interactive_ui_source_evidence"
+            ],
+            "satisfied_evidence": [
+              "implementation_artifact",
+              "visible_interactive_surface_evidence",
+              "stateful_update_evidence",
+              "interactive_ui_source_evidence"
+            ]
+          }
+        ],
+        "evidence_tiers": {
+          "build_command_or_dependency_missing_boundary": "strong",
+          "implementation_artifact": "strong",
+          "interactive_ui_source_evidence": "strong",
+          "nextjs_route_evidence": "strong",
+          "non_static_screen_evidence": "strong",
+          "stateful_update_evidence": "strong",
+          "user_input_handler_evidence": "strong",
+          "visible_interactive_surface_evidence": "strong"
+        },
+        "missing_capabilities": [],
+        "missing_evidence": [],
+        "missing_obligations": [],
+        "passed": true,
+        "primary_reason": "pass",
+        "weak_evidence": []
+      },
+      "verify_commands": [
+        "npm run build"
+      ]
+    },
+    {
+      "build_exit_code": 0,
+      "build_mode": "real",
+      "commands": [
+        "npm run build",
+        "npm run build [real] exit=0",
+        "npm run start",
+        "npm run build",
+        "npm run build [real] exit=0"
+      ],
+      "contract_sha256": "eb2b04647a28ab10508c21e9c1cd026bea293a1c7f95dda261f4bd5529d8c9ab",
+      "control_after_sha256": "51886308021729dfb57421a6c6c99ad2a835b70cba8d377e02f0fd34f1824106",
+      "control_before_sha256": "51886308021729dfb57421a6c6c99ad2a835b70cba8d377e02f0fd34f1824106",
+      "decision": {
+        "decision": "rejected",
+        "event": "recovery_promotion_decision",
+        "external_oracle_used": false,
+        "reason": "nextjs_route_observation_failed:http_500",
+        "recovery_plan_auto_run_current": 1,
+        "schema_version": "1"
+      },
+      "interaction": null,
+      "kind": "scripted HTTP and interaction inputs through original Next.js observer; no browser/model run",
+      "observer": {
+        "event": "recovery_capability_observer_bound",
+        "external_oracle_used": false,
+        "observation_isolated": true,
+        "observer_id": "nextjs_browser_interaction_v1",
+        "persistence_required": false,
+        "port": 60302,
+        "profile": "nextjs",
+        "required_capabilities": [
+          "stateful_interaction",
+          "user_input_or_action",
+          "visible_state_change"
+        ],
+        "schema_version": "1"
+      },
+      "readiness": {
+        "browser_failure_kind": "http_500",
+        "dev_server": {
+          "child_reaped": true,
+          "child_spawned": true,
+          "command": "npm run start",
+          "elapsed_ms": 5250,
+          "has_canvas": false,
+          "interactive_control_count": 0,
+          "output_excerpt": "running 1 test test minimal_loop::browser_probe::tests::browser_probe_mock_server_child ... ok test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2470 filtered out; finished in 0.49s Module parse failed: Unexpected character '@' (1:0)",
+          "port": 60302,
+          "profile": "nextjs",
+          "route": "/",
+          "ssr_has_canvas": false,
+          "ssr_interactive_control_count": 0,
+          "title_text_excerpt": ""
+        },
+        "failure_kind": "http_500",
+        "has_canvas": false,
+        "http_status": 500,
+        "interactive_control_count": 0,
+        "ok": false,
+        "output_excerpt": "running 1 test test minimal_loop::browser_probe::tests::browser_probe_mock_server_child ... ok test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2470 filtered out; finished in 0.49s Module parse failed: Unexpected character '@' (1:0)",
+        "route": "/",
+        "route_rendered": false,
+        "route_rendered_quality": "rendered_without_expected_surface",
+        "ssr_has_canvas": false,
+        "ssr_interactive_control_count": 0,
+        "status": "failed",
+        "surface_marker_authority": "ssr",
+        "title_text_excerpt": ""
+      },
+      "required_capabilities": [
+        "stateful_interaction",
+        "user_input_or_action",
+        "visible_state_change"
+      ],
+      "required_evidence": [
+        "nextjs_route_evidence",
+        "build_command_or_dependency_missing_boundary",
+        "implementation_artifact",
+        "visible_interactive_surface_evidence",
+        "user_input_handler_evidence",
+        "stateful_update_evidence",
+        "interactive_ui_source_evidence",
+        "non_static_screen_evidence"
+      ],
+      "required_obligations": [
+        "implementation"
+      ],
+      "scenario": "http_failure",
+      "source_sha256": {
+        "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+        "package-lock.json": "b7bc835a316fbadb51b4a5af4083e8c8951c4fc8448179c4cecf4c18cbd88e1e",
+        "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+        "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+        "src/app/api/projects/route.ts": "ee33495b397a6fb2d8445e36f630c269f45a00a03af66475d4d0495b942cc92b",
+        "src/app/api/tasks/[id]/route.ts": "0cccc64a16fc5a3b0a932a18c6741f746abb4ad2add8f6578327f40f1b9f46bf",
+        "src/app/api/tasks/route.ts": "e958a15f206e1fdfb507475b294e10b0998e7c344850b0501745a332a2f79858",
+        "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+        "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+        "src/app/layout.tsx": "e4390d4d4067cdfdcab53478bb5701155d51cf3daa0cc80e8fd4d4d3957f1978",
+        "src/app/page.tsx": "31771fd3215614a3ba22ab7e38d6279dc39c5cc4a853a9356b5246445cfa3e24",
+        "src/lib/types.ts": "faff3339f57a024c5ea5d9620d2f65cab449ff5bbff3229ecf00e9d515598df8",
+        "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+        "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+      },
+      "static_acceptance": {
+        "artifact_obligations": [
+          {
+            "evidence": [],
+            "path": "package.json",
+            "required_capabilities_supported": [],
+            "role": "setup",
+            "route_bound": false,
+            "satisfies_implementation": false
+          },
+          {
+            "evidence": [],
+            "path": "tsconfig.json",
+            "required_capabilities_supported": [],
+            "role": "setup",
+            "route_bound": false,
+            "satisfies_implementation": false
+          },
+          {
+            "evidence": [],
+            "path": "postcss.config.js",
+            "required_capabilities_supported": [],
+            "role": "setup",
+            "route_bound": false,
+            "satisfies_implementation": false
+          },
+          {
+            "evidence": [],
+            "path": "tailwind.config.ts",
+            "required_capabilities_supported": [],
+            "role": "setup",
+            "route_bound": false,
+            "satisfies_implementation": false
+          },
+          {
+            "evidence": [],
+            "path": "src/app/layout.tsx",
+            "required_capabilities_supported": [],
+            "role": "scaffold",
+            "route_bound": true,
+            "satisfies_implementation": false
+          },
+          {
+            "evidence": [
+              "challenge_or_adversary_evidence",
+              "implementation_artifact",
+              "interactive_ui_source_evidence",
+              "non_static_screen_evidence",
+              "stateful_update_evidence",
+              "user_input_handler_evidence",
+              "visible_interactive_surface_evidence"
+            ],
+            "path": "src/app/page.tsx",
+            "required_capabilities_supported": [
+              "stateful_interaction",
+              "user_input_or_action",
+              "visible_state_change"
+            ],
+            "role": "implementation",
+            "route_bound": true,
+            "satisfies_implementation": true
+          },
+          {
+            "evidence": [],
+            "path": "src/app/globals.css",
+            "required_capabilities_supported": [],
+            "role": "style",
+            "route_bound": true,
+            "satisfies_implementation": false
+          },
+          {
+            "evidence": [],
+            "path": "src/app/global.d.ts",
+            "required_capabilities_supported": [],
+            "role": "scaffold",
+            "route_bound": false,
+            "satisfies_implementation": false
+          }
+        ],
+        "capability_evidence_bindings": [
+          {
+            "artifact_paths": [
+              "src/app/page.tsx"
+            ],
+            "capability": "stateful_interaction",
+            "missing_evidence": [],
+            "required_evidence": [
+              "implementation_artifact",
+              "visible_interactive_surface_evidence",
+              "user_input_handler_evidence",
+              "stateful_update_evidence",
+              "interactive_ui_source_evidence",
+              "non_static_screen_evidence"
+            ],
+            "satisfied_evidence": [
+              "implementation_artifact",
+              "visible_interactive_surface_evidence",
+              "user_input_handler_evidence",
+              "stateful_update_evidence",
+              "interactive_ui_source_evidence",
+              "non_static_screen_evidence"
+            ]
+          },
+          {
+            "artifact_paths": [
+              "src/app/page.tsx"
+            ],
+            "capability": "user_input_or_action",
+            "missing_evidence": [],
+            "required_evidence": [
+              "implementation_artifact",
+              "visible_interactive_surface_evidence",
+              "user_input_handler_evidence",
+              "interactive_ui_source_evidence"
+            ],
+            "satisfied_evidence": [
+              "implementation_artifact",
+              "visible_interactive_surface_evidence",
+              "user_input_handler_evidence",
+              "interactive_ui_source_evidence"
+            ]
+          },
+          {
+            "artifact_paths": [
+              "src/app/page.tsx"
+            ],
+            "capability": "visible_state_change",
+            "missing_evidence": [],
+            "required_evidence": [
+              "implementation_artifact",
+              "visible_interactive_surface_evidence",
+              "stateful_update_evidence",
+              "interactive_ui_source_evidence"
+            ],
+            "satisfied_evidence": [
+              "implementation_artifact",
+              "visible_interactive_surface_evidence",
+              "stateful_update_evidence",
+              "interactive_ui_source_evidence"
+            ]
+          }
+        ],
+        "evidence_tiers": {
+          "build_command_or_dependency_missing_boundary": "strong",
+          "implementation_artifact": "strong",
+          "interactive_ui_source_evidence": "strong",
+          "nextjs_route_evidence": "strong",
+          "non_static_screen_evidence": "strong",
+          "stateful_update_evidence": "strong",
+          "user_input_handler_evidence": "strong",
+          "visible_interactive_surface_evidence": "strong"
+        },
+        "missing_capabilities": [],
+        "missing_evidence": [],
+        "missing_obligations": [],
+        "passed": true,
+        "primary_reason": "pass",
+        "weak_evidence": []
+      },
+      "verify_commands": [
+        "npm run build"
+      ]
+    },
+    {
+      "build_exit_code": 0,
+      "build_mode": "real",
+      "commands": [
+        "npm run build",
+        "npm run build [real] exit=0",
+        "npm run start",
+        "npm run build",
+        "npm run build [real] exit=0"
+      ],
+      "contract_sha256": "eb2b04647a28ab10508c21e9c1cd026bea293a1c7f95dda261f4bd5529d8c9ab",
+      "control_after_sha256": "51886308021729dfb57421a6c6c99ad2a835b70cba8d377e02f0fd34f1824106",
+      "control_before_sha256": "51886308021729dfb57421a6c6c99ad2a835b70cba8d377e02f0fd34f1824106",
+      "decision": {
+        "decision": "rejected",
+        "event": "recovery_promotion_decision",
+        "external_oracle_used": false,
+        "reason": "registered_observations_passed_but_completion_contract_acceptance_failed:weak_verification_evidence:non_implementation_obligation_only:scaffold",
+        "recovery_plan_auto_run_current": 1,
+        "schema_version": "1"
+      },
+      "interaction": {
+        "action_hooks": [],
+        "after_marker": "scripted-project-list-after",
+        "before_marker": "scripted-project-list-before",
+        "candidate_table": [],
+        "canvas_blank_after_inputs": null,
+        "canvas_blank_after_start": null,
+        "canvas_blank_before_start": null,
+        "canvas_not_redrawn_after_start": false,
+        "canvas_snapshots": [],
+        "cold_start_ms": null,
+        "contract_hook_status": "missing",
+        "duration_ms": 0,
+        "echo_latency_ms": null,
+        "failure_category": "",
+        "http_mutation_observations": [],
+        "informational_failure_kinds": [],
+        "input_after_marker": "",
+        "input_before_marker": "",
+        "input_contract_state_change": true,
+        "input_dispatches": [],
+        "input_event_observed": true,
+        "input_state_change": true,
+        "input_state_evaluated_after_start": true,
+        "interaction_performed": true,
+        "interaction_success": true,
+        "measured_navigation_ms": null,
+        "ok": true,
+        "persistence_after_reload": "not_evaluated",
+        "persistence_after_reload_marker": "",
+        "persistence_after_reload_reason": "no_text_entry_surface",
+        "persistence_before_reload_marker": "",
+        "persistence_changed_dimensions": [],
+        "playwright_resolution": {
+          "location": "issue448_scripted_observation",
+          "module_dir": "test/node_modules/playwright",
+          "module_path": "test/node_modules/playwright/index.js",
+          "node_path": null,
+          "version": "fixture"
+        },
+        "playwright_resolution_location": "issue448_scripted_observation",
+        "playwright_version": "fixture",
+        "primary_start_transition": true,
+        "primary_start_transition_missing": false,
+        "probe": {
+          "child_reaped": true,
+          "child_spawned": false,
+          "output_excerpt": "",
+          "playwright_resolution_location": "issue448_scripted_observation",
+          "script_path": "/private<workspace>/.commandagent/recovery-treatments/attempt-1/workspace/.commandagent/recovery-observations/attempt-129/workspace/.commandagent/evidence/browser-interaction-probe.cjs",
+          "stage": ""
+        },
+        "probe_mode": "heuristic",
+        "recovery_after_marker": "",
+        "recovery_before_marker": "",
+        "recovery_transition": false,
+        "recovery_transition_status": "unknown",
+        "remediation": "",
+        "restart_hook_count_after_start": 0,
+        "restart_hook_reachable_after_start": false,
+        "stage": "",
+        "start_control_found": true,
+        "start_transition": true,
+        "state_changed": true,
+        "state_dimensions_changed": [
+          "projects"
+        ],
+        "status": "passed",
+        "steps": [
+          "surface_visible",
+          "start_transition",
+          "control_input_dispatched",
+          "input_state_evaluated_after_start",
+          "input_state_change"
+        ],
+        "surface_fit": null,
+        "text_entry": "not_evaluated",
+        "text_entry_target": "",
+        "text_input_state_change": false,
+        "token_echo_after_reload_latency_ms": null,
+        "token_echoed": false,
+        "token_echoed_after_reload": false,
+        "typed_token": "",
+        "url": "http://127.0.0.1:60302/",
+        "visible_state_changed": true
+      },
+      "kind": "scripted HTTP and interaction inputs through original Next.js observer; no browser/model run",
+      "observer": {
+        "event": "recovery_capability_observer_bound",
+        "external_oracle_used": false,
+        "observation_isolated": true,
+        "observer_id": "nextjs_browser_interaction_v1",
+        "persistence_required": false,
+        "port": 60302,
+        "profile": "nextjs",
+        "required_capabilities": [
+          "stateful_interaction",
+          "user_input_or_action",
+          "visible_state_change"
+        ],
+        "schema_version": "1"
+      },
+      "readiness": {
+        "dev_server": {
+          "child_reaped": true,
+          "child_spawned": true,
+          "command": "npm run start",
+          "elapsed_ms": 5278,
+          "has_canvas": false,
+          "interactive_control_count": 0,
+          "output_excerpt": "running 1 test test minimal_loop::browser_probe::tests::browser_probe_mock_server_child ... ok test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2470 filtered out; finished in 0.49s",
+          "port": 60302,
+          "profile": "nextjs",
+          "route": "/",
+          "ssr_has_canvas": false,
+          "ssr_interactive_control_count": 0,
+          "title_text_excerpt": ""
+        },
+        "has_canvas": false,
+        "http_status": 200,
+        "interactive_control_count": 0,
+        "ok": true,
+        "output_excerpt": "running 1 test test minimal_loop::browser_probe::tests::browser_probe_mock_server_child ... ok test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2470 filtered out; finished in 0.49s",
+        "route": "/",
+        "route_rendered": true,
+        "route_rendered_quality": "rendered_without_expected_surface",
+        "ssr_has_canvas": false,
+        "ssr_interactive_control_count": 0,
+        "status": "ready",
+        "surface_marker_authority": "ssr",
+        "title_text_excerpt": ""
+      },
+      "required_capabilities": [
+        "stateful_interaction",
+        "user_input_or_action",
+        "visible_state_change"
+      ],
+      "required_evidence": [
+        "nextjs_route_evidence",
+        "build_command_or_dependency_missing_boundary",
+        "implementation_artifact",
+        "visible_interactive_surface_evidence",
+        "user_input_handler_evidence",
+        "stateful_update_evidence",
+        "interactive_ui_source_evidence",
+        "non_static_screen_evidence"
+      ],
+      "required_obligations": [
+        "implementation"
+      ],
+      "scenario": "missing_implementation",
+      "source_sha256": {
+        "next-env.d.ts": "9dd9d642cdb87d4d5b3173217e0c45429b3e47a6f5cf5fb0ead6c644ec5fed01",
+        "package-lock.json": "b7bc835a316fbadb51b4a5af4083e8c8951c4fc8448179c4cecf4c18cbd88e1e",
+        "package.json": "9b897bb8402d38f57ca730a2b1265757a4fc8181528daa63d49729253d4b61c7",
+        "postcss.config.js": "fe0d5cf3cb8c1922f71cca2da3796f3e63366623ad6164336655766efe330e6a",
+        "src/app/api/projects/route.ts": "ee33495b397a6fb2d8445e36f630c269f45a00a03af66475d4d0495b942cc92b",
+        "src/app/api/tasks/[id]/route.ts": "0cccc64a16fc5a3b0a932a18c6741f746abb4ad2add8f6578327f40f1b9f46bf",
+        "src/app/api/tasks/route.ts": "e958a15f206e1fdfb507475b294e10b0998e7c344850b0501745a332a2f79858",
+        "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+        "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+        "src/app/layout.tsx": "e4390d4d4067cdfdcab53478bb5701155d51cf3daa0cc80e8fd4d4d3957f1978",
+        "src/app/page.tsx": "013b9e9015d3da335226c7f55a34c9da4cd4523921674b25e5210a36b88e2ed8",
+        "src/lib/types.ts": "faff3339f57a024c5ea5d9620d2f65cab449ff5bbff3229ecf00e9d515598df8",
+        "tailwind.config.ts": "5be8a942217220a967b2abc238d0b1390c210a2451aa9a334a4f173aca92eda8",
+        "tsconfig.json": "a73c7e5699d9d60d5c118f2d6a120d9b38cdf031d32254288c4baa95b782a62c"
+      },
+      "static_acceptance": {
+        "artifact_obligations": [
+          {
+            "evidence": [],
+            "path": "package.json",
+            "required_capabilities_supported": [],
+            "role": "setup",
+            "route_bound": false,
+            "satisfies_implementation": false
+          },
+          {
+            "evidence": [],
+            "path": "tsconfig.json",
+            "required_capabilities_supported": [],
+            "role": "setup",
+            "route_bound": false,
+            "satisfies_implementation": false
+          },
+          {
+            "evidence": [],
+            "path": "postcss.config.js",
+            "required_capabilities_supported": [],
+            "role": "setup",
+            "route_bound": false,
+            "satisfies_implementation": false
+          },
+          {
+            "evidence": [],
+            "path": "tailwind.config.ts",
+            "required_capabilities_supported": [],
+            "role": "setup",
+            "route_bound": false,
+            "satisfies_implementation": false
+          },
+          {
+            "evidence": [],
+            "path": "src/app/layout.tsx",
+            "required_capabilities_supported": [],
+            "role": "scaffold",
+            "route_bound": true,
+            "satisfies_implementation": false
+          },
+          {
+            "evidence": [
+              "challenge_or_adversary_evidence",
+              "interactive_ui_source_evidence",
+              "non_static_screen_evidence",
+              "score_or_progression_evidence",
+              "stateful_update_evidence",
+              "user_input_handler_evidence",
+              "visible_interactive_surface_evidence"
+            ],
+            "path": "src/app/page.tsx",
+            "required_capabilities_supported": [
+              "stateful_interaction",
+              "user_input_or_action",
+              "visible_state_change"
+            ],
+            "role": "scaffold",
+            "route_bound": true,
+            "satisfies_implementation": false
+          },
+          {
+            "evidence": [],
+            "path": "src/app/globals.css",
+            "required_capabilities_supported": [],
+            "role": "style",
+            "route_bound": true,
+            "satisfies_implementation": false
+          },
+          {
+            "evidence": [],
+            "path": "src/app/global.d.ts",
+            "required_capabilities_supported": [],
+            "role": "scaffold",
+            "route_bound": false,
+            "satisfies_implementation": false
+          }
+        ],
+        "capability_evidence_bindings": [
+          {
+            "artifact_paths": [
+              "src/app/page.tsx"
+            ],
+            "capability": "stateful_interaction",
+            "missing_evidence": [],
+            "required_evidence": [
+              "implementation_artifact",
+              "visible_interactive_surface_evidence",
+              "user_input_handler_evidence",
+              "stateful_update_evidence",
+              "interactive_ui_source_evidence",
+              "non_static_screen_evidence"
+            ],
+            "satisfied_evidence": [
+              "implementation_artifact",
+              "visible_interactive_surface_evidence",
+              "user_input_handler_evidence",
+              "stateful_update_evidence",
+              "interactive_ui_source_evidence",
+              "non_static_screen_evidence"
+            ]
+          },
+          {
+            "artifact_paths": [
+              "src/app/page.tsx"
+            ],
+            "capability": "user_input_or_action",
+            "missing_evidence": [],
+            "required_evidence": [
+              "implementation_artifact",
+              "visible_interactive_surface_evidence",
+              "user_input_handler_evidence",
+              "interactive_ui_source_evidence"
+            ],
+            "satisfied_evidence": [
+              "implementation_artifact",
+              "visible_interactive_surface_evidence",
+              "user_input_handler_evidence",
+              "interactive_ui_source_evidence"
+            ]
+          },
+          {
+            "artifact_paths": [
+              "src/app/page.tsx"
+            ],
+            "capability": "visible_state_change",
+            "missing_evidence": [],
+            "required_evidence": [
+              "implementation_artifact",
+              "visible_interactive_surface_evidence",
+              "stateful_update_evidence",
+              "interactive_ui_source_evidence"
+            ],
+            "satisfied_evidence": [
+              "implementation_artifact",
+              "visible_interactive_surface_evidence",
+              "stateful_update_evidence",
+              "interactive_ui_source_evidence"
+            ]
+          }
+        ],
+        "evidence_tiers": {
+          "build_command_or_dependency_missing_boundary": "strong",
+          "implementation_artifact": "strong",
+          "interactive_ui_source_evidence": "strong",
+          "nextjs_route_evidence": "strong",
+          "non_static_screen_evidence": "strong",
+          "stateful_update_evidence": "strong",
+          "user_input_handler_evidence": "strong",
+          "visible_interactive_surface_evidence": "strong"
+        },
+        "missing_capabilities": [],
+        "missing_evidence": [],
+        "missing_obligations": [],
+        "passed": false,
+        "primary_reason": "weak_verification_evidence:non_implementation_obligation_only:scaffold",
+        "weak_evidence": [
+          "non_implementation_obligation_only:scaffold",
+          "non_implementation_obligation_only:setup",
+          "non_implementation_obligation_only:style"
+        ]
+      },
+      "verify_commands": [
+        "npm run build"
+      ]
+    }
+  ],
+  "limitations": "No real browser/model acceptance. No concurrent lock test; deadlock and data loss unobserved."
+}

@@ -1,0 +1,7 @@
+{"schema_version":"1","event":"run_start","workspace_root":"/workspace/app"}
+{"schema_version":"1","event":"planner_step_plan","step":"step-1","verify_commands":["cargo test --test smoke","test -f artifacts/report.json"]}
+{"schema_version":"1","event":"verify_command_observed","step":"step-1","declared_command":"cargo test --test smoke","effective_command":"cargo test --test smoke","status":"passed"}
+{"schema_version":"1","event":"verify_command_observed","step":"step-2","declared_command":"pytest tests","effective_command":"python3 -m pytest tests","status":"passed"}
+{"schema_version":"1","event":"verify_command_observed","step":"step-3","declared_command":"npm run build","effective_command":"npm run build","status":"failed"}
+{"schema_version":"1","event":"verify_command_observed","step":"step-4","declared_command":"test -f artifacts/report.json","effective_command":"test -f artifacts/report.json","status":"not_recorded"}
+{"schema_version":"1","event":"tui_command_stop","ok":false,"status":"failed","assurance_level":"failed","release_gate_status":"failed","stop_reason":"verification failed","next_action":"fix_command_failure"}

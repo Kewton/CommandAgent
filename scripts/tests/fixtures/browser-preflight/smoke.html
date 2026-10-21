@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Issue 450 Browser preflight smoke</title>
+<style>
+body { font: 18px system-ui; margin: 72px; background: #f5f7fa; color: #172b4d; }
+main { max-width: 650px; padding: 32px; background: white; border: 1px solid #d8e1ef; border-radius: 12px; }
+button { padding: 12px 20px; font: inherit; border-radius: 6px; background: #174ea6; color: white; cursor: pointer; }
+output { display: block; margin-top: 24px; font-weight: bold; }
+</style>
+<main>
+<h1>Browser preflight</h1>
+<p>Local evaluation fixture for Issue #450.</p>
+<p>This button changes only the text below. No model generation or network submission occurs.</p>
+<button type="button" onclick="document.querySelector('output').textContent='Browser action confirmed'">Check browser</button>
+<output aria-live="polite">Ready for browser check</output>
+</main>
+</html>

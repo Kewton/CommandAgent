@@ -140,7 +140,12 @@ pub fn parse_generated_step_plan_json_with_report(
     }
     let generated: GeneratedStepPlan = serde_json::from_value(value)
         .map_err(|err| anyhow::anyhow!("StepPlan invalid JSON: {}", err))?;
-    normalize_generated_step_plan(generated, original_goal)
+    let result = normalize_generated_step_plan(generated, original_goal);
+    #[cfg(test)]
+    if let Ok((plan, _)) = &result {
+        crate::planner::setup_step_policy::issue492_tests::record("parsed", plan);
+    }
+    result
 }
 
 pub fn repair_generated_step_plan_contract(plan: &mut StepPlan) {

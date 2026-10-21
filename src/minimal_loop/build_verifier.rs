@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use serde::Serialize;
 
@@ -12,38 +13,10 @@ use crate::minimal_loop::import_scan::{
 use crate::minimal_loop::verifier_env;
 use crate::planner::profile::{build_oracle_for_command, profile_for_build_requirement};
 use crate::planner::verify::{NormalizedVerifyCommand, normalize_verify_command};
+pub use crate::verification::diagnostics::{BuildVerifierStatus, CompileError};
 
 const MAX_COMPILE_ERROR_DIAGNOSTICS: usize = 5;
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct CompileError {
-    pub path: String,
-    pub line: usize,
-    pub column: usize,
-    pub message: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub excerpt: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub symbol: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub route_bound: Option<bool>,
-}
-
-impl CompileError {
-    pub fn location(&self) -> String {
-        if self.line > 0 && self.column > 0 {
-            format!("{}:{}:{}", self.path, self.line, self.column)
-        } else if self.line > 0 {
-            format!("{}:{}", self.path, self.line)
-        } else {
-            self.path.clone()
-        }
-    }
-
-    pub fn summary(&self) -> String {
-        format!("{} {}", self.location(), self.message)
-    }
-}
+mod typescript;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FullCommandOutput {
@@ -66,6 +39,10 @@ impl FullCommandOutput {
 
     pub fn excerpt(&self) -> OutputExcerpt {
         OutputExcerpt(eval_events::body_snippet(&self.text))
+    }
+
+    pub(crate) fn failure_reason(&self, command: &str) -> String {
+        crate::node_failure::reason(command, &self.text)
     }
 
     pub(crate) fn from_bounded_executor(root: &Path, command: &str, output: &str) -> Self {
@@ -120,28 +97,6 @@ pub struct BuildVerifierRequirement {
     pub required_for_completion: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum BuildVerifierStatus {
-    PolicyRejected,
-    DependencyMissing,
-    Blocked,
-    Passed,
-    Failed,
-}
-
-impl BuildVerifierStatus {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::PolicyRejected => "policy_rejected",
-            Self::DependencyMissing => "dependency_missing",
-            Self::Blocked => "blocked",
-            Self::Passed => "passed",
-            Self::Failed => "failed",
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ForeignToolchainObservation {
     pub tool: String,
@@ -159,6 +114,8 @@ pub struct BuildVerifierObservation {
     pub requires_dependency_setup: bool,
     pub dependency_ready: bool,
     pub attempted: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
     pub status: BuildVerifierStatus,
     pub primary_reason: String,
     pub output_snippet: String,
@@ -196,6 +153,18 @@ impl BuildVerifierLifecycleObservation {
             .as_ref()
             .map(|setup| setup.status.as_str())
             .unwrap_or("not_required")
+    }
+
+    pub fn build_duration_ms(&self) -> Option<u64> {
+        self.before_setup
+            .duration_ms
+            .into_iter()
+            .chain(
+                self.after_setup
+                    .as_ref()
+                    .and_then(|observation| observation.duration_ms),
+            )
+            .reduce(u64::saturating_add)
     }
 
     pub fn lifecycle_stages(&self) -> Vec<&'static str> {
@@ -272,6 +241,7 @@ pub fn emit_dependency_build_lifecycle(
             "setup_command": lifecycle.setup.as_ref().map(|setup| setup.command.as_str()).unwrap_or(""),
             "setup_changed_paths": lifecycle.setup.as_ref().map(|setup| setup.changed_paths.clone()).unwrap_or_default(),
             "setup_duration_ms": lifecycle.setup.as_ref().and_then(|setup| setup.duration_ms),
+            "build_duration_ms": lifecycle.build_duration_ms(),
             "setup_timeout_ms": lifecycle.setup.as_ref().and_then(|setup| setup.timeout_ms),
             "setup_timeout_classification": lifecycle
                 .setup
@@ -491,6 +461,7 @@ pub fn observe_requirement(
                     requires_dependency_setup: requirement.requires_dependency_setup,
                     dependency_ready,
                     attempted: false,
+                    duration_ms: None,
                     status: BuildVerifierStatus::PolicyRejected,
                     primary_reason: err.to_string(),
                     output_snippet: String::new(),
@@ -514,6 +485,7 @@ pub fn observe_requirement(
             requires_dependency_setup: requirement.requires_dependency_setup,
             dependency_ready,
             attempted: false,
+            duration_ms: None,
             status: BuildVerifierStatus::DependencyMissing,
             primary_reason,
             output_snippet: String::new(),
@@ -522,7 +494,10 @@ pub fn observe_requirement(
             foreign_toolchain,
         };
     }
-    match verifier_env::run_checked(&normalized_command, root, false) {
+    let started = Instant::now();
+    let result = verifier_env::run_checked(&normalized_command, root, false);
+    let duration_ms = elapsed_millis_ceil(started);
+    match result {
         Ok(output) => BuildVerifierObservation {
             command: requirement.command.clone(),
             profile: requirement.profile.clone(),
@@ -531,6 +506,7 @@ pub fn observe_requirement(
             requires_dependency_setup: requirement.requires_dependency_setup,
             dependency_ready,
             attempted: true,
+            duration_ms: Some(duration_ms),
             status: BuildVerifierStatus::Passed,
             primary_reason: "build verifier passed".to_string(),
             output_snippet: eval_events::body_snippet(&output),
@@ -539,12 +515,13 @@ pub fn observe_requirement(
             foreign_toolchain: None,
         },
         Err(err) => {
-            let reason = err.to_string();
+            let reason = typescript::supplement(root, requirement, err.to_string());
             let full_output =
                 FullCommandOutput::from_bounded_executor(root, &requirement.command, &reason);
             let output_excerpt = full_output.excerpt();
             let mut compile_errors =
                 parse_compile_errors_for_requirement(requirement, &full_output);
+            typescript::append_diagnostics(&reason, &mut compile_errors);
             profile.annotate_compile_errors(root, &mut compile_errors);
             let status = classify_failed_build_status(
                 root,
@@ -560,8 +537,9 @@ pub fn observe_requirement(
                 requires_dependency_setup: requirement.requires_dependency_setup,
                 dependency_ready,
                 attempted: true,
+                duration_ms: Some(duration_ms),
                 status,
-                primary_reason: output_excerpt.as_str().to_string(),
+                primary_reason: full_output.failure_reason(&requirement.command),
                 output_snippet: output_excerpt.as_str().to_string(),
                 output_path: full_output.path_display(),
                 compile_errors,
@@ -664,6 +642,7 @@ pub(crate) fn observe_dependency_missing_output_lifecycle_with_setup_program_and
         dependency_ready: profile_for_build_requirement(requirement)
             .dependency_ready(root, &requirement.command),
         attempted: true,
+        duration_ms: None,
         status: BuildVerifierStatus::DependencyMissing,
         primary_reason: snippet.clone(),
         output_snippet: snippet,
@@ -680,6 +659,12 @@ pub(crate) fn observe_dependency_missing_output_lifecycle_with_setup_program_and
         offline,
         before_setup,
     )
+}
+
+fn elapsed_millis_ceil(started: Instant) -> u64 {
+    let nanos = started.elapsed().as_nanos();
+    let millis = nanos.saturating_add(999_999) / 1_000_000;
+    u64::try_from(millis).unwrap_or(u64::MAX)
 }
 
 fn observe_requirement_lifecycle_from_before(
@@ -735,7 +720,7 @@ fn observe_requirement_lifecycle_from_before(
     }
 }
 
-fn write_build_verifier_output(root: &Path, command: &str, output: &str) -> Option<PathBuf> {
+pub fn write_build_verifier_output(root: &Path, command: &str, output: &str) -> Option<PathBuf> {
     if output.trim().is_empty() {
         return None;
     }
@@ -743,11 +728,23 @@ fn write_build_verifier_output(root: &Path, command: &str, output: &str) -> Opti
     if std::fs::create_dir_all(&dir).is_err() {
         return None;
     }
-    let path = dir.join(format!("build-verifier-{}.log", command_slug(command)));
-    if std::fs::write(&path, output).is_err() {
+    let path = dir.join(format!(
+        "build-verifier-{}.log",
+        command_slug(&scrub_log_for_root(root, command))
+    ));
+    if std::fs::write(&path, scrub_log_for_root(root, output)).is_err() {
         return None;
     }
     Some(path)
+}
+
+/// Scrub free text with the run scope registered for `root`, or return it
+/// unchanged when no scope is installed. The raw build log and its
+/// command-derived file name never persist a registered secret value.
+fn scrub_log_for_root(root: &Path, text: &str) -> String {
+    crate::sensitive_data::active_for(Some(root))
+        .map(|context| context.scrub_text(text))
+        .unwrap_or_else(|| text.to_string())
 }
 
 fn command_slug(command: &str) -> String {
@@ -1740,6 +1737,7 @@ Error: Build failed because of webpack errors
             requires_dependency_setup: requirement.requires_dependency_setup,
             dependency_ready: true,
             attempted: true,
+            duration_ms: None,
             status: BuildVerifierStatus::Failed,
             primary_reason:
                 "Error: Build failed because of webpack errors\nat node_modules/next/dist/build/webpack-build/impl.js:137:22"

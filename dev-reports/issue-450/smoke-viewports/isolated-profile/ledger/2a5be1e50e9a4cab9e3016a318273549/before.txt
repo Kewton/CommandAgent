@@ -1,0 +1,8 @@
+Browser preflight
+
+Local evaluation fixture for Issue #450.
+
+This button changes only the text below. No model generation or network submission occurs.
+
+Check browser
+Ready for browser check

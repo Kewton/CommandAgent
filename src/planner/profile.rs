@@ -1907,18 +1907,36 @@ pub fn profile_failure(reason: impl Into<String>) -> VerificationReport {
 }
 
 fn is_nextjs_build_command(command: &str) -> bool {
-    let normalized = command.to_ascii_lowercase();
-    normalized == "npm run build"
-        || normalized == "pnpm build"
-        || normalized == "yarn build"
-        || normalized.starts_with("npm run build ")
-        || normalized.starts_with("pnpm build ")
-        || normalized.starts_with("yarn build ")
-        || normalized.contains("next build")
+    let normalized = command.trim().to_ascii_lowercase();
+    let command = match normalized.split_once("&&") {
+        Some((_, command)) if normalized.starts_with("cd ") => command.trim(),
+        Some((command, _)) => command.trim(),
+        None => normalized.as_str(),
+    };
+    let tokens = command.split_whitespace().collect::<Vec<_>>();
+    matches!(tokens.as_slice(), ["npm", "run", "build", ..])
+        || matches!(tokens.as_slice(), ["pnpm" | "yarn", "build", ..])
+        || matches!(tokens.as_slice(), ["pnpm" | "yarn", "run", "build", ..])
+        || matches!(tokens.as_slice(), ["npx", "next", "build", ..])
+        || matches!(
+            tokens.as_slice(),
+            ["npx", "--no-install", "next", "build", ..]
+        )
+        || matches!(tokens.as_slice(), [program, "build", ..] if program.rsplit('/').next() == Some("next"))
 }
 
 pub fn requires_next_binary(command: &str) -> bool {
     is_nextjs_build_command(command)
+}
+
+pub(crate) fn is_production_build_command(profile: Option<&str>, command: &str) -> bool {
+    if is_nextjs_build_command(command) {
+        return true;
+    }
+    if requires_node_test_runner(command) || requires_node_dependency_probe(command) {
+        return false;
+    }
+    build_oracle_for_command(profile, command).is_some()
 }
 
 fn requires_node_test_runner(command: &str) -> bool {
@@ -1958,6 +1976,30 @@ pub(crate) fn merge_unique_strings(out: &mut Vec<String>, incoming: &[String]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nextjs_build_oracle_requires_an_executable_build_command() {
+        for command in [
+            "npm run build",
+            "pnpm build --filter app",
+            "yarn run build",
+            "next build",
+            "./node_modules/.bin/next build --no-lint",
+            "cd web && npm run build",
+            "npm run build && npm test",
+        ] {
+            assert!(requires_next_binary(command), "{command}");
+        }
+
+        for command in [
+            r#"node -p "String(require('./package.json').scripts.build)=='next build' ? true : process.exit(1)""#,
+            r#"node -e "console.log('next build')""#,
+            "echo next build",
+            "test -f package.json",
+        ] {
+            assert!(!requires_next_binary(command), "{command}");
+        }
+    }
 
     #[test]
     fn generic_dependency_marker_ignores_application_not_found_messages() {

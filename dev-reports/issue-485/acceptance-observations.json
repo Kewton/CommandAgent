@@ -1,0 +1,286 @@
+{
+  "command": "cargo test --lib issue485 -- --nocapture",
+  "tested_parent": "0a8222643683c764fa5f9ac8bd3e5b2b47ef7728",
+  "kind": "local worker fixture observations; not CI, UAT or live R0",
+  "source_contract_sha256": "eb2b04647a28ab10508c21e9c1cd026bea293a1c7f95dda261f4bd5529d8c9ab",
+  "observations": [
+    {
+      "audit": {
+        "control_after_observation_sha256": "22fb1f26a04ae28d792e46aece18034b7bb4bed50bfc9e0c4697d4eaa624cd79",
+        "control_audited": true,
+        "control_before_sha256": "22fb1f26a04ae28d792e46aece18034b7bb4bed50bfc9e0c4697d4eaa624cd79",
+        "control_retained": true,
+        "control_status": "unchanged",
+        "event": "recovery_preflight_control_audit",
+        "isolated_outcome": "pass",
+        "isolated_reason": "registered_final_success_and_completion_contract_passed:1 commands",
+        "observation_id": ".commandagent/recovery-boundaries/attempt-0/workspace",
+        "observation_isolated": true,
+        "restore_invoked": false,
+        "restore_succeeded": false,
+        "schema_version": "1"
+      },
+      "case": "business-all",
+      "final": {
+        "assurance": "full",
+        "external_contract_ok": true,
+        "reason": "pass",
+        "release_gate": "pass",
+        "release_gate_reasons": [],
+        "runtime_acceptance_passed": true,
+        "status": "full_success"
+      },
+      "kind": "scripted transport; production decisions",
+      "preflight": "CurrentSuccess { reason: \"registered_final_success_and_completion_contract_passed:1 commands\" }",
+      "runtime_acceptance": {
+        "evidence_tiers": {
+          "build_command_or_dependency_missing_boundary": "strong",
+          "implementation_artifact": "strong",
+          "interactive_ui_source_evidence": "strong",
+          "nextjs_route_evidence": "strong",
+          "non_static_screen_evidence": "strong",
+          "stateful_update_evidence": "strong",
+          "user_input_handler_evidence": "strong",
+          "visible_interactive_surface_evidence": "strong"
+        },
+        "missing_capabilities": [],
+        "missing_evidence": [],
+        "missing_obligations": [],
+        "page_role": "implementation",
+        "passed": true
+      },
+      "terminal": {
+        "command_status": "completed",
+        "completion_status": "complete",
+        "task_status": "complete"
+      },
+      "verification_report_passed": true
+    },
+    {
+      "audit": {
+        "control_after_observation_sha256": "22fb1f26a04ae28d792e46aece18034b7bb4bed50bfc9e0c4697d4eaa624cd79",
+        "control_audited": true,
+        "control_before_sha256": "22fb1f26a04ae28d792e46aece18034b7bb4bed50bfc9e0c4697d4eaa624cd79",
+        "control_retained": true,
+        "control_status": "unchanged",
+        "event": "recovery_preflight_control_audit",
+        "isolated_outcome": "unavailable",
+        "isolated_reason": "nextjs_route_observation_failed:build_verifier_failed",
+        "observation_id": ".commandagent/recovery-boundaries/attempt-0/workspace",
+        "observation_isolated": true,
+        "restore_invoked": false,
+        "restore_succeeded": false,
+        "schema_version": "1"
+      },
+      "case": "business-build-failed",
+      "final": {
+        "assurance": "partial",
+        "external_contract_ok": false,
+        "reason": "build_verify_failed: command failed: npm run build outcome: CommandFailed status: exit status: 1 elapsed_ms: 67 summary: Failed to compile: scripted build failure stdout: stderr: Failed to compile: scripted build failure",
+        "release_gate": "not_applicable",
+        "release_gate_reasons": [
+          "production_build_failed_before_browser_probe"
+        ],
+        "runtime_acceptance_passed": true,
+        "status": "full_success"
+      },
+      "kind": "scripted transport; production decisions",
+      "preflight": "Unavailable { reason: \"nextjs_route_observation_failed:build_verifier_failed\" }",
+      "runtime_acceptance": {
+        "evidence_tiers": {
+          "build_command_or_dependency_missing_boundary": "strong",
+          "implementation_artifact": "strong",
+          "interactive_ui_source_evidence": "strong",
+          "nextjs_route_evidence": "strong",
+          "non_static_screen_evidence": "strong",
+          "stateful_update_evidence": "strong",
+          "user_input_handler_evidence": "strong",
+          "visible_interactive_surface_evidence": "strong"
+        },
+        "missing_capabilities": [],
+        "missing_evidence": [],
+        "missing_obligations": [],
+        "page_role": "implementation",
+        "passed": true
+      },
+      "terminal": {
+        "command_status": "failed",
+        "completion_status": "incomplete",
+        "task_status": "failed"
+      },
+      "verification_report_passed": false
+    },
+    {
+      "audit": {
+        "control_after_observation_sha256": "22fb1f26a04ae28d792e46aece18034b7bb4bed50bfc9e0c4697d4eaa624cd79",
+        "control_audited": true,
+        "control_before_sha256": "22fb1f26a04ae28d792e46aece18034b7bb4bed50bfc9e0c4697d4eaa624cd79",
+        "control_retained": true,
+        "control_status": "unchanged",
+        "event": "recovery_preflight_control_audit",
+        "isolated_outcome": "unavailable",
+        "isolated_reason": "nextjs_interaction_observation_unavailable:No such file or directory (os error 2)",
+        "observation_id": ".commandagent/recovery-boundaries/attempt-0/workspace",
+        "observation_isolated": true,
+        "restore_invoked": false,
+        "restore_succeeded": false,
+        "schema_version": "1"
+      },
+      "case": "business-missing-interaction",
+      "final": {
+        "assurance": "partial",
+        "external_contract_ok": true,
+        "reason": "browser_interaction_evidence_required:issue485_scripted_interaction_unavailable",
+        "release_gate": "partial",
+        "release_gate_reasons": [
+          "browser_interaction_evidence_required:issue485_scripted_interaction_unavailable"
+        ],
+        "runtime_acceptance_passed": true,
+        "status": "partial"
+      },
+      "kind": "scripted transport; production decisions",
+      "preflight": "Unavailable { reason: \"nextjs_interaction_observation_unavailable:No such file or directory (os error 2)\" }",
+      "runtime_acceptance": {
+        "evidence_tiers": {
+          "build_command_or_dependency_missing_boundary": "strong",
+          "implementation_artifact": "strong",
+          "interactive_ui_source_evidence": "strong",
+          "nextjs_route_evidence": "strong",
+          "non_static_screen_evidence": "strong",
+          "stateful_update_evidence": "strong",
+          "user_input_handler_evidence": "strong",
+          "visible_interactive_surface_evidence": "strong"
+        },
+        "missing_capabilities": [],
+        "missing_evidence": [],
+        "missing_obligations": [],
+        "page_role": "implementation",
+        "passed": true
+      },
+      "terminal": {
+        "command_status": "completed",
+        "completion_status": "complete_with_partial_release_gate",
+        "task_status": "partial"
+      },
+      "verification_report_passed": true
+    },
+    {
+      "audit": {
+        "control_after_observation_sha256": "cdd8e5ef0a9c556c53d223da72138f01592bfcdf1a4d9d5050d819b3d9b6ba0d",
+        "control_audited": true,
+        "control_before_sha256": "cdd8e5ef0a9c556c53d223da72138f01592bfcdf1a4d9d5050d819b3d9b6ba0d",
+        "control_retained": true,
+        "control_status": "unchanged",
+        "event": "recovery_preflight_control_audit",
+        "isolated_outcome": "verification_inconsistency",
+        "isolated_reason": "registered_observations_passed_but_completion_contract_acceptance_failed:missing_required_evidence:implementation_artifact",
+        "observation_id": ".commandagent/recovery-boundaries/attempt-0/workspace",
+        "observation_isolated": true,
+        "restore_invoked": false,
+        "restore_succeeded": false,
+        "schema_version": "1"
+      },
+      "case": "scaffold",
+      "kind": "scripted transport; production decisions",
+      "preflight": {
+        "completion_contract_path": "<workspace>/.commandagent/completion-contract.json",
+        "completion_contract_sha256": "eb2b04647a28ab10508c21e9c1cd026bea293a1c7f95dda261f4bd5529d8c9ab",
+        "event": "recovery_preflight_observation",
+        "external_oracle_used": false,
+        "observation_isolated": true,
+        "observation_phase": "pre_recovery",
+        "observer_ids": [
+          "completion_contract_verify_commands",
+          "nextjs_browser_interaction_v1"
+        ],
+        "read_only": true,
+        "reason": "registered_observations_passed_but_completion_contract_acceptance_failed:missing_required_evidence:implementation_artifact",
+        "recovery_failed_step": null,
+        "recovery_handoff_kind": "phase_scaffold_error",
+        "registered_verify_command_count": 1,
+        "schema_version": "1",
+        "source": "product_visible_completion_contract",
+        "status": "verification_inconsistency",
+        "typed_capability_observer_count": 2,
+        "verify_command_count": 1
+      },
+      "runtime_acceptance": {
+        "missing_evidence": [
+          "implementation_artifact"
+        ],
+        "page_role": "scaffold",
+        "passed": false,
+        "reason": "missing_required_evidence:implementation_artifact"
+      },
+      "stop": {
+        "event": "recovery_plan_auto_run_stopped",
+        "recovery_plan_auto_run_current": 0,
+        "recovery_plan_auto_run_stop_reason": "verification_inconsistency",
+        "recovery_plan_auto_run_stop_summary": "registered observations conflict with completion evidence",
+        "recovery_plan_auto_runs": 2,
+        "recovery_plan_auto_runs_used": 0,
+        "schema_version": "1"
+      },
+      "terminal": {
+        "final_acceptance_status": "not_checked",
+        "status": "failed",
+        "task_status": "failed"
+      }
+    },
+    {
+      "audit": {
+        "control_after_observation_sha256": "44bb51b6fca242a2bb045e5163fbcc6e9f1046506fcad2eee0e00a541ba2c9a8",
+        "control_audited": true,
+        "control_before_sha256": "44bb51b6fca242a2bb045e5163fbcc6e9f1046506fcad2eee0e00a541ba2c9a8",
+        "control_retained": true,
+        "control_status": "unchanged",
+        "event": "recovery_preflight_control_audit",
+        "isolated_outcome": "unavailable",
+        "isolated_reason": "nextjs_interaction_observation_unavailable:No such file or directory (os error 2)",
+        "observation_id": ".commandagent/recovery-boundaries/attempt-0/workspace",
+        "observation_isolated": true,
+        "restore_invoked": false,
+        "restore_succeeded": false,
+        "schema_version": "1"
+      },
+      "case": "unrelated-api",
+      "final": {
+        "assurance": "partial",
+        "external_contract_ok": false,
+        "reason": "weak_verification_evidence:non_implementation_obligation_only:scaffold,non_implementation_obligation_only:setup,non_implementation_obligation_only:style",
+        "release_gate": "failed",
+        "release_gate_reasons": [
+          "weak_verification_evidence:non_implementation_obligation_only:scaffold",
+          "browser_interaction_evidence_required:issue485_scripted_interaction_unavailable"
+        ],
+        "runtime_acceptance_passed": false,
+        "status": "incomplete"
+      },
+      "kind": "scripted transport; production decisions",
+      "preflight": "Unavailable { reason: \"nextjs_interaction_observation_unavailable:No such file or directory (os error 2)\" }",
+      "runtime_acceptance": {
+        "evidence_tiers": {
+          "build_command_or_dependency_missing_boundary": "strong",
+          "implementation_artifact": "strong",
+          "interactive_ui_source_evidence": "strong",
+          "nextjs_route_evidence": "strong",
+          "non_static_screen_evidence": "strong",
+          "stateful_update_evidence": "strong",
+          "user_input_handler_evidence": "strong",
+          "visible_interactive_surface_evidence": "strong"
+        },
+        "missing_capabilities": [],
+        "missing_evidence": [],
+        "missing_obligations": [],
+        "page_role": "scaffold",
+        "passed": false
+      },
+      "terminal": {
+        "command_status": "failed",
+        "completion_status": "incomplete",
+        "task_status": "failed"
+      },
+      "verification_report_passed": false
+    }
+  ]
+}

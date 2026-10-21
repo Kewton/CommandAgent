@@ -1,0 +1,135 @@
+{
+  "campaign": "commandagent-capability-0905-vkR3MS",
+  "r0_phases": [
+    {
+      "phase_id": "project-setup",
+      "ok": true
+    },
+    {
+      "phase_id": "core-implementation",
+      "ok": true
+    },
+    {
+      "phase_id": "contract-wiring",
+      "ok": true
+    },
+    {
+      "phase_id": "build-verification",
+      "ok": true
+    }
+  ],
+  "cases": [
+    {
+      "run": "R0",
+      "line": 232,
+      "primary_reason": "weak_verification_evidence:artifact_only_verify:test -f 'package.json'",
+      "historical_target": "package_config",
+      "profile_failures": [
+        "weak_verification_evidence:artifact_only_verify:test -f 'package.json'",
+        "repair guidance: test -f 'package.json'",
+        "repair guidance: test -f 'postcss.config.js'",
+        "repair guidance: test -f 'src/app/global.d.ts'",
+        "repair guidance: test -f 'src/app/globals.css'",
+        "repair guidance: test -f 'src/app/layout.tsx'",
+        "repair guidance: test -f 'src/app/page.tsx'",
+        "repair guidance: test -f 'tailwind.config.ts'",
+        "repair guidance: test -f 'tsconfig.json'",
+        "weak_verification_evidence:artifact_only_verify:test -f 'package.json',artifact_only_verify:test -f 'postcss.config.js',artifact_only_verify:test -f 'src/app/global.d.ts',artifact_only_verify:test -f 'src/app/globals.css',artifact_only_verify:test -f 'src/app/layout.tsx',artifact_only_verify:test -f 'src/app/page.tsx',artifact_only_verify:test -f 'tailwind.config.ts',artifact_only_verify:test -f 'tsconfig.json'",
+        "external contract failed: weak_verification_evidence:artifact_only_verify:test -f 'package.json',artifact_only_verify:test -f 'postcss.config.js',artifact_only_verify:test -f 'src/app/global.d.ts',artifact_only_verify:test -f 'src/app/globals.css',artifact_only_verify:test -f 'src/app/layout.tsx',artifact_only_verify:test -f 'src/app/page.tsx',artifact_only_verify:test -f 'tailwind.config.ts',artifact_only_verify:test -f 'tsconfig.json'",
+        "release gate failed: weak_verification_evidence:artifact_only_verify:test -f 'package.json'",
+        "browser readiness status: passed",
+        "interaction evidence status: passed"
+      ],
+      "expected_target": "required_evidence_missing"
+    },
+    {
+      "run": "S3",
+      "line": 347,
+      "primary_reason": "weak_verification_evidence:artifact_only_verify:test -f 'package.json'",
+      "historical_target": "package_config",
+      "profile_failures": [
+        "weak_verification_evidence:artifact_only_verify:test -f 'package.json'",
+        "repair guidance: test -f 'package.json'",
+        "repair guidance: test -f 'postcss.config.js'",
+        "repair guidance: test -f 'src/app/global.d.ts'",
+        "repair guidance: test -f 'src/app/globals.css'",
+        "repair guidance: test -f 'src/app/layout.tsx'",
+        "repair guidance: test -f 'src/app/page.tsx'",
+        "repair guidance: test -f 'tailwind.config.ts'",
+        "repair guidance: test -f 'tsconfig.json'",
+        "repair guidance: test -f src/app/api/shifts/route.ts",
+        "repair guidance: test -f src/app/api/staff/route.ts",
+        "repair guidance: test -f src/app/page.tsx",
+        "repair guidance: test -f src/lib/storage.ts",
+        "repair guidance: test -f src/lib/types.ts",
+        "repair guidance: test -f src/lib/validation.ts",
+        "repair guidance: scaffold",
+        "repair guidance: setup",
+        "repair guidance: style",
+        "weak_verification_evidence:artifact_only_verify:test -f 'package.json',artifact_only_verify:test -f 'postcss.config.js',artifact_only_verify:test -f 'src/app/global.d.ts',artifact_only_verify:test -f 'src/app/globals.css',artifact_only_verify:test -f 'src/app/layout.tsx',artifact_only_verify:test -f 'src/app/page.tsx',artifact_only_verify:test -f 'tailwind.config.ts',artifact_only_verify:test -f 'tsconfig.json',artifact_only_verify:test -f src/app/api/shifts/route.ts,artifact_only_verify:test -f src/app/api/staff/route.ts,artifact_only_verify:test -f src/app/page.tsx,artifact_only_verify:test -f src/lib/storage.ts,artifact_only_verify:test -f src/lib/types.ts,artifact_only_verify:test -f src/lib/validation.ts,non_implementation_obligation_only:scaffold,non_implementation_obligation_only:setup,non_implementation_obligation_only:style",
+        "external contract failed: weak_verification_evidence:artifact_only_verify:test -f 'package.json',artifact_only_verify:test -f 'postcss.config.js',artifact_only_verify:test -f 'src/app/global.d.ts',artifact_only_verify:test -f 'src/app/globals.css',artifact_only_verify:test -f 'src/app/layout.tsx',artifact_only_verify:test -f 'src/app/page.tsx',artifact_only_verify:test -f 'tailwind.config.ts',artifact_only_verify:test -f 'tsconfig.json',artifact_only_verify:test -f src/app/api/shifts/route.ts,artifact_only_verify:test -f src/app/api/staff/route.ts,artifact_only_verify:test -f src/app/page.tsx,artifact_only_verify:test -f src/lib/storage.ts,artifact_only_verify:test -f src/lib/types.ts,artifact_only_verify:test -f src/lib/validation.ts,non_implementation_obligation_only:scaffold,non_implementation_obligation_only:setup,non_implementation_obligation_only:style",
+        "release gate failed: weak_verification_evidence:artifact_only_verify:test -f 'package.json'; browser_interaction_failed:persistence_not_evaluated:no_mutation_observed",
+        "browser readiness status: passed",
+        "interaction evidence status: failed:persistence_not_evaluated:no_mutation_observed"
+      ],
+      "expected_target": "implementation"
+    },
+    {
+      "run": "E3",
+      "line": 364,
+      "primary_reason": "weak_verification_evidence:artifact_only_verify:test -f 'package.json'",
+      "historical_target": "package_config",
+      "profile_failures": [
+        "weak_verification_evidence:artifact_only_verify:test -f 'package.json'",
+        "repair guidance: test -f 'package.json'",
+        "repair guidance: test -f 'postcss.config.js'",
+        "repair guidance: test -f 'src/app/global.d.ts'",
+        "repair guidance: test -f 'src/app/globals.css'",
+        "repair guidance: test -f 'src/app/layout.tsx'",
+        "repair guidance: test -f 'src/app/page.tsx'",
+        "repair guidance: test -f 'tailwind.config.ts'",
+        "repair guidance: test -f 'tsconfig.json'",
+        "repair guidance: test -f src/app/api/departments/route.ts",
+        "repair guidance: test -f src/app/page.tsx",
+        "repair guidance: test -f src/lib/db.ts",
+        "repair guidance: scaffold",
+        "repair guidance: setup",
+        "repair guidance: style",
+        "weak_verification_evidence:artifact_only_verify:test -f 'package.json',artifact_only_verify:test -f 'postcss.config.js',artifact_only_verify:test -f 'src/app/global.d.ts',artifact_only_verify:test -f 'src/app/globals.css',artifact_only_verify:test -f 'src/app/layout.tsx',artifact_only_verify:test -f 'src/app/page.tsx',artifact_only_verify:test -f 'tailwind.config.ts',artifact_only_verify:test -f 'tsconfig.json',artifact_only_verify:test -f src/app/api/departments/route.ts,artifact_only_verify:test -f src/app/page.tsx,artifact_only_verify:test -f src/lib/db.ts,non_implementation_obligation_only:scaffold,non_implementation_obligation_only:setup,non_implementation_obligation_only:style",
+        "external contract failed: weak_verification_evidence:artifact_only_verify:test -f 'package.json',artifact_only_verify:test -f 'postcss.config.js',artifact_only_verify:test -f 'src/app/global.d.ts',artifact_only_verify:test -f 'src/app/globals.css',artifact_only_verify:test -f 'src/app/layout.tsx',artifact_only_verify:test -f 'src/app/page.tsx',artifact_only_verify:test -f 'tailwind.config.ts',artifact_only_verify:test -f 'tsconfig.json',artifact_only_verify:test -f src/app/api/departments/route.ts,artifact_only_verify:test -f src/app/page.tsx,artifact_only_verify:test -f src/lib/db.ts,non_implementation_obligation_only:scaffold,non_implementation_obligation_only:setup,non_implementation_obligation_only:style",
+        "release gate failed: weak_verification_evidence:artifact_only_verify:test -f 'package.json'; browser_interaction_failed:persistence_not_evaluated:no_mutation_observed",
+        "browser readiness status: passed",
+        "interaction evidence status: failed:persistence_not_evaluated:no_mutation_observed"
+      ],
+      "expected_target": "implementation"
+    },
+    {
+      "run": "E3",
+      "line": 1125,
+      "primary_reason": "missing_required_evidence:stateful_update_evidence",
+      "historical_target": "package_config",
+      "profile_failures": [
+        "missing_required_evidence:stateful_update_evidence",
+        "repair guidance: mutate application state over time or in response to input",
+        "repair guidance: wire keyboard, pointer, click, touch, or form handlers to gameplay state changes",
+        "repair guidance: test -f 'package.json'",
+        "repair guidance: test -f 'postcss.config.js'",
+        "repair guidance: test -f 'src/app/global.d.ts'",
+        "repair guidance: test -f 'src/app/globals.css'",
+        "repair guidance: test -f 'src/app/layout.tsx'",
+        "repair guidance: test -f 'src/app/page.tsx'",
+        "repair guidance: test -f 'tailwind.config.ts'",
+        "repair guidance: test -f 'tsconfig.json'",
+        "repair guidance: test -f src/app/api/departments/route.ts",
+        "repair guidance: test -f src/app/page.tsx",
+        "repair guidance: test -f src/lib/db.ts",
+        "weak_verification_evidence:artifact_only_verify:test -f 'package.json',artifact_only_verify:test -f 'postcss.config.js',artifact_only_verify:test -f 'src/app/global.d.ts',artifact_only_verify:test -f 'src/app/globals.css',artifact_only_verify:test -f 'src/app/layout.tsx',artifact_only_verify:test -f 'src/app/page.tsx',artifact_only_verify:test -f 'tailwind.config.ts',artifact_only_verify:test -f 'tsconfig.json',artifact_only_verify:test -f src/app/api/departments/route.ts,artifact_only_verify:test -f src/app/page.tsx,artifact_only_verify:test -f src/lib/db.ts",
+        "external contract failed: weak_verification_evidence:artifact_only_verify:test -f 'package.json',artifact_only_verify:test -f 'postcss.config.js',artifact_only_verify:test -f 'src/app/global.d.ts',artifact_only_verify:test -f 'src/app/globals.css',artifact_only_verify:test -f 'src/app/layout.tsx',artifact_only_verify:test -f 'src/app/page.tsx',artifact_only_verify:test -f 'tailwind.config.ts',artifact_only_verify:test -f 'tsconfig.json',artifact_only_verify:test -f src/app/api/departments/route.ts,artifact_only_verify:test -f src/app/page.tsx,artifact_only_verify:test -f src/lib/db.ts",
+        "release gate failed: missing_required_evidence:stateful_update_evidence; browser_interaction_failed:persistence_not_evaluated:no_mutation_observed",
+        "browser readiness status: passed",
+        "interaction evidence status: failed:persistence_not_evaluated:no_mutation_observed"
+      ],
+      "expected_target": "implementation"
+    }
+  ]
+}

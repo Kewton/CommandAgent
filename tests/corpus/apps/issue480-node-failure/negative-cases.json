@@ -1,0 +1,62 @@
+[
+  {
+    "id": "unknown",
+    "source": "throw new Error('unknown')",
+    "execution_passes": false
+  },
+  {
+    "id": "literal-only",
+    "source": "const note=\"data-anvil-state readFileSync('src/app/page.tsx')\";throw new Error('missing state')",
+    "execution_passes": false
+  },
+  {
+    "id": "printed-only",
+    "source": "console.error('Error: missing state');process.exit(1)",
+    "execution_passes": false
+  },
+  {
+    "id": "printed-stack",
+    "source": "console.error('Error: missing state\\n    at [eval]:1:7');process.exit(1)",
+    "execution_passes": false
+  },
+  {
+    "id": "silent-exit",
+    "source": "/*data-anvil-state src/app/page.tsx*/process.exit(1)",
+    "execution_passes": false
+  },
+  {
+    "id": "swallowed",
+    "source": "try{const fs=require('fs');const s=fs.readFileSync('src/app/page.tsx','utf8');if(!s.includes('data-anvil-state'))throw new Error('missing state');console.log('ok')}catch(error){}",
+    "execution_passes": true
+  },
+  {
+    "id": "swallowed-then-exit",
+    "source": "try{const fs=require('fs');const s=fs.readFileSync('src/app/page.tsx','utf8');if(!s.includes('data-anvil-state'))throw new Error('missing state');console.log('ok')}catch(error){}process.exit(1)",
+    "execution_passes": false
+  },
+  {
+    "id": "removed-check",
+    "source": "const fs=require('fs');const s=fs.readFileSync('src/app/page.tsx','utf8');console.log('ok')",
+    "execution_passes": true
+  },
+  {
+    "id": "different-read",
+    "source": "const fs=require('fs');const s=fs.readFileSync('src/app/page.tsx','utf8');const other=fs.readFileSync('src/components/Other.tsx','utf8');if(!other.includes('data-anvil-state'))throw new Error('missing state')",
+    "execution_passes": false
+  },
+  {
+    "id": "namespace-literal",
+    "source": "import('./src/lib/module.mjs').then(actual=>{require('node:assert/strict').deepStrictEqual(Object.keys(actual).sort(),[\"data-anvil-state\"])})",
+    "execution_passes": false
+  },
+  {
+    "id": "module-evaluation",
+    "source": "import('./src/lib/broken.mjs').then(actual=>{require('node:assert/strict').deepStrictEqual(Object.keys(actual).sort(),[\"data-anvil-state\"])})",
+    "execution_passes": false
+  },
+  {
+    "id": "genuine-test",
+    "source": "const assert=require('node:assert/strict');assert.strictEqual(1+1,3)",
+    "execution_passes": false
+  }
+]

@@ -1,0 +1,851 @@
+{
+  "schema": "commandagent.providerless-cli-cases/v1",
+  "manifest": {
+    "total": 35,
+    "counts": {
+      "doctor": 35
+    },
+    "ids": {
+      "doctor": [
+        "BB-DOC-001",
+        "BB-DOC-002",
+        "BB-DOC-003",
+        "BB-DOC-004",
+        "BB-DOC-005",
+        "BB-DOC-006",
+        "BB-DOC-007",
+        "BB-DOC-008",
+        "BB-DOC-009",
+        "BB-DOC-010",
+        "BB-DOC-011",
+        "BB-DOC-012",
+        "BB-DOC-013",
+        "BB-DOC-014",
+        "BB-DOC-015",
+        "BB-DOC-016",
+        "BB-DOC-017",
+        "BB-DOC-018",
+        "BB-DOC-019",
+        "BB-DOC-020",
+        "BB-DOC-021",
+        "BB-DOC-022",
+        "BB-DOC-023",
+        "BB-DOC-024",
+        "BB-DOC-025",
+        "BB-DOC-026",
+        "BB-DOC-027",
+        "BB-DOC-028",
+        "BB-DOC-029",
+        "BB-DOC-030",
+        "BB-DOC-031",
+        "BB-DOC-032",
+        "BB-DOC-033",
+        "BB-DOC-034",
+        "BB-DOC-035"
+      ]
+    },
+    "pending_adjudication": []
+  },
+  "cases": [
+    {
+      "id": "BB-DOC-001",
+      "area": "doctor",
+      "purpose": "Doctor with unreachable Ollama fails honestly with non-zero exit",
+      "source": "docs/guide/ja/cli-reference.md#フラグ一覧",
+      "setup": [],
+      "command": "\"$BIN\" --doctor --ollama-host \"$OLLAMA_UNREACHABLE\" </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": "nonzero",
+        "stdout_contains": [
+          "CommandAgent doctor: failed",
+          "✗ Ollama"
+        ],
+        "stderr_contains": [
+          "doctor found failed checks"
+        ],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    },
+    {
+      "id": "BB-DOC-002",
+      "area": "doctor",
+      "purpose": "doctor --json emits parseable JSON with checks and a fail status",
+      "source": "docs/user/getting-started-cli.md#4-run-the-offline-doctor",
+      "setup": [],
+      "command": "\"$BIN\" --doctor --json --ollama-host \"$OLLAMA_UNREACHABLE\" </dev/null >\"$T/d.json\" 2>\"$T/d.err\"; rc=$?\ncat \"$T/d.json\" \"$T/d.err\"\njq -e '.status == \"fail\" and (.checks|length) > 0' \"$T/d.json\" >/dev/null && echo JSON_OK\nexit $rc",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": "nonzero",
+        "stdout_contains": [
+          "JSON_OK"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    },
+    {
+      "id": "BB-DOC-003",
+      "area": "doctor",
+      "purpose": "doctor connects to the configured host (loopback mock receives a connection)",
+      "source": "docs/guide/ja/cli-reference.md#フラグ一覧",
+      "setup": [
+        "exec 3< <(python3 -I -c '\nimport os, signal, socket, sys\n\nhits = 0\n\ndef stop(*_):\n    raise SystemExit\n\nsignal.signal(signal.SIGTERM, stop)\nserver = socket.socket()\nserver.bind((\"127.0.0.1\", 0))\nserver.listen(8)\nserver.settimeout(float(sys.argv[1]))\nprint(server.getsockname()[1], os.getpid(), flush=True)\ntry:\n    while True:\n        conn, _ = server.accept()\n        hits += 1\n        conn.close()\n        print(\"hit\", flush=True)\nexcept (SystemExit, socket.timeout):\n    pass\nfinally:\n    print(\"hits=%d\" % hits, flush=True)\n' 30)\nread -r -t 20 -u 3 PORT MPID || { echo MOCK_NOT_READY; exit 1; }"
+      ],
+      "command": "\"$BIN\" --doctor --ollama-host \"http://127.0.0.1:$PORT\" </dev/null >\"$T/d.out\" 2>&1; echo doctor_rc=$?\nread -r -t 20 -u 3 HIT || echo MOCK_NO_HIT\nkill -TERM \"$MPID\"\nread -r -t 20 -u 3 REPORT || echo MOCK_NO_REPORT\nread -r -t 20 -u 3 _ || true\necho \"$REPORT\"\ncat \"$T/d.out\"",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "doctor_rc=1",
+          "hits=",
+          "CommandAgent doctor: failed",
+          "✗ Ollama",
+          "/api/tags unreachable",
+          "doctor found failed checks"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at",
+          "hits=0",
+          "MOCK_NOT_READY",
+          "MOCK_NO_HIT",
+          "MOCK_NO_REPORT"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      },
+      "note": "Audit expectation (doctor makes no network request) is obsolete: cli-reference.md:70 says --doctor checks the provider host. The case now expects a connection to a case-owned loopback mock (OS-assigned port, ready line, deadline, stopped and collected before the case ends); the mock closes the connection, so the Ollama check fails and doctor exits 1."
+    },
+    {
+      "id": "BB-DOC-004",
+      "area": "doctor",
+      "purpose": "Doctor reports the missing state directory",
+      "source": "robustness",
+      "setup": [],
+      "command": "rm -rf \"$XDG_STATE_HOME/commandagent\"; \"$BIN\" --doctor --ollama-host \"$OLLAMA_UNREACHABLE\" </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": "nonzero",
+        "stdout_contains": [
+          "✗ State directory"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    },
+    {
+      "id": "BB-DOC-005",
+      "area": "doctor",
+      "purpose": "Doctor shows the missing OpenAI key exactly",
+      "source": "docs/guide/ja/troubleshooting.md#gemini_api_key-is-not-set",
+      "setup": [],
+      "command": "\"$BIN\" --provider openai --model gpt-5.6-luna --doctor </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": "nonzero",
+        "stdout_contains": [
+          "OPENAI_API_KEY is not set"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    },
+    {
+      "id": "BB-DOC-006",
+      "area": "doctor",
+      "purpose": "Ambiguous OpenAI alias gpt-5.6 is rejected before dispatch",
+      "source": "docs/guide/ja/troubleshooting.md#model-id-が存在しない",
+      "setup": [],
+      "command": "\"$BIN\" --provider openai --model gpt-5.6 --doctor </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": "nonzero",
+        "stdout_contains": [
+          "gpt-5.6",
+          "✗ Configuration"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    },
+    {
+      "id": "BB-DOC-007",
+      "area": "doctor",
+      "purpose": "Invented Terra suffix -latest is rejected",
+      "source": "docs/guide/ja/providers.md#openai-モデルid",
+      "setup": [],
+      "command": "\"$BIN\" --provider openai --model gpt-5.6-terra-latest --doctor </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": "nonzero",
+        "stdout_contains": [
+          "gpt-5.6-terra-latest",
+          "✗ Configuration"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    },
+    {
+      "id": "BB-DOC-008",
+      "area": "doctor",
+      "purpose": "Doctor flags --think with no Ollama role",
+      "source": "docs/guide/ja/providers.md#ollama-thinking",
+      "setup": [],
+      "command": "\"$BIN\" --think --provider openai --planner-provider openai --planner-model x --model gpt-5.6-luna --doctor </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": "nonzero",
+        "stdout_contains": [
+          "--think requires"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    },
+    {
+      "id": "BB-DOC-009",
+      "area": "doctor",
+      "purpose": "Doctor flags a differing planner provider without planner model",
+      "source": "docs/guide/ja/cli-reference.md#排他関係と組み合わせ",
+      "setup": [],
+      "command": "\"$BIN\" --planner-provider openai --doctor --ollama-host \"$OLLAMA_UNREACHABLE\" </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": "nonzero",
+        "stdout_contains": [
+          "--planner-model is required"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    },
+    {
+      "id": "BB-DOC-010",
+      "area": "doctor",
+      "purpose": "Doctor shows Ollama num_ctx equal to context budget",
+      "source": "docs/guide/ja/providers.md#ollama-のホストとモデル",
+      "setup": [],
+      "command": "\"$BIN\" --context-budget 4096 --doctor --ollama-host \"$OLLAMA_UNREACHABLE\" </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": "nonzero",
+        "stdout_contains": [
+          "4096 tokens (source=CLI",
+          "num_ctx=4096"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    },
+    {
+      "id": "BB-DOC-011",
+      "area": "doctor",
+      "purpose": "Doctor shows preset source for preset-resolved fields",
+      "source": "docs/guide/ja/configuration.md#実効設定の確認",
+      "setup": [
+        "mkdir -p .commandagent && printf '[preset.p]\\nmodel = \\\"pm\\\"\\n' > .commandagent/config.toml"
+      ],
+      "command": "\"$BIN\" --preset p --doctor --ollama-host \"$OLLAMA_UNREACHABLE\" </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": "nonzero",
+        "stdout_contains": [
+          "preset:p"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    },
+    {
+      "id": "BB-DOC-012",
+      "area": "doctor",
+      "purpose": "--extensions without a root fails clearly",
+      "source": "docs/guide/ja/cli-reference.md#排他関係と組み合わせ",
+      "setup": [],
+      "command": "\"$BIN\" --extensions </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": "nonzero",
+        "stdout_contains": [],
+        "stderr_contains": [
+          "--extensions requires --extension-root"
+        ],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    },
+    {
+      "id": "BB-DOC-013",
+      "area": "doctor",
+      "purpose": "--extensions on an empty root succeeds",
+      "source": "docs/guide/ja/cli-reference.md#フラグ一覧",
+      "setup": [
+        "mkdir -p \"$T/ext\""
+      ],
+      "command": "\"$BIN\" --extensions --extension-root \"$T/ext\" </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": 0,
+        "stdout_contains": [],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    },
+    {
+      "id": "BB-DOC-014",
+      "area": "doctor",
+      "purpose": "--extensions --json on an empty root is valid JSON",
+      "source": "docs/guide/ja/cli-reference.md#排他関係と組み合わせ",
+      "setup": [
+        "mkdir -p \"$T/ext\""
+      ],
+      "command": "\"$BIN\" --extensions --json --extension-root \"$T/ext\" </dev/null > \"$T/e.json\"; rc=$?; jq -e . \"$T/e.json\" >/dev/null && echo EXT_JSON_OK; exit $rc",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "EXT_JSON_OK"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    },
+    {
+      "id": "BB-DOC-015",
+      "area": "doctor",
+      "purpose": "--extensions resolves top-level extension_root from config",
+      "source": "docs/guide/ja/cli-reference.md#排他関係と組み合わせ",
+      "setup": [
+        "mkdir -p ext",
+        "mkdir -p .commandagent && printf 'extension_root = \\\"ext\\\"\\n' > .commandagent/config.toml"
+      ],
+      "command": "\"$BIN\" --extensions </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": 0,
+        "stdout_contains": [],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    },
+    {
+      "id": "BB-DOC-016",
+      "area": "doctor",
+      "purpose": "--init-profile creates a draft manifest that validates",
+      "source": "docs/guide/ja/cli-reference.md#排他関係と組み合わせ",
+      "setup": [
+        "mkdir -p \"$T/ext\""
+      ],
+      "command": "\"$BIN\" --init-profile demo --extension-root \"$T/ext\" </dev/null && \"$BIN\" --validate-manifest \"$T/ext/profiles/demo/manifest.toml\" </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "created profile manifest",
+          "valid external profile manifest"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [
+          "$T/ext/profiles/demo/manifest.toml"
+        ],
+        "files_absent": []
+      }
+    },
+    {
+      "id": "BB-DOC-017",
+      "area": "doctor",
+      "purpose": "--init-profile rejects a path-traversal id and writes nothing outside the root",
+      "source": "robustness",
+      "setup": [
+        "mkdir -p \"$T/ext\""
+      ],
+      "command": "\"$BIN\" --init-profile ../evil --extension-root \"$T/ext\" </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": "nonzero",
+        "stdout_contains": [],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": [
+          "$T/evil",
+          "$T/ext/evil"
+        ]
+      },
+      "note": "the audit's $T/ext/profiles/../evil is written in its normalized form $T/ext/evil because file checks may not contain .."
+    },
+    {
+      "id": "BB-DOC-018",
+      "area": "doctor",
+      "purpose": "--validate-manifest reports file, line, and column once for invalid TOML",
+      "source": "docs/guide/ja/cli-reference.md#排他関係と組み合わせ",
+      "setup": [
+        "printf 'id = \\n' > bad.toml"
+      ],
+      "command": "\"$BIN\" --validate-manifest bad.toml </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": "nonzero",
+        "stdout_contains": [],
+        "stderr_contains": [
+          "bad.toml:1:"
+        ],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    },
+    {
+      "id": "BB-DOC-019",
+      "area": "doctor",
+      "purpose": "--validate-plan reports line and column for invalid YAML",
+      "source": "docs/guide/ja/plan-yaml.md",
+      "setup": [
+        "printf 'goal: x\\nsteps: [\\n' > bad.yaml"
+      ],
+      "command": "\"$BIN\" --validate-plan bad.yaml </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": "nonzero",
+        "stdout_contains": [],
+        "stderr_contains": [
+          "bad.yaml:3:"
+        ],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    },
+    {
+      "id": "BB-DOC-020",
+      "area": "doctor",
+      "purpose": "--pack-pin on an empty directory fails and writes no pin",
+      "source": "docs/guide/ja/cli-reference.md#フラグ一覧",
+      "setup": [
+        "mkdir -p \"$T/pk\""
+      ],
+      "command": "\"$BIN\" --pack-pin \"$T/pk\" </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": "nonzero",
+        "stdout_contains": [],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": [
+          "$T/pk/pack.sha256"
+        ]
+      }
+    },
+    {
+      "id": "BB-DOC-021",
+      "area": "doctor",
+      "purpose": "--packs lists admitted packs with the documented columns",
+      "source": "docs/user/getting-started-cli.md#6-compare-one-pack-variable-at-a-time",
+      "setup": [],
+      "command": "\"$BIN\" --packs --profile python-cli --intent create </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "PACK\tHASH\tSOURCE",
+          "cli-assist@1.1.0"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    },
+    {
+      "id": "BB-DOC-022",
+      "area": "doctor",
+      "purpose": "--runs on an empty workspace",
+      "source": "docs/guide/ja/cli-reference.md#フラグ一覧",
+      "setup": [],
+      "command": "\"$BIN\" --runs </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "No runs found for this workspace."
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    },
+    {
+      "id": "BB-DOC-023",
+      "area": "doctor",
+      "purpose": "--runs --json has the runs schema",
+      "source": "docs/guide/ja/cli-reference.md#フラグ一覧",
+      "setup": [],
+      "command": "\"$BIN\" --runs --json </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "\"schema_version\": \"commandagent.runs/v1\"",
+          "\"total\": 0"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    },
+    {
+      "id": "BB-DOC-024",
+      "area": "doctor",
+      "purpose": "--runs with an unknown ID fails",
+      "source": "docs/guide/ja/cli-reference.md#フラグ一覧",
+      "setup": [],
+      "command": "\"$BIN\" --runs nosuch </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": "nonzero",
+        "stdout_contains": [],
+        "stderr_contains": [
+          "run 'nosuch' was not found"
+        ],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    },
+    {
+      "id": "BB-DOC-025",
+      "area": "doctor",
+      "purpose": "--runs does not create a run record",
+      "source": "docs/guide/ja/cli-reference.md#フラグ一覧",
+      "setup": [],
+      "command": "\"$BIN\" --runs </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": 0,
+        "stdout_contains": [],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": [
+          "$T/ws/.commandagent/runs"
+        ]
+      }
+    },
+    {
+      "id": "BB-DOC-026",
+      "area": "doctor",
+      "purpose": "--summary-json with --runs on an empty workspace prints only the no-runs line",
+      "source": "docs/user/headless.md#json-schema",
+      "setup": [],
+      "command": "out=$(\"$BIN\" --summary-json --runs </dev/null); rc=$?; printf \"%s\\n\" \"$out\"; if [ \"$out\" = \"No runs found for this workspace.\" ]; then echo ONLY_NO_RUNS_LINE; fi; exit $rc",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "No runs found for this workspace.",
+          "ONLY_NO_RUNS_LINE"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at",
+          "headless-summary",
+          "events_path"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      },
+      "note": "Audit expectation (a summary line whose events_path exists) is obsolete: headless.md:14-17 writes a --runs summary only for a pack; tests/issue521_direct_actions.rs::summary_json_is_projected_for_failed_runs_but_not_for_ux_demo_or_empty_runs asserts stdout is only the no-runs line."
+    },
+    {
+      "id": "BB-DOC-027",
+      "area": "doctor",
+      "purpose": "--ux-demo runs offline and exits 0",
+      "source": "README.ja.md",
+      "setup": [],
+      "command": "\"$BIN\" --ux-demo </dev/null",
+      "timeout_sec": 120,
+      "expected": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "Terminal summary"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    },
+    {
+      "id": "BB-DOC-028",
+      "area": "doctor",
+      "purpose": "--ux-demo --summary-json prints the terminal summary and no summary JSON",
+      "source": "docs/user/headless.md#json-schema",
+      "setup": [],
+      "command": "\"$BIN\" --ux-demo --summary-json </dev/null > \"$T/u.txt\"; rc=$?\nif tail -n 1 \"$T/u.txt\" | jq -e . >/dev/null 2>&1; then echo SUMMARY_JSON_PRESENT; else echo NO_SUMMARY_JSON; fi\ncat \"$T/u.txt\"\nexit $rc",
+      "timeout_sec": 120,
+      "expected": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "NO_SUMMARY_JSON",
+          "### Terminal summary",
+          "- Status: interrupted",
+          "| task_status | interrupted |",
+          "- Next action: resume_or_rerun_command"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at",
+          "SUMMARY_JSON_PRESENT",
+          "headless-summary"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      },
+      "note": "Audit expectation (final line is the v1 summary object) is obsolete: headless.md:14-15 says --ux-demo never writes a summary; tests/headless_summary.rs::ux_demo_summary_json_is_suppressed_without_recording_a_run."
+    },
+    {
+      "id": "BB-DOC-029",
+      "area": "doctor",
+      "purpose": "--ux-demo --summary-json shows the human status and no summary JSON",
+      "source": "docs/user/headless.md#json-schema",
+      "setup": [],
+      "command": "\"$BIN\" --ux-demo --summary-json </dev/null > \"$T/u.txt\"; rc=$?\nhuman=$(grep -o \"Status: [a-z]*\" \"$T/u.txt\" | tail -n 1 | cut -d\" \" -f2); echo \"human=$human\"\nif tail -n 1 \"$T/u.txt\" | jq -e . >/dev/null 2>&1; then echo SUMMARY_JSON_PRESENT; else echo NO_SUMMARY_JSON; fi\necho \"last=$(tail -n 1 \"$T/u.txt\")\"\nexit $rc",
+      "timeout_sec": 120,
+      "expected": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "human=interrupted",
+          "NO_SUMMARY_JSON"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at",
+          "SUMMARY_JSON_PRESENT",
+          "headless-summary"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      },
+      "note": "Audit expectation (JSON status agrees with the human status) is obsolete: headless.md:14-15 says --ux-demo never writes a summary; the human summary still reports Status: interrupted (tests/issue521_direct_actions.rs::ux_demo_prints_the_scripted_interruption_without_recording_a_run)."
+    },
+    {
+      "id": "BB-DOC-030",
+      "area": "doctor",
+      "purpose": "--runs lists a failed run recorded by --run-plan and --events --filter phase reads it",
+      "source": "docs/guide/ja/cli-reference.md#フラグ一覧",
+      "setup": [
+        "printf 'goal: x\\nsteps: [\\n' > bad.yaml"
+      ],
+      "command": "\"$BIN\" --run-plan bad.yaml </dev/null >/dev/null 2>&1; echo \"run_plan_rc=$?\"\nid=$(\"$BIN\" --runs --json </dev/null | jq -r \".runs[0].run_id // .runs[0].id // empty\"); echo \"id=$id\"\n[ -n \"$id\" ] || exit 9\necho \"status=$(\"$BIN\" --runs --json </dev/null | jq -r \".runs[0].status\")\"\n\"$BIN\" --runs \"$id\" --events --filter phase </dev/null",
+      "timeout_sec": 150,
+      "expected": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "run_plan_rc=1",
+          "status=failed",
+          "Events for ",
+          "(filter=phase)"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at",
+          "id=null",
+          "id=\n"
+        ],
+        "files_exist": [
+          "$T/ws/.commandagent/runs"
+        ],
+        "files_absent": []
+      },
+      "note": "Audit premise (--ux-demo leaves a run) is obsolete: --ux-demo records no run (headless.md:14-15). The case now records a failed run with --run-plan on an invalid plan file (no provider started; tests/issue521_direct_actions.rs records failed runs) and checks --runs --json lists it and --events --filter phase reads it."
+    },
+    {
+      "id": "BB-DOC-031",
+      "area": "doctor",
+      "purpose": "--completions bash emits a bash completion function",
+      "source": "docs/guide/ja/cli-reference.md#シェル補完と-man-ページ",
+      "setup": [],
+      "command": "\"$BIN\" --completions bash </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "_clap_complete_commandagent"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    },
+    {
+      "id": "BB-DOC-032",
+      "area": "doctor",
+      "purpose": "--completions zsh emits a compdef",
+      "source": "docs/guide/ja/cli-reference.md#シェル補完と-man-ページ",
+      "setup": [],
+      "command": "\"$BIN\" --completions zsh </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "#compdef commandagent"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    },
+    {
+      "id": "BB-DOC-033",
+      "area": "doctor",
+      "purpose": "Generated bash completion is syntactically valid bash",
+      "source": "docs/guide/ja/cli-reference.md#シェル補完と-man-ページ",
+      "setup": [],
+      "command": "\"$BIN\" --completions bash </dev/null > c.bash && bash -n c.bash && echo BASH_SYNTAX_OK",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "BASH_SYNTAX_OK"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    },
+    {
+      "id": "BB-DOC-034",
+      "area": "doctor",
+      "purpose": "Generated man page mentions every action flag",
+      "source": "docs/guide/ja/cli-reference.md#シェル補完と-man-ページ",
+      "setup": [],
+      "command": "\"$BIN\" --generate-man </dev/null | sed \"s/[\\\\]-/-/g\" > m.txt; for f in extensions packs pack-verify pack-pin workflow prompt plan-steps plan-run run-plan ultra-plan ultra-plan-run run-ultra-plan validate-plan setup-interaction-probe runs ux-demo model-probe doctor completions generate-man init-config validate-manifest init-profile; do grep -qF -- \"--$f\" m.txt || echo \"MISSING $f\"; done; echo MAN_DONE",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "MAN_DONE"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at",
+          "MISSING "
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    },
+    {
+      "id": "BB-DOC-035",
+      "area": "doctor",
+      "purpose": "Generation actions write only to stdout (no files created)",
+      "source": "docs/guide/ja/cli-reference.md#シェル補完と-man-ページ",
+      "setup": [],
+      "command": "\"$BIN\" --generate-man </dev/null >/dev/null; \"$BIN\" --completions zsh </dev/null >/dev/null; ls -A",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": 0,
+        "stdout_contains": [],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at",
+          ".commandagent"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    }
+  ]
+}

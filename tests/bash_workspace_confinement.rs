@@ -97,6 +97,38 @@ fn bash_blocks_outside_symlink_and_file_write_with_event_reasons() {
 }
 
 #[test]
+fn bash_blocks_noclobber_redirect_write_outside_workspace() {
+    let fixture = tempfile::tempdir().unwrap();
+    let root = fixture.path().join("workspace");
+    std::fs::create_dir_all(&root).unwrap();
+    let events = fixture.path().join("events.jsonl");
+
+    let target = std::path::Path::new("/tmp").join(format!(
+        "commandagent-issue-565-{}-{}.txt",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let result = ToolRegistry::default().execute(
+        "Bash",
+        &json!({"command": format!("printf forbidden >| '{}'", target.display())}),
+        &context(&root, &events),
+    );
+    let created = target.exists();
+    let _ = std::fs::remove_file(&target);
+
+    let error = result.unwrap_err();
+    assert_eq!(tool_error_kind(&error), "bash_path_confinement_error");
+    assert!(
+        !created,
+        "the `>|` redirect must not create {}",
+        target.display()
+    );
+}
+
+#[test]
 fn bash_keeps_normal_workspace_commands_and_symlinks_working() {
     let fixture = tempfile::tempdir().unwrap();
     let root = fixture.path().join("workspace");

@@ -1,0 +1,100 @@
+{
+  "issue": 501,
+  "kind": "synthetic-policy-cases",
+  "canary": "H01_CANARY_JwtStyle_NonPrefix_29486",
+  "note": "Synthetic values only. No real .env, API key, model, or provider request is used; the canary is a fake marker written and read inside an isolated temp workspace.",
+  "sensitive_names": [
+    ".env",
+    ".env.local",
+    ".env.production",
+    ".envrc",
+    ".npmrc",
+    ".pypirc",
+    ".netrc",
+    ".git-credentials",
+    ".ssh",
+    ".aws/credentials",
+    ".docker/config.json",
+    ".config/gcloud/application_default_credentials.json",
+    "service-account.json",
+    "app.private.key",
+    "app.private.pem",
+    "cert.p12",
+    "cert.pfx"
+  ],
+  "template_exceptions": [".env.example", ".env.sample", ".env.template"],
+  "rejected_variants": [".env.example.local", ".env.production.example"],
+  "cases": [
+    {"tool": "Read", "target": ".env", "expected": "workspace_policy_blocked"},
+    {"tool": "Read", "target": ".env", "mode": "plan", "expected": "workspace_policy_blocked"},
+    {"tool": "Read", "target": ".env.example", "expected": "allowed"},
+    {"tool": "Glob", "pattern": ".env", "expected": "workspace_policy_blocked"},
+    {"tool": "Glob", "pattern": "**/*", "expected": "secret-excluded"},
+    {"tool": "Grep", "glob": ".env", "expected": "workspace_policy_blocked"},
+    {"tool": "Write", "target": ".env", "expected": "workspace_policy_blocked"},
+    {"tool": "Edit", "target": ".env", "expected": "workspace_policy_blocked"},
+    {"tool": "Write", "target": ".env.example", "expected": "allowed"},
+    {"tool": "Bash", "command": "cat .env", "expected": "workspace_policy_blocked"},
+    {"tool": "Bash", "command": "head -n 1 .env", "expected": "workspace_policy_blocked"},
+    {"tool": "Bash", "command": "cat --file=.env", "expected": "workspace_policy_blocked"},
+    {"tool": "Bash", "command": "cat .env > leaked.txt", "expected": "workspace_policy_blocked"},
+    {"tool": "Bash", "command": "cat .env.example", "expected": "allowed"},
+    {"tool": "MCP", "workspace_path": ".env", "expected": "extension_tool_rejected"},
+    {"tool": "MCP", "workspace_path": "data", "kind": "directory", "expected": "extension_tool_rejected"},
+    {"tool": "argv", "value": ".env", "expected": "workspace_policy_blocked"}
+  ],
+  "template_symlink": {
+    "link": ".env.example",
+    "target": ".env",
+    "expected": "workspace_policy_blocked"
+  },
+  "blocker_regressions": [
+    {
+      "id": "B-01",
+      "case": "parent directory symlink: keys->.ssh, cfg->.aws, docker_cfg->.docker, gcfg->.config/gcloud",
+      "targets": ["keys/id_ed25519", "cfg/credentials", "docker_cfg/config.json", "gcfg/application_default_credentials.json", "keys/new_key"],
+      "tools": ["Read", "Grep", "Write", "Edit", "leaf-Read", "leaf-Write", "leaf-Edit"],
+      "expected": "workspace_policy_blocked",
+      "invariant": "real credential bytes unchanged"
+    },
+    {
+      "id": "B-02",
+      "case": "outside-of-root file and directory symlinks: outside.txt -> ../../outside/.env, outside_dir -> ../../outside",
+      "targets": ["outside.txt", "outside_dir/plain.dat"],
+      "tools": ["Read", "Grep", "Glob", "leaf-Read"],
+      "expected": "path_confinement_error",
+      "broad": "excluded with a workspace policy notice; inward safe symlink stays readable"
+    },
+    {
+      "id": "B-03",
+      "case": "bash broad normalization uses the shared case-insensitive rule and keeps templates; appended suffix is still scanned",
+      "targets": [".ENV", ".Env.local", ".envrc", ".aws/credentials", ".docker/config.json", ".config/gcloud/application_default_credentials.json", ".ssh/id_ed25519"],
+      "command": "grep -r PRIVATE_TOKEN",
+      "expected": "no canary in stdout; grep -r PUBLIC_TEMPLATE still returns .env.example",
+      "appended_suffix": "normalized ls -R prefix + '; head -n 1 .env' -> workspace_policy_blocked"
+    },
+    {
+      "id": "B-04",
+      "case": "explicit compound and alias globs are refused, not an empty success",
+      "targets": [".aws/credentials", ".docker/config.json", ".config/gcloud/application_default_credentials.json", "notes.txt"],
+      "tools": ["Glob", "Grep"],
+      "expected": "workspace_policy_blocked",
+      "broad": "credential/outside entries excluded with a workspace policy notice"
+    }
+  ],
+  "r01_template_directory_regression": {
+    "id": "R-01",
+    "case": "a template-named directory is a protected parent, so broad Bash grep must prune its children",
+    "shared_predicate": "path_is_sensitive(\".env.example/child.txt\") == true (rule=dotenv)",
+    "template_directories": [".env.example", ".env.sample", ".env.template"],
+    "protected_child": "child.txt",
+    "command": "grep -r PRIVATE_TOKEN",
+    "paths": ["registry", "leaf"],
+    "expected": "no canary and no protected template directory name in stdout",
+    "template_files_still_usable": {
+      "files": [".env.example", ".env.sample", ".env.template"],
+      "tools": ["Read", "Write", "Edit", "Glob", "Grep", "direct Bash"],
+      "broad": "grep -r PLACEHOLDER and ls -R still return the three template files"
+    }
+  }
+}

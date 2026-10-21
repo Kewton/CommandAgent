@@ -50,6 +50,7 @@ struct PlanStepTerminal {
     terminal_status: &'static str,
     outcome: &'static str,
     ok: bool,
+    rollback_applied: bool,
     completion_count_delta: usize,
     failed_step_id: Option<String>,
     changed_paths: Vec<String>,
@@ -144,6 +145,7 @@ impl PlanStepEvent {
                 "completed"
             },
             ok: true,
+            rollback_applied: rolled_back,
             completion_count_delta: 1,
             changed_paths: &result.changed_paths,
             verification_status: if rolled_back {
@@ -204,6 +206,7 @@ impl PlanStepEvent {
                 terminal_status: fields.terminal_status,
                 outcome: fields.outcome,
                 ok: fields.ok,
+                rollback_applied: fields.rollback_applied,
                 completion_count_delta: fields.completion_count_delta,
                 failed_step_id: fields.failed.then(|| self.identity.step_id.clone()),
                 changed_paths: bounded_snippets(fields.changed_paths, MAX_CHANGED_PATHS),
@@ -228,6 +231,7 @@ struct TerminalFields<'a> {
     terminal_status: &'static str,
     outcome: &'static str,
     ok: bool,
+    rollback_applied: bool,
     completion_count_delta: usize,
     failed: bool,
     changed_paths: &'a [String],
@@ -243,6 +247,7 @@ impl Default for TerminalFields<'_> {
             terminal_status: "failed",
             outcome: "execution_failed",
             ok: false,
+            rollback_applied: false,
             completion_count_delta: 0,
             failed: false,
             changed_paths: &[],
@@ -333,6 +338,7 @@ mod tests {
             assert_eq!(pair[0]["phase_id"], "implementation");
             assert_eq!(pair[1]["completion_count_delta"], 1);
             assert_eq!(pair[1]["failed_step_id"], Value::Null);
+            assert_eq!(pair[1]["rollback_applied"], false);
         }
         assert_ne!(
             records[0]["step_execution_id"],

@@ -251,7 +251,7 @@ fn write_read_only_json(path: &Path, value: &impl Serialize) -> anyhow::Result<(
     write_read_only_bytes(path, &bytes, "Recovery fix origin")
 }
 
-fn write_read_only_bytes(path: &Path, bytes: &[u8], label: &str) -> anyhow::Result<()> {
+pub(super) fn write_read_only_bytes(path: &Path, bytes: &[u8], label: &str) -> anyhow::Result<()> {
     if path.exists() {
         bail!("{label} already exists");
     }

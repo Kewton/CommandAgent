@@ -1,0 +1,33 @@
+{
+  "ok": true,
+  "status": "passed",
+  "probe_mode": "heuristic",
+  "contract_hook_status": "primary_missing",
+  "action_hooks": [],
+  "state_dimensions_changed": [],
+  "start_transition": true,
+  "input_state_evaluated_after_start": true,
+  "input_state_change": true,
+  "state_changed": true,
+  "visible_state_changed": true,
+  "steps": [
+    "warmup_navigation",
+    "measured_navigation",
+    "surface_visible",
+    "start_transition",
+    "text_entry:not_applicable",
+    "ArrowLeft_keydown_hold",
+    "ArrowRight_keydown_hold",
+    "Space_keydown_hold",
+    "control_input_dispatched",
+    "input_key_hold",
+    "input_state_evaluated_after_start",
+    "input_state_change",
+    "recovery_transition"
+  ],
+  "before_marker": "{\"buttons\":\"Left|Action|Right|Reset\",\"body\":\"INTERACTIVE CHALLENGE SCORE 0 LIVES 3 LIVE Left Action Right Reset\",\"element_count\":72,\"canvases\":[]}",
+  "after_marker": "{\"buttons\":\"Left|Action|Right|Reset\",\"body\":\"INTERACTIVE CHALLENGE SCORE 0 LIVES 3 LIVE Left Action Right Reset\",\"element_count\":73,\"canvases\":[]}",
+  "interaction_performed": true,
+  "input_event_observed": true,
+  "failure_category": ""
+}

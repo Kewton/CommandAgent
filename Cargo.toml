@@ -23,9 +23,10 @@ include = [
 
 [features]
 default = []
-gui = ["dep:axum", "dep:tokio"]
+gui = ["dep:axum", "tokio/fs", "tokio/macros", "tokio/net", "tokio/rt-multi-thread"]
 
 [dependencies]
+aho-corasick = "1"
 anyhow = "1"
 axum = { version = "0.8", optional = true }
 clap = { version = "4", features = ["derive"] }
@@ -40,18 +41,16 @@ reqwest = { version = "0.12", features = ["blocking", "rustls-tls", "json"], def
 rustyline = { version = "14", default-features = false, features = ["custom-bindings", "with-file-history"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
-serde_yaml = "0.9"
+serde_yaml = { package = "yaml_serde", version = "0.10.7" }
 sha2 = "0.10"
 signal-hook = "0.3"
+tempfile = "3"
 thiserror = "2"
-tokio = { version = "1", features = ["fs", "macros", "net", "rt-multi-thread"], optional = true }
+tokio = { version = "1", features = ["rt", "sync", "time"] }
 toml = "0.8"
 unicode-width = "0.1"
 url = "2"
 uuid = { version = "1", default-features = false, features = ["v7", "std", "serde"] }
-
-[dev-dependencies]
-tempfile = "3"
 
 [[bin]]
 name = "gui_server"
@@ -62,3 +61,10 @@ required-features = ["gui"]
 name = "gui_server"
 path = "tests/gui_server.rs"
 required-features = ["gui"]
+
+[target.'cfg(target_os = "linux")'.dependencies]
+landlock = "0.4"
+
+[lints.clippy]
+allow_attributes_without_reason = "deny"
+undocumented_unsafe_blocks = "deny"

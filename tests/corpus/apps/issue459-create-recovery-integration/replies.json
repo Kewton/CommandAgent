@@ -1,0 +1,17 @@
+{
+  "provenance": "Authored deterministic provider replies over the archived create artifact; not recorded live-model success or fabricated execution/evidence results.",
+  "planner_goal": "Recover the project manager",
+  "planner_instruction": "Inspect the API, store and types; repair their contracts and run the registered checks.",
+  "inspection_summary": "The API/store result and error shapes, Member.role, assignment fields and mutex returns disagree. No source change is required during inspection. Repair their shared definitions in the repair phase.",
+  "repair_summary": "Applied the fixture contract repair. Run all registered checks and accept only the measured result.",
+  "no_edit_read": { "path": "src/app/api/projects/[id]/tasks/route.ts", "start_line": 120, "end_line": 145 },
+  "sequence": [
+    "initial create: real verification of the byte-identical generated artifact; Read replies preserve the failed output",
+    "Recovery inspection: return actual host-recommended ranged Reads for each bound inspect step",
+    "first no-edit treatment: Read replies until the production write-required guard stops",
+    "continuation: production capture, validation, finish and fresh control snapshot",
+    "repair treatment: real Edit old/new strings from hash-bound #457 overlays",
+    "verification: actual npm run build tool; additional fixture checks run only when explicitly registered",
+    "final acceptance and finish: no provider-authored outcomes or evidence; assert the actual candidate decision"
+  ]
+}

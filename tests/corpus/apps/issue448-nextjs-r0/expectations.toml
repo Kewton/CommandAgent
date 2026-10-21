@@ -1,0 +1,10 @@
+case_id = "issue448-nextjs-r0"
+source = "20260908-2310-standard10 R0; see provenance.json and reproduction.md"
+required_paths = ["provenance.json", "fixture-sha256.json", "cases.json", "original/package-lock.json", "evidence/build-results.json"]
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+evidence/original-diagnostics.txt = ["isValidTaskStatus", "Promise<void | (() => void)>"]
+evidence/recovery-events.json = ["recovery_execution_failed", "recovery_control_retained", "recovery_promotion_decision", "src/app/page.tsx"]

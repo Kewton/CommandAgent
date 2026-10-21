@@ -1,0 +1,10 @@
+case_id = "issue448-nextjs-promotion"
+source = "Issue #448 AC4 follow-up; original R0 corpus unchanged; see reproduction.md"
+required_paths = ["fixture-sha256.json", "runtime.sh", "interaction.json", "measured-contract-results.json", "provenance.json", "reproduction.md"]
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+measured-contract-results.json = ["nextjs_browser_interaction_v1", "all_original_observations_pass", "missing_implementation", "non_implementation_obligation_only:scaffold", "nextjs_interaction_observation_unavailable", "nextjs_route_observation_failed:http_500"]
+interaction.json = ["scripted observation input; no browser or model execution"]

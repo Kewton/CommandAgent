@@ -1,0 +1,478 @@
+{
+  "kind": "derived read-only R0 trace, not raw request/response replay",
+  "session": "01a08187-2bf0-7853-b0c9-814043569f26",
+  "events_source": "/Users/maenokota/share/work/localwork/commandagent_trial/.commandagent/runs/01a08187-2bf0-7853-b0c9-814043569f26/events.jsonl",
+  "events_sha256": "9614fe063efc51c032ca6afd1d1b14de5e6df424285e4f3e194461ae0681affe",
+  "event_count": 384,
+  "unknown": {
+    "complete_provider_messages": "unknown: not retained in the inspected evidence",
+    "submitted_tool_schema_names": "unknown: tools=6 is a count only",
+    "model_reason_for_repeated_Read": "unknown",
+    "exact_Edit_old_and_new_text_at_235_237": "unknown: lengths only",
+    "API_revalidation_after_372": "unknown: no attempt recorded before failed Recovery"
+  },
+  "turns": [
+    {
+      "provider_event_line": 234,
+      "caller_scope": "repair",
+      "native_tools_enabled": true,
+      "schema_count": 6,
+      "schema_names": "unknown",
+      "returned_tool_calls": 3,
+      "write_or_edit_succeeded": true,
+      "calls": [
+        {
+          "event_line": 235,
+          "name": "Edit",
+          "path": "src/app/api/projects/route.ts",
+          "content": "unknown: omitted/not applicable"
+        },
+        {
+          "event_line": 236,
+          "name": "Edit",
+          "path": "src/app/api/tasks/route.ts",
+          "content": "unknown: omitted/not applicable"
+        },
+        {
+          "event_line": 237,
+          "name": "Edit",
+          "path": "src/app/api/tasks/[id]/route.ts",
+          "content": "unknown: omitted/not applicable"
+        }
+      ],
+      "results": [
+        {
+          "event_line": 238,
+          "event": "tool_execute",
+          "name": "Edit",
+          "status": "ok",
+          "error_kind": null,
+          "no_write_attempts": null
+        },
+        {
+          "event_line": 239,
+          "event": "tool_execute",
+          "name": "Edit",
+          "status": "ok",
+          "error_kind": null,
+          "no_write_attempts": null
+        },
+        {
+          "event_line": 240,
+          "event": "tool_execute",
+          "name": "Edit",
+          "status": "ok",
+          "error_kind": null,
+          "no_write_attempts": null
+        }
+      ]
+    },
+    {
+      "provider_event_line": 241,
+      "caller_scope": "repair",
+      "native_tools_enabled": true,
+      "schema_count": 6,
+      "schema_names": "unknown",
+      "returned_tool_calls": 1,
+      "write_or_edit_succeeded": false,
+      "calls": [
+        {
+          "event_line": 242,
+          "name": "Read",
+          "path": "src/lib/types.ts",
+          "content": "unknown: omitted/not applicable"
+        }
+      ],
+      "results": [
+        {
+          "event_line": 244,
+          "event": "tool_execute",
+          "name": "Read",
+          "status": "ok",
+          "error_kind": null,
+          "no_write_attempts": null
+        }
+      ]
+    },
+    {
+      "provider_event_line": 245,
+      "caller_scope": "repair",
+      "native_tools_enabled": true,
+      "schema_count": 6,
+      "schema_names": "unknown",
+      "returned_tool_calls": 1,
+      "write_or_edit_succeeded": false,
+      "calls": [
+        {
+          "event_line": 246,
+          "name": "Read",
+          "path": "src/lib/types.ts",
+          "content": "unknown: omitted/not applicable"
+        }
+      ],
+      "results": [
+        {
+          "event_line": 248,
+          "event": "tool_execute",
+          "name": "Read",
+          "status": "ok",
+          "error_kind": null,
+          "no_write_attempts": null
+        }
+      ]
+    },
+    {
+      "provider_event_line": 314,
+      "caller_scope": "repair",
+      "native_tools_enabled": true,
+      "schema_count": 6,
+      "schema_names": "unknown",
+      "returned_tool_calls": 1,
+      "write_or_edit_succeeded": true,
+      "calls": [
+        {
+          "event_line": 315,
+          "name": "Write",
+          "path": "src/app/page.tsx",
+          "content": "unknown: omitted/not applicable"
+        }
+      ],
+      "results": [
+        {
+          "event_line": 317,
+          "event": "tool_execute",
+          "name": "Write",
+          "status": "ok",
+          "error_kind": null,
+          "no_write_attempts": null
+        }
+      ]
+    },
+    {
+      "provider_event_line": 321,
+      "caller_scope": "repair",
+      "native_tools_enabled": true,
+      "schema_count": 6,
+      "schema_names": "unknown",
+      "returned_tool_calls": 4,
+      "write_or_edit_succeeded": false,
+      "calls": [
+        {
+          "event_line": 322,
+          "name": "Read",
+          "path": "src/app/api/projects/route.ts",
+          "content": "unknown: omitted/not applicable"
+        },
+        {
+          "event_line": 323,
+          "name": "Read",
+          "path": "src/app/api/tasks/[id]/route.ts",
+          "content": "unknown: omitted/not applicable"
+        },
+        {
+          "event_line": 324,
+          "name": "Read",
+          "path": "src/app/api/tasks/route.ts",
+          "content": "unknown: omitted/not applicable"
+        },
+        {
+          "event_line": 325,
+          "name": "Read",
+          "path": "src/lib/types.ts",
+          "content": "unknown: omitted/not applicable"
+        }
+      ],
+      "results": [
+        {
+          "event_line": 326,
+          "event": "tool_execute",
+          "name": "Read",
+          "status": "ok",
+          "error_kind": null,
+          "no_write_attempts": null
+        },
+        {
+          "event_line": 327,
+          "event": "tool_execute",
+          "name": "Read",
+          "status": "ok",
+          "error_kind": null,
+          "no_write_attempts": null
+        },
+        {
+          "event_line": 328,
+          "event": "tool_execute",
+          "name": "Read",
+          "status": "ok",
+          "error_kind": null,
+          "no_write_attempts": null
+        },
+        {
+          "event_line": 330,
+          "event": "tool_execute",
+          "name": "Read",
+          "status": "ok",
+          "error_kind": null,
+          "no_write_attempts": null
+        }
+      ]
+    },
+    {
+      "provider_event_line": 343,
+      "caller_scope": "executor",
+      "native_tools_enabled": true,
+      "schema_count": 6,
+      "schema_names": "unknown",
+      "returned_tool_calls": 1,
+      "write_or_edit_succeeded": false,
+      "calls": [
+        {
+          "event_line": 344,
+          "name": "Bash",
+          "path": "unknown",
+          "content": "unknown: omitted/not applicable"
+        }
+      ],
+      "results": [
+        {
+          "event_line": 347,
+          "event": "tool_validation_error",
+          "name": "Bash",
+          "status": "rejected",
+          "error_kind": "bash_path_confinement_error",
+          "no_write_attempts": null
+        }
+      ]
+    },
+    {
+      "provider_event_line": 348,
+      "caller_scope": "executor",
+      "native_tools_enabled": true,
+      "schema_count": 6,
+      "schema_names": "unknown",
+      "returned_tool_calls": 3,
+      "write_or_edit_succeeded": false,
+      "calls": [
+        {
+          "event_line": 349,
+          "name": "Read",
+          "path": "src/app/api/projects/route.ts",
+          "content": "unknown: omitted/not applicable"
+        },
+        {
+          "event_line": 350,
+          "name": "Read",
+          "path": "src/app/api/tasks/route.ts",
+          "content": "unknown: omitted/not applicable"
+        },
+        {
+          "event_line": 351,
+          "name": "Read",
+          "path": "src/app/api/tasks/[id]/route.ts",
+          "content": "unknown: omitted/not applicable"
+        }
+      ],
+      "results": [
+        {
+          "event_line": 352,
+          "event": "tool_execute",
+          "name": "Read",
+          "status": "ok",
+          "error_kind": null,
+          "no_write_attempts": null
+        },
+        {
+          "event_line": 353,
+          "event": "tool_execute",
+          "name": "Read",
+          "status": "ok",
+          "error_kind": null,
+          "no_write_attempts": null
+        },
+        {
+          "event_line": 354,
+          "event": "tool_execute",
+          "name": "Read",
+          "status": "ok",
+          "error_kind": null,
+          "no_write_attempts": null
+        }
+      ]
+    },
+    {
+      "provider_event_line": 361,
+      "caller_scope": "executor",
+      "native_tools_enabled": true,
+      "schema_count": 6,
+      "schema_names": "unknown",
+      "returned_tool_calls": 1,
+      "write_or_edit_succeeded": false,
+      "calls": [
+        {
+          "event_line": 362,
+          "name": "Read",
+          "path": "src/app/api/projects/route.ts",
+          "content": "unknown: omitted/not applicable"
+        }
+      ],
+      "results": [
+        {
+          "event_line": 363,
+          "event": "tool_execute",
+          "name": "Read",
+          "status": "ok",
+          "error_kind": null,
+          "no_write_attempts": null
+        }
+      ]
+    },
+    {
+      "provider_event_line": 365,
+      "caller_scope": "repair",
+      "native_tools_enabled": true,
+      "schema_count": 6,
+      "schema_names": "unknown",
+      "returned_tool_calls": 1,
+      "write_or_edit_succeeded": false,
+      "calls": [
+        {
+          "event_line": 366,
+          "name": "Read",
+          "path": "src/app/api/projects/route.ts",
+          "content": "unknown: omitted/not applicable"
+        }
+      ],
+      "results": [
+        {
+          "event_line": 367,
+          "event": "read_only_tool_rejected",
+          "name": "Read",
+          "status": "rejected",
+          "error_kind": null,
+          "no_write_attempts": 1
+        }
+      ]
+    },
+    {
+      "provider_event_line": 368,
+      "caller_scope": "repair",
+      "native_tools_enabled": true,
+      "schema_count": 6,
+      "schema_names": "unknown",
+      "returned_tool_calls": 1,
+      "write_or_edit_succeeded": false,
+      "calls": [
+        {
+          "event_line": 369,
+          "name": "Read",
+          "path": "src/app/api/projects/route.ts",
+          "content": "unknown: omitted/not applicable"
+        }
+      ],
+      "results": [
+        {
+          "event_line": 370,
+          "event": "read_only_tool_rejected",
+          "name": "Read",
+          "status": "rejected",
+          "error_kind": null,
+          "no_write_attempts": 2
+        }
+      ]
+    }
+  ],
+  "saved_handoffs": [
+    {
+      "path_relative_to_session": ".commandagent/repairs/repair-phase-core-implementation-01a0818b-32a3-72c1-826e-9ef14c59dd07.md",
+      "sha256": "46cd8dc10133d38c56dc930a6a10f72ba3c5828a8ea1586df1df1c15c2385be4",
+      "contains_original_goal": true,
+      "contains_verify_command": true,
+      "contains_projects_target": false,
+      "contains_export_diagnostic": false,
+      "contains_promise_diagnostic": false
+    },
+    {
+      "path_relative_to_session": ".commandagent/plans/recovery-ultra-plan-contract-bound-phase-01a0818b-4f01-7a93-849e-b2ad7ef76ddf.yaml",
+      "sha256": "48fef34ba16bbbb2d83c44ee26e11f1e46c5a323b62f9a46eb2f1ad8e796093c",
+      "contains_original_goal": true,
+      "contains_verify_command": true,
+      "contains_projects_target": false,
+      "contains_export_diagnostic": false,
+      "contains_promise_diagnostic": false
+    },
+    {
+      "path_relative_to_session": ".commandagent/recovery-treatments/attempt-1/workspace/.commandagent/repairs/repair-read-only-stagnation-01a0818f-5604-7f73-8f08-679bebf3ca6f.md",
+      "sha256": "b0a15a850b0d8747e1be741140bfd5226a479164c5e4c8f4c27e60ddfacf6b26",
+      "contains_original_goal": true,
+      "contains_verify_command": true,
+      "contains_projects_target": true,
+      "contains_export_diagnostic": false,
+      "contains_promise_diagnostic": false
+    },
+    {
+      "path_relative_to_session": ".commandagent/recovery-treatments/attempt-1/workspace/.commandagent/repairs/repair-phase-inspect-current-state-01a0818f-560a-74d3-983e-587b8a6eff56.md",
+      "sha256": "52fc0b60f4ef09389560e2a4b99ee48b694102d47ffc62acb453e86e5080351c",
+      "contains_original_goal": true,
+      "contains_verify_command": true,
+      "contains_projects_target": true,
+      "contains_export_diagnostic": false,
+      "contains_promise_diagnostic": true
+    }
+  ],
+  "boundaries": [
+    {
+      "event_lines": [
+        319,
+        320,
+        356,
+        357,
+        358
+      ],
+      "diagnostics": [
+        "missing isValidTaskStatus export",
+        "projects Promise<void | (() => void)> incompatible with Promise<void>"
+      ],
+      "selected_target": "src/app/api/projects/route.ts",
+      "command": "npm run build",
+      "outcome": "failed"
+    },
+    {
+      "event_lines": [
+        359,
+        364
+      ],
+      "stage": "write_required",
+      "selected_targets": [
+        "src/app/api/projects/route.ts"
+      ],
+      "selection_reason": "required_path",
+      "objective_observation": "snippet retains Promise diagnostic and partial original goal; complete submitted prompt unknown"
+    },
+    {
+      "event_lines": [
+        367,
+        370,
+        372,
+        373
+      ],
+      "read_only_rejections": 2,
+      "limit": 2,
+      "changed_paths": [],
+      "outcome": "model_stagnation:read_only_loop"
+    },
+    {
+      "event_lines": [
+        378,
+        379,
+        380,
+        381
+      ],
+      "changed_paths": [
+        "src/app/page.tsx"
+      ],
+      "promotion_decision": "rejected",
+      "reason": "recovery_execution_failed",
+      "control_retained": true
+    }
+  ]
+}

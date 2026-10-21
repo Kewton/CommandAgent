@@ -108,6 +108,11 @@ Responses の native-tool turnでは、providerが返したreasoning output item
 function outputとともに再送します。response ID、service tier、cached input token、reasoning token数は
 provider turn eventへ記録します。
 
+`gpt-5.6` alias の拒否は、組み込み OpenAI provider を使うすべての役割、すなわち executor、
+planner、classifier に適用されます。これは組み込み OpenAI provider に対する検査であり、model ID を
+そのまま転送する汎用 `openai-compatible` transport には適用しません。REPL では `/model <id>` と
+`/provider openai` への切替が、新しい選択を適用する前に executor の検査を再実行します。
+
 ## LM Studio のサーバーとモデル
 
 LM Studio の Developer タブまたは `lms` でサーバーを起動し、`/v1/models` が返す正確な
@@ -161,6 +166,12 @@ tool call を安定して実装しない場合は `--tool-protocol text` を使�
 
 LM Studio は同じ transport を既存の `lm-studio`、`--lm-studio-host`、
 `LM_STUDIO_API_TOKEN` 名で使います。これらは後方互換のまま維持され、汎用形式へ自動変換されません。
+
+対話型の `/provider` が受け付けるのは `ollama`、`lm-studio`、`openai`、`gemini` の 4 名だけで、
+この汎用 provider は選べません。役割に設定するには `--provider`、`--base-url`、
+`--api-key-env`、または preset を使い、変更する場合は CommandAgent を再起動してください。
+executor、planner、classifier のいずれかが `openai-compatible` に解決される場合、その base URL が
+必要です。
 
 ## Ollama のホストとモデル
 

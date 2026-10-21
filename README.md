@@ -118,7 +118,8 @@ Follow the CLI learning path in order; every layer is linked from the previous
 one:
 
 1. [Getting started](docs/user/getting-started-cli.md) — provider, config,
-   offline doctor, and the first Gate 1 confirmation
+   the doctor and its provider reachability checks, and the first Gate 1
+   confirmation
 2. [Detailed tutorial](docs/guide/en/tutorial.md) — a 20-minute walkthrough
    with real screens through Gate 1–4 and one GUI Trial
 3. [CLI reference](docs/guide/en/cli-reference.md) — every public flag,
@@ -167,7 +168,8 @@ curl -fsSL https://raw.githubusercontent.com/Kewton/CommandAgent/main/scripts/in
 ```
 
 The installer verifies SHA-256 and installs to `~/.local/bin`; use `--version`
-or `--prefix` to customize it. Piping a remote script has supply-chain risks.
+or `--prefix` to customize it. Without `--version` it installs the latest
+stable release, or the newest pre-release while no stable release exists. Piping a remote script has supply-chain risks.
 Unlike this binary download, `scripts/setup.sh` builds from source and prepares
 the development environment. crates.io metadata is prepared and checked with
 `cargo publish --dry-run`, but nothing is published; confirm the package name,

@@ -1,7 +1,9 @@
 //! Typed side-effect policy for isolated Recovery acceptance observations.
 
-use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+
+mod nextjs_configs;
+mod nextjs_outputs;
 
 use crate::minimal_loop::completion::CompletionContract;
 
@@ -51,80 +53,22 @@ impl RecoveryObservationPolicy {
 }
 
 fn nextjs_registered_json_outputs(workspace: &Path, contract: &CompletionContract) -> Vec<String> {
-    let source_text = crate::minimal_loop::import_scan::nextjs_route_bound_closure(workspace)
+    let configs = nextjs_configs::referenced_configs(workspace, contract);
+    nextjs_outputs::registered_paths(workspace, contract)
         .into_iter()
-        .filter_map(|path| std::fs::read_to_string(workspace.join(path)).ok())
-        .filter(|content| {
-            let lower = content.to_ascii_lowercase();
-            lower.contains("writefile(")
-                || lower.contains("writefilesync(")
-                || lower.contains("fs.promises.writefile")
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    if source_text.is_empty() {
-        return Vec::new();
-    }
-
-    let mut candidates = BTreeSet::new();
-    collect_json_files(workspace, workspace, &mut candidates);
-    candidates
-        .into_iter()
-        .filter_map(|path| {
-            let relative = path.strip_prefix(workspace).ok()?;
-            let relative_text = relative.to_string_lossy().replace('\\', "/");
-            Some((path, relative_text))
-        })
-        .filter(|(_, relative)| !is_nextjs_config_json(relative))
-        .filter(|(_, relative)| {
+        .filter(|relative| !is_nextjs_config_json(relative))
+        .filter(|relative| !configs.contains(relative))
+        .filter(|relative| {
             !contract
                 .required_paths
                 .iter()
                 .chain(contract.protected_paths.iter())
-                .any(|registered| Path::new(relative).starts_with(registered))
+                .any(|registered| {
+                    Path::new(relative).starts_with(registered)
+                        || Path::new(registered).starts_with(relative)
+                })
         })
-        .filter(|(path, relative)| {
-            source_text.contains(relative)
-                || path
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .is_some_and(|name| source_text.contains(name))
-        })
-        .map(|(_, relative)| relative)
         .collect()
-}
-
-fn collect_json_files(root: &Path, directory: &Path, out: &mut BTreeSet<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(directory) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let Ok(relative) = path.strip_prefix(root) else {
-            continue;
-        };
-        if relative.components().any(|part| {
-            matches!(
-                part.as_os_str().to_str(),
-                Some(".commandagent" | ".anvil" | ".git" | ".next" | "node_modules")
-            )
-        }) {
-            continue;
-        }
-        let Ok(file_type) = entry.file_type() else {
-            continue;
-        };
-        if file_type.is_dir() {
-            collect_json_files(root, &path, out);
-        } else if file_type.is_file()
-            && path
-                .extension()
-                .and_then(|extension| extension.to_str())
-                .is_some_and(|extension| extension.eq_ignore_ascii_case("json"))
-        {
-            out.insert(path);
-        }
-    }
 }
 
 fn is_nextjs_config_json(path: &str) -> bool {
@@ -135,8 +79,20 @@ fn is_nextjs_config_json(path: &str) -> bool {
         .to_ascii_lowercase();
     matches!(
         name.as_str(),
-        "package.json" | "package-lock.json" | "tsconfig.json" | "jsconfig.json"
+        "package.json"
+            | "package-lock.json"
+            | "npm-shrinkwrap.json"
+            | "tsconfig.json"
+            | "jsconfig.json"
+            | "vercel.json"
+            | "biome.json"
+            | "deno.json"
+            | "components.json"
+            | "turbo.json"
+            | "eslint.json"
     ) || name.ends_with(".config.json")
+        || ((name.starts_with("tsconfig.") || name.starts_with("jsconfig."))
+            && name.ends_with(".json"))
 }
 
 pub(crate) fn registered_data_input_fixture(contract: &CompletionContract) -> Option<String> {
@@ -229,7 +185,7 @@ mod tests {
     }
 
     #[test]
-    fn nextjs_policy_allows_only_existing_route_bound_json_output() {
+    fn nextjs_policy_allows_only_registered_route_bound_json_output() {
         let root = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(root.path().join("src/app/api/tasks")).unwrap();
         std::fs::create_dir_all(root.path().join("src/lib")).unwrap();

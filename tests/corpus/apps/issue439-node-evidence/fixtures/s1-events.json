@@ -1,0 +1,43 @@
+[
+  {
+    "event": "ultra_phase_complete",
+    "ok": true,
+    "phase_id": "project-setup",
+    "reason": ""
+  },
+  {
+    "event": "ultra_phase_complete",
+    "ok": true,
+    "phase_id": "inspect-current-state",
+    "reason": ""
+  },
+  {
+    "event": "ultra_phase_complete",
+    "ok": true,
+    "phase_id": "repair-core-implementation",
+    "reason": ""
+  },
+  {
+    "event": "ultra_phase_complete",
+    "ok": true,
+    "phase_id": "verify-recovery",
+    "reason": ""
+  },
+  {
+    "browser_readiness_status": "passed",
+    "event": "ultra_final_acceptance",
+    "interaction_evidence_status": "passed",
+    "missing_capabilities": [],
+    "missing_evidence": [],
+    "missing_obligations": [],
+    "unverified_evidence": [],
+    "weak_evidence": [
+      "node_smoke_without_assertion"
+    ]
+  },
+  {
+    "decision": "rejected",
+    "event": "recovery_promotion_decision",
+    "reason": "recovery_execution_failed"
+  }
+]

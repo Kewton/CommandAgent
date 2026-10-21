@@ -1,0 +1,25 @@
+{
+  "atomic": [
+    "instruction",
+    "expected_result",
+    "checks",
+    "input",
+    "instruction_check_collage",
+    "distributed_checks",
+    "id_path_only"
+  ],
+  "boundary": [
+    "delete_before",
+    "delete_after",
+    "move_before_across_update",
+    "move_after_across_update",
+    "merge_before",
+    "merge_after"
+  ],
+  "unsupported": [
+    "creation",
+    "side_effect",
+    "external_script",
+    "self_declared_reader"
+  ]
+}

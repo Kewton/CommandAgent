@@ -1,0 +1,19 @@
+{
+  "required_paths": [
+    "README.md",
+    "src/app/page.tsx"
+  ],
+  "protected_paths": [],
+  "verify_commands": [],
+  "profile": "nextjs",
+  "goal": "Verify saved source markers",
+  "required_capabilities": [],
+  "deterministic_oracles": [],
+  "required_evidence": [
+    "requested_content_evidence"
+  ],
+  "evidence_hint_tokens": [],
+  "required_obligations": [],
+  "deferred_verify_requirements": [],
+  "verify_repair_cap": 2
+}

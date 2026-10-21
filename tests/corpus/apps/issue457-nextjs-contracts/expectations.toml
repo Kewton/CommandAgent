@@ -1,0 +1,13 @@
+case_id = "issue457-nextjs-contracts"
+source = "Issue #452 saved sources via the immutable #456 corpus; full type/build/browser matrix is independently executed"
+required_paths = ["cases.json", "controls.json", "diagnostics.json", "package-lock.json", "overlays/types/src/lib/types.ts", "overlays/types/src/lib/store.ts"]
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+cases.json = ["original", "role-only", "missing-list", "wrong-field", "aligned"]
+controls.json = ["optional-local-directory", "destructured-parameter", "mixed-direct", "typeof-property", "optional-request-default"]
+overlays/types/src/lib/types.ts = ["export interface StoreError", "error?: string"]
+overlays/types/src/lib/store.ts = ["Promise<Awaited<T>>", "StoreError"]
+overlays/members/src/app/api/projects/route.ts = ["members: getMembers()", "error: result.error.message"]

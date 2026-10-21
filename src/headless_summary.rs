@@ -46,13 +46,26 @@ impl Source {
         }
     }
 
-    #[allow(dead_code)] // Staged API for Issue #221's interrupted-run consumer.
+    /// Whether the run persisted event evidence to project.
+    pub(crate) fn has_persisted_events(&self) -> bool {
+        !terminal_report::read_events(self.events_path.as_deref()).is_empty()
+    }
+
+    /// Whether a pack was selected.
+    ///
+    /// A selected pack is run-independent evidence, so a read-only action that
+    /// resolved one can still project an honest summary (with no run fields).
+    pub(crate) fn has_selected_pack(&self) -> bool {
+        self.pack.is_some()
+    }
+
+    #[allow(dead_code, reason = "staged API for Issue #221 consumer")]
     pub(crate) fn with_terminal_status(mut self, status: TerminalStatus) -> Self {
         self.terminal_status = Some(status);
         self
     }
 
-    #[allow(dead_code)] // Staged API for Issue #221's exit-code consumer.
+    #[allow(dead_code, reason = "staged API for Issue #221 consumer")]
     pub(crate) fn with_exit_code(mut self, exit_code: i32) -> Self {
         self.exit_code = Some(exit_code);
         self
@@ -110,11 +123,26 @@ struct HeadlessSummary {
 }
 
 pub(crate) fn render(source: &Source) -> String {
-    serde_json::to_string(&project(source)).expect("headless summary serialization is infallible")
+    let mut value =
+        serde_json::to_value(project(source)).expect("headless summary projection is infallible");
+    // Resolve the scope from the source's own events path (or workspace root),
+    // so a product thread that never installed the thread-local scope — the
+    // SIGINT completion thread — still projects a scrubbed summary.
+    let scope = source
+        .events_path
+        .as_deref()
+        .or(source.workspace_root.as_deref());
+    if let Some(context) = crate::sensitive_data::active_for(scope) {
+        context.scrub_value_lenient(&mut value);
+    }
+    serde_json::to_string(&value).expect("headless summary serialization is infallible")
 }
 
 fn project(source: &Source) -> HeadlessSummary {
     let events_path = source.events_path.as_deref();
+    // Never report a path to an event stream that was not persisted: a summary
+    // that points at a missing events.jsonl misleads the reader about the run.
+    let persisted_events_path = events_path.filter(|path| path.is_file());
     let events = terminal_report::read_events(events_path);
     let report = terminal_report::project(
         &events,
@@ -123,6 +151,7 @@ fn project(source: &Source) -> HeadlessSummary {
         source.terminal_status,
         source.exit_code,
     );
+    let interrupted = report.status == Some(TerminalStatus::Interrupted);
     let terminal = latest_terminal(&events);
     let failed = terminal
         .and_then(|event| event.get("ok"))
@@ -139,7 +168,7 @@ fn project(source: &Source) -> HeadlessSummary {
         .and_then(|event| number(event, "time_profile_total_ms"))
         .or_else(|| latest_nested_number(&events, "time_profile", "profile", "total_ms"))
         .map(|milliseconds| milliseconds / 1_000.0);
-    let summary_path = events_path
+    let summary_path = persisted_events_path
         .and_then(Path::parent)
         .map(|parent| parent.join("summary.md"))
         .filter(|path| path.is_file());
@@ -148,7 +177,7 @@ fn project(source: &Source) -> HeadlessSummary {
 
     HeadlessSummary {
         schema_version: SCHEMA_VERSION,
-        run_id: events_path
+        run_id: persisted_events_path
             .and_then(Path::parent)
             .and_then(Path::file_name)
             .map(|value| value.to_string_lossy().into_owned()),
@@ -158,19 +187,31 @@ fn project(source: &Source) -> HeadlessSummary {
             .or_else(|| latest_nested_number(&events, "score_checkpoint", "vector", "score")),
         acceptance_sheet_path: summary_path.map(display_path),
         artifacts_dir: latest_event_text(&events, "run_start", "workspace_root"),
-        events_path: events_path.map(display_path),
+        events_path: persisted_events_path.map(display_path),
         duration_secs,
         provider_cost_usd: latest_number(&events, &["provider_cost_usd", "cost_usd"]),
         provider_usage_by_role,
         stop_class: failed
             .then(|| {
-                latest_event_text(&events, "planner_quality_retry_exhausted", "stop_class")
-                    .or_else(|| {
-                        latest_event_text(&events, "community_profile_verification", "violation")
+                if interrupted {
+                    // An interruption must not adopt a failure class from an
+                    // unrelated event that preceded it. Only an
+                    // interruption-specific value survives; otherwise this is
+                    // null.
+                    terminal.and_then(|event| text(event, "failure_kind"))
+                } else {
+                    latest_event_text(&events, "planner_quality_retry_exhausted", "stop_class")
+                        .or_else(|| {
+                            latest_event_text(
+                                &events,
+                                "community_profile_verification",
+                                "violation",
+                            )
                             .filter(|value| !value.is_empty())
                             .map(|_| "community_profile_violation".to_string())
-                    })
-                    .or_else(|| terminal.and_then(|event| text(event, "failure_kind")))
+                        })
+                        .or_else(|| terminal.and_then(|event| text(event, "failure_kind")))
+                }
             })
             .flatten(),
         directive_round: latest_integer(&events, "directive_round").unwrap_or(0),
@@ -353,6 +394,79 @@ mod tests {
     }
 
     #[test]
+    fn issue500_unverified_run_keeps_process_status_and_names_next_action() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "tests/corpus/apps/issue500-unverified-minimal-loop/fixtures/e2e-3b-events.jsonl",
+        );
+        let value: Value = serde_json::from_str(&render(&Source::from_events_path(path))).unwrap();
+
+        assert_eq!(value["schema_version"], SCHEMA_VERSION);
+        assert_eq!(value["status"], "completed");
+        assert_eq!(value["exit_code"], 0);
+        assert_eq!(value["verdict"], "reduced");
+        assert_eq!(value["assurance"], "reduced");
+        assert_eq!(value["gate"], "not_applicable");
+        assert_eq!(
+            value["next_action"],
+            crate::eval_events::ACCEPTANCE_UNVERIFIED_NEXT_ACTION
+        );
+        assert_ne!(value["next_action"], "none");
+        assert!(value["stop_class"].is_null());
+    }
+
+    #[test]
+    fn issue513_plan_verify_observations_populate_verify_commands() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "tests/corpus/apps/issue513-plan-verify-projection/fixtures/plan-verify-events.jsonl",
+        );
+        let value: Value = serde_json::from_str(&render(&Source::from_events_path(path))).unwrap();
+
+        assert_eq!(value["schema_version"], SCHEMA_VERSION);
+        assert_eq!(value["status"], "failed");
+        let commands = value["verify_commands"]
+            .as_array()
+            .expect("verify_commands is always an array")
+            .iter()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>();
+        assert!(
+            !commands.is_empty(),
+            "a run that executed plan verify must not report an empty verify_commands"
+        );
+        for command in [
+            "cargo test --test smoke",
+            "python3 -m pytest tests",
+            "npm run build",
+        ] {
+            assert!(
+                commands.contains(&command),
+                "missing {command}: {commands:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn missing_event_stream_is_not_reported_as_run_evidence() {
+        let missing = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/corpus/apps/issue513-plan-verify-projection/fixtures/absent.jsonl");
+        assert!(!missing.is_file(), "fixture path must not exist");
+
+        let value: Value =
+            serde_json::from_str(&render(&Source::from_events_path(missing))).unwrap();
+
+        assert_eq!(value["schema_version"], SCHEMA_VERSION);
+        assert!(
+            value["run_id"].is_null(),
+            "a run-less action must not claim a run id"
+        );
+        assert!(
+            value["events_path"].is_null(),
+            "a summary must not point at an event stream that was not persisted"
+        );
+        assert_eq!(value["verify_commands"], serde_json::json!([]));
+    }
+
+    #[test]
     fn explicit_ollama_think_is_recorded_in_model_metadata() {
         let source = Source {
             events_path: Some(fixture("full")),
@@ -409,5 +523,121 @@ mod tests {
         assert_eq!(value["status"], "interrupted");
         assert_eq!(value["exit_code"], 130);
         assert_eq!(value["schema_version"], SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn product_thread_resolves_the_scope_from_the_events_path() {
+        // Regression for the SIGINT completion thread: it never installs the
+        // thread-local scope, so render must resolve the scope by events path.
+        crate::sensitive_data::reset_scopes_for_tests();
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join("run/events.jsonl");
+        std::fs::create_dir_all(events.parent().unwrap()).unwrap();
+        std::fs::write(&events, "").unwrap();
+        let canary = "H05_HEADLESS_CANARY_7781";
+        let mut catalog = crate::sensitive_data::SecretCatalog::new();
+        catalog.register(canary);
+        crate::sensitive_data::install_scope(catalog, Some(dir.path()), Some(&events));
+
+        let source = Source {
+            events_path: Some(events),
+            workspace_root: Some(dir.path().to_path_buf()),
+            terminal_status: None,
+            exit_code: None,
+            model_metadata: Some(ModelMetadata {
+                executor_provider: "openai".to_string(),
+                executor_model: canary.to_string(),
+                planner_provider: "openai".to_string(),
+                planner_model: canary.to_string(),
+                ollama_think: None,
+                ollama_think_request_field_present: false,
+            }),
+            pack: None,
+        };
+
+        assert!(!render(&source).contains(canary));
+        let value = std::thread::spawn(move || render(&source)).join().unwrap();
+        assert!(!value.contains(canary), "{value}");
+        crate::sensitive_data::reset_scopes_for_tests();
+    }
+
+    fn write_events(lines: &[Value]) -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("run/events.jsonl");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let body = lines
+            .iter()
+            .map(Value::to_string)
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(&path, format!("{body}\n")).unwrap();
+        (dir, path)
+    }
+
+    #[test]
+    fn interrupted_run_does_not_adopt_a_pre_interruption_stop_class() {
+        let (_dir, path) = write_events(&[
+            serde_json::json!({
+                "event": "planner_quality_retry_exhausted",
+                "stop_class": "planner_quality_exhausted",
+            }),
+            serde_json::json!({
+                "event": "tui_command_stop",
+                "ok": false,
+                "status": "interrupted",
+                "failure_kind": "direct_cli_command_interrupted",
+                "stop_reason": "interrupted by user",
+                "next_action": "resume_or_rerun_command",
+            }),
+        ]);
+        let value: Value = serde_json::from_str(&render(&Source::from_events_path(path))).unwrap();
+
+        assert_eq!(value["status"], "interrupted");
+        assert_eq!(
+            value["stop_class"], "direct_cli_command_interrupted",
+            "an interruption must not inherit a pre-interruption failure class"
+        );
+        assert_eq!(value["next_action"], "resume_or_rerun_command");
+    }
+
+    #[test]
+    fn interrupted_run_without_a_specific_class_reports_no_stop_class() {
+        let (_dir, path) = write_events(&[
+            serde_json::json!({
+                "event": "planner_quality_retry_exhausted",
+                "stop_class": "planner_quality_exhausted",
+            }),
+            serde_json::json!({
+                "event": "tui_command_stop",
+                "ok": false,
+                "status": "interrupted",
+            }),
+        ]);
+        let value: Value = serde_json::from_str(&render(&Source::from_events_path(path))).unwrap();
+
+        assert_eq!(value["status"], "interrupted");
+        assert!(
+            value["stop_class"].is_null(),
+            "no interruption-specific value exists, so stop_class must be null: {value}"
+        );
+    }
+
+    #[test]
+    fn failed_run_still_reports_the_planner_quality_stop_class() {
+        let (_dir, path) = write_events(&[
+            serde_json::json!({
+                "event": "planner_quality_retry_exhausted",
+                "stop_class": "planner_quality_exhausted",
+            }),
+            serde_json::json!({
+                "event": "tui_command_stop",
+                "ok": false,
+                "status": "failed",
+            }),
+        ]);
+        let value: Value = serde_json::from_str(&render(&Source::from_events_path(path))).unwrap();
+
+        assert_eq!(value["status"], "failed");
+        assert_eq!(value["stop_class"], "planner_quality_exhausted");
     }
 }

@@ -1,0 +1,45 @@
+case_id = "issue424-compile-rollback-build-reverification"
+source = "Issue #424 compile rollback build re-verification"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+acceptance_passed = true
+primary_reason = "pass"
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/broken-snapshot.jsonl = [
+  "\"event\":\"compile_rollback_failed\"",
+  "\"build_reverified\":false",
+  "\"build_command\":\"npm run build\"",
+  "\"build_reverification_status\":\"failed\"",
+  "\"event\":\"plan_step_failed\"",
+  "\"outcome\":\"bounded_repair_failed\"",
+  "\"rollback_applied\":false",
+  "\"builds_ms\":615"
+]
+
+[fixture_ordered]
+fixtures/broken-snapshot.jsonl = [
+  "\"command\":\"node -p",
+  "\"command\":\"npm run build\"",
+  "\"event\":\"compile_rollback_failed\"",
+  "\"event\":\"plan_step_failed\"",
+  "\"event\":\"time_profile\""
+]

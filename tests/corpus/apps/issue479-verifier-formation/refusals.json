@@ -1,0 +1,14 @@
+[
+  "delete_check",
+  "wrong_target",
+  "changed_result",
+  "unrelated_assertion",
+  "swallowed_import",
+  "extra_statement",
+  "append_beside_weak",
+  "wrong_owner",
+  "premature_check",
+  "missing_output",
+  "unregistered_replacement",
+  "changed_expected_set"
+]

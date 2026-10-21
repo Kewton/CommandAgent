@@ -12,6 +12,13 @@ pub use crate::planner::adjudication::contract::IntentId;
 use crate::planner::intent::detect_intent;
 use crate::planner::profile::{ProfileInference, infer_profile, resolve_profile_runtime};
 
+mod resolution;
+mod validation;
+use resolution::{
+    ProviderResolution, load_named_preset, merge_preset, parse_preset_key, preset_missing_keys,
+    resolve_named_preset, resolve_providers,
+};
+
 pub const LOCAL_PROVIDER_CHAT_TIMEOUT_SECS: u64 = 600;
 pub const REMOTE_PROVIDER_CHAT_TIMEOUT_SECS: u64 = 180;
 pub const DEFAULT_CONTEXT_BUDGET: usize = 65_536;
@@ -645,12 +652,17 @@ impl Config {
         cli: Cli,
         provider_options: ProviderCliOptions,
     ) -> anyhow::Result<Self> {
+        // Begin staging registered secrets before any validation can reject the
+        // config, so a rejected `${ENV}` base_url never echoes its expansion
+        // value through an error chain.
+        crate::sensitive_data::config_staging::begin();
         let workspace_root = cli
             .cwd
             .clone()
             .unwrap_or(std::env::current_dir().context("failed to read current directory")?)
             .canonicalize()
             .context("failed to canonicalize workspace root")?;
+        validation::validate_config_files(&workspace_root)?;
         let preset = load_named_preset(&workspace_root, cli.preset.as_deref())?;
         let extension_root = cli
             .extension_root
@@ -664,157 +676,31 @@ impl Config {
                 )
             })?;
         }
-        let model = cli
-            .model
-            .clone()
-            .map(|value| sourced(value, "flag"))
-            .or_else(|| preset.as_ref().and_then(|preset| preset.model.clone()))
-            .unwrap_or_else(|| sourced(DEFAULT_MODEL.to_string(), "default"));
-        let provider = cli
-            .provider
-            .map(|value| {
-                sourced(
-                    if provider_options.executor_openai_compatible {
-                        ProviderSelection::OpenAiCompatible
-                    } else {
-                        ProviderSelection::BuiltIn(Provider::from(value))
-                    },
-                    "flag",
-                )
-            })
-            .or_else(|| preset.as_ref().and_then(|preset| preset.provider.clone()))
-            .unwrap_or_else(|| sourced(ProviderSelection::BuiltIn(Provider::Ollama), "default"));
-        let openai_api = cli
-            .openai_api
-            .map(|value| sourced(OpenAiApi::from(value), "flag"))
-            .or_else(|| preset.as_ref().and_then(|preset| preset.openai_api.clone()))
-            .unwrap_or_else(|| sourced(OpenAiApi::ChatCompletions, "default"));
-        let tool_protocol = cli
-            .tool_protocol
-            .map(|value| sourced(ToolProtocol::from(value), "flag"))
-            .or_else(|| {
-                preset
-                    .as_ref()
-                    .and_then(|preset| preset.tool_protocol.clone())
-            });
-        let planner_provider = cli
-            .planner_provider
-            .map(|value| {
-                sourced(
-                    if provider_options.planner_openai_compatible {
-                        ProviderSelection::OpenAiCompatible
-                    } else {
-                        ProviderSelection::BuiltIn(Provider::from(value))
-                    },
-                    "flag",
-                )
-            })
-            .or_else(|| {
-                preset
-                    .as_ref()
-                    .and_then(|preset| preset.planner_provider.clone())
-            })
-            .unwrap_or_else(|| sourced(provider.value, "default"));
-        let planner_model = cli
-            .planner_model
-            .clone()
-            .map(|value| sourced(value, "flag"))
-            .or_else(|| {
-                preset
-                    .as_ref()
-                    .and_then(|preset| preset.planner_model.clone())
-            })
-            .or_else(|| {
-                (planner_provider.value == provider.value)
-                    .then(|| sourced(model.value.clone(), "default"))
-            });
-        let Some(planner_model) = planner_model else {
-            bail!("--planner-model is required when --planner-provider differs from --provider");
-        };
-        let ollama_think = cli.think.map(OllamaThink::from);
-        let planner_think = ollama_think
-            .map(|value| sourced(value, "flag"))
-            .or_else(|| {
-                preset
-                    .as_ref()
-                    .and_then(|preset| preset.planner_think.clone())
-            })
-            .unwrap_or_else(|| sourced(OllamaThink::False, "default"));
-        if ollama_think.is_some()
-            && provider.value.provider() != Provider::Ollama
-            && planner_provider.value.provider() != Provider::Ollama
-        {
-            bail!("--think requires provider or planner_provider to be ollama");
+        let ProviderResolution {
+            model,
+            provider,
+            openai_api,
+            tool_protocol,
+            planner_provider,
+            planner_model,
+            planner_think,
+            ollama_think,
+            classifier_provider,
+            classifier_model,
+            openai_compatible,
+        } = resolve_providers(&cli, &preset, &provider_options)?;
+        let secret_sources = build_secret_sources(&workspace_root, openai_compatible.as_ref());
+        match secret_sources {
+            Ok(sources) => {
+                crate::sensitive_data::config_staging::try_merge(&sources)?;
+            }
+            Err(failure) => {
+                // Keep the partial catalog staged so the rejection message is
+                // scrubbed, then refuse the config honestly.
+                let _ = crate::sensitive_data::config_staging::try_merge(&failure.catalog);
+                return Err(anyhow::Error::new(failure));
+            }
         }
-        validate_openai_model(provider.value.provider(), &model.value, "executor")?;
-        validate_openai_model(
-            planner_provider.value.provider(),
-            &planner_model.value,
-            "planner",
-        )?;
-        let classifier_provider = preset
-            .as_ref()
-            .and_then(|preset| preset.classifier_provider.clone())
-            .unwrap_or_else(|| sourced(planner_provider.value, "default:planner"));
-        let classifier_model = preset
-            .as_ref()
-            .and_then(|preset| preset.classifier_model.clone())
-            .or_else(|| {
-                (classifier_provider.value == planner_provider.value)
-                    .then(|| sourced(planner_model.value.clone(), "default:planner"))
-            });
-        let Some(classifier_model) = classifier_model else {
-            bail!(
-                "classifier_model is required when classifier_provider differs from planner_provider"
-            );
-        };
-        validate_openai_model(
-            classifier_provider.value.provider(),
-            &classifier_model.value,
-            "classifier",
-        )?;
-        let openai_compatible_roles = (
-            provider.value.is_openai_compatible(),
-            planner_provider.value.is_openai_compatible(),
-            classifier_provider.value.is_openai_compatible(),
-        );
-        let any_openai_compatible =
-            openai_compatible_roles.0 || openai_compatible_roles.1 || openai_compatible_roles.2;
-        if !any_openai_compatible
-            && (provider_options.base_url.is_some() || provider_options.api_key_env.is_some())
-        {
-            bail!(
-                "--base-url and --api-key-env require provider or planner_provider to be openai-compatible"
-            );
-        }
-        let configured_base_url = provider_options.base_url.clone().or_else(|| {
-            preset
-                .as_ref()
-                .and_then(|preset| preset.base_url.as_ref())
-                .map(|value| value.value.clone())
-        });
-        let configured_api_key_env = provider_options.api_key_env.clone().or_else(|| {
-            preset
-                .as_ref()
-                .and_then(|preset| preset.api_key_env.as_ref())
-                .map(|value| value.value.clone())
-        });
-        let openai_compatible = if any_openai_compatible {
-            let base_url = configured_base_url
-                .context("openai-compatible requires --base-url or preset key base_url")?;
-            let api_key_env = configured_api_key_env
-                .map(|value| validate_api_key_env_name(&value))
-                .transpose()?;
-            Some(OpenAiCompatibleConfig {
-                base_url: normalize_openai_compatible_base_url(&base_url)?,
-                api_key_env,
-                executor: openai_compatible_roles.0,
-                planner: openai_compatible_roles.1,
-                classifier: openai_compatible_roles.2,
-            })
-        } else {
-            None
-        };
         let context_budget = cli
             .context_budget
             .map(|value| sourced(value, "flag"))
@@ -954,6 +840,13 @@ impl Config {
             footer: footer.source.clone(),
             stream: stream.source.clone(),
         };
+        // Install the accepted config's scope so every later persistence and
+        // display boundary can resolve the same exact-value catalog.
+        let _ = crate::sensitive_data::install_scope(
+            crate::sensitive_data::config_staging::take(),
+            Some(&workspace_root),
+            eval_events_path.as_deref(),
+        );
         Ok(Self {
             workspace_root,
             state_dir,
@@ -1098,114 +991,6 @@ fn planner_model_tier(model: &str) -> PlannerModelTier {
         })
         .map(|rule| rule.tier)
         .unwrap_or(PlannerModelTier::Other)
-}
-
-fn load_named_preset(root: &Path, name: Option<&str>) -> anyhow::Result<Option<PresetConfig>> {
-    let Some(name) = name.map(str::trim).filter(|name| !name.is_empty()) else {
-        return Ok(None);
-    };
-    resolve_named_preset(root, name, &mut Vec::new()).map(Some)
-}
-
-fn resolve_named_preset(
-    root: &Path,
-    name: &str,
-    chain: &mut Vec<String>,
-) -> anyhow::Result<PresetConfig> {
-    if let Some(cycle_start) = chain.iter().position(|entry| entry == name) {
-        let mut cycle = chain[cycle_start..].to_vec();
-        cycle.push(name.to_string());
-        bail!("preset inheritance cycle: {}", cycle.join(" -> "));
-    }
-    chain.push(name.to_string());
-
-    let mut found = false;
-    let mut merged = PresetConfig::default();
-    for path in config_paths(root) {
-        let Some(file) = parse_config_file_if_present(&path)? else {
-            continue;
-        };
-        let Some(preset) = file.presets.get(name) else {
-            continue;
-        };
-        found = true;
-        merge_preset(&mut merged, preset);
-        if preset_complete(&merged) {
-            break;
-        }
-    }
-    if !found {
-        let paths = config_paths(root)
-            .into_iter()
-            .map(|path| path.display().to_string())
-            .collect::<Vec<_>>()
-            .join(", ");
-        bail!("preset '{name}' not found in {paths} (key: preset.{name})");
-    }
-    if let Some(parent) = merged.extends.as_ref().map(|value| value.value.clone()) {
-        let inherited = resolve_named_preset(root, &parent, chain)
-            .with_context(|| format!("preset '{name}' extends '{parent}'"))?;
-        merge_inherited_preset(&mut merged, &inherited);
-    }
-    chain.pop();
-    Ok(merged)
-}
-
-fn preset_complete(preset: &PresetConfig) -> bool {
-    preset_missing_keys(preset).is_empty()
-}
-
-fn preset_missing_keys(preset: &PresetConfig) -> Vec<&'static str> {
-    [
-        ("model", preset.model.is_some()),
-        ("provider", preset.provider.is_some()),
-        ("planner_model", preset.planner_model.is_some()),
-        ("planner_provider", preset.planner_provider.is_some()),
-        ("context_budget", preset.context_budget.is_some()),
-        ("chat_timeout_secs", preset.chat_timeout_secs.is_some()),
-        ("plan_preset", preset.plan_preset.is_some()),
-        ("profile", preset.profile.is_some()),
-        ("narration", preset.narration.is_some()),
-        ("footer", preset.footer.is_some()),
-        ("stream", preset.stream.is_some()),
-    ]
-    .into_iter()
-    .filter_map(|(key, present)| (!present).then_some(key))
-    .collect()
-}
-
-fn merge_preset(target: &mut PresetConfig, source: &PresetConfig) {
-    merge_preset_field(&mut target.extends, &source.extends);
-    merge_inherited_preset(target, source);
-}
-
-fn merge_inherited_preset(target: &mut PresetConfig, source: &PresetConfig) {
-    merge_preset_field(&mut target.pack, &source.pack);
-    merge_preset_field(&mut target.model, &source.model);
-    merge_preset_field(&mut target.provider, &source.provider);
-    merge_preset_field(&mut target.base_url, &source.base_url);
-    merge_preset_field(&mut target.api_key_env, &source.api_key_env);
-    merge_preset_field(&mut target.openai_api, &source.openai_api);
-    merge_preset_field(&mut target.tool_protocol, &source.tool_protocol);
-    merge_preset_field(&mut target.planner_model, &source.planner_model);
-    merge_preset_field(&mut target.planner_provider, &source.planner_provider);
-    merge_preset_field(&mut target.planner_think, &source.planner_think);
-    merge_preset_field(&mut target.classifier_model, &source.classifier_model);
-    merge_preset_field(&mut target.classifier_provider, &source.classifier_provider);
-    merge_preset_field(&mut target.context_budget, &source.context_budget);
-    merge_preset_field(&mut target.chat_timeout_secs, &source.chat_timeout_secs);
-    merge_preset_field(&mut target.prompt_layout, &source.prompt_layout);
-    merge_preset_field(&mut target.plan_preset, &source.plan_preset);
-    merge_preset_field(&mut target.profile, &source.profile);
-    merge_preset_field(&mut target.narration, &source.narration);
-    merge_preset_field(&mut target.footer, &source.footer);
-    merge_preset_field(&mut target.stream, &source.stream);
-}
-
-fn merge_preset_field<T: Clone>(target: &mut Option<Sourced<T>>, source: &Option<Sourced<T>>) {
-    if target.is_none() {
-        *target = source.clone();
-    }
 }
 
 fn config_file_narration(root: &Path) -> Option<Sourced<NarrationMode>> {
@@ -1397,8 +1182,9 @@ fn parse_config_file_if_present(path: &Path) -> anyhow::Result<Option<ConfigFile
 }
 
 fn parse_config_file(path: &Path, text: &str) -> anyhow::Result<ConfigFile> {
-    text.parse::<toml::Table>()
-        .with_context(|| format!("{} contains invalid TOML syntax", path.display()))?;
+    if let Err(error) = text.parse::<toml::Table>() {
+        bail!("{}", validation::invalid_toml_location(path, text, &error));
+    }
     let mut file = ConfigFile::default();
     let mut section = ConfigSection::Top;
     for (index, raw_line) in text.lines().enumerate() {
@@ -1526,155 +1312,6 @@ fn parse_top_level_key(
     }
 }
 
-fn parse_preset_key(
-    path: &Path,
-    line_no: usize,
-    name: &str,
-    key: &str,
-    value: &str,
-    source: &str,
-    preset: &mut PresetConfig,
-) -> anyhow::Result<()> {
-    let full_key = format!("preset.{name}.{key}");
-    if !SUPPORTED_PRESET_KEYS.contains(&key) {
-        bail!(
-            "{}:{} unknown config key '{full_key}'",
-            path.display(),
-            line_no
-        );
-    }
-    match key {
-        "extends" => {
-            preset.extends = Some(sourced(
-                parse_string_value(path, line_no, &full_key, value)?,
-                source,
-            ))
-        }
-        "pack" => {
-            preset.pack = Some(sourced(
-                parse_string_value(path, line_no, &full_key, value)?,
-                source,
-            ))
-        }
-        "model" => {
-            preset.model = Some(sourced(
-                parse_string_value(path, line_no, &full_key, value)?,
-                source,
-            ))
-        }
-        "provider" => {
-            preset.provider = Some(sourced(
-                parse_provider_value(path, line_no, &full_key, value)?,
-                source,
-            ))
-        }
-        "base_url" => {
-            preset.base_url = Some(sourced(
-                parse_string_value(path, line_no, &full_key, value)?,
-                source,
-            ))
-        }
-        "api_key_env" => {
-            preset.api_key_env = Some(sourced(
-                parse_string_value(path, line_no, &full_key, value)?,
-                source,
-            ))
-        }
-        "api" => {
-            preset.openai_api = Some(sourced(
-                parse_openai_api_value(path, line_no, &full_key, value)?,
-                source,
-            ))
-        }
-        "tool_protocol" => {
-            preset.tool_protocol = Some(sourced(
-                parse_tool_protocol_value(path, line_no, &full_key, value)?,
-                source,
-            ))
-        }
-        "planner_model" => {
-            preset.planner_model = Some(sourced(
-                parse_string_value(path, line_no, &full_key, value)?,
-                source,
-            ))
-        }
-        "planner_provider" => {
-            preset.planner_provider = Some(sourced(
-                parse_provider_value(path, line_no, &full_key, value)?,
-                source,
-            ))
-        }
-        "planner_think" => {
-            preset.planner_think = Some(sourced(
-                parse_ollama_think_value(path, line_no, &full_key, value)?,
-                source,
-            ))
-        }
-        "classifier_model" => {
-            preset.classifier_model = Some(sourced(
-                parse_string_value(path, line_no, &full_key, value)?,
-                source,
-            ))
-        }
-        "classifier_provider" => {
-            preset.classifier_provider = Some(sourced(
-                parse_provider_value(path, line_no, &full_key, value)?,
-                source,
-            ))
-        }
-        "context_budget" => {
-            preset.context_budget = Some(sourced(
-                parse_usize_value(path, line_no, &full_key, value)?,
-                source,
-            ))
-        }
-        "chat_timeout_secs" => {
-            preset.chat_timeout_secs = Some(sourced(
-                parse_u64_value(path, line_no, &full_key, value)?,
-                source,
-            ))
-        }
-        "profile" => {
-            preset.profile = Some(sourced(
-                parse_string_value(path, line_no, &full_key, value)?,
-                source,
-            ))
-        }
-        "narration" => {
-            preset.narration = Some(sourced(
-                parse_narration_value(path, line_no, &full_key, value)?,
-                source,
-            ))
-        }
-        "footer" => {
-            preset.footer = Some(sourced(
-                parse_footer_value(path, line_no, &full_key, value)?,
-                source,
-            ))
-        }
-        "stream" => {
-            preset.stream = Some(sourced(
-                parse_stream_value(path, line_no, &full_key, value)?,
-                source,
-            ))
-        }
-        "prompt_layout" => {
-            preset.prompt_layout = Some(sourced(
-                parse_prompt_layout_value(path, line_no, &full_key, value)?,
-                source,
-            ))
-        }
-        "plan_preset" => {
-            preset.plan_preset = Some(sourced(
-                parse_plan_preset_value(path, line_no, &full_key, value)?,
-                source,
-            ))
-        }
-        _ => unreachable!("SUPPORTED_PRESET_KEYS contains unhandled key '{key}'"),
-    }
-    Ok(())
-}
-
 pub(crate) fn selected_preset_pack(
     root: &Path,
     name: Option<&str>,
@@ -1701,7 +1338,7 @@ pub(crate) fn preset_names(root: &Path) -> Vec<String> {
 
 pub(crate) fn configured_extension_root(root: &Path) -> anyhow::Result<Option<PathBuf>> {
     for path in config_paths(root) {
-        if let Some(file) = parse_config_file_if_present(&path)?
+        if let Ok(Some(file)) = parse_config_file_if_present(&path)
             && let Some(value) = file.extension_root
         {
             let configured = PathBuf::from(value.value);
@@ -1774,6 +1411,14 @@ fn expand_env_references(value: &str) -> anyhow::Result<String> {
         }
         let resolved = std::env::var(name)
             .with_context(|| format!("environment variable {name} is not set or is not Unicode"))?;
+        // Register the expansion value before any later validation can embed it
+        // in an error, and so it is scrubbed from every persisted record. A
+        // credential value that is too short or reserved is refused honestly.
+        if crate::sensitive_data::is_credential_name(name) {
+            crate::sensitive_data::config_staging::register_credential(name, &resolved)?;
+        } else {
+            crate::sensitive_data::config_staging::register_plain(&resolved)?;
+        }
         output.push_str(&resolved);
         remaining = &reference[end + 1..];
     }
@@ -1807,8 +1452,9 @@ pub(crate) fn normalize_openai_compatible_base_url(value: &str) -> anyhow::Resul
         bail!("--base-url must not be empty");
     }
     let normalized = trimmed.strip_suffix("/v1").unwrap_or(trimmed);
-    let parsed = reqwest::Url::parse(normalized)
-        .with_context(|| format!("invalid --base-url URL `{value}`"))?;
+    // The URL never appears in the message: it may hold a `${ENV}` expansion
+    // value, and the validation error must not echo that value.
+    let parsed = reqwest::Url::parse(normalized).context("invalid --base-url URL")?;
     if !matches!(parsed.scheme(), "http" | "https") {
         bail!("--base-url must use http or https");
     }
@@ -2113,6 +1759,111 @@ fn required_goal(goal: Option<String>, action: &str) -> anyhow::Result<String> {
 
 pub fn default_state_dir() -> PathBuf {
     crate::runtime_paths::default_state_dir()
+}
+
+/// Build the run's secret sources: every non-empty built-in provider key, the
+/// compatible `api_key_env`, and the bounded root dotenv values.
+///
+/// Registration is not limited to the selected roles. A too-short/reserved
+/// credential value, an unreadable source, or a combined overflow past the
+/// catalog cap is returned as a failure that still carries the partial catalog,
+/// so the caller can install it, scrub the refusal, and refuse honestly.
+pub(crate) fn build_secret_sources(
+    root: &Path,
+    compatible: Option<&OpenAiCompatibleConfig>,
+) -> Result<crate::sensitive_data::SecretCatalog, crate::sensitive_data::CollectionFailure> {
+    use crate::sensitive_data::{CollectionFailure, CollectionRefusal, SecretCatalog};
+    let mut catalog = SecretCatalog::new();
+    let mut refusals: Vec<CollectionRefusal> = Vec::new();
+    for name in ["OPENAI_API_KEY", "GEMINI_API_KEY", "LM_STUDIO_API_TOKEN"] {
+        if let Ok(value) = load_api_key(root, name)
+            && let Err(refusal) = catalog.register_credential(name, &value)
+        {
+            refusals.push(collection_refusal(name, refusal));
+        }
+    }
+    if let Some(name) = compatible.and_then(|compatible| compatible.api_key_env.as_deref())
+        && let Ok(value) = load_api_key(root, name)
+        && let Err(refusal) = catalog.register_credential(name, &value)
+    {
+        refusals.push(collection_refusal(name, refusal));
+    }
+    match crate::sensitive_data::collect_scoped_dotenv(root) {
+        Ok(collection) => {
+            if let Err(refusal) = catalog.try_merge(&collection.catalog) {
+                refusals.push(collection_refusal("dotenv", refusal));
+            }
+        }
+        Err(failure) => {
+            if let Err(refusal) = catalog.try_merge(&failure.catalog) {
+                refusals.push(collection_refusal("dotenv", refusal));
+            }
+            refusals.extend(failure.refusals);
+        }
+    }
+    if refusals.is_empty() {
+        Ok(catalog)
+    } else {
+        Err(CollectionFailure { refusals, catalog })
+    }
+}
+
+fn collection_refusal(
+    name: &str,
+    refusal: crate::sensitive_data::RegistrationRefusal,
+) -> crate::sensitive_data::CollectionRefusal {
+    use crate::sensitive_data::{CollectionRefusal, RegistrationRefusal};
+    match refusal {
+        RegistrationRefusal::TooShort { .. } => CollectionRefusal::CredentialTooShort {
+            name: name.to_string(),
+            limit: crate::sensitive_data::MIN_GENERIC_SECRET_LEN,
+        },
+        RegistrationRefusal::Reserved { .. } => CollectionRefusal::ReservedValue {
+            name: name.to_string(),
+        },
+        RegistrationRefusal::CatalogFull { limit } => CollectionRefusal::TooManyValues { limit },
+    }
+}
+
+/// Install a run scope for direct minimal-loop use, keyed by the config's own
+/// workspace root and events path.
+///
+/// The scope that belongs to *this* workspace is reused, never another run's
+/// thread-local scope, so a `${ENV}` value the CLI registered before the run is
+/// kept while a different workspace's values are not imported. A source failure
+/// installs the partial catalog and returns the refusal, so the entry refuses
+/// the run honestly and any later emit is still scrubbed.
+pub fn install_run_secret_scope(
+    config: &Config,
+) -> anyhow::Result<crate::sensitive_data::RedactionContext> {
+    let mut catalog = crate::sensitive_data::registered_for(config.eval_events_path.as_deref())
+        .or_else(|| crate::sensitive_data::registered_for(Some(&config.workspace_root)))
+        .map(|context| (*context.catalog_arc()).clone())
+        .unwrap_or_default();
+    let mut refusal: Option<anyhow::Error> = None;
+    match build_secret_sources(&config.workspace_root, config.openai_compatible.as_ref()) {
+        Ok(sources) => {
+            if let Err(error) = catalog.try_merge(&sources) {
+                refusal = Some(anyhow::Error::new(error));
+            }
+        }
+        Err(failure) => {
+            if let Err(error) = catalog.try_merge(&failure.catalog) {
+                refusal = Some(anyhow::Error::new(error));
+            } else {
+                refusal = Some(anyhow::Error::new(failure));
+            }
+        }
+    }
+    let context = crate::sensitive_data::install_scope(
+        catalog,
+        Some(&config.workspace_root),
+        config.eval_events_path.as_deref(),
+    );
+    match refusal {
+        Some(error) => Err(error),
+        None => Ok(context),
+    }
 }
 
 pub fn load_api_key(workspace_root: &std::path::Path, name: &str) -> anyhow::Result<String> {
@@ -3742,5 +3493,71 @@ profile = "generic"
         assert_eq!(config.profile, "generic");
         assert!(config.profile_explicit);
         assert!(config.profile_inference.is_none());
+    }
+
+    #[test]
+    fn config_refuses_dotenv_collection_over_cap_sources() {
+        // An oversized root dotenv source must fail config resolution rather
+        // than silently dropping a secret.
+        let large = tempfile::tempdir().unwrap();
+        std::fs::write(
+            large.path().join(".env"),
+            format!(
+                "PRIVATE_TOKEN=H05_LIMIT_CANARY\n{}",
+                "#".repeat(crate::sensitive_data::MAX_DOTENV_BYTES + 1)
+            ),
+        )
+        .unwrap();
+        let cwd = large.path().to_string_lossy().to_string();
+        assert!(
+            Config::from_cli(Cli::parse_from([
+                "commandagent",
+                "--cwd",
+                &cwd,
+                "--offline"
+            ]))
+            .is_err()
+        );
+
+        let unreadable = tempfile::tempdir().unwrap();
+        std::fs::create_dir(unreadable.path().join(".env")).unwrap();
+        let cwd = unreadable.path().to_string_lossy().to_string();
+        assert!(
+            Config::from_cli(Cli::parse_from([
+                "commandagent",
+                "--cwd",
+                &cwd,
+                "--offline"
+            ]))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn config_registers_nonempty_builtin_provider_keys_outside_the_selected_role() {
+        crate::sensitive_data::reset_scopes_for_tests();
+        let dir = tempfile::tempdir().unwrap();
+        let inactive = "H05_INACTIVE_PROVIDER_secret_7193";
+        std::fs::write(
+            dir.path().join(".env"),
+            format!("OPENAI_API_KEY={inactive}\n"),
+        )
+        .unwrap();
+        let cwd = dir.path().to_string_lossy().to_string();
+        // Provider stays ollama; the OpenAI key is still a registered source.
+        let _config = Config::from_cli(Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            &cwd,
+            "--offline",
+        ]))
+        .unwrap();
+
+        let context = crate::sensitive_data::current().expect("config installed a scope");
+        assert!(
+            context.contains(inactive),
+            "OPENAI_API_KEY was not registered"
+        );
+        crate::sensitive_data::reset_scopes_for_tests();
     }
 }

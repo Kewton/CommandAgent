@@ -242,6 +242,19 @@ fn run_structured(
 
     let mut process = normalized_command_at_root("sh", root);
     process.arg("-c").arg(command).current_dir(root);
+    let mut process = match crate::tools::os_sandbox::wrap_command(process) {
+        Ok(process) => process,
+        Err(refusal) => {
+            return Ok(BashOutcome {
+                kind: BashOutcomeKind::Blocked,
+                status: None,
+                stdout: String::new(),
+                stderr: String::new(),
+                elapsed_ms: started.elapsed().as_millis(),
+                summary: refusal.summary(),
+            });
+        }
+    };
     process.stdout(Stdio::piped()).stderr(Stdio::piped());
     let output = bounded_process::run_with_timeout(&mut process, timeout)
         .with_context(|| format!("failed to spawn verifier command: {command}"))?;
@@ -316,6 +329,9 @@ fn truncate_stream(value: &str) -> String {
 fn build_summary(command: &str, kind: BashOutcomeKind, stdout: &str, stderr: &str) -> String {
     if kind == BashOutcomeKind::Success {
         return "command succeeded".to_string();
+    }
+    if let Some(reason) = crate::node_failure::summary(command, stdout, stderr) {
+        return reason;
     }
     let combined = format!("{stderr}\n{stdout}");
     let mut lines = Vec::new();

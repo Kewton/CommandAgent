@@ -1,0 +1,8 @@
+{
+  "expectations.toml": "d2ac14938c74a07e6d68ddc2957efdf8459a2fa9197d1bfae108c0047873faba",
+  "interaction.json": "dade633d7b33376b36c807fad8919d2233bbc4d729a4cbb6cfbb61e7ee28b5db",
+  "measured-contract-results.json": "05a5ee0c3c5f3ecef49b0cdc9b974e125e46a23e0067b85d5a8bb2dc4bf8d587",
+  "provenance.json": "678246ca2d18021ed04fbe5bfe6551e30c860b65a551f57ccd480397422c661a",
+  "reproduction.md": "62906449c719a238be3b496a057895cbc37eb1a8715b0b4c8cf893ba4d22292e",
+  "runtime.sh": "ca05762838007d3239f9696e2927ce037a077ed173ea3faaea1fc046f9efaf07"
+}

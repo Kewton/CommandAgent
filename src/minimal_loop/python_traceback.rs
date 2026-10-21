@@ -6,41 +6,11 @@ use serde_json::json;
 use crate::eval_events;
 use crate::planner::repair_targeting::{RepairTargetSelection, RepairTargetSelectionReason};
 use crate::planner::verify::VerificationReport;
+pub use crate::verification::diagnostics::{PythonTraceback, PythonTracebackFrame};
 
 const TRACEBACK_HEADER: &str = "Traceback (most recent call last):";
 const LEADING_FRAME_LIMIT: usize = 3;
 const MESSAGE_LIMIT: usize = 1_000;
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PythonTracebackFrame {
-    pub file: String,
-    pub line: usize,
-    pub function: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PythonTraceback {
-    pub final_frame: PythonTracebackFrame,
-    pub leading_frames: Vec<PythonTracebackFrame>,
-    pub exception_type: String,
-    pub message: String,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub target_path: Option<String>,
-}
-
-impl PythonTraceback {
-    pub(crate) fn signature(&self) -> String {
-        format!(
-            "traceback:{}:{}:{}:{}",
-            self.target_path
-                .as_deref()
-                .unwrap_or(self.final_frame.file.as_str()),
-            self.final_frame.line,
-            self.exception_type,
-            self.message
-        )
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

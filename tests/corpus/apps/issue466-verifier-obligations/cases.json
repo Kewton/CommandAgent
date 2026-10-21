@@ -1,0 +1,463 @@
+[
+  {
+    "id": "missing-none",
+    "paths": [
+      "smoke-check.js",
+      "other-check.js"
+    ],
+    "existing": [],
+    "owners": [],
+    "expect": "bound"
+  },
+  {
+    "id": "missing-compatible",
+    "paths": [
+      "smoke-check.js",
+      "other-check.js"
+    ],
+    "existing": [],
+    "owners": [
+      {
+        "id": "candidate",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Create the registered verifier with every original assertion.",
+        "expected_paths": [
+          "smoke-check.js",
+          "other-check.js"
+        ],
+        "verify": []
+      }
+    ],
+    "expect": "bound"
+  },
+  {
+    "id": "missing-wrong_kind",
+    "paths": [
+      "smoke-check.js",
+      "other-check.js"
+    ],
+    "existing": [],
+    "owners": [
+      {
+        "id": "candidate",
+        "kind": "report",
+        "expected_result": "pass",
+        "instruction": "Create the registered verifier with every original assertion.",
+        "expected_paths": [
+          "smoke-check.js",
+          "other-check.js"
+        ],
+        "verify": []
+      }
+    ],
+    "expect": "proposal_repairable"
+  },
+  {
+    "id": "missing-incomplete",
+    "paths": [
+      "smoke-check.js",
+      "other-check.js"
+    ],
+    "existing": [],
+    "owners": [
+      {
+        "id": "candidate",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Create the registered verifier with every original assertion.",
+        "expected_paths": [
+          "smoke-check.js"
+        ],
+        "verify": []
+      }
+    ],
+    "expect": "proposal_repairable"
+  },
+  {
+    "id": "missing-multiple",
+    "paths": [
+      "smoke-check.js",
+      "other-check.js"
+    ],
+    "existing": [],
+    "owners": [
+      {
+        "id": "first",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Create the registered verifier with every original assertion.",
+        "expected_paths": [
+          "smoke-check.js"
+        ],
+        "verify": []
+      },
+      {
+        "id": "second",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Create the registered verifier with every original assertion.",
+        "expected_paths": [
+          "other-check.js"
+        ],
+        "verify": []
+      }
+    ],
+    "expect": "proposal_repairable"
+  },
+  {
+    "id": "missing-mixed_application_configuration",
+    "paths": [
+      "smoke-check.js",
+      "other-check.js"
+    ],
+    "existing": [],
+    "owners": [
+      {
+        "id": "candidate",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Create the registered verifier with every original assertion.",
+        "expected_paths": [
+          "smoke-check.js",
+          "other-check.js",
+          "app.js",
+          "package.json"
+        ],
+        "verify": []
+      }
+    ],
+    "expect": "proposal_repairable"
+  },
+  {
+    "id": "existing-none",
+    "paths": [
+      "smoke-check.js",
+      "other-check.js"
+    ],
+    "existing": [
+      "smoke-check.js",
+      "other-check.js"
+    ],
+    "owners": [],
+    "expect": "bound"
+  },
+  {
+    "id": "existing-compatible",
+    "paths": [
+      "smoke-check.js",
+      "other-check.js"
+    ],
+    "existing": [
+      "smoke-check.js",
+      "other-check.js"
+    ],
+    "owners": [
+      {
+        "id": "candidate",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Create the registered verifier with every original assertion.",
+        "expected_paths": [
+          "smoke-check.js",
+          "other-check.js"
+        ],
+        "verify": []
+      }
+    ],
+    "expect": "proposal_repairable"
+  },
+  {
+    "id": "existing-wrong_kind",
+    "paths": [
+      "smoke-check.js",
+      "other-check.js"
+    ],
+    "existing": [
+      "smoke-check.js",
+      "other-check.js"
+    ],
+    "owners": [
+      {
+        "id": "candidate",
+        "kind": "report",
+        "expected_result": "pass",
+        "instruction": "Create the registered verifier with every original assertion.",
+        "expected_paths": [
+          "smoke-check.js",
+          "other-check.js"
+        ],
+        "verify": []
+      }
+    ],
+    "expect": "proposal_repairable"
+  },
+  {
+    "id": "existing-incomplete",
+    "paths": [
+      "smoke-check.js",
+      "other-check.js"
+    ],
+    "existing": [
+      "smoke-check.js",
+      "other-check.js"
+    ],
+    "owners": [
+      {
+        "id": "candidate",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Create the registered verifier with every original assertion.",
+        "expected_paths": [
+          "smoke-check.js"
+        ],
+        "verify": []
+      }
+    ],
+    "expect": "proposal_repairable"
+  },
+  {
+    "id": "existing-multiple",
+    "paths": [
+      "smoke-check.js",
+      "other-check.js"
+    ],
+    "existing": [
+      "smoke-check.js",
+      "other-check.js"
+    ],
+    "owners": [
+      {
+        "id": "first",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Create the registered verifier with every original assertion.",
+        "expected_paths": [
+          "smoke-check.js"
+        ],
+        "verify": []
+      },
+      {
+        "id": "second",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Create the registered verifier with every original assertion.",
+        "expected_paths": [
+          "other-check.js"
+        ],
+        "verify": []
+      }
+    ],
+    "expect": "proposal_repairable"
+  },
+  {
+    "id": "existing-mixed_application_configuration",
+    "paths": [
+      "smoke-check.js",
+      "other-check.js"
+    ],
+    "existing": [
+      "smoke-check.js",
+      "other-check.js"
+    ],
+    "owners": [
+      {
+        "id": "candidate",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Create the registered verifier with every original assertion.",
+        "expected_paths": [
+          "smoke-check.js",
+          "other-check.js",
+          "app.js",
+          "package.json"
+        ],
+        "verify": []
+      }
+    ],
+    "expect": "proposal_repairable"
+  },
+  {
+    "id": "partial-none",
+    "paths": [
+      "smoke-check.js",
+      "other-check.js"
+    ],
+    "existing": [
+      "smoke-check.js"
+    ],
+    "owners": [],
+    "expect": "original_inconsistent"
+  },
+  {
+    "id": "partial-compatible",
+    "paths": [
+      "smoke-check.js",
+      "other-check.js"
+    ],
+    "existing": [
+      "smoke-check.js"
+    ],
+    "owners": [
+      {
+        "id": "candidate",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Create the registered verifier with every original assertion.",
+        "expected_paths": [
+          "smoke-check.js",
+          "other-check.js"
+        ],
+        "verify": []
+      }
+    ],
+    "expect": "original_inconsistent"
+  },
+  {
+    "id": "partial-wrong_kind",
+    "paths": [
+      "smoke-check.js",
+      "other-check.js"
+    ],
+    "existing": [
+      "smoke-check.js"
+    ],
+    "owners": [
+      {
+        "id": "candidate",
+        "kind": "report",
+        "expected_result": "pass",
+        "instruction": "Create the registered verifier with every original assertion.",
+        "expected_paths": [
+          "smoke-check.js",
+          "other-check.js"
+        ],
+        "verify": []
+      }
+    ],
+    "expect": "original_inconsistent"
+  },
+  {
+    "id": "partial-incomplete",
+    "paths": [
+      "smoke-check.js",
+      "other-check.js"
+    ],
+    "existing": [
+      "smoke-check.js"
+    ],
+    "owners": [
+      {
+        "id": "candidate",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Create the registered verifier with every original assertion.",
+        "expected_paths": [
+          "smoke-check.js"
+        ],
+        "verify": []
+      }
+    ],
+    "expect": "original_inconsistent"
+  },
+  {
+    "id": "partial-multiple",
+    "paths": [
+      "smoke-check.js",
+      "other-check.js"
+    ],
+    "existing": [
+      "smoke-check.js"
+    ],
+    "owners": [
+      {
+        "id": "first",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Create the registered verifier with every original assertion.",
+        "expected_paths": [
+          "smoke-check.js"
+        ],
+        "verify": []
+      },
+      {
+        "id": "second",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Create the registered verifier with every original assertion.",
+        "expected_paths": [
+          "other-check.js"
+        ],
+        "verify": []
+      }
+    ],
+    "expect": "original_inconsistent"
+  },
+  {
+    "id": "partial-mixed_application_configuration",
+    "paths": [
+      "smoke-check.js",
+      "other-check.js"
+    ],
+    "existing": [
+      "smoke-check.js"
+    ],
+    "owners": [
+      {
+        "id": "candidate",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Create the registered verifier with every original assertion.",
+        "expected_paths": [
+          "smoke-check.js",
+          "other-check.js",
+          "app.js",
+          "package.json"
+        ],
+        "verify": []
+      }
+    ],
+    "expect": "original_inconsistent"
+  },
+  {
+    "id": "dotted-compatible",
+    "paths": [
+      "smoke-check.js"
+    ],
+    "existing": [],
+    "owners": [
+      {
+        "id": "candidate",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Create the registered verifier with every original assertion.",
+        "expected_paths": [
+          "./smoke-check.js"
+        ],
+        "verify": []
+      }
+    ],
+    "expect": "bound"
+  },
+  {
+    "id": "duplicate-alias",
+    "paths": [
+      "smoke-check.js"
+    ],
+    "existing": [],
+    "owners": [
+      {
+        "id": "candidate",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Create the registered verifier with every original assertion.",
+        "expected_paths": [
+          "smoke-check.js",
+          "./smoke-check.js"
+        ],
+        "verify": []
+      }
+    ],
+    "expect": "unsafe"
+  }
+]

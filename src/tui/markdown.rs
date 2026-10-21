@@ -1,10 +1,16 @@
 use std::io::{self, IsTerminal, Write};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
+use crate::sensitive_data::{self, StreamScrubber};
 use crate::tui::OutputRenderer;
 
 mod highlight;
 mod table;
+
+/// A chunk-boundary-safe scrubber over the active run scope, when one exists.
+fn active_stream_scrubber() -> Option<StreamScrubber> {
+    sensitive_data::current().map(|context| context.stream_scrubber())
+}
 
 pub mod capture {
     use super::*;
@@ -647,27 +653,38 @@ impl TerminalMarkdownRenderer {
     }
 
     pub fn render_to_string(&self, raw_text: &str) -> String {
+        let raw_text = sensitive_data::scrub_active(raw_text);
         if !self.markdown_enabled || crate::tui::terminal::env_non_empty("COMMANDAGENT_NO_MARKDOWN")
         {
-            return raw_text.to_string();
+            return raw_text;
         }
         let mut renderer = MarkdownRenderer::new(self.color_enabled, self.utf8);
-        let mut out = renderer.push_chunk(raw_text);
+        let mut out = renderer.push_chunk(&raw_text);
         out.push_str(&renderer.flush());
         out
     }
 
     pub fn render_chunks_to_string<'a>(&self, chunks: impl IntoIterator<Item = &'a str>) -> String {
-        if !self.markdown_enabled || crate::tui::terminal::env_non_empty("COMMANDAGENT_NO_MARKDOWN")
-        {
-            return chunks.into_iter().collect();
-        }
-        let mut renderer = MarkdownRenderer::new(self.color_enabled, self.utf8);
+        let disabled = !self.markdown_enabled
+            || crate::tui::terminal::env_non_empty("COMMANDAGENT_NO_MARKDOWN");
+        let mut scrubber = active_stream_scrubber();
+        let mut renderer =
+            (!disabled).then(|| MarkdownRenderer::new(self.color_enabled, self.utf8));
         let mut out = String::new();
         for chunk in chunks {
-            out.push_str(&renderer.push_chunk(chunk));
+            let text = match scrubber.as_mut() {
+                Some(scrubber) => scrubber.push(chunk),
+                None => chunk.to_string(),
+            };
+            push_rendered(&mut out, renderer.as_mut(), &text);
         }
-        out.push_str(&renderer.flush());
+        if let Some(mut scrubber) = scrubber {
+            let tail = scrubber.finish();
+            push_rendered(&mut out, renderer.as_mut(), &tail);
+        }
+        if let Some(mut renderer) = renderer {
+            out.push_str(&renderer.flush());
+        }
         out
     }
 
@@ -677,6 +694,7 @@ impl TerminalMarkdownRenderer {
                 .markdown_enabled
                 .then(|| MarkdownRenderer::new(self.color_enabled, self.utf8)),
             raw: !self.markdown_enabled,
+            scrubber: active_stream_scrubber(),
             wrote_output: false,
             output_ends_with_newline: false,
             captured: false,
@@ -684,9 +702,17 @@ impl TerminalMarkdownRenderer {
     }
 }
 
+fn push_rendered(out: &mut String, renderer: Option<&mut MarkdownRenderer>, text: &str) {
+    match renderer {
+        Some(renderer) => out.push_str(&renderer.push_chunk(text)),
+        None => out.push_str(text),
+    }
+}
+
 pub struct TerminalMarkdownStream {
     renderer: Option<MarkdownRenderer>,
     raw: bool,
+    scrubber: Option<StreamScrubber>,
     wrote_output: bool,
     output_ends_with_newline: bool,
     captured: bool,
@@ -697,22 +723,33 @@ impl TerminalMarkdownStream {
         if raw_text.is_empty() {
             return Ok(());
         }
-        if capture::record_stream_chunk(raw_text) {
+        let text = match self.scrubber.as_mut() {
+            Some(scrubber) => scrubber.push(raw_text),
+            None => raw_text.to_string(),
+        };
+        self.emit(&text)
+    }
+
+    fn emit(&mut self, text: &str) -> anyhow::Result<()> {
+        if text.is_empty() {
+            return Ok(());
+        }
+        if capture::record_stream_chunk(text) {
             self.captured = true;
             return Ok(());
         }
         if self.raw {
             let mut stdout = io::stdout().lock();
-            crate::tui::terminal::write_stdout_text(&mut stdout, raw_text)?;
+            crate::tui::terminal::write_stdout_text(&mut stdout, text)?;
             stdout.flush()?;
             self.wrote_output = true;
-            self.output_ends_with_newline = raw_text.ends_with('\n');
+            self.output_ends_with_newline = text.ends_with('\n');
             return Ok(());
         }
         let Some(renderer) = self.renderer.as_mut() else {
             return Ok(());
         };
-        let rendered = renderer.push_chunk(raw_text);
+        let rendered = renderer.push_chunk(text);
         if rendered.is_empty() {
             return Ok(());
         }
@@ -725,6 +762,10 @@ impl TerminalMarkdownStream {
     }
 
     pub fn finish(&mut self) -> anyhow::Result<()> {
+        if let Some(mut scrubber) = self.scrubber.take() {
+            let tail = scrubber.finish();
+            self.emit(&tail)?;
+        }
         if self.captured {
             capture::finish_stream();
             return Ok(());
@@ -760,10 +801,11 @@ impl Drop for TerminalMarkdownStream {
 
 impl OutputRenderer for TerminalMarkdownRenderer {
     fn render_assistant(&self, raw_text: &str) -> anyhow::Result<()> {
-        if capture::record(raw_text) {
+        let scrubbed = sensitive_data::scrub_active(raw_text);
+        if capture::record(&scrubbed) {
             return Ok(());
         }
-        let rendered = self.render_to_string(raw_text);
+        let rendered = self.render_to_string(&scrubbed);
         let mut stdout = io::stdout().lock();
         crate::tui::terminal::write_stdout_text(&mut stdout, &rendered)?;
         if !rendered.ends_with('\n') {
@@ -779,10 +821,11 @@ pub struct PlainRenderer;
 
 impl OutputRenderer for PlainRenderer {
     fn render_assistant(&self, raw_text: &str) -> anyhow::Result<()> {
-        if capture::record(raw_text) {
+        let scrubbed = sensitive_data::scrub_active(raw_text);
+        if capture::record(&scrubbed) {
             return Ok(());
         }
-        println!("{raw_text}");
+        println!("{scrubbed}");
         Ok(())
     }
 }

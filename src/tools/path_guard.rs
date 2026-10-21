@@ -1,6 +1,13 @@
+#![cfg_attr(
+    not(test),
+    deny(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)
+)]
+
 use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, bail};
+
+mod bash_pattern;
 
 const EXPECTED_PATH_FORM: &str = "use workspace-relative paths";
 
@@ -60,6 +67,7 @@ pub fn normalize_workspace_path(
     let path = Path::new(raw);
     if !path.is_absolute() {
         if looks_like_missing_leading_slash_absolute(raw) {
+            reject_parent_components(path)?;
             let root = root
                 .canonicalize()
                 .context("workspace root is not accessible")?;
@@ -210,6 +218,32 @@ pub(super) fn ensure_bash_write_target(root: &Path, raw: &str) -> anyhow::Result
     if raw.contains(['$', '`']) {
         bail!("dynamic Bash write target cannot be proven to remain in the workspace");
     }
+    ensure_single_target(root, raw)?;
+    // A glob or brace target spells a name that does not exist yet, so the
+    // literal proof above stops at the workspace root. Expand the word the way
+    // the shell would and prove every result too.
+    if bash_pattern::contains_expansion(raw) {
+        bash_pattern::ensure_expanded_write_target(root, raw)?;
+    }
+    Ok(())
+}
+
+/// A read-only literal confinement proof: unlike [`ensure_bash_write_target`] it
+/// never expands a glob or brace, so a quoted literal that merely looks like a
+/// pattern is judged by its literal spelling and a same-spelling sibling symlink
+/// is never pulled in (Issue #582 design 3). The write-target proof is left
+/// unchanged.
+pub(super) fn ensure_bash_read_target(root: &Path, raw: &str) -> anyhow::Result<()> {
+    if raw.starts_with('~') {
+        bail!("home-relative Bash read target is outside the workspace contract");
+    }
+    if raw.contains(['$', '`']) {
+        bail!("dynamic Bash read target cannot be proven to remain in the workspace");
+    }
+    ensure_single_target(root, raw)
+}
+
+fn ensure_single_target(root: &Path, raw: &str) -> anyhow::Result<()> {
     let path = Path::new(raw);
     if !path.is_absolute() {
         validate_workspace_relative(raw)?;
@@ -330,7 +364,7 @@ fn split_absolute_glob_base(raw: &str) -> Option<(&str, &str)> {
     }
 }
 
-fn strip_redundant_root_prefix(root: &Path, raw: &str) -> PathBuf {
+pub(super) fn strip_redundant_root_prefix(root: &Path, raw: &str) -> PathBuf {
     let path = Path::new(raw);
     let Some(root_name) = root.file_name() else {
         return path.to_path_buf();
@@ -357,7 +391,7 @@ fn root_anchor_salvage(root: &Path, raw: &Path) -> Option<String> {
         return None;
     }
     let anchor_len = root_components.len().min(2);
-    let anchor = &root_components[root_components.len() - anchor_len..];
+    let anchor = root_components.get(root_components.len() - anchor_len..)?;
     let mut matches = raw_components
         .windows(anchor_len)
         .enumerate()
@@ -367,7 +401,7 @@ fn root_anchor_salvage(root: &Path, raw: &Path) -> Option<String> {
         return None;
     }
     let index = matches.pop()?;
-    let tail = &raw_components[index + anchor_len..];
+    let tail = raw_components.get(index + anchor_len..)?;
     let relative = if tail.is_empty() {
         ".".to_string()
     } else {
@@ -419,12 +453,11 @@ fn missing_path_candidate(root: &Path, raw: &str) -> Option<String> {
 }
 
 fn looks_like_windows_absolute(raw: &str) -> bool {
-    let bytes = raw.as_bytes();
     raw.starts_with("\\\\")
-        || (bytes.len() >= 3
-            && bytes[0].is_ascii_alphabetic()
-            && bytes[1] == b':'
-            && (bytes[2] == b'\\' || bytes[2] == b'/'))
+        || matches!(
+            raw.as_bytes(),
+            [drive, b':', b'\\' | b'/', ..] if drive.is_ascii_alphabetic()
+        )
 }
 
 fn looks_like_missing_leading_slash_absolute(raw: &str) -> bool {
@@ -444,7 +477,9 @@ fn looks_like_near_root_digit_variance(root: &Path, raw: &Path) -> bool {
         || (root_components
             .first()
             .is_some_and(|component| component == "private")
-            && near_root_digit_variance_components(&root_components[1..], &raw_components))
+            && root_components
+                .get(1..)
+                .is_some_and(|rest| near_root_digit_variance_components(rest, &raw_components)))
 }
 
 fn near_root_digit_variance_components(
@@ -633,6 +668,379 @@ mod tests {
         {
             std::os::unix::fs::symlink("/tmp", dir.path().join("out")).unwrap();
             assert!(resolve_existing(dir.path(), "out").is_err());
+        }
+    }
+
+    #[test]
+    fn validate_workspace_relative_table() {
+        assert!(validate_workspace_relative("").is_err());
+        assert!(validate_workspace_relative("a\0b").is_err());
+        assert!(validate_workspace_relative("a/b.txt").is_ok());
+        assert!(validate_workspace_relative("C:x").is_ok());
+    }
+
+    #[test]
+    fn normalize_absolute_workspace_path_table() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        std::fs::write(root.join("a.txt"), "ok").unwrap();
+
+        let existing = root.join("a.txt");
+        assert_eq!(
+            normalize_absolute_workspace_path(&root, existing.to_str().unwrap())
+                .unwrap()
+                .as_deref(),
+            Some("a.txt")
+        );
+
+        assert_eq!(
+            normalize_absolute_workspace_path(&root, root.to_str().unwrap())
+                .unwrap()
+                .as_deref(),
+            Some(".")
+        );
+
+        let missing = root.join("new/deep/f");
+        assert_eq!(
+            normalize_absolute_workspace_path(&root, missing.to_str().unwrap())
+                .unwrap()
+                .as_deref(),
+            Some("new/deep/f")
+        );
+
+        assert!(
+            normalize_absolute_workspace_path(&root, "a.txt")
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn normalize_workspace_path_table() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        std::fs::write(root.join("a.txt"), "ok").unwrap();
+
+        let inside = root.join("a.txt");
+        let normalization = normalize_workspace_path(&root, inside.to_str().unwrap())
+            .unwrap()
+            .unwrap();
+        assert_eq!(normalization.relative, "a.txt");
+        assert_eq!(
+            normalization.kind,
+            WorkspacePathNormalizationKind::AbsoluteInsideWorkspace
+        );
+
+        for raw in ["C:\\x", "C:/x", "\\\\srv\\s"] {
+            assert!(normalize_workspace_path(&root, raw).is_err(), "{raw}");
+        }
+        for raw in ["1:/x", "ab/c", "C:x", "a.txt"] {
+            assert!(
+                normalize_workspace_path(&root, raw).unwrap().is_none(),
+                "{raw}"
+            );
+        }
+
+        let parent = root.join("../x");
+        assert!(normalize_workspace_path(&root, parent.to_str().unwrap()).is_err());
+        assert!(normalize_workspace_path(&root, "a\0b").is_err());
+        assert!(normalize_workspace_path(&root, "/etc/hosts").is_err());
+    }
+
+    #[test]
+    fn near_root_digit_variance_table() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().canonicalize().unwrap();
+        let root = base.join("work/camp_002");
+        std::fs::create_dir_all(&root).unwrap();
+
+        let near = base.join("work/camp_001/src/app/page.tsx");
+        let err = normalize_workspace_path(&root, near.to_str().unwrap()).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("tool_args_path_near_root_corruption"),
+            "{err}"
+        );
+
+        let same_length = base.join("work/camp_001");
+        let err = normalize_workspace_path(&root, same_length.to_str().unwrap()).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("tool_args_path_near_root_corruption"),
+            "{err}"
+        );
+
+        let two_root = base.join("work_002/camp_002");
+        std::fs::create_dir_all(&two_root).unwrap();
+        let two = base.join("work_001/camp_001/src/app/page.tsx");
+        for raw in [
+            base.join("work/camp_0002/src/app/page.tsx"),
+            base.join("work/camp_00x/src/app/page.tsx"),
+            base.join("work/other_002/src/app/page.tsx"),
+            base.clone(),
+        ] {
+            let err = normalize_workspace_path(&root, raw.to_str().unwrap()).unwrap_err();
+            assert!(
+                err.to_string().contains("path escapes workspace"),
+                "{raw:?}: {err}"
+            );
+        }
+        let err = normalize_workspace_path(&two_root, two.to_str().unwrap()).unwrap_err();
+        assert!(err.to_string().contains("path escapes workspace"), "{err}");
+
+        let short_root = base.join("work/camp_002/sub");
+        std::fs::create_dir_all(&short_root).unwrap();
+        let short_raw = base.join("work/camp_001");
+        let err = normalize_workspace_path(&short_root, short_raw.to_str().unwrap()).unwrap_err();
+        assert!(err.to_string().contains("path escapes workspace"), "{err}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn near_root_digit_variance_uses_raw_path_when_canonical_differs() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().canonicalize().unwrap();
+        let root = base.join("work/camp_002");
+        std::fs::create_dir_all(&root).unwrap();
+        let outside = base.join("outside_dir");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::os::unix::fs::symlink(&outside, base.join("work/camp_001")).unwrap();
+
+        let raw = base.join("work/camp_001");
+        let err = normalize_workspace_path(&root, raw.to_str().unwrap()).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("tool_args_path_near_root_corruption"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn looks_like_near_root_digit_variance_table() {
+        assert!(looks_like_near_root_digit_variance(
+            Path::new("/private/work/camp_002"),
+            Path::new("/work/camp_001/src/app/page.tsx"),
+        ));
+        assert!(looks_like_near_root_digit_variance(
+            Path::new("/work/camp_002"),
+            Path::new("/work/camp_001/x"),
+        ));
+        assert!(!looks_like_near_root_digit_variance(
+            Path::new("/a/camp_002"),
+            Path::new("/camp_001/x"),
+        ));
+    }
+
+    #[test]
+    fn split_absolute_glob_base_table() {
+        assert_eq!(
+            split_absolute_glob_base("/ws/*.txt"),
+            Some(("/ws", "*.txt"))
+        );
+        assert_eq!(
+            split_absolute_glob_base("/ws/src/*.rs"),
+            Some(("/ws/src", "*.rs"))
+        );
+        assert_eq!(
+            split_absolute_glob_base("/ws/src/**/?.rs"),
+            Some(("/ws/src", "**/?.rs"))
+        );
+        assert_eq!(split_absolute_glob_base("/*.txt"), Some(("/", "*.txt")));
+        assert_eq!(split_absolute_glob_base("/ws/src"), None);
+    }
+
+    #[test]
+    fn missing_leading_slash_table() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().canonicalize().unwrap();
+        let root = base.join("ws_001");
+        std::fs::create_dir_all(&root).unwrap();
+
+        for raw in ["Users/x/y", "home/x/y"] {
+            let err = normalize_workspace_path(&root, raw).unwrap_err();
+            assert!(
+                err.to_string().contains("tool_args_path_malformed"),
+                "{raw}: {err}"
+            );
+        }
+        for raw in ["Users", "Usersx/y", "src/Users/x"] {
+            assert!(
+                normalize_workspace_path(&root, raw).unwrap().is_none(),
+                "{raw}"
+            );
+        }
+    }
+
+    #[test]
+    fn root_anchor_salvage_on_filesystem_root_does_not_panic() {
+        let err = normalize_workspace_path(Path::new("/"), "Users/x/y").unwrap_err();
+        assert!(
+            err.to_string().contains("tool_args_path_malformed"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn normalize_absolute_workspace_glob_table() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        let r = root.to_str().unwrap().to_string();
+
+        for (raw, expected) in [
+            (format!("{r}/*.txt"), "*.txt"),
+            (format!("{r}/src/*.rs"), "src/*.rs"),
+            (format!("{r}/src/**/?.rs"), "src/**/?.rs"),
+            (format!("{r}/src"), "src"),
+        ] {
+            assert_eq!(
+                normalize_absolute_workspace_glob(&root, &raw)
+                    .unwrap()
+                    .as_deref(),
+                Some(expected),
+                "{raw}"
+            );
+        }
+
+        assert!(
+            normalize_absolute_workspace_glob(&root, "src/*.rs")
+                .unwrap()
+                .is_none()
+        );
+        assert!(normalize_absolute_workspace_glob(&root, "/etc/*.conf").is_err());
+        assert!(normalize_absolute_workspace_glob(&root, "/*.txt").is_err());
+        assert!(normalize_absolute_workspace_glob(&root, &format!("{r}/../x/*.txt")).is_err());
+        assert!(normalize_absolute_workspace_glob(&root, "C:\\*.txt").is_err());
+        assert!(normalize_absolute_workspace_glob(&root, "a\0*.txt").is_err());
+    }
+
+    #[test]
+    fn resolve_optional_existing_and_relative_display_table() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        std::fs::write(root.join("a.txt"), "ok").unwrap();
+
+        let existing = resolve_optional_existing(&root, "a.txt").unwrap();
+        assert!(existing.ends_with("a.txt"), "{existing:?}");
+        let created = resolve_optional_existing(&root, "new/deep/f.txt").unwrap();
+        assert!(created.ends_with("new/deep/f.txt"), "{created:?}");
+
+        assert_eq!(relative_display(&root, &root.join("a/b.txt")), "a/b.txt");
+        assert_eq!(
+            relative_display(&root, Path::new("/outside/x.txt")),
+            "/outside/x.txt"
+        );
+    }
+
+    #[test]
+    fn strip_redundant_root_prefix_table() {
+        let root = Path::new("/tmp/ws");
+        assert_eq!(
+            strip_redundant_root_prefix(root, "ws/a/b"),
+            PathBuf::from("a/b")
+        );
+        assert_eq!(strip_redundant_root_prefix(root, "ws"), PathBuf::from("ws"));
+        assert_eq!(
+            strip_redundant_root_prefix(root, "other/a"),
+            PathBuf::from("other/a")
+        );
+        assert_eq!(
+            strip_redundant_root_prefix(Path::new("/"), "a/b"),
+            PathBuf::from("a/b")
+        );
+    }
+
+    #[test]
+    fn ensure_bash_write_target_table() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        std::fs::write(root.join("a.txt"), "ok").unwrap();
+
+        assert!(ensure_bash_write_target(&root, "a.txt").is_ok());
+        assert!(ensure_bash_write_target(&root, "new/deep/f.txt").is_ok());
+        let abs_inside = root.join("a.txt");
+        assert!(ensure_bash_write_target(&root, abs_inside.to_str().unwrap()).is_ok());
+
+        assert!(ensure_bash_write_target(&root, "/etc/hosts").is_err());
+        assert!(ensure_bash_write_target(&root, "../x").is_err());
+        assert!(ensure_bash_write_target(&root, "~/x").is_err());
+        assert!(ensure_bash_write_target(&root, "$HOME/x").is_err());
+        assert!(ensure_bash_write_target(&root, "`whoami`/x").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ensure_bash_write_target_rejects_symlink_escape() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("ws");
+        std::fs::create_dir_all(&root).unwrap();
+        let root = root.canonicalize().unwrap();
+        let outside = dir.path().join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("f.txt"), "x").unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("linked")).unwrap();
+
+        assert!(ensure_bash_write_target(&root, "linked/f.txt").is_err());
+        assert!(ensure_bash_write_target(&root, "linked/new.txt").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ensure_bash_write_target_rejects_unreadable_parent() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let locked = root.join("locked");
+        std::fs::create_dir_all(&locked).unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+        let probe = std::fs::read_dir(&locked);
+        let result = ensure_bash_write_target(&root, "locked/f.txt");
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        assert_eq!(
+            probe.as_ref().err().map(|e| e.kind()),
+            Some(std::io::ErrorKind::PermissionDenied),
+            "this test must exercise actual EACCES; run under an unprivileged account"
+        );
+        assert!(result.is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ensure_bash_write_target_expansion_table() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("ws");
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+        std::fs::write(root.join("sub/f"), "x").unwrap();
+        std::fs::create_dir_all(dir.path().join("outside")).unwrap();
+        std::fs::write(dir.path().join("outside/secret"), "x").unwrap();
+        std::os::unix::fs::symlink(dir.path().join("outside"), root.join("linked-outside"))
+            .unwrap();
+        std::os::unix::fs::symlink(dir.path().join("outside"), root.join(".hidden-out")).unwrap();
+        let root = root.canonicalize().unwrap();
+
+        for raw in [
+            "lin*/secret",
+            "linked-outsid?/secret",
+            "linked-outsid[e]/secret",
+            "*/secret",
+            "**/secret",
+            ".hid*/f",
+            ".*/f",
+            ".?/f",
+            "{.,}./f",
+            "{.,.}./f",
+            "{linked-outside,x}/f",
+            "{k..m}inked-outside/f",
+            "{linked-outside/f,x}",
+        ] {
+            assert!(ensure_bash_write_target(&root, raw).is_err(), "{raw}");
+        }
+
+        for raw in ["sub/f", "nomatch*/f", "src/new.rs", "sub/{a,b}.txt"] {
+            assert!(ensure_bash_write_target(&root, raw).is_ok(), "{raw}");
         }
     }
 }

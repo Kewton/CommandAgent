@@ -141,22 +141,63 @@ class ScoreRetrospectiveTests(unittest.TestCase):
     def test_repository_scan_covers_all_run_level_band_rows(self) -> None:
         module = score_retrospective.load_band_module()
         finals, checkpoints = score_retrospective.scan_profiles(module)
-        coverage = score_retrospective.coverage_rows(finals, checkpoints)
 
-        self.assertEqual(len(finals), 287)
+        # d39c84a3368d8b59ca0d450b439ad32133e8b78e added six Luna rows
+        # after this snapshot was sealed. Preserve every historical row exactly.
+        frozen_path = REPOSITORY_ROOT / (
+            "workspace/management/runs/f1-retrospective-001/final-vectors.jsonl"
+        )
+        frozen = [
+            json.loads(line)
+            for line in frozen_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        frozen_by_id = {row["run_id"]: row for row in frozen}
+        actual_by_id = {row["run_id"]: row for row in finals}
+        self.assertEqual(len(frozen), 287)
+        self.assertEqual(len(frozen_by_id), 287)
+        self.assertEqual(len(actual_by_id), len(finals))
+        historical = [row for row in finals if row["run_id"] in frozen_by_id]
+        self.assertEqual(len(historical), 287)
+        self.assertEqual({row["run_id"]: row for row in historical}, frozen_by_id)
+        frozen_counts = {
+            "circle": 33,
+            "cli": 98,
+            "data": 60,
+            "fix": 30,
+            "ingest": 54,
+            "investigation": 12,
+        }
+        historical_coverage = score_retrospective.coverage_rows(historical, checkpoints)
+        self.assertEqual(
+            {row["profile"]: row["scannable_runs"] for row in historical_coverage},
+            frozen_counts,
+        )
+        self.assertEqual(sum(row["final_verdict"] == "full" for row in historical), 10)
+
+        luna_ids = {
+            f"uat-test0802-ingest-luna-001/{family}_luna_{index:03d}"
+            for family in ("list", "table")
+            for index in range(1, 4)
+        }
+        self.assertEqual(set(actual_by_id) - set(frozen_by_id), luna_ids)
+        for run_id in sorted(luna_ids):
+            with self.subTest(run_id=run_id):
+                row = actual_by_id[run_id]
+                self.assertEqual(row["profile"], "ingest")
+                self.assertEqual(row["model"], "gpt-5.6-luna")
+                self.assertEqual(row["final_verdict"], "full")
+                self.assertEqual(row["final_assurance"], "full")
+                self.assertIs(row["reached"], True)
+
+        self.assertEqual(len(finals), 293)
+        coverage = score_retrospective.coverage_rows(finals, checkpoints)
         self.assertEqual(
             {row["profile"]: row["scannable_runs"] for row in coverage},
-            {
-                "circle": 33,
-                "cli": 98,
-                "data": 60,
-                "fix": 30,
-                "ingest": 54,
-                "investigation": 12,
-            },
+            {**frozen_counts, "ingest": 60},
         )
         full = [item for item in finals if item["final_verdict"] == "full"]
-        self.assertEqual(len(full), 10)
+        self.assertEqual(len(full), 16)
         self.assertTrue(all(item["score"] == 100.0 for item in full))
         self.assertTrue(
             all(atom["state"] == "pass" for item in full for atom in item["atoms"])

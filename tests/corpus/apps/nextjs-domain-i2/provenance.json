@@ -1,0 +1,15 @@
+{
+  "campaign": "20260907-1317-standard10",
+  "run": "i2",
+  "source_session": "01a07aed-556e-7c92-a85d-b52ef0b05029",
+  "artifact": "final retained original",
+  "sha256": {
+    "src/app/api/orders/route.ts": "513a841350a1938e838600d880cf367bd93d4d0d120b0a45e1bc47c73b059d07",
+    "src/app/api/products/route.ts": "a30030076cdafccadf05af3e81cba81b8b20c2771b51ca5bedd8421264149cd7",
+    "src/app/global.d.ts": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+    "src/app/globals.css": "cc1a7ad0d019ddb1d32d0ecb588ba0ac26ce41d8625dd6c366348b25f83a28ec",
+    "src/app/layout.tsx": "e4390d4d4067cdfdcab53478bb5701155d51cf3daa0cc80e8fd4d4d3957f1978",
+    "src/app/page.tsx": "013b9e9015d3da335226c7f55a34c9da4cd4523921674b25e5210a36b88e2ed8",
+    "src/lib/data.ts": "ada956e2d001f4dad0fe47b81215b51cf60bf0cb373d18edeeea06f50ddb9886"
+  }
+}

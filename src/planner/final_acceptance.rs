@@ -1,8 +1,13 @@
 use super::CompileRepairPromptProtection;
 
+#[path = "final_acceptance/compile_rollback_verification.rs"]
+mod compile_rollback_verification;
+
+#[path = "final_acceptance/surface_fit.rs"]
+mod surface_fit;
+
 #[path = "runner/recovery_probe_context.rs"]
 mod recovery_probe_context;
-#[allow(unused_imports)]
 use super::{
     BTreeMap, BTreeSet, Cell, ChatClient, CompileError, CompletionContract, Config, Duration,
     InteractionUi, PROFILE_REPAIR_FILE_EXCERPT_MAX_CHARS, Path, PathBuf, PromptLayout,
@@ -17,10 +22,10 @@ use super::{
     compile_repair_prompt_section_with_root, dedup_strings, eval_events,
     interaction_repair_targets_for_reason, json, merge_unique_strings, missing_if_empty,
     phase_goal_one_liner, push_context_items_capped, render_bounded_prompt_section,
-    report_has_production_build_failure, resolve_profile_runtime, restart_hook_attachment_guidance,
-    route_bound_source_paths, run_session_with_outcome_with_options,
-    ultra_final_acceptance_report_inner, ultra_final_acceptance_report_with_deterministic_remedies,
-    verification_missing_signals, workspace_relative_handoff_path,
+    resolve_profile_runtime, restart_hook_attachment_guidance, route_bound_source_paths,
+    run_session_with_outcome_with_options, ultra_final_acceptance_report_inner,
+    ultra_final_acceptance_report_with_deterministic_remedies, verification_missing_signals,
+    workspace_relative_handoff_path,
 };
 
 pub(super) const FINAL_ACCEPTANCE_REPAIR_MAX_ATTEMPTS: usize = 2;
@@ -57,7 +62,6 @@ pub(super) struct FinalAcceptanceCycleDelta {
     pub(super) route_bound_changed_paths: Vec<String>,
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn runtime_missing_signals(report: &RuntimeAcceptanceReport) -> Vec<String> {
     let mut out = Vec::new();
     merge_unique_strings(&mut out, &report.missing_capabilities);
@@ -677,7 +681,7 @@ Regeneration mandate:\n\
     )
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "run state borrowed apart")]
 pub(super) fn try_final_acceptance_compile_regeneration(
     execution: &mut dyn ChatClient,
     config: &Config,
@@ -753,12 +757,9 @@ pub(super) fn try_final_acceptance_compile_regeneration(
     let repair_context = RepairContext {
         profile: Some(plan.profile.clone()),
         overall_goal: Some(plan.goal.clone()),
-        required_final_artifacts: expected_paths.to_vec(),
         expected_paths: expected_paths.to_vec(),
-        missing_paths: acceptance_report.missing_paths.clone(),
         workspace_root: Some(config.workspace_root.clone()),
         prompt_layout: config.prompt_layout,
-        compile_reanchored_retry: true,
         ..RepairContext::default()
     };
     let regeneration_prompt = build_compile_regeneration_prompt_with_context(
@@ -864,7 +865,7 @@ pub(super) fn try_final_acceptance_compile_regeneration(
     Ok(false)
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "flat event fields")]
 pub(super) fn emit_evidence_regeneration_event(
     config: &Config,
     fired: bool,
@@ -894,7 +895,7 @@ pub(super) fn emit_evidence_regeneration_event(
     );
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "flat event fields")]
 pub(super) fn emit_compile_regeneration_event(
     config: &Config,
     step_id: Option<&str>,
@@ -991,19 +992,17 @@ pub(super) fn try_compile_rollback_after_repair_exhaustion(
         restored_paths.push(rel.clone());
         origins.push(workspace_relative_handoff_path(snapshot));
     }
-    let rebuild_report =
-        resolve_profile_runtime(profile).verify_final(&config.workspace_root, goal);
-    if report_has_production_build_failure(&rebuild_report) {
-        eval_events::emit(
-            config.eval_events_path.as_deref(),
-            json!({
-                "event": "compile_rollback_failed",
-                "phase_id": phase_id,
-                "paths": restored_paths,
-                "snapshot_origins": origins,
-                "exhausted_reason": exhausted_reason,
-                "rebuild_reason": eval_events::body_snippet(&rebuild_report.primary_reason()),
-            }),
+    let static_report = resolve_profile_runtime(profile).verify_final(&config.workspace_root, goal);
+    let build = compile_rollback_verification::run(config, profile, phase_id, report);
+    if !static_report.is_pass() || !build.passed {
+        compile_rollback_verification::emit_failed(
+            config,
+            phase_id,
+            &restored_paths,
+            &origins,
+            exhausted_reason,
+            &static_report,
+            &build,
         );
         return Ok(None);
     }
@@ -1017,16 +1016,14 @@ pub(super) fn try_compile_rollback_after_repair_exhaustion(
             )
         })
         .collect::<Vec<_>>();
-    eval_events::emit(
-        config.eval_events_path.as_deref(),
-        json!({
-            "event": "compile_rollback_applied",
-            "phase_id": phase_id,
-            "paths": restored_paths.clone(),
-            "snapshot_origins": origins.clone(),
-            "exhausted_reason": exhausted_reason,
-            "carry_forward_guidance": carry_forward_guidance.clone(),
-        }),
+    compile_rollback_verification::emit_applied(
+        config,
+        phase_id,
+        &restored_paths,
+        &origins,
+        exhausted_reason,
+        &carry_forward_guidance,
+        &build,
     );
     eval_events::append_run_summary(
         config.eval_events_path.as_deref(),
@@ -1171,7 +1168,7 @@ pub(super) fn final_acceptance_pending_evidence_guidance(
 }
 
 #[cfg(test)]
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "prompt inputs borrowed")]
 pub(super) fn final_acceptance_repair_prompt(
     root: &Path,
     layout: PromptLayout,
@@ -1201,7 +1198,7 @@ pub(super) fn final_acceptance_repair_prompt(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "prompt inputs + event path")]
 pub(super) fn final_acceptance_repair_prompt_with_events(
     root: &Path,
     layout: PromptLayout,
@@ -1246,7 +1243,7 @@ pub(super) fn final_acceptance_repair_prompt_with_events(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "stable-layout prompt inputs")]
 pub(super) fn final_acceptance_repair_prompt_stable(
     root: &Path,
     plan: &UltraPlan,
@@ -1356,7 +1353,7 @@ Final acceptance failure:\n\
     )
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "legacy-layout prompt inputs")]
 pub(super) fn final_acceptance_repair_prompt_legacy(
     root: &Path,
     plan: &UltraPlan,
@@ -1942,17 +1939,13 @@ pub(super) fn surface_fit_overflows(fit: &Value) -> BTreeMap<&'static str, i64> 
         ("left", "overflow_left_px"),
     ]
     .into_iter()
-    .map(|(edge, key)| (edge, raw_i64_field(fit, key).unwrap_or(0).max(0)))
-    .collect()
-}
-
-pub(super) fn raw_i64_field(value: &Value, name: &str) -> Option<i64> {
-    value.get(name).and_then(Value::as_i64).or_else(|| {
-        value
-            .get(name)
-            .and_then(Value::as_f64)
-            .map(|value| value.round() as i64)
+    .map(|(edge, key)| {
+        (
+            edge,
+            surface_fit::finite_i64_field(fit, key).unwrap_or(0).max(0),
+        )
     })
+    .collect()
 }
 
 pub(super) fn surface_fit_edge_summary(overflows: &BTreeMap<&'static str, i64>) -> String {

@@ -76,7 +76,7 @@ use crate::planner::repair::{
     suggested_recovery_ultra_plan_command, suggested_ultra_recovery_command,
     workspace_relative_handoff_path,
 };
-use crate::planner::sanitizer::{SanitizerReport, sanitize_step_plan_against_policy};
+use crate::planner::sanitizer::SanitizerReport;
 #[cfg(test)]
 use crate::planner::setup_step_policy;
 #[cfg(test)]
@@ -135,7 +135,7 @@ use acceptance::*;
 
 #[path = "runner/driver.rs"]
 mod driver;
-use driver::*;
+pub(crate) use driver::*;
 pub use driver::{
     generate_and_run_step_plan, generate_and_run_step_plan_with_ui, generate_step_plan,
     generate_step_plan_with_ui, run_plan_file, run_plan_file_with_ui, run_step_plan,

@@ -1,0 +1,33 @@
+case_id = "issue513-plan-verify-projection"
+source = "Issue #513 plan verify execution observations project into headless verify_commands; declared-only commands stay not_recorded and are never upgraded"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["verify_command_observed", "not_recorded", "effective_command"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/plan-verify-events.jsonl = [
+  "\"event\":\"verify_command_observed\"",
+  "\"declared_command\":\"pytest tests\"",
+  "\"effective_command\":\"python3 -m pytest tests\"",
+  "\"status\":\"passed\"",
+  "\"status\":\"failed\"",
+  "\"status\":\"not_recorded\"",
+  "\"verify_commands\":[\"cargo test --test smoke\",\"test -f artifacts/report.json\"]"
+]

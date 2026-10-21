@@ -1,0 +1,11 @@
+{
+  "revision": "593649601397034563f6da1d2007d7a30d8dbdf3",
+  "entry": "Source::parse -> Source::writer_paths (product implementation)",
+  "results": [
+    "ISSUE475_BASELINE saved: path_unsafe=true filePath_unsafe=true paths=[]",
+    "ISSUE475_BASELINE diagnostic_literal: path_unsafe=false filePath_unsafe=true paths=[]",
+    "ISSUE475_BASELINE pid_literal: path_unsafe=true filePath_unsafe=true paths=[]",
+    "ISSUE475_BASELINE rename_constant: path_unsafe=true filePath_unsafe=true paths=[]",
+    "ISSUE475_BASELINE diagnostic_and_rename_constant: path_unsafe=false filePath_unsafe=true paths=[\"data/projects.json\"]"
+  ]
+}

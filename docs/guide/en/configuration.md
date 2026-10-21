@@ -194,10 +194,25 @@ plan_preset = "none"
 ```
 
 Keys such as `model` are valid inside a preset but invalid at top level.
-Unknown top-level keys make that file fail parsing. Named-preset loading
-surfaces the parse error; top-level field lookup skips a file that did not parse
-and continues to lower-priority files. Sections other than `[preset.<name>]`
-are ignored by the current small parser rather than treated as configuration.
+
+> **Compatibility change.** Every existing `config.toml` among the four layers
+> (`<workspace>/.commandagent`, `<workspace>/.anvil`, `~/.commandagent`,
+> `~/.anvil`) is now parsed at startup, with or without `--preset` or CLI
+> overrides. An unknown top-level key, invalid TOML, or a file that cannot be
+> read is a startup error; the command exits non-zero and `--doctor` reports a
+> failed Configuration check without contacting a provider. Earlier versions
+> silently skipped such a file and used a lower-priority file or the default, so
+> a typo or a broken higher-priority file could go unnoticed. The diagnostic
+> names the file, line and key only, never a value. Startup checks only syntax, unknown top-level keys and
+> read failures; `${ENV}` expansion and the contents of a preset are still
+> validated only when that preset is selected. Fix or remove the reported
+> line to continue.
+
+Valid configuration resolves as before: flag, then preset, then config file,
+then default, with the same source labels. Sections other than
+`[preset.<name>]` are still ignored by the current small parser rather than
+treated as configuration, and an extensionless legacy `config` file keeps its
+lenient line scan.
 
 ## Pack selection
 
@@ -256,11 +271,21 @@ variables also affect normal user-visible behavior:
 | `XDG_STATE_HOME` | Changes the base used by the default state directory. |
 | `HOME` | Supplies user config paths and the fallback state-directory home. |
 | `LC_ALL`, then `LANG` | Determines whether the spinner uses UTF-8 frames. |
+| `COMMANDAGENT_STEP_WALL_CLOCK_CAP_MS` / `ANVIL_STEP_WALL_CLOCK_CAP_MS` | Sets the operational per-step wall-clock cap in milliseconds. A `RunSessionOptions` value takes precedence over the environment. The value is trimmed and parsed as a `u64`; an unset or unparsable value uses the 15-minute default, and `0` is accepted by the parser. |
+| `COMMANDAGENT_PACK_DIRECTORY` | Internal handoff for the selected pack directory. Configure it with `--pack` or a preset instead of setting it by hand. |
+| `COMMANDAGENT_PACK_ID` | Internal handoff for the selected pack ID. Configure it with `--pack` or a preset instead of setting it by hand. |
+| `COMMANDAGENT_PACK_VERSION` | Internal handoff for the selected pack version. Configure it with `--pack` or a preset instead of setting it by hand. |
+| `COMMANDAGENT_PACK_HASH` | Internal handoff for the selected pack exact-byte hash. Configure it with `--pack` or a preset instead of setting it by hand. |
+| `COMMANDAGENT_UX_DEMO_FAST` / `ANVIL_UX_DEMO_FAST` | Speeds up the `--ux-demo` presentation waits for development and demos. The variable's presence, not its value, is tested. |
 
 For `COMMANDAGENT_*` entries, the current name wins. The matching `ANVIL_*`
 name is used only when the current name is absent, and emits a one-time
 deprecation warning. The legacy names in the table are nevertheless the exact
 currently supported spellings.
+
+The four `COMMANDAGENT_PACK_*` names are the exception: they are read directly
+and have no `ANVIL_*` legacy name. They are an internal handoff for the selected
+pack, not a user-configured setting; use `--pack` or a preset to select a pack.
 
 ## Inspect the effective configuration
 

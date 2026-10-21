@@ -1,0 +1,19 @@
+{
+  "domain": "shift",
+  "parent": "staff",
+  "child": "shifts",
+  "delete_style": "body",
+  "parent_body": {
+    "name": "oracle-parent",
+    "role": "ホール"
+  },
+  "expected_failures": [
+    "corrupt-staff",
+    "directory-staff",
+    "concurrent-create",
+    "parent-delete"
+  ],
+  "wrapped_collections": [
+    "shifts"
+  ]
+}

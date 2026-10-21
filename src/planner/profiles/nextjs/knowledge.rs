@@ -7,12 +7,21 @@ const KNOWLEDGE_TOML: &str = include_str!("knowledge.toml");
 #[derive(Debug, Deserialize)]
 pub(crate) struct NextJsKnowledge {
     pub(crate) preset: PresetKnowledge,
+    pub(crate) generation_rules: GenerationRulesKnowledge,
     pub(crate) deterministic_keywords: DeterministicKeywords,
     pub(crate) setup_classifier: SetupClassifierKnowledge,
     pub(crate) template_owned_artifacts: TemplateOwnedArtifactKnowledge,
     pub(crate) repair_guidance: RepairGuidanceKnowledge,
     pub(crate) contracts: ContractKnowledge,
     pub(crate) canonical: CanonicalKnowledge,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct GenerationRulesKnowledge {
+    pub(crate) create: String,
+    pub(crate) fix: String,
+    pub(crate) research: String,
+    pub(crate) default: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -235,7 +244,7 @@ mod tests {
         );
         assert_eq!(
             preset.phases[1].prompt,
-            "Implement the core task-specific behavior for: {goal}. Keep one route-bound implementation, extend the instrumented skeleton instead of replacing it, and keep the implementation in the Next.js route-bound source."
+            "Implement the core task-specific behavior for: {goal}. Keep one route-bound implementation, implement the requested interface and replace unrelated scaffold content, and keep the implementation in the Next.js route-bound source. For TypeScript apps, put shared domain and request/response types in src/lib/types.ts and import the same types from page and route modules. Use imported helpers and export every function consumed by another module. Decide one JSON response shape per operation (bare array, {items}, or {item}) and make the UI read exactly what the route returns. Check Response.ok before accepting a mutation; return errors as {error, details?} and display them in the UI. Connect each requested UI action through its API to persistence and reload the committed result."
         );
         assert!(
             preset.phases[2]
@@ -354,7 +363,7 @@ mod tests {
         );
         assert_eq!(
             guidance.persistence,
-            "persist the committed domain entity using the storage kind required by the goal: keep server-side file/API/DB persistence when requested, use browser storage only when that is the requested boundary, reload the committed entity after each mutation, and do not substitute persistence of a cleared draft input"
+            "persist the committed domain entity using the storage kind required by the goal: keep server-side file/API/DB persistence when requested, use browser storage only when that is the requested boundary, reload the committed entity after each mutation, and do not substitute persistence of a cleared draft input. For server-side file persistence, initialize only a missing file (ENOENT); distinguish valid empty data from missing data. Parse errors, directory replacement and other read or write I/O failures must return 5xx without overwriting any existing or related data. Serialize the complete read-modify-write transaction across all writers (including multiple processes), or use generation checks with conflict handling; write to a temporary file and atomically rename it. Atomic rename alone does not prevent lost updates."
         );
     }
 

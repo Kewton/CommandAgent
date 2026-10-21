@@ -1,0 +1,301 @@
+{
+  "execution": "formation and lint only; no application build or live model call",
+  "formed": [
+    {
+      "expected_paths": [],
+      "expected_result": "pass",
+      "id": "inspect-page",
+      "instruction": "Read src/app/page.tsx to assess current data-anvil attribute coverage: check for data-anvil-action=\"primary\", data-anvil-action=\"input\", data-anvil-state JSON snapshot, and any restart affordances (data-anvil-action=\"restart\"). Note which elements need wiring or re-wiring for the contract-wiring phase.",
+      "kind": "inspect",
+      "verify": []
+    },
+    {
+      "expected_paths": [
+        "src/app/page.tsx"
+      ],
+      "expected_result": "pass",
+      "id": "wire-data-anvil",
+      "instruction": "Edit src/app/page.tsx to ensure the following data-anvil attributes are present on the route-bound interactive UI: (1) data-anvil-action=\"primary\" on the main submit/create button (e.g. the button that creates a project or adds a task). (2) data-anvil-action=\"input\" on the main text entry surface (e.g. the task title or project name input). (3) data-anvil-state on the main container or status region containing a JSON.stringify snapshot of meaningful visible state that includes at least one dimension immediately responding to user input (e.g. current filter selection, edited title value, or task status count). (4) data-anvil-action=\"restart\" on every restart affordance including terminal and active states (e.g. a reset/reload button or a hook-triggered restart). Preserve existing Next.js app router structure, imports from src/lib/types.ts, and API call patterns. The data-anvil-state JSON must be computed after each render and reflect the current selection or edited value.",
+      "kind": "implement",
+      "verify": []
+    },
+    {
+      "expected_paths": [
+        "smoke-check.js"
+      ],
+      "expected_result": "pass",
+      "id": "create-smoke-check",
+      "instruction": "Create smoke-check.js at the workspace root. The file must read src/app/page.tsx as a string and assert: (a) the string contains the literal data-anvil-action=\"primary\" (check for the attribute with proper quoting), (b) it contains data-anvil-action=\"input\", (c) it contains data-anvil-state, (d) it contains JSON.stringify or a JSON template literal referencing state, (e) it contains data-anvil-action=\"restart\". Print 'all anvil checks pass' on success or throw an Error listing missing checks. Use fs.readFileSync with utf8 encoding. Do not use shell quoting; write plain JavaScript.",
+      "kind": "implement",
+      "verify": []
+    },
+    {
+      "expected_paths": [
+        "package.json"
+      ],
+      "expected_result": "pass",
+      "id": "ensure-package-json",
+      "instruction": "For the nextjs profile, create a runnable Next.js app, not only package metadata. Keep the project in the workspace root unless a project subdirectory already exists. Preserve the language and styling toolchains declared by an existing project. A JavaScript project using plain CSS requires package.json, an App Router page and layout, and the imported stylesheet; do not add TypeScript, @types, Tailwind, PostCSS, or Autoprefixer only to satisfy a template. A TypeScript project additionally requires a coherent tsconfig and type dependencies. If those mode-appropriate files are absent, write the coherent App Router scaffold before further inspection. package.json must include compatible next, react, and react-dom dependencies plus scripts.build = `next build`. If Tailwind is used, package.json must include tailwindcss/postcss/autoprefixer and postcss.config plugins must include BOTH tailwindcss and autoprefixer. For TypeScript/TSX apps, create tsconfig.json before treating the app as complete. Keep a single route-bound implementation; do not leave capability components unimported. Do not use deprecated moduleResolution=node10 or target=ES5; prefer moduleResolution=bundler and target=ES2017 or newer. For interactive UI, expose task-agnostic observability hooks: data-anvil-action=\"primary\" on the main start/submit/action control, data-anvil-action=\"input\" on the main text entry surface when one exists, and data-anvil-state containing JSON for meaningful visible state after each render. The data-anvil-state snapshot must include at least one dimension that immediately responds to input, such as the current selection or edited value. When the contract includes start_or_restart_flow, every restart affordance (including terminal and active states when present) should carry data-anvil-action=\"restart\"; the initial primary action alone cannot satisfy recovery verification. A restart reachable during active use (hook or keyboard shortcut) allows behavioral verification, while an overlay-only restart may verify as unverified:terminal_state_not_reached (partial). The dev/start scripts must run on the explicitly requested port 60302: `next dev -p 60302` and `next start -p 60302` or equivalent `--port 60302` forms.",
+      "kind": "implement",
+      "verify": [
+        "node -p \"['dev'].every(function(k){return String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='next' ? a.slice(i+1).find(function(x){return x})==k : false}) ? String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='--port=60302' ? true : t=='-p' ? a.slice(i+1).find(function(x){return x})=='60302' : t=='-p60302' ? true : t=='--port' ? a.slice(i+1).find(function(x){return x})=='60302' : false}) : false}) ? true : process.exit(1)\"",
+        "node -p \"['start'].every(function(k){return Object(require('./package.json').scripts)[k] ? String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='next' ? a.slice(i+1).find(function(x){return x})==k : false}) ? String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='--port=60302' ? true : t=='-p' ? a.slice(i+1).find(function(x){return x})=='60302' : t=='-p60302' ? true : t=='--port' ? a.slice(i+1).find(function(x){return x})=='60302' : false}) : false : true}) ? true : process.exit(1)\"",
+        "node -p \"String(require('./package.json').scripts.build)=='next build' ? true : process.exit(1)\""
+      ]
+    },
+    {
+      "expected_paths": [],
+      "expected_result": "pass",
+      "id": "verify-smoke",
+      "instruction": "Run the smoke check to confirm all data-anvil attributes are wired in the source file.",
+      "kind": "verify",
+      "verify": [
+        "node smoke-check.js"
+      ]
+    },
+    {
+      "expected_paths": [],
+      "expected_result": "pass",
+      "id": "verify-build",
+      "instruction": "Run the Next.js production build to confirm the application compiles successfully with the updated page.tsx and all data-anvil wiring in place.",
+      "kind": "verify",
+      "verify": [
+        "npm run build"
+      ]
+    }
+  ],
+  "host_augmented": [
+    {
+      "expected_paths": [],
+      "expected_result": "pass",
+      "id": "inspect-page",
+      "instruction": "Read src/app/page.tsx to assess current data-anvil attribute coverage: check for data-anvil-action=\"primary\", data-anvil-action=\"input\", data-anvil-state JSON snapshot, and any restart affordances (data-anvil-action=\"restart\"). Note which elements need wiring or re-wiring for the contract-wiring phase.",
+      "kind": "inspect",
+      "verify": []
+    },
+    {
+      "expected_paths": [
+        "src/app/page.tsx"
+      ],
+      "expected_result": "pass",
+      "id": "wire-data-anvil",
+      "instruction": "Edit src/app/page.tsx to ensure the following data-anvil attributes are present on the route-bound interactive UI: (1) data-anvil-action=\"primary\" on the main submit/create button (e.g. the button that creates a project or adds a task). (2) data-anvil-action=\"input\" on the main text entry surface (e.g. the task title or project name input). (3) data-anvil-state on the main container or status region containing a JSON.stringify snapshot of meaningful visible state that includes at least one dimension immediately responding to user input (e.g. current filter selection, edited title value, or task status count). (4) data-anvil-action=\"restart\" on every restart affordance including terminal and active states (e.g. a reset/reload button or a hook-triggered restart). Preserve existing Next.js app router structure, imports from src/lib/types.ts, and API call patterns. The data-anvil-state JSON must be computed after each render and reflect the current selection or edited value.",
+      "kind": "implement",
+      "verify": []
+    },
+    {
+      "expected_paths": [
+        "smoke-check.js",
+        "package.json"
+      ],
+      "expected_result": "pass",
+      "id": "create-smoke-check",
+      "instruction": "Create smoke-check.js at the workspace root. The file must read src/app/page.tsx as a string and assert: (a) the string contains the literal data-anvil-action=\"primary\" (check for the attribute with proper quoting), (b) it contains data-anvil-action=\"input\", (c) it contains data-anvil-state, (d) it contains JSON.stringify or a JSON template literal referencing state, (e) it contains data-anvil-action=\"restart\". Print 'all anvil checks pass' on success or throw an Error listing missing checks. Use fs.readFileSync with utf8 encoding. Do not use shell quoting; write plain JavaScript.\n\nProfile contract:\nFor the nextjs profile, create a runnable Next.js app, not only package metadata. Keep the project in the workspace root unless a project subdirectory already exists. Preserve the language and styling toolchains declared by an existing project. A JavaScript project using plain CSS requires package.json, an App Router page and layout, and the imported stylesheet; do not add TypeScript, @types, Tailwind, PostCSS, or Autoprefixer only to satisfy a template. A TypeScript project additionally requires a coherent tsconfig and type dependencies. If those mode-appropriate files are absent, write the coherent App Router scaffold before further inspection. package.json must include compatible next, react, and react-dom dependencies plus scripts.build = `next build`. If Tailwind is used, package.json must include tailwindcss/postcss/autoprefixer and postcss.config plugins must include BOTH tailwindcss and autoprefixer. For TypeScript/TSX apps, create tsconfig.json before treating the app as complete. Keep a single route-bound implementation; do not leave capability components unimported. Do not use deprecated moduleResolution=node10 or target=ES5; prefer moduleResolution=bundler and target=ES2017 or newer. For interactive UI, expose task-agnostic observability hooks: data-anvil-action=\"primary\" on the main start/submit/action control, data-anvil-action=\"input\" on the main text entry surface when one exists, and data-anvil-state containing JSON for meaningful visible state after each render. The data-anvil-state snapshot must include at least one dimension that immediately responds to input, such as the current selection or edited value. When the contract includes start_or_restart_flow, every restart affordance (including terminal and active states when present) should carry data-anvil-action=\"restart\"; the initial primary action alone cannot satisfy recovery verification.",
+      "kind": "implement",
+      "verify": []
+    },
+    {
+      "expected_paths": [],
+      "expected_result": "pass",
+      "id": "verify-smoke",
+      "instruction": "Run the smoke check to confirm all data-anvil attributes are wired in the source file.",
+      "kind": "verify",
+      "verify": [
+        "node smoke-check.js"
+      ]
+    },
+    {
+      "expected_paths": [],
+      "expected_result": "pass",
+      "id": "verify-build",
+      "instruction": "Run the Next.js production build to confirm the application compiles successfully with the updated page.tsx and all data-anvil wiring in place.",
+      "kind": "verify",
+      "verify": [
+        "npm run build"
+      ]
+    }
+  ],
+  "model_raw": [
+    {
+      "expected_paths": [],
+      "expected_result": "pass",
+      "id": "inspect-page",
+      "instruction": "Read src/app/page.tsx to assess current data-anvil attribute coverage: check for data-anvil-action=\"primary\", data-anvil-action=\"input\", data-anvil-state JSON snapshot, and any restart affordances (data-anvil-action=\"restart\"). Note which elements need wiring or re-wiring for the contract-wiring phase.",
+      "kind": "inspect",
+      "verify": []
+    },
+    {
+      "expected_paths": [
+        "src/app/page.tsx"
+      ],
+      "expected_result": "pass",
+      "id": "wire-data-anvil",
+      "instruction": "Edit src/app/page.tsx to ensure the following data-anvil attributes are present on the route-bound interactive UI: (1) data-anvil-action=\"primary\" on the main submit/create button (e.g. the button that creates a project or adds a task). (2) data-anvil-action=\"input\" on the main text entry surface (e.g. the task title or project name input). (3) data-anvil-state on the main container or status region containing a JSON.stringify snapshot of meaningful visible state that includes at least one dimension immediately responding to user input (e.g. current filter selection, edited title value, or task status count). (4) data-anvil-action=\"restart\" on every restart affordance including terminal and active states (e.g. a reset/reload button or a hook-triggered restart). Preserve existing Next.js app router structure, imports from src/lib/types.ts, and API call patterns. The data-anvil-state JSON must be computed after each render and reflect the current selection or edited value.",
+      "kind": "implement",
+      "verify": []
+    },
+    {
+      "expected_paths": [
+        "smoke-check.js"
+      ],
+      "expected_result": "pass",
+      "id": "create-smoke-check",
+      "instruction": "Create smoke-check.js at the workspace root. The file must read src/app/page.tsx as a string and assert: (a) the string contains the literal data-anvil-action=\"primary\" (check for the attribute with proper quoting), (b) it contains data-anvil-action=\"input\", (c) it contains data-anvil-state, (d) it contains JSON.stringify or a JSON template literal referencing state, (e) it contains data-anvil-action=\"restart\". Print 'all anvil checks pass' on success or throw an Error listing missing checks. Use fs.readFileSync with utf8 encoding. Do not use shell quoting; write plain JavaScript.",
+      "kind": "implement",
+      "verify": []
+    },
+    {
+      "expected_paths": [],
+      "expected_result": "pass",
+      "id": "verify-smoke",
+      "instruction": "Run the smoke check to confirm all data-anvil attributes are wired in the source file.",
+      "kind": "verify",
+      "verify": [
+        "node smoke-check.js"
+      ]
+    },
+    {
+      "expected_paths": [],
+      "expected_result": "pass",
+      "id": "verify-build",
+      "instruction": "Run the Next.js production build to confirm the application compiles successfully with the updated page.tsx and all data-anvil wiring in place.",
+      "kind": "verify",
+      "verify": [
+        "npm run build"
+      ]
+    }
+  ],
+  "original_obligation_sources": {
+    "host": {
+      "goal": "Wire controls and data-anvil observability.",
+      "steps": [
+        {
+          "expected_paths": [
+            "package.json"
+          ],
+          "expected_result": "pass",
+          "id": "create-smoke-check",
+          "instruction": "For the nextjs profile, create a runnable Next.js app, not only package metadata. Keep the project in the workspace root unless a project subdirectory already exists. Preserve the language and styling toolchains declared by an existing project. A JavaScript project using plain CSS requires package.json, an App Router page and layout, and the imported stylesheet; do not add TypeScript, @types, Tailwind, PostCSS, or Autoprefixer only to satisfy a template. A TypeScript project additionally requires a coherent tsconfig and type dependencies. If those mode-appropriate files are absent, write the coherent App Router scaffold before further inspection. package.json must include compatible next, react, and react-dom dependencies plus scripts.build = `next build`. If Tailwind is used, package.json must include tailwindcss/postcss/autoprefixer and postcss.config plugins must include BOTH tailwindcss and autoprefixer. For TypeScript/TSX apps, create tsconfig.json before treating the app as complete. Keep a single route-bound implementation; do not leave capability components unimported. Do not use deprecated moduleResolution=node10 or target=ES5; prefer moduleResolution=bundler and target=ES2017 or newer. For interactive UI, expose task-agnostic observability hooks: data-anvil-action=\"primary\" on the main start/submit/action control, data-anvil-action=\"input\" on the main text entry surface when one exists, and data-anvil-state containing JSON for meaningful visible state after each render. The data-anvil-state snapshot must include at least one dimension that immediately responds to input, such as the current selection or edited value. When the contract includes start_or_restart_flow, every restart affordance (including terminal and active states when present) should carry data-anvil-action=\"restart\"; the initial primary action alone cannot satisfy recovery verification. A restart reachable during active use (hook or keyboard shortcut) allows behavioral verification, while an overlay-only restart may verify as unverified:terminal_state_not_reached (partial). The dev/start scripts must run on the explicitly requested port 60302: `next dev -p 60302` and `next start -p 60302` or equivalent `--port 60302` forms.",
+          "kind": "implement",
+          "verify": []
+        }
+      ]
+    },
+    "model": {
+      "goal": "Wire controls and data-anvil observability.",
+      "steps": [
+        {
+          "expected_paths": [],
+          "expected_result": "pass",
+          "id": "inspect-page",
+          "instruction": "Read src/app/page.tsx to assess current data-anvil attribute coverage: check for data-anvil-action=\"primary\", data-anvil-action=\"input\", data-anvil-state JSON snapshot, and any restart affordances (data-anvil-action=\"restart\"). Note which elements need wiring or re-wiring for the contract-wiring phase.",
+          "kind": "inspect",
+          "verify": []
+        },
+        {
+          "expected_paths": [
+            "src/app/page.tsx"
+          ],
+          "expected_result": "pass",
+          "id": "wire-data-anvil",
+          "instruction": "Edit src/app/page.tsx to ensure the following data-anvil attributes are present on the route-bound interactive UI: (1) data-anvil-action=\"primary\" on the main submit/create button (e.g. the button that creates a project or adds a task). (2) data-anvil-action=\"input\" on the main text entry surface (e.g. the task title or project name input). (3) data-anvil-state on the main container or status region containing a JSON.stringify snapshot of meaningful visible state that includes at least one dimension immediately responding to user input (e.g. current filter selection, edited title value, or task status count). (4) data-anvil-action=\"restart\" on every restart affordance including terminal and active states (e.g. a reset/reload button or a hook-triggered restart). Preserve existing Next.js app router structure, imports from src/lib/types.ts, and API call patterns. The data-anvil-state JSON must be computed after each render and reflect the current selection or edited value.",
+          "kind": "implement",
+          "verify": []
+        },
+        {
+          "expected_paths": [
+            "smoke-check.js"
+          ],
+          "expected_result": "pass",
+          "id": "create-smoke-check",
+          "instruction": "Create smoke-check.js at the workspace root. The file must read src/app/page.tsx as a string and assert: (a) the string contains the literal data-anvil-action=\"primary\" (check for the attribute with proper quoting), (b) it contains data-anvil-action=\"input\", (c) it contains data-anvil-state, (d) it contains JSON.stringify or a JSON template literal referencing state, (e) it contains data-anvil-action=\"restart\". Print 'all anvil checks pass' on success or throw an Error listing missing checks. Use fs.readFileSync with utf8 encoding. Do not use shell quoting; write plain JavaScript.",
+          "kind": "implement",
+          "verify": []
+        },
+        {
+          "expected_paths": [],
+          "expected_result": "pass",
+          "id": "verify-smoke",
+          "instruction": "Run the smoke check to confirm all data-anvil attributes are wired in the source file.",
+          "kind": "verify",
+          "verify": [
+            "node smoke-check.js"
+          ]
+        },
+        {
+          "expected_paths": [],
+          "expected_result": "pass",
+          "id": "verify-build",
+          "instruction": "Run the Next.js production build to confirm the application compiles successfully with the updated page.tsx and all data-anvil wiring in place.",
+          "kind": "verify",
+          "verify": [
+            "npm run build"
+          ]
+        }
+      ]
+    }
+  },
+  "planner_requests": 2,
+  "recovery_budget_changed": false,
+  "source": "issue478_saved_split_preserves_executable_model_and_host_duties",
+  "split_model_raw": [
+    {
+      "expected_paths": [],
+      "expected_result": "pass",
+      "id": "inspect-page",
+      "instruction": "Read src/app/page.tsx to assess current data-anvil attribute coverage: check for data-anvil-action=\"primary\", data-anvil-action=\"input\", data-anvil-state JSON snapshot, and any restart affordances (data-anvil-action=\"restart\"). Note which elements need wiring or re-wiring for the contract-wiring phase.",
+      "kind": "inspect",
+      "verify": []
+    },
+    {
+      "expected_paths": [
+        "src/app/page.tsx"
+      ],
+      "expected_result": "pass",
+      "id": "wire-data-anvil",
+      "instruction": "Edit src/app/page.tsx to ensure the following data-anvil attributes are present on the route-bound interactive UI: (1) data-anvil-action=\"primary\" on the main submit/create button (e.g. the button that creates a project or adds a task). (2) data-anvil-action=\"input\" on the main text entry surface (e.g. the task title or project name input). (3) data-anvil-state on the main container or status region containing a JSON.stringify snapshot of meaningful visible state that includes at least one dimension immediately responding to user input (e.g. current filter selection, edited title value, or task status count). (4) data-anvil-action=\"restart\" on every restart affordance including terminal and active states (e.g. a reset/reload button or a hook-triggered restart). Preserve existing Next.js app router structure, imports from src/lib/types.ts, and API call patterns. The data-anvil-state JSON must be computed after each render and reflect the current selection or edited value.",
+      "kind": "implement",
+      "verify": []
+    },
+    {
+      "expected_paths": [
+        "smoke-check.js"
+      ],
+      "expected_result": "pass",
+      "id": "create-smoke-check",
+      "instruction": "Create smoke-check.js at the workspace root. The file must read src/app/page.tsx as a string and assert: (a) the string contains the literal data-anvil-action=\"primary\" (check for the attribute with proper quoting), (b) it contains data-anvil-action=\"input\", (c) it contains data-anvil-state, (d) it contains JSON.stringify or a JSON template literal referencing state, (e) it contains data-anvil-action=\"restart\". Print 'all anvil checks pass' on success or throw an Error listing missing checks. Use fs.readFileSync with utf8 encoding. Do not use shell quoting; write plain JavaScript.",
+      "kind": "implement",
+      "verify": []
+    },
+    {
+      "expected_paths": [
+        "package.json"
+      ],
+      "expected_result": "pass",
+      "id": "ensure-package-json",
+      "instruction": "For the nextjs profile, create a runnable Next.js app, not only package metadata. Keep the project in the workspace root unless a project subdirectory already exists. Preserve the language and styling toolchains declared by an existing project. A JavaScript project using plain CSS requires package.json, an App Router page and layout, and the imported stylesheet; do not add TypeScript, @types, Tailwind, PostCSS, or Autoprefixer only to satisfy a template. A TypeScript project additionally requires a coherent tsconfig and type dependencies. If those mode-appropriate files are absent, write the coherent App Router scaffold before further inspection. package.json must include compatible next, react, and react-dom dependencies plus scripts.build = `next build`. If Tailwind is used, package.json must include tailwindcss/postcss/autoprefixer and postcss.config plugins must include BOTH tailwindcss and autoprefixer. For TypeScript/TSX apps, create tsconfig.json before treating the app as complete. Keep a single route-bound implementation; do not leave capability components unimported. Do not use deprecated moduleResolution=node10 or target=ES5; prefer moduleResolution=bundler and target=ES2017 or newer. For interactive UI, expose task-agnostic observability hooks: data-anvil-action=\"primary\" on the main start/submit/action control, data-anvil-action=\"input\" on the main text entry surface when one exists, and data-anvil-state containing JSON for meaningful visible state after each render. The data-anvil-state snapshot must include at least one dimension that immediately responds to input, such as the current selection or edited value. When the contract includes start_or_restart_flow, every restart affordance (including terminal and active states when present) should carry data-anvil-action=\"restart\"; the initial primary action alone cannot satisfy recovery verification.",
+      "kind": "implement",
+      "verify": []
+    },
+    {
+      "expected_paths": [],
+      "expected_result": "pass",
+      "id": "verify-smoke",
+      "instruction": "Run the smoke check to confirm all data-anvil attributes are wired in the source file.",
+      "kind": "verify",
+      "verify": [
+        "node smoke-check.js"
+      ]
+    },
+    {
+      "expected_paths": [],
+      "expected_result": "pass",
+      "id": "verify-build",
+      "instruction": "Run the Next.js production build to confirm the application compiles successfully with the updated page.tsx and all data-anvil wiring in place.",
+      "kind": "verify",
+      "verify": [
+        "npm run build"
+      ]
+    }
+  ]
+}

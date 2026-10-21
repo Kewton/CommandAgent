@@ -534,6 +534,62 @@ mod moved {
     }
 
     #[test]
+    fn nextjs_scaffold_implement_step_reads_then_writes_before_completion() {
+        let dir = tempfile::tempdir().unwrap();
+        let page_path = "src/app/page.tsx".to_string();
+        crate::planner::profiles::nextjs::complete_scaffold(
+            dir.path(),
+            std::slice::from_ref(&page_path),
+        )
+        .unwrap();
+        let contract = dir.path().join("completion-contract.json");
+        std::fs::write(
+            &contract,
+            r#"{"required_paths":["src/app/page.tsx"],"required_obligations":["implementation"]}"#,
+        )
+        .unwrap();
+        let events = dir.path().join("events.jsonl");
+        let mut cfg = config(dir.path().to_path_buf());
+        cfg.profile = "nextjs".to_string();
+        cfg.completion_contract_path = Some(contract);
+        cfg.eval_events_path = Some(events.clone());
+        let implementation =
+            "export default function Page(){ return <main>Agency projects</main>; }\n";
+        let mut fake = Fake::new(vec![
+            Ok(read_reply(&page_path)),
+            Ok(AssistantReply {
+                content: String::new(),
+                tool_calls: vec![ToolCall::new(
+                    "Write",
+                    json!({"path": page_path, "content": implementation}),
+                )],
+                prompt_tokens: None,
+                completion_tokens: None,
+            }),
+        ]);
+        let mut session = SessionSnapshot::new();
+
+        let outcome = run_session_with_outcome_with_options(
+            &mut fake,
+            &mut session,
+            "Implement the agency project management page.",
+            &["src/app/page.tsx".to_string()],
+            &cfg,
+            &NOOP_UI,
+            RunSessionOptions::plan_step(RunSessionStepKind::Implement),
+        )
+        .unwrap();
+
+        assert_eq!(outcome.iterations, 2);
+        assert_eq!(outcome.changed_paths, vec!["src/app/page.tsx"]);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("src/app/page.tsx")).unwrap(),
+            implementation
+        );
+        assert!(!std::fs::read_to_string(events).unwrap().contains("step_short_circuited"));
+    }
+
+    #[test]
     fn ingest_successful_pipeline_execution_without_diff_completes_step() {
         // uat-test0726-ingest-elev-001/list_cloud_002 events 138-161:
         // `python3 pipeline/main.py` exited successfully, produced no new diff, and was

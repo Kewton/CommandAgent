@@ -17,6 +17,8 @@ Download a released CommandAgent binary, verify its SHA-256 checksum, and
 install it into ~/.local/bin or DIRECTORY.
 
   --version VERSION   Install a release such as 0.1.0 or v0.1.0
+                      (default: the latest stable release, or the newest
+                      pre-release while no stable release exists)
   --prefix DIRECTORY  Install directly into DIRECTORY
   -h, --help          Show this help
 EOF
@@ -60,7 +62,7 @@ done
 
 [ -n "$prefix" ] || fail "installation prefix must not be empty"
 
-for command_name in curl tar mkdir mktemp chmod mv; do
+for command_name in curl tar mkdir mktemp chmod mv tr awk; do
     command -v "$command_name" >/dev/null 2>&1 \
         || fail "required command not found: $command_name"
 done
@@ -76,13 +78,49 @@ request() {
     fi
 }
 
+# Print the tag of the first non-draft release in a GitHub releases listing.
+# Each release carries exactly one top-level tag_name and draft field; nested
+# author and asset objects carry neither, so they pair up in listing order.
+newest_published_tag() {
+    # shellcheck disable=SC2020 # each separator deliberately maps to a newline
+    tr ',{}' '\n\n\n' | awk '
+        /^[[:space:]]*"tag_name"[[:space:]]*:/ {
+            value = $0
+            sub(/^[^:]*:[[:space:]]*"/, "", value)
+            sub(/".*$/, "", value)
+            tag = value
+            have_tag = 1
+        }
+        /^[[:space:]]*"draft"[[:space:]]*:/ {
+            draft = ($0 ~ /:[[:space:]]*true/)
+            have_draft = 1
+        }
+        have_tag && have_draft {
+            if (!draft && tag != "") {
+                print tag
+                exit
+            }
+            have_tag = 0
+            have_draft = 0
+        }
+    '
+}
+
 if [ -z "$version" ]; then
-    release_json="$(request "$api_root/releases/latest")" \
-        || fail "could not resolve the latest CommandAgent release"
-    tag="$(printf '%s\n' "$release_json" \
-        | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-        | sed -n '1p')"
-    [ -n "$tag" ] || fail "latest GitHub release did not contain a tag name"
+    if release_json="$(request "$api_root/releases/latest" 2>/dev/null)"; then
+        tag="$(printf '%s\n' "$release_json" \
+            | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+            | sed -n '1p')"
+        [ -n "$tag" ] || fail "latest GitHub release did not contain a tag name"
+    else
+        # GitHub's latest endpoint ignores pre-releases, so fall back to the
+        # newest published release while only pre-releases exist.
+        releases_json="$(request "$api_root/releases?per_page=30")" \
+            || fail "could not resolve the latest CommandAgent release"
+        tag="$(printf '%s\n' "$releases_json" | newest_published_tag)"
+        [ -n "$tag" ] || fail "no published CommandAgent release was found"
+        printf 'No stable release found; using pre-release %s.\n' "$tag" >&2
+    fi
     version=${tag#v}
 else
     case "$version" in

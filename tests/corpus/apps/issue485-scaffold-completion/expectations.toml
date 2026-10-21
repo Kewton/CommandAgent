@@ -1,0 +1,14 @@
+case_id = "issue485-scaffold-completion"
+source = "Saved R0 failed-core boundary; source-manifest.json records immutable provenance"
+required_paths = ["completion-contract.json", "original-plan.yaml", "failed-core-boundary.json", "source-manifest.json", "expected-events.jsonl", "scaffold/src/app/page.tsx", "business/src/app/page.tsx", "observations/saved-scaffold-interaction.json", "observations/business-interaction.json", "runtime.sh", "README.md"]
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+failed-core-boundary.json = ["core-implementation", "phase_scaffold_error", "exhausted"]
+completion-contract.json = ["implementation_artifact", "stateful_interaction", "npm run build"]
+source-manifest.json = ["013b9e9015d3da335226c7f55a34c9da4cd4523921674b25e5210a36b88e2ed8", "524d9f569a6dd702b89180e2f1acfff82b458f7afafaaf0d1da297f1a90f1122", "reference_goal_fail"]
+
+[fixture_ordered]
+expected-events.jsonl = ["ultra_phase_failed", "ultra_partial_artifact_summary", "registered_verification", "completion_acceptance", "recovery_preflight_control_audit", "recovery_preflight_observation", "recovery_suppressed_verification_inconsistency", "recovery_plan_auto_run_stopped", "run_stop"]

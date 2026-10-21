@@ -12,6 +12,8 @@ use crate::bounded_process::{self, BoundedProcessOutcomeKind};
 use crate::eval_events;
 use crate::minimal_loop::verifier_env;
 
+mod observation_decode;
+
 const AVAILABILITY_TIMEOUT: Duration = Duration::from_secs(10);
 const INTERACTION_TIMEOUT: Duration = Duration::from_secs(120);
 const PROVISION_TIMEOUT: Duration = Duration::from_secs(180);
@@ -794,6 +796,7 @@ pub fn probe_browser_interaction_against_running_server_with_options(
                 }
                 if let Some(value) = read_interaction_value(evidence_path) {
                     let value = merge_script_stdout_failure_value(value, &logs);
+                    let value = fail_ok_evidence_after_nonzero_exit(value, status.code());
                     let observation = observation_from_value(
                         evidence_path,
                         &script_path,
@@ -1299,6 +1302,23 @@ fn merge_script_stdout_failure_value(mut value: Value, logs: &InteractionStdio) 
     value
 }
 
+/// A script that exits non-zero never counts as a success, even when it wrote
+/// `ok: true` evidence first. Steps and diagnostics stay as the explanation.
+fn fail_ok_evidence_after_nonzero_exit(mut value: Value, exit_code: Option<i32>) -> Value {
+    if value.get("ok").and_then(Value::as_bool) != Some(true) {
+        return value;
+    }
+    let exit = exit_code.map_or_else(|| "a signal".to_string(), |code| code.to_string());
+    value["ok"] = json!(false);
+    value["status"] = json!("failed");
+    value["failure_kind"] = json!("probe_command_failed");
+    value["browser_failure_kind"] = json!("probe_command_failed");
+    value["error"] = json!(format!(
+        "probe script exited non-zero ({exit}) despite ok:true evidence"
+    ));
+    value
+}
+
 fn stage_from_probe_output(output: &str) -> Option<String> {
     output
         .lines()
@@ -1326,7 +1346,7 @@ fn read_interaction_value(path: &Path) -> Option<Value> {
         .filter(Value::is_object)
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "excerpt args stay separate")]
 fn observation_from_value(
     evidence_path: &Path,
     script_path: &Path,
@@ -1341,688 +1361,25 @@ fn observation_from_value(
     child_reaped: bool,
     playwright_resolution: Option<PlaywrightResolution>,
 ) -> BrowserInteractionObservation {
-    let raw_ok = value.get("ok").and_then(Value::as_bool).unwrap_or(false);
-    let raw_failure_kind = value
-        .get("failure_kind")
-        .or_else(|| value.get("browser_failure_kind"))
-        .and_then(Value::as_str)
-        .unwrap_or(if raw_ok {
-            ""
-        } else {
-            "browser_interaction_failed"
-        })
-        .to_string();
-    let stage = value
-        .get("stage")
-        .and_then(Value::as_str)
-        .or_else(|| {
-            value
-                .get("probe")
-                .and_then(|probe| probe.get("stage"))
-                .and_then(Value::as_str)
-        })
-        .unwrap_or("")
-        .to_string();
-    let value_error = value
-        .get("error")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    let server_http_status = value
-        .get("server_http_status")
-        .or_else(|| {
-            value
-                .get("server_check")
-                .and_then(|server_check| server_check.get("status"))
-        })
-        .and_then(Value::as_i64);
-    let server_http_error = value
-        .get("server_http_error")
-        .or_else(|| {
-            value
-                .get("server_check")
-                .and_then(|server_check| server_check.get("error"))
-        })
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-    let navigation_failure_kind = value
-        .get("navigation_failure_kind")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-    let cold_start_ms = value.get("cold_start_ms").and_then(Value::as_u64);
-    let measured_navigation_ms = value.get("measured_navigation_ms").and_then(Value::as_u64);
-    let duration_ms = value
-        .get("duration_ms")
-        .and_then(Value::as_u64)
-        .map(u128::from)
-        .unwrap_or_else(|| started.elapsed().as_millis());
-    let steps = value
-        .get("steps")
-        .and_then(Value::as_array)
-        .map(|steps| {
-            steps
-                .iter()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    let recovery_transition_observed = steps.iter().any(|step| step == "recovery_transition")
-        || value
-            .get("recovery_transition")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-    let start_transition_observed = steps.iter().any(|step| step == "start_transition")
-        || value
-            .get("start_transition")
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
-        || recovery_transition_observed;
-    let input_state_evaluated_after_start = value
-        .get("input_state_evaluated_after_start")
-        .and_then(Value::as_bool)
-        .unwrap_or_else(|| {
-            steps
-                .iter()
-                .any(|step| step == "input_state_evaluated_after_start")
-                || (start_transition_observed
-                    && value
-                        .get("input_before_marker")
-                        .and_then(Value::as_str)
-                        .is_some_and(|marker| !marker.is_empty())
-                    && value
-                        .get("input_after_marker")
-                        .and_then(Value::as_str)
-                        .is_some_and(|marker| !marker.is_empty()))
-        });
-    let explicit_state_changed = value
-        .get("input_state_change")
-        .or_else(|| value.get("state_changed"))
-        .or_else(|| value.get("visible_state_changed"))
-        .and_then(Value::as_bool);
-    let text_entry = value
-        .get("text_entry")
-        .and_then(Value::as_str)
-        .unwrap_or("not_evaluated")
-        .to_string();
-    let text_entry_target = value
-        .get("text_entry_target")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
-    let typed_token = value
-        .get("typed_token")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
-    let token_echoed = value
-        .get("token_echoed")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    let echo_latency_ms = value.get("echo_latency_ms").and_then(Value::as_u64);
-    let token_echoed_after_reload = value
-        .get("token_echoed_after_reload")
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-        || steps.iter().any(|step| step == "token_echoed_after_reload");
-    let token_echo_after_reload_latency_ms = value
-        .get("token_echo_after_reload_latency_ms")
-        .and_then(Value::as_u64);
-    let text_input_state_change = value
-        .get("text_input_state_change")
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-        || steps.iter().any(|step| step == "text_input_state_change");
-    let input_state_changed = steps.iter().any(|step| step == "input_state_change")
-        || explicit_state_changed == Some(true)
-        || text_input_state_change;
-    let input_contract_state_changed = value
-        .get("input_contract_state_change")
-        .and_then(Value::as_bool)
-        .unwrap_or(input_state_changed);
-    let recovery_transition_not_observed = steps
-        .iter()
-        .any(|step| step == "recovery_transition:not_observed")
-        || value.get("recovery_transition").and_then(Value::as_bool) == Some(false)
-        || value
-            .get("recovery_transition_status")
-            .and_then(Value::as_str)
-            == Some("not_observed");
-    let start_control_found = value
-        .get("start_control_found")
-        .or_else(|| value.get("start_control_present"))
-        .and_then(Value::as_bool)
-        .unwrap_or(true);
-    let surface_visible = steps.iter().any(|step| step == "surface_visible")
-        || value.get("surface_visible").and_then(Value::as_bool) == Some(true)
-        || value.get("interactive_surface").and_then(Value::as_bool) == Some(true);
-    let text_input_observed = text_entry == "entered" && text_input_state_change;
-    let startless_input_observed =
-        (!start_control_found && surface_visible && input_state_changed) || text_input_observed;
-    let taxonomy_failure_kind = interaction_taxonomy_failure_kind(
-        start_transition_observed || startless_input_observed,
-        input_state_evaluated_after_start || startless_input_observed,
-        input_state_changed,
-    );
-    let ok = raw_ok && taxonomy_failure_kind.is_empty();
-    let effective_raw_failure_kind =
-        effective_interaction_failure_kind(&raw_failure_kind, taxonomy_failure_kind);
-    let failure_kind = normalized_interaction_failure_kind(
-        ok,
-        &stage,
-        effective_raw_failure_kind,
-        value_error,
-        &output_excerpt,
-        server_http_status,
-        &server_http_error,
-    );
-    let remediation = interaction_failure_remediation(&failure_kind);
-    let probe_mode = value
-        .get("probe_mode")
-        .and_then(Value::as_str)
-        .unwrap_or("heuristic")
-        .to_string();
-    let contract_hook_status = value
-        .get("contract_hook_status")
-        .and_then(Value::as_str)
-        .or_else(|| {
-            value
-                .get("contract_hooks")
-                .and_then(|hooks| hooks.get("status"))
-                .and_then(Value::as_str)
-        })
-        .unwrap_or("unknown")
-        .to_string();
-    let candidate_table = interaction_candidate_table(&value);
-    let input_dispatches = string_array_field(&value, "input_dispatches");
-    let canvas_snapshots = canvas_snapshots_from_value(&value);
-    let canvas_blank_before_start =
-        canvas_blank_snapshot_value(&value, &canvas_snapshots, "before_start");
-    let canvas_blank_after_start =
-        canvas_blank_snapshot_value(&value, &canvas_snapshots, "after_start");
-    let canvas_blank_after_inputs =
-        canvas_blank_snapshot_value(&value, &canvas_snapshots, "after_inputs");
-    let canvas_not_redrawn_after_start = value
-        .get("canvas_not_redrawn_after_start")
-        .and_then(Value::as_bool)
-        .unwrap_or_else(|| {
-            steps
-                .iter()
-                .any(|step| step == "canvas_not_redrawn_after_start")
-        });
-    let state_dimensions_changed = string_array_field(&value, "state_dimensions_changed");
-    let surface_fit = surface_fit_from_value(&value);
-    let restart_hook_reachable_after_start = value
-        .get("restart_hook_reachable_after_start")
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-        || steps
-            .iter()
-            .any(|step| step == "restart_hook_reachable_after_start");
-    let restart_hook_count_after_start = value
-        .get("restart_hook_count_after_start")
-        .and_then(Value::as_u64)
-        .and_then(|value| usize::try_from(value).ok())
-        .unwrap_or(0);
-    let mut persistence_after_reload = value
-        .get("persistence_after_reload")
-        .and_then(Value::as_str)
-        .unwrap_or("not_evaluated")
-        .to_string();
-    let mut persistence_after_reload_reason =
-        persistence_after_reload_reason_from_value(&value, &steps, &persistence_after_reload);
-    let mut persistence_changed_dimensions =
-        string_array_field(&value, "persistence_changed_dimensions");
-    let persistence_before_reload_marker = value
-        .get("persistence_before_reload_marker")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
-    let persistence_after_reload_marker = value
-        .get("persistence_after_reload_marker")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
-    reconcile_observed_mutation_persistence(
-        &probe_mode,
-        &state_dimensions_changed,
-        &persistence_before_reload_marker,
-        &persistence_after_reload_marker,
-        &mut persistence_after_reload,
-        &mut persistence_after_reload_reason,
-        &mut persistence_changed_dimensions,
-    );
-    let action_hooks = string_array_field(&value, "action_hooks")
-        .into_iter()
-        .collect::<std::collections::BTreeSet<_>>()
-        .into_iter()
-        .collect::<Vec<_>>();
-    let primary_transition_observed = value
-        .get("primary_start_transition")
-        .or_else(|| value.get("primary_transition_observed"))
-        .and_then(Value::as_bool)
-        .unwrap_or_else(|| {
-            start_transition_observed
-                && !steps
-                    .iter()
-                    .any(|step| step == "primary_start_transition_missing")
-        });
-    let informational_failure_kinds = string_array_field(&value, "informational_failure_kinds");
-    let http_mutation_observations = http_mutation_observations_from_value(&value);
-    BrowserInteractionObservation {
-        ok,
-        status: if ok { "passed" } else { "failed" }.to_string(),
-        url: url.to_string(),
-        evidence_path: evidence_path.to_path_buf(),
-        script_path: script_path.to_path_buf(),
-        steps,
-        before_marker: value
-            .get("before_marker")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string(),
-        after_marker: value
-            .get("after_marker")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string(),
-        input_before_marker: value
-            .get("input_before_marker")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string(),
-        input_after_marker: value
-            .get("input_after_marker")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string(),
-        recovery_before_marker: value
-            .get("recovery_before_marker")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string(),
-        recovery_after_marker: value
-            .get("recovery_after_marker")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string(),
-        input_state_changed,
-        input_contract_state_changed,
-        input_state_evaluated_after_start,
-        probe_mode,
-        contract_hook_status,
-        candidate_table,
-        input_dispatches,
-        canvas_snapshots,
-        canvas_blank_before_start,
-        canvas_blank_after_start,
-        canvas_blank_after_inputs,
-        canvas_not_redrawn_after_start,
-        state_dimensions_changed,
-        surface_fit,
-        restart_hook_reachable_after_start,
-        restart_hook_count_after_start,
-        persistence_after_reload,
-        persistence_after_reload_reason,
-        persistence_changed_dimensions,
-        persistence_before_reload_marker,
-        persistence_after_reload_marker,
-        action_hooks,
-        text_entry,
-        text_entry_target,
-        typed_token,
-        token_echoed,
-        echo_latency_ms,
-        token_echoed_after_reload,
-        token_echo_after_reload_latency_ms,
-        text_input_state_change,
-        primary_transition_observed,
-        start_control_found,
-        informational_failure_kinds,
-        http_mutation_observations,
-        recovery_transition_observed,
-        recovery_transition_not_observed,
-        failure_kind,
-        stage,
-        error: value_error.to_string(),
-        remediation,
-        duration_ms,
-        output_excerpt: eval_events::body_snippet(&output_excerpt),
-        stdout_excerpt: eval_events::body_snippet(&stdout_excerpt),
-        stderr_excerpt: eval_events::body_snippet(&stderr_excerpt),
-        raw_stdout_excerpt: eval_events::body_snippet(
-            value
-                .get("raw_stdout_excerpt")
-                .and_then(Value::as_str)
-                .unwrap_or(&raw_stdout_excerpt),
-        ),
-        child_spawned,
-        child_reaped,
-        playwright_resolution,
-        server_http_status,
-        server_http_error,
-        navigation_failure_kind,
-        cold_start_ms,
-        measured_navigation_ms,
-        has_canvas: bool_value(
-            &value,
-            &[
-                "post_js_has_canvas",
-                "has_canvas",
-                "canvas_found",
-                "canvas_available",
-            ],
-        ),
-        interactive_control_count: usize_value(
-            &value,
-            &[
-                "post_js_interactive_control_count",
-                "interactive_control_count",
-                "interactive_controls",
-            ],
-        ),
-    }
+    observation_decode::decode_observation(
+        observation_decode::DecodeContext {
+            evidence_path,
+            script_path,
+            url,
+            elapsed_ms: started.elapsed().as_millis(),
+            output_excerpt,
+            stdout_excerpt,
+            stderr_excerpt,
+            raw_stdout_excerpt,
+            child_spawned,
+            child_reaped,
+            playwright_resolution,
+        },
+        &value,
+    )
 }
 
-fn bool_value(value: &Value, keys: &[&str]) -> Option<bool> {
-    keys.iter()
-        .find_map(|key| value.get(*key).and_then(Value::as_bool))
-}
-
-fn usize_value(value: &Value, keys: &[&str]) -> Option<usize> {
-    for key in keys {
-        let Some(raw) = value.get(*key) else {
-            continue;
-        };
-        if let Some(number) = raw.as_u64()
-            && let Ok(value) = usize::try_from(number)
-        {
-            return Some(value);
-        }
-        if let Some(text) = raw.as_str()
-            && let Ok(value) = text.parse::<usize>()
-        {
-            return Some(value);
-        }
-    }
-    None
-}
-
-fn string_array_field(value: &Value, key: &str) -> Vec<String> {
-    value
-        .get(key)
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .map(str::to_string)
-        .collect()
-}
-
-fn persistence_after_reload_reason_from_value(
-    value: &Value,
-    steps: &[String],
-    persistence_after_reload: &str,
-) -> String {
-    if persistence_after_reload != "not_evaluated"
-        && !steps
-            .iter()
-            .any(|step| step == "persistence_reload:not_evaluated")
-    {
-        return String::new();
-    }
-    if let Some(reason) = value
-        .get("persistence_after_reload_reason")
-        .and_then(Value::as_str)
-        .and_then(normalized_persistence_not_evaluated_reason)
-    {
-        return reason.to_string();
-    }
-    let failure_kind = value
-        .get("failure_kind")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    if failure_kind.contains("reload") {
-        return "reload_failed".to_string();
-    }
-    let text_entry = value
-        .get("text_entry")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    let text_entry_target = value
-        .get("text_entry_target")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    if text_entry != "entered" && text_entry_target.trim().is_empty() {
-        return "no_text_entry_surface".to_string();
-    }
-    "no_mutation_observed".to_string()
-}
-
-fn reconcile_observed_mutation_persistence(
-    probe_mode: &str,
-    state_dimensions_changed: &[String],
-    before_reload_marker: &str,
-    after_reload_marker: &str,
-    persistence_after_reload: &mut String,
-    persistence_after_reload_reason: &mut String,
-    persistence_changed_dimensions: &mut Vec<String>,
-) {
-    if probe_mode == "contract"
-        || persistence_after_reload != "not_evaluated"
-        || persistence_after_reload_reason != "no_mutation_observed"
-        || state_dimensions_changed.is_empty()
-        || before_reload_marker.trim().is_empty()
-        || after_reload_marker.trim().is_empty()
-    {
-        return;
-    }
-    *persistence_changed_dimensions = state_dimensions_changed
-        .iter()
-        .filter(|dimension| !dimension.trim().is_empty())
-        .cloned()
-        .collect::<std::collections::BTreeSet<_>>()
-        .into_iter()
-        .collect();
-    if persistence_changed_dimensions.is_empty() {
-        return;
-    }
-    *persistence_after_reload = if before_reload_marker == after_reload_marker {
-        "preserved".to_string()
-    } else {
-        "reset".to_string()
-    };
-    persistence_after_reload_reason.clear();
-}
-
-fn normalized_persistence_not_evaluated_reason(reason: &str) -> Option<&'static str> {
-    match reason {
-        "no_mutation_observed" => Some("no_mutation_observed"),
-        "no_text_entry_surface" => Some("no_text_entry_surface"),
-        "reload_failed" => Some("reload_failed"),
-        _ => None,
-    }
-}
-
-fn interaction_candidate_table(value: &Value) -> Vec<InteractionProbeCandidateEvidence> {
-    value
-        .get("candidate_table")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .map(|candidate| InteractionProbeCandidateEvidence {
-            rank: candidate
-                .get("rank")
-                .and_then(Value::as_u64)
-                .and_then(|value| usize::try_from(value).ok())
-                .unwrap_or(0),
-            index: candidate
-                .get("index")
-                .and_then(Value::as_u64)
-                .and_then(|value| usize::try_from(value).ok())
-                .unwrap_or(0),
-            text_excerpt: candidate
-                .get("text_excerpt")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string(),
-            changed: candidate
-                .get("changed")
-                .and_then(Value::as_bool)
-                .unwrap_or(false),
-        })
-        .collect()
-}
-
-fn http_mutation_observations_from_value(value: &Value) -> Vec<HttpMutationObservation> {
-    value
-        .get("http_mutation_observations")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .take(20)
-        .filter_map(|observation| {
-            Some(HttpMutationObservation {
-                method: observation.get("method")?.as_str()?.to_string(),
-                status: observation.get("status")?.as_i64()?,
-                ok: observation.get("ok")?.as_bool()?,
-                url: observation.get("url")?.as_str()?.to_string(),
-            })
-        })
-        .collect()
-}
-
-fn canvas_snapshots_from_value(value: &Value) -> Vec<CanvasSnapshotEvidence> {
-    value
-        .get("canvas_snapshots")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|snapshot| {
-            let name = snapshot.get("name").and_then(Value::as_str)?.to_string();
-            Some(CanvasSnapshotEvidence {
-                name,
-                canvas_count: snapshot
-                    .get("canvas_count")
-                    .and_then(Value::as_u64)
-                    .and_then(|value| usize::try_from(value).ok())
-                    .unwrap_or(0),
-                canvas_blank: snapshot.get("canvas_blank").and_then(Value::as_bool),
-                blank_canvas_count: snapshot
-                    .get("blank_canvas_count")
-                    .and_then(Value::as_u64)
-                    .and_then(|value| usize::try_from(value).ok())
-                    .unwrap_or(0),
-                pixel_hashes: snapshot
-                    .get("pixel_hashes")
-                    .and_then(Value::as_array)
-                    .into_iter()
-                    .flatten()
-                    .filter_map(Value::as_str)
-                    .map(str::to_string)
-                    .collect(),
-            })
-        })
-        .collect()
-}
-
-fn canvas_blank_snapshot_value(
-    value: &Value,
-    snapshots: &[CanvasSnapshotEvidence],
-    name: &str,
-) -> Option<bool> {
-    let field = match name {
-        "before_start" => "canvas_blank_before_start",
-        "after_start" => "canvas_blank_after_start",
-        "after_inputs" => "canvas_blank_after_inputs",
-        _ => "",
-    };
-    if !field.is_empty()
-        && let Some(value) = value.get(field).and_then(Value::as_bool)
-    {
-        return Some(value);
-    }
-    snapshots
-        .iter()
-        .find(|snapshot| snapshot.name == name)
-        .and_then(|snapshot| snapshot.canvas_blank)
-}
-
-fn surface_fit_from_value(value: &Value) -> Option<SurfaceFitEvidence> {
-    let fit = value.get("surface_fit")?.as_object()?;
-    let number = |name: &str| {
-        fit.get(name)
-            .and_then(Value::as_i64)
-            .or_else(|| {
-                fit.get(name)
-                    .and_then(Value::as_f64)
-                    .map(|value| value.round() as i64)
-            })
-            .unwrap_or(0)
-    };
-    Some(SurfaceFitEvidence {
-        surface: fit
-            .get("surface")
-            .and_then(Value::as_str)
-            .unwrap_or("surface")
-            .to_string(),
-        fits_viewport: fit
-            .get("fits_viewport")
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
-        overflow_top_px: number("overflow_top_px"),
-        overflow_right_px: number("overflow_right_px"),
-        overflow_bottom_px: number("overflow_bottom_px"),
-        overflow_left_px: number("overflow_left_px"),
-        viewport_width_px: number("viewport_width_px"),
-        viewport_height_px: number("viewport_height_px"),
-        rect_width_px: number("rect_width_px"),
-        rect_height_px: number("rect_height_px"),
-    })
-}
-
-fn interaction_taxonomy_failure_kind(
-    transition_observed: bool,
-    input_evaluated_after_start: bool,
-    input_state_changed: bool,
-) -> &'static str {
-    if !transition_observed {
-        "start_transition_missing"
-    } else if !input_evaluated_after_start {
-        "input_state_change_not_evaluated_after_start"
-    } else if !input_state_changed {
-        "input_state_change_missing_after_start"
-    } else {
-        ""
-    }
-}
-
-fn effective_interaction_failure_kind<'a>(
-    raw_failure_kind: &'a str,
-    taxonomy_failure_kind: &'static str,
-) -> &'a str {
-    if taxonomy_failure_kind.is_empty() {
-        return match raw_failure_kind {
-            ""
-            | "browser_interaction_failed"
-            | "start_transition_missing"
-            | "interaction_state_change_missing"
-            | "input_state_change_missing" => "",
-            _ => raw_failure_kind,
-        };
-    }
-    match raw_failure_kind {
-        ""
-        | "browser_interaction_failed"
-        | "start_transition_missing"
-        | "interaction_state_change_missing"
-        | "input_state_change_missing" => taxonomy_failure_kind,
-        _ => raw_failure_kind,
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "excerpt args stay separate")]
 fn failure_observation(
     root: &Path,
     evidence_path: &Path,
@@ -2456,8 +1813,12 @@ fn mirror_interaction_observation(
     );
 }
 
-fn write_interaction_value(root: &Path, evidence_path: &Path, value: &Value) {
-    if let Ok(text) = serde_json::to_string_pretty(value) {
+pub fn write_interaction_value(root: &Path, evidence_path: &Path, value: &Value) {
+    let mut value = value.clone();
+    if let Some(context) = crate::sensitive_data::active_for(Some(root)) {
+        context.scrub_value_lenient(&mut value);
+    }
+    if let Ok(text) = serde_json::to_string_pretty(&value) {
         write_text(evidence_path, &format!("{text}\n"));
         let workspace_path = browser_interaction_evidence_path(root);
         if workspace_path != evidence_path {
@@ -2659,6 +2020,21 @@ mod tests {
     use std::net::TcpListener;
     use std::process::Command;
     use std::thread;
+
+    #[test]
+    fn invalid_surface_fit_measurements_fall_back_to_defaults() {
+        let fit = observation_decode::surface_fit_from_value(&serde_json::json!({
+            "surface_fit": {
+                "surface": "canvas",
+                "fits_viewport": false,
+                "overflow_top_px": 1e30,
+                "viewport_width_px": 1280
+            }
+        }))
+        .expect("surface fit present");
+        assert_eq!(fit.overflow_top_px, 0);
+        assert_eq!(fit.viewport_width_px, 1280);
+    }
 
     #[test]
     fn embedded_interaction_probe_asset_bytes_are_frozen() {
@@ -3455,6 +2831,32 @@ module.exports = {
         }
     }
 
+    /// Wall-clock budget handed to the probe for fake-Playwright scenarios.
+    ///
+    /// This mirrors the smallest production budget (`browser_probe.rs` passes
+    /// 60s; acceptance passes 120s) rather than a tighter test-only value.
+    /// A negative scenario such as `draft_only_persistence` legitimately
+    /// exhausts three full 3s polling windows (live token echo, post-reload
+    /// persistence marker, post-reload token echo) plus the input-marker and
+    /// recovery-transition waits, which is ~12s of pure waiting on an idle
+    /// machine. A 12s budget therefore left no headroom for CI scheduling
+    /// jitter and produced spurious `probe_infrastructure_failed:probe_timeout`
+    /// failures instead of the persistence verdict under test.
+    const FAKE_PROBE_SCENARIO_BUDGET: Duration = Duration::from_secs(60);
+
+    /// Wall-clock budget for tests that spawn a fake npm/npx/node child and
+    /// assert the child's lifecycle: setup artifacts plus second-run
+    /// idempotency, exit-failure JSON with its stderr tail, and reuse of the
+    /// resolved `NODE_PATH`.
+    ///
+    /// These are not response-speed checks — each fake child exits in
+    /// milliseconds. The previous 1–5s budgets left no headroom when two
+    /// checkouts ran the suite concurrently, so a slow spawn surfaced as a
+    /// spurious timeout instead of the behavior under test. Mirror the
+    /// smallest production probe budget (`browser_probe.rs` passes 60s) and
+    /// keep it finite so a hung child still fails rather than waiting forever.
+    const FAKE_CHILD_PROCESS_BUDGET: Duration = Duration::from_secs(60);
+
     fn run_fake_probe_scenario(
         scenario: &str,
         options: BrowserInteractionProbeOptions,
@@ -3474,7 +2876,7 @@ module.exports = {
             port,
             &run_dir,
             &path,
-            Duration::from_secs(12),
+            FAKE_PROBE_SCENARIO_BUDGET,
             options,
         );
         let _ = server.join();
@@ -4259,7 +3661,7 @@ exit 1
             fake_npm.as_os_str(),
             fake_npx.as_os_str(),
             &home,
-            Duration::from_secs(5),
+            FAKE_CHILD_PROCESS_BUDGET,
             |line| progress.push(line.to_string()),
         )
         .unwrap();
@@ -4299,7 +3701,7 @@ exit 1
             fake_npm.as_os_str(),
             fake_npx.as_os_str(),
             &home,
-            Duration::from_secs(5),
+            FAKE_CHILD_PROCESS_BUDGET,
             |_| {},
         )
         .unwrap();
@@ -4395,7 +3797,7 @@ exit 1
             34001,
             &run_dir,
             &path,
-            Duration::from_secs(3),
+            FAKE_CHILD_PROCESS_BUDGET,
         );
         let observation = outcome.observation().expect("observation");
 
@@ -4477,7 +3879,7 @@ exit 0
             34001,
             &run_dir,
             &path,
-            Duration::from_secs(1),
+            FAKE_CHILD_PROCESS_BUDGET,
         );
 
         assert!(

@@ -50,7 +50,7 @@ impl BoundedProcessOutput {
 
 pub fn spawn_child(command: &mut Command) -> io::Result<Child> {
     apply_child_env_allowlist(command);
-    configure_process_group(command);
+    configure_child_session(command);
     command.spawn()
 }
 
@@ -89,12 +89,18 @@ fn child_env_allowed(key: &std::ffi::OsStr, source: EnvSource) -> bool {
         return false;
     };
     matches!(key, "PATH" | "HOME" | "LANG" | "TERM")
+        || (source == EnvSource::Parent && matches!(key, "RUSTUP_HOME" | "CARGO_HOME"))
         || key.starts_with("LC_")
         || key.starts_with("npm_config_")
         || (source == EnvSource::Explicit
             && (matches!(
                 key,
-                "NODE_ENV" | "NODE_OPTIONS" | "NODE_PATH" | "NEXT_TELEMETRY_DISABLED" | "PORT"
+                "NODE_ENV"
+                    | "NODE_OPTIONS"
+                    | "NODE_PATH"
+                    | "NEXT_TELEMETRY_DISABLED"
+                    | "PORT"
+                    | "TMPDIR"
             ) || [
                 "COMMANDAGENT_FOREIGN_TOOLCHAIN_ROOT",
                 "COMMANDAGENT_FOREIGN_TOOLCHAIN_EVENTS",
@@ -392,15 +398,47 @@ pub fn terminate_process_group(child: &mut Child) {
     );
 }
 
+/// Resolves a spawned child PID into a process-group id that is safe to
+/// signal with a negative `kill` target. The child is spawned with
+/// `setsid()`, so its PID equals its group id, but `-1` would signal
+/// every signalable process and `0`/`1` would target the caller or init.
+///
+/// This is a value-returning selector, so cargo-mutants can replace the whole
+/// body with `Some(1)` (Issue #673). It is listed in `.cargo/mutants.toml`, and
+/// every `kill` caller re-checks the converted target with a non-mutatable
+/// `assert!(-pgid < -1)` in the function that calls `kill`.
+#[cfg(unix)]
+fn signalable_process_group(pid: u32) -> Option<i32> {
+    let pgid = i32::try_from(pid).ok()?;
+    (pgid > 1).then_some(pgid)
+}
+
 pub fn terminate_process_group_by_pid(pid: u32) -> io::Result<()> {
     #[cfg(unix)]
     {
-        let pgid = i32::try_from(pid)
-            .map_err(|_| io::Error::other("server child pid does not fit pid_t"))?;
+        let Some(pgid) = signalable_process_group(pid) else {
+            return Err(io::Error::other(
+                "refusing to signal a process group outside the child range",
+            ));
+        };
+        // Last, non-mutatable defense (Issue #673). cargo-mutants does not
+        // rewrite comparisons inside `assert!`, and this is written directly in
+        // the function that calls `kill`, so a mutated selector (`Some(0)`,
+        // `Some(1)`, `Some(-1)`) panics here instead of executing `kill(0, ...)`
+        // (the caller's own group) or `kill(-1, ...)` (every signalable
+        // process). The `Err` path above is unchanged.
+        assert!(
+            -pgid < -1,
+            "refusing to signal a process group outside the child range"
+        );
+        // SAFETY: `pgid` is greater than 1 and derived from a child spawned
+        // with `setsid()`, so `-pgid` names only that child's own
+        // process group, never pid 0/1 or the caller's group.
         unsafe {
             libc::kill(-pgid, libc::SIGTERM);
         }
         thread::sleep(DEFAULT_TIMEOUT_KILL_GRACE);
+        // SAFETY: same checked group identifier as the SIGTERM above.
         unsafe {
             libc::kill(-pgid, libc::SIGKILL);
         }
@@ -452,9 +490,19 @@ fn terminate_process_group_with_grace<F, C>(
 {
     #[cfg(unix)]
     {
-        let pgid = -(child.id() as i32);
-        unsafe {
-            libc::kill(pgid, libc::SIGTERM);
+        if let Some(pgid) = signalable_process_group(child.id()) {
+            // Last, non-mutatable defense (Issue #673), written directly in the
+            // function that calls `kill`.
+            assert!(
+                -pgid < -1,
+                "refusing to signal a process group outside the child range"
+            );
+            // SAFETY: `pgid` is greater than 1 and was created with
+            // `configure_child_session()` for this child, so `-pgid` targets
+            // only the child's process group, never pid 0/1 or the caller's.
+            unsafe {
+                libc::kill(-pgid, libc::SIGTERM);
+            }
         }
     }
     let grace_started = clock.mark();
@@ -470,9 +518,17 @@ fn terminate_process_group_with_grace<F, C>(
     }
     #[cfg(unix)]
     {
-        let pgid = -(child.id() as i32);
-        unsafe {
-            libc::kill(pgid, libc::SIGKILL);
+        if let Some(pgid) = signalable_process_group(child.id()) {
+            // Last, non-mutatable defense (Issue #673), written directly in the
+            // function that calls `kill`.
+            assert!(
+                -pgid < -1,
+                "refusing to signal a process group outside the child range"
+            );
+            // SAFETY: the same checked child-derived group identifier as above.
+            unsafe {
+                libc::kill(-pgid, libc::SIGKILL);
+            }
         }
     }
     let _ = child.kill();
@@ -492,11 +548,83 @@ fn output_from_child(
     })
 }
 
-fn configure_process_group(command: &mut Command) {
+/// Put the child in a new session, and so a new process group, with no
+/// controlling terminal (Issue #667).
+///
+/// `setsid()` sets both the session id and the process-group id to the child's
+/// pid, so the child's group id still equals its pid and
+/// `terminate_process_group*` keeps signalling exactly the child's own group
+/// with `-pid`. Dropping the controlling terminal is the point: the kernel only
+/// allows `TIOCSTI` when the fd names the caller's controlling terminal, so a
+/// child in its own session can no longer inject keystrokes into the terminal
+/// the caller was started from (`/dev/tty` also stops resolving for it).
+///
+/// This replaces `Command::process_group(0)`: `setsid()` fails with `EPERM` for a
+/// process that is already a process-group leader, so the two cannot be combined
+/// and `setsid()` alone provides the group. Losing the controlling terminal also
+/// makes a terminal stdin readable, so [`detach_terminal_stdin`] points it at
+/// `/dev/null` in the same `pre_exec`.
+fn configure_child_session(command: &mut Command) {
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
-        command.process_group(0);
+        // SAFETY: `pre_exec` runs after fork and before exec. The closure calls
+        // only `setsid`, `isatty`, `open`, `dup2`, and `close`; it does not
+        // allocate, lock, or log. A forked child is never a process-group leader
+        // (its pid is new), so `setsid` cannot fail with `EPERM`.
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setsid() == -1 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                detach_terminal_stdin()
+            });
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = command;
+    }
+}
+
+/// Replace a terminal standard input with `/dev/null` in the freshly forked
+/// child.
+///
+/// Before `setsid()` the child sat in a background process group of the caller's
+/// session, so a read from the terminal was refused with `SIGTTIN` (or `EIO`
+/// once that signal is ignored). After `setsid()` the child has no controlling
+/// terminal, so the job-control check no longer applies and a read would succeed,
+/// letting a command read the keys the user types during a run. Pointing a
+/// terminal stdin at `/dev/null` restores a non-readable stdin. A stdin that is
+/// not a terminal (`Stdio::null()`, a pipe, or a file) is left unchanged, as are
+/// every standard output and error.
+///
+/// # pre_exec contract
+///
+/// This runs between `fork` and `exec`, so it uses only `isatty`, `open`,
+/// `dup2`, and `close` and never allocates, locks, or logs. Errors are built with
+/// [`std::io::Error::last_os_error`], which does not allocate.
+#[cfg(unix)]
+fn detach_terminal_stdin() -> std::io::Result<()> {
+    // SAFETY: this is the classic `isatty`/`open`/`dup2`/`close` sequence on the
+    // child's own descriptors; the path is a fixed static C string.
+    unsafe {
+        if libc::isatty(0) != 1 {
+            return Ok(());
+        }
+        let devnull = libc::open(c"/dev/null".as_ptr(), libc::O_RDONLY);
+        if devnull < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        if libc::dup2(devnull, 0) < 0 {
+            let error = std::io::Error::last_os_error();
+            libc::close(devnull);
+            return Err(error);
+        }
+        if devnull != 0 {
+            libc::close(devnull);
+        }
+        Ok(())
     }
 }
 
@@ -507,6 +635,12 @@ mod tests {
     use std::sync::Mutex;
 
     static ENV_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    // Test-only upper bound for children expected to terminate on their own. It
+    // only waits for child completion; a fast child returns immediately, so
+    // load no longer turns a pass into a timeout and the bound never becomes
+    // the reason a run is accepted.
+    const TEST_TIMEOUT: Duration = Duration::from_secs(30);
 
     #[test]
     fn run_with_timeout_kills_hanging_child() {
@@ -544,8 +678,9 @@ mod tests {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        let output = run_with_timeout(&mut command, Duration::from_secs(2)).unwrap();
+        let output = run_with_timeout(&mut command, TEST_TIMEOUT).unwrap();
 
+        assert_eq!(output.kind, BoundedProcessOutcomeKind::Exited, "{output:?}");
         assert!(output.success(), "{output:?}");
         let env = String::from_utf8(output.stdout).unwrap();
         assert!(env.contains("PATH="), "{env}");
@@ -558,6 +693,114 @@ mod tests {
             !env.contains("COMMANDAGENT_TEST_UNRELATED_PARENT_SECRET"),
             "{env}"
         );
+    }
+
+    #[test]
+    fn child_env_inherits_toolchain_homes_but_not_unknown_variables() {
+        let _guard = ENV_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _env_guard = TestEnvGuard::set([
+            ("RUSTUP_HOME", "/opt/test-rustup"),
+            ("CARGO_HOME", "/opt/test-cargo"),
+            ("COMMANDAGENT_TEST_UNKNOWN_PARENT_VAR", "unknown"),
+        ]);
+        let mut command = Command::new("sh");
+        command
+            .arg("-c")
+            .arg("env | sort")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        let output = run_with_timeout(&mut command, TEST_TIMEOUT).unwrap();
+
+        assert!(output.success(), "{output:?}");
+        let env = String::from_utf8(output.stdout).unwrap();
+        assert!(env.contains("RUSTUP_HOME=/opt/test-rustup"), "{env}");
+        assert!(env.contains("CARGO_HOME=/opt/test-cargo"), "{env}");
+        assert!(
+            !env.contains("COMMANDAGENT_TEST_UNKNOWN_PARENT_VAR"),
+            "{env}"
+        );
+    }
+
+    /// Issue #669: a toolchain installed outside `$HOME` (the official rust
+    /// image: `RUSTUP_HOME=/usr/local/rustup`, `CARGO_HOME=/usr/local/cargo`)
+    /// must run `cargo --version` through the real OS sandbox wrap. Without the
+    /// two variables the rustup proxy looks under `$HOME/.rustup` and fails.
+    ///
+    /// Ignored by default: it needs an externally provisioned toolchain. The CI
+    /// step "Sandboxed cargo with an external toolchain" runs it with
+    /// `--ignored --exact`. When run explicitly, a missing prerequisite is a
+    /// failure, never a skipped pass.
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[ignore = "needs RUSTUP_HOME/CARGO_HOME outside $HOME and an OS sandbox backend; run explicitly with --ignored --exact (CI step)"]
+    fn sandboxed_cargo_runs_with_toolchain_outside_home() {
+        use crate::tools::os_sandbox::{
+            self, SandboxAvailability, SandboxMode, SandboxPolicy, SandboxTestState,
+        };
+
+        // Lock order: env lock first, sandbox state second (dropped first).
+        let _guard = ENV_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _state = SandboxTestState::acquire();
+
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .filter(|path| path.is_absolute())
+            .expect("HOME must be set to an absolute path to prove the toolchain is outside it");
+        let home_real = home.canonicalize().unwrap_or_else(|_| home.clone());
+        let outside_home = |name: &str| {
+            let path = std::env::var_os(name)
+                .map(PathBuf::from)
+                .unwrap_or_else(|| panic!("{name} must be set for this explicit run"));
+            assert!(path.is_absolute(), "{name} must be absolute: {path:?}");
+            let real = path
+                .canonicalize()
+                .unwrap_or_else(|error| panic!("{name} must exist: {path:?}: {error}"));
+            assert!(
+                !real.starts_with(&home) && !real.starts_with(&home_real),
+                "{name} must resolve outside $HOME: {real:?}"
+            );
+            real
+        };
+        outside_home("RUSTUP_HOME");
+        outside_home("CARGO_HOME");
+        if let SandboxAvailability::Unavailable(reason) = os_sandbox::probe() {
+            panic!("no OS sandbox backend for this explicit run: {reason}");
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = dir.path().join("ws");
+        let run_tmp = dir.path().join("run-tmp");
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::create_dir_all(&run_tmp).unwrap();
+        os_sandbox::install_for_test(
+            SandboxMode::Required,
+            SandboxPolicy::with_home(&workspace, &run_tmp, home),
+            SandboxAvailability::Available,
+        );
+
+        let mut process = Command::new("sh");
+        process
+            .arg("-c")
+            .arg("cargo --version")
+            .current_dir(&workspace);
+        let mut process = os_sandbox::wrap_command(process).expect("available sandbox wraps");
+        process
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        let output = run_with_timeout(&mut process, TEST_TIMEOUT).unwrap();
+
+        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        assert!(output.success(), "stdout={stdout:?} stderr={stderr:?}");
+        assert!(stdout.starts_with("cargo "), "stdout={stdout:?}");
     }
 
     #[test]
@@ -586,7 +829,12 @@ mod tests {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let inherited_output = run_with_timeout(&mut inherited, Duration::from_secs(2)).unwrap();
+        let inherited_output = run_with_timeout(&mut inherited, TEST_TIMEOUT).unwrap();
+        assert_eq!(
+            inherited_output.kind,
+            BoundedProcessOutcomeKind::Exited,
+            "{inherited_output:?}"
+        );
         assert!(inherited_output.success(), "{inherited_output:?}");
         assert_eq!(inherited_output.stdout, b"unset");
 
@@ -598,7 +846,12 @@ mod tests {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let explicit_output = run_with_timeout(&mut explicit, Duration::from_secs(2)).unwrap();
+        let explicit_output = run_with_timeout(&mut explicit, TEST_TIMEOUT).unwrap();
+        assert_eq!(
+            explicit_output.kind,
+            BoundedProcessOutcomeKind::Exited,
+            "{explicit_output:?}"
+        );
         assert!(explicit_output.success(), "{explicit_output:?}");
         assert_eq!(explicit_output.stdout, b"test");
     }
@@ -735,27 +988,135 @@ mod tests {
         assert!(registered_server_child(pid_b).is_none());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn process_group_guard_refuses_non_child_group_ids() {
+        assert_eq!(signalable_process_group(0), None);
+        assert_eq!(signalable_process_group(1), None);
+        assert_eq!(signalable_process_group(2), Some(2));
+        assert!(terminate_process_group_by_pid(1).is_err());
+    }
+
+    /// Issue #673 対処の方向 4: pass 0 (the caller's own group) and 1 (init)
+    /// straight to the function that calls `kill`, skipping the selector's own
+    /// assertions, so a mutated `signalable_process_group` reaches the
+    /// non-mutatable `assert!` in front of `kill` and panics there instead of
+    /// signalling. Runs only in the isolated container.
+    #[cfg(unix)]
+    #[test]
+    fn dangerous_value_terminate_process_group_by_pid_refuses_init_and_caller_group() {
+        assert!(terminate_process_group_by_pid(0).is_err());
+        assert!(terminate_process_group_by_pid(1).is_err());
+    }
+
+    /// Issue #673 sentinel test. It exercises a real `kill(-pgid, ...)`, so it
+    /// must run only inside the isolated container: it panics unless
+    /// `COMMANDAGENT_ISSUE673_CONTAINER=1` is set, and it is `#[ignore]`d so
+    /// `cargo test` never runs it in a host process. Docker command (from the
+    /// repository root of a container that shares no host PID namespace):
+    ///
+    /// ```text
+    /// COMMANDAGENT_ISSUE673_CONTAINER=1 \
+    ///   cargo test --lib -- --ignored --exact \
+    ///   bounded_process::tests::dangerous_sentinel_same_uid_other_group_survives
+    /// ```
+    ///
+    /// It proves the scope of the signal: a same-UID process in a **different**
+    /// process group survives, while the target child's group and its
+    /// grandchild are terminated.
+    #[cfg(unix)]
+    #[test]
+    #[ignore = "run only inside the isolated container (COMMANDAGENT_ISSUE673_CONTAINER=1)"]
+    fn dangerous_sentinel_same_uid_other_group_survives() {
+        if std::env::var("COMMANDAGENT_ISSUE673_CONTAINER")
+            .ok()
+            .as_deref()
+            != Some("1")
+        {
+            panic!("run only inside the isolated container");
+        }
+        use std::os::unix::process::CommandExt;
+
+        // Sentinel: same UID, its own process group, and not the target group.
+        let mut sentinel = Command::new("sh");
+        sentinel
+            .arg("-c")
+            .arg("sleep 30")
+            .process_group(0)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let mut sentinel = sentinel.spawn().expect("spawn the sentinel");
+
+        // Target: a `setsid` child whose `sh` also leaves a grandchild in the
+        // same process group.
+        let mut target = Command::new("sh");
+        target
+            .arg("-c")
+            .arg("sh -c 'sleep 30' & sleep 30")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let mut target = spawn_child(&mut target).expect("spawn the target");
+        let target_pid = target.id();
+        thread::sleep(Duration::from_millis(300));
+
+        terminate_process_group_by_pid(target_pid).expect("reap the target group");
+        let _ = target.wait();
+        assert!(
+            !group_exists(target_pid),
+            "the target group must be gone after the reap"
+        );
+        assert!(
+            sentinel.try_wait().expect("poll the sentinel").is_none(),
+            "the same-UID sentinel in another group must survive"
+        );
+
+        let _ = sentinel.kill();
+        let _ = sentinel.wait();
+    }
+
+    #[cfg(unix)]
+    fn group_exists(pgid: u32) -> bool {
+        let Ok(pgid) = i32::try_from(pgid) else {
+            return false;
+        };
+        // SAFETY: signal 0 only probes for the group's existence.
+        let rc = unsafe { libc::kill(-pgid, 0) };
+        rc == 0
+    }
+
     struct TestEnvGuard {
-        keys: Vec<&'static str>,
+        saved: Vec<(&'static str, Option<std::ffi::OsString>)>,
     }
 
     impl TestEnvGuard {
         fn set<const N: usize>(pairs: [(&'static str, &'static str); N]) -> Self {
-            let keys = pairs.iter().map(|(key, _)| *key).collect();
+            let saved = pairs
+                .iter()
+                .map(|(key, _)| (*key, std::env::var_os(key)))
+                .collect();
             for (key, value) in pairs {
+                // SAFETY: every caller holds `ENV_TEST_LOCK` for the guard's whole life, so no
+                // other test in this module reads or writes the environment while it changes.
                 unsafe {
                     std::env::set_var(key, value);
                 }
             }
-            Self { keys }
+            Self { saved }
         }
     }
 
     impl Drop for TestEnvGuard {
         fn drop(&mut self) {
-            for key in &self.keys {
+            for (key, previous) in &self.saved {
+                // SAFETY: the guard is dropped while the caller's `ENV_TEST_LOCK` guard is still
+                // alive (declared earlier, dropped later), so the restore is serialized too.
                 unsafe {
-                    std::env::remove_var(key);
+                    match previous {
+                        Some(value) => std::env::set_var(key, value),
+                        None => std::env::remove_var(key),
+                    }
                 }
             }
         }

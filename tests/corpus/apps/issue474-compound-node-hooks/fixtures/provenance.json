@@ -1,0 +1,9 @@
+{
+  "session": "01a09547-4028-7ab2-a414-e55cec73e2cf",
+  "source_commit": "e43b2d86760a77b5250afbb260106ea21abba947",
+  "events_sha256": "8671fd95b592b5fa9ef76266db161a5903806e0b1b9ca08d06c21ea70ea1be82",
+  "contract_sha256": "47e90522229c8d82fb715085c83835978e1dd4a5000e6420746ba25d09bd5157",
+  "commands": "Unmodified verify_commands from saved completion contract; npm build retained here as source evidence. Focused fixture executes the hook command without npm/browser dependencies.",
+  "page": "Synthetic minimal input; no generated app source edited.",
+  "events": "Selected fields and original line numbers, not a full event stream."
+}

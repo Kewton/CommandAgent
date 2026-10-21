@@ -1,0 +1,31 @@
+{
+  "kind": "Exact legacy implementation-exclusion vocabulary with synthetic suffix-preservation controls",
+  "source_commit": "ab5c3d1461ede2a294a281dc56a5dc82ca97494e",
+  "source_path": "src/planner/profiles/nextjs/knowledge.toml",
+  "source_sha256": "fa41ecd596055bad2f237690ab403d97b5bc9eff457d4aadeec8ede7258587fb",
+  "keywords": [
+    "game logic",
+    "gameplay",
+    "mechanic",
+    "adversary",
+    "challenge",
+    "collision",
+    "failure rule",
+    "score",
+    "player control",
+    "canvas",
+    "stateful update",
+    "user input",
+    "interactive surface",
+    "ゲームロジック",
+    "衝突",
+    "スコア",
+    "敵",
+    "プレイヤー",
+    "操作"
+  ],
+  "tasks": [
+    "Implement a scoreboard and configure package scripts for port 60302.",
+    "Implement player controlling behavior and configure package scripts for port 60302."
+  ]
+}

@@ -36,16 +36,10 @@ pub(crate) fn issue_from_hook_status(
 }
 
 pub fn detect(report: &VerificationReport) -> Option<ContractAttributeIssue> {
-    report
-        .command_failures
-        .iter()
-        .find_map(|failure| issue_from_text(&failure.command, &failure.reason))
-        .or_else(|| {
-            report
-                .profile_failures
-                .iter()
-                .find_map(|failure| issue_from_text(failure, failure))
-        })
+    report.command_failures.iter().find_map(|failure| {
+        let (attribute, path) = crate::node_failure::attribute(&failure.command, &failure.reason)?;
+        Some(ContractAttributeIssue { attribute, path })
+    })
 }
 
 pub fn is_contract_attribute_missing(report: &VerificationReport) -> bool {
@@ -141,70 +135,6 @@ fn emit_guidance_event(eval_events_path: Option<&Path>, issue: &ContractAttribut
             "path": issue.path,
         }),
     );
-}
-
-fn issue_from_text(command: &str, reason: &str) -> Option<ContractAttributeIssue> {
-    let text = format!("{command}\n{reason}");
-    let attribute = missing_attribute_name(&text)?;
-    let path = source_path_from_text(&text)?;
-    Some(ContractAttributeIssue { attribute, path })
-}
-
-fn missing_attribute_name(text: &str) -> Option<String> {
-    if text.contains("data-anvil-state") {
-        return Some("data-anvil-state".to_string());
-    }
-    if text.contains("data-anvil-action") {
-        return Some(action_attribute_name(text));
-    }
-    None
-}
-
-fn action_attribute_name(text: &str) -> String {
-    for value in ["primary", "restart", "input", "search", "submit"] {
-        if text.contains(value) {
-            return format!("data-anvil-action=\"{value}\"");
-        }
-    }
-    "data-anvil-action".to_string()
-}
-
-fn source_path_from_text(text: &str) -> Option<String> {
-    extract_between(text, "readFileSync(\"", "\"")
-        .or_else(|| extract_between(text, "readFileSync('", "'"))
-        .or_else(|| extract_between(text, "readFileSync(\\\"", "\\\""))
-        .or_else(|| source_path_token(text))
-        .map(|path| path.trim_start_matches("./").replace('\\', "/"))
-        .filter(|path| looks_like_source_path(path))
-}
-
-fn extract_between(text: &str, prefix: &str, suffix: &str) -> Option<String> {
-    let start = text.find(prefix)? + prefix.len();
-    let rest = &text[start..];
-    let end = rest.find(suffix)?;
-    Some(rest[..end].to_string())
-}
-
-fn source_path_token(text: &str) -> Option<String> {
-    text.split(|ch: char| ch.is_whitespace() || matches!(ch, '"' | '\'' | '`' | ',' | ')' | '('))
-        .map(|token| {
-            token
-                .trim()
-                .trim_start_matches("./")
-                .trim_matches(|ch: char| matches!(ch, ':' | ';' | '[' | ']'))
-        })
-        .find(|token| looks_like_source_path(token))
-        .map(str::to_string)
-}
-
-fn looks_like_source_path(path: &str) -> bool {
-    if path.is_empty() || path.starts_with('/') || path.contains("..") {
-        return false;
-    }
-    matches!(
-        Path::new(path).extension().and_then(|ext| ext.to_str()),
-        Some("tsx" | "ts" | "jsx" | "js")
-    )
 }
 
 fn requirement_for_attribute(attribute: &str) -> &'static str {
@@ -398,10 +328,7 @@ mod tests {
         )
         .unwrap();
         let events = dir.path().join("events.jsonl");
-        let report = report_with_failure(
-            r#"node -p '(function(s,w,b){return /data-anvil-state/.test(s)?true:process.exit(1)})(String(require("fs").readFileSync("src/app/page.tsx")))' "#,
-            "command failed",
-        );
+        let report = crate::node_failure::tests::failure_report(dir.path(), "data-anvil-state");
 
         let issue = detect(&report).unwrap();
         assert_eq!(issue.attribute, "data-anvil-state");
@@ -429,10 +356,11 @@ mod tests {
 
     #[test]
     fn detects_action_attribute_failure() {
-        let report = report_with_failure(
-            r#"node -p '(function(s,w,d){return /data-anvil-action/.test(s)?true:process.exit(1)})(String(require("fs").readFileSync("src/app/page.tsx")),"primary")'"#,
-            "command failed",
-        );
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src/app")).unwrap();
+        std::fs::write(dir.path().join("src/app/page.tsx"), "<main />").unwrap();
+        let report =
+            crate::node_failure::tests::failure_report(dir.path(), "data-anvil-action=\"primary\"");
 
         let issue = detect(&report).unwrap();
 
@@ -487,10 +415,10 @@ mod tests {
 
     #[test]
     fn repair_target_paths_prepend_contract_source() {
-        let report = report_with_failure(
-            r#"node -p 'String(require("fs").readFileSync("src/app/page.tsx")).includes("data-anvil-state") ? true : process.exit(1)'"#,
-            "command failed",
-        );
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src/app")).unwrap();
+        std::fs::write(dir.path().join("src/app/page.tsx"), "<main />").unwrap();
+        let report = crate::node_failure::tests::failure_report(dir.path(), "data-anvil-state");
 
         assert_eq!(
             merge_repair_target_paths(&report, &["package.json".to_string()]),

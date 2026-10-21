@@ -234,20 +234,24 @@ fn next_evidence_path(root: &Path) -> anyhow::Result<PathBuf> {
 }
 
 fn bounded_scrubbed_excerpt(raw: &str, error: &str, kind: ToolParseFailureKind) -> RawExcerpt {
+    // Scrub the complete response before cropping: a secret longer than the
+    // excerpt window would otherwise survive as a raw prefix.
+    let scrubbed = scrub_sensitive(raw);
     let raw_bytes = raw.len();
-    let point = failure_byte_offset(raw, error, kind).min(raw_bytes);
+    let scrubbed_bytes = scrubbed.len();
+    let point = failure_byte_offset(raw, error, kind).min(scrubbed_bytes);
     let mut start = point.saturating_sub(RAW_EXCERPT_MAX_BYTES / 2);
-    let mut end = (start + RAW_EXCERPT_MAX_BYTES).min(raw_bytes);
+    let mut end = (start + RAW_EXCERPT_MAX_BYTES).min(scrubbed_bytes);
     if end - start < RAW_EXCERPT_MAX_BYTES {
         start = end.saturating_sub(RAW_EXCERPT_MAX_BYTES);
     }
-    while start < raw_bytes && !raw.is_char_boundary(start) {
+    while start < scrubbed_bytes && !scrubbed.is_char_boundary(start) {
         start += 1;
     }
-    while end > start && !raw.is_char_boundary(end) {
+    while end > start && !scrubbed.is_char_boundary(end) {
         end -= 1;
     }
-    let text = truncate_utf8_bytes(&scrub_sensitive(&raw[start..end]), RAW_EXCERPT_MAX_BYTES);
+    let text = truncate_utf8_bytes(&scrubbed[start..end], RAW_EXCERPT_MAX_BYTES);
     RawExcerpt {
         text,
         max_bytes: RAW_EXCERPT_MAX_BYTES,
@@ -255,7 +259,7 @@ fn bounded_scrubbed_excerpt(raw: &str, error: &str, kind: ToolParseFailureKind) 
         start_byte: start,
         end_byte: end,
         truncated_before: start > 0,
-        truncated_after: end < raw_bytes,
+        truncated_after: end < scrubbed_bytes,
     }
 }
 
@@ -309,46 +313,7 @@ pub(super) fn truncate_utf8_bytes(value: &str, max_bytes: usize) -> String {
 }
 
 pub(super) fn scrub_sensitive(value: &str) -> String {
-    let mut scrubbed = redact_prefixed_token(value, "sk-");
-    scrubbed = redact_prefixed_token(&scrubbed, "AIza");
-    redact_home_paths(&scrubbed)
-}
-
-fn redact_prefixed_token(value: &str, prefix: &str) -> String {
-    let mut output = value.to_string();
-    let mut search_from = 0usize;
-    while let Some(relative) = output[search_from..].find(prefix) {
-        let start = search_from + relative;
-        let mut end = start + prefix.len();
-        for (offset, ch) in output[end..].char_indices() {
-            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
-                end = start + prefix.len() + offset + ch.len_utf8();
-            } else {
-                break;
-            }
-        }
-        output.replace_range(start..end, "<redacted>");
-        search_from = start + "<redacted>".len();
-    }
-    output
-}
-
-fn redact_home_paths(value: &str) -> String {
-    let mut output = value.to_string();
-    for prefix in ["/Users/", "/home/"] {
-        let mut search_from = 0usize;
-        while let Some(relative) = output[search_from..].find(prefix) {
-            let start = search_from + relative;
-            let name_start = start + prefix.len();
-            let Some(name_len) = output[name_start..].find('/') else {
-                break;
-            };
-            let name_end = name_start + name_len;
-            output.replace_range(name_start..name_end, "<user>");
-            search_from = name_start + "<user>".len();
-        }
-    }
-    output
+    eval_events::scrub_sensitive_text(value)
 }
 
 #[cfg(test)]
@@ -504,6 +469,33 @@ mod tests {
         assert_eq!(document["evidence_envelope"]["family"], "tool_parse");
         assert_eq!(document["evidence_envelope"]["kind"], "tool_parse_failure");
         assert!(document["raw_excerpt"]["text"].as_str().unwrap().len() <= RAW_EXCERPT_MAX_BYTES);
+    }
+
+    #[test]
+    fn excerpt_scrubs_the_full_value_before_cropping() {
+        crate::sensitive_data::reset_scopes_for_tests();
+        let long = format!("H05_LONG_SECRET_{}", "k".repeat(700));
+        let mut catalog = crate::sensitive_data::SecretCatalog::new();
+        catalog.register(&long);
+        crate::sensitive_data::install_scope(
+            catalog,
+            None,
+            Some(std::path::Path::new("/tmp/h05-tool-parse")),
+        );
+
+        let excerpt = bounded_scrubbed_excerpt(
+            &long,
+            "missing tool call",
+            ToolParseFailureKind::MissingCall,
+        );
+
+        assert!(
+            !excerpt.text.contains("H05_LONG_SECRET"),
+            "excerpt kept a fragment: {}",
+            excerpt.text
+        );
+        assert!(excerpt.text.len() <= RAW_EXCERPT_MAX_BYTES);
+        crate::sensitive_data::reset_scopes_for_tests();
     }
 
     #[test]

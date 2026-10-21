@@ -1,0 +1,92 @@
+[
+  {
+    "name": "aligned-after-no-edit",
+    "starts": 2,
+    "stop": "not_recoverable",
+    "runtime_acceptance": true,
+    "oracle": null,
+    "edits": true,
+    "finish_reason": "preflight_source_mutation_rejected_and_restored",
+    "promoted": false
+  },
+  {
+    "name": "aligned-with-oracle",
+    "starts": 1,
+    "stop": "not_recoverable",
+    "runtime_acceptance": true,
+    "oracle": "passed",
+    "edits": true,
+    "finish_reason": "preflight_source_mutation_rejected_and_restored",
+    "promoted": false
+  },
+  {
+    "name": "missing-list",
+    "starts": 1,
+    "stop": "not_recoverable",
+    "runtime_acceptance": false,
+    "oracle": "missing-list",
+    "edits": true,
+    "finish_reason": "recovery_execution_failed",
+    "promoted": false
+  },
+  {
+    "name": "wrong-field",
+    "starts": 1,
+    "stop": "not_recoverable",
+    "runtime_acceptance": false,
+    "oracle": "wrong-field",
+    "edits": true,
+    "finish_reason": "recovery_execution_failed",
+    "promoted": false
+  },
+  {
+    "name": "oracle-unexecuted",
+    "starts": 1,
+    "stop": "not_recoverable",
+    "runtime_acceptance": false,
+    "oracle": null,
+    "edits": true,
+    "finish_reason": "recovery_execution_failed",
+    "promoted": false
+  },
+  {
+    "name": "no-edit",
+    "starts": 2,
+    "stop": "limit_reached",
+    "runtime_acceptance": false,
+    "oracle": null,
+    "edits": false,
+    "finish_reason": "recovery_execution_failed",
+    "promoted": false
+  },
+  {
+    "name": "provider-stop",
+    "starts": 1,
+    "stop": "not_recoverable",
+    "runtime_acceptance": false,
+    "oracle": null,
+    "edits": false,
+    "finish_reason": "recovery_execution_failed",
+    "promoted": false
+  },
+  {
+    "name": "promoted-after-no-edit",
+    "starts": 2,
+    "stop": "recovery_succeeded",
+    "runtime_acceptance": true,
+    "oracle": null,
+    "edits": true,
+    "finish_reason": "registered_final_success_passed",
+    "promoted": true
+  },
+  {
+    "name": "promoted-with-oracle",
+    "starts": 1,
+    "stop": "recovery_succeeded",
+    "runtime_acceptance": true,
+    "oracle": "passed",
+    "edits": true,
+    "finish_reason": "registered_final_success_passed",
+    "promoted": true
+  }
+]

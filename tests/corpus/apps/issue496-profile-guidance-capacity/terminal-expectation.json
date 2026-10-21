@@ -1,0 +1,23 @@
+{
+  "source_stage": "profile_augmentation_before_sanitization",
+  "source_kind": "reconstructed parsed-and-later saved event",
+  "model_chars": 529,
+  "host_chars": 2237,
+  "model_to_host_overlap": 0,
+  "host_to_model_overlap": 0,
+  "minimum_chars": 2766,
+  "limit_chars": 2500,
+  "excess_chars": 266,
+  "registered_split": "package_owner_scope",
+  "status": "stopped",
+  "terminal_reason": "bounded_repair_infeasible",
+  "retry_allowed": false,
+  "planner_attempt": 1,
+  "remaining_planner_attempts": 2,
+  "recovery_budget_changed": false,
+  "model_requests": 1,
+  "application_commands": 0,
+  "application_verifiers": 0,
+  "setup_fallbacks": 0,
+  "last_valid_fallbacks": 0
+}

@@ -1,0 +1,2 @@
+{"event":"recovery_observation_effect_policy_bound","source":"product_visible_completion_contract","allowed_generated_paths":["data/shifts.json","data/staff.json"],"protected_change_disposition":"reject_and_retain_control","registered_data_input_fixture":null,"external_oracle_used":false}
+{"event":"recovery_preflight_observation","observation_phase":"pre_recovery","status":"fail","reason":"command failed: node probe.mjs business-failure","source":"product_visible_completion_contract","read_only":true,"observation_isolated":true,"external_oracle_used":false}

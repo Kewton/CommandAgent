@@ -1292,12 +1292,15 @@ def load_scripted_directive_suite(path: Path | None = None) -> dict[str, Any]:
     for relative, expected_hash in pinned_paths:
         assert isinstance(relative, str) and isinstance(expected_hash, str)
         relative_path = Path(relative)
-        assert not relative_path.is_absolute() and ".." not in relative_path.parts
-        assert re.fullmatch(r"[0-9a-f]{64}", expected_hash), (
-            f"invalid SHA-256 pin for {relative}"
-        )
+        if relative_path.is_absolute() or ".." in relative_path.parts:
+            raise AssertionError(
+                f"directive suite path escapes the repository: {relative}"
+            )
+        if not re.fullmatch(r"[0-9a-f]{64}", expected_hash):
+            raise AssertionError(f"invalid SHA-256 pin for {relative}")
         observed = hashlib.sha256(ROOT.joinpath(relative_path).read_bytes()).hexdigest()
-        assert observed == expected_hash, f"directive suite pin mismatch: {relative}"
+        if observed != expected_hash:
+            raise AssertionError(f"directive suite pin mismatch: {relative}")
     return {
         **declaration,
         "rounds": rounds,

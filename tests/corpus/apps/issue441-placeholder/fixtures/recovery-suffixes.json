@@ -1,0 +1,147 @@
+{
+  "root": "/Users/alice/work/project",
+  "cases": [
+    {
+      "id": "reported-single-quoted-space",
+      "input": "cat '/Users/alice/work/project/some dir/../../secret.txt'"
+    },
+    {
+      "id": "double-quoted-space",
+      "input": "cat \"/Users/alice/work/project/some dir/../../secret.txt\""
+    },
+    {
+      "id": "unquoted-no-space",
+      "input": "cat /Users/alice/work/project/some/../../secret.txt"
+    },
+    {
+      "id": "escaped-space",
+      "input": "cat /Users/alice/work/project/some\\ dir/../../secret.txt"
+    },
+    {
+      "id": "quoted-tab",
+      "input": "cat '/Users/alice/work/project/some\tdir/../../secret.txt'"
+    },
+    {
+      "id": "escaped-dots",
+      "input": "cat /Users/alice/work/project/some\\ dir/\\.\\./\\.\\./secret.txt"
+    },
+    {
+      "id": "concatenated-quotes",
+      "input": "cat /Users/alice/work/project/\"some dir\"/\"..\"/../secret.txt"
+    },
+    {
+      "id": "escaped-line-continuation",
+      "input": "cat \"/Users/alice/work/project/some\\\n dir/../../secret.txt\""
+    },
+    {
+      "id": "quoted-parent-at-end",
+      "input": "cat '/Users/alice/work/project/some dir/..'"
+    },
+    {
+      "id": "punctuation-in-word",
+      "input": "cat /Users/alice/work/project/some=dir/../../secret.txt"
+    },
+    {
+      "id": "safe-single-quoted-space",
+      "input": "cat '/Users/alice/work/project/some dir/file.txt'",
+      "expected": "cat './some dir/file.txt'"
+    },
+    {
+      "id": "safe-double-quoted-space",
+      "input": "cat \"/Users/alice/work/project/some dir/file.txt\"",
+      "expected": "cat \"./some dir/file.txt\""
+    },
+    {
+      "id": "safe-escaped-space",
+      "input": "cat /Users/alice/work/project/some\\ dir/file.txt",
+      "expected": "cat ./some\\ dir/file.txt"
+    },
+    {
+      "id": "safe-concatenated-quotes",
+      "input": "cat /Users/alice/work/project/\"some dir\"/file.txt",
+      "expected": "cat ./\"some dir\"/file.txt"
+    },
+    {
+      "id": "safe-dot-substrings",
+      "input": "cat '/Users/alice/work/project/some dir/..notes/file.txt'",
+      "expected": "cat './some dir/..notes/file.txt'"
+    },
+    {
+      "id": "safe-punctuation",
+      "input": "cat /Users/alice/work/project/some=dir/file.txt",
+      "expected": "cat ./some=dir/file.txt"
+    },
+    {
+      "id": "closed-quote-then-parent",
+      "input": "cat '/Users/alice/work/project/some dir'/../../secret.txt"
+    },
+    {
+      "id": "double-to-single-quote-parent",
+      "input": "cat \"/Users/alice/work/project/some dir\"'/..'/../secret.txt"
+    },
+    {
+      "id": "escaped-apostrophe-parent",
+      "input": "cat '/Users/alice/work/project/some'\\'' dir/../../secret.txt'"
+    },
+    {
+      "id": "backtick-display-parent",
+      "input": "path `/Users/alice/work/project/some dir/../../secret.txt`"
+    },
+    {
+      "id": "unterminated-quote",
+      "input": "cat '/Users/alice/work/project/some dir/file.txt"
+    },
+    {
+      "id": "trailing-escape",
+      "input": "cat /Users/alice/work/project/some\\ dir/file.txt\\"
+    },
+    {
+      "id": "dynamic-suffix",
+      "input": "cat /Users/alice/work/project/${directory}/file.txt"
+    },
+    {
+      "id": "quoted-sibling-concatenation",
+      "input": "cat /Users/alice/work/project\"-other/file.txt\""
+    },
+    {
+      "id": "safe-escaped-apostrophe",
+      "input": "cat '/Users/alice/work/project/some'\\'' dir/file.txt'",
+      "expected": "cat './some'\\'' dir/file.txt'"
+    },
+    {
+      "id": "safe-escaped-double-quote",
+      "input": "cat \"/Users/alice/work/project/some\\\" dir/file.txt\"",
+      "expected": "cat \"./some\\\" dir/file.txt\""
+    },
+    {
+      "id": "safe-backtick-display",
+      "input": "path `/Users/alice/work/project/some dir/file.txt`",
+      "expected": "path `./some dir/file.txt`"
+    },
+    {
+      "id": "safe-space-then-separate-traversal",
+      "input": "cat '/Users/alice/work/project/some dir/file.txt' ../unrelated.txt",
+      "expected": "cat './some dir/file.txt' ../unrelated.txt"
+    },
+    {
+      "id": "ansi-c-quoted-escaped-parent",
+      "input": "cat $'/Users/alice/work/project/some dir/\\x2e\\x2e/secret.txt'"
+    },
+    {
+      "id": "localized-double-quote",
+      "input": "cat $\"/Users/alice/work/project/some dir/file.txt\""
+    },
+    {
+      "id": "expansion-before-root-in-quote",
+      "input": "cat \"${prefix}/Users/alice/work/project/some dir/file.txt\""
+    },
+    {
+      "id": "prose-apostrophe-before-quoted-path",
+      "input": "cannot handle user's command: cat '/Users/alice/work/project/some dir/../../secret.txt'"
+    },
+    {
+      "id": "nested-display-quotes",
+      "input": "failed command: `cat '/Users/alice/work/project/some dir/'..'/../secret.txt'`"
+    }
+  ]
+}

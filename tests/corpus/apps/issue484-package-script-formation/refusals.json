@@ -1,0 +1,17 @@
+[
+  "wrong_target",
+  "changed_literal",
+  "changed_script",
+  "delete_check",
+  "changed_result",
+  "unrelated_assertion",
+  "missing_owner",
+  "nonexecuting_owner",
+  "premature_check",
+  "swallow_failure",
+  "wrapper",
+  "output_suppression",
+  "append_beside_original",
+  "drop_other_key_duty",
+  "artifact_derived_literal"
+]

@@ -1,0 +1,156 @@
+{
+  "action_hooks": [
+    "input",
+    "primary",
+    "restart"
+  ],
+  "after_marker": "{\"states\":[{\"index\":0,\"state\":{\"filter\":\"all\",\"lastAction\":\"reset\",\"projects\":0,\"selectedProjectId\":\"\",\"tasks\":0,\"totalProjects\":0,\"totalTasks\":0,\"viewMode\":\"active\"}}]}",
+  "before_marker": "{\"states\":[{\"index\":0,\"state\":{\"filter\":\"all\",\"lastAction\":\"init\",\"projects\":0,\"selectedProjectId\":\"\",\"tasks\":0,\"totalProjects\":0,\"totalTasks\":0,\"viewMode\":\"active\"}}]}",
+  "candidate_table": [
+    {
+      "changed": false,
+      "index": 1,
+      "rank": 1,
+      "text_excerpt": "タスク追加"
+    },
+    {
+      "changed": true,
+      "index": 6,
+      "rank": 2,
+      "text_excerpt": "全てリセット"
+    }
+  ],
+  "canvas_blank_after_inputs": null,
+  "canvas_blank_after_start": null,
+  "canvas_blank_before_start": null,
+  "canvas_not_redrawn_after_start": false,
+  "canvas_snapshots": [
+    {
+      "blank_canvas_count": 0,
+      "canvas_blank": null,
+      "canvas_count": 0,
+      "name": "before_start",
+      "pixel_hashes": []
+    },
+    {
+      "blank_canvas_count": 0,
+      "canvas_blank": null,
+      "canvas_count": 0,
+      "name": "after_start",
+      "pixel_hashes": []
+    },
+    {
+      "blank_canvas_count": 0,
+      "canvas_blank": null,
+      "canvas_count": 0,
+      "name": "after_inputs",
+      "pixel_hashes": []
+    },
+    {
+      "blank_canvas_count": 0,
+      "canvas_blank": null,
+      "canvas_count": 0,
+      "name": "after_recovery",
+      "pixel_hashes": []
+    }
+  ],
+  "cold_start_ms": 50,
+  "contract_hook_status": "usable",
+  "duration_ms": 2301,
+  "echo_latency_ms": 2,
+  "failure_category": "",
+  "has_canvas": false,
+  "http_mutation_observations": [],
+  "informational_failure_kinds": [
+    "primary_start_transition_missing"
+  ],
+  "input_after_marker": "{\"states\":[{\"index\":0,\"state\":{\"filter\":\"all\",\"lastAction\":\"created_project\",\"projects\":1,\"selectedProjectId\":\"p-1788698255560\",\"tasks\":0,\"totalProjects\":1,\"totalTasks\":0,\"viewMode\":\"active\"}}]}",
+  "input_before_marker": "{\"states\":[{\"index\":0,\"state\":{\"filter\":\"all\",\"lastAction\":\"reset\",\"projects\":0,\"selectedProjectId\":\"\",\"tasks\":0,\"totalProjects\":0,\"totalTasks\":0,\"viewMode\":\"active\"}}]}",
+  "input_contract_state_change": true,
+  "input_dispatches": [],
+  "input_event_observed": true,
+  "input_state_change": true,
+  "input_state_evaluated_after_start": false,
+  "interaction_performed": true,
+  "interaction_success": true,
+  "interactive_control_count": 13,
+  "measured_navigation_ms": 14,
+  "ok": true,
+  "persistence_after_reload": "not_evaluated",
+  "persistence_after_reload_marker": "",
+  "persistence_after_reload_reason": "no_mutation_observed",
+  "persistence_before_reload_marker": "",
+  "persistence_changed_dimensions": [],
+  "playwright_version": "1.61.1",
+  "post_js_has_canvas": false,
+  "post_js_interactive_control_count": 13,
+  "primary_start_transition": false,
+  "primary_start_transition_missing": true,
+  "probe": {
+    "child_reaped": true,
+    "child_spawned": true,
+    "cold_start_ms": 50,
+    "measured_navigation_ms": 14,
+    "playwright_resolution_location": "managed_interaction_probe",
+    "stage": "observing"
+  },
+  "probe_mode": "contract",
+  "recovery_after_marker": "{\"states\":[{\"index\":0,\"state\":{\"filter\":\"all\",\"lastAction\":\"reset\",\"projects\":0,\"selectedProjectId\":\"\",\"tasks\":0,\"totalProjects\":0,\"totalTasks\":0,\"viewMode\":\"active\"}}]}",
+  "recovery_before_marker": "{\"states\":[{\"index\":0,\"state\":{\"filter\":\"all\",\"lastAction\":\"created_project\",\"projects\":1,\"selectedProjectId\":\"p-1788698255560\",\"tasks\":0,\"totalProjects\":1,\"totalTasks\":0,\"viewMode\":\"active\"}}]}",
+  "recovery_transition": true,
+  "recovery_transition_status": "observed",
+  "remediation": "",
+  "restart_hook_count_after_start": 1,
+  "restart_hook_reachable_after_start": true,
+  "route_rendered_quality": "rendered_without_expected_surface",
+  "server_check": {
+    "error": "",
+    "ok": true,
+    "status": 200
+  },
+  "server_http_status": 200,
+  "stage": "observing",
+  "start_control_found": true,
+  "start_transition": true,
+  "state_changed": true,
+  "state_dimensions_changed": [
+    "lastAction",
+    "projects",
+    "selectedProjectId",
+    "totalProjects"
+  ],
+  "status": "passed",
+  "steps": [
+    "warmup_navigation",
+    "measured_navigation",
+    "surface_visible",
+    "primary_start_transition_missing",
+    "start_transition",
+    "restart_hook_reachable_after_start",
+    "text_entry",
+    "text_input_state_change",
+    "input_state_change",
+    "token_echoed",
+    "recovery_transition"
+  ],
+  "surface_fit": {
+    "fits_viewport": false,
+    "overflow_bottom_px": 142,
+    "overflow_left_px": 0,
+    "overflow_right_px": 0,
+    "overflow_top_px": 0,
+    "rect_height_px": 862,
+    "rect_width_px": 896,
+    "surface": "div:state",
+    "viewport_height_px": 720,
+    "viewport_width_px": 1280
+  },
+  "text_entry": "entered",
+  "text_entry_target": "input:data-anvil-action=input",
+  "text_input_state_change": true,
+  "token_echo_after_reload_latency_ms": null,
+  "token_echoed": true,
+  "token_echoed_after_reload": false,
+  "typed_token": "anvil-ei1w9o",
+  "visible_state_changed": true
+}

@@ -38,6 +38,14 @@ pub fn ensure_tool_path_allowed(
     path: &Path,
     policy: WorkspacePolicy,
 ) -> anyhow::Result<()> {
+    // Credential blocking is independent of the metadata exception and of the
+    // selected policy: `ControllerMetadataAllowed` does not admit secrets. Root
+    // containment for walkers and leaves is enforced separately (via
+    // `sensitive_skip`/canonical classification and the existing write guards),
+    // so this gate stays a credential/component check only.
+    if let Some(refusal) = super::sensitive_path::credential_refusal(root, path) {
+        return Err(anyhow::Error::new(refusal));
+    }
     let rel = path.strip_prefix(root).unwrap_or(path);
     for component in rel.components() {
         let Some(part) = component.as_os_str().to_str() else {
@@ -95,6 +103,41 @@ mod tests {
             )
             .is_ok()
         );
+    }
+
+    #[test]
+    fn should_skip_path_follows_the_policy_decision() {
+        // kills: workspace_policy.rs:65 should_skip_path -> true / false
+        let root = Path::new("/tmp/work");
+        for (path, policy, skipped) in [
+            (
+                "/tmp/work/.anvil/session.json",
+                WorkspacePolicy::NormalTask,
+                true,
+            ),
+            (
+                "/tmp/work/node_modules/x/index.js",
+                WorkspacePolicy::NormalTask,
+                true,
+            ),
+            ("/tmp/work/src/main.rs", WorkspacePolicy::NormalTask, false),
+            (
+                "/tmp/work/.anvil/plan.yaml",
+                WorkspacePolicy::ControllerMetadataAllowed,
+                false,
+            ),
+            (
+                "/tmp/work/.git/config",
+                WorkspacePolicy::ControllerMetadataAllowed,
+                true,
+            ),
+        ] {
+            assert_eq!(
+                should_skip_path(root, Path::new(path), policy),
+                skipped,
+                "{path} under {policy:?}"
+            );
+        }
     }
 
     #[test]

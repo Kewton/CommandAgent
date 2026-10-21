@@ -1,4 +1,3 @@
-#[allow(unused_imports)]
 use super::{
     ChatClient, Config, DependencyReconciliationTrigger, EscalationCarryoverHandle,
     FINAL_ACCEPTANCE_COMPILE_NO_SNAPSHOT_EXTRA_ATTEMPTS,
@@ -46,7 +45,7 @@ use super::{
     ultra_plan_generation_messages, verification_missing_signals, verify_invariant_with_hooks,
     writable_workspace_source_path,
 };
-#[allow(unused_imports)]
+#[allow(unused_imports, reason = "names used by test modules")]
 use super::{
     Path, PathBuf, StepPlan, capability_evidence_remedy_lines,
     generate_step_plan_with_ui_for_phase, render_ultra_plan, resolve_plan_file_path,
@@ -61,10 +60,13 @@ mod fix_before;
 mod investigation_before;
 #[path = "phase_boundary.rs"]
 mod phase_boundary;
+#[path = "phase_entry.rs"]
+mod phase_entry;
 #[path = "../../ultra_plan_flow/phase_plan_resolution.rs"]
 mod phase_plan_resolution;
 #[path = "../../pipeline.rs"]
 mod pipeline;
+mod recovery_authority;
 #[path = "../../ultra_plan_storage.rs"]
 mod ultra_plan_storage;
 pub use ultra_plan_storage::{run_ultra_plan_file, run_ultra_plan_file_with_ui, save_ultra_plan};
@@ -303,8 +305,7 @@ pub fn run_ultra_plan_with_ui(
         emit_planner_error_for_lint(config, "ultra-plan-file", &config.planner_model, &report, 0);
         anyhow::bail!("{}", report.primary_message());
     }
-    let mut final_expected_paths = resolve_profile_runtime(&plan.profile)
-        .expected_scaffold_paths(&config.workspace_root, &plan.goal);
+    let (mut final_expected_paths, _authority) = recovery_authority::begin(config, plan)?;
     let mut ultra_context = UltraRunContext::for_run(&config.workspace_root, &final_expected_paths);
     let mut ultra_session = SessionSnapshot::new();
     let mut fix_runtime = crate::planner::fix_runtime::FixRuntime::for_plan(plan, config);
@@ -314,145 +315,29 @@ pub fn run_ultra_plan_with_ui(
     let mut promotion_state = ProfilePromotionState::for_run(plan, config);
     let mut setup_authority_state = UltraRunSetupAuthorityState::default();
     emit_ultra_context_initialized(config, plan, &ultra_context, ultra_session.messages.len());
-    let mut phase_machine = pipeline::PhaseRun::start()?;
+    let mut phase_machine = phase_entry::start(config, plan, &mut ultra_context)?;
     let phases = plan.phases.clone();
     for (index, phase) in phases.iter().enumerate() {
         let runtime = resolve_profile_runtime(&plan.profile);
-        if ui.interrupted() {
-            phase_machine.interrupt("phase_start")?;
-            anyhow::bail!("interrupted by user");
-        }
-        emit_ultra_phase_event(
-            config,
-            "ultra_phase_start",
-            plan,
-            phase,
-            index,
-            "start",
-            None,
-            None,
-            None,
-        );
-        let profile_snapshot = profile_before_plan(&config.workspace_root, plan)?;
-        ultra_context.emit_attached(config, plan, phase, index, &ultra_session);
-        phase_machine.phase_started()?;
         let final_phase = index + 1 == plan.phases.len();
-        let phase_prompt =
-            ultra_phase_prompt(plan, phase, config, &ultra_context, fix_runtime.as_ref());
-        let phase_prompt = crate::planner::pack::runtime::append_phase_material_from_environment(
-            phase_prompt,
-            &config.workspace_root,
-            &plan.profile,
-            &plan.intent,
-            &phase.id,
-        )?;
-        let step_plan_result = phase_machine.resolve(
+        let Some((step_plan, profile_snapshot)) = phase_entry::prepare(
             planner,
-            &phase_prompt,
             config,
+            plan,
+            phase,
+            index,
             ui,
-            phase,
-            plan,
-            fix_runtime.as_ref(),
-            preset_plan,
-            final_phase,
-        );
-        let mut step_plan = step_plan_result.map_err(|err| {
-            let rejected_verify_commands =
-                crate::planner::lint_rejection::rejected_commands_from_error(&err);
-            let message = err.to_string();
-            emit_ultra_phase_event(
-                config,
-                "ultra_phase_failed",
-                plan,
-                phase,
-                index,
-                "scaffold",
-                Some(false),
-                Some(&message),
-                None,
-            );
-            emit_planner_error(
-                config,
-                planner.label(),
-                &config.planner_model,
-                "scaffold",
-                "phase_scaffold_error",
-                &format!("phase scaffold failed: {}", message),
-                index + 1,
-            );
-            let handoff = save_ultra_phase_recovery_handoff(
-                config,
-                plan,
-                phase,
-                UltraPhaseRecoveryRequest {
-                    failure_kind: "phase_scaffold_error",
-                    reason: &message,
-                    missing_paths: &missing_final_artifacts(
-                        &config.workspace_root,
-                        &final_expected_paths,
-                    ),
-                    missing_signals: &[],
-                    repair_targets: &["phase_scaffold".to_string()],
-                    verify_commands: &rejected_verify_commands,
-                },
-            );
-            anyhow::anyhow!(
-                "{}",
-                render_failure_stop_reason(format!("phase scaffold failed: {message}"), handoff,)
-            )
-        })?;
-        phase_machine.plan_resolved()?;
-        crate::planner::fix_runtime::bind_step_plan(fix_runtime.as_mut(), phase, &mut step_plan);
-        emit_ultra_phase_event(
-            config,
-            "ultra_phase_scaffold_complete",
-            plan,
-            phase,
-            index,
-            "scaffold",
-            Some(true),
-            None,
-            Some(step_plan.steps.len()),
-        );
-        emit_ultra_phase_event(
-            config,
-            "ultra_phase_plan_validated",
-            plan,
-            phase,
-            index,
-            "lint",
-            Some(true),
-            None,
-            Some(step_plan.steps.len()),
-        );
-        save_step_plan(&config.workspace_root, &step_plan)?;
-        let fix_before = fix_runtime
-            .as_ref()
-            .is_some_and(|runtime| runtime.is_before_phase(index));
-        let investigation_before = investigation_runtime
-            .as_ref()
-            .is_some_and(|runtime| runtime.is_reproducer_phase(index));
-        phase_machine.plan_persisted(fix_before, investigation_before)?;
-        let Some(step_plan) = before_phase::run(
-            planner,
+            &ultra_context,
+            &ultra_session,
+            &mut phase_machine,
             fix_runtime.as_mut(),
             investigation_runtime.as_mut(),
-            &phase_prompt,
-            step_plan,
-            config,
-            plan,
-            phase,
-            index,
-            ui,
+            &final_expected_paths,
             preset_plan,
-            final_phase,
         )?
         else {
-            phase_machine.before_phase_completed(true, final_phase)?;
             continue;
         };
-        phase_machine.before_phase_completed(false, final_phase)?;
         let step_outcome = match run_step_plan_with_session_with_ui_and_run_authority(
             execution,
             &mut ultra_session,

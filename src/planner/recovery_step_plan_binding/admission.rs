@@ -1,0 +1,600 @@
+//! Formation and Recovery binding use the existing planner attempt budget.
+use super::formation_scope::{FormationScope, InstructionProtection, ProfileAddition};
+use super::*;
+use crate::planner::recovery_contract_authority::verifier_obligations as scope;
+use crate::planner::recovery_inspection::verifier_obligations::{
+    BindingFailure, FailureClass, failure,
+};
+
+#[path = "bounded_repair.rs"]
+mod bounded_repair;
+use bounded_repair::InstructionFailure;
+
+#[derive(Default)]
+pub(crate) struct Admission {
+    original: Option<StepPlan>,
+    sources: Option<FormationScope>,
+    // Same first-retry snapshot, with existing canonicalization of non-profile
+    // steps applied. Source evidence above remains at its acquisition boundary.
+    preservation_sources: Option<FormationScope>,
+    profile_addition: Option<ProfileAddition>,
+    profile_instruction_provenance_error: Option<String>,
+    replacements: Vec<super::verifier_formation::Replacement>,
+    pending_sources: Option<super::package_script_formation::CapturedSources>,
+    package_scripts: Option<super::package_script_formation::PackageScripts>,
+    awaiting_check: bool,
+    duplicate_strengthen: bool,
+    marker_checks: Vec<super::literal_marker_formation::Obligation>,
+    marker_capture_error: Option<String>,
+}
+
+pub(crate) enum Decision {
+    Ready(bool),
+    Retry(String),
+}
+
+impl Admission {
+    pub(crate) fn strengthen(&mut self, config: &Config, plan: &mut StepPlan) {
+        if self.awaiting_check {
+            self.duplicate_strengthen = true;
+            return;
+        }
+        self.awaiting_check = true;
+        self.profile_instruction_provenance_error = None;
+        let model_scope = self.original.is_none().then(|| plan.clone());
+        self.profile_addition =
+            super::profile_augmentation::strengthen_step_plan_for_profile(plan, config);
+        #[cfg(test)]
+        crate::planner::setup_step_policy::issue492_tests::record("augmented", plan);
+        if let Some(model) = model_scope {
+            let mut sources = FormationScope::capture(plan, self.profile_addition.as_ref());
+            // Capture directly, even if the model supplied duplicate owner IDs.
+            // Reconstructing by ID can restore the wrong pre-augmentation step.
+            sources.model = model;
+            self.pending_sources = Some(super::package_script_formation::CapturedSources::new(
+                config,
+                sources,
+                "profile_augmentation_before_sanitization",
+            ));
+        }
+    }
+
+    pub(crate) fn sanitize(
+        &mut self,
+        plan: &mut StepPlan,
+        workspace_root: Option<&std::path::Path>,
+    ) -> crate::planner::sanitizer::SanitizerReport {
+        let protection = self
+            .profile_addition
+            .as_ref()
+            .map(|addition| addition.instruction_protection(plan, true))
+            .unwrap_or_default();
+        self.profile_instruction_provenance_error = protection.error;
+        crate::planner::sanitizer::sanitize_step_plan_against_policy_preserving_instructions(
+            plan,
+            workspace_root,
+            &protection.indices,
+        )
+    }
+
+    fn preserve(&self, plan: &StepPlan) -> anyhow::Result<()> {
+        if let Some(reason) = &self.marker_capture_error {
+            return Err(failure(FailureClass::ProposalRepairable, reason.clone()));
+        }
+        super::verifier_formation::preserve_registered(&self.replacements, plan)?;
+        if let Some(original) = &self.original {
+            let (projected, _) = super::verifier_formation::project(
+                original,
+                plan,
+                self.package_scripts.as_ref(),
+                &self.marker_checks,
+            );
+            if let Some(sources) = &self.preservation_sources {
+                sources.preserve(original, &projected)?;
+            } else {
+                preserve(original, &projected)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn retain(&mut self, config: &Config, plan: &StepPlan, contract: &CompletionContract) {
+        if self.original.is_none() {
+            match super::literal_marker_formation::capture(config, contract, plan) {
+                Ok(checks) => self.marker_checks = checks,
+                Err(error) => {
+                    self.marker_capture_error = Some(format!(
+                        "original marker source acquisition failed; cannot recapture from a later proposal or workspace: {error}"
+                    ));
+                }
+            }
+            let sources = self.pending_sources.take().unwrap_or_else(|| {
+                super::package_script_formation::CapturedSources::new(
+                    config,
+                    FormationScope::capture(plan, self.profile_addition.as_ref()),
+                    "admission_before_first_retry",
+                )
+            });
+            self.sources = Some(sources.plans.clone());
+            self.preservation_sources = Some(FormationScope::capture(
+                plan,
+                self.profile_addition.as_ref(),
+            ));
+            self.package_scripts = Some(super::package_script_formation::PackageScripts::capture(
+                config, plan, sources, contract,
+            ));
+            self.original = Some(plan.clone());
+        }
+    }
+
+    fn profile_instruction_failure(&self, plan: &StepPlan) -> Option<InstructionFailure> {
+        if let Some(error) = &self.profile_instruction_provenance_error {
+            return Some(InstructionFailure::Provenance(error.clone()));
+        }
+        let addition = self.profile_addition.as_ref()?;
+        Self::instruction_failure(addition.instruction_protection(plan, false), plan)
+    }
+
+    fn retained_profile_instruction_failure(&self, plan: &StepPlan) -> Option<InstructionFailure> {
+        let sources = self.sources.as_ref()?;
+        sources
+            .retained_instruction_indices(plan)
+            .into_iter()
+            .find_map(|index| Self::instruction_capacity_failure(&plan.steps[index]))
+    }
+
+    fn instruction_failure(
+        protection: InstructionProtection,
+        plan: &StepPlan,
+    ) -> Option<InstructionFailure> {
+        if let Some(error) = protection.error {
+            return Some(InstructionFailure::Provenance(error));
+        }
+        let index = *protection.indices.iter().next()?;
+        Self::instruction_capacity_failure(&plan.steps[index])
+    }
+
+    fn instruction_capacity_failure(step: &PlanStep) -> Option<InstructionFailure> {
+        let chars = step.instruction.chars().count();
+        (chars > crate::planner::sanitizer::STEP_PLAN_INSTRUCTION_LINT_LIMIT_CHARS).then(|| {
+            InstructionFailure::Capacity {
+                owner: step.id.clone(),
+                chars,
+            }
+        })
+    }
+
+    fn retain_current_contract(&mut self, config: &Config, plan: &StepPlan) -> anyhow::Result<()> {
+        let contract = match crate::planner::recovery_contract_authority::load_for_handoff(config)?
+        {
+            Some(contract) => contract,
+            None => serde_json::from_value(json!({}))?,
+        };
+        self.retain(config, plan, &contract);
+        Ok(())
+    }
+
+    fn validate_profile_instruction(
+        &mut self,
+        config: &Config,
+        plan: &StepPlan,
+    ) -> anyhow::Result<()> {
+        let Some(reason) = self.profile_instruction_failure(plan) else {
+            return Ok(());
+        };
+        self.retain_current_contract(config, plan)?;
+        Err(failure(FailureClass::ProposalRepairable, reason.to_string()).context(reason))
+    }
+
+    pub(crate) fn finish(
+        &self,
+        config: &Config,
+        phase: Option<&str>,
+        plan: StepPlan,
+    ) -> anyhow::Result<StepPlan> {
+        self.require_capture_boundary()?;
+        if let Some(contract) =
+            crate::planner::recovery_contract_authority::load_for_handoff(config)?
+            && crate::planner::recovery_contract_authority::inline_admission::eligible(
+                config, &contract,
+            )?
+        {
+            let admitted = scope::admitted_commands(config, &contract, &plan)?;
+            crate::planner::recovery_contract_authority::inline_admission::validate(
+                config, &contract, &admitted,
+            )?;
+        }
+        let fallback_validation = self
+            .retained_profile_instruction_failure(&plan)
+            .map(|reason| {
+                Err(failure(
+                    FailureClass::ProposalRepairable,
+                    reason.to_string(),
+                ))
+            })
+            .unwrap_or_else(|| self.preserve(&plan));
+        if let Err(error) = fallback_validation {
+            crate::eval_events::emit(
+                config.eval_events_path.as_deref(),
+                json!({
+                    "event":"recovery_verifier_plan_return_rejected", "original_scope":self.original,
+                    "returned_scope":plan, "reason":error.to_string(), "remaining_planner_attempts":0,
+                }),
+            );
+            let message = format!(
+                "cannot return fallback after verifier formation exhausted planner budget: {error}"
+            );
+            return Err(error.context(message));
+        }
+        if crate::planner::recovery_inspection::has_origin(config)? {
+            check_model_ownership(config, phase, &plan)?;
+            let report = super::lint(config, &plan, phase);
+            anyhow::ensure!(
+                report.is_pass(),
+                "cannot return unbound Recovery plan: {}",
+                report.primary_message()
+            );
+        } else if self.original.is_some() {
+            super::verifier_formation::require_formed(config, &scope::commands(&plan))?;
+        }
+        Ok(plan)
+    }
+
+    pub(crate) fn check(
+        &mut self,
+        config: &Config,
+        phase: Option<&str>,
+        model: &StepPlan,
+        plan: &mut StepPlan,
+        attempt: usize,
+    ) -> anyhow::Result<Decision> {
+        self.awaiting_check = false;
+        let host = plan.clone();
+        let recovery = crate::planner::recovery_inspection::has_origin(config)?;
+        let result = if let Err(error) = self.require_capture_boundary() {
+            Err(error)
+        } else if recovery {
+            self.validate_profile_instruction(config, plan)
+                .and_then(|()| self.preserve(plan))
+                .and_then(|()| check_model_ownership(config, phase, model))
+                .and_then(|()| bind_generated(config, phase, plan))
+        } else {
+            self.package_scripts
+                .as_ref()
+                .map_or(Ok(()), |p| p.preserve_raw_commands(model))
+                .and_then(|()| {
+                    super::literal_marker_formation::preserve_raw_commands(
+                        &self.marker_checks,
+                        model,
+                    )
+                })
+                .and_then(|()| self.form(config, plan, attempt))
+                .map(|()| false)
+        };
+        let Err(error) = result else {
+            return Ok(Decision::Ready(result.unwrap()));
+        };
+        let class = error
+            .downcast_ref::<BindingFailure>()
+            .map(|e| e.class)
+            .unwrap_or(FailureClass::Unsafe);
+        let terminal = self.prove_bounded_repair_infeasible(&error, plan, attempt);
+        let retry = terminal.is_none() && class == FailureClass::ProposalRepairable && attempt < 3;
+        crate::eval_events::emit(
+            config.eval_events_path.as_deref(),
+            json!({
+                "event":"recovery_verifier_plan_admission", "phase_id":phase,
+                "stage":if recovery {"closed_binding"} else {"preclosure_formation"},
+                "classification":class, "reason":terminal.as_ref().map_or_else(|| error.to_string(), ToString::to_string),
+                "model_proposal":model, "host_augmented_proposal":host,
+                "original_scope":self.original, "original_obligation_sources":self.sources,
+                "package_script_formation":self.package_scripts,
+                "planner_attempt":attempt,
+                "remaining_planner_attempts":3usize.saturating_sub(attempt),
+                "recovery_budget_changed":false,
+                "status":if terminal.is_some() {"stopped"} else if retry {"retry"} else if class == FailureClass::ProposalRepairable {"exhausted"} else {"stopped"},
+                "retry_allowed":retry,
+                "terminal_reason":terminal.as_ref().map(|_| "bounded_repair_infeasible"),
+                "bounded_repair_proof":terminal,
+                "preservation_sources":self.preservation_sources,
+                "marker_obligations":self.marker_checks,
+                "marker_capture_error":self.marker_capture_error,
+            }),
+        );
+        if let Some(proof) = terminal {
+            // Do not attach the legacy ProposalRepairable error as a cause.
+            return Err(proof.into());
+        }
+        if !retry {
+            let reason = format!(
+                "{}: {error}",
+                if class == FailureClass::ProposalRepairable {
+                    "verifier plan admission exhausted existing 3-attempt planner budget"
+                } else {
+                    "verifier plan admission cannot be corrected by proposal retry"
+                }
+            );
+            return Err(error.context(reason));
+        }
+        let profile_capacity_guidance = if error.to_string().contains("profile instruction") {
+            " The profile instruction must remain at most 2500 characters after deterministic notes. Preserve the complete model and host duties, use only owner splits allowed by the existing ownership rules, and never duplicate or truncate the combined instruction."
+        } else {
+            ""
+        };
+        let mut feedback = format!(
+            "Goal: {}\nCorrect this verifier plan admission failure (attempt {attempt}/3): {error}\nReturn a complete StepPlan. Assign verifier creation to one dedicated Implement/pass per original producer; retain application/configuration work in separate owners. Preserve every original requirement verbatim within the responsible instructions, every required output, expected result and check; do not erase mixed duties. Host augmentation targets the last implementation step, so place the application/configuration owner last when needed. Keep model and host duties on their respective executable owners; do not duplicate the combined instruction.{profile_capacity_guidance}\nHost-augmented proposal:\n{}",
+            plan.goal,
+            serde_json::to_string(&host)?
+        );
+        self.append_retry_context(&mut feedback)?;
+        Ok(Decision::Retry(feedback))
+    }
+
+    // Schema, lint and empty-response retries share the first admission snapshot.
+    // They must not silently replace it with a new goal or workspace expectation.
+    pub(crate) fn append_retry_context(&self, prompt: &mut String) -> anyhow::Result<()> {
+        if let Some(original) = &self.original {
+            prompt.push_str(&format!(
+                "\nFrozen admission baseline (preserve full model/host duties, outputs, expected results and check order; profile instructions must fit 2500 characters including deterministic notes):\n{}\nFrozen obligation sources:\n{}\nFrozen formation evidence and registered contract:\n{}\nFrozen marker obligations:\n{}\nMarker acquisition failure:\n{}",
+                serde_json::to_string(original)?,
+                serde_json::to_string(&self.sources)?,
+                serde_json::to_string(&self.package_scripts)?,
+                serde_json::to_string(&self.marker_checks)?,
+                serde_json::to_string(&self.marker_capture_error)?,
+            ));
+        }
+        Ok(())
+    }
+
+    fn require_capture_boundary(&self) -> anyhow::Result<()> {
+        if self.duplicate_strengthen {
+            return Err(failure(
+                FailureClass::Unsafe,
+                "source acquisition requires one strengthen followed by check per proposal; duplicate strengthen cannot identify the original source",
+            ));
+        }
+        Ok(())
+    }
+
+    fn form(&mut self, config: &Config, plan: &StepPlan, _attempt: usize) -> anyhow::Result<()> {
+        self.validate_profile_instruction(config, plan)?;
+        self.preserve(plan)?;
+        if !matches!(
+            config.profile.as_str(),
+            crate::planner::profile_descriptor::GENERIC_PROFILE_ID
+                | crate::planner::profile_descriptor::NEXTJS_PROFILE_ID
+        ) || CompletionContract::configured_path_for_config(config)?.is_some()
+        {
+            return Ok(());
+        }
+        if let Some(original) = &self.original {
+            let (_, replacements) = super::verifier_formation::project(
+                original,
+                plan,
+                self.package_scripts.as_ref(),
+                &self.marker_checks,
+            );
+            for replacement in &replacements {
+                if !self.replacements.contains(replacement) {
+                    self.replacements.push(replacement.clone());
+                }
+            }
+            #[cfg(test)]
+            super::issue466_tests::issue494::record(
+                "form_preserve_ok",
+                _attempt,
+                original,
+                plan,
+                &serde_json::to_value(&replacements).expect("serialize formation trace"),
+            );
+        }
+        let mut contract =
+            match crate::planner::recovery_contract_authority::load_for_handoff(config)? {
+                Some(contract) => contract,
+                None => serde_json::from_value(json!({}))?,
+            };
+        // Invalid command syntax/policy remains owned by the existing lint
+        // retry path. It cannot close a plan, and must not erase retained scope
+        // or bypass the established lint diagnostics/last-valid-plan behavior.
+        let Ok(admitted) = scope::admitted_commands(config, &contract, plan) else {
+            return Ok(());
+        };
+        let registered_contract = contract.clone();
+        contract.verify_commands.extend(admitted);
+        if let Err(error) =
+            super::verifier_formation::require_formed(config, &scope::commands(plan))
+        {
+            self.retain(config, plan, &registered_contract);
+            let mut guidance = self
+                .package_scripts
+                .as_ref()
+                .map(|p| p.guidance())
+                .unwrap_or_default();
+            guidance.push_str(&super::literal_marker_formation::guidance(
+                &self.marker_checks,
+            ));
+            return if guidance.is_empty() {
+                Err(error)
+            } else {
+                let message = format!("{error}\n{guidance}");
+                Err(error.context(message))
+            };
+        }
+        #[cfg(test)]
+        if let Some(original) = &self.original {
+            super::issue466_tests::issue494::record(
+                "require_formed_result=ok",
+                _attempt,
+                original,
+                plan,
+                &serde_json::to_value(&self.replacements).expect("serialize formation trace"),
+            );
+        }
+        if let Some(original) = &self.original {
+            let (_, replacements) = super::verifier_formation::project(
+                original,
+                plan,
+                self.package_scripts.as_ref(),
+                &self.marker_checks,
+            );
+            crate::eval_events::emit(
+                config.eval_events_path.as_deref(),
+                json!({
+                    "event":"preclosure_verifier_replacements_validated",
+                    "replacements":replacements, "scope_preserved":true,
+                    "formed_verify_commands":scope::commands(plan),
+                    "package_script_formation":self.package_scripts,
+                    "formed_plan":plan,
+                }),
+            );
+        }
+        let scripts = scope::scripts(&contract.verify_commands);
+        if scripts.is_empty() {
+            return Ok(());
+        }
+        if let Some(addition) = &self.profile_addition
+            && let Err(error) = addition.preserve(plan)
+        {
+            self.retain(config, plan, &registered_contract);
+            return Err(error);
+        }
+        let mut claimed = Vec::<&PlanStep>::new();
+        for step in &plan.steps {
+            if step.step_kind() == StepKind::Verify
+                || !step
+                    .expected_paths
+                    .iter()
+                    .any(|p| scope::normalized(p).is_ok_and(|p| scripts.contains(&p)))
+            {
+                continue;
+            }
+            scope::checked_paths(config, &contract, step)
+                .map_err(|e| failure(FailureClass::Unsafe, e.to_string()))?;
+            if let Err(error) = scope::validate_producer(config, &contract, step) {
+                self.retain(config, plan, &registered_contract);
+                return Err(failure(FailureClass::ProposalRepairable, error.to_string()));
+            }
+            if claimed.iter().any(|old| scope::overlaps(old, step)) {
+                self.retain(config, plan, &registered_contract);
+                return Err(failure(
+                    FailureClass::ProposalRepairable,
+                    format!(
+                        "multiple verifier owners include {}; keep every original requirement under one owner",
+                        step.id
+                    ),
+                ));
+            }
+            claimed.push(step);
+        }
+        if let Some(original) = &self.original {
+            crate::eval_events::emit(
+                config.eval_events_path.as_deref(),
+                json!({
+                    "event":"recovery_verifier_obligations_formed", "original_scope":original,
+                    "formed_scope":plan, "scope_preserved":true,
+                    "original_obligation_sources":self.sources,
+                    "producer_ids":claimed.iter().map(|s| &s.id).collect::<Vec<_>>(),
+                }),
+            );
+        }
+        Ok(())
+    }
+}
+
+fn check_model_ownership(
+    config: &Config,
+    phase: Option<&str>,
+    model: &StepPlan,
+) -> anyhow::Result<()> {
+    if phase.is_none() || phase == Some(INSPECTION_PHASE_ID) {
+        return Ok(());
+    }
+    if let Some(contract) = CompletionContract::load_for_config(config)? {
+        let mut model = model.clone();
+        crate::planner::recovery_inspection::verifier_obligations::bind(
+            config, &contract, &mut model,
+        )?;
+        super::verifier_formation::require_repairable(config, &contract)?;
+    }
+    Ok(())
+}
+
+pub(super) fn preserve(original: &StepPlan, proposed: &StepPlan) -> anyhow::Result<()> {
+    super::reader_obligations::preserve(original, proposed)?;
+    for step in &original.steps {
+        if super::reader_obligations::supported(step) {
+            continue;
+        }
+        let mut owner_indices = Vec::new();
+        for path in &step.expected_paths {
+            let expected = scope::normalized(path)?;
+            let owners: Vec<_> = proposed
+                .steps
+                .iter()
+                .enumerate()
+                .filter(|(_, s)| {
+                    s.step_kind() == step.step_kind()
+                        && s.expected_paths
+                            .iter()
+                            .any(|p| scope::normalized(p).ok().as_ref() == Some(&expected))
+                })
+                .collect();
+            if owners.is_empty() {
+                return Err(failure(
+                    FailureClass::ProposalRepairable,
+                    format!("formation dropped original required output owner {path}"),
+                ));
+            }
+            for (index, owner) in owners {
+                if !owner.instruction.contains(&step.instruction)
+                    || owner.expected_result != step.expected_result
+                {
+                    return Err(failure(
+                        FailureClass::ProposalRepairable,
+                        format!(
+                            "owner {} of {path} lost original requirements/expected result from {}; unrelated owners cannot discharge this duty",
+                            owner.id, step.id
+                        ),
+                    ));
+                }
+                owner_indices.push(index);
+            }
+        }
+        if !proposed.steps.iter().any(|s| {
+            s.step_kind() == step.step_kind()
+                && s.instruction.contains(&step.instruction)
+                && s.expected_result == step.expected_result
+        }) {
+            return Err(failure(
+                FailureClass::ProposalRepairable,
+                format!(
+                    "formation dropped original instruction/expected result for {}: {:?}",
+                    step.id, step.instruction
+                ),
+            ));
+        }
+        for command in &step.verify {
+            if !proposed.steps.iter().enumerate().any(|(index, s)| {
+                s.expected_result == step.expected_result
+                    && s.verify.contains(command)
+                    && (owner_indices.iter().all(|i| *i == index)
+                        && s.instruction.contains(&step.instruction)
+                        || s.step_kind() == StepKind::Verify
+                            && step.verify.iter().all(|c| s.verify.contains(c))
+                            && owner_indices.iter().all(|i| *i < index))
+            }) {
+                return Err(failure(
+                    FailureClass::ProposalRepairable,
+                    format!(
+                        "formation lost original check/expected result or its complete scope and boundary: {command}; keep it on the complete owner or a Verify after all corresponding output owners"
+                    ),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+#[path = "issue496_tests/capture.rs"]
+mod issue496_capture;

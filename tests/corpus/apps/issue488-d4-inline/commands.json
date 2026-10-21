@@ -1,0 +1,18 @@
+{
+  "O": {
+    "command": "node -e \"const s=require('fs').readFileSync('src/app/page.tsx','utf8'); if(!/data-anvil-action=\\\"primary\\\"/.test(s))throw new Error('missing primary'); if(!/data-anvil-action=\\\"input\\\"/.test(s))throw new Error('missing input'); if(!/data-anvil-state/.test(s))throw new Error('missing state'); if(!/JSON\\.stringify/.test(s))throw new Error('missing JSON snapshot'); console.log('ok')\"",
+    "sha256": "e5c561799e5d8da640ae8d6b8420f7d8417db8d80ed72105373a6214d8eb4283"
+  },
+  "V1": {
+    "command": "node -e \"const assert=require('node:assert/strict');const s=require('fs').readFileSync('src/app/page.tsx','utf8'); assert(/data-anvil-action=\\\"primary\\\"/.test(s),\\\"missing primary\\\"); assert(/data-anvil-action=\\\"input\\\"/.test(s),\\\"missing input\\\"); assert(/data-anvil-state/.test(s),\\\"missing state\\\"); assert(/JSON\\\\.stringify/.test(s),\\\"missing JSON snapshot\\\"); console.log('ok')\"",
+    "sha256": "21cbfbd24dd78a0050556defd4b4240c54d182fd740124acd8dd49122bb2b1db"
+  },
+  "V2": {
+    "command": "node -e \"const assert=require('node:assert/strict');const s=require('fs').readFileSync('src/app/page.tsx','utf8'); assert(s.includes('data-anvil-action=\\\"primary\\\"'),\\\"missing primary\\\"); assert(s.includes('data-anvil-action=\\\"input\\\"'),\\\"missing input\\\"); assert(s.includes('data-anvil-state'),\\\"missing state\\\"); assert(s.includes('JSON.stringify'),\\\"missing JSON snapshot\\\"); console.log('ok')\"",
+    "sha256": "396e99a87c78d3b8a4e683dc0586cdb792aa71ca1c310798c05b7486e65596ab"
+  },
+  "SWALLOW": {
+    "command": "node -e \"const assert=require('node:assert/strict');const s=require('fs').readFileSync('src/app/page.tsx','utf8'); try{assert(s.includes('data-anvil-action=\\\"primary\\\"'),\\\"missing primary\\\");}catch(error){}; try{assert(s.includes('data-anvil-action=\\\"input\\\"'),\\\"missing input\\\");}catch(error){}; try{assert(s.includes('data-anvil-state'),\\\"missing state\\\");}catch(error){}; try{assert(s.includes('JSON.stringify'),\\\"missing JSON snapshot\\\");}catch(error){}; console.log('ok')\"",
+    "sha256": "d1e4ef5a2270edddb5b0ec3f0a68147b38c0d1499ff7d29389eab5e256c405e8"
+  }
+}

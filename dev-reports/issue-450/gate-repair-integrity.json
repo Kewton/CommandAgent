@@ -1,0 +1,75 @@
+{
+  "python_version": "3.12.3",
+  "login_shell": false,
+  "source_commit": "d39c84a3368d8b59ca0d450b439ad32133e8b78e",
+  "protected_inputs": [
+    {
+      "path": "scripts/score_retrospective.py",
+      "unchanged_from_parent": true,
+      "sha256": "3cfcd2c0be3d684dd7daa98be3ba98bced94c2f3922a05391d398f375a4ef611"
+    },
+    {
+      "path": "workspace/management/scripts/band_aggregate.py",
+      "unchanged_from_parent": true,
+      "sha256": "a6c5bf29084794a192b998736cd8965bd82adac2c3d98368eff359d970c95eb2"
+    },
+    {
+      "path": "workspace/management/runs/f1-retrospective-001/final-vectors.jsonl",
+      "unchanged_from_parent": true,
+      "sha256": "47431f21522482aee6460b7be77e35089a2c07310ed18323bccd66e101e84dd1"
+    },
+    {
+      "path": "workspace/management/runs/uat-test0802-ingest-luna-001/evidence/campaign-summary.json",
+      "unchanged_from_parent": true,
+      "sha256": "6e5edd1425d387212ef61c0cc147a98d02e051032ec6c7578a2f52e2edd92900"
+    },
+    {
+      "path": "eval/goal_verify/v0/phase6-real-workspaces-v4-a15.json",
+      "unchanged_from_parent": true,
+      "sha256": "a85571e96c4c59ce6c2d4e2439dbf31676faab8f0a0abf5cb67236edccac82cf"
+    }
+  ],
+  "restored_ignored_prerequisites": [
+    {
+      "path": "tests/fixtures/goal_verify_v4/a15/fix-data-reconciliation/after/.pytest_cache/.gitignore",
+      "sha256": "3ed731b65d06150c138e2dadb0be0697550888a6b47eb8c45ecc9adba8b8e9bd",
+      "matches_frozen_manifest": true
+    },
+    {
+      "path": "tests/fixtures/goal_verify_v4/a15/fix-data-reconciliation/after/.pytest_cache/CACHEDIR.TAG",
+      "sha256": "37dc88ef9a0abeddbe81053a6dd8fdfb13afb613045ea1eb4a5c815a74a3bde4",
+      "matches_frozen_manifest": true
+    },
+    {
+      "path": "tests/fixtures/goal_verify_v4/a15/fix-data-reconciliation/after/.pytest_cache/README.md",
+      "sha256": "73fd6fccdd802c419a6b2d983d6c3173b7da97558ac4b589edec2dfe443db9ad",
+      "matches_frozen_manifest": true
+    },
+    {
+      "path": "tests/fixtures/goal_verify_v4/a15/fix-data-reconciliation/after/.pytest_cache/v/cache/nodeids",
+      "sha256": "e0bb7220177ca151692738deec046c582585ef31e1a0d292afea16738a3bb941",
+      "matches_frozen_manifest": true
+    },
+    {
+      "path": "tests/fixtures/goal_verify_v4/a15/fix-data-reconciliation/before/.pytest_cache/.gitignore",
+      "sha256": "3ed731b65d06150c138e2dadb0be0697550888a6b47eb8c45ecc9adba8b8e9bd",
+      "matches_frozen_manifest": true
+    },
+    {
+      "path": "tests/fixtures/goal_verify_v4/a15/fix-data-reconciliation/before/.pytest_cache/CACHEDIR.TAG",
+      "sha256": "37dc88ef9a0abeddbe81053a6dd8fdfb13afb613045ea1eb4a5c815a74a3bde4",
+      "matches_frozen_manifest": true
+    },
+    {
+      "path": "tests/fixtures/goal_verify_v4/a15/fix-data-reconciliation/before/.pytest_cache/README.md",
+      "sha256": "73fd6fccdd802c419a6b2d983d6c3173b7da97558ac4b589edec2dfe443db9ad",
+      "matches_frozen_manifest": true
+    },
+    {
+      "path": "tests/fixtures/goal_verify_v4/a15/fix-data-reconciliation/before/.pytest_cache/v/cache/nodeids",
+      "sha256": "e0bb7220177ca151692738deec046c582585ef31e1a0d292afea16738a3bb941",
+      "matches_frozen_manifest": true
+    }
+  ],
+  "production_or_historical_edits": false
+}

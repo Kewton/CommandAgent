@@ -1,0 +1,25 @@
+{
+  "base_commit": "e43b2d86760a77b5250afbb260106ea21abba947",
+  "scope": "Verified worker production/test/corpus tree; excludes reports and compiled artifacts",
+  "toolchain": {
+    "rustc": "1.94.0",
+    "cargo": "1.94.0",
+    "node": "v24.1.0"
+  },
+  "files_sha256": {
+    "src/minimal_loop/evidence/verify_command_classification.rs": "9a6f3b4121c278e2022e659fb284a1a8553db77f8b7bd7666900025a2f42e73d",
+    "src/minimal_loop/evidence/verify_command_classification/issue474_tests.rs": "1cf702aa11d56074a02a718923705dfa6454f3ea577c1561cb710b5336fc8eb7",
+    "src/planner/profiles/nextjs/recovery_authority.rs": "73fa171d5881611c6c5066ab7562ef7a77a10d21a675fe49b408eaf7f27a60dd",
+    "src/planner/profiles/nextjs/recovery_authority/compound_hook.rs": "da0131504bb687b21567c4f388a758fe930e91edd34f23bba28b2a342e47ee46",
+    "src/planner/runner/phase/recovery_authority.rs": "3253d5bb4285bf963bfc3a7aaf2548a72f37b00fed966f331ccd63eac1548bb4",
+    "src/planner/runner/phase/flow/issue474_tests.rs": "8f733a70387821403a4f4c946a15322a396e47d3f55357c9a7078305910285d3",
+    "src/planner/final_acceptance/issue474_tests.rs": "d8af9ee2c53c979924b204c10af6c0f5358de956d052452325be0ca7c77655d4",
+    "tests/corpus/apps/issue474-compound-node-hooks/expectations.toml": "112366a1debf0e2dc02f8db9471b87e7e30b53653c2335a97305cb169b4a8833",
+    "tests/corpus/apps/issue474-compound-node-hooks/fixtures/diagnostic-handoff.json": "4864aadf71eff7db82e12cdebfb00966649620fe44f0a62db00fdf9998804419",
+    "tests/corpus/apps/issue474-compound-node-hooks/fixtures/negative-commands.json": "195403904eea07ed1265c00a282c4953e981595331e660d5349aa3d7f5081bde",
+    "tests/corpus/apps/issue474-compound-node-hooks/fixtures/original-commands.json": "834253179a0761ce05ebaf9a5fcef203caddc70f1e0813d8af752bafac82d089",
+    "tests/corpus/apps/issue474-compound-node-hooks/fixtures/original-repair-events.json": "8f620380fca51633a94b943497b9c8b658b93fa3bea30cce504c3391649b7ec4",
+    "tests/corpus/apps/issue474-compound-node-hooks/fixtures/provenance.json": "9692ead57cf7dfa93c62335c15065fa24bc41c9bde39b03a67ddc3f27fecea0e",
+    "tests/corpus/apps/issue474-compound-node-hooks/src/app/page.tsx": "a50dba48fde64eab18a6bde8da71f5fcf8e8278c24d9be7368bd2825923af604"
+  }
+}

@@ -56,12 +56,15 @@ pub(crate) struct RunSessionOptions {
     pub action_no_tool_policy: ActionNoToolPolicy,
     pub scope: RunSessionScope,
     pub step_kind: Option<RunSessionStepKind>,
+    pub step_id: Option<String>,
     pub dependency_setup_authority: NodeDependencySetupAuthority,
     pub step_wall_clock_cap: Option<Duration>,
+    pub max_length_no_tool_call_limit: Option<usize>,
     pub path_fallback_candidates: Vec<String>,
     pub repair_target_priority: crate::planner::repair_targeting::RepairTargetPriority,
     pub require_mutation_before_contract_short_circuit: bool,
     pub escalation_carryover: Option<EscalationCarryoverHandle>,
+    pub recovery_obligation: crate::planner::recovery_repair_obligation::RepairObligation,
 }
 
 impl Default for RunSessionOptions {
@@ -75,12 +78,15 @@ impl Default for RunSessionOptions {
             action_no_tool_policy: ActionNoToolPolicy::RequireWriteForActionPrompt,
             scope: RunSessionScope::MinimalLoop,
             step_kind: None,
+            step_id: None,
             dependency_setup_authority: NodeDependencySetupAuthority::None,
             step_wall_clock_cap: None,
+            max_length_no_tool_call_limit: None,
             path_fallback_candidates: Vec::new(),
             repair_target_priority: Default::default(),
             require_mutation_before_contract_short_circuit: false,
             escalation_carryover: None,
+            recovery_obligation: None,
         }
     }
 }
@@ -88,12 +94,6 @@ impl Default for RunSessionOptions {
 impl RunSessionOptions {
     pub(crate) fn plan_step(step_kind: RunSessionStepKind) -> Self {
         Self::plan_step_with_enforcement(step_kind, ContractEnforcement::Enforce, None)
-    }
-
-    pub(crate) fn final_acceptance_repair() -> Self {
-        let mut options = Self::plan_step(RunSessionStepKind::Implement);
-        options.require_mutation_before_contract_short_circuit = true;
-        options
     }
 
     pub(crate) fn plan_step_with_enforcement(

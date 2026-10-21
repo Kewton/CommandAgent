@@ -1,0 +1,17 @@
+case_id = "issue475-store-preflight"
+source = "Issue #475 saved route/store, concrete generic rename proof and isolated observer audit"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+acceptance_passed = true
+primary_reason = "pass"
+[compile]
+expect = "not_checked"
+[fixture_contains]
+historical/src/lib/store.ts = ["loadCollection<Project>(PROJECTS_FILE)", "fs.rename(tmpPath, filePath)", "path.basename(filePath)"]
+baseline.json = ["path_unsafe=true", "diagnostic_and_rename_constant"]
+provenance.json = ["historical_operation", "unknown", "nextjs_capabilities"]

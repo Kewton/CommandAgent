@@ -2,16 +2,61 @@ use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::process::{Child, Command, ExitStatus, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use commandagent::planner::pack::catalog::ADMITTED_PACKS;
 use commandagent::runtime_paths::runs_dir;
 use commandagent::tui::boundary_shell::route::admitted_profiles;
 use sha2::{Digest, Sha256};
 
+#[cfg(unix)]
+#[path = "support/gui_wait.rs"]
+mod gui_wait;
+
+// Issue #541 group 3, "GUI session / file polling": the 17 `gui_server`
+// functions below held a raw 3-5s polling bound in 30 places. J (Issue #621)
+// converted the 3 stop functions (7 places), the shared
+// `wait_for_path` / `wait_for_event` / `wait_for_idle_lease` wrappers, and the
+// server-ready line. K (Issue #647) converts the remaining 14 functions
+// (23 places) to the same helpers. 7 + 23 = 30; 3 + 14 = 17, no omissions.
+//
+// J - 3 functions / 7 places
+//   gui_stop_is_generation_bound_idempotent_and_records_cli_interruption (2)
+//   gui_stop_force_kills_the_exact_process_group_without_false_success (2)
+//   gui_stop_targets_the_confirmed_directive_process_generation (3)
+// K - 14 functions / 23 places
+//   gui_lists_and_proposes_an_external_draft_profile_with_a_local_pack (1)
+//   extension_supply_api_enforces_auth_origin_and_the_full_pack_lifecycle (1)
+//   later_gate_one_ignores_products_from_an_isolated_session_workspace (1)
+//   malformed_session_events_return_a_dedicated_error_code (1)
+//   failed_session_projects_exact_interval_and_reads_only_current_recovery_documents (1)
+//   recovery_documents_are_readable_when_trial_token_auth_is_off (1)
+//   confirmed_session_delegates_with_cli_event_bytes_unchanged (3)
+//   selected_working_directory_is_hash_bound_persisted_and_reused_after_restart (2)
+//   typed_trial_intents_are_validated_frozen_and_delegated (1)
+//   unclassified_nextjs_create_is_unmeasured_confirmed_and_delegated (2)
+//   selected_think_is_confirmed_and_delegated_only_for_an_ollama_role (1)
+//   recovery_auto_run_limit_is_hash_bound_validated_and_delegated (1)
+//   gate_four_recovery_run_requires_confirmation_and_executes_exact_frozen_identity (4)
+//   recovery_run_rejects_stale_drift_pending_directive_and_treatment_rejection (3)
+
 const TEST_TRIAL_TOKEN: &str = "commandagent-gui-test-token-000000000001";
 const FIXTURE_EXEC_MAX_ATTEMPTS: usize = 4;
 const FIXTURE_EXEC_RETRY_DELAY: Duration = Duration::from_millis(25);
+
+/// Explicit test-only upper bound for waiting on a delegated artifact (the
+/// events log, environment dump, or argument dump) to reach the exact content
+/// the test asserts. It never extends a product timeout.
+const DELEGATED_ARTIFACT_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Explicit test-only upper bound for the draft-pack delegation, whose original
+/// bound was three seconds.
+const DRAFT_DELEGATION_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// Explicit test-only upper bound for waiting on a session-state transition
+/// reported by `GET /api/sessions/{id}`: a gate advancing, the
+/// `recovery_auto_run` record, or the failure-explanation projection.
+const SESSION_STATE_TIMEOUT: Duration = Duration::from_secs(5);
 
 fn run_fixture_command(command: &mut Command) -> std::io::Result<ExitStatus> {
     for attempt in 1..=FIXTURE_EXEC_MAX_ATTEMPTS {
@@ -914,16 +959,7 @@ fn gui_lists_and_proposes_an_external_draft_profile_with_a_local_pack() {
     let session_id = response.json()["id"].as_str().unwrap().to_string();
     let run_root = runs_dir(workspace.path()).join(session_id);
     let events_path = run_root.join("events.jsonl");
-    let deadline = Instant::now() + Duration::from_secs(3);
-    let events = loop {
-        if let Ok(events) = std::fs::read_to_string(&events_path)
-            && events.contains("tui_command_stop")
-        {
-            break events;
-        }
-        assert!(Instant::now() < deadline, "draft pack delegation timed out");
-        std::thread::sleep(Duration::from_millis(20));
-    };
+    let events = wait_for_event(&events_path, "tui_command_stop", DRAFT_DELEGATION_TIMEOUT);
     assert!(events.contains("\"assurance_level\":\"static\""));
     assert!(events.contains("\"assurance_reason\":\"profile_not_admitted\""));
     let delegated_env = std::fs::read_to_string(run_root.join("delegated-env.txt")).unwrap();
@@ -1223,28 +1259,37 @@ fn extension_supply_api_enforces_auth_origin_and_the_full_pack_lifecycle() {
                 .display()
         ),
     ];
-    let deadline = Instant::now() + Duration::from_secs(5);
-    let delegated_env = loop {
-        match std::fs::read_to_string(&delegated_env_path) {
+    let delegated_env = gui_wait::wait_for(
+        &gui_wait::SystemClock::new(),
+        &format!(
+            "the local pack delegation in {}",
+            delegated_env_path.display()
+        ),
+        DELEGATED_ARTIFACT_TIMEOUT,
+        || match std::fs::read_to_string(&delegated_env_path) {
             Ok(contents)
                 if expected_env
                     .iter()
                     .all(|expected| contents.contains(expected)) =>
             {
-                break contents;
+                gui_wait::Poll::Ready(contents)
             }
-            Ok(contents) => assert!(
-                Instant::now() < deadline,
-                "local pack delegation timed out: {contents:?}"
-            ),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => assert!(
-                Instant::now() < deadline,
-                "local pack delegation timed out before the environment file appeared"
-            ),
-            Err(error) => panic!("could not read delegated environment: {error}"),
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    };
+            Ok(contents) => gui_wait::Poll::Pending(format!(
+                "{} has not received the local pack environment yet: {contents:?}",
+                delegated_env_path.display()
+            )),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                gui_wait::Poll::Pending(format!(
+                    "{} has not appeared yet: {error}",
+                    delegated_env_path.display()
+                ))
+            }
+            Err(error) => gui_wait::Poll::Failed(format!(
+                "could not read {}: {error}",
+                delegated_env_path.display()
+            )),
+        },
+    );
     for expected in expected_env {
         assert!(delegated_env.contains(&expected), "{delegated_env}");
     }
@@ -1860,7 +1905,13 @@ tail -f /dev/null
     let stop_path = format!("/api/sessions/{id}/stop");
     let stop_body = serde_json::json!({ "generation": generation });
     let run_root = runs_dir(&workspace).join(id);
-    wait_for_path(&run_root.join("descendant.pid"), Duration::from_secs(5));
+    let clock = gui_wait::SystemClock::new();
+    gui_wait::wait_for_descendant_pid(
+        &clock,
+        &run_root.join("descendant.pid"),
+        "the delegated CLI pid",
+        gui_wait::DESCENDANT_READY_TIMEOUT,
+    );
 
     let unauthorized = server.request_without_access("POST", &stop_path, Some(&stop_body));
     assert_eq!(unauthorized.status, 401, "{}", unauthorized.body);
@@ -1914,11 +1965,14 @@ tail -f /dev/null
     assert_eq!(duplicate.json()["status"], "already_stopping");
 
     let events_path = run_root.join("events.jsonl");
-    let events = wait_for_event(
+    let events = gui_wait::wait_for_stop_evidence(
+        &clock,
         &events_path,
-        "gui_trial_stop_completed",
-        Duration::from_secs(8),
-    );
+        id,
+        generation,
+        gui_wait::STOP_EVIDENCE_TIMEOUT,
+    )
+    .events_log;
     let parsed = parse_json_lines(&events);
     let cli_stop = parsed
         .iter()
@@ -1935,7 +1989,7 @@ tail -f /dev/null
     assert_eq!(server_stop["process_tree_gone"], true);
     assert_eq!(server_stop["cli_terminal_observed"], true);
     assert_process_group_absent(server_stop["process_group"].as_i64().unwrap() as i32);
-    wait_for_idle_lease(&server, Duration::from_secs(5));
+    wait_for_idle_lease(&server, gui_wait::IDLE_LEASE_TIMEOUT);
 
     let status = server.request("GET", &format!("/api/sessions/{id}"), None);
     assert_eq!(status.status, 200, "{}", status.body);
@@ -1976,7 +2030,13 @@ wait "$child"
     let id = created["id"].as_str().unwrap();
     let generation = created["process_generation"].as_str().unwrap();
     let run_root = runs_dir(&workspace).join(id);
-    wait_for_path(&run_root.join("descendant.pid"), Duration::from_secs(5));
+    let clock = gui_wait::SystemClock::new();
+    gui_wait::wait_for_descendant_pid(
+        &clock,
+        &run_root.join("descendant.pid"),
+        "the delegated CLI pid",
+        gui_wait::DESCENDANT_READY_TIMEOUT,
+    );
 
     let accepted = server.request(
         "POST",
@@ -1984,11 +2044,14 @@ wait "$child"
         Some(&serde_json::json!({ "generation": generation })),
     );
     assert_eq!(accepted.status, 202, "{}", accepted.body);
-    let events = wait_for_event(
+    let events = gui_wait::wait_for_stop_evidence(
+        &clock,
         &run_root.join("events.jsonl"),
-        "gui_trial_stop_completed",
-        Duration::from_secs(8),
-    );
+        id,
+        generation,
+        gui_wait::STOP_EVIDENCE_TIMEOUT,
+    )
+    .events_log;
     let parsed = parse_json_lines(&events);
     assert!(
         parsed
@@ -2006,7 +2069,7 @@ wait "$child"
     assert_eq!(server_stop["cli_terminal_observed"], false);
     assert_eq!(server_stop["failure_kind"], "gui_trial_stop_forced");
     assert_process_group_absent(server_stop["process_group"].as_i64().unwrap() as i32);
-    wait_for_idle_lease(&server, Duration::from_secs(5));
+    wait_for_idle_lease(&server, gui_wait::IDLE_LEASE_TIMEOUT);
     let status = server.request("GET", &format!("/api/sessions/{id}"), None);
     assert_eq!(status.json()["gate"], "gate_4");
     assert_eq!(status.json()["status"], "interrupted");
@@ -2047,7 +2110,7 @@ esac
     let created = launch_fixture_session(&server);
     let id = created["id"].as_str().unwrap();
     let initial_generation = created["process_generation"].as_str().unwrap();
-    wait_for_idle_lease(&server, Duration::from_secs(5));
+    wait_for_idle_lease(&server, gui_wait::IDLE_LEASE_TIMEOUT);
 
     let directive = server.request(
         "POST",
@@ -2071,7 +2134,13 @@ esac
         .to_string();
     assert_ne!(generation, initial_generation);
     let run_root = runs_dir(&workspace).join(id);
-    wait_for_path(&run_root.join("continuation.pid"), Duration::from_secs(5));
+    let clock = gui_wait::SystemClock::new();
+    gui_wait::wait_for_descendant_pid(
+        &clock,
+        &run_root.join("continuation.pid"),
+        "the delegated CLI pid",
+        gui_wait::DESCENDANT_READY_TIMEOUT,
+    );
 
     let stale = server.request(
         "POST",
@@ -2085,18 +2154,21 @@ esac
         Some(&serde_json::json!({ "generation": generation })),
     );
     assert_eq!(accepted.status, 202, "{}", accepted.body);
-    let events = wait_for_event(
+    let events = gui_wait::wait_for_stop_evidence(
+        &clock,
         &run_root.join("events.jsonl"),
-        "gui_trial_stop_completed",
-        Duration::from_secs(8),
-    );
+        id,
+        &generation,
+        gui_wait::STOP_EVIDENCE_TIMEOUT,
+    )
+    .events_log;
     let current = events
         .split("\"event\":\"human_directive_continuation_started\"")
         .last()
         .unwrap();
     assert!(current.contains("\"event\":\"tui_command_stop\""));
     assert!(current.contains("\"status\":\"interrupted\""));
-    wait_for_idle_lease(&server, Duration::from_secs(5));
+    wait_for_idle_lease(&server, gui_wait::IDLE_LEASE_TIMEOUT);
     server.stop();
 }
 
@@ -2184,16 +2256,7 @@ fn later_gate_one_ignores_products_from_an_isolated_session_workspace() {
     assert_eq!(created.status, 202, "{}", created.body);
     let id = created.json()["id"].as_str().unwrap().to_string();
 
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        let lease = server.request("GET", "/api/trial-workspace", None);
-        assert_eq!(lease.status, 200, "{}", lease.body);
-        if lease.json()["status"] == "idle" {
-            break;
-        }
-        assert!(Instant::now() < deadline, "delegated CLI did not finish");
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    wait_for_idle_lease(&server, gui_wait::IDLE_LEASE_TIMEOUT);
 
     let session_workspace = workspace.join("sessions").join(&id);
     let canonical_session_workspace = session_workspace.canonicalize().unwrap();
@@ -2360,16 +2423,7 @@ fn malformed_session_events_return_a_dedicated_error_code() {
     assert_eq!(created.status, 202, "{}", created.body);
     let id = created.json()["id"].as_str().unwrap().to_string();
 
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        let lease = server.request("GET", "/api/trial-workspace", None);
-        assert_eq!(lease.status, 200, "{}", lease.body);
-        if lease.json()["status"] == "idle" {
-            break;
-        }
-        assert!(Instant::now() < deadline, "delegated CLI did not finish");
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    wait_for_idle_lease(&server, gui_wait::IDLE_LEASE_TIMEOUT);
 
     let events_path = runs_dir(&workspace).join(&id).join("events.jsonl");
     std::fs::write(events_path, "not-json\n").unwrap();
@@ -2520,15 +2574,39 @@ fn failed_session_projects_exact_interval_and_reads_only_current_recovery_docume
     let events_path = runs_dir(&workspace).join(&id).join("events.jsonl");
     let failure_fixture =
         include_str!("corpus/apps/issue377-gui-failure-explanations/fixtures/failure.jsonl");
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while std::fs::read_to_string(&events_path).ok().as_deref() != Some(failure_fixture)
-        && Instant::now() < deadline
-    {
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    assert_eq!(
-        std::fs::read_to_string(&events_path).unwrap(),
-        failure_fixture
+    let events = gui_wait::wait_for_file_content(
+        &gui_wait::SystemClock::new(),
+        &events_path,
+        &format!(
+            "the failure projection fixture in {}",
+            events_path.display()
+        ),
+        DELEGATED_ARTIFACT_TIMEOUT,
+        |contents| contents == failure_fixture,
+    );
+    assert_eq!(events, failure_fixture);
+
+    gui_wait::wait_for(
+        &gui_wait::SystemClock::new(),
+        "the session failure explanation to project the current events",
+        SESSION_STATE_TIMEOUT,
+        || {
+            let status = server.request("GET", &format!("/api/sessions/{id}"), None);
+            if status.status != 200 {
+                return gui_wait::Poll::Failed(format!(
+                    "the session probe failed with status {}",
+                    status.status
+                ));
+            }
+            let projection = status.json()["failure_explanation"]["projection_status"].clone();
+            if projection == "supported" {
+                gui_wait::Poll::Ready(())
+            } else {
+                gui_wait::Poll::Pending(format!(
+                    "the failure explanation projection_status is {projection}"
+                ))
+            }
+        },
     );
 
     let failed = server.request("GET", &format!("/api/sessions/{id}"), None);
@@ -2672,16 +2750,17 @@ fn recovery_documents_are_readable_when_trial_token_auth_is_off() {
     let events_path = runs_dir(&workspace).join(&id).join("events.jsonl");
     let failure_fixture =
         include_str!("corpus/apps/issue377-gui-failure-explanations/fixtures/failure.jsonl");
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while std::fs::read_to_string(&events_path).ok().as_deref() != Some(failure_fixture)
-        && Instant::now() < deadline
-    {
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    assert_eq!(
-        std::fs::read_to_string(&events_path).unwrap(),
-        failure_fixture
+    let events = gui_wait::wait_for_file_content(
+        &gui_wait::SystemClock::new(),
+        &events_path,
+        &format!(
+            "the failure projection fixture in {}",
+            events_path.display()
+        ),
+        DELEGATED_ARTIFACT_TIMEOUT,
+        |contents| contents == failure_fixture,
     );
+    assert_eq!(events, failure_fixture);
 
     for (path, expected) in [
         (
@@ -2960,12 +3039,24 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
             > 0
     );
 
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while std::fs::read(&delegated_events).ok().as_deref() != Some(direct_bytes.as_slice())
-        && Instant::now() < deadline
-    {
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    gui_wait::wait_for(
+        &gui_wait::SystemClock::new(),
+        &format!("the delegated events to match {}", direct_events.display()),
+        DELEGATED_ARTIFACT_TIMEOUT,
+        || match std::fs::read(&delegated_events) {
+            Ok(bytes) if bytes.as_slice() == direct_bytes.as_slice() => gui_wait::Poll::Ready(()),
+            Ok(bytes) => gui_wait::Poll::Pending(format!(
+                "{} differs from the direct CLI bytes ({} vs {} bytes)",
+                delegated_events.display(),
+                bytes.len(),
+                direct_bytes.len()
+            )),
+            Err(error) => gui_wait::Poll::Pending(format!(
+                "{} is not readable yet: {error}",
+                delegated_events.display()
+            )),
+        },
+    );
     assert_eq!(std::fs::read(&delegated_events).unwrap(), direct_bytes);
     let delegated_env =
         std::fs::read_to_string(delegated_events.parent().unwrap().join("delegated-env.txt"))
@@ -3070,6 +3161,8 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
         !confirmation_record.contains("\"think\""),
         "{confirmation_record}"
     );
+
+    wait_for_session_gate(&server, id, "gate_3", SESSION_STATE_TIMEOUT);
 
     let status = server.request("GET", &format!("/api/sessions/{id}"), None);
     assert_eq!(status.status, 200, "{}", status.body);
@@ -3239,21 +3332,7 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
         Some(&directive_request),
     );
     assert_eq!(intervention.status, 409, "{}", intervention.body);
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        let completed = server.request("GET", &format!("/api/sessions/{id}"), None);
-        assert_eq!(completed.status, 200, "{}", completed.body);
-        let completed_json: serde_json::Value = serde_json::from_str(&completed.body).unwrap();
-        if completed_json["gate"] != "gate_2" {
-            assert_eq!(completed_json["gate"], "gate_3");
-            break;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "directive continuation timed out"
-        );
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    wait_for_session_gate(&server, id, "gate_3", SESSION_STATE_TIMEOUT);
     let continuation_args = std::fs::read_to_string(
         delegated_events
             .parent()
@@ -3266,19 +3345,7 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     assert!(continuation_args.windows(2).any(|arguments| {
         arguments[0] == "--cwd" && arguments[1] == session_workspace.to_string_lossy()
     }));
-    let lease_deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        let lease = server.request("GET", "/api/trial-workspace", None);
-        assert_eq!(lease.status, 200, "{}", lease.body);
-        if lease.json()["status"] == "idle" {
-            break;
-        }
-        assert!(
-            Instant::now() < lease_deadline,
-            "continuation lease timed out"
-        );
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    wait_for_idle_lease(&server, gui_wait::IDLE_LEASE_TIMEOUT);
     let canonical_run = runs_dir(&workspace).join(id);
     let legacy_runs = workspace.join(".anvil/runs");
     std::fs::create_dir_all(&legacy_runs).unwrap();
@@ -3410,15 +3477,7 @@ esac
     assert_eq!(created.status, 202, "{}", created.body);
     let id = created.json()["id"].as_str().unwrap().to_string();
     let run_root = runs_dir(&workspace).join(&id);
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        let lease = server.request("GET", "/api/trial-workspace", None);
-        if lease.json()["status"] == "idle" {
-            break;
-        }
-        assert!(Instant::now() < deadline, "selected run timed out");
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    wait_for_idle_lease(&server, gui_wait::IDLE_LEASE_TIMEOUT);
     let canonical_selected = selected.canonicalize().unwrap();
     assert_eq!(
         std::fs::read_to_string(run_root.join("delegated-cwd.txt"))
@@ -3471,15 +3530,7 @@ esac
         None,
     );
     assert_eq!(continued.status, 202, "{}", continued.body);
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        let lease = restarted.request("GET", "/api/trial-workspace", None);
-        if lease.json()["status"] == "idle" {
-            break;
-        }
-        assert!(Instant::now() < deadline, "selected continuation timed out");
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    wait_for_idle_lease(&restarted, gui_wait::IDLE_LEASE_TIMEOUT);
     assert_eq!(
         std::fs::read_to_string(run_root.join("delegated-cwd.txt"))
             .unwrap()
@@ -3610,19 +3661,7 @@ fn typed_trial_intents_are_validated_frozen_and_delegated() {
         assert_eq!(status.status, 200, "{}", status.body);
         assert_eq!(status.json()["identity"]["intent"], intent);
 
-        let deadline = Instant::now() + Duration::from_secs(5);
-        loop {
-            let lease = server.request("GET", "/api/trial-workspace", None);
-            assert_eq!(lease.status, 200, "{}", lease.body);
-            if lease.json()["status"] == "idle" {
-                break;
-            }
-            assert!(
-                Instant::now() < deadline,
-                "{intent} delegate did not finish"
-            );
-            std::thread::sleep(Duration::from_millis(20));
-        }
+        wait_for_idle_lease(&server, gui_wait::IDLE_LEASE_TIMEOUT);
 
         assert!(
             args_path.is_file(),
@@ -3769,7 +3808,17 @@ fn unclassified_nextjs_create_is_unmeasured_confirmed_and_delegated() {
     assert_eq!(created.json()["gate"], "gate_2");
     let id = created.json()["id"].as_str().unwrap().to_string();
     let run_root = runs_dir(&workspace).join(&id);
-    wait_for_path(&run_root.join("delegated-args.txt"), Duration::from_secs(5));
+    gui_wait::wait_for_file_content(
+        &gui_wait::SystemClock::new(),
+        &run_root.join("delegated-args.txt"),
+        "the delegated Next.js create arguments",
+        DELEGATED_ARTIFACT_TIMEOUT,
+        |args| {
+            let args = args.lines().collect::<Vec<_>>();
+            args.windows(2).any(|pair| pair == ["--profile", "nextjs"])
+                && args.windows(2).any(|pair| pair == ["--intent", "create"])
+        },
+    );
     let delegated = std::fs::read_to_string(run_root.join("delegated-args.txt")).unwrap();
     let delegated = delegated.lines().collect::<Vec<_>>();
     assert!(
@@ -3795,7 +3844,7 @@ fn unclassified_nextjs_create_is_unmeasured_confirmed_and_delegated() {
         serde_json::from_str(&std::fs::read_to_string(confirmation_path).unwrap()).unwrap();
     assert_eq!(confirmation["card_hash"], proposal["card_hash"]);
     assert_eq!(confirmation["identity"]["task_family"], "unknown");
-    wait_for_idle_lease(&server, Duration::from_secs(5));
+    wait_for_idle_lease(&server, gui_wait::IDLE_LEASE_TIMEOUT);
 
     let mut known_family = spec.clone();
     known_family["goal"] = serde_json::json!("Create a Quiz");
@@ -3884,16 +3933,7 @@ fn selected_think_is_confirmed_and_delegated_only_for_an_ollama_role() {
     let created = server.request("POST", "/api/sessions", Some(&confirmed));
     assert_eq!(created.status, 202, "{}", created.body);
     let id = created.json()["id"].as_str().unwrap().to_string();
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        let lease = server.request("GET", "/api/trial-workspace", None);
-        assert_eq!(lease.status, 200, "{}", lease.body);
-        if lease.json()["status"] == "idle" {
-            break;
-        }
-        assert!(Instant::now() < deadline, "delegated CLI did not finish");
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    wait_for_idle_lease(&server, gui_wait::IDLE_LEASE_TIMEOUT);
     let delegated_args =
         std::fs::read_to_string(runs_dir(&workspace).join(id).join("delegated-args.txt")).unwrap();
     assert!(
@@ -3996,29 +4036,51 @@ fn recovery_auto_run_limit_is_hash_bound_validated_and_delegated() {
     assert_eq!(created.status, 202, "{}", created.body);
     let id = created.json()["id"].as_str().unwrap().to_string();
     let args_path = runs_dir(&workspace).join(&id).join("delegated-args.txt");
-    let deadline = Instant::now() + Duration::from_secs(5);
-    let delegated_args = loop {
-        if let Ok(args) = std::fs::read_to_string(&args_path)
-            && args
-                .lines()
+    let delegated_args = gui_wait::wait_for_file_content(
+        &gui_wait::SystemClock::new(),
+        &args_path,
+        "the delegated recovery plan auto-run flag",
+        DELEGATED_ARTIFACT_TIMEOUT,
+        |args| {
+            args.lines()
                 .collect::<Vec<_>>()
                 .windows(2)
                 .any(|pair| pair == ["--recovery-plan-auto-runs", "1"])
-        {
-            break args;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "delegated CLI did not write the confirmed recovery flag and value"
-        );
-        std::thread::sleep(Duration::from_millis(20));
-    };
+        },
+    );
     let arguments = delegated_args.lines().collect::<Vec<_>>();
     let flag = arguments
         .iter()
         .position(|argument| *argument == "--recovery-plan-auto-runs")
         .expect("confirmed recovery flag was not delegated");
     assert_eq!(arguments.get(flag + 1), Some(&"1"));
+    gui_wait::wait_for(
+        &gui_wait::SystemClock::new(),
+        "the session recovery_auto_run to record the completed run",
+        SESSION_STATE_TIMEOUT,
+        || {
+            let status = server.request("GET", &format!("/api/sessions/{id}"), None);
+            if status.status != 200 {
+                return gui_wait::Poll::Failed(format!(
+                    "the session probe failed with status {}",
+                    status.status
+                ));
+            }
+            let observed = status.json()["recovery_auto_run"].clone();
+            if observed
+                == serde_json::json!({
+                    "current": 1,
+                    "used": 1,
+                    "limit": 1,
+                    "stop_reason": "recovery_succeeded",
+                })
+            {
+                gui_wait::Poll::Ready(())
+            } else {
+                gui_wait::Poll::Pending(format!("the session recovery_auto_run is {observed}"))
+            }
+        },
+    );
     let status = server.request("GET", &format!("/api/sessions/{id}"), None);
     assert_eq!(status.status, 200, "{}", status.body);
     assert_eq!(
@@ -4045,10 +4107,10 @@ fn gate_four_recovery_run_requires_confirmation_and_executes_exact_frozen_identi
 
     let first = launch_fixture_session(&server);
     let first_id = first["id"].as_str().unwrap().to_string();
-    wait_for_idle_lease(&server, Duration::from_secs(5));
+    wait_for_idle_lease(&server, gui_wait::IDLE_LEASE_TIMEOUT);
     let second = launch_fixture_session(&server);
     let second_id = second["id"].as_str().unwrap().to_string();
-    wait_for_idle_lease(&server, Duration::from_secs(5));
+    wait_for_idle_lease(&server, gui_wait::IDLE_LEASE_TIMEOUT);
 
     let proposal = server.request(
         "POST",
@@ -4113,7 +4175,7 @@ fn gate_four_recovery_run_requires_confirmation_and_executes_exact_frozen_identi
     let generation = confirmed["process_generation"].as_str().unwrap();
     wait_for_path(
         &first_run_root.join("recovery-started"),
-        Duration::from_secs(5),
+        gui_wait::DESCENDANT_READY_TIMEOUT,
     );
 
     let monitored = server.request("GET", &format!("/api/sessions/{first_id}"), None);
@@ -4176,12 +4238,14 @@ fn gate_four_recovery_run_requires_confirmation_and_executes_exact_frozen_identi
         Some(&serde_json::json!({ "generation": generation })),
     );
     assert_eq!(stopped.status, 202, "{}", stopped.body);
-    wait_for_event(
+    gui_wait::wait_for_stop_evidence(
+        &gui_wait::SystemClock::new(),
         &first_run_root.join("events.jsonl"),
-        "gui_trial_stop_completed",
-        Duration::from_secs(8),
+        &first_id,
+        generation,
+        gui_wait::STOP_EVIDENCE_TIMEOUT,
     );
-    wait_for_idle_lease(&server, Duration::from_secs(5));
+    wait_for_idle_lease(&server, gui_wait::IDLE_LEASE_TIMEOUT);
     server.stop();
 }
 
@@ -4197,7 +4261,7 @@ fn recovery_run_rejects_stale_drift_pending_directive_and_treatment_rejection() 
 
     let drifted = launch_fixture_session(&server);
     let drifted_id = drifted["id"].as_str().unwrap().to_string();
-    wait_for_idle_lease(&server, Duration::from_secs(5));
+    wait_for_idle_lease(&server, gui_wait::IDLE_LEASE_TIMEOUT);
     let proposal = server.request(
         "POST",
         &format!("/api/sessions/{drifted_id}/recovery-runs"),
@@ -4226,7 +4290,7 @@ fn recovery_run_rejects_stale_drift_pending_directive_and_treatment_rejection() 
 
     let pending = launch_fixture_session(&server);
     let pending_id = pending["id"].as_str().unwrap().to_string();
-    wait_for_idle_lease(&server, Duration::from_secs(5));
+    wait_for_idle_lease(&server, gui_wait::IDLE_LEASE_TIMEOUT);
     let older = server.request(
         "POST",
         &format!("/api/sessions/{pending_id}/recovery-runs"),
@@ -4269,7 +4333,7 @@ fn recovery_run_rejects_stale_drift_pending_directive_and_treatment_rejection() 
 
     let treatment = launch_fixture_session(&server);
     let treatment_id = treatment["id"].as_str().unwrap().to_string();
-    wait_for_idle_lease(&server, Duration::from_secs(5));
+    wait_for_idle_lease(&server, gui_wait::IDLE_LEASE_TIMEOUT);
     let events = runs_dir(&workspace)
         .join(&treatment_id)
         .join("events.jsonl");
@@ -4615,6 +4679,784 @@ fn trial_session_files_reject_a_symlinked_runtime_root() {
 }
 
 #[cfg(unix)]
+const REBINDING_RUN_ID: &str = "rebinding-run-503";
+#[cfg(unix)]
+const REBINDING_EVIDENCE: &str = "REBINDING-EVIDENCE-BODY-503";
+#[cfg(unix)]
+const REBINDING_ATTACKER: &str = "attacker.example";
+
+#[cfg(unix)]
+fn rebinding_fixture() -> (tempfile::TempDir, tempfile::TempDir) {
+    let repository = tempfile::tempdir().unwrap();
+    let run_root = repository
+        .path()
+        .join("workspace/management/runs")
+        .join(REBINDING_RUN_ID);
+    std::fs::create_dir_all(run_root.join("evidence")).unwrap();
+    std::fs::write(
+        run_root.join("uat-report.md"),
+        "# Acceptance\n\nStatus: FULL 1/1 (2026-09-30)\n",
+    )
+    .unwrap();
+    std::fs::write(
+        run_root.join("evidence/secret.txt"),
+        format!("{REBINDING_EVIDENCE}\n"),
+    )
+    .unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    (repository, workspace)
+}
+
+#[cfg(unix)]
+fn start_rebinding_server(
+    repository: &std::path::Path,
+    workspace: &std::path::Path,
+    authenticated: bool,
+    base_path: &str,
+    environment: &[(&str, &str)],
+) -> Server {
+    let static_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("gui/out");
+    Server::start_with_repository_root_and_env(
+        Some(workspace),
+        std::path::Path::new(env!("CARGO_BIN_EXE_commandagent")),
+        authenticated,
+        repository,
+        StaticExport::new(&static_root, base_path).with_provider_hosts(ProviderHosts {
+            ollama: "http://127.0.0.1:9",
+            lm_studio: "http://127.0.0.1:9",
+        }),
+        None,
+        environment,
+    )
+}
+
+#[cfg(unix)]
+fn assert_error_body_has_no_leak(response: &HttpResponse, code: &str, leaked: &[&str]) {
+    assert_eq!(response.status, 403, "{}", response.body);
+    let body = response.json();
+    assert_eq!(body["code"], code, "{}", response.body);
+    assert!(
+        body["error"]
+            .as_str()
+            .is_some_and(|error| !error.is_empty()),
+        "{}",
+        response.body
+    );
+    assert_eq!(
+        body.as_object().map(|object| object.len()),
+        Some(2),
+        "unexpected error schema: {}",
+        response.body
+    );
+    for needle in leaked {
+        assert!(
+            !response.body.contains(needle),
+            "response leaked {needle}: {}",
+            response.body
+        );
+    }
+}
+
+#[cfg(unix)]
+fn assert_host_forbidden(response: &HttpResponse, leaked: &[&str]) {
+    assert_error_body_has_no_leak(response, "trial_host_not_allowed", leaked);
+}
+
+#[cfg(unix)]
+fn assert_origin_forbidden(response: &HttpResponse, leaked: &[&str]) {
+    assert_error_body_has_no_leak(response, "trial_origin_not_allowed", leaked);
+}
+
+/// Rows 1-9, 18-22: a DNS-rebinding pair is refused while the sanctioned
+/// loopback authorities keep working with token authentication off.
+#[cfg(unix)]
+#[test]
+fn rebinding_host_and_origin_are_rejected_for_reads_and_mutations_auth_off() {
+    let (repository, workspace) = rebinding_fixture();
+    let mut server = start_rebinding_server(repository.path(), workspace.path(), false, "/", &[]);
+    let port = server.port;
+    let attacker_host = format!("{REBINDING_ATTACKER}:{port}");
+    let attacker_origin = format!("http://{REBINDING_ATTACKER}:{port}");
+    let loopback_host = format!("127.0.0.1:{port}");
+    let loopback_origin = format!("http://127.0.0.1:{port}");
+    let spec = session_spec();
+    let session_id = "018f0e32-7b80-7000-8000-000000000050";
+
+    // Row 1: run index read.
+    let row1 = server.request_with_host(
+        "GET",
+        "/api/runs",
+        None,
+        None,
+        Some(&attacker_origin),
+        &attacker_host,
+        &[],
+    );
+    assert_host_forbidden(&row1, &[REBINDING_RUN_ID, REBINDING_EVIDENCE]);
+
+    // Row 2: evidence body read.
+    let row2 = server.request_with_host(
+        "GET",
+        &format!("/api/runs/{REBINDING_RUN_ID}/evidence?path=evidence/secret.txt"),
+        None,
+        None,
+        Some(&attacker_origin),
+        &attacker_host,
+        &[],
+    );
+    assert_host_forbidden(&row2, &[REBINDING_EVIDENCE]);
+
+    // Row 3: sessions and trial-workspace reads.
+    for path in ["/api/sessions", "/api/trial-workspace"] {
+        let response = server.request_with_host(
+            "GET",
+            path,
+            None,
+            None,
+            Some(&attacker_origin),
+            &attacker_host,
+            &[],
+        );
+        assert_host_forbidden(&response, &[REBINDING_RUN_ID, REBINDING_EVIDENCE]);
+    }
+
+    // Row 4: Gate 1 proposal must not return a card hash.
+    let row4 = server.request_with_host(
+        "POST",
+        "/api/session-proposals",
+        Some(&spec),
+        None,
+        Some(&attacker_origin),
+        &attacker_host,
+        &[],
+    );
+    assert_host_forbidden(&row4, &["card_hash", REBINDING_EVIDENCE]);
+
+    // Row 5: dispatch without a hash must not reach 428.
+    let row5 = server.request_with_host(
+        "POST",
+        "/api/sessions",
+        Some(&spec),
+        None,
+        Some(&attacker_origin),
+        &attacker_host,
+        &[],
+    );
+    assert_host_forbidden(&row5, &["card_hash", REBINDING_EVIDENCE]);
+
+    // Row 6: stop / directives / recovery-runs mutations.
+    for suffix in ["stop", "directives", "recovery-runs"] {
+        let response = server.request_with_host(
+            "POST",
+            &format!("/api/sessions/{session_id}/{suffix}"),
+            Some(&serde_json::json!({})),
+            None,
+            Some(&attacker_origin),
+            &attacker_host,
+            &[],
+        );
+        assert_host_forbidden(&response, &[REBINDING_EVIDENCE]);
+    }
+
+    // Row 7: extension pack and profile mutations share the Host rule.
+    for path in [
+        "/api/extensions/packs",
+        "/api/extensions/packs/example/1.0.0/verify",
+        "/api/extensions/profiles/preview",
+        "/api/extensions/profiles/register",
+    ] {
+        let response = server.request_with_host(
+            "POST",
+            path,
+            Some(&serde_json::json!({})),
+            None,
+            Some(&attacker_origin),
+            &attacker_host,
+            &[],
+        );
+        assert_host_forbidden(&response, &[REBINDING_EVIDENCE]);
+    }
+
+    // Row 8: attacker Host without any Origin still refuses reads.
+    let row8 = server.request_with_host("GET", "/api/runs", None, None, None, &attacker_host, &[]);
+    assert_host_forbidden(&row8, &[REBINDING_RUN_ID, REBINDING_EVIDENCE]);
+
+    // Row 9: attacker Host with a correct Origin is refused on the Host.
+    let row9 = server.request_with_host(
+        "POST",
+        "/api/session-proposals",
+        Some(&spec),
+        None,
+        Some(&loopback_origin),
+        &attacker_host,
+        &[],
+    );
+    assert_host_forbidden(&row9, &["card_hash"]);
+
+    // Row 18: a forwarded host is not trusted.
+    let row18 = server.request_with_host(
+        "GET",
+        "/api/runs",
+        None,
+        None,
+        None,
+        &attacker_host,
+        &[("X-Forwarded-Host", loopback_host.as_str())],
+    );
+    assert_host_forbidden(&row18, &[REBINDING_RUN_ID, REBINDING_EVIDENCE]);
+
+    // Rows 19-20: correct Host, disallowed Origin on a mutation.
+    let row19 = server.request_with_host(
+        "POST",
+        "/api/session-proposals",
+        Some(&spec),
+        None,
+        Some("http://127.0.0.1:1"),
+        &loopback_host,
+        &[],
+    );
+    assert_origin_forbidden(&row19, &["card_hash"]);
+    for origin in [format!("https://127.0.0.1:{port}"), "null".to_string()] {
+        let response = server.request_with_host(
+            "POST",
+            "/api/session-proposals",
+            Some(&spec),
+            None,
+            Some(&origin),
+            &loopback_host,
+            &[],
+        );
+        assert_origin_forbidden(&response, &["card_hash"]);
+    }
+
+    // Row 21: a read with an attacker Origin but a legit Host is served, and
+    // no CORS header is emitted (the browser cannot read the response).
+    let row21 = server.request_with_host(
+        "GET",
+        "/api/runs",
+        None,
+        None,
+        Some(&attacker_origin),
+        &loopback_host,
+        &[],
+    );
+    assert_eq!(row21.status, 200, "{}", row21.body);
+    assert!(row21.header("access-control-allow-origin").is_none());
+
+    // Rows 10-13, 22: sanctioned Host/Origin pairs keep passing, with no CORS.
+    for (host, origin) in [
+        (
+            format!("127.0.0.1:{port}"),
+            format!("http://127.0.0.1:{port}"),
+        ),
+        (
+            format!("localhost:{port}"),
+            format!("http://localhost:{port}"),
+        ),
+        (format!("[::1]:{port}"), format!("http://[::1]:{port}")),
+        (
+            format!("LOCALHOST:{port}"),
+            format!("http://LOCALHOST:{port}"),
+        ),
+    ] {
+        let read =
+            server.request_with_host("GET", "/api/runs", None, None, Some(&origin), &host, &[]);
+        assert_eq!(read.status, 200, "host {host}: {}", read.body);
+        assert!(read.header("access-control-allow-origin").is_none());
+
+        let mutation = server.request_with_host(
+            "POST",
+            "/api/sessions",
+            Some(&spec),
+            None,
+            Some(&origin),
+            &host,
+            &[],
+        );
+        assert_eq!(
+            mutation.status, 428,
+            "host {host} must reach the route: {}",
+            mutation.body
+        );
+        assert_eq!(mutation.json()["code"], "trial_confirmation_required");
+        assert!(mutation.header("access-control-allow-origin").is_none());
+    }
+
+    server.stop();
+}
+
+/// Rows 26-28: token authentication on never overrides the Host refusal, and
+/// a legitimate token request still passes.
+#[cfg(unix)]
+#[test]
+fn rebinding_is_rejected_before_token_auth_for_reads_and_mutations() {
+    let (repository, workspace) = rebinding_fixture();
+    let mut server = start_rebinding_server(repository.path(), workspace.path(), true, "/", &[]);
+    let port = server.port;
+    let attacker_host = format!("{REBINDING_ATTACKER}:{port}");
+    let attacker_origin = format!("http://{REBINDING_ATTACKER}:{port}");
+    let loopback_host = format!("127.0.0.1:{port}");
+    let loopback_origin = format!("http://127.0.0.1:{port}");
+    let spec = session_spec();
+
+    // Row 26: mutation without a token is refused on the Host, not with 401.
+    let row26 = server.request_with_host(
+        "POST",
+        "/api/session-proposals",
+        Some(&spec),
+        None,
+        Some(&attacker_origin),
+        &attacker_host,
+        &[],
+    );
+    assert_host_forbidden(&row26, &["card_hash"]);
+
+    // Row 27: reads are refused on the Host even with token auth on.
+    for path in [
+        "/api/runs".to_string(),
+        format!("/api/runs/{REBINDING_RUN_ID}/evidence?path=evidence/secret.txt"),
+    ] {
+        let response =
+            server.request_with_host("GET", &path, None, None, None, &attacker_host, &[]);
+        assert_host_forbidden(&response, &[REBINDING_RUN_ID, REBINDING_EVIDENCE]);
+    }
+
+    // Row 28: a legitimate token request is unaffected.
+    let row28 = server.request_with_host(
+        "POST",
+        "/api/sessions",
+        Some(&spec),
+        Some(TEST_TRIAL_TOKEN),
+        Some(&loopback_origin),
+        &loopback_host,
+        &[],
+    );
+    assert_eq!(row28.status, 428, "{}", row28.body);
+    assert_eq!(row28.json()["code"], "trial_confirmation_required");
+
+    server.stop();
+}
+
+/// Rows 23-25: the proxy allowlist authority is the only extra Host, and a
+/// base path is covered by the same middleware.
+#[cfg(unix)]
+#[test]
+fn proxy_allowlist_authority_and_base_path_follow_the_host_rule() {
+    let (repository, workspace) = rebinding_fixture();
+    let mut server = start_rebinding_server(
+        repository.path(),
+        workspace.path(),
+        false,
+        "/",
+        &[("GUI_TRIAL_ALLOWED_ORIGINS", "https://gui.example.test")],
+    );
+
+    // Row 23: the allowlisted authority is accepted as Host and Origin.
+    let allowed = server.request_with_host(
+        "GET",
+        "/api/runs",
+        None,
+        None,
+        Some("https://gui.example.test"),
+        "gui.example.test",
+        &[],
+    );
+    assert_eq!(allowed.status, 200, "{}", allowed.body);
+    let allowed_mutation = server.request_with_host(
+        "POST",
+        "/api/sessions",
+        Some(&session_spec()),
+        None,
+        Some("https://gui.example.test"),
+        "gui.example.test",
+        &[],
+    );
+    assert_eq!(allowed_mutation.status, 428, "{}", allowed_mutation.body);
+
+    // Row 24: any other proxied name is rejected.
+    let other = server.request_with_host(
+        "GET",
+        "/api/runs",
+        None,
+        None,
+        Some("https://other.example.test"),
+        "other.example.test",
+        &[],
+    );
+    assert_host_forbidden(&other, &[REBINDING_RUN_ID]);
+    server.stop();
+
+    // Row 25: the base path is covered by the same middleware.
+    let mut base = start_rebinding_server(
+        repository.path(),
+        workspace.path(),
+        false,
+        "/proxy/commandagent",
+        &[],
+    );
+    let base_port = base.port;
+    let attacker_host = format!("{REBINDING_ATTACKER}:{base_port}");
+    let refused = base.request_with_host(
+        "GET",
+        "/proxy/commandagent/api/runs",
+        None,
+        None,
+        None,
+        &attacker_host,
+        &[],
+    );
+    assert_host_forbidden(&refused, &[REBINDING_RUN_ID]);
+    let allowed = base.request_with_host(
+        "GET",
+        "/proxy/commandagent/api/runs",
+        None,
+        None,
+        None,
+        &format!("127.0.0.1:{base_port}"),
+        &[],
+    );
+    assert_eq!(allowed.status, 200, "{}", allowed.body);
+    base.stop();
+}
+
+/// Row 29: an invalid allowlist entry still fails closed at startup.
+#[cfg(unix)]
+#[test]
+fn gui_server_rejects_invalid_allowed_origins_before_serving() {
+    for value in ["http://x/path", "ftp://x", "http://x?y=1"] {
+        let workspace = tempfile::tempdir().unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_gui_server"))
+            .args(["--port", "0", "--base-path", "/"])
+            .arg("--repository-root")
+            .arg(env!("CARGO_MANIFEST_DIR"))
+            .arg("--execution-root")
+            .arg(workspace.path())
+            .env("GUI_TRIAL_ALLOWED_ORIGINS", value)
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "accepted {value}");
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("trial origin"),
+            "stderr for {value}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+// Issue #554 A: without an execution root the allowlist must still be read, so
+// an allowlisted proxy authority is a valid `Host`/`Origin` while every other
+// authority, rebinding pair, and forwarded header stays refused, and the
+// mutation routes keep reporting the disabled execution root.
+
+#[cfg(unix)]
+const DASHBOARD_ALLOWLIST: &str = "https://gw.example";
+#[cfg(unix)]
+const DASHBOARD_HOST: &str = "gw.example";
+
+/// Start a dashboard-only server (no `--execution-root`) with the given extra
+/// environment. `authenticated` toggles `--trial-token-auth on` with the test
+/// token, mirroring `Server::start_with_repository_root_and_env`.
+#[cfg(unix)]
+fn dashboard_only_with_env(
+    repository_root: &std::path::Path,
+    authenticated: bool,
+    environment: &[(&str, &str)],
+) -> Server {
+    let static_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("gui/out");
+    Server::start_with_repository_root_and_env(
+        None,
+        std::path::Path::new(env!("CARGO_BIN_EXE_commandagent")),
+        authenticated,
+        repository_root,
+        StaticExport::new(&static_root, "/").with_provider_hosts(ProviderHosts {
+            ollama: "http://127.0.0.1:9",
+            lm_studio: "http://127.0.0.1:9",
+        }),
+        None,
+        environment,
+    )
+}
+
+/// Rows 1-8: a dashboard-only server accepts the allowlisted authority as
+/// `Host` (case-insensitively, for reads and the static index) while an
+/// unlisted authority, a rebinding pair, and a forwarded header are refused,
+/// and the mutation routes stay disabled.
+#[cfg(unix)]
+#[test]
+fn execution_root_less_allowlist_host_and_origin_are_enforced() {
+    let (repository, _workspace) = rebinding_fixture();
+    let allowlist = [("GUI_TRIAL_ALLOWED_ORIGINS", DASHBOARD_ALLOWLIST)];
+    let mut server = dashboard_only_with_env(repository.path(), false, &allowlist);
+    let port = server.port;
+
+    // Rows 1-3: the allowlisted Host passes on reads and the static index, and
+    // the comparison is ASCII case-insensitive.
+    for (method, path, host) in [
+        ("GET", "/api/runs", DASHBOARD_HOST),
+        ("GET", "/api/runtime-status", DASHBOARD_HOST),
+        ("GET", "/", DASHBOARD_HOST),
+        ("GET", "/api/runs", "GW.EXAMPLE"),
+    ] {
+        let response = server.request_with_host(method, path, None, None, None, host, &[]);
+        assert_eq!(
+            response.status, 200,
+            "{path} host {host}: {}",
+            response.body
+        );
+    }
+
+    // Row 4: any authority outside the allowlist and the loopback set is
+    // refused with the two-key coded body that never echoes the Host.
+    for host in [
+        format!("{REBINDING_ATTACKER}:{port}"),
+        "evil.gw.example".to_string(),
+        "gw.example:443".to_string(),
+        "gw.example.".to_string(),
+    ] {
+        let response = server.request_with_host("GET", "/api/runs", None, None, None, &host, &[]);
+        assert_host_forbidden(&response, &[host.as_str(), REBINDING_RUN_ID]);
+    }
+
+    // Row 5: a rebinding pair is refused on reads and mutations.
+    let attacker_host = format!("{REBINDING_ATTACKER}:{port}");
+    let attacker_origin = format!("http://{REBINDING_ATTACKER}:{port}");
+    let read = server.request_with_host(
+        "GET",
+        "/api/runs",
+        None,
+        None,
+        Some(&attacker_origin),
+        &attacker_host,
+        &[],
+    );
+    assert_host_forbidden(&read, &[REBINDING_RUN_ID, REBINDING_EVIDENCE]);
+    let mutation = server.request_with_host(
+        "POST",
+        "/api/session-proposals",
+        Some(&session_spec()),
+        None,
+        Some(&attacker_origin),
+        &attacker_host,
+        &[],
+    );
+    assert_host_forbidden(&mutation, &["card_hash"]);
+
+    // Row 6: a forwarded host header is never trusted.
+    let forwarded = server.request_with_host(
+        "GET",
+        "/api/runs",
+        None,
+        None,
+        None,
+        &attacker_host,
+        &[("X-Forwarded-Host", DASHBOARD_HOST)],
+    );
+    assert_host_forbidden(&forwarded, &[REBINDING_RUN_ID]);
+
+    // Row 7: with an allowlisted Host and Origin the mutation routes still
+    // report the disabled execution root before any Origin or token check.
+    for path in ["/api/session-proposals", "/api/sessions"] {
+        let response = server.request_with_host(
+            "POST",
+            path,
+            Some(&session_spec()),
+            None,
+            Some(DASHBOARD_ALLOWLIST),
+            DASHBOARD_HOST,
+            &[],
+        );
+        assert_eq!(response.status, 503, "{path}: {}", response.body);
+        assert_error(
+            &response,
+            "trial_execution_disabled",
+            "trial execution is disabled; configure --execution-root",
+        );
+    }
+
+    server.stop();
+
+    // Row 8: without an allowlist only loopback is accepted.
+    let mut bare = dashboard_only_with_env(repository.path(), false, &[]);
+    let refused = bare.request_with_host("GET", "/api/runs", None, None, None, DASHBOARD_HOST, &[]);
+    assert_host_forbidden(&refused, &[REBINDING_RUN_ID]);
+    bare.stop();
+}
+
+/// Rows 10 and 12: a dashboard-only server fails closed on an invalid allowlist
+/// and on `--trial-token-auth on` with no token, without printing the token.
+#[test]
+fn execution_root_less_startup_fails_closed_on_invalid_configuration() {
+    for value in ["https://gw.example/path", "ftp://x", "http://x?y=1"] {
+        let output = Command::new(env!("CARGO_BIN_EXE_gui_server"))
+            .args(["--port", "0", "--base-path", "/"])
+            .arg("--repository-root")
+            .arg(env!("CARGO_MANIFEST_DIR"))
+            .env("GUI_TRIAL_ALLOWED_ORIGINS", value)
+            .env_remove("GUI_TRIAL_TOKEN")
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "accepted {value}");
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("trial origin"),
+            "stderr for {value}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let output = Command::new(env!("CARGO_BIN_EXE_gui_server"))
+        .args(["--port", "0", "--base-path", "/"])
+        .arg("--repository-root")
+        .arg(env!("CARGO_MANIFEST_DIR"))
+        .args(["--trial-token-auth", "on"])
+        .env_remove("GUI_TRIAL_TOKEN")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("GUI_TRIAL_TOKEN"), "{stderr}");
+    assert!(stderr.contains("--trial-token-auth"), "{stderr}");
+}
+
+/// Rows 13 and 15: a dashboard-only server still enforces the profile
+/// authentication and Origin rules, with an allowlisted Host.
+#[cfg(unix)]
+#[test]
+fn execution_root_less_profile_mutations_enforce_token_and_origin() {
+    let (repository, _workspace) = rebinding_fixture();
+    let body = serde_json::json!({"path": "profiles/x.toml", "content": "id = \"x\""});
+    let allowlist = [("GUI_TRIAL_ALLOWED_ORIGINS", DASHBOARD_ALLOWLIST)];
+
+    // Row 13: token auth on requires the token even without an execution root.
+    let mut authenticated = dashboard_only_with_env(repository.path(), true, &allowlist);
+    let missing_token = authenticated.request_with_host(
+        "POST",
+        "/api/extensions/profiles/preview",
+        Some(&body),
+        None,
+        Some(DASHBOARD_ALLOWLIST),
+        DASHBOARD_HOST,
+        &[],
+    );
+    assert_eq!(missing_token.status, 401, "{}", missing_token.body);
+    assert_eq!(missing_token.json()["code"], "profile_auth_failed");
+    authenticated.stop();
+
+    // Row 15: an allowlisted Host with a disallowed Origin is refused.
+    let mut server = dashboard_only_with_env(repository.path(), false, &allowlist);
+    let bad_origin = server.request_with_host(
+        "POST",
+        "/api/extensions/profiles/preview",
+        Some(&body),
+        None,
+        Some("https://attacker.example"),
+        DASHBOARD_HOST,
+        &[],
+    );
+    assert_eq!(bad_origin.status, 403, "{}", bad_origin.body);
+    assert_eq!(bad_origin.json()["code"], "profile_origin_not_allowed");
+    server.stop();
+}
+
+/// Wait, with a finite deadline, for the `gui_server` child to print its
+/// listening line on stdout. A child that exits or closes stdout before the
+/// line arrives fails immediately instead of hanging the harness.
+#[cfg(unix)]
+fn await_listen_line(
+    clock: &impl gui_wait::Clock,
+    child: &mut Child,
+    stdout: &mut BufReader<std::process::ChildStdout>,
+    timeout: Duration,
+) -> String {
+    use std::os::fd::AsRawFd;
+
+    gui_wait::wait_for(clock, "the gui_server listening line", timeout, || {
+        let mut poll_fd = libc::pollfd {
+            fd: stdout.get_ref().as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        // SAFETY: `poll_fd` is a live local for the call and nfds is 1; the fd belongs to
+        // `stdout`, which this closure borrows, so it stays open; the 0 timeout never blocks.
+        let ready = unsafe { libc::poll(&mut poll_fd, 1, 0) };
+        if ready < 0 {
+            return gui_wait::Poll::Failed(format!(
+                "polling gui_server stdout failed: {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+        if ready > 0 {
+            let mut line = String::new();
+            return match stdout.read_line(&mut line) {
+                Ok(0) => gui_wait::Poll::Failed(
+                    "gui_server closed stdout before printing a listening line".to_string(),
+                ),
+                Ok(_) => gui_wait::Poll::Ready(line),
+                Err(error) => {
+                    gui_wait::Poll::Failed(format!("reading gui_server stdout failed: {error}"))
+                }
+            };
+        }
+        match child.try_wait() {
+            Ok(Some(status)) => gui_wait::Poll::Failed(format!(
+                "gui_server exited before printing a listening line: {status}"
+            )),
+            Ok(None) => gui_wait::Poll::Pending(
+                "waiting for gui_server to print its listening line".to_string(),
+            ),
+            Err(error) => {
+                gui_wait::Poll::Failed(format!("cannot poll the gui_server process: {error}"))
+            }
+        }
+    })
+}
+
+#[cfg(unix)]
+#[test]
+fn server_ready_wait_returns_the_printed_line() {
+    let mut child = Command::new("sh")
+        .args([
+            "-c",
+            "printf 'gui_server listening on http://127.0.0.1:43210/\\n'",
+        ])
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let clock = gui_wait::SystemClock::new();
+    let line = await_listen_line(&clock, &mut child, &mut stdout, Duration::from_secs(5));
+    assert!(line.contains("127.0.0.1:43210"), "{line}");
+    let _ = child.wait();
+}
+
+#[cfg(unix)]
+#[test]
+#[should_panic(expected = "before printing a listening line")]
+fn server_ready_wait_fails_when_the_child_stops_before_ready() {
+    let mut child = Command::new("sh")
+        .args(["-c", "exit 7"])
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let clock = gui_wait::SystemClock::new();
+    let _ = await_listen_line(&clock, &mut child, &mut stdout, Duration::from_secs(5));
+}
+
+#[cfg(unix)]
+#[test]
+#[should_panic(expected = "timed out")]
+fn server_ready_wait_times_out_when_no_listening_line_arrives() {
+    let mut child = Command::new("sh")
+        .args(["-c", "sleep 1"])
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let clock = gui_wait::SystemClock::new();
+    let _ = await_listen_line(&clock, &mut child, &mut stdout, Duration::from_millis(150));
+}
+
+#[cfg(unix)]
 struct Server {
     child: Child,
     port: u16,
@@ -4857,9 +5699,14 @@ impl Server {
             command.env_remove("GUI_TRIAL_TOKEN");
         }
         let mut child = command.spawn().unwrap();
-        let mut line = String::new();
         let mut stdout = BufReader::new(child.stdout.take().unwrap());
-        stdout.read_line(&mut line).unwrap();
+        let clock = gui_wait::SystemClock::new();
+        let line = await_listen_line(
+            &clock,
+            &mut child,
+            &mut stdout,
+            gui_wait::SERVER_READY_TIMEOUT,
+        );
         let port = line
             .split("127.0.0.1:")
             .nth(1)
@@ -4935,6 +5782,21 @@ impl Server {
         origin: Option<&str>,
         extra_headers: &[(&str, &str)],
     ) -> HttpResponse {
+        let host = format!("127.0.0.1:{}", self.port);
+        self.request_with_host(method, path, body, token, origin, &host, extra_headers)
+    }
+
+    #[allow(clippy::too_many_arguments, reason = "raw HTTP wire parts")]
+    fn request_with_host(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<&serde_json::Value>,
+        token: Option<&str>,
+        origin: Option<&str>,
+        host: &str,
+        extra_headers: &[(&str, &str)],
+    ) -> HttpResponse {
         let body = body.map(ToString::to_string).unwrap_or_default();
         let authorization = token
             .map(|token| format!("Authorization: Bearer {token}\r\n"))
@@ -4949,8 +5811,7 @@ impl Server {
         let mut stream = TcpStream::connect(("127.0.0.1", self.port)).unwrap();
         write!(
             stream,
-            "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\n{authorization}{origin}{extra_headers}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-            self.port,
+            "{method} {path} HTTP/1.1\r\nHost: {host}\r\n{authorization}{origin}{extra_headers}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
             body.len()
         )
         .unwrap();
@@ -5071,50 +5932,94 @@ fn launch_fixture_session(server: &Server) -> serde_json::Value {
 
 #[cfg(unix)]
 fn wait_for_path(path: &std::path::Path, timeout: Duration) {
-    let deadline = Instant::now() + timeout;
-    while !path.is_file() {
-        assert!(
-            Instant::now() < deadline,
-            "timed out waiting for {}",
-            path.display()
-        );
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    let clock = gui_wait::SystemClock::new();
+    gui_wait::wait_for(
+        &clock,
+        &format!("{} to appear", path.display()),
+        timeout,
+        || {
+            if path.is_file() {
+                gui_wait::Poll::Ready(())
+            } else {
+                gui_wait::Poll::Pending(format!("{} is not a file yet", path.display()))
+            }
+        },
+    );
 }
 
 #[cfg(unix)]
 fn wait_for_event(path: &std::path::Path, event: &str, timeout: Duration) -> String {
-    let deadline = Instant::now() + timeout;
-    loop {
-        if let Ok(events) = std::fs::read_to_string(path)
-            && events.contains(&format!("\"event\":\"{event}\""))
-        {
-            return events;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "timed out waiting for {event} in {}",
-            path.display()
-        );
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    let clock = gui_wait::SystemClock::new();
+    gui_wait::wait_for(
+        &clock,
+        &format!("the {event} event in {}", path.display()),
+        timeout,
+        || match std::fs::read_to_string(path) {
+            Ok(events) if events.contains(&format!("\"event\":\"{event}\"")) => {
+                gui_wait::Poll::Ready(events)
+            }
+            Ok(_) => gui_wait::Poll::Pending(format!("{} has no {event} yet", path.display())),
+            Err(error) => {
+                gui_wait::Poll::Pending(format!("{} is not readable yet: {error}", path.display()))
+            }
+        },
+    )
 }
 
 #[cfg(unix)]
 fn wait_for_idle_lease(server: &Server, timeout: Duration) {
-    let deadline = Instant::now() + timeout;
-    loop {
-        let lease = server.request("GET", "/api/trial-workspace", None);
-        assert_eq!(lease.status, 200, "{}", lease.body);
-        if lease.json()["status"] == "idle" {
-            return;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "trial lease did not return to idle"
-        );
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    let clock = gui_wait::SystemClock::new();
+    gui_wait::wait_for(
+        &clock,
+        "the trial workspace lease to return to idle",
+        timeout,
+        || {
+            let lease = server.request("GET", "/api/trial-workspace", None);
+            if lease.status != 200 {
+                return gui_wait::Poll::Failed(format!(
+                    "the trial workspace probe failed with status {}",
+                    lease.status
+                ));
+            }
+            let status = lease.json()["status"].clone();
+            if status == "idle" {
+                gui_wait::Poll::Ready(())
+            } else {
+                gui_wait::Poll::Pending(format!("the trial workspace lease is {status}"))
+            }
+        },
+    );
+}
+
+/// Wait until `GET /api/sessions/{id}` reports `expected` as the gate. The
+/// gate is only `gate_3` once the server has observed the delegated process
+/// generation end, so a single read right after the events can still see
+/// `gate_2`.
+#[cfg(unix)]
+fn wait_for_session_gate(server: &Server, id: &str, expected: &str, timeout: Duration) {
+    let clock = gui_wait::SystemClock::new();
+    gui_wait::wait_for(
+        &clock,
+        &format!("session {id} to reach {expected}"),
+        timeout,
+        || {
+            let status = server.request("GET", &format!("/api/sessions/{id}"), None);
+            if status.status != 200 {
+                return gui_wait::Poll::Failed(format!(
+                    "the session probe failed with status {}",
+                    status.status
+                ));
+            }
+            let gate = status.json()["gate"].clone();
+            if gate == expected {
+                gui_wait::Poll::Ready(())
+            } else if gate == "gate_2" {
+                gui_wait::Poll::Pending(format!("session {id} is still at {gate}"))
+            } else {
+                gui_wait::Poll::Failed(format!("session {id} reached an unexpected gate {gate}"))
+            }
+        },
+    );
 }
 
 #[cfg(unix)]
@@ -5127,6 +6032,7 @@ fn parse_json_lines(text: &str) -> Vec<serde_json::Value> {
 
 #[cfg(unix)]
 fn assert_process_group_absent(process_group: i32) {
+    // SAFETY: signal 0 only probes whether the group exists; it delivers no signal.
     assert_eq!(unsafe { libc::kill(-process_group, 0) }, -1);
     assert_eq!(
         std::io::Error::last_os_error().raw_os_error(),
@@ -5227,4 +6133,867 @@ esac
     let mut permissions = std::fs::metadata(path).unwrap().permissions();
     permissions.set_mode(0o755);
     std::fs::set_permissions(path, permissions).unwrap();
+}
+
+// Issue #506 — symlink and race coverage for the fd-relative no-follow reads.
+// Every fixture uses synthetic values inside a tempdir; the "outside" directory
+// is a sibling of the served root, never a real host path. The marker
+// `H01_506_FAKE_outside_*` must never appear in a response body.
+#[cfg(unix)]
+const SECURITY_CANARY_506: &str = "H01_506_FAKE_outside_secret";
+
+#[cfg(unix)]
+fn write_static_root(root: &std::path::Path) {
+    std::fs::create_dir_all(root).unwrap();
+    std::fs::write(root.join("index.html"), "<!doctype html><title>GUI</title>").unwrap();
+    std::fs::write(
+        root.join("404.html"),
+        "<!doctype html><title>Not found</title>",
+    )
+    .unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn static_serving_refuses_symlinks_below_the_root() {
+    use std::os::unix::fs::symlink;
+
+    let temp = tempfile::tempdir().unwrap();
+    let static_root = temp.path().join("out");
+    write_static_root(&static_root);
+    let outside = temp.path().join("outside");
+    std::fs::create_dir_all(outside.join("dir")).unwrap();
+    std::fs::write(outside.join("secret.txt"), SECURITY_CANARY_506).unwrap();
+    std::fs::write(
+        outside.join("dir/page.js"),
+        format!("{SECURITY_CANARY_506}\n"),
+    )
+    .unwrap();
+
+    symlink(outside.join("secret.txt"), static_root.join("leak.txt")).unwrap();
+    symlink(outside.join("dir"), static_root.join("assets")).unwrap();
+    symlink(
+        static_root.join("index.html"),
+        static_root.join("alias.html"),
+    )
+    .unwrap();
+
+    let mut server = Server::start_dashboard_only_with_static_root(&static_root);
+
+    for path in ["/leak.txt", "/assets/page.js", "/alias.html"] {
+        let response = server.request_without_access("GET", path, None);
+        assert_eq!(response.status, 404, "{path}: {}", response.body);
+        assert!(
+            !response.body.contains(SECURITY_CANARY_506),
+            "{path} leaked the outside canary: {}",
+            response.body
+        );
+    }
+
+    let index = server.request_without_access("GET", "/", None);
+    assert_eq!(index.status, 200, "{}", index.body);
+    assert!(index.body.contains("<title>GUI</title>"));
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn static_serving_follows_a_symlinked_root() {
+    use std::os::unix::fs::symlink;
+
+    let temp = tempfile::tempdir().unwrap();
+    let real = temp.path().join("real-out");
+    std::fs::create_dir_all(&real).unwrap();
+    std::fs::write(
+        real.join("index.html"),
+        "<!doctype html><title>Root alias</title>",
+    )
+    .unwrap();
+    let alias = temp.path().join("out-alias");
+    symlink(&real, &alias).unwrap();
+
+    let mut server = Server::start_dashboard_only_with_static_root(&alias);
+    let index = server.request_without_access("GET", "/", None);
+    assert_eq!(index.status, 200, "{}", index.body);
+    assert!(index.body.contains("<title>Root alias</title>"));
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn static_serving_returns_a_bodyless_404_without_the_page() {
+    let temp = tempfile::tempdir().unwrap();
+    let static_root = temp.path().join("out");
+    std::fs::create_dir_all(&static_root).unwrap();
+    std::fs::write(static_root.join("index.html"), "GUI").unwrap();
+
+    let mut server = Server::start_dashboard_only_with_static_root(&static_root);
+    let missing = server.request_without_access("GET", "/missing", None);
+    assert_eq!(missing.status, 404, "{}", missing.body);
+    assert!(missing.body.is_empty(), "{}", missing.body);
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn static_serving_rejects_url_traversal() {
+    let temp = tempfile::tempdir().unwrap();
+    let static_root = temp.path().join("out");
+    write_static_root(&static_root);
+    std::fs::write(temp.path().join("outside.txt"), "outside-body").unwrap();
+
+    let mut server = Server::start_dashboard_only_with_static_root(&static_root);
+    for path in [
+        "/../outside.txt",
+        "/%2e%2e/outside.txt",
+        "/..%2foutside.txt",
+    ] {
+        let response = server.request_without_access("GET", path, None);
+        assert_eq!(response.status, 404, "{path}: {}", response.body);
+        assert!(
+            !response.body.contains("outside-body"),
+            "{path}: {}",
+            response.body
+        );
+    }
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn static_serving_never_leaks_during_a_parent_swap() {
+    use std::os::unix::fs::symlink;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let temp = tempfile::tempdir().unwrap();
+    let static_root = temp.path().join("out");
+    write_static_root(&static_root);
+    let real = static_root.join("d");
+    std::fs::create_dir_all(&real).unwrap();
+    std::fs::write(real.join("f.txt"), "inside-body").unwrap();
+    let outside = temp.path().join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("f.txt"), SECURITY_CANARY_506).unwrap();
+
+    let mut server = Server::start_dashboard_only_with_static_root(&static_root);
+    let stop = Arc::new(AtomicBool::new(false));
+    let worker = {
+        let stop = Arc::clone(&stop);
+        let real = real.clone();
+        let outside = outside.clone();
+        std::thread::spawn(move || {
+            while !stop.load(Ordering::Relaxed) {
+                let is_symlink = real
+                    .symlink_metadata()
+                    .map(|metadata| metadata.file_type().is_symlink())
+                    .unwrap_or(false);
+                if is_symlink {
+                    let _ = std::fs::remove_file(&real);
+                    let _ = std::fs::create_dir_all(&real);
+                    let _ = std::fs::write(real.join("f.txt"), "inside-body");
+                } else {
+                    let _ = std::fs::remove_dir_all(&real);
+                    let _ = symlink(&outside, &real);
+                }
+            }
+        })
+    };
+    for _ in 0..200 {
+        let response = server.request_without_access("GET", "/d/f.txt", None);
+        assert!(
+            !response.body.contains(SECURITY_CANARY_506),
+            "leaked the outside canary: {}",
+            response.body
+        );
+    }
+    stop.store(true, Ordering::Relaxed);
+    worker.join().unwrap();
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn management_documents_refuse_symlinks_and_non_files_below_the_run() {
+    use std::os::unix::ffi::OsStrExt as _;
+    use std::os::unix::fs::symlink;
+
+    const RUN_ID: &str = "run-506";
+    let repository = tempfile::tempdir().unwrap();
+    let run_root = repository
+        .path()
+        .join("workspace/management/runs")
+        .join(RUN_ID);
+    std::fs::create_dir_all(run_root.join("evidence")).unwrap();
+    std::fs::write(run_root.join("evidence/doc.md"), "inside evidence\n").unwrap();
+    let outside = repository.path().join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("doc.md"), format!("{SECURITY_CANARY_506}\n")).unwrap();
+
+    symlink(outside.join("doc.md"), run_root.join("linkout.md")).unwrap();
+    symlink(run_root.join("evidence/doc.md"), run_root.join("linkin.md")).unwrap();
+    std::fs::create_dir(run_root.join("dir.md")).unwrap();
+    let fifo = run_root.join("fifo.md");
+    let name = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+    // SAFETY: `name` is a NUL-terminated CString that outlives the call; mkfifo only creates a
+    // fifo inside this test's tempdir and keeps no pointer to it.
+    assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+
+    let mut server = Server::start_dashboard_only_at_repository_root(repository.path());
+
+    let inside = server.request_without_access(
+        "GET",
+        &format!("/api/runs/{RUN_ID}/evidence?path=evidence%2Fdoc.md"),
+        None,
+    );
+    assert_eq!(inside.status, 200, "{}", inside.body);
+    assert!(
+        inside.json()["content"]
+            .as_str()
+            .unwrap()
+            .contains("inside evidence")
+    );
+
+    for path in ["linkout.md", "linkin.md", "dir.md", "fifo.md"] {
+        let response = server.request_without_access(
+            "GET",
+            &format!("/api/runs/{RUN_ID}/evidence?path={path}"),
+            None,
+        );
+        assert_eq!(response.status, 404, "{path}: {}", response.body);
+        assert!(
+            !response.body.contains(SECURITY_CANARY_506),
+            "{path} leaked the outside canary: {}",
+            response.body
+        );
+    }
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn run_evidence_never_leaks_during_a_parent_swap() {
+    use std::os::unix::fs::symlink;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    const RUN_ID: &str = "run-506";
+    let repository = tempfile::tempdir().unwrap();
+    let run_root = repository
+        .path()
+        .join("workspace/management/runs")
+        .join(RUN_ID);
+    let real = run_root.join("evidence");
+    std::fs::create_dir_all(&real).unwrap();
+    std::fs::write(real.join("doc.md"), "inside-evidence-body").unwrap();
+    let outside = repository.path().join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("doc.md"), format!("{SECURITY_CANARY_506}\n")).unwrap();
+
+    let mut server = Server::start_dashboard_only_at_repository_root(repository.path());
+    let stop = Arc::new(AtomicBool::new(false));
+    let worker = {
+        let stop = Arc::clone(&stop);
+        let real = real.clone();
+        let outside = outside.clone();
+        std::thread::spawn(move || {
+            while !stop.load(Ordering::Relaxed) {
+                let is_symlink = real
+                    .symlink_metadata()
+                    .map(|metadata| metadata.file_type().is_symlink())
+                    .unwrap_or(false);
+                if is_symlink {
+                    let _ = std::fs::remove_file(&real);
+                    let _ = std::fs::create_dir_all(&real);
+                    let _ = std::fs::write(real.join("doc.md"), "inside-evidence-body");
+                } else {
+                    let _ = std::fs::remove_dir_all(&real);
+                    let _ = symlink(&outside, &real);
+                }
+            }
+        })
+    };
+    let endpoint = format!("/api/runs/{RUN_ID}/evidence?path=evidence%2Fdoc.md");
+    for _ in 0..200 {
+        let response = server.request_without_access("GET", &endpoint, None);
+        assert!(
+            !response.body.contains(SECURITY_CANARY_506),
+            "leaked the outside canary: {}",
+            response.body
+        );
+    }
+    stop.store(true, Ordering::Relaxed);
+    worker.join().unwrap();
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn session_documents_refuse_symlinked_artifacts_and_events() {
+    use std::os::unix::fs::symlink;
+
+    const SESSION_ID: &str = "018f0e32-7b80-7000-8000-000000000090";
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    let run_root = workspace.join(".anvil/runs").join(SESSION_ID);
+    std::fs::create_dir_all(&run_root).unwrap();
+    std::fs::write(run_root.join("summary.md"), "inside summary\n").unwrap();
+    let outside = temp.path().join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("doc.md"), format!("{SECURITY_CANARY_506}\n")).unwrap();
+    std::fs::write(
+        outside.join("events.jsonl"),
+        format!("{{\"event\":\"{SECURITY_CANARY_506}\"}}\n"),
+    )
+    .unwrap();
+    symlink(outside.join("doc.md"), run_root.join("link.md")).unwrap();
+    symlink(outside.join("events.jsonl"), run_root.join("events.jsonl")).unwrap();
+
+    let mut server = Server::start(
+        &workspace,
+        std::path::Path::new(env!("CARGO_BIN_EXE_commandagent")),
+    );
+
+    let artifacts = server.request(
+        "GET",
+        &format!("/api/sessions/{SESSION_ID}/artifacts?path=link.md"),
+        None,
+    );
+    assert_eq!(artifacts.status, 404, "{}", artifacts.body);
+    assert!(
+        !artifacts.body.contains(SECURITY_CANARY_506),
+        "{}",
+        artifacts.body
+    );
+
+    let events = server.request(
+        "GET",
+        &format!("/api/sessions/{SESSION_ID}/events?tail=5"),
+        None,
+    );
+    assert_eq!(events.status, 404, "{}", events.body);
+    assert!(
+        !events.body.contains(SECURITY_CANARY_506),
+        "{}",
+        events.body
+    );
+
+    let inside = server.request(
+        "GET",
+        &format!("/api/sessions/{SESSION_ID}/artifacts?path=summary.md"),
+        None,
+    );
+    assert_eq!(inside.status, 200, "{}", inside.body);
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn session_events_never_leak_during_a_leaf_swap() {
+    use std::os::unix::fs::symlink;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    const SESSION_ID: &str = "018f0e32-7b80-7000-8000-000000000091";
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    let run_root = workspace.join(".anvil/runs").join(SESSION_ID);
+    std::fs::create_dir_all(&run_root).unwrap();
+    let real = run_root.join("events.jsonl");
+    std::fs::write(&real, "{\"event\":\"inside\"}\n").unwrap();
+    let outside = temp.path().join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(
+        outside.join("events.jsonl"),
+        format!("{{\"event\":\"{SECURITY_CANARY_506}\"}}\n"),
+    )
+    .unwrap();
+
+    let mut server = Server::start(
+        &workspace,
+        std::path::Path::new(env!("CARGO_BIN_EXE_commandagent")),
+    );
+    let stop = Arc::new(AtomicBool::new(false));
+    let worker = {
+        let stop = Arc::clone(&stop);
+        let real = real.clone();
+        let outside = outside.clone();
+        std::thread::spawn(move || {
+            while !stop.load(Ordering::Relaxed) {
+                let is_symlink = real
+                    .symlink_metadata()
+                    .map(|metadata| metadata.file_type().is_symlink())
+                    .unwrap_or(false);
+                if is_symlink {
+                    let _ = std::fs::remove_file(&real);
+                    let _ = std::fs::write(&real, "{\"event\":\"inside\"}\n");
+                } else {
+                    let _ = std::fs::remove_file(&real);
+                    let _ = symlink(outside.join("events.jsonl"), &real);
+                }
+            }
+        })
+    };
+    let endpoint = format!("/api/sessions/{SESSION_ID}/events?tail=1");
+    for _ in 0..200 {
+        let response = server.request("GET", &endpoint, None);
+        assert!(
+            !response.body.contains(SECURITY_CANARY_506),
+            "leaked the outside canary: {}",
+            response.body
+        );
+    }
+    stop.store(true, Ordering::Relaxed);
+    worker.join().unwrap();
+    server.stop();
+}
+
+// Issue #562 — a run id that is a symlink (inward or outward) must not let a
+// read escape the runs root, and an error body must never carry the server's
+// absolute path. Every fixture uses synthetic values inside a tempdir; the
+// "outside" directory is a sibling of the served repository, never a real host
+// path. The marker `H01_562_FAKE_outside_*` must never appear in a body.
+#[cfg(unix)]
+const SECURITY_CANARY_562: &str = "H01_562_FAKE_outside_secret";
+
+#[cfg(unix)]
+struct RunSymlinkFixture {
+    repository: tempfile::TempDir,
+}
+
+#[cfg(unix)]
+fn run_symlink_fixture() -> RunSymlinkFixture {
+    use std::os::unix::fs::symlink;
+
+    let repository = tempfile::tempdir().unwrap();
+    let runs_root = repository.path().join("workspace/management/runs");
+    let run1 = runs_root.join("run1");
+    std::fs::create_dir_all(run1.join("evidence")).unwrap();
+    std::fs::write(run1.join("evidence/doc.md"), "inside-evidence\n").unwrap();
+    std::fs::write(
+        run1.join("acceptance-sheet.md"),
+        "# Acceptance\n\nStatus: FULL 1/1\n",
+    )
+    .unwrap();
+    std::fs::write(run1.join("measurement-report.md"), "# report\n").unwrap();
+    std::fs::write(run1.join("big.md"), vec![b'x'; 1_048_577]).unwrap();
+
+    let outside = repository.path().join("outside");
+    let run_ext = outside.join("run-ext");
+    std::fs::create_dir_all(run_ext.join("evidence")).unwrap();
+    for relative in [
+        "doc.md",
+        "evidence/doc.md",
+        "report.md",
+        "acceptance-sheet.md",
+        "measurement-report.md",
+    ] {
+        std::fs::write(run_ext.join(relative), format!("{SECURITY_CANARY_562}\n")).unwrap();
+    }
+    std::fs::write(
+        outside.join("secret.md"),
+        format!("{SECURITY_CANARY_562}\n"),
+    )
+    .unwrap();
+
+    symlink(&run_ext, runs_root.join("linkrun")).unwrap();
+    symlink(&run1, runs_root.join("linkrun-in")).unwrap();
+    symlink(outside.join("secret.md"), run1.join("linkout.md")).unwrap();
+    symlink(run1.join("evidence/doc.md"), run1.join("linkin.md")).unwrap();
+
+    RunSymlinkFixture { repository }
+}
+
+#[cfg(unix)]
+fn assert_response_has_no_leak_562(
+    response: &HttpResponse,
+    fixture: &RunSymlinkFixture,
+    status: u16,
+    code: &str,
+) {
+    assert_eq!(response.status, status, "{}", response.body);
+    assert!(
+        !response.body.contains(SECURITY_CANARY_562),
+        "body leaked the outside canary: {}",
+        response.body
+    );
+    for needle in [
+        fixture.repository.path().to_string_lossy().to_string(),
+        fixture
+            .repository
+            .path()
+            .parent()
+            .unwrap()
+            .to_string_lossy()
+            .to_string(),
+    ] {
+        assert!(
+            !response.body.contains(&needle),
+            "body leaked the absolute path {needle}: {}",
+            response.body
+        );
+    }
+    assert_eq!(response.json()["code"], code, "{}", response.body);
+}
+
+/// Rows 1, 2, 5, 6, 9: a symlinked run id is a 404 for both the evidence and the
+/// detail endpoints, inward and outward, while the real run keeps its shape.
+#[cfg(unix)]
+#[test]
+fn run_documents_refuse_a_symlinked_run_id() {
+    let fixture = run_symlink_fixture();
+    let mut server = Server::start_dashboard_only_at_repository_root(fixture.repository.path());
+
+    // Row 1: an outward run-id symlink is refused for every evidence path.
+    for path in ["doc.md", "evidence/doc.md", "report.md"] {
+        let response = server.request_without_access(
+            "GET",
+            &format!("/api/runs/linkrun/evidence?path={path}"),
+            None,
+        );
+        assert_response_has_no_leak_562(&response, &fixture, 404, "resource_not_found");
+    }
+
+    // Row 2: an inward run-id symlink is refused too (the #506 rule).
+    let inward = server.request_without_access(
+        "GET",
+        "/api/runs/linkrun-in/evidence?path=evidence/doc.md",
+        None,
+    );
+    assert_response_has_no_leak_562(&inward, &fixture, 404, "resource_not_found");
+
+    // Rows 5 (D) and 6 (K): run_detail refuses both symlinked run ids.
+    for id in ["linkrun", "linkrun-in"] {
+        let response = server.request_without_access("GET", &format!("/api/runs/{id}"), None);
+        assert_response_has_no_leak_562(&response, &fixture, 404, "resource_not_found");
+    }
+
+    // Row 9 (K): the normal evidence response keeps its identifiers and body.
+    let normal =
+        server.request_without_access("GET", "/api/runs/run1/evidence?path=evidence/doc.md", None);
+    assert_eq!(normal.status, 200, "{}", normal.body);
+    let body = normal.json();
+    assert_eq!(body["id"], "doc.md");
+    assert_eq!(body["path"], "evidence/doc.md");
+    assert_eq!(body["content"], "inside-evidence\n");
+
+    // The real detail also keeps its acceptance body.
+    let detail = server.request_without_access("GET", "/api/runs/run1", None);
+    assert_eq!(detail.status, 200, "{}", detail.body);
+    assert_eq!(detail.json()["id"], "run1");
+    assert!(
+        detail.json()["acceptance"]
+            .as_str()
+            .is_some_and(|text| text.contains("FULL 1/1")),
+        "{}",
+        detail.body
+    );
+    server.stop();
+}
+
+/// Rows 10-15: refusal and read failures return root-free bodies while keeping
+/// their status and machine-readable code.
+#[cfg(unix)]
+#[test]
+fn run_document_errors_have_no_absolute_path() {
+    let fixture = run_symlink_fixture();
+    let mut server = Server::start_dashboard_only_at_repository_root(fixture.repository.path());
+
+    // Row 10: a symlink inside the run is refused with a root-free body.
+    for path in ["linkout.md", "linkin.md"] {
+        let response = server.request_without_access(
+            "GET",
+            &format!("/api/runs/run1/evidence?path={path}"),
+            None,
+        );
+        assert_response_has_no_leak_562(&response, &fixture, 404, "resource_not_found");
+    }
+
+    // Rows 11-12: a missing document and a missing directory component.
+    for path in ["nope.md", "nodir/nope.md"] {
+        let response = server.request_without_access(
+            "GET",
+            &format!("/api/runs/run1/evidence?path={path}"),
+            None,
+        );
+        assert_response_has_no_leak_562(&response, &fixture, 404, "resource_not_found");
+    }
+
+    // Row 13: a missing run id.
+    let missing_run =
+        server.request_without_access("GET", "/api/runs/nope/evidence?path=doc.md", None);
+    assert_response_has_no_leak_562(&missing_run, &fixture, 404, "resource_not_found");
+
+    // Row 14: a report read whose run id escapes the runs root.
+    let escape =
+        server.request_without_access("GET", "/api/reports/view?path=linkrun/report.md", None);
+    assert_response_has_no_leak_562(&escape, &fixture, 404, "resource_not_found");
+
+    // Row 15 (D): an oversized document stays a 413 and drops the path.
+    let oversized =
+        server.request_without_access("GET", "/api/runs/run1/evidence?path=big.md", None);
+    assert_response_has_no_leak_562(&oversized, &fixture, 413, "resource_too_large");
+
+    server.stop();
+}
+
+/// Rows 7 and 8 (K): the reports view and the run/report/band indexes keep their
+/// existing symlinked-run-id boundary.
+#[cfg(unix)]
+#[test]
+fn run_lists_and_reports_keep_the_symlink_boundary() {
+    let fixture = run_symlink_fixture();
+    let mut server = Server::start_dashboard_only_at_repository_root(fixture.repository.path());
+
+    // Row 7 (K): reports below a symlinked run id are 404; the real one is 200.
+    for path in ["linkrun/report.md", "linkrun-in/measurement-report.md"] {
+        let response =
+            server.request_without_access("GET", &format!("/api/reports/view?path={path}"), None);
+        assert_response_has_no_leak_562(&response, &fixture, 404, "resource_not_found");
+    }
+    let real = server.request_without_access(
+        "GET",
+        "/api/reports/view?path=run1/measurement-report.md",
+        None,
+    );
+    assert_eq!(real.status, 200, "{}", real.body);
+    assert_eq!(real.json()["path"], "run1/measurement-report.md");
+
+    // Row 8 (K): the indexes list only the real run, never a symlinked id.
+    let index = server.request_without_access("GET", "/api/runs", None);
+    assert_eq!(index.status, 200, "{}", index.body);
+    let index = index.json();
+    let ids: Vec<&str> = index["runs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|run| run["id"].as_str())
+        .collect();
+    assert!(ids.contains(&"run1"), "{ids:?}");
+    assert!(!ids.contains(&"linkrun"), "{ids:?}");
+    assert!(!ids.contains(&"linkrun-in"), "{ids:?}");
+
+    let reports = server.request_without_access("GET", "/api/reports", None);
+    assert_eq!(reports.status, 200, "{}", reports.body);
+    let reports = reports.json();
+    let paths: Vec<&str> = reports
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|report| report["path"].as_str())
+        .collect();
+    assert!(paths.contains(&"run1/measurement-report.md"), "{paths:?}");
+    assert!(
+        !paths.iter().any(|path| path.contains("linkrun")),
+        "{paths:?}"
+    );
+
+    let bands = server.request_without_access("GET", "/api/bands", None);
+    assert_eq!(bands.status, 200, "{}", bands.body);
+    server.stop();
+}
+
+/// Rows 3 and 4: while the run id is repeatedly swapped between a real
+/// directory and an outward symlink, a detail or evidence read never returns the
+/// outside acceptance body.
+#[cfg(unix)]
+#[test]
+fn run_id_swap_never_leaks_outside_content() {
+    use std::os::unix::fs::symlink;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    const RUN_ID: &str = "run1";
+    let repository = tempfile::tempdir().unwrap();
+    let runs_root = repository.path().join("workspace/management/runs");
+    let run_root = runs_root.join(RUN_ID);
+    std::fs::create_dir_all(run_root.join("evidence")).unwrap();
+    std::fs::write(run_root.join("evidence/doc.md"), "inside-evidence\n").unwrap();
+    std::fs::write(
+        run_root.join("acceptance-sheet.md"),
+        "# Acceptance\n\nStatus: PASS\n",
+    )
+    .unwrap();
+
+    let outside = repository.path().join("outside");
+    let run_ext = outside.join("run-ext");
+    std::fs::create_dir_all(run_ext.join("evidence")).unwrap();
+    std::fs::write(
+        run_ext.join("evidence/doc.md"),
+        format!("{SECURITY_CANARY_562}\n"),
+    )
+    .unwrap();
+    std::fs::write(
+        run_ext.join("acceptance-sheet.md"),
+        format!("{SECURITY_CANARY_562}\n"),
+    )
+    .unwrap();
+
+    let mut server = Server::start_dashboard_only_at_repository_root(repository.path());
+    let stop = Arc::new(AtomicBool::new(false));
+    let worker = {
+        let stop = Arc::clone(&stop);
+        let run_root = run_root.clone();
+        let run_ext = run_ext.clone();
+        std::thread::spawn(move || {
+            while !stop.load(Ordering::Relaxed) {
+                let is_symlink = run_root
+                    .symlink_metadata()
+                    .map(|metadata| metadata.file_type().is_symlink())
+                    .unwrap_or(false);
+                if is_symlink {
+                    let _ = std::fs::remove_file(&run_root);
+                    let _ = std::fs::create_dir_all(run_root.join("evidence"));
+                    let _ = std::fs::write(run_root.join("evidence/doc.md"), "inside-evidence\n");
+                    let _ = std::fs::write(
+                        run_root.join("acceptance-sheet.md"),
+                        "# Acceptance\n\nStatus: PASS\n",
+                    );
+                } else {
+                    let _ = std::fs::remove_dir_all(&run_root);
+                    let _ = symlink(&run_ext, &run_root);
+                }
+            }
+        })
+    };
+    let detail_endpoint = format!("/api/runs/{RUN_ID}");
+    let evidence_endpoint = format!("/api/runs/{RUN_ID}/evidence?path=evidence%2Fdoc.md");
+    for _ in 0..300 {
+        let detail = server.request_without_access("GET", &detail_endpoint, None);
+        assert!(
+            !detail.body.contains(SECURITY_CANARY_562),
+            "detail leaked the outside canary: {}",
+            detail.body
+        );
+        let evidence = server.request_without_access("GET", &evidence_endpoint, None);
+        assert!(
+            !evidence.body.contains(SECURITY_CANARY_562),
+            "evidence leaked the outside canary: {}",
+            evidence.body
+        );
+    }
+    stop.store(true, Ordering::Relaxed);
+    worker.join().unwrap();
+    server.stop();
+}
+
+/// Row 16 (D): the events tail 404 keeps its status and code without exposing
+/// the server's absolute path.
+#[cfg(unix)]
+#[test]
+fn session_event_tail_404_has_no_absolute_path() {
+    use std::os::unix::fs::symlink;
+
+    const SESSION_ID: &str = "018f0e32-7b80-7000-8000-000000000092";
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    let run_root = workspace.join(".anvil/runs").join(SESSION_ID);
+    std::fs::create_dir_all(&run_root).unwrap();
+    std::fs::write(run_root.join("summary.md"), "inside summary\n").unwrap();
+    let outside = temp.path().join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(
+        outside.join("events.jsonl"),
+        format!("{{\"event\":\"{SECURITY_CANARY_562}\"}}\n"),
+    )
+    .unwrap();
+    symlink(outside.join("events.jsonl"), run_root.join("events.jsonl")).unwrap();
+
+    let mut server = Server::start(
+        &workspace,
+        std::path::Path::new(env!("CARGO_BIN_EXE_commandagent")),
+    );
+    let response = server.request(
+        "GET",
+        &format!("/api/sessions/{SESSION_ID}/events?tail=5"),
+        None,
+    );
+    assert_eq!(response.status, 404, "{}", response.body);
+    assert_eq!(response.json()["code"], "resource_not_found");
+    assert!(
+        !response.body.contains(SECURITY_CANARY_562),
+        "{}",
+        response.body
+    );
+    for needle in [
+        temp.path().to_string_lossy().to_string(),
+        temp.path().parent().unwrap().to_string_lossy().to_string(),
+    ] {
+        assert!(
+            !response.body.contains(&needle),
+            "body leaked the absolute path {needle}: {}",
+            response.body
+        );
+    }
+    server.stop();
+}
+
+/// Row 16 (D): while the events leaf is swapped for a symlink, the read failure
+/// that only the fd open sees must not put the server's absolute path in the
+/// body either.
+#[cfg(unix)]
+#[test]
+fn session_event_tail_swap_has_no_absolute_path() {
+    use std::os::unix::fs::symlink;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    const SESSION_ID: &str = "018f0e32-7b80-7000-8000-000000000093";
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    let run_root = workspace.join(".anvil/runs").join(SESSION_ID);
+    std::fs::create_dir_all(&run_root).unwrap();
+    let real = run_root.join("events.jsonl");
+    std::fs::write(&real, "{\"event\":\"inside\"}\n").unwrap();
+    let outside = temp.path().join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(
+        outside.join("events.jsonl"),
+        format!("{{\"event\":\"{SECURITY_CANARY_562}\"}}\n"),
+    )
+    .unwrap();
+
+    let mut server = Server::start(
+        &workspace,
+        std::path::Path::new(env!("CARGO_BIN_EXE_commandagent")),
+    );
+    let stop = Arc::new(AtomicBool::new(false));
+    let worker = {
+        let stop = Arc::clone(&stop);
+        let real = real.clone();
+        let outside = outside.clone();
+        std::thread::spawn(move || {
+            while !stop.load(Ordering::Relaxed) {
+                let is_symlink = real
+                    .symlink_metadata()
+                    .map(|metadata| metadata.file_type().is_symlink())
+                    .unwrap_or(false);
+                if is_symlink {
+                    let _ = std::fs::remove_file(&real);
+                    let _ = std::fs::write(&real, "{\"event\":\"inside\"}\n");
+                } else {
+                    let _ = std::fs::remove_file(&real);
+                    let _ = symlink(outside.join("events.jsonl"), &real);
+                }
+            }
+        })
+    };
+    let endpoint = format!("/api/sessions/{SESSION_ID}/events?tail=1");
+    let absolute = temp.path().to_string_lossy().to_string();
+    for _ in 0..300 {
+        let response = server.request("GET", &endpoint, None);
+        assert!(
+            !response.body.contains(SECURITY_CANARY_562),
+            "leaked the outside canary: {}",
+            response.body
+        );
+        assert!(
+            !response.body.contains(&absolute),
+            "body leaked the absolute path {absolute}: {}",
+            response.body
+        );
+    }
+    stop.store(true, Ordering::Relaxed);
+    worker.join().unwrap();
+    server.stop();
 }

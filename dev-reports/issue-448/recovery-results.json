@@ -1,0 +1,193 @@
+{
+  "kind": "measured production Recovery gate with scripted observations",
+  "reason_normalization": "Command outcome timing/stdout suffix omitted; event fields otherwise retained.",
+  "results": [
+    {
+      "boundary": "AllChecksPass",
+      "build_exit_code": 1,
+      "case": "export-only",
+      "control_after_sha256": "7dd473f8a6f7099520c9892ff2b88d4a4048e6c3327d71f03c2eb37b90f0504c",
+      "control_before_sha256": "7dd473f8a6f7099520c9892ff2b88d4a4048e6c3327d71f03c2eb37b90f0504c",
+      "decision": {
+        "decision": "rejected",
+        "event": "recovery_promotion_decision",
+        "external_oracle_used": false,
+        "reason": "command failed: sh fixture-build.sh",
+        "recovery_plan_auto_run_current": 1,
+        "schema_version": "1"
+      },
+      "kind": "scripted observations through production Recovery gate",
+      "treatment_sha256": "a5359ebf99e202f274496f685be6b374b57307603348cf8f291d902ba173ad6a"
+    },
+    {
+      "boundary": "AllChecksPass",
+      "build_exit_code": 1,
+      "case": "original",
+      "control_after_sha256": "24c14916f3bf948c207501b6c4d29b9d0130a260216e9172bda4f2ebab330735",
+      "control_before_sha256": "24c14916f3bf948c207501b6c4d29b9d0130a260216e9172bda4f2ebab330735",
+      "decision": {
+        "decision": "rejected",
+        "event": "recovery_promotion_decision",
+        "external_oracle_used": false,
+        "reason": "command failed: sh fixture-build.sh",
+        "recovery_plan_auto_run_current": 1,
+        "schema_version": "1"
+      },
+      "kind": "scripted observations through production Recovery gate",
+      "treatment_sha256": "24c14916f3bf948c207501b6c4d29b9d0130a260216e9172bda4f2ebab330735"
+    },
+    {
+      "boundary": "AllChecksPass",
+      "build_exit_code": 1,
+      "case": "projects-and-export",
+      "control_after_sha256": "b4e9271210b720ff09e8344fd57a3fcf59c733fadf695a80f5f09749e7925ad3",
+      "control_before_sha256": "b4e9271210b720ff09e8344fd57a3fcf59c733fadf695a80f5f09749e7925ad3",
+      "decision": {
+        "decision": "rejected",
+        "event": "recovery_promotion_decision",
+        "external_oracle_used": false,
+        "reason": "command failed: sh fixture-build.sh",
+        "recovery_plan_auto_run_current": 1,
+        "schema_version": "1"
+      },
+      "kind": "scripted observations through production Recovery gate",
+      "treatment_sha256": "0480b401de20eb1fc8f73475f0677dfc326610cc5cde318eae1beca0749efcf9"
+    },
+    {
+      "boundary": "AllChecksPass",
+      "build_exit_code": 1,
+      "case": "promise-only",
+      "control_after_sha256": "f0d21af5035737a0f0df63861723100c2903b7bbc330b419b25a9d93e7661bfb",
+      "control_before_sha256": "f0d21af5035737a0f0df63861723100c2903b7bbc330b419b25a9d93e7661bfb",
+      "decision": {
+        "decision": "rejected",
+        "event": "recovery_promotion_decision",
+        "external_oracle_used": false,
+        "reason": "command failed: sh fixture-build.sh",
+        "recovery_plan_auto_run_current": 1,
+        "schema_version": "1"
+      },
+      "kind": "scripted observations through production Recovery gate",
+      "treatment_sha256": "505118e0ccd82adf5e420959e64eaf3a02851e3f1fb5090d964a28333128fdf8"
+    },
+    {
+      "boundary": "AdditionalCheckFails",
+      "build_exit_code": 0,
+      "case": "repaired",
+      "control_after_sha256": "562603e2b53faf56d053711e1b58f2a0a90a6d46a9aba4852cd052cdb255ce62",
+      "control_before_sha256": "562603e2b53faf56d053711e1b58f2a0a90a6d46a9aba4852cd052cdb255ce62",
+      "decision": {
+        "decision": "rejected",
+        "event": "recovery_promotion_decision",
+        "external_oracle_used": false,
+        "reason": "command failed: sh fixture-acceptance.sh",
+        "recovery_plan_auto_run_current": 1,
+        "schema_version": "1"
+      },
+      "kind": "scripted observations through production Recovery gate",
+      "treatment_sha256": "5fef310f19ebde35ba41a439c8151db0300e681fa8379393574620c1ea64926b"
+    },
+    {
+      "boundary": "AllChecksPass",
+      "build_exit_code": 0,
+      "case": "repaired",
+      "control_after_sha256": "59139233d02d23f2e4963ef4d17e34d895da803148d6facd5cc5c2742100f386",
+      "control_before_sha256": "154db6e1f9a032ca2b08075b81b0404fba2533e47999f3ca77e4a0424c7aba95",
+      "decision": {
+        "decision": "promoted",
+        "event": "recovery_promotion_decision",
+        "external_oracle_used": false,
+        "reason": "registered_final_success_passed",
+        "recovery_plan_auto_run_current": 1,
+        "schema_version": "1"
+      },
+      "kind": "scripted observations through production Recovery gate",
+      "treatment_sha256": "59139233d02d23f2e4963ef4d17e34d895da803148d6facd5cc5c2742100f386"
+    },
+    {
+      "boundary": "DeletedApi",
+      "build_exit_code": 0,
+      "case": "repaired",
+      "control_after_sha256": "154db6e1f9a032ca2b08075b81b0404fba2533e47999f3ca77e4a0424c7aba95",
+      "control_before_sha256": "154db6e1f9a032ca2b08075b81b0404fba2533e47999f3ca77e4a0424c7aba95",
+      "decision": {
+        "decision": "rejected",
+        "event": "recovery_promotion_decision",
+        "external_oracle_used": false,
+        "reason": "src/app/api/tasks/[id]/route.ts",
+        "recovery_plan_auto_run_current": 1,
+        "schema_version": "1"
+      },
+      "kind": "scripted observations through production Recovery gate",
+      "treatment_sha256": "ddef3ca07cc95c88da5524a4a983c526f456bd7249dda880986bb66b9582979c"
+    },
+    {
+      "boundary": "MissingEvidence",
+      "build_exit_code": 0,
+      "case": "repaired",
+      "control_after_sha256": "154db6e1f9a032ca2b08075b81b0404fba2533e47999f3ca77e4a0424c7aba95",
+      "control_before_sha256": "154db6e1f9a032ca2b08075b81b0404fba2533e47999f3ca77e4a0424c7aba95",
+      "decision": {
+        "decision": "rejected",
+        "event": "recovery_promotion_decision",
+        "external_oracle_used": false,
+        "reason": "registered_observations_passed_but_completion_contract_acceptance_failed:missing_required_evidence:test_artifact",
+        "recovery_plan_auto_run_current": 1,
+        "schema_version": "1"
+      },
+      "kind": "scripted observations through production Recovery gate",
+      "treatment_sha256": "59139233d02d23f2e4963ef4d17e34d895da803148d6facd5cc5c2742100f386"
+    },
+    {
+      "boundary": "WeakenedContract",
+      "build_exit_code": 0,
+      "case": "repaired",
+      "control_after_sha256": "154db6e1f9a032ca2b08075b81b0404fba2533e47999f3ca77e4a0424c7aba95",
+      "control_before_sha256": "154db6e1f9a032ca2b08075b81b0404fba2533e47999f3ca77e4a0424c7aba95",
+      "decision": {
+        "decision": "rejected",
+        "event": "recovery_promotion_decision",
+        "external_oracle_used": false,
+        "reason": "recovery_observer_authority_changed",
+        "recovery_plan_auto_run_current": 1,
+        "schema_version": "1"
+      },
+      "kind": "scripted observations through production Recovery gate",
+      "treatment_sha256": "59139233d02d23f2e4963ef4d17e34d895da803148d6facd5cc5c2742100f386"
+    },
+    {
+      "boundary": "AllChecksPass",
+      "build_exit_code": 1,
+      "case": "ui-only",
+      "control_after_sha256": "24c14916f3bf948c207501b6c4d29b9d0130a260216e9172bda4f2ebab330735",
+      "control_before_sha256": "24c14916f3bf948c207501b6c4d29b9d0130a260216e9172bda4f2ebab330735",
+      "decision": {
+        "decision": "rejected",
+        "event": "recovery_promotion_decision",
+        "external_oracle_used": false,
+        "reason": "command failed: sh fixture-build.sh",
+        "recovery_plan_auto_run_current": 1,
+        "schema_version": "1"
+      },
+      "kind": "scripted observations through production Recovery gate",
+      "treatment_sha256": "02b3407e8f7322cee38527b4c84b64d75a4a1f2f89b19b65962407957ecf2fac"
+    },
+    {
+      "boundary": "ExecutionFailed",
+      "build_exit_code": 1,
+      "case": "ui-only",
+      "control_after_sha256": "24c14916f3bf948c207501b6c4d29b9d0130a260216e9172bda4f2ebab330735",
+      "control_before_sha256": "24c14916f3bf948c207501b6c4d29b9d0130a260216e9172bda4f2ebab330735",
+      "decision": {
+        "decision": "rejected",
+        "event": "recovery_promotion_decision",
+        "external_oracle_used": false,
+        "reason": "recovery_execution_failed",
+        "recovery_plan_auto_run_current": 1,
+        "schema_version": "1"
+      },
+      "kind": "scripted observations through production Recovery gate",
+      "treatment_sha256": "02b3407e8f7322cee38527b4c84b64d75a4a1f2f89b19b65962407957ecf2fac"
+    }
+  ]
+}

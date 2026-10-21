@@ -8,3 +8,11 @@ pub(crate) fn runtime_acceptance_report(
 ) -> anyhow::Result<RuntimeAcceptanceReport> {
     super::adjudication_create::ultra_contract_runtime_acceptance_report(plan, config)
 }
+
+#[cfg(test)]
+pub(crate) fn final_acceptance_report(
+    plan: &UltraPlan,
+    config: &Config,
+) -> anyhow::Result<crate::planner::verify::VerificationReport> {
+    super::final_acceptance::ultra_final_acceptance_report(plan, config)
+}

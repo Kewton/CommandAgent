@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 import subprocess
 import time
 from dataclasses import dataclass
@@ -58,5 +59,5 @@ def run_capture(
 
 
 def command_available(name: str) -> bool:
-    return subprocess.run(["/usr/bin/env", "sh", "-c", f"command -v {name}"], capture_output=True).returncode == 0
+    return shutil.which(name) is not None
 

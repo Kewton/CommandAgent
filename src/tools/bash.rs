@@ -6,8 +6,19 @@ use anyhow::{Context, bail};
 
 use crate::bounded_process::{self, BoundedProcessOutcomeKind};
 
+pub(crate) mod path_tokens;
+mod read_guard;
+
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(180);
 const MAX_STREAM_BYTES: usize = 24_000;
+/// The fixed text that replaces the caller's command in an error message.
+/// Issue #557 keeps the error kind and prefix but never echoes the command.
+const OMITTED_COMMAND: &str = "command text omitted";
+/// `build_summary` emits this summary when no diagnostic line was extracted.
+/// It is the only summary that carries the command, so the prefix check below
+/// is enough to tell it apart from an extracted error line.
+const COMMAND_DID_NOT_SUCCEED_PREFIX: &str = "command did not succeed: ";
+const COMMAND_DID_NOT_SUCCEED: &str = "command did not succeed";
 const OUTSIDE_WORKSPACE_MARKER: &str = "[outside workspace root — do not reference]";
 const INSPECT_MAX_DEPTH: usize = 3;
 const INSPECT_MAX_RESULTS: usize = 200;
@@ -102,18 +113,39 @@ fn run_with_timeout(
         bail!("{}", outcome.summary);
     }
     if outcome.kind == BashOutcomeKind::Timeout {
-        bail!("command_timeout: {command}\n{}", format_outcome(&outcome));
+        bail!(
+            "command_timeout: {OMITTED_COMMAND}\n{}",
+            format_outcome_without_command(&outcome)
+        );
     }
     Ok(format_outcome(&outcome))
 }
 
 pub fn run_checked(command: &str, root: &Path, offline: bool) -> anyhow::Result<String> {
-    let outcome = run_structured(command, root, offline, DEFAULT_TIMEOUT, || false)?;
-    let formatted = format_outcome(&outcome);
-    if !outcome.is_success() {
-        bail!("command failed: {command}\n{formatted}");
+    run_checked_with_timeout(command, root, offline, DEFAULT_TIMEOUT)
+}
+
+/// `run_checked` with an explicit timeout. The timeout case is exercised from
+/// the test module with a short budget; production always uses
+/// [`DEFAULT_TIMEOUT`].
+fn run_checked_with_timeout(
+    command: &str,
+    root: &Path,
+    offline: bool,
+    timeout: Duration,
+) -> anyhow::Result<String> {
+    let outcome = run_structured(command, root, offline, timeout, || false)?;
+    if outcome.kind == BashOutcomeKind::Blocked {
+        // Issue #557: a refusal returns only the summary, matching `run`.
+        bail!("{}", outcome.summary);
     }
-    Ok(formatted)
+    if !outcome.is_success() {
+        bail!(
+            "command failed: {OMITTED_COMMAND}\n{}",
+            format_outcome_without_command(&outcome)
+        );
+    }
+    Ok(format_outcome(&outcome))
 }
 
 pub fn run_structured<F>(
@@ -142,13 +174,38 @@ where
     G: Fn() -> bool,
 {
     let started = Instant::now();
+    if let Some(rejection) = super::placeholder_path::rejection(command, root) {
+        super::placeholder_path::record_rejection(root, command).map_err(|_| {
+            anyhow::anyhow!("bash_path_confinement_error: placeholder path detected; private evidence recording failed; command remains blocked; retry with workspace-relative paths")
+        })?;
+        return Ok(BashOutcome {
+            kind: BashOutcomeKind::Blocked,
+            status: None,
+            stdout: String::new(),
+            stderr: String::new(),
+            elapsed_ms: started.elapsed().as_millis(),
+            summary: rejection.message,
+        });
+    }
     let command = strip_workspace_root_cd_prefix(command, root)
         .map(|normalization| normalization.normalized_command)
         .unwrap_or_else(|| command.to_string());
+    // Inspect the caller-supplied command before our own bounded rewrite, so a
+    // command appended after a recognized broad prefix is still scanned.
+    if let Some(reason) = sensitive_bash_rejection(&command) {
+        return Ok(BashOutcome {
+            kind: BashOutcomeKind::Blocked,
+            status: None,
+            stdout: String::new(),
+            stderr: String::new(),
+            elapsed_ms: started.elapsed().as_millis(),
+            summary: reason,
+        });
+    }
     let command = normalize_inspect_command(&command, root)
         .map(|normalization| normalization.normalized)
         .unwrap_or(command);
-    if let Some(reason) = blocked_reason(&command, offline) {
+    if let Some(reason) = structural_blocked_reason(&command, offline) {
         return Ok(BashOutcome {
             kind: BashOutcomeKind::Blocked,
             status: None,
@@ -171,14 +228,28 @@ where
 
     let mut process = Command::new("sh");
     process.arg("-c").arg(&command).current_dir(root);
+    let mut process = match super::os_sandbox::wrap_command(process) {
+        Ok(process) => process,
+        Err(refusal) => {
+            return Ok(BashOutcome {
+                kind: BashOutcomeKind::Blocked,
+                status: None,
+                stdout: String::new(),
+                stderr: String::new(),
+                elapsed_ms: started.elapsed().as_millis(),
+                summary: refusal.summary(),
+            });
+        }
+    };
     process.stdout(Stdio::piped()).stderr(Stdio::piped());
+    remove_shell_cdpath(&mut process);
     let output = bounded_process::run_with_timeout_cancel_and_force(
         &mut process,
         timeout,
         is_cancelled,
         is_force_cancelled,
     )
-    .with_context(|| format!("failed to spawn command: {command}"))?;
+    .context("failed to spawn command")?;
 
     let stdout = redact_engine_private_output(&String::from_utf8_lossy(&output.stdout), root);
     let stderr = redact_engine_private_output(&String::from_utf8_lossy(&output.stderr), root);
@@ -233,12 +304,30 @@ where
 }
 
 pub fn format_outcome(outcome: &BashOutcome) -> String {
+    format_outcome_with_summary(outcome, &outcome.summary)
+}
+
+/// The formatted outcome with the command removed from its summary. Only the
+/// `command did not succeed: <command>` summary carries the command (a failure
+/// whose output had no diagnostic line); an extracted error line is returned
+/// unchanged. Used at the two error-construction points in this module
+/// (`run_checked` and the `run` timeout), never in an `Ok` body.
+fn format_outcome_without_command(outcome: &BashOutcome) -> String {
+    let summary = if outcome.summary.starts_with(COMMAND_DID_NOT_SUCCEED_PREFIX) {
+        COMMAND_DID_NOT_SUCCEED
+    } else {
+        outcome.summary.as_str()
+    };
+    format_outcome_with_summary(outcome, summary)
+}
+
+fn format_outcome_with_summary(outcome: &BashOutcome, summary: &str) -> String {
     format!(
         "outcome: {:?}\nstatus: {}\nelapsed_ms: {}\nsummary: {}\nstdout:\n{}\nstderr:\n{}",
         outcome.kind,
         outcome.status.as_deref().unwrap_or("none"),
         outcome.elapsed_ms,
-        outcome.summary,
+        summary,
         outcome.stdout,
         outcome.stderr
     )
@@ -297,7 +386,10 @@ pub fn normalize_inspect_command(
     root: &Path,
 ) -> Option<InspectCommandNormalization> {
     let original = command.trim();
-    if original.is_empty() || contains_unquoted_shell_control(original) {
+    if original.is_empty()
+        || super::placeholder_path::detected(command)
+        || contains_unquoted_shell_control(original)
+    {
         return None;
     }
     let tokens = shell_words(original)?;
@@ -318,6 +410,9 @@ pub fn strip_workspace_root_cd_prefix(
     command: &str,
     root: &Path,
 ) -> Option<WorkspaceCdNormalization> {
+    if super::placeholder_path::detected(command) {
+        return None;
+    }
     let original = command.trim();
     let operator = first_unquoted_and_and(original)?;
     let prefix = original[..operator].trim();
@@ -508,8 +603,9 @@ fn bounded_find_listing_command() -> String {
 
 fn bounded_find_pruned_prefix() -> String {
     format!(
-        "find . -maxdepth {} \\( -name node_modules -o -name .git -o -name .next -o -name .commandagent -o -name .anvil \\) -prune -o",
-        INSPECT_MAX_DEPTH
+        "find . -maxdepth {} \\( -name node_modules -o -name .git -o -name .next -o -name .commandagent -o -name .anvil -o {} \\) -prune -o",
+        INSPECT_MAX_DEPTH,
+        super::sensitive_path::find_exclusion_expression()
     )
 }
 
@@ -627,6 +723,15 @@ fn contains_unquoted_shell_control(command: &str) -> bool {
 }
 
 pub fn blocked_reason(command: &str, offline: bool) -> Option<String> {
+    sensitive_bash_rejection(command).or_else(|| structural_blocked_reason(command, offline))
+}
+
+fn sensitive_bash_rejection(command: &str) -> Option<String> {
+    let reference = super::sensitive_path::command_references_secret(command)?;
+    Some(super::sensitive_path::SensitivePathRefusal::new(reference, "bash_reference").to_string())
+}
+
+fn structural_blocked_reason(command: &str, offline: bool) -> Option<String> {
     let lower = command.to_ascii_lowercase();
     if lower.contains("rm -rf /")
         || lower.contains("rm -rf .")
@@ -635,9 +740,6 @@ pub fn blocked_reason(command: &str, offline: bool) -> Option<String> {
         || lower.contains("chmod -r")
         || lower.contains("printenv")
         || lower.contains("env |")
-        || lower.contains("cat ~/.ssh")
-        || lower.contains("cat .env")
-        || lower.contains("grep ") && lower.contains(".env")
         || lower.contains("/etc/passwd")
         || lower.contains("curl ") && lower.contains("| sh")
         || lower.contains("wget ") && lower.contains("| sh")
@@ -672,16 +774,30 @@ pub fn path_confinement_rejection(
     command: &str,
     root: &Path,
 ) -> Option<BashPathConfinementRejection> {
+    if let Some(rejection) = super::placeholder_path::rejection(command, root) {
+        return Some(rejection);
+    }
     let raw_root = root.to_path_buf();
     let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
     if let Some(rejection) = super::bash_write_guard::confinement_rejection(command, &root) {
         let nearest_relative = nearest_relative_form(&rejection.path, &root);
         let guidance = workspace_relative_retry_guidance(&nearest_relative);
         let root_display = root.to_string_lossy().to_string();
-        let message = format!(
-            "bash_path_confinement_error: {}; use workspace-relative path `{nearest_relative}`; {guidance}; Bash may create, modify, or delete only within current workspace root `{root_display}`",
-            rejection.reason,
-        );
+        let message = if is_command_form_operation(&rejection.operation) {
+            // Issue #578: the rejection refused the command's spelling, not a
+            // path, so `path`/`nearest_relative` name a spelling instead of a
+            // path. `reason` already names the alternative spelling; appending
+            // the path retry would tell the caller to rewrite that spelling into
+            // a workspace-relative path. Only the reason is shown. The
+            // `nearest_relative` and `guidance` fields keep their values so the
+            // recorded event and schema are unchanged.
+            format!("bash_path_confinement_error: {}", rejection.reason)
+        } else {
+            format!(
+                "bash_path_confinement_error: {}; use workspace-relative path `{nearest_relative}`; {guidance}; Bash may create, modify, or delete only within current workspace root `{root_display}`",
+                rejection.reason,
+            )
+        };
         return Some(BashPathConfinementRejection {
             path: rejection.path.clone(),
             root: root_display.clone(),
@@ -692,33 +808,158 @@ pub fn path_confinement_rejection(
             message,
         });
     }
-    for candidate in absolute_path_candidates(command) {
-        if bash_path_allowed(candidate, &root, &raw_root) {
+    let inspection = super::bash_write_guard::inspect_working_directory(command, &root);
+    let read = read_guard::inspect(command);
+    if let Some(word) = read.unverifiable {
+        return Some(path_reference_rejection(
+            &word,
+            &root,
+            Some(read_guard::UNVERIFIABLE_REASON),
+        ));
+    }
+    for candidate in read.candidates {
+        let path = candidate.path();
+        let expands = candidate.expands();
+        if !bash_path_allowed(path, &root, &raw_root, expands) {
+            return Some(path_reference_rejection(path, &root, None));
+        }
+        if path.starts_with('/') {
             continue;
         }
-        let nearest_relative = nearest_relative_form(candidate, &root);
-        let guidance = workspace_relative_retry_guidance(&nearest_relative);
-        let root_display = root.to_string_lossy().to_string();
-        let reason = format!(
-            "absolute path `{candidate}` resolves outside current workspace root `{root_display}`"
-        );
-        return Some(BashPathConfinementRejection {
-            path: candidate.to_string(),
-            root: root_display.clone(),
-            nearest_relative: nearest_relative.clone(),
-            guidance: guidance.clone(),
-            operation: "path reference".to_string(),
-            reason,
-            message: format!(
-                "bash_path_confinement_error: rejected absolute path `{candidate}` outside current workspace root `{root_display}`; use workspace-relative path `{nearest_relative}`; {guidance}"
-            ),
-        });
+        if inspection.undecidable || inspection.is_unverifiable_expansion(path, expands) {
+            return Some(path_reference_rejection(
+                path,
+                &root,
+                Some("follows a working directory change that cannot be determined"),
+            ));
+        }
+        for joined in inspection.relative_variants(path) {
+            if ensure_read_candidate(&root, &joined, expands).is_err()
+                || super::path_guard::ensure_bash_write_target(&root, &joined).is_err()
+            {
+                return Some(path_reference_rejection(&joined, &root, None));
+            }
+        }
+    }
+    // Issue #613 design 2: a `/`-less static word can be an outward symlink that
+    // no directory separator exposes. It is proven when joined onto the
+    // workspace root and each working-directory candidate, but only when the
+    // joined path actually is a symlink (the read guard holds that body). An
+    // undetermined working directory is left to the relative-candidate branch
+    // below, which already refuses the words a `cd` could redirect.
+    if let Some(word) =
+        read_guard::relative_word_rejection(&read.relative_words, &root, &inspection.bases)
+    {
+        return Some(path_reference_rejection(&word, &root, None));
+    }
+    // Issue #635: a glob or brace `cd`/`pushd` destination adds no candidate, so
+    // `has_working_directory` stays false, but the relative words after it still
+    // follow an undetermined working directory and must be refused. The mark is
+    // narrower than `undecidable`: it is set only for a glob/brace destination,
+    // so a command with no `cd` (`env | grep CDPATH`, `echo $CDPATH`) keeps its
+    // existing handling.
+    if inspection.has_working_directory() || inspection.glob_destination {
+        if inspection.undecidable && !inspection.undecidable_words.is_empty() {
+            // Issue #637: name the destination that raised the mark (the
+            // `cd`/`pushd` target or option value) rather than the following
+            // command word, so the message points at the word to fix.
+            let word = inspection
+                .glob_destination_word
+                .as_deref()
+                .unwrap_or(&inspection.undecidable_words[0]);
+            return Some(path_reference_rejection(
+                word,
+                &root,
+                Some("follows a working directory change that cannot be determined"),
+            ));
+        }
+        for word in &inspection.relative_words {
+            if inspection.is_unverifiable_expansion(word, false) {
+                return Some(path_reference_rejection(
+                    word,
+                    &root,
+                    Some("follows a working directory change that cannot be determined"),
+                ));
+            }
+            for joined in inspection.all_variants(word) {
+                if super::path_guard::ensure_bash_write_target(&root, &joined).is_err()
+                    || super::path_guard::ensure_bash_read_target(&root, &joined).is_err()
+                {
+                    return Some(path_reference_rejection(&joined, &root, None));
+                }
+            }
+        }
     }
     None
 }
 
 pub fn workspace_relative_retry_guidance(nearest_relative: &str) -> String {
     format!("workspace相対で再実行せよ: {nearest_relative}")
+}
+
+/// Whether the write guard refused the *form* of the command rather than a path
+/// that leaves the workspace (Issue #578). For these operations the rejection's
+/// `path` holds a spelling — an introducer, an option word, or a sentinel — not
+/// a path, and `reason` already names the alternative spelling. Appending the
+/// workspace-relative retry would ask the caller to rewrite that spelling as a
+/// path, so it is omitted.
+///
+/// The literal list mirrors the operations the fail-closed guards in
+/// `bash_write_guard` emit. It is frozen by
+/// `tests/issue578_bash_rejection_guidance.rs`, which drives one command per
+/// operation through the public rejection and checks the message shape.
+fn is_command_form_operation(operation: &str) -> bool {
+    matches!(
+        operation,
+        "ANSI-C / locale quoting"
+            | "env -S / --split-string"
+            | "unresolved command prefix"
+            | "unreadable shell text"
+            | "unverifiable backtick command substitution"
+            | "unverifiable glob write target"
+    )
+}
+
+/// A shell consults `CDPATH` for a relative `cd` operand, which would let a
+/// command leave the working directory the static guard modelled. The static
+/// inspection cannot see the process environment, so the spawned shell never
+/// inherits it.
+fn remove_shell_cdpath(command: &mut Command) {
+    command.env_remove("CDPATH");
+}
+
+fn path_reference_rejection(
+    candidate: &str,
+    root: &Path,
+    working_directory_reason: Option<&str>,
+) -> BashPathConfinementRejection {
+    let nearest_relative = nearest_relative_form(candidate, root);
+    let guidance = workspace_relative_retry_guidance(&nearest_relative);
+    let root_display = root.to_string_lossy().to_string();
+    let path_kind = if Path::new(candidate).is_absolute() {
+        "absolute"
+    } else {
+        "relative"
+    };
+    let reason = match working_directory_reason {
+        Some(suffix) => format!(
+            "{path_kind} path `{candidate}` {suffix} and resolves outside current workspace root `{root_display}`"
+        ),
+        None => format!(
+            "{path_kind} path `{candidate}` resolves outside current workspace root `{root_display}`"
+        ),
+    };
+    BashPathConfinementRejection {
+        path: candidate.to_string(),
+        root: root_display.clone(),
+        nearest_relative: nearest_relative.clone(),
+        guidance: guidance.clone(),
+        operation: "path reference".to_string(),
+        reason,
+        message: format!(
+            "bash_path_confinement_error: rejected {path_kind} path `{candidate}` outside current workspace root `{root_display}`; use workspace-relative path `{nearest_relative}`; {guidance}"
+        ),
+    }
 }
 
 fn truncate_stream(value: &str) -> String {
@@ -815,17 +1056,45 @@ fn is_absolute_path_candidate_start(line: &str, start: usize) -> bool {
         )
 }
 
-fn bash_path_allowed(candidate: &str, canonical_root: &Path, raw_root: &Path) -> bool {
+fn bash_path_allowed(
+    candidate: &str,
+    canonical_root: &Path,
+    raw_root: &Path,
+    expands: bool,
+) -> bool {
     let path = Path::new(candidate);
-    if !path.is_absolute() || candidate == "/" {
+    if !path.is_absolute() || path.starts_with(canonical_root) || path.starts_with(raw_root) {
+        // Keeping a dynamic route whole must not hide traversal or a symlink
+        // escape that the old suffix scan rejected. Reuse the existing path
+        // proof, including canonicalization of a missing leaf's parent.
+        return ensure_read_candidate(canonical_root, candidate, expands).is_ok();
+    }
+    if candidate == "/" {
         return true;
+    }
+    // An absolute glob or brace outside the workspace cannot be enumerated and
+    // must not be admitted by the raw-string system-prefix fallback: a spelling
+    // such as `/usr/../<fixture>/*` canonicalizes `/usr/..` to `/` and would
+    // otherwise pass the `/usr` prefix check (Issue #582 design 6).
+    if expands && path_tokens::contains_glob_or_brace(candidate) {
+        return super::path_guard::ensure_bash_write_target(canonical_root, candidate).is_ok();
     }
     let comparable = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     comparable.starts_with(canonical_root)
         || comparable.starts_with(raw_root)
-        || path.starts_with(canonical_root)
-        || path.starts_with(raw_root)
         || is_system_prefix_allowed(&comparable)
+}
+
+/// Confine one read-path spelling. A word the shell expands goes through the
+/// write-target proof (which expands every glob and brace); a literal spelling
+/// goes through the read-only literal proof, so a quoted bracket is never
+/// expanded (Issue #582 design 3).
+fn ensure_read_candidate(root: &Path, raw: &str, expands: bool) -> anyhow::Result<()> {
+    if expands {
+        super::path_guard::ensure_bash_write_target(root, raw)
+    } else {
+        super::path_guard::ensure_bash_read_target(root, raw)
+    }
 }
 
 fn is_system_prefix_allowed(path: &Path) -> bool {
@@ -836,6 +1105,9 @@ fn is_system_prefix_allowed(path: &Path) -> bool {
 }
 
 fn nearest_relative_form(candidate: &str, root: &Path) -> String {
+    if super::registry::has_parent_component(candidate) {
+        return ".".to_string();
+    }
     let raw = Path::new(candidate);
     let raw_components = normal_components(raw);
     let root_components = normal_components(root);
@@ -875,6 +1147,9 @@ fn build_summary(command: &str, kind: BashOutcomeKind, stdout: &str, stderr: &st
     if kind == BashOutcomeKind::Success {
         return "command succeeded".to_string();
     }
+    if let Some(reason) = crate::node_failure::summary(command, stdout, stderr) {
+        return reason;
+    }
     let combined = format!("{stderr}\n{stdout}");
     let mut lines = Vec::new();
     for line in combined.lines() {
@@ -891,17 +1166,81 @@ fn build_summary(command: &str, kind: BashOutcomeKind, stdout: &str, stderr: &st
             break;
         }
     }
-    if lines.is_empty() {
+    let mut summary = if lines.is_empty() {
         format!("command did not succeed: {command}")
     } else {
         lines.join("\n")
+    };
+    if let Some(guidance) =
+        sandbox_temp_dir_guidance(super::os_sandbox::is_applied(), stdout, stderr)
+    {
+        summary.push('\n');
+        summary.push_str(guidance);
     }
+    summary
+}
+
+/// The guidance appended when the OS write sandbox is applied and the failure is
+/// a permission error against a temp directory — what a bare `mktemp` hits on
+/// macOS, where the per-user temp directory is outside the sandbox. It points at
+/// the run temp directory, which the sandbox allows.
+const SANDBOX_MKTEMP_GUIDANCE: &str = "note: the OS write sandbox denies the macOS per-user temp directory; use `mktemp -p \"$TMPDIR\"` (or a template under `$TMPDIR`) instead of a bare `mktemp`";
+
+/// Whether to append [`SANDBOX_MKTEMP_GUIDANCE`]. It needs the sandbox to be
+/// applied and a permission error against a temp directory; any other failure
+/// gets no guidance.
+fn sandbox_temp_dir_guidance(applied: bool, stdout: &str, stderr: &str) -> Option<&'static str> {
+    if !applied {
+        return None;
+    }
+    let combined = format!("{stderr}\n{stdout}").to_ascii_lowercase();
+    let permission = combined.contains("operation not permitted")
+        || combined.contains("permission denied")
+        || combined.contains("access is denied");
+    let temp_dir = combined.contains("mktemp")
+        || combined.contains("mkstemp")
+        || combined.contains("/var/folders/")
+        || combined.contains("/tmp/");
+    (permission && temp_dir).then_some(SANDBOX_MKTEMP_GUIDANCE)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicBool, Ordering};
+
+    #[test]
+    fn working_directory_shell_spawn_removes_cdpath() {
+        let mut command = Command::new("true");
+        remove_shell_cdpath(&mut command);
+        assert!(
+            command
+                .get_envs()
+                .any(|(key, value)| key == "CDPATH" && value.is_none()),
+            "the shell that runs `sh -c` must not inherit CDPATH"
+        );
+    }
+
+    #[test]
+    fn working_directory_keeps_verify_auto_approval() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("frontend")).unwrap();
+        std::fs::create_dir_all(root.path().join("crates/x")).unwrap();
+        for command in ["cd frontend && npm test", "cd crates/x && cargo test"] {
+            let plan = crate::planner::verify::normalize_runtime_bash_command_for_boundary(
+                command,
+                root.path(),
+            )
+            .unwrap();
+            assert!(
+                plan.segments.iter().all(|segment| matches!(
+                    &segment.command,
+                    crate::planner::verify::RuntimeNormalizedCommand::Verify(_)
+                )) && !has_recognized_workspace_mutation(&plan.normalized_command),
+                "{command} must stay auto-approved: {plan:?}"
+            );
+        }
+    }
 
     #[test]
     fn run_returns_nonzero_output_for_agent_feedback() {
@@ -979,6 +1318,59 @@ mod tests {
         assert!(err.to_string().contains("command_timeout"), "{err}");
     }
 
+    /// Issue #557 fake values: `C` is the scope-less canary, `R` is registered
+    /// as a credential before a run scope is installed.
+    const C: &str = "H01_557_FAKE_canary_qq";
+    const R: &str = "H01_557_FAKE_registered_key_88";
+
+    #[test]
+    fn bash_run_timeout_error_omits_the_command_without_a_scope() {
+        let dir = tempfile::tempdir().unwrap();
+        let command = format!("sleep 5 # {C}");
+        let error = run_with_timeout(&command, dir.path(), true, Duration::from_millis(300))
+            .expect_err("timeout should return a tool error");
+        let message = error.to_string();
+        assert!(message.starts_with("command_timeout: "), "{message}");
+        assert_eq!(
+            crate::tools::registry::tool_error_kind(&error),
+            "command_timeout"
+        );
+        assert!(!message.contains(C), "{message}");
+        assert!(message.contains("outcome: Timeout"), "{message}");
+    }
+
+    #[test]
+    fn bash_run_timeout_error_omits_the_command_with_a_scope() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut catalog = crate::sensitive_data::SecretCatalog::new();
+        catalog.register_credential("FAKE_KEY", R).unwrap();
+        crate::sensitive_data::install_scope(catalog, Some(dir.path()), None);
+        let command = format!("sleep 5 # {R}");
+        let error = run_with_timeout(&command, dir.path(), true, Duration::from_millis(300))
+            .expect_err("timeout should return a tool error");
+        let message = error.to_string();
+        assert!(message.starts_with("command_timeout: "), "{message}");
+        assert_eq!(
+            crate::tools::registry::tool_error_kind(&error),
+            "command_timeout"
+        );
+        assert!(!message.contains(R), "{message}");
+        assert!(message.contains("outcome: Timeout"), "{message}");
+    }
+
+    #[test]
+    fn bash_run_checked_timeout_error_omits_the_command() {
+        let dir = tempfile::tempdir().unwrap();
+        let command = format!("sleep 5 # {C}");
+        let error =
+            run_checked_with_timeout(&command, dir.path(), true, Duration::from_millis(300))
+                .expect_err("timeout should be reported as a failure");
+        let message = error.to_string();
+        assert!(message.contains("command failed"), "{message}");
+        assert!(message.contains("outcome: Timeout"), "{message}");
+        assert!(!message.contains(C), "{message}");
+    }
+
     #[test]
     fn bash_cancel_returns_structured_outcome() {
         let dir = tempfile::tempdir().unwrap();
@@ -1011,6 +1403,20 @@ mod tests {
         let truncated = truncate_stream(&value);
         assert!(truncated.contains("bash output truncated"));
         assert!(truncated.len() >= MAX_STREAM_BYTES);
+    }
+
+    #[test]
+    fn sandbox_temp_dir_guidance_only_for_applied_temp_dir_permission_failures() {
+        let denied =
+            "mktemp: mkstemp failed on /var/folders/ab/tmp.XXXXXX: Operation not permitted";
+        let guidance = sandbox_temp_dir_guidance(true, "", denied).expect("guidance");
+        assert!(guidance.contains("mktemp -p \"$TMPDIR\""), "{guidance}");
+
+        assert!(sandbox_temp_dir_guidance(false, "", denied).is_none());
+        assert!(sandbox_temp_dir_guidance(true, "", "Error: broken").is_none());
+        assert!(
+            sandbox_temp_dir_guidance(true, "", "cat: /etc/shadow: Permission denied").is_none()
+        );
     }
 
     #[test]

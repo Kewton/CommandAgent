@@ -122,10 +122,13 @@ pub fn generate(
         }
         markdown = markdown.replacen(&route_line, &format!("{route_line}{manifest_lines}"), 1);
     }
+    // The sheet is a saved/displayed copy: strip registered secrets from both
+    // the body and the stop-reason section. Scrubbing is idempotent, so an
+    // input the run already protected is unchanged.
     Ok(GeneratedSheet {
-        markdown,
+        markdown: crate::sensitive_data::scrub_active(&markdown),
         full,
-        section5,
+        section5: section5.map(|section| crate::sensitive_data::scrub_active(&section)),
     })
 }
 
@@ -141,7 +144,8 @@ pub fn persist(
         "{}.md",
         identity.card_hash()?.trim_start_matches("sha256:")
     ));
-    std::fs::write(&path, sheet.markdown.as_bytes())
+    let content = crate::sensitive_data::scrub_active(&sheet.markdown);
+    std::fs::write(&path, content.as_bytes())
         .with_context(|| format!("write acceptance sheet {}", path.display()))?;
     Ok(path)
 }
@@ -177,7 +181,8 @@ pub fn persist_directive_round(
         "{}-directive-round-{round}.md",
         identity.card_hash()?.trim_start_matches("sha256:")
     ));
-    std::fs::write(&path, sheet.markdown.as_bytes())
+    let content = crate::sensitive_data::scrub_active(&sheet.markdown);
+    std::fs::write(&path, content.as_bytes())
         .with_context(|| format!("write directive acceptance sheet {}", path.display()))?;
     Ok(path)
 }

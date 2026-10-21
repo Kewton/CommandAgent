@@ -1,0 +1,9 @@
+case_id = "issue449-repair-context"
+source = "Issue #448 frozen R0 corpus; scripted recovery context checks"
+required_paths = ["cases.json"]
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+cases.json = ["promise-only", "original", "src/lib/types.ts", "npm run build"]

@@ -52,7 +52,7 @@ pub(crate) fn enforce_tool_mutation(
     )
 }
 
-fn matching_path(root: &Path, raw: &str, protected_paths: &[String]) -> Option<String> {
+pub(crate) fn matching_path(root: &Path, raw: &str, protected_paths: &[String]) -> Option<String> {
     let candidate = Path::new(raw);
     let relative = if candidate.is_absolute() {
         match candidate.strip_prefix(root) {

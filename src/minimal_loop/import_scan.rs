@@ -594,7 +594,11 @@ fn import_statement_specifier(statement: &str) -> Option<String> {
     Some(rest[..end].to_string())
 }
 
-fn resolve_import_for_source(root: &Path, source_path: &Path, specifier: &str) -> Vec<PathBuf> {
+pub(crate) fn resolve_import_for_source(
+    root: &Path,
+    source_path: &Path,
+    specifier: &str,
+) -> Vec<PathBuf> {
     let Some(parent) = source_path.parent() else {
         return Vec::new();
     };
@@ -935,7 +939,7 @@ fn bounded_definition_end(lines: &[&str], start: usize) -> usize {
     max_end
 }
 
-fn extract_import_specifiers(content: &str) -> Vec<String> {
+pub(crate) fn extract_import_specifiers(content: &str) -> Vec<String> {
     let patterns = [
         r#"(?m)(?:import|export)\s+(?:type\s+)?[^;]*?\s+from\s*["']([^"']+)["']"#,
         r#"(?m)import\s*["']([^"']+)["']"#,

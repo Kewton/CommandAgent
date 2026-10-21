@@ -1,5 +1,4 @@
 use crate::config::Config;
-use crate::minimal_loop::completion::CompletionContract;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct RecoveryHandoffFidelity {
@@ -18,7 +17,7 @@ impl RecoveryHandoffFidelity {
         selected_targets: &[String],
         changed_paths: &[String],
     ) -> anyhow::Result<Self> {
-        let contract = CompletionContract::load_for_config(config)?;
+        let contract = crate::planner::recovery_contract_authority::load_for_handoff(config)?;
         let required_for_fix_recovery =
             crate::planner::recovery_contract_binding::load_fix_origin(config)?.is_some();
         let contract_goal = contract

@@ -2,7 +2,7 @@ use std::fmt;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use reqwest::blocking::{Client, RequestBuilder};
+use reqwest::{Client, RequestBuilder};
 use serde_json::{Value, json};
 
 use crate::config::{
@@ -13,6 +13,7 @@ use crate::eval_events;
 use crate::state::ConversationMessage;
 use crate::tools::registry::ToolSpec;
 
+use super::streaming::{CancelToken, HttpCall};
 use super::{
     AssistantReply, ChatClient, ProviderResponseMetadata, openai_chat_completions, openai_responses,
 };
@@ -47,6 +48,7 @@ pub struct LmStudioClient {
     api_token: Option<String>,
     api_key_env: Option<String>,
     http: Client,
+    cancel: CancelToken,
     base_url: String,
     max_predict: usize,
     retries: usize,
@@ -137,7 +139,7 @@ impl LmStudioClient {
         )
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "mirrors provider config fields")]
     pub(crate) fn new_openai_compatible(
         base_url: String,
         api_key_env: Option<String>,
@@ -161,7 +163,7 @@ impl LmStudioClient {
         )
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "mirrors provider config fields")]
     fn new_inner(
         kind: CompatibleKind,
         base_url: String,
@@ -173,15 +175,13 @@ impl LmStudioClient {
         api: OpenAiApi,
         eval_events_path: Option<PathBuf>,
     ) -> anyhow::Result<Self> {
-        let http = Client::builder()
-            .connect_timeout(std::time::Duration::from_secs(timeout_secs))
-            .timeout(std::time::Duration::from_secs(timeout_secs))
-            .build()?;
+        let http = super::streaming::http_client(timeout_secs)?;
         Ok(Self {
             kind,
             api_token,
             api_key_env,
             http,
+            cancel: CancelToken::default(),
             base_url,
             max_predict,
             retries,
@@ -194,7 +194,8 @@ impl LmStudioClient {
 
     pub fn list_models(&self) -> anyhow::Result<Vec<String>> {
         let request = self.authorize(self.http.get(format!("{}/v1/models", self.base_url)));
-        let response = request.send()?;
+        let call = HttpCall::new(&self.cancel)?;
+        let response = call.run(async { request.send().await })??;
         if !response.status().is_success() {
             anyhow::bail!(
                 "{} /v1/models failed: {}",
@@ -202,7 +203,7 @@ impl LmStudioClient {
                 response.status()
             );
         }
-        parse_models_response(&response.text()?)
+        parse_models_response(&call.run(response.text())??)
     }
 
     fn chat_completions(
@@ -320,22 +321,23 @@ impl LmStudioClient {
         api: &str,
         body: &Value,
     ) -> anyhow::Result<(String, usize)> {
+        let call = HttpCall::new(&self.cancel)?;
         for attempt in 0..=self.retries {
             let request = self.authorize(
                 self.http
                     .post(format!("{}{endpoint}", self.base_url))
                     .json(body),
             );
-            match request.send() {
+            match call.run(async { request.send().await })? {
                 Ok(response) if response.status().is_success() => {
-                    return Ok((response.text()?, attempt + 1));
+                    return Ok((call.run(response.text())??, attempt + 1));
                 }
                 Ok(response)
                     if attempt == self.retries
                         || !is_retryable_status(response.status().as_u16()) =>
                 {
                     let status = response.status();
-                    let response_body = response.text().unwrap_or_default();
+                    let response_body = call.run(response.text())?.unwrap_or_default();
                     eval_events::emit(
                         self.eval_events_path.as_deref(),
                         json!({
@@ -476,6 +478,10 @@ impl ChatClient for LmStudioClient {
 
     fn take_response_metadata(&mut self) -> Option<ProviderResponseMetadata> {
         self.response_metadata.take()
+    }
+
+    fn set_cancel_token(&mut self, token: CancelToken) {
+        self.cancel = token;
     }
 
     fn supports_native_tools(&self, _model: &str) -> bool {
@@ -781,5 +787,27 @@ mod tests {
         assert!(evidence.contains("<redacted>"), "{evidence}");
         assert!(!evidence.contains(secret), "{evidence}");
         assert!(!debug.contains(secret), "{debug}");
+    }
+}
+
+#[cfg(test)]
+mod cancel_tests {
+    use super::*;
+    use crate::providers::streaming::cancel_test_support::assert_cancel_closes_connection;
+
+    #[test]
+    fn cancel_closes_the_chat_request() {
+        assert_cancel_closes_connection(None, |base_url, token| {
+            let mut client =
+                LmStudioClient::new(base_url, None, 30, 64, 0, OpenAiApi::ChatCompletions, None)?;
+            client.set_cancel_token(token);
+            ChatClient::chat(
+                &mut client,
+                "lm-test",
+                &[ConversationMessage::user("hi")],
+                &[],
+                false,
+            )
+        });
     }
 }

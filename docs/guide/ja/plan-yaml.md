@@ -42,6 +42,14 @@ document はトップレベル mapping 1 個のままにし、`steps` または 
 `:`, `#`, bracket、先頭の記号を含む文字列には quote を推奨します。生成される template は
 すでに安全な quote を使用します。
 
+`implement` step の `expected_paths` に含まれるページがエンジン内蔵の雛形と一致する間は、
+その step は完了しません。別の API route が run 全体の契約を満たしていても、Read のみや
+無関係なファイルへの Write では省略できません。対象ページを実装したうえで通常の契約・
+step 検証を通す必要があります。Bash による対象ファイルの内容変更も変更として記録します。
+雛形ではない既存成果物が契約を満たす場合は、不要な書込を要求せず省略できます。
+iteration の `step_short_circuited` は step ID、Write/Edit の観測、雛形パス、開始・終了時の
+内容 hash、充足した契約と `satisfaction_basis` を記録し、検証済みの無変更成功を識別できます。
+
 ## 検証診断
 
 成功時は plan type と次の実行コマンドを表示します。

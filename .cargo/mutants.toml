@@ -1,0 +1,27 @@
+# cargo-mutants configuration (Issue #673).
+#
+# Incident (2026-10-14, macOS): a `cargo mutants` run replaced
+#   src/bounded_process.rs: `replace signalable_process_group -> Option<i32>
+#   with Some(1)`
+# and the mutated test binary then executed `kill(-1, SIGTERM)`, terminating
+# every process the user owned (the launchd log recorded 102 SIGTERM exits).
+# The product guard was correct; the mutant removed it. The same shape exists
+# in `group_is_signalable` (src/bin/gui_server/trial_process.rs), where a
+# `-> true` mutant turns `send_group_signal(1, Kill)` into `kill(-1, SIGKILL)`.
+#
+# Exclusion is the immediate mitigation (Issue #673 対処の方向 1). It is a
+# *listing* filter: cargo-mutants applies `exclude_re` to the mutation
+# description, and the command line `--re` does not override it. Removing these
+# entries requires the isolated-container evidence from 対処の方向 4: the mutant
+# must actually be enumerated and executed inside the container, the dangerous
+# value must be refused by the last, non-mutatable defense in the `kill`
+# wrapper, no dangerous syscall may be observed, the same-UID sentinel must
+# survive, and only then may the exclusion be dropped (対処の方向 4, last item).
+#
+# The names match cargo-mutants' description text, for example
+#   `replace signalable_process_group -> Option<i32> with Some(1)`
+#   `replace group_is_signalable -> bool with true`
+exclude_re = [
+    "signalable_process_group",
+    "group_is_signalable",
+]

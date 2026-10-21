@@ -1,0 +1,19 @@
+# CommandAgent editable plan YAML. Comments are ignored.
+# Edit values, add or remove list items, then validate before execution.
+# Validation never executes the plan: commandagent --validate-plan <path>
+# profile/style/intent preserve the generated execution context.
+# phases run in order; each id must be unique and each prompt a focused task.
+# Run only after validation: commandagent --run-ultra-plan <path>
+goal: "小さな代理店向けのプロジェクト管理アプリを構築してください。ユーザーはプロジェクトの作成、期限付きタスクの追加、チームメンバーへの割り当てができ、進捗状況（未着手・進行中・完了）でタスクを絞り込めるようにします。60302ポートで起動可能なNext.jsアプリとして開発してください。"
+profile: "nextjs"
+style: "default"
+intent: "create"
+phases:
+  - id: "project-setup"
+    prompt: "Scaffold and setup the Next.js App Router project shell. Create or complete the package manifest, TypeScript config, styling config, and route-bound scaffold so the deterministic nextjs-scaffold template owns setup artifacts."
+  - id: "core-implementation"
+    prompt: "Implement the core task-specific behavior for: 小さな代理店向けのプロジェクト管理アプリを構築してください。ユーザーはプロジェクトの作成、期限付きタスクの追加、チームメンバーへの割り当てができ、進捗状況（未着手・進行中・完了）でタスクを絞り込めるようにします。60302ポートで起動可能なNext.jsアプリとして開発してください。. Keep one route-bound implementation, implement the requested interface and replace unrelated scaffold content, and keep the implementation in the Next.js route-bound source. For TypeScript apps, put shared domain and request/response types in src/lib/types.ts and import the same types from page and route modules. Use imported helpers and export every function consumed by another module. Decide one JSON response shape per operation (bare array, {items}, or {item}) and make the UI read exactly what the route returns. Check Response.ok before accepting a mutation; return errors as {error, details?} and display them in the UI. Connect each requested UI action through its API to persistence and reload the committed result."
+  - id: "contract-wiring"
+    prompt: "Wire controls and data-anvil observability. Preserve or add data-anvil-action=\"primary\" on the main start/submit/action control, data-anvil-action=\"input\" on the main text entry surface when one exists, and data-anvil-state with a JSON snapshot of meaningful visible state. The data-anvil-state snapshot must include at least one dimension that immediately responds to input, such as the current selection or edited value. When the contract includes start_or_restart_flow, every restart affordance (including terminal and active states when present) should carry data-anvil-action=\"restart\"; the initial primary action alone cannot satisfy recovery verification."
+  - id: "build-verification"
+    prompt: "Run build verification for the deterministic Next.js scaffold. Verify package scripts, dependency boundary, and npm run build / next build only; keep this final phase verification-only."

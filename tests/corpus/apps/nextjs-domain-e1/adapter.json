@@ -1,0 +1,19 @@
+{
+  "domain": "expense",
+  "parent": "departments",
+  "child": "expenses",
+  "delete_style": "body",
+  "parent_body": {
+    "name": "oracle-parent",
+    "monthlyBudget": 10000
+  },
+  "expected_failures": [
+    "corrupt-departments",
+    "corrupt-expenses",
+    "empty-no-seed",
+    "concurrent-create",
+    "amount-negative",
+    "budget-month"
+  ],
+  "wrapped_collections": []
+}

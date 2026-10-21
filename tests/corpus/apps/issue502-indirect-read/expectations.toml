@@ -1,0 +1,17 @@
+case_id = "issue502-indirect-read"
+source = "Issue #657 (stage 2 of #502): the lexical Bash guard cannot see a credential read whose name does not appear literally, so `cat notes.txt` through a symlink, `cat \"$BASH_ENV\"`, and a name an interpreter assembles from a heredoc are closed by the OS read sandbox instead. This corpus declares the indirect-read table; tests/issue502_os_sandbox_read.rs drives each row through the Seatbelt and Landlock read layers and asserts the home key canary never reaches the output."
+acceptance_passed = true
+primary_reason = "pass"
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/indirect-cases.jsonl = [
+  "\"id\": \"home-direct\"",
+  "\"id\": \"home-symlink\"",
+  "\"id\": \"home-bash-env\"",
+  "\"id\": \"home-python-assembled\"",
+  "\"id\": \"workspace-template\"",
+  "\"id\": \"inside-read\""
+]

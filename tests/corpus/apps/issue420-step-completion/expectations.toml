@@ -1,0 +1,9 @@
+case_id = "issue420-step-completion"
+required_paths = ["src/app/page.tsx", "src/app/api/projects/route.ts"]
+required_evidence = ["nextjs_route_evidence", "build_command_or_dependency_missing_boundary"]
+required_obligations = ["implementation"]
+acceptance_passed = true
+primary_reason = "pass"
+
+[route_closure]
+include = ["src/app/page.tsx", "src/app/api/projects/route.ts"]

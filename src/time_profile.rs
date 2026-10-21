@@ -429,6 +429,13 @@ pub fn aggregate_events(events: &[Value]) -> TimeProfile {
         ) {
             current_acceptance_repair = false;
         }
+        if event_name == "dependency_build_lifecycle"
+            && let Some(duration) = duration_field(event, "build_duration_ms")
+        {
+            profile.builds_ms = profile.builds_ms.saturating_add(duration);
+            let phase = phase_entry(&mut phases, &current_phase);
+            phase.builds_ms = phase.builds_ms.saturating_add(duration);
+        }
         if event_name == "provider_turn_duration" {
             if let Some(turn) = pending_generation_turn.take() {
                 finalize_generation_turn(&mut profile.generation, turn);
@@ -442,11 +449,12 @@ pub fn aggregate_events(events: &[Value]) -> TimeProfile {
             );
             let eval_count = event.get("eval_count").and_then(Value::as_u64);
             let duration_ms = duration_field(event, "duration_ms").unwrap_or(0);
-            pending_generation_turn = Some(PendingGenerationTurn::new(
-                scope.to_string(),
-                eval_count,
-                duration_ms,
-            ));
+            let mut turn = PendingGenerationTurn::new(scope.to_string(), eval_count, duration_ms);
+            turn.saw_tool_call = event
+                .get("tool_calls_in_response")
+                .and_then(Value::as_u64)
+                .is_some_and(|count| count > 0);
+            pending_generation_turn = Some(turn);
         } else if event_name == "tool_call_raw"
             && let Some(turn) = pending_generation_turn.as_mut()
         {
@@ -808,11 +816,40 @@ mod tests {
     use super::*;
 
     #[test]
+    fn issue440_additive_response_counts_preserve_provider_totals_and_legacy_streams() {
+        let mut events = vec![
+            json!({"event":"provider_turn_duration", "caller_scope":"repair", "duration_ms":133649, "eval_count":8192, "tools":9, "tool_calls_in_response":0, "write_or_edit_succeeded":false}),
+            json!({"event":"provider_turn_duration", "caller_scope":"repair", "duration_ms":128568, "eval_count":8192, "tools":9, "tool_calls_in_response":0, "write_or_edit_succeeded":false}),
+            json!({"event":"loop_stop", "reason":"max_length_no_tool_call_repeated", "max_length_no_tool_call_duration_ms":262217}),
+        ];
+        let profile = aggregate_events(&events);
+        assert_eq!(profile.provider.repair_ms, 262217);
+        assert_eq!(profile.total_ms(), 262217);
+        assert_eq!(profile.tokens.eval_count, 16384);
+        assert_eq!(profile.generation.turn_types["prose-only"].turn_count, 2);
+        for event in &mut events[..2] {
+            event
+                .as_object_mut()
+                .unwrap()
+                .remove("tool_calls_in_response");
+            event
+                .as_object_mut()
+                .unwrap()
+                .remove("write_or_edit_succeeded");
+        }
+        assert_eq!(profile, aggregate_events(&events));
+        events[0]["tool_calls_in_response"] = json!(1);
+        let profile = aggregate_events(&events);
+        assert_eq!(profile.generation.turn_types["tool-call"].turn_count, 1);
+        assert_eq!(profile.generation.turn_types["prose-only"].turn_count, 1);
+    }
+
+    #[test]
     fn aggregates_time_profile_from_existing_event_stream() {
         let events = vec![
             json!({"event": "ultra_phase_start", "phase_id": "setup"}),
             json!({"event": "provider_turn_duration", "caller_scope": "planner_ultra", "duration_ms": 10_000, "estimated_prompt_tokens_sent": 1000, "prompt_eval_count": 800, "eval_count": 100, "provider_reasoning_tokens": 40, "prompt_eval_duration": 4_000_000_000u64, "eval_duration": 5_000_000_000u64, "load_duration": 1_000_000_000u64, "total_duration": 10_000_000_000u64}),
-            json!({"event": "dependency_build_lifecycle", "setup_duration_ms": 20_000}),
+            json!({"event": "dependency_build_lifecycle", "setup_duration_ms": 20_000, "build_duration_ms": 3_000}),
             json!({"event": "ultra_phase_start", "phase_id": "play"}),
             json!({"event": "provider_turn_duration", "caller_scope": "executor", "duration_ms": 30_000, "estimated_prompt_tokens_sent": 2000, "prompt_eval_count": 1200, "eval_count": 200, "prompt_eval_duration": 6_000_000_000u64, "eval_duration": 20_000_000_000u64, "load_duration": 4_000_000_000u64, "total_duration": 30_000_000_000u64}),
             json!({"event": "browser_probe", "elapsed_ms": 5_000}),
@@ -821,7 +858,7 @@ mod tests {
 
         let profile = aggregate_events(&events);
 
-        assert_eq!(profile.total_ms(), 72_000);
+        assert_eq!(profile.total_ms(), 75_000);
         assert_eq!(profile.provider.planner_ultra_ms, 10_000);
         assert_eq!(profile.provider.executor_ms, 30_000);
         assert_eq!(
@@ -831,6 +868,7 @@ mod tests {
         assert_eq!(profile.provider_durations.eval_duration, 25_000_000_000);
         assert_eq!(profile.provider_durations.load_duration, 5_000_000_000);
         assert_eq!(profile.installs_ms, 20_000);
+        assert_eq!(profile.builds_ms, 3_000);
         assert_eq!(profile.probe_ms, 12_000);
         assert_eq!(profile.tokens.prompt_eval_count, 2_000);
         assert_eq!(profile.tokens.eval_count, 300);
@@ -854,10 +892,10 @@ mod tests {
             "{role_table}"
         );
         let summary = profile.summary_line();
-        assert!(summary.contains("Time profile: provider 56%"));
+        assert!(summary.contains("Time profile: provider 53%"));
         assert!(summary.contains("[prefill 25% · generation 63% · load 13%]"));
         let table = profile.phase_table_markdown();
-        assert!(table.contains("| setup | 30s | 10s | 20s | 0s | 0s | 0s |"));
+        assert!(table.contains("| setup | 33s | 10s | 20s | 3s | 0s | 0s |"));
         assert!(table.contains("| play | 42s | 30s | 0s | 0s | 12s | 0s |"));
     }
 

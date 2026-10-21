@@ -1,0 +1,6 @@
+{"event":"run_start","schema_version":"1","provider":"openai","model":"gpt-fixture","workspace_root":"<user>/project"}
+{"event":"runtime_bash_policy","schema_version":"1","tool_name":"Bash","blocked":true,"verify_command_violation_kind":"placeholder_path","original_command":"cat <redacted> /Users/<user>/notes.txt","normalized_commands":["cat <redacted> /Users/<user>/notes.txt"],"command_summary":"cat <redacted> /Users/<user>/notes.txt"}
+{"event":"provider_turn_duration","schema_version":"1","caller_scope":"executor","provider":"openai","model":"gpt-fixture"}
+{"event":"redaction_fixed_schema","schema_version":"commandagent.pass/v1","verdict":"pass","type":"string","message":"<redacted>"}
+{"event":"redaction_dynamic_key","schema_version":"1","nested":{"<redacted>":1,"<redacted>#1":2}}
+{"event":"run_stop","schema_version":"1","ok":true,"status":"completed"}

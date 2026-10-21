@@ -295,7 +295,13 @@ fn normalize_existing_workspace_path(context: &ToolContext, raw: &str) -> anyhow
         context.workspace_policy,
     )?;
     let resolved = resolve_existing(&context.root, &normalized)?;
+    super::sensitive_path::ensure_not_sensitive_path(&context.root, &resolved)?;
     ensure_tool_path_allowed(&context.root, &resolved, context.workspace_policy)?;
+    if resolved.is_dir() {
+        bail!(
+            "workspace_policy_blocked: extension tool WorkspacePath `{normalized}` is a directory whose nested credentials cannot be guaranteed; pass explicit workspace-relative file paths"
+        );
+    }
     Ok(normalized)
 }
 

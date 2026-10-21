@@ -10,18 +10,20 @@ authority: use `commandagent --help` when its version differs from this checkout
 ## Invocation
 
 Use one of the action-selector flags for a direct command, or omit all of them
-for the TUI. The action selectors are `--prompt`, `--plan-steps`, `--plan-run`,
-`--run-plan`, `--ultra-plan`, `--ultra-plan-run`, `--run-ultra-plan`,
-`--validate-plan`, `--setup-interaction-probe`, `--runs`, `--ux-demo`, `--model-probe`,
-`--doctor`, and `--extensions`. The offline pack actions `--packs`, `--pack-verify`, and
-`--pack-pin`, generated-artifact actions `--completions` and `--generate-man`,
-config action `--init-config`, and delegated manifest actions
-`--validate-manifest` and `--init-profile` are displayed in the same
-`Actions (use one)` help group. CommandAgent rejects combinations whose action
-contracts are mutually exclusive.
+for the TUI. The action selectors are `--workflow`, `--prompt`, `--plan-steps`,
+`--plan-run`, `--run-plan`, `--ultra-plan`, `--ultra-plan-run`,
+`--run-ultra-plan`, `--validate-plan`, `--setup-interaction-probe`, `--runs`,
+`--ux-demo`, `--model-probe`, `--doctor`, and `--extensions`. The offline pack
+actions `--packs`, `--pack-verify`, and `--pack-pin`, generated-artifact actions
+`--completions` and `--generate-man`, config action `--init-config`, and
+delegated manifest actions `--validate-manifest` and `--init-profile` are
+displayed in the same `Actions (use one)` help group. CommandAgent rejects
+combinations whose action contracts are mutually exclusive, either in Clap
+before parsing finishes or in the resolved configuration after parsing; see
+[Conflicts and combinations](#conflicts-and-combinations).
 
 Clap also generates `-h`/`--help` and `-V`/`--version`. They are not part of the
-66 application flags below. The hidden `--completion-contract-json <PATH>` is an
+67 application flags below. The hidden `--completion-contract-json <PATH>` is an
 internal integration surface and is intentionally not a public user flag.
 
 ## Flag reference
@@ -66,7 +68,7 @@ internal integration surface and is intentionally not a public user flag.
 | `--filter` | `<phase\|tool\|provider>` | none | Filter a selected run's events by phase, tool, or provider. | [Troubleshooting](troubleshooting.md) |
 | `--ux-demo` | none | off | Run the offline presentation UX demo. | [Action exclusivity](#conflicts-and-combinations) |
 | `--model-probe` | none | off | Run the bounded model behavior probe battery. | [Model probe](model-probe.md) |
-| `--doctor` | none | off | Diagnose configuration files, provider readiness, interaction probes, and the local environment without making network requests. | [Slash `/doctor`](slash-commands.md#command-reference) |
+| `--doctor` | none | off | Diagnose configuration files, provider readiness, interaction probes, and the local environment. Depending on the configured provider, reachability checks connect to that host (for example OpenAI /v1/models or Responses, Ollama, or LM Studio); a check is skipped when its API key is absent. | [Slash `/doctor`](slash-commands.md#command-reference) |
 | `--json` | none | off | Render --doctor, --extensions, or --runs output as stable machine-readable JSON. | [Slash `/doctor`](slash-commands.md#command-reference) |
 | `--completions` | `<SHELL>`: `bash`, `elvish`, `fish`, `powershell`, `zsh` | none | Generate a completion script from the current Clap definition and write it to stdout. | [Shell completions and man page](#shell-completions-and-man-page) |
 | `--generate-man` | none | off | Generate the `commandagent(1)` man page from the current Clap definition and write it to stdout. | [Shell completions and man page](#shell-completions-and-man-page) |
@@ -76,7 +78,8 @@ internal integration surface and is intentionally not a public user flag.
 | `--profile` | `<PROFILE>` | inferred, then `generic` | Set a compiled profile or an external draft ID. An external ID requires the extension root that declares `profiles/<id>/manifest.toml`. | [Profile inference](slash-commands.md#profile-inference) |
 | `--style` | `<STYLE>` | `default` | Pass the plan presentation/generation style. | [Inline flags](slash-commands.md#inline-flags) |
 | `--resume` | `<RESUME>` | none | Load the named saved minimal-loop session for a direct `--prompt` run. | [Session options](#conflicts-and-combinations) |
-| `--offline` | none | off | Block runtime dependency setup and Bash commands containing npm/pnpm/yarn/cargo install, curl, or wget. Provider/API requests and other network-capable commands are unaffected. | [Providers](providers.md) |
+| `--offline` | none | off | Refuse runtime dependency setup and Bash commands containing npm/pnpm/yarn/cargo install, curl, or wget (lexical check, always). When --sandbox applies an OS backend, the OS also refuses outbound network connections from sandboxed commands: macOS allows only loopback (TCP and UDP) and unix sockets; Linux needs Landlock ABI4 (kernel 6.7) or later and then allows TCP only to the dev-server port(s) without restricting UDP, while below ABI4 the network is not confined and only the lexical check applies. Without a backend only the lexical check applies. Provider/API requests are unaffected. | [OS write, read, and network sandbox](#os-write-read-and-network-sandbox) |
+| `--sandbox` | `<auto\|required\|off>` | `auto` | Select the OS write sandbox for Bash and verifier commands. `auto` applies it when the backend is available and otherwise continues with lexical checks only; `required` fails those commands when the backend is unavailable; `off` keeps the previous behavior. | [OS write, read, and network sandbox](#os-write-read-and-network-sandbox) |
 | `--quiet` | none | off (`narration = "normal"`) | Suppress presentation narration. | [Top-level keys](configuration.md#top-level-keys) |
 | `--summary-json` | none | off | Append one machine-readable terminal run summary as the final stdout line. Omitting it preserves existing stdout bytes. | [Headless execution](../../user/headless.md) |
 | `--trace` | none | off | Opt in to scrubbed provider request and response traces under the active run directory. | [Troubleshooting](troubleshooting.md) |
@@ -95,6 +98,80 @@ internal integration surface and is intentionally not a public user flag.
 | `--footer` | `<on\|off>` | `on` | Control the fixed TUI footer; off keeps scrollback breadcrumbs. | [Footer problems](troubleshooting.md#footer-rendering-problems) |
 | `--no-footer` | none | off | Disable the fixed TUI footer. Equivalent in effect to `--footer off`. | [Footer problems](troubleshooting.md#footer-rendering-problems) |
 
+## OS write, read, and network sandbox
+
+The `--sandbox auto|required|off` flag (default `auto`) controls an OS-level
+write sandbox, a home-credential read sandbox, and (for `--offline`) a network
+sandbox for the model Bash tool, verification/acceptance commands, and the
+runtime dependency setup (the Python `sh -c` and the `npm install`). The lexical
+checks still run first; the sandbox adds confinement for the writes, reads, and
+(with `--offline`) network the lexical guard cannot see.
+
+- **What the OS closes (when the backend is available):** writes performed inside
+  a command or script — `sh -c 'cp ...'`, `eval`, `xargs`, `find -exec`, an
+  interpreter's `open(..., 'w')`, `dd of=`, `sed -i`, and an install-time script
+  such as `setup.py` or an npm lifecycle script — and hardlinks to an inode
+  outside the workspace. Only the workspace, the run's temp directory, the known
+  dependency caches, and device files such as `/dev/null` are writable.
+- **Read confinement:** reading the home secret locations (`.ssh`, `.aws`,
+  `.gnupg`, `.netrc`, `.git-credentials`, `.npmrc`, `.pypirc`,
+  `.docker/config.json`, `.kube`, `.config/gh`, `.config/gcloud`) is denied, and
+  on macOS a workspace credential named by the #501 rule is denied too; the three
+  strict dotenv templates stay readable. This closes the reads the lexical guard
+  cannot see: a credential through a non-secret symlink, a file named by an
+  environment variable such as `BASH_ENV`, and a name an interpreter assembles at
+  run time when that assembled name is itself a denied name. On Linux only the
+  home secret locations are denied, so a non-secret symlink to a workspace
+  credential is not closed by the read layer. Denying the home npm config means
+  an `npm` that reads a private-registry `~/.npmrc` fails inside Bash. On Linux
+  the deny list becomes a read-allow list rebuilt at each command's start, so a
+  location created after a command starts is not readable inside that command;
+  `ls /`, `ls $HOME`, and `echo $HOME/*` fail by design. When a writable location
+  (for example the workspace) is the home or an ancestor of a home secret the
+  read layer cannot deny those secrets, and the status says the read isolation is
+  not effective instead of claiming it is applied; an empty `HOME` is reported
+  the same way.
+- **Network (`--offline` only):** when the backend is applied, an `--offline`
+  run has its outbound connections refused by the OS, so an arbitrary program the
+  lexical guard cannot name (`python -c "urllib..."`, `node -e "fetch(...)"`)
+  cannot reach the network. macOS denies every network operation except loopback
+  (TCP and UDP) and unix sockets. Linux (Landlock ABI4, kernel 6.7) denies every TCP
+  connect except the run's dev-server port(s): Landlock matches the port only, so
+  the same port on an external host still connects and UDP is not restricted. When
+  the dev-server port can be taken neither from the goal nor from the profile,
+  Linux refuses every TCP connect, localhost included. Whether Landlock's TCP
+  rule also covers a Multipath TCP (MPTCP, `IPPROTO_MPTCP`) socket's connect
+  depends on the kernel; on a kernel where it does not, an MPTCP connect goes
+  through, a limit of the same kind as UDP (CI records the observed result as the
+  `issue672/mptcp` probe verdict). Below ABI4 the network is not confined — the
+  `bash_sandbox_status` reason says so. A run that is not `--offline` is
+  unchanged.
+- **What stays lexical-only:** every command run when the backend is unavailable.
+  `--yes`, `--allow bash:verify`, and `--offline` do not close an indirect write
+  or a home-secret read by themselves; only the sandbox, when applied, does.
+  `--allow bash:verify` admits a command by its classification only, so the
+  contents of any script it invokes are limited by the sandbox alone. With `auto`
+  and an unavailable backend the dependency setup runs outside the sandbox as
+  before and the status records it as not applied; with `required` it fails
+  honestly.
+- **Modes:** `auto` uses the backend when available and otherwise warns once and
+  records `bash_sandbox_status` with `applied=false` and a reason, continuing
+  with lexical checks only; `required` fails Bash and verifier commands with
+  `bash_sandbox_unavailable`; `off` keeps the previous behavior. The read
+  isolation is reported through the same event's `reason` (it names the applied
+  read isolation, or is empty for a fully confined sandbox). On macOS the
+  backend is Seatbelt and is unavailable under a nested sandbox (`rc=71`); on
+  Linux it is Landlock and is unavailable below ABI1 (kernel 5.13), when
+  disabled, or when a seccomp filter denies it.
+- Dependency caches (cargo, npm, pip, Playwright browsers) stay writable so
+  builds and tests work; they remain a contamination path outside the workspace.
+
+macOS `mktemp` ignores `TMPDIR`; use `mktemp -p "$TMPDIR"` or a template under
+`$TMPDIR`. The applied write-probe record is under
+`tests/corpus/apps/issue502-indirect-write/fixtures/macos-probe-results.md`; the
+applied read-probe record is under
+`tests/corpus/apps/issue502-indirect-read/fixtures/macos-probe-results.md`.
+
 ## Interactive REPL controls
 
 Within one TUI session, `/model <id>` and `/provider <name>` change the
@@ -111,6 +188,14 @@ least eight hexadecimal digits, such as `/confirm sha256:77cd5e23`. Set
 `COMMANDAGENT_STRICT_CONFIRM=1` before starting CommandAgent to require the
 full hash. Prefixes are expanded to the frozen full hash before confirmation is
 persisted.
+
+`/provider` switches only among the four built-in providers `ollama`,
+`lm-studio`, `openai`, and `gemini`. The generic `openai-compatible` provider,
+including its base URL and key variable, is configured before startup with
+`--provider`, `--base-url`, and `--api-key-env`, or a preset; change it there
+and restart CommandAgent instead of using `/provider`. When the executor
+provider is OpenAI, `/model <id>` and a `/provider openai` switch reject the
+ambiguous `gpt-5.6` alias with the same check the CLI applies at startup.
 
 REPL history is isolated beneath `--state-dir` at
 `workspace-history/<sha256-of-canonical-workspace>.txt`. Only the active
@@ -143,15 +228,32 @@ See [Configuration](configuration.md) for the exact per-field layers.
 - `--allow` accepts `read`, `write`, and `bash:verify` as repeated or
   comma-separated values. Once supplied, omitted tool classes are blocked;
   `--yes` is the backward-compatible all-tools alias.
-- Only one action selector may be used. This is checked after parsing and fails
-  with `only one action selector can be used at a time`.
+- Clap rejects some combinations while parsing: `--workflow` conflicts with
+  `--intent`; `--origin` requires `--workflow`; the `--doctor`/`--extensions`/
+  `--runs` JSON group and the pack direct-action group accept only one member
+  each. For example, `--doctor --runs` is a Clap-level conflict.
+- After parsing, the resolved configuration accepts exactly one action selector
+  and fails with `only one action selector can be used at a time`. For example,
+  `--prompt x --ux-demo` reaches that check because each flag is a valid
+  selector on its own. `--workflow` without `--origin` also fails here, with
+  `--workflow requires --origin`.
+- `--completions` and `--generate-man` are Clap-level conflicts with every other
+  action selector and with a trailing goal, so a combined invocation is rejected
+  before generation begins.
+- Pre-run argument and configuration rejections exit `2` before a run starts and
+  produce no run summary; see [headless execution](../../user/headless.md).
+  `--doctor` is the exception: it follows its diagnostic path, records the
+  failed Configuration check in its report (including JSON), and exits `1`
+  instead of `2`. For example, `--ux-demo --doctor --json` exits `1` with the
+  JSON report rather than the usual exit `2`.
 - `--packs`, `--pack-verify`, and `--pack-pin` are Clap-level direct actions.
   They conflict with one another, run action selectors, `--pack`, and
   `--pack-hash`. Listing allows `--extension-root`, while verify and pin take
   their target directory directly.
 - `--extensions` is read-only and accepts `--extension-root`; when omitted,
-  it resolves the top-level `extension_root` setting. `--json` is accepted
-  with either `--extensions` or `--doctor`.
+  it resolves the top-level `extension_root` setting. `--json` applies to
+  `--doctor`, `--extensions`, and `--runs`; using `--json` without one of those
+  targets is rejected.
 - `--plan-steps`, `--plan-run`, `--ultra-plan`, and `--ultra-plan-run` require a
   trailing goal.
 - `--validate-plan` is an offline, read-only action and conflicts with every
@@ -159,6 +261,12 @@ See [Configuration](configuration.md) for the exact per-field layers.
   recovery UltraPlan YAML; see [Plan YAML editing](plan-yaml.md).
 - A different `--planner-provider` requires an explicit or preset
   `planner_model`; otherwise startup fails.
+- A role that resolves to the generic provider needs its base URL: pass
+  `--base-url` or set preset `base_url` when the executor, planner, or
+  classifier is `openai-compatible`, including a preset that sets only the
+  classifier to the generic provider. With no `openai-compatible` role,
+  `--base-url` and `--api-key-env` are rejected by the resolved configuration.
+  These are not Clap `requires` relationships.
 - `--think` requires at least one resolved provider role to use Ollama. When
   both roles use another provider, startup fails instead of ignoring the flag.
 - For direct minimal-loop prompts, `--fresh-session` takes precedence over

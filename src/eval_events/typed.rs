@@ -16,7 +16,7 @@ pub(crate) struct UltraPhaseEvent<'a> {
 }
 
 impl<'a> UltraPhaseEvent<'a> {
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "one argument per event field")]
     pub(crate) fn new(
         event: &'a str,
         phase_id: &'a str,

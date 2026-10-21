@@ -112,6 +112,35 @@ pub(crate) fn current_has_mutating_authority() -> bool {
     })
 }
 
+/// Whether an explicit `bash:verify` policy auto-approves this command.
+///
+/// A command whose text contains a comment, heredoc, or line continuation is
+/// never auto-approved. The lexical write guard elides that text before it
+/// inspects the command, while the verify classification inspects the command
+/// with newlines replaced, so the two would otherwise read different commands
+/// and a comment could swallow the next line (Issue #576).
+pub fn bash_verify_command_is_auto_approvable(command: &str, workspace_root: &Path) -> bool {
+    if !super::shell_lexical::text_is_unchanged(command) {
+        return false;
+    }
+    // The verify normalization replaces vertical tabs and Unicode spaces with a
+    // normal space, so it can turn a `#x;rm -rf src` tail into a comment. The raw
+    // text must not be a recognized mutation on its own (B6).
+    if super::bash_write_guard::has_recognized_mutation(command) {
+        return false;
+    }
+    crate::planner::verify::normalize_runtime_bash_command_for_boundary(command, workspace_root)
+        .map(|plan| {
+            plan.segments.iter().all(|segment| {
+                matches!(
+                    &segment.command,
+                    crate::planner::verify::RuntimeNormalizedCommand::Verify(_)
+                )
+            }) && !super::bash_write_guard::has_recognized_mutation(&plan.normalized_command)
+        })
+        .unwrap_or(false)
+}
+
 impl ActivePolicy {
     fn ensure_allows(
         &self,
@@ -130,21 +159,7 @@ impl ActivePolicy {
                     .get("command")
                     .and_then(Value::as_str)
                     .ok_or_else(|| anyhow::anyhow!("Bash requires string argument `command`"))?;
-                crate::planner::verify::normalize_runtime_bash_command_for_boundary(
-                    command,
-                    workspace_root,
-                )
-                .map(|plan| {
-                    plan.segments.iter().all(|segment| {
-                        matches!(
-                            &segment.command,
-                            crate::planner::verify::RuntimeNormalizedCommand::Verify(_)
-                        )
-                    }) && !super::bash_write_guard::has_recognized_mutation(
-                        &plan.normalized_command,
-                    )
-                })
-                .unwrap_or(false)
+                bash_verify_command_is_auto_approvable(command, workspace_root)
             }
             _ => false,
         };

@@ -696,8 +696,11 @@ fn provider_name(provider: Provider) -> &'static str {
     provider.as_str()
 }
 
-fn emit(path: &Path, value: serde_json::Value) -> anyhow::Result<()> {
+pub fn emit(path: &Path, mut value: serde_json::Value) -> anyhow::Result<()> {
     use std::io::Write;
+    if let Some(context) = crate::sensitive_data::active_for(Some(path)) {
+        context.scrub_value_lenient(&mut value);
+    }
     let mut f = fs::OpenOptions::new()
         .create(true)
         .append(true)

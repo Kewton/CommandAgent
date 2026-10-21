@@ -1,0 +1,21 @@
+{
+  "issue": 448,
+  "reviewed_head": "3952f99ff3b2afde40b8d4e88380141044815836",
+  "original_corpus": "../issue448-nextjs-r0",
+  "original_manifest_sha256": "f71568d5cce2d1c5aaa210c745054b7dba9bf9af09a043349603ff587096cff6",
+  "original_contract_sha256": "eb2b04647a28ab10508c21e9c1cd026bea293a1c7f95dda261f4bd5529d8c9ab",
+  "original_lock_sha256": "b7bc835a316fbadb51b4a5af4083e8c8951c4fc8448179c4cecf4c18cbd88e1e",
+  "derivation": "Disposable original + existing ui-only/export/promise overlays; no application source added or changed in either corpus.",
+  "parent_uat_evidence_sha256": {
+    "workspace/management/runs/20260909-r0-wave1-uat-evidence/448/build-matrix.json": "460a509354fb44966e460844f79234f4ef1084990f9d917e3a16c4a7d80ce478",
+    "workspace/management/runs/20260909-r0-wave1-uat-evidence/448/candidate-integrity.json": "b5e14f7c49216dc9c8e97355181e525fba47f027d72314ffa5fd47d1fa577513",
+    "workspace/management/runs/20260909-r0-wave1-uat-evidence/448/check-1.json": "6bbe2560dcc2ec55fa76c645a7c4ec745cbbf247e3e114f1e506098e1438d7db",
+    "workspace/management/runs/20260909-r0-wave1-uat-evidence/448/check-2.json": "b332bf0511cd126c42c12929bc493cfd09e176fda5d4390cee39ae62e77e0441",
+    "workspace/management/runs/20260909-r0-wave1-uat-evidence/448/check-3.json": "c5a3a48af540122fc1c8f52556b020bde328f85588af9ab3e4f771a7bba7cd22"
+  },
+  "observation_boundary": "Real locked build and unchanged Next.js finish/promotion path, with explicitly scripted HTTP and interaction responses; no real browser/model acceptance.",
+  "limitations": [
+    "Runtime lock deadlock and data loss not observed.",
+    "Type repair does not prove mutual exclusion or persistence."
+  ]
+}

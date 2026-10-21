@@ -1,0 +1,5 @@
+{
+  "positive": {"saved": true, "reloaded": true},
+  "negative": {"saved": true, "reloaded": false},
+  "scope": "Synthetic observation -> independent Node oracle -> existing behavior gate; not a live app observation"
+}

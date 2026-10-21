@@ -100,6 +100,38 @@ process environment から展開します。文字列／列挙フィールドに
 未設定、非 Unicode、または不正な変数参照は設定解決エラーとなり、`--doctor` では `✗` と表示します。
 変数の値は表示しません。
 
+**秘密情報の登録と伏せ字。** run は 1 個の SecretCatalog（秘密値の集合）を持ち、記録・表示・
+provider 送信の各境界で同じ exact-value scrub を適用します。`sk-` や `AIza` などの形式による
+推定 scrub も併用しますが、形式に合わない資格情報はこの値集合で保護します。登録元は次の範囲に
+限り、process 全体の環境変数や任意の credential ファイルを再帰的に走査することはありません。
+
+- provider key: 選択した role に関係なく、非空の `OPENAI_API_KEY`、`GEMINI_API_KEY`、
+  `LM_STUDIO_API_TOKEN`、および `openai-compatible` の `api_key_env`。
+- workspace root 直下の `.env` と non-template の `.env.*`（`.env.example` 系は対象外）。
+  収集は 64 ファイル・各 1 MiB・catalog 1024 値が上限です。読取失敗、上限超過、symlink の
+  dotenv source は秘密を黙って捨てず、**設定解決を honest に拒否**します。
+- preset の `${ENV}` 展開値。展開は validation 前に登録するため、後続の検証が失敗してもその値は
+  error chain に現れません。`${ENV}` 展開値が URL として不正な場合、エラーは field と検証種別
+  のみを示し、展開値は stderr・error chain・`--doctor` のいずれにも表示しません。
+
+値の登録規則は次のとおりです。**8 文字未満**の資格情報の値（資格情報名 `TOKEN`、`API_KEY`、
+`PASSWORD`、`PASSWD`、`SECRET`、`CREDENTIAL`、`PRIVATE` などを持つ値と provider／`${ENV}` の
+値）、**marker 候補と一致する**資格情報の値、および**合算で 1024 値を超える**登録は、
+**登録せずに起動時に honest に拒否**します（値は表示しません）。資格情報名でない一般の dotenv 値は
+8 文字以上を保守的に登録し、`PORT=3000`、`true`、`dev` のような短い普通の値は秘密にしません。
+登録済みの値はすべて**完全一致の置換**で扱い、自由入力 field を丸ごと伏せる処理は持ちません。
+event 名・schema・status・verdict・type などの固定識別子と tool 名は、登録値と衝突しても
+書き換えません。
+
+伏せ字は session/events/UI feed/spool/failsafe/evidence/trace/summary、provider に送る会話コピー
+と tool schema、表示用 stream callback に及び、切り詰め・escape・chunk 分割の前に完全値へ適用
+します。認証ヘッダー、運用 Config、実行引数、検証元の観測値は元の値を保ち、event 名・schema・
+key・type・順序・verdict・source_refs は変えずに値だけを置換します。置換 marker は登録値と衝突
+しないものを選び（最終候補まで検査）、再適用は冪等です。秘密を含む動的 key は、要素数を保ち
+無関係な key を変えずに安全な key へ投影し、投影できない場合は共有 API が honest に拒否できます。
+登録していない秘密は形式推定で捕捉できる範囲に限られ、format 外・未登録の値は保護されません。
+過去の記録は表示時に保護し、書き戻しません。
+
 ```toml
 [preset.team_base]
 provider = "openai-compatible"
@@ -182,10 +214,20 @@ prompt_layout = "stable"
 plan_preset = "none"
 ```
 
-`model` などのキーは preset 内では有効ですが、トップレベルでは無効です。未知のトップレベルキーが
-あると、そのファイルの構文解析が失敗します。名前付き preset の読み込みは構文解析エラーを表示し、
-トップレベルフィールドの検索は構文解析できなかったファイルを飛ばして優先度の低いファイルへ進みます。
-現在の小さなパーサーは `[preset.<name>]` 以外のセクションを設定として扱わず、無視します。
+`model` などのキーは preset 内では有効ですが、トップレベルでは無効です。
+
+> **互換性の変更。** 4 つの層（`<workspace>/.commandagent`、`<workspace>/.anvil`、
+> `~/.commandagent`、`~/.anvil`）に存在する `config.toml` は、`--preset` や CLI の
+> override の有無によらず、起動時にすべて構文解析されます。未知のトップレベルキー、
+> 不正な TOML、読み取れないファイルは起動時のエラーになり、コマンドは非ゼロで終了します。
+> `--doctor` も provider へ接続せず、Configuration の失敗として報告します。
+> 以前は、そのようなファイルを黙って飛ばして優先度の低いファイルや既定値を使っていたため、
+> 打ち間違いや壊れた上位ファイルに気づけませんでした。診断に出すのはファイル・行・キーだけで、
+> 値は出しません。起動時に確認するのは構文・未知のトップレベルキー・読み取り失敗だけで、`${ENV}` の展開や preset の中身は、その preset を選んだときだけ検証します。報告された行を直すか削除してください。
+
+有効な設定の解決は従来どおりです（flag、preset、設定ファイル、既定値の順で、source の表示も同じ）。
+`[preset.<name>]` 以外のセクションは現在の小さなパーサーが設定として扱わず無視します。
+拡張子のない legacy の `config` ファイルも、従来どおり寛容な行走査のままです。
 
 ## Pack 選択
 
@@ -240,9 +282,19 @@ OpenAI キーと任意の `LM_STUDIO_API_TOKEN` はプロセス環境だけか�
 | `XDG_STATE_HOME` | 既定の state directory が使うベースを変更します。 |
 | `HOME` | ユーザー設定パスと state directory fallback のホームを指定します。 |
 | `LC_ALL`、次に `LANG` | spinner が UTF-8 frame を使うか決めます。 |
+| `COMMANDAGENT_STEP_WALL_CLOCK_CAP_MS` / `ANVIL_STEP_WALL_CLOCK_CAP_MS` | step の時間上限をミリ秒で指定する運用向け設定です。`RunSessionOptions` の指定が環境値より優先されます。値は trim して `u64` として解析し、未設定または解析不能なら既定の 15 分を使います。`0` も解析上は有効です。 |
+| `COMMANDAGENT_PACK_DIRECTORY` | 選択済み pack の directory を内部で受け渡します。手で設定せず、`--pack` または preset で指定してください。 |
+| `COMMANDAGENT_PACK_ID` | 選択済み pack の ID を内部で受け渡します。手で設定せず、`--pack` または preset で指定してください。 |
+| `COMMANDAGENT_PACK_VERSION` | 選択済み pack の version を内部で受け渡します。手で設定せず、`--pack` または preset で指定してください。 |
+| `COMMANDAGENT_PACK_HASH` | 選択済み pack の exact-byte hash を内部で受け渡します。手で設定せず、`--pack` または preset で指定してください。 |
+| `COMMANDAGENT_UX_DEMO_FAST` / `ANVIL_UX_DEMO_FAST` | 開発・デモ用に `--ux-demo` の待機を短くします。値の真偽ではなく変数の存在を判定します。 |
 
 `COMMANDAGENT_*` 項目では現在名が優先されます。現在名がない場合だけ対応する `ANVIL_*` 名を使い、
 1 回だけ非推奨警告を出します。それでも表中の旧名は、現在サポートされている正確な綴りです。
+
+`COMMANDAGENT_PACK_*` の 4 変数は例外で、直接読み込まれ、`ANVIL_*` の旧名を持ちません。これらは
+選択済み pack の内部受け渡しであり、利用者向け設定ではありません。pack の選択には `--pack` または
+preset を使ってください。
 
 ## 実効設定の確認
 

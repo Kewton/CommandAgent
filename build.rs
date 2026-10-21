@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-#[allow(dead_code)]
+#[allow(dead_code, reason = "the build script uses only part of env_compat")]
 #[path = "src/env_compat.rs"]
 mod env_compat;
 

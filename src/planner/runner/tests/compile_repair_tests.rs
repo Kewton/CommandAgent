@@ -53,6 +53,7 @@ fn compile_error_repair_prompt_anchors_file_and_then_runs_readiness() {
     let events = dir.path().join("events.jsonl");
     enable_dev_server_probe_test_override(dir.path());
     let contract = write_compile_error_nextjs_workspace(dir.path(), port);
+    test_transport::enable_browser_probe_transport(dir.path(), port);
     let mut cfg = config(dir.path().to_path_buf());
     cfg.profile = "nextjs".to_string();
     cfg.eval_events_path = Some(events.clone());
@@ -300,7 +301,7 @@ fn step_verify_compile_repair_recovers_in_compact_session_after_appended_no_edit
         "{compact_prompt}"
     );
     assert!(
-        !compact_prompt.contains("Overall goal:"),
+        compact_prompt.contains(&api_mismatch_step_plan().goal),
         "{compact_prompt}"
     );
     let event_text = std::fs::read_to_string(&events).unwrap();
@@ -757,6 +758,18 @@ fn step_verify_compile_repair_exhaustion_rolls_back_snapshot_and_continues() {
     );
     assert!(
         event_text.contains("\"event\":\"compile_rollback_applied\""),
+        "{event_text}"
+    );
+    assert!(
+        event_text.contains("\"build_reverified\":true"),
+        "{event_text}"
+    );
+    assert!(
+        event_text.contains("\"build_reverification_status\":\"passed\""),
+        "{event_text}"
+    );
+    assert!(
+        event_text.contains("\"rollback_applied\":true"),
         "{event_text}"
     );
     assert!(

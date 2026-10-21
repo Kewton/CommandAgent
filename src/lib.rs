@@ -19,6 +19,7 @@ mod cli_pack;
 mod cli_panic_boundary;
 mod completion_metadata;
 pub mod config;
+mod direct_action_dispatch;
 pub mod doctor;
 pub mod env_compat;
 pub mod eval_events;
@@ -29,6 +30,7 @@ mod headless_summary;
 pub mod minimal_loop;
 pub mod mode;
 pub mod model_probe;
+mod node_failure;
 mod openai_model;
 mod pack_actions;
 pub mod planner;
@@ -40,11 +42,13 @@ pub mod repl;
 mod run_trace;
 pub mod runs;
 pub mod runtime_paths;
+pub mod sensitive_data;
 pub mod state;
 pub mod time_profile;
 pub mod tools;
 pub mod tui;
 pub mod util;
+pub mod verification;
 pub mod verification_spec;
 pub mod workflow;
 mod workspace_lock;
@@ -60,8 +64,7 @@ use serde_json::json;
 use signal_hook::consts::SIGINT;
 use signal_hook::iterator::{Handle as SignalHandle, Signals};
 use tui::OutputRenderer;
-use tui::TerminalUi;
-use tui::markdown::{PlainRenderer, TerminalMarkdownRenderer};
+use tui::markdown::TerminalMarkdownRenderer;
 
 pub fn run(cli: Cli) -> anyhow::Result<()> {
     run_with_provider_options(cli, config::ProviderCliOptions::default())
@@ -128,7 +131,28 @@ pub fn run_with_provider_options(
     }
     let pack_cli = cli.clone();
     let summary_json = cli.summary_json;
-    let config = Config::from_cli_with_provider_options(cli, provider_options)?;
+    let sandbox_mode = cli.sandbox;
+    let config = Config::from_cli_with_provider_options(cli, provider_options)
+        .map_err(cli_argument_error)?;
+    // Only actions that can run model/verifier Bash need the OS write sandbox and
+    // its per-run temp directory; read-only actions must not create one. The
+    // guard removes the run temp directory on every exit path.
+    let _sandbox_cleanup = action_uses_write_sandbox(&config.action).then(|| {
+        tools::os_sandbox::install_with(
+            sandbox_mode,
+            &config.workspace_root,
+            &config.state_dir,
+            config.offline,
+            tools::os_sandbox::dev_server_ports(
+                &config.profile,
+                crate::config::action_goal(&config.action),
+            ),
+        );
+        if let Some(warning) = tools::os_sandbox::startup_warning() {
+            eprintln!("{warning}");
+        }
+        tools::os_sandbox::cleanup_guard()
+    });
     for profile in planner::extension_profiles::registered() {
         for warning in &profile.warnings {
             eprintln!("warning: {warning}");
@@ -136,19 +160,37 @@ pub fn run_with_provider_options(
     }
     let pack = cli_pack::resolve(&pack_cli, &config)?;
     let _pack_environment = cli_pack::RuntimeEnvironmentGuard::install(pack.as_ref())?;
-    let summary_source =
-        summary_json.then(|| headless_summary::Source::from_config(&config, pack.as_ref()));
+    let summary_source = (summary_json && action_may_project_summary(&config.action))
+        .then(|| headless_summary::Source::from_config(&config, pack.as_ref()));
     let result = run_resolved_config_with_summary(config, summary_source.clone());
-    if let Some(source) = summary_source {
+    if let Some(source) = summary_source
+        && (source.has_persisted_events() || source.has_selected_pack())
+    {
         println!("{}", headless_summary::render(&source));
     }
     result
 }
 
+/// A command-line argument or configuration rejection raised before a run starts.
+///
+/// `cli_error_exit_code` maps this to exit `2`, which is the documented headless
+/// contract for pre-run rejection: no run summary exists because nothing ran.
+#[derive(Debug, thiserror::Error)]
+#[error("{message}")]
+pub(crate) struct CliArgumentError {
+    message: String,
+}
+
+fn cli_argument_error(error: anyhow::Error) -> anyhow::Error {
+    anyhow::Error::new(CliArgumentError {
+        message: sensitive_data::scrub_everything(&format!("{error:#}")),
+    })
+}
+
 pub fn cli_error_exit_code(error: &anyhow::Error) -> i32 {
     if error
         .chain()
-        .any(|cause| cause.is::<cli_pack::PackCliError>())
+        .any(|cause| cause.is::<cli_pack::PackCliError>() || cause.is::<CliArgumentError>())
     {
         2
     } else if error_is_interrupted(error) {
@@ -187,6 +229,13 @@ pub(crate) fn run_resolved_config_for_workflow(config: Config) -> anyhow::Result
     // the whole run. Re-entering catch_cli_run here makes the same thread re-lock that
     // mutex and self-deadlock. Run the resolved config directly; the outer boundary
     // still catches any panic raised by this child node run.
+    //
+    // The sandbox was installed once, in the parent's workspace. A child node runs
+    // in its own origin workspace, so reconcile the installed sandbox with that
+    // workspace first: when they differ the sandbox is recorded as not applied
+    // (and `required` fails the node) instead of confining it to the wrong place.
+    // When they match, this is a no-op.
+    tools::os_sandbox::reconcile_workspace(&config.workspace_root);
     run_config(config, None)
 }
 
@@ -206,7 +255,15 @@ fn run_config(
     }
     let _terminal_notification_guard = tui::terminal_notifications::install();
     let _presentation_guard = tui::presentation::install(&config);
-    emit_run_start(&config);
+    let records_run = action_records_run_evidence(&config.action);
+    // Declared before the run start and stop so it drops after them, on every
+    // exit path: a nested child gives the parent's destination back (Issue #773).
+    let _sandbox_events_scope = records_run.then(|| {
+        tools::os_sandbox::events_scope::EventsScope::enter(config.eval_events_path.clone())
+    });
+    if records_run {
+        emit_run_start(&config);
+    }
     if let Some(estimate) = tui::footer::startup_duration_estimate(&config) {
         eprintln!("{estimate}");
     }
@@ -224,196 +281,15 @@ fn run_config(
     cli_panic_boundary::inject_test_fault_if_requested();
     let result = (|| -> anyhow::Result<()> {
         preflight::run_for_action(&config)?;
-        match config.action.clone() {
-            Action::Repl => repl::run_repl(config.clone()),
-            Action::Prompt(prompt)
-                if config.profile == planner::profiles::community_mini_app::PROFILE_ID
-                    && config.offline =>
-            {
-                let report = planner::profile::verify_profile_final(
-                    &config.workspace_root,
-                    planner::profiles::community_mini_app::PROFILE_ID,
-                    &prompt,
-                );
-                let ok = report.is_pass();
-                let violation = if ok {
-                    String::new()
-                } else {
-                    report.primary_reason()
-                };
-                eval_events::emit(
-                    config.eval_events_path.as_deref(),
-                    json!({
-                        "event": "community_profile_verification",
-                        "profile": planner::profiles::community_mini_app::PROFILE_ID,
-                        "verdict": if ok { "full" } else { "failed" },
-                        "assurance": if ok { "full" } else { "failed" },
-                        "violation": violation,
-                        "ok": ok,
-                    }),
-                );
-                if ok {
-                    Ok(())
-                } else {
-                    anyhow::bail!("community_profile_violation:{}", report.primary_reason())
-                }
-            }
-            Action::Prompt(prompt) => {
-                let mut client = providers::client_from_config(&config, false)?;
-                let ui = DirectActionUi::new(&config);
-                let resume = if config.fresh_session {
-                    None
-                } else {
-                    config.resume.as_deref()
-                };
-                let mut session =
-                    state::SessionStore::new(config.state_dir.clone()).load_or_create(resume)?;
-                let reply = minimal_loop::loop_run::run_session_with_required_paths_with_ui(
-                    &mut *client,
-                    &mut session,
-                    &prompt,
-                    &[],
-                    &config,
-                    ui.as_interaction(),
-                )?;
-                state::SessionStore::new(config.state_dir.clone()).save(&session)?;
-                drop(ui);
-                PlainRenderer.render_assistant(&reply)?;
-                Ok(())
-            }
-            Action::PlanSteps(goal) => {
-                let mut planner = providers::client_from_config(&config, true)?;
-                let ui = DirectActionUi::new(&config);
-                let plan = planner::generate_step_plan_with_ui(
-                    &mut *planner,
-                    &goal,
-                    &config,
-                    ui.as_interaction(),
-                )
-                .context("failed to generate step plan")?;
-                let path = planner::save_step_plan(&config.workspace_root, &plan)?;
-                drop(ui);
-                println!("{}", path.display());
-                println!(
-                    "{}",
-                    planner::plan::saved_plan_guidance(&path, planner::plan::PlanFileKind::Step)
-                );
-                Ok(())
-            }
-            Action::PlanRun(goal) => {
-                let mut execution = providers::client_from_config(&config, false)?;
-                let mut planner_client = providers::client_from_config(&config, true)?;
-                let ui = DirectActionUi::new(&config);
-                let report = planner::generate_and_run_step_plan_with_ui(
-                    &mut *planner_client,
-                    &mut *execution,
-                    &goal,
-                    &config,
-                    ui.as_interaction(),
-                )?;
-                drop(ui);
-                println!("{report}");
-                Ok(())
-            }
-            Action::RunPlan(path) => {
-                let mut execution = providers::client_from_config(&config, false)?;
-                let ui = DirectActionUi::new(&config);
-                let report = planner::run_plan_file_with_ui(
-                    &mut *execution,
-                    &path,
-                    &config,
-                    ui.as_interaction(),
-                )?;
-                drop(ui);
-                println!("{report}");
-                Ok(())
-            }
-            Action::UltraPlan(goal) => {
-                let mut planner_client = providers::client_from_config(&config, true)?;
-                let ui = DirectActionUi::new(&config);
-                let plan = planner::generate_ultra_plan_with_ui(
-                    &mut *planner_client,
-                    &goal,
-                    &config,
-                    ui.as_interaction(),
-                )?;
-                let path = planner::save_ultra_plan(&config.workspace_root, &plan)?;
-                drop(ui);
-                println!("{}", path.display());
-                println!(
-                    "{}",
-                    planner::plan::saved_plan_guidance(&path, planner::plan::PlanFileKind::Ultra)
-                );
-                Ok(())
-            }
-            Action::UltraPlanRun(_) | Action::RunUltraPlan(_) => {
-                let mut execution = providers::client_from_config(&config, false)?;
-                let mut planner_client = providers::client_from_config(&config, true)?;
-                let ui = DirectActionUi::new(&config);
-                let report = run_ultra_plan_action_with_ui(
-                    &config.action,
-                    &mut *planner_client,
-                    &mut *execution,
-                    &config,
-                    ui.as_interaction(),
-                )?;
-                drop(ui);
-                println!("{report}");
-                Ok(())
-            }
-            Action::SetupInteractionProbe => {
-                let report =
-                    minimal_loop::interaction_probe::setup_interaction_probe_with_stdout_progress(
-                    )?;
-                for line in report.summary_lines() {
-                    println!("{line}");
-                }
-                Ok(())
-            }
-            Action::ModelProbe => {
-                let mut execution = providers::client_from_config(&config, false)?;
-                let mut planner_client = providers::client_from_config(&config, true)?;
-                let output =
-                    model_probe::run_configured(&config, &mut *planner_client, &mut *execution)?;
-                println!("{}", output.card);
-                Ok(())
-            }
-            Action::Doctor => {
-                let report = doctor::diagnose(&config);
-                println!("{}", report.render_human());
-                if report.failed() {
-                    anyhow::bail!("doctor found failed checks");
-                }
-                Ok(())
-            }
-            Action::Workflow(..) => unreachable!("workflow action dispatched before match"),
-            Action::UxDemo => tui::ux_demo::run(&config),
-            Action::Runs(_) => Ok(()),
-        }
+        direct_action_dispatch::run(&config)
     })();
     if let Some(guard) = direct_command_guard.as_ref() {
         guard.finalize(&result);
     }
-    emit_run_stop(&config, &result);
-    result
-}
-
-fn run_ultra_plan_action_with_ui(
-    action: &Action,
-    planner: &mut dyn providers::ChatClient,
-    execution: &mut dyn providers::ChatClient,
-    config: &Config,
-    ui: &dyn tui::InteractionUi,
-) -> anyhow::Result<String> {
-    match action {
-        Action::UltraPlanRun(goal) => {
-            planner::auto_recovery::generate_and_run_with_ui(planner, execution, goal, config, ui)
-        }
-        Action::RunUltraPlan(path) => {
-            planner::auto_recovery::run_file_with_ui(planner, execution, path, config, ui)
-        }
-        _ => anyhow::bail!("action is not an UltraPlan execution entry point"),
+    if records_run {
+        emit_run_stop(&config, &result);
     }
+    result
 }
 
 fn action_uses_workspace_lock(action: &Action) -> bool {
@@ -423,26 +299,31 @@ fn action_uses_workspace_lock(action: &Action) -> bool {
     )
 }
 
-enum DirectActionUi {
-    Terminal(TerminalUi),
-    Noop,
+/// Whether the action can run model Bash or verifier commands, so it needs the OS
+/// write sandbox and its per-run temp directory. Read-only actions do not, and
+/// must not create a temp directory.
+fn action_uses_write_sandbox(action: &Action) -> bool {
+    !matches!(
+        action,
+        Action::Runs(_) | Action::UxDemo | Action::ModelProbe | Action::Doctor
+    )
 }
 
-impl DirectActionUi {
-    fn new(config: &Config) -> Self {
-        if tui::footer::FooterEnv::detect(config).enabled {
-            Self::Terminal(TerminalUi::new(config))
-        } else {
-            Self::Noop
-        }
-    }
+/// Whether the action starts and stops a run recorded in the event stream.
+///
+/// `--ux-demo` only renders a scripted demo, so it must not record run
+/// start/stop events. `--runs` never reaches the recording points either.
+fn action_records_run_evidence(action: &Action) -> bool {
+    !matches!(action, Action::Runs(_) | Action::UxDemo)
+}
 
-    fn as_interaction(&self) -> &dyn tui::InteractionUi {
-        match self {
-            Self::Terminal(ui) => ui,
-            Self::Noop => &tui::NOOP_UI,
-        }
-    }
+/// Whether the action may project a headless summary at all.
+///
+/// `--ux-demo` reports a scripted interruption, not a run, so it never projects
+/// a summary, even with `--summary-json`. A read-only `--runs` may still project
+/// a resolved pack, which is run-independent evidence.
+fn action_may_project_summary(action: &Action) -> bool {
+    !matches!(action, Action::UxDemo)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -510,26 +391,21 @@ impl DirectCommandCompletionGuard {
                 let signal_command = command.clone();
                 let signal_finalized = finalized.clone();
                 signal_thread = Some(std::thread::spawn(move || {
+                    // This product thread may project a headless summary or emit
+                    // a stop event. Resolve the run's scope by events path so a
+                    // non-installed thread still scrubs registered secrets.
+                    if let Some(context) =
+                        sensitive_data::active_for(signal_config.eval_events_path.as_deref())
+                    {
+                        sensitive_data::set_current(Some(context));
+                    }
                     if signals.forever().next().is_some() {
                         if !signal_finalized.swap(true, Ordering::AcqRel) {
-                            let result: anyhow::Result<()> =
-                                Err(anyhow::anyhow!("interrupted by user"));
-                            bounded_process::reap_registered_server_children_for_workspace(
-                                signal_config.eval_events_path.as_deref(),
-                                "direct_cli_sigint",
-                                &signal_config.workspace_root,
-                            );
-                            emit_direct_command_stop_with_status(
+                            let mut stdout = std::io::stdout().lock();
+                            if let Err(err) = finalize_interrupted_direct_command(
                                 &signal_config,
                                 &signal_command,
-                                &result,
-                                DirectCommandStatus::Interrupted,
-                            );
-                            tui::terminal_notifications::finish_process();
-                            let mut stdout = std::io::stdout().lock();
-                            if let Err(err) = write_interrupted_headless_summary(
                                 summary_source.as_ref(),
-                                signal_config.eval_events_path.as_deref(),
                                 &mut stdout,
                             ) {
                                 eprintln!(
@@ -539,6 +415,9 @@ impl DirectCommandCompletionGuard {
                             // Keep stdout locked until exit so the JSON remains the final line.
                             std::process::exit(130);
                         }
+                        // Another thread already finalized; still release the run temp
+                        // directory, which `std::process::exit` would otherwise leak.
+                        tools::os_sandbox::cleanup();
                         std::process::exit(130);
                     }
                 }));
@@ -575,6 +454,39 @@ impl DirectCommandCompletionGuard {
         }
         emit_direct_command_stop_with_status(&self.config, &self.command, result, status);
     }
+}
+
+/// The work the direct-CLI SIGINT finalizer runs before `std::process::exit`,
+/// which skips `Drop`: reap server children, emit the interrupted stop event,
+/// write the interrupted headless summary, then release the run temp directory.
+/// The cleanup always runs, even when the summary write fails, so the exit leaks
+/// no temp directory.
+fn finalize_interrupted_direct_command(
+    config: &Config,
+    command: &str,
+    summary_source: Option<&headless_summary::Source>,
+    output: &mut impl Write,
+) -> std::io::Result<()> {
+    let result: anyhow::Result<()> = Err(anyhow::anyhow!("interrupted by user"));
+    bounded_process::reap_registered_server_children_for_workspace(
+        config.eval_events_path.as_deref(),
+        "direct_cli_sigint",
+        &config.workspace_root,
+    );
+    emit_direct_command_stop_with_status(
+        config,
+        command,
+        &result,
+        DirectCommandStatus::Interrupted,
+    );
+    tui::terminal_notifications::finish_process();
+    let write_result = write_interrupted_headless_summary(
+        summary_source,
+        config.eval_events_path.as_deref(),
+        output,
+    );
+    tools::os_sandbox::cleanup();
+    write_result.map(|_| ())
 }
 
 fn write_interrupted_headless_summary(
@@ -844,6 +756,18 @@ fn emit_run_start(config: &Config) {
             "build_timestamp": build_info::TIMESTAMP,
         }),
     );
+    if let Some(sandbox) = tools::os_sandbox::status() {
+        eval_events::emit(
+            config.eval_events_path.as_deref(),
+            json!({
+                "event": "bash_sandbox_status",
+                "mode": sandbox.mode.as_str(),
+                "backend": sandbox.backend,
+                "applied": sandbox.applied,
+                "reason": sandbox.reason.unwrap_or_default(),
+            }),
+        );
+    }
     eval_events::emit(
         config.eval_events_path.as_deref(),
         json!({
@@ -1047,6 +971,7 @@ mod tests {
 
     use super::*;
     use crate::config::{Action, Provider};
+    use crate::direct_action_dispatch::run_ultra_plan_action_with_ui;
     use crate::providers::{AssistantReply, ChatClient};
     use crate::state::ConversationMessage;
     use crate::tools::registry::ToolSpec;
@@ -1746,6 +1671,7 @@ mod tests {
 
     #[test]
     fn cli_run_fault_injection_finalizes_with_internal_panic_handoff() {
+        let _state = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         let events = dir.path().join(".anvil/runs/internal-panic/events.jsonl");
         let mut cfg = config(dir.path().to_path_buf());
@@ -1831,6 +1757,7 @@ mod tests {
 
     #[test]
     fn cli_run_keeps_handoff_when_completion_drop_also_panics() {
+        let _state = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         let events = dir.path().join(".anvil/runs/double-panic/events.jsonl");
         let mut cfg = config(dir.path().to_path_buf());
@@ -1962,6 +1889,41 @@ mod tests {
     }
 
     #[test]
+    fn sigint_finalizer_releases_the_run_temp_dir_before_exit() {
+        let status = run_ignored_self_test(
+            "tests::sigint_finalizer_releases_the_run_temp_dir_before_exit_child",
+            &[],
+        );
+        assert!(status.success(), "{status}");
+    }
+
+    #[test]
+    #[ignore]
+    fn sigint_finalizer_releases_the_run_temp_dir_before_exit_child() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join(".anvil/runs/test-run/events.jsonl");
+        let mut cfg = config(dir.path().to_path_buf());
+        cfg.eval_events_path = Some(events);
+
+        let run_tmp = dir.path().join("sandbox/run-test");
+        std::fs::create_dir_all(&run_tmp).unwrap();
+        crate::tools::os_sandbox::install_for_test(
+            crate::tools::os_sandbox::SandboxMode::Auto,
+            crate::tools::os_sandbox::SandboxPolicy::new(dir.path(), &run_tmp),
+            crate::tools::os_sandbox::SandboxAvailability::Unavailable("test".to_string()),
+        );
+
+        let mut output = Vec::new();
+        finalize_interrupted_direct_command(&cfg, "--prompt", None, &mut output).unwrap();
+
+        assert!(
+            !run_tmp.exists(),
+            "the SIGINT finalizer must remove the run temp directory"
+        );
+        crate::tools::os_sandbox::reset_for_test();
+    }
+
+    #[test]
     fn run_lifecycle_records_incomplete_stop_reason() {
         let dir = tempfile::tempdir().unwrap();
         let events = dir.path().join(".anvil/runs/test-run/events.jsonl");
@@ -2064,6 +2026,25 @@ mod tests {
         assert!(summary.contains("Release gate: failed"));
         assert!(summary.contains("- browser_readiness_failed:http_500"));
         assert!(!summary.contains("\nStatus: complete\nAction: Repl\nStop reason: completed"));
+    }
+
+    #[test]
+    fn read_only_actions_do_not_need_the_write_sandbox() {
+        for action in [
+            Action::Runs(crate::config::RunsRequest::default()),
+            Action::UxDemo,
+            Action::ModelProbe,
+            Action::Doctor,
+        ] {
+            assert!(!action_uses_write_sandbox(&action), "{action:?}");
+        }
+        for action in [
+            Action::Repl,
+            Action::Prompt("goal".into()),
+            Action::Workflow(PathBuf::from("def.yaml"), PathBuf::from("origin")),
+        ] {
+            assert!(action_uses_write_sandbox(&action), "{action:?}");
+        }
     }
 
     fn run_ignored_self_test(test_name: &str, envs: &[(&str, &str)]) -> std::process::ExitStatus {

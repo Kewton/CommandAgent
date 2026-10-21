@@ -1,0 +1,21 @@
+case_id = "issue490-verify-readers"
+source = "Issue #490 portable fixed-response planner replay, reader duties and runtime controls; no live app success claim"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+acceptance_passed = true
+primary_reason = "pass"
+[compile]
+expect = "not_checked"
+[fixture_contains]
+P02-D-attempt-1.json = ["package-read-original", "mixed-verifier-doc"]
+P02-D-attempt-2.json = ["package-read-later", "verifier-owner", "package.json"]
+acquired-before-after.json = ["package-read-after-acquired", "application-config"]
+reader-cases.json = ["instruction_check_collage", "distributed_checks", "merge_after", "external_script"]
+registration.json = ["README.md", "node verify-ui.cjs", "test -f README.md"]
+runtime-metadata.json = ["precheck", "package-read-original", "package-read-later"]
+known-build-loss.json = ["verify-build", "npm run build", "unresolved by #490"]

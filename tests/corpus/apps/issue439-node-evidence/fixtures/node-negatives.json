@@ -1,0 +1,68 @@
+[
+  {
+    "name": "log-only-with-unrelated-assertion",
+    "source": "console.log('ok');",
+    "command": "node smoke-check.js",
+    "unrelated_assertion": true
+  },
+  {
+    "name": "swallowed-assertion-exit-zero",
+    "source": "try { const assert = require('assert'); assert(false); } catch (e) {} process.exit(0);",
+    "command": "node smoke-check.js"
+  },
+  {
+    "name": "masked-nonzero-exit",
+    "source": "if (!ok) { process.exit(1); }",
+    "command": "node smoke-check.js || true"
+  },
+  {
+    "name": "inline-print",
+    "source": "",
+    "command": "node -e \"console.log('ok')\""
+  },
+  {
+    "name": "uncalled-function",
+    "source": "function check() { if (!ok) process.exit(1); } console.log('ok');",
+    "command": "node smoke-check.js"
+  },
+  {
+    "name": "fake-assert-import-literal",
+    "source": "const text = \"require('assert')\"; function assert() {} assert(false);",
+    "command": "node smoke-check.js"
+  },
+  {
+    "name": "nonchecking-assert-method",
+    "source": "const assert = require('assert'); assert.toString();",
+    "command": "node smoke-check.js"
+  },
+  {
+    "name": "review-scoped-assert-binding",
+    "source": "function unused() { const assert = require('assert'); }; function assert() {}; assert(false);\n",
+    "command": "node smoke-check.js"
+  },
+  {
+    "name": "review-bracket-process-exit-override",
+    "source": "process['exit'] = () => {}; const ok = false; if (!ok) process.exit(1);\n",
+    "command": "node smoke-check.js"
+  },
+  {
+    "name": "review-bracket-assert-method-override",
+    "source": "const assert = require('assert'); assert['equal'] = () => {}; assert.equal(1, 2);\n",
+    "command": "node smoke-check.js"
+  },
+  {
+    "name": "review-unreachable-conditional-exit",
+    "source": "const actual = { ok: false }; if (false && actual.ok) process.exit(1);\n",
+    "command": "node smoke-check.js"
+  },
+  {
+    "name": "review-derived-shadowed-assert",
+    "source": "const assert = require('assert'); const ok = true; if (ok) { const assert = () => {}; assert(false); }",
+    "command": "node smoke-check.js"
+  },
+  {
+    "name": "review-derived-aliased-assert-mutation",
+    "source": "const assert = require('assert'); const alias = assert; alias.equal = () => {}; assert.equal(1, 2);",
+    "command": "node smoke-check.js"
+  }
+]

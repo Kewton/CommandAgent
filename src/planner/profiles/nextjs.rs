@@ -1,10 +1,18 @@
 mod api_contract;
+mod contract_checks;
 mod dependency_family;
 mod domain;
 mod fix_reproducer;
 pub(crate) mod knowledge;
+pub(crate) mod recovery_authority;
 mod repair_excerpts;
+mod response_shape;
+
+pub(crate) fn contract_repair_advisory(root: &std::path::Path) -> Option<String> {
+    response_shape::advisory(root)
+}
 mod scaffold_mode;
+mod template_selection;
 pub(crate) mod testimony_binding;
 
 pub use domain::{NextjsProfile, PROFILE_ID};
@@ -14,6 +22,8 @@ pub(crate) use repair_excerpts::profile_invariant_relevant_paths;
 use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value};
+
+use self::contract_checks::Mode;
 
 use crate::minimal_loop::evidence_knowledge;
 use crate::minimal_loop::import_scan::{
@@ -38,19 +48,12 @@ pub fn requested_or_default_port(goal: &str) -> u16 {
 }
 
 pub fn generation_rules(intent: &str) -> &'static str {
+    let rules = &knowledge::get().generation_rules;
     match intent {
-        "create" => {
-            "- Profile nextjs/create: preserve a real Next.js app contract. Include next/react/react-dom dependencies, keep scripts.build as next build, and end with a build verification phase. Put dependency setup before any npm run build verification when node_modules is not already present; setup instructions may install dependencies, but verify must not contain npm install. If dependency setup is not allowed or cannot run, stop with dependency_missing instead of claiming build success. Keep a single route-bound implementation; do not leave capability components unimported. For interactive UI, extend the instrumented skeleton instead of replacing it, and preserve data-anvil-* attributes on route-bound UI: data-anvil-action=\"primary\" on the main start/submit/action control, data-anvil-action=\"input\" on the main text entry surface when one exists, and data-anvil-state with a JSON snapshot of meaningful visible state after each render. When the contract includes start_or_restart_flow, every restart affordance (game-over, victory, and in-play when present) should carry data-anvil-action=\"restart\"; the initial primary action alone cannot satisfy recovery verification. A restart reachable during play (hook or R-key) allows behavioral verification, while an overlay-only restart may verify as unverified:terminal_state_not_reached (partial). If you use Tailwind utility classes or @tailwind directives, include tailwindcss/postcss/autoprefixer and create tailwind.config.* plus postcss.config.*; postcss.config plugins must include BOTH tailwindcss and autoprefixer. Otherwise use plain CSS and do not write Tailwind utility classes. Keep scripts.dev and scripts.start on the explicit requested port when the goal or plan requests one; otherwise use port 3011 with next dev/start -p 3011 or --port 3011.\n"
-        }
-        "fix" => {
-            "- Profile nextjs/fix: preserve the existing Next.js structure and verifier integrity. Keep a single route-bound implementation; do not leave capability components unimported. For interactive UI, extend the instrumented skeleton instead of replacing it, and preserve or add task-agnostic observability hooks: data-anvil-action=\"primary\" on the main start/submit/action control, data-anvil-action=\"input\" on the main text entry surface when one exists, and data-anvil-state with a JSON snapshot of meaningful visible state. When the contract includes start_or_restart_flow, every restart affordance (game-over, victory, and in-play when present) should carry data-anvil-action=\"restart\"; the initial primary action alone cannot satisfy recovery verification. A restart reachable during play (hook or R-key) allows behavioral verification, while an overlay-only restart may verify as unverified:terminal_state_not_reached (partial). Do not weaken next/react/react-dom dependencies, scripts.build, app/page, layout, or TypeScript configuration to make a failing verifier pass.\n"
-        }
-        "research" => {
-            "- Profile nextjs/research: inspect the existing app and produce concrete findings. Do not modify source unless the user explicitly asks for fixes.\n"
-        }
-        _ => {
-            "- Profile nextjs: preserve a real Next.js app when present. Keep next/react/react-dom dependencies, scripts.build as next build, app/ or pages/ entrypoints, and a final build verification phase. Keep a single route-bound implementation; do not leave capability components unimported. For interactive UI, extend the instrumented skeleton instead of replacing it, and preserve task-agnostic observability hooks: data-anvil-action=\"primary\" on the main start/submit/action control, data-anvil-action=\"input\" on the main text entry surface when one exists, and data-anvil-state with a JSON snapshot of meaningful visible state. When the contract includes start_or_restart_flow, every restart affordance (game-over, victory, and in-play when present) should carry data-anvil-action=\"restart\"; the initial primary action alone cannot satisfy recovery verification. A restart reachable during play (hook or R-key) allows behavioral verification, while an overlay-only restart may verify as unverified:terminal_state_not_reached (partial). Keep styling toolchains internally consistent; if Tailwind is used, postcss.config plugins must include BOTH tailwindcss and autoprefixer.\n"
-        }
+        "create" => &rules.create,
+        "fix" => &rules.fix,
+        "research" => &rules.research,
+        _ => &rules.default,
     }
 }
 
@@ -66,44 +69,12 @@ pub fn verify(root: &Path, goal: &str) -> VerificationReport {
     let Ok(package): Result<Value, _> = serde_json::from_str(&content) else {
         return profile_failure(project.rel_path("package.json invalid"));
     };
-    let deps = package.get("dependencies").and_then(Value::as_object);
-    for dep in ["next", "react", "react-dom"] {
-        if deps.is_none_or(|deps| !deps.contains_key(dep)) {
-            return profile_failure(format!("dependency missing: {dep}"));
-        }
-    }
-    let typescript_required = scaffold_mode::detect(&project.path).uses_typescript();
-    if let Some(reason) = dependency_family::coherence_failure(&package, typescript_required) {
+    if let Some(reason) = contract_checks::dependency_failure(&project.path, &package) {
         return profile_failure(reason);
     }
-    let scripts = package.get("scripts").and_then(Value::as_object);
-    let build = scripts
-        .and_then(|scripts| scripts.get("build"))
-        .and_then(Value::as_str);
-    if build != Some("next build") || build.is_some_and(is_weakened_script) {
-        return profile_failure("scripts.build must be next build");
-    }
-    if scripts
-        .and_then(|scripts| scripts.get("dev"))
-        .and_then(Value::as_str)
-        .is_some_and(is_weakened_script)
-    {
-        return profile_failure("scripts.dev must run next dev");
-    }
     let port = requested_or_default_port(goal);
-    let dev = scripts
-        .and_then(|scripts| scripts.get("dev"))
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    if !script_runs_next_dev_on_port(dev, port) {
-        return profile_failure(format!("dev script must run next dev on port {port}"));
-    }
-    let start = scripts
-        .and_then(|scripts| scripts.get("start"))
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    if !start.is_empty() && !script_runs_next_start_on_port(start, port) {
-        return profile_failure(format!("start script must run next start on port {port}"));
+    if let Some(reason) = contract_checks::scripts_failure(&package, port, Mode::Final) {
+        return profile_failure(reason);
     }
     let Some(entry) = find_entrypoint(&project.path) else {
         let expected = knowledge::get().canonical.entrypoint_files.join(", ");
@@ -129,25 +100,10 @@ pub fn verify(root: &Path, goal: &str) -> VerificationReport {
             return profile_failure("tsconfig baseUrl/paths missing @/* alias");
         }
     }
-    if let Some(reason) = tsconfig_contract_failure(&project.path) {
-        return profile_failure(reason);
+    match contract_checks::source_failure(&project, &package, Mode::Final) {
+        Some(reason) => profile_failure(reason),
+        None => VerificationReport::pass(),
     }
-    if let Some(reason) = css_side_effect_import_contract_failure(&project.path) {
-        return profile_failure(reason);
-    }
-    if let Some(reason) = missing_app_relative_import_contract_failure(&project.path) {
-        return profile_failure(project.rel_path(&reason));
-    }
-    if let Some(reason) = api_contract::failure(&project.path) {
-        return profile_failure(project.rel_path(&reason));
-    }
-    if let Some(reason) = client_component_contract_failure(&project.path) {
-        return profile_failure(reason);
-    }
-    if let Some(reason) = tailwind_contract_failure(&project.path, &package) {
-        return profile_failure(reason);
-    }
-    VerificationReport::pass()
 }
 
 pub fn verify_invariant(root: &Path, goal: &str) -> VerificationReport {
@@ -163,57 +119,17 @@ pub fn verify_invariant(root: &Path, goal: &str) -> VerificationReport {
     let Ok(package): Result<Value, _> = serde_json::from_str(&content) else {
         return profile_failure(project.rel_path("package.json invalid"));
     };
-    let deps = package.get("dependencies").and_then(Value::as_object);
-    for dep in ["next", "react", "react-dom"] {
-        if deps.is_none_or(|deps| !deps.contains_key(dep)) {
-            return profile_failure(format!("dependency missing: {dep}"));
-        }
-    }
-    let typescript_required = scaffold_mode::detect(&project.path).uses_typescript();
-    if let Some(reason) = dependency_family::coherence_failure(&package, typescript_required) {
+    if let Some(reason) = contract_checks::dependency_failure(&project.path, &package) {
         return profile_failure(reason);
-    }
-    let scripts = package.get("scripts").and_then(Value::as_object);
-    let build = scripts
-        .and_then(|scripts| scripts.get("build"))
-        .and_then(Value::as_str);
-    if build.is_some_and(|build| build != "next build" || is_weakened_script(build)) {
-        return profile_failure("scripts.build must be next build");
     }
     let port = requested_or_default_port(goal);
-    let dev = scripts
-        .and_then(|scripts| scripts.get("dev"))
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    if !dev.is_empty() && !script_runs_next_dev_on_port(dev, port) {
-        return profile_failure(format!("dev script must run next dev on port {port}"));
-    }
-    let start = scripts
-        .and_then(|scripts| scripts.get("start"))
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    if !start.is_empty() && !script_runs_next_start_on_port(start, port) {
-        return profile_failure(format!("start script must run next start on port {port}"));
-    }
-    if let Some(reason) = tsconfig_contract_failure(&project.path) {
+    if let Some(reason) = contract_checks::scripts_failure(&package, port, Mode::Invariant) {
         return profile_failure(reason);
     }
-    if let Some(reason) = css_side_effect_import_contract_failure(&project.path) {
-        return profile_failure(reason);
+    match contract_checks::source_failure(&project, &package, Mode::Invariant) {
+        Some(reason) => profile_failure(reason),
+        None => VerificationReport::pass(),
     }
-    if let Some(reason) = missing_app_relative_import_contract_failure(&project.path) {
-        return profile_failure(project.rel_path(&reason));
-    }
-    if let Some(reason) = api_contract::failure(&project.path) {
-        return profile_failure(project.rel_path(&reason));
-    }
-    if let Some(reason) = client_component_contract_failure(&project.path) {
-        return profile_failure(reason);
-    }
-    if let Some(reason) = tailwind_contract_failure(&project.path, &package) {
-        return profile_failure(reason);
-    }
-    VerificationReport::pass()
 }
 
 fn script_runs_next_dev_on_port(script: &str, port: u16) -> bool {
@@ -255,7 +171,7 @@ pub fn guidance(goal: &str) -> String {
          For TypeScript/TSX apps, create tsconfig.json before treating the app as complete. \
          Keep a single route-bound implementation; do not leave capability components unimported. \
          Do not use deprecated moduleResolution=node10 or target=ES5; prefer moduleResolution=bundler and target=ES2017 or newer. \
-         For interactive UI, expose task-agnostic observability hooks: data-anvil-action=\"primary\" on the main start/submit/action control, data-anvil-action=\"input\" on the main text entry surface when one exists, and data-anvil-state containing JSON for meaningful visible state after each render. The data-anvil-state snapshot must include at least one dimension that immediately responds to input, such as player/paddle x position. When the contract includes start_or_restart_flow, every restart affordance (game-over, victory, and in-play when present) should carry data-anvil-action=\"restart\"; the initial primary action alone cannot satisfy recovery verification. A restart reachable during play (hook or R-key) allows behavioral verification, while an overlay-only restart may verify as unverified:terminal_state_not_reached (partial).{port}"
+         For interactive UI, expose task-agnostic observability hooks: data-anvil-action=\"primary\" on the main start/submit/action control, data-anvil-action=\"input\" on the main text entry surface when one exists, and data-anvil-state containing JSON for meaningful visible state after each render. The data-anvil-state snapshot must include at least one dimension that immediately responds to input, such as the current selection or edited value. When the contract includes start_or_restart_flow, every restart affordance (including terminal and active states when present) should carry data-anvil-action=\"restart\"; the initial primary action alone cannot satisfy recovery verification. A restart reachable during active use (hook or keyboard shortcut) allows behavioral verification, while an overlay-only restart may verify as unverified:terminal_state_not_reached (partial).{port}"
     )
 }
 
@@ -280,7 +196,7 @@ pub fn runtime_contract(intent: &str, goal: &str) -> String {
 - If using Tailwind utility classes or @tailwind directives, keep the Tailwind toolchain complete: tailwindcss/postcss/autoprefixer dependencies, tailwind.config.*, and postcss.config plugins with BOTH tailwindcss and autoprefixer. Otherwise use plain CSS.\n\
 - Keep TypeScript and app router configuration coherent.\n\
 - Keep a single route-bound implementation; do not leave capability components unimported.\n\
-- For interactive UI, expose data-anvil-action=\"primary\" on the main start/submit/action control, data-anvil-action=\"input\" on the main text entry surface when one exists, and data-anvil-state with a JSON snapshot of meaningful visible state after each render. When the contract includes start_or_restart_flow, every restart affordance (game-over, victory, and in-play when present) should carry data-anvil-action=\"restart\"; the initial primary action alone cannot satisfy recovery verification. A restart reachable during play (hook or R-key) allows behavioral verification, while an overlay-only restart may verify as unverified:terminal_state_not_reached (partial).\n\
+- For interactive UI, expose data-anvil-action=\"primary\" on the main start/submit/action control, data-anvil-action=\"input\" on the main text entry surface when one exists, and data-anvil-state with a JSON snapshot of meaningful visible state after each render. When the contract includes start_or_restart_flow, every restart affordance (including terminal and active states when present) should carry data-anvil-action=\"restart\"; the initial primary action alone cannot satisfy recovery verification. A restart reachable during active use (hook or keyboard shortcut) allows behavioral verification, while an overlay-only restart may verify as unverified:terminal_state_not_reached (partial).\n\
 - Do not treat scaffold-only, package-only, or build-only output as complete."
         ),
         "fix" => format!(
@@ -292,7 +208,7 @@ pub fn runtime_contract(intent: &str, goal: &str) -> String {
 - If Tailwind is used, postcss.config plugins must include BOTH tailwindcss and autoprefixer.\n\
 - Keep TypeScript and app router configuration coherent.\n\
 - Keep a single route-bound implementation; do not leave capability components unimported.\n\
-- For interactive UI, preserve or add data-anvil-action=\"primary\" on the main start/submit/action control, data-anvil-action=\"input\" on the main text entry surface when one exists, and data-anvil-state with a JSON snapshot of meaningful visible state. When the contract includes start_or_restart_flow, every restart affordance (game-over, victory, and in-play when present) should carry data-anvil-action=\"restart\"; the initial primary action alone cannot satisfy recovery verification. A restart reachable during play (hook or R-key) allows behavioral verification, while an overlay-only restart may verify as unverified:terminal_state_not_reached (partial).\n\
+- For interactive UI, preserve or add data-anvil-action=\"primary\" on the main start/submit/action control, data-anvil-action=\"input\" on the main text entry surface when one exists, and data-anvil-state with a JSON snapshot of meaningful visible state. When the contract includes start_or_restart_flow, every restart affordance (including terminal and active states when present) should carry data-anvil-action=\"restart\"; the initial primary action alone cannot satisfy recovery verification. A restart reachable during active use (hook or keyboard shortcut) allows behavioral verification, while an overlay-only restart may verify as unverified:terminal_state_not_reached (partial).\n\
 - Do not treat scaffold-only, package-only, or build-only output as complete."
         ),
         "research" | "investigate" => {
@@ -310,7 +226,7 @@ pub fn runtime_contract(intent: &str, goal: &str) -> String {
 {port}\n\
 - Keep styling and TypeScript toolchains internally consistent; if Tailwind is used, postcss.config plugins must include BOTH tailwindcss and autoprefixer.\n\
 - Keep a single route-bound implementation; do not leave capability components unimported.\n\
-- For interactive UI, expose data-anvil-action=\"primary\" on the main start/submit/action control, data-anvil-action=\"input\" on the main text entry surface when one exists, and data-anvil-state with a JSON snapshot of meaningful visible state. When the contract includes start_or_restart_flow, every restart affordance (game-over, victory, and in-play when present) should carry data-anvil-action=\"restart\"; the initial primary action alone cannot satisfy recovery verification. A restart reachable during play (hook or R-key) allows behavioral verification, while an overlay-only restart may verify as unverified:terminal_state_not_reached (partial).\n\
+- For interactive UI, expose data-anvil-action=\"primary\" on the main start/submit/action control, data-anvil-action=\"input\" on the main text entry surface when one exists, and data-anvil-state with a JSON snapshot of meaningful visible state. When the contract includes start_or_restart_flow, every restart affordance (including terminal and active states when present) should carry data-anvil-action=\"restart\"; the initial primary action alone cannot satisfy recovery verification. A restart reachable during active use (hook or keyboard shortcut) allows behavioral verification, while an overlay-only restart may verify as unverified:terminal_state_not_reached (partial).\n\
 - Do not treat scaffold-only, package-only, or build-only output as complete."
         ),
     }
@@ -458,23 +374,12 @@ pub fn deterministic_step_plan(
     root: &Path,
     goal: &str,
 ) -> Option<ProfileDeterministicStepPlan> {
-    let phase_text = phase_id_and_task_text(phase_prompt).unwrap_or_else(|| phase_prompt.into());
-    let phase_id = phase_field(phase_prompt, "Phase id:").unwrap_or_default();
-    let phase_id_lower = phase_id.to_ascii_lowercase();
-    let lower = phase_text.to_ascii_lowercase();
-    if looks_like_implementation_phase(&lower) {
-        return None;
+    use template_selection::Template;
+    match template_selection::select(phase_prompt)? {
+        Template::Scaffold => Some(scaffold_step_plan(phase_prompt, root, goal)),
+        Template::PortScripts => Some(port_script_step_plan(phase_prompt, goal)),
+        Template::BuildVerification => Some(build_verify_step_plan(phase_prompt, root, goal)),
     }
-    if looks_like_scaffold_phase(&lower) && looks_like_scaffold_phase_id(&phase_id_lower) {
-        return Some(scaffold_step_plan(phase_prompt, root, goal));
-    }
-    if looks_like_port_script_phase(&lower) {
-        return Some(port_script_step_plan(phase_prompt, goal));
-    }
-    if looks_like_build_verify_phase(&lower) {
-        return Some(build_verify_step_plan(phase_prompt, root, goal));
-    }
-    None
 }
 
 pub fn preset_ultra_plan(goal: &str, style: &str, intent: &str) -> Option<UltraPlan> {
@@ -514,10 +419,11 @@ fn scaffold_step_plan(phase_prompt: &str, root: &Path, goal: &str) -> ProfileDet
                     id: "nextjs-scaffold".to_string(),
                     kind: "setup".to_string(),
                     expected_result: "pass".to_string(),
-                    instruction: format!(
-                        "Create or complete the Next.js App Router scaffold, package manifest, mode-appropriate language and styling config, and route-bound page. Keep package.json dev/start scripts on port {port}. Required files: {}.",
-                        expected_paths.join(", ")
-                    ),
+                    // This exact guidance prefix lets profile strengthening
+                    // replace the summary with the complete host contract.
+                    instruction:
+                        "For the nextjs profile, create a runnable Next.js app, not only package metadata."
+                            .to_string(),
                     expected_paths,
                     verify: Vec::new(),
                 },
@@ -727,63 +633,6 @@ fn normalize_required_artifact_line(line: &str) -> Option<String> {
         return None;
     }
     Some(token.to_string())
-}
-
-fn phase_id_and_task_text(phase_prompt: &str) -> Option<String> {
-    let mut out = Vec::new();
-    for line in phase_prompt.lines() {
-        let trimmed = line.trim_start();
-        if trimmed.starts_with("Phase id:") || trimmed.starts_with("Phase task:") {
-            out.push(trimmed.to_string());
-        }
-    }
-    (!out.is_empty()).then(|| out.join("\n"))
-}
-
-fn phase_field(phase_prompt: &str, prefix: &str) -> Option<String> {
-    phase_prompt.lines().find_map(|line| {
-        line.trim_start()
-            .strip_prefix(prefix)
-            .map(|value| value.trim().to_string())
-    })
-}
-
-fn looks_like_scaffold_phase(lower: &str) -> bool {
-    contains_any(
-        lower,
-        &knowledge::get().deterministic_keywords.scaffold_phase,
-    )
-}
-
-fn looks_like_scaffold_phase_id(lower: &str) -> bool {
-    contains_any(
-        lower,
-        &knowledge::get().deterministic_keywords.scaffold_phase_id,
-    )
-}
-
-fn looks_like_port_script_phase(lower: &str) -> bool {
-    let keywords = &knowledge::get().deterministic_keywords;
-    contains_any(lower, &keywords.port_phase_markers)
-        && contains_any(lower, &keywords.port_script_phase)
-}
-
-fn looks_like_build_verify_phase(lower: &str) -> bool {
-    contains_any(
-        lower,
-        &knowledge::get().deterministic_keywords.build_verify_phase,
-    )
-}
-
-fn looks_like_implementation_phase(lower: &str) -> bool {
-    contains_any(
-        lower,
-        &knowledge::get().deterministic_keywords.implementation_phase,
-    )
-}
-
-fn contains_any(text: &str, tokens: &[String]) -> bool {
-    tokens.iter().any(|token| text.contains(token))
 }
 
 pub fn complete_scaffold(root: &Path, missing_paths: &[String]) -> anyhow::Result<Vec<String>> {
@@ -1821,6 +1670,18 @@ export default function Page() {
 "#
 }
 
+pub(crate) fn is_engine_owned_scaffold_page(path: &str, content: &str) -> bool {
+    let path = path.replace('\\', "/");
+    let template = if path.ends_with("app/page.tsx") {
+        fallback_page()
+    } else if path.ends_with("app/page.js") {
+        scaffold_mode::plain_page()
+    } else {
+        return false;
+    };
+    content.trim().lines().eq(template.trim().lines())
+}
+
 fn find_entrypoint(root: &Path) -> Option<EntryPoint> {
     for rel in &knowledge::get().canonical.entrypoint_files {
         if root.join(rel).is_file() {
@@ -2327,11 +2188,11 @@ mod tests {
         assert!(text.contains("data-anvil-action=\"primary\""), "{text}");
         assert!(text.contains("data-anvil-action=\"input\""), "{text}");
         assert!(text.contains("data-anvil-state"), "{text}");
-        assert!(text.contains("extend the instrumented skeleton"), "{text}");
+        assert!(text.contains("implement the requested interface"), "{text}");
         assert!(text.contains("JSON snapshot"), "{text}");
         assert!(
             text.contains("immediately responds to input")
-                && text.contains("player/paddle x position"),
+                && text.contains("current selection or edited value"),
             "{text}"
         );
         assert!(
@@ -2341,7 +2202,7 @@ mod tests {
                     .contains("initial primary action alone cannot satisfy recovery verification"),
             "{text}"
         );
-        assert!(text.contains("hook or R-key"), "{text}");
+        assert!(text.contains("hook or keyboard shortcut"), "{text}");
         assert!(
             text.contains("unverified:terminal_state_not_reached"),
             "{text}"

@@ -1,0 +1,409 @@
+{
+  "observer": [
+    {
+      "existing": false,
+      "historical_operation": "unknown",
+      "operations": [
+        {
+          "after": {
+            "data/projects.json": null,
+            "data/tasks.json": null
+          },
+          "before": {
+            "data/projects.json": null,
+            "data/tasks.json": null
+          },
+          "operation": "build:import-store"
+        },
+        {
+          "after": {
+            "data/projects.json": null,
+            "data/tasks.json": null
+          },
+          "before": {
+            "data/projects.json": null,
+            "data/tasks.json": null
+          },
+          "operation": "start:import-store"
+        },
+        {
+          "after": {
+            "data/projects.json": null,
+            "data/tasks.json": null
+          },
+          "before": {
+            "data/projects.json": null,
+            "data/tasks.json": null
+          },
+          "operation": "GET /"
+        },
+        {
+          "after": {
+            "data/projects.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "data/tasks.json": null
+          },
+          "before": {
+            "data/projects.json": null,
+            "data/tasks.json": null
+          },
+          "operation": "GET /api/projects"
+        },
+        {
+          "after": {
+            "data/projects.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "data/tasks.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "before": {
+            "data/projects.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "data/tasks.json": null
+          },
+          "operation": "GET /api/tasks"
+        },
+        {
+          "after": {
+            "data/projects.json": "40bb5759d7158dac2972616acdad233e778a5018bd3d7d74b05512a98d5dc932",
+            "data/tasks.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "before": {
+            "data/projects.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "data/tasks.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "operation": "POST /api/projects"
+        }
+      ],
+      "permitted": true,
+      "stage": {
+        "actor": "host_registered_observer",
+        "allowed_generated_paths": [
+          "data/projects.json",
+          "data/tasks.json"
+        ],
+        "changes": [
+          {
+            "after_sha256": "40bb5759d7158dac2972616acdad233e778a5018bd3d7d74b05512a98d5dc932",
+            "allowed_generated": true,
+            "before_sha256": null,
+            "path": "data/projects.json"
+          },
+          {
+            "after_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "allowed_generated": true,
+            "before_sha256": null,
+            "path": "data/tasks.json"
+          }
+        ],
+        "comparison_available": true,
+        "event": "recovery_preflight_effect_observation",
+        "first_write_within_stage": "unknown",
+        "observation_error": null,
+        "observation_id": ".commandagent/recovery-boundaries/attempt-0/workspace",
+        "schema_version": "1",
+        "scope": "isolated_workspace",
+        "stage": "nextjs_capabilities",
+        "status": "observed"
+      },
+      "transport": "scripted; no Next.js compilation or browser"
+    },
+    {
+      "existing": true,
+      "historical_operation": "unknown",
+      "operations": [
+        {
+          "after": {
+            "data/projects.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "data/tasks.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "before": {
+            "data/projects.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "data/tasks.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "operation": "build:import-store"
+        },
+        {
+          "after": {
+            "data/projects.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "data/tasks.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "before": {
+            "data/projects.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "data/tasks.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "operation": "start:import-store"
+        },
+        {
+          "after": {
+            "data/projects.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "data/tasks.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "before": {
+            "data/projects.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "data/tasks.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "operation": "GET /"
+        },
+        {
+          "after": {
+            "data/projects.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "data/tasks.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "before": {
+            "data/projects.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "data/tasks.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "operation": "GET /api/projects"
+        },
+        {
+          "after": {
+            "data/projects.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "data/tasks.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "before": {
+            "data/projects.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "data/tasks.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "operation": "GET /api/tasks"
+        },
+        {
+          "after": {
+            "data/projects.json": "40bb5759d7158dac2972616acdad233e778a5018bd3d7d74b05512a98d5dc932",
+            "data/tasks.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "before": {
+            "data/projects.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "data/tasks.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "operation": "POST /api/projects"
+        }
+      ],
+      "permitted": true,
+      "stage": {
+        "actor": "host_registered_observer",
+        "allowed_generated_paths": [
+          "data/projects.json",
+          "data/tasks.json"
+        ],
+        "changes": [
+          {
+            "after_sha256": "40bb5759d7158dac2972616acdad233e778a5018bd3d7d74b05512a98d5dc932",
+            "allowed_generated": true,
+            "before_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "path": "data/projects.json"
+          }
+        ],
+        "comparison_available": true,
+        "event": "recovery_preflight_effect_observation",
+        "first_write_within_stage": "unknown",
+        "observation_error": null,
+        "observation_id": ".commandagent/recovery-boundaries/attempt-0/workspace",
+        "schema_version": "1",
+        "scope": "isolated_workspace",
+        "stage": "nextjs_capabilities",
+        "status": "observed"
+      },
+      "transport": "scripted; no Next.js compilation or browser"
+    },
+    {
+      "existing": false,
+      "historical_operation": "unknown",
+      "operations": [
+        {
+          "after": {
+            "data/projects.json": null,
+            "data/tasks.json": null
+          },
+          "before": {
+            "data/projects.json": null,
+            "data/tasks.json": null
+          },
+          "operation": "build:import-store"
+        },
+        {
+          "after": {
+            "data/projects.json": null,
+            "data/tasks.json": null
+          },
+          "before": {
+            "data/projects.json": null,
+            "data/tasks.json": null
+          },
+          "operation": "start:import-store"
+        },
+        {
+          "after": {
+            "data/projects.json": null,
+            "data/tasks.json": null
+          },
+          "before": {
+            "data/projects.json": null,
+            "data/tasks.json": null
+          },
+          "operation": "GET /"
+        },
+        {
+          "after": {
+            "data/projects.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "data/tasks.json": null
+          },
+          "before": {
+            "data/projects.json": null,
+            "data/tasks.json": null
+          },
+          "operation": "GET /api/projects"
+        },
+        {
+          "after": {
+            "data/projects.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "data/tasks.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "before": {
+            "data/projects.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "data/tasks.json": null
+          },
+          "operation": "GET /api/tasks"
+        },
+        {
+          "after": {
+            "data/projects.json": "40bb5759d7158dac2972616acdad233e778a5018bd3d7d74b05512a98d5dc932",
+            "data/tasks.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "before": {
+            "data/projects.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "data/tasks.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "operation": "POST /api/projects"
+        }
+      ],
+      "permitted": false,
+      "stage": {
+        "actor": "host_registered_observer",
+        "allowed_generated_paths": [
+          "data/tasks.json"
+        ],
+        "changes": [
+          {
+            "after_sha256": "40bb5759d7158dac2972616acdad233e778a5018bd3d7d74b05512a98d5dc932",
+            "allowed_generated": false,
+            "before_sha256": null,
+            "path": "data/projects.json"
+          },
+          {
+            "after_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "allowed_generated": true,
+            "before_sha256": null,
+            "path": "data/tasks.json"
+          }
+        ],
+        "comparison_available": true,
+        "event": "recovery_preflight_effect_observation",
+        "first_write_within_stage": "unknown",
+        "observation_error": null,
+        "observation_id": ".commandagent/recovery-boundaries/attempt-0/workspace",
+        "schema_version": "1",
+        "scope": "isolated_workspace",
+        "stage": "nextjs_capabilities",
+        "status": "observed"
+      },
+      "transport": "scripted; no Next.js compilation or browser"
+    }
+  ],
+  "audit": [
+    {
+      "case": "normal",
+      "control": "unchanged",
+      "restore_invoked": false,
+      "restore_succeeded": false,
+      "retained": true
+    },
+    {
+      "case": "business-unobserved",
+      "control": "unchanged",
+      "restore_invoked": false,
+      "restore_succeeded": false,
+      "retained": true
+    },
+    {
+      "case": "isolated-extra",
+      "control": "unchanged",
+      "restore_invoked": false,
+      "restore_succeeded": false,
+      "retained": true
+    },
+    {
+      "case": "isolated-observation-error",
+      "control": "unchanged",
+      "restore_invoked": false,
+      "restore_succeeded": false,
+      "retained": true
+    },
+    {
+      "case": "control-changed",
+      "control": "changed",
+      "restore_invoked": true,
+      "restore_succeeded": true,
+      "retained": true
+    },
+    {
+      "case": "isolated-extra-and-control-changed",
+      "control": "changed",
+      "restore_invoked": true,
+      "restore_succeeded": true,
+      "retained": true
+    },
+    {
+      "case": "observation-error-and-control-changed",
+      "control": "changed",
+      "restore_invoked": true,
+      "restore_succeeded": true,
+      "retained": true
+    },
+    {
+      "case": "restore-source-missing",
+      "control": "changed",
+      "restore_invoked": false,
+      "restore_succeeded": false,
+      "retained": false
+    },
+    {
+      "case": "restore-original-hash-mismatch",
+      "control": "changed",
+      "restore_invoked": false,
+      "restore_succeeded": false,
+      "retained": false
+    },
+    {
+      "case": "control-observation-error",
+      "control": "observation_failed",
+      "restore_invoked": false,
+      "restore_succeeded": false,
+      "retained": false
+    },
+    {
+      "case": "restore-copy-failed",
+      "control": "changed",
+      "restore_invoked": true,
+      "restore_succeeded": false,
+      "retained": false
+    },
+    {
+      "case": "restore-source-outside-namespace",
+      "control": "changed",
+      "restore_invoked": false,
+      "restore_succeeded": false,
+      "retained": false
+    },
+    {
+      "case": "source",
+      "control": "unchanged",
+      "restore_invoked": false,
+      "restore_succeeded": false,
+      "retained": true
+    },
+    {
+      "case": "config",
+      "control": "unchanged",
+      "restore_invoked": false,
+      "restore_succeeded": false,
+      "retained": true
+    }
+  ]
+}

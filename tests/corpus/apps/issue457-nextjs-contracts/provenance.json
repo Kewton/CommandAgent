@@ -1,0 +1,20 @@
+{
+  "base": "../issue456-create-recovery/original",
+  "base_provenance_sha256": "e541561f27cd6d2a525df8f0a51f2f577cdf563c1b8061e676eca5da41060911",
+  "archive_head": "222feef77a4bfd1e98a60a4bd5744a287e645b48",
+  "predecessor_commit": "32f997f4e98523df3659fadb408994afbe14de53",
+  "package_lock_archive_sha256": "95d887c375a5a4d5cf093ee39119f558e61ea999bb906e5895138babae74f832",
+  "diagnostics_source": "workspace/management/runs/20260909-451452-cause-analysis-01/typescript-diagnostic.json (trials only)",
+  "overlay_sha256": {
+    "overlays/members/src/app/api/projects/route.ts": "9375e0176c1cb2ae7fee92854f5de949682c019417bdaf31e4709064dd0b7408",
+    "overlays/members/src/lib/store.ts": "5b3859e88e473cd3c61b9a7c29f49c992c391b2ae14ab6f0fa7d717e62aecb3a",
+    "overlays/role/src/app/api/projects/[id]/tasks/route.ts": "8d59c3afe69d0459f2c6de818cfc01b9612b82be696fb1be82cf2864fdc6cd60",
+    "overlays/types/src/app/api/projects/[id]/tasks/route.ts": "8b1064130e2e31978e996a7cad5882457592f18de8d5059e0463d46b158f152e",
+    "overlays/types/src/app/api/projects/route.ts": "1f430ccd01721d8fdcc1ad1db4d09e0818b0304babaf29d44300fb5567f4c1db",
+    "overlays/types/src/app/api/tasks/[id]/route.ts": "bc4ba582f8750b7b735b7242510e576501a2f2aa4779975dbcaff114e0650301",
+    "overlays/types/src/lib/store.ts": "16eded61b86ccc7b437e63250de06aa360a7ae7dc842caa700391dd99bfcf609",
+    "overlays/types/src/lib/types.ts": "6551d218a8b41d229dbc47452d4a6995ea5b4407ce68e35ccc16c6de4188d3f9",
+    "overlays/wrong-field/src/app/api/tasks/[id]/route.ts": "bc9958d3b6047d58e827c604d56345ebbd5954a3cf493264a8922c071a1f11d7"
+  },
+  "scope": "New fixture and deterministic verification; originals read-only, live model efficacy unmeasured"
+}

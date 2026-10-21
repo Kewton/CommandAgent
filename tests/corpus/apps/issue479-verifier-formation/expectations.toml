@@ -1,0 +1,22 @@
+case_id = "issue479-verifier-formation"
+source = "Exact saved module/package bytes; explicit runtime export expectations and structural checks"
+required_paths = ["src/lib/types.ts", "src/lib/store.ts"]
+verify_commands = ["node -e \"import('./src/lib/types.ts').then(actual=>{require('node:assert/strict').deepStrictEqual(Object.keys(actual).sort(),[\\\"default\\\",\\\"module.exports\\\"])})\""]
+required_capabilities = []
+required_evidence = ["implementation_artifact"]
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+acceptance_passed = true
+primary_reason = "pass"
+
+[weak_evidence]
+absent = ["node_smoke_without_assertion"]
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+original-commands.json = ["types.ts", "store.ts", "forEach", "use client"]
+formed-commands.json = ["Object.keys(actual).sort()", "module.exports", "loadProjects"]
+refusals.json = ["wrong_target", "changed_expected_set", "swallowed_import", "unregistered_replacement"]

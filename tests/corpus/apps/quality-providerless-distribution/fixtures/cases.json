@@ -1,0 +1,913 @@
+{
+  "schema": "commandagent.providerless-cli-cases/v1",
+  "manifest": {
+    "total": 29,
+    "counts": {
+      "docs": 15,
+      "install": 13,
+      "repl": 1
+    },
+    "ids": {
+      "docs": [
+        "BB-DOCS-001",
+        "BB-DOCS-002",
+        "BB-DOCS-003",
+        "BB-DOCS-004",
+        "BB-DOCS-005",
+        "BB-DOCS-006",
+        "BB-DOCS-007",
+        "BB-DOCS-010",
+        "BB-DOCS-011",
+        "BB-DOCS-012",
+        "BB-DOCS-013",
+        "BB-DOCS-014",
+        "BB-DOCS-015",
+        "BB-DOCS-016",
+        "BB-DOCS-017"
+      ],
+      "install": [
+        "BB-INS-001",
+        "BB-INS-002",
+        "BB-INS-003",
+        "BB-INS-004",
+        "BB-INS-005",
+        "BB-INS-006",
+        "BB-INS-007",
+        "BB-INS-008",
+        "BB-INS-012",
+        "BB-INS-013",
+        "BB-INS-014",
+        "BB-INS-015",
+        "BB-INS-016"
+      ],
+      "repl": [
+        "BB-REPL-001"
+      ]
+    },
+    "pending_adjudication": []
+  },
+  "cases": [
+    {
+      "id": "BB-DOCS-001",
+      "area": "docs",
+      "purpose": "--help has exactly the 67 application flags claimed by the reference",
+      "source": "docs/guide/ja/cli-reference.md#呼び出し方",
+      "setup": [],
+      "command": "\"$BIN\" --help </dev/null | grep -oE '^ +(-[a-zA-Z], )?--[a-z0-9-]+' | grep -oE -- '--[a-z0-9-]+' | grep -vxE -- '--help|--version' | sort -u | wc -l | tr -d ' ' | sed 's/^/COUNT=/'",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "COUNT=67"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      },
+      "note": "Old expectation: COUNT=66. Fixed: docs/guide/ja/cli-reference.md:25 and docs/guide/en/cli-reference.md:26 claim 67 flags, pinned by tests/doc_drift.rs public_cli_flags_match_bilingual_references_and_advertised_counts; PM ruling 2026-10-19 fixes the count at 67."
+    },
+    {
+      "id": "BB-DOCS-002",
+      "area": "docs",
+      "purpose": "Every flag in the reference table appears in --help",
+      "source": "docs/guide/ja/cli-reference.md#フラグ一覧",
+      "setup": [
+        ": \"${SRC:?repository root, provided by tests/test_providerless_docs_install.py}\""
+      ],
+      "command": "\"$BIN\" --help </dev/null > h.txt; grep -oE '^\\| `--[a-z0-9-]+`' \"$SRC/docs/guide/ja/cli-reference.md\" | grep -oE -- '--[a-z0-9-]+' | sort -u | while read f; do grep -qE -- \"$f([ =\\[]|$)\" h.txt || echo \"DOC_ONLY $f\"; done; echo CMP_DONE",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "CMP_DONE"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at",
+          "DOC_ONLY"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    },
+    {
+      "id": "BB-DOCS-003",
+      "area": "docs",
+      "purpose": "Every flag in --help appears in the reference table",
+      "source": "docs/guide/ja/cli-reference.md#フラグ一覧",
+      "setup": [
+        ": \"${SRC:?repository root, provided by tests/test_providerless_docs_install.py}\""
+      ],
+      "command": "grep -oE '^\\| `--[a-z0-9-]+`' \"$SRC/docs/guide/ja/cli-reference.md\" | grep -oE -- '--[a-z0-9-]+' | sort -u > d.txt; \"$BIN\" --help </dev/null | grep -oE '^ +(-[a-zA-Z], )?--[a-z0-9-]+' | grep -oE -- '--[a-z0-9-]+' | grep -vxE -- '--help|--version' | sort -u | while read f; do grep -qx -- \"$f\" d.txt || echo \"HELP_ONLY $f\"; done; echo CMP_DONE",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "CMP_DONE"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at",
+          "HELP_ONLY"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    },
+    {
+      "id": "BB-DOCS-004",
+      "area": "docs",
+      "purpose": "Reference action-selector list matches the help Actions group",
+      "source": "docs/guide/ja/cli-reference.md#呼び出し方",
+      "setup": [],
+      "command": "\"$BIN\" --help </dev/null | awk '/^Actions \\(use one\\):/{f=1;next} /^[A-Z]/{f=0} f' | grep -oE '^ +--[a-z0-9-]+' | tr -d ' ' | sort > a.txt; for f in --workflow --prompt --plan-steps --plan-run --run-plan --ultra-plan --ultra-plan-run --run-ultra-plan --validate-plan --setup-interaction-probe --runs --ux-demo --model-probe --doctor --extensions --packs --pack-verify --pack-pin --completions --generate-man --init-config --validate-manifest --init-profile; do echo $f; done | sort > b.txt; diff a.txt b.txt && echo ACTIONS_MATCH",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "ACTIONS_MATCH"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      },
+      "note": "Old expectation: an action list without --workflow (audit finding DD-10). Fixed: --workflow is in the Actions (use one) group (src/cli.rs) and in cli-reference.md:13, pinned by tests/doc_drift.rs actions_help_group_matches_pinned_table_and_bilingual_references; the list now has 23 selectors. PM ruling 2026-10-19."
+    },
+    {
+      "id": "BB-DOCS-005",
+      "area": "docs",
+      "purpose": "--ollama-host help default matches the reference default http://localhost:11434",
+      "source": "docs/guide/ja/cli-reference.md#フラグ一覧",
+      "setup": [],
+      "command": "\"$BIN\" --help </dev/null | awk '/^ +--ollama-host /{f=1} f&&/\\[default:/{print;exit} f&&/^ +--/&&!/^ +--ollama-host /{exit}'",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "[default: http://localhost:11434]"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    },
+    {
+      "id": "BB-DOCS-006",
+      "area": "docs",
+      "purpose": "--max-iterations help default matches the reference default 12",
+      "source": "docs/guide/ja/cli-reference.md#フラグ一覧",
+      "setup": [],
+      "command": "\"$BIN\" --help </dev/null | awk '/^ +--max-iterations /{f=1} f&&/\\[default:/{print;exit} f&&/^ +--/&&!/^ +--max-iterations /{exit}'",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "[default: 12]"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    },
+    {
+      "id": "BB-DOCS-007",
+      "area": "docs",
+      "purpose": "Reference says --context-budget default 65536; doctor confirms",
+      "source": "docs/guide/ja/cli-reference.md#重要な解決後の既定値",
+      "setup": [],
+      "command": "\"$BIN\" --doctor --ollama-host \"$OLLAMA_UNREACHABLE\" </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": "nonzero",
+        "stdout_contains": [
+          "65536 tokens (source=default"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    },
+    {
+      "id": "BB-DOCS-010",
+      "area": "docs",
+      "purpose": "getting-started local_cli preset example resolves",
+      "source": "docs/user/getting-started-cli.md#3-add-configuration-only-when-it-removes-repetition",
+      "setup": [
+        "mkdir -p .commandagent && printf '[preset.local_cli]\\nprovider = \\\"ollama\\\"\\nmodel = \\\"exact-model-id\\\"\\nplanner_provider = \\\"ollama\\\"\\nplanner_model = \\\"exact-model-id\\\"\\nprofile = \\\"python-cli\\\"\\n' > .commandagent/config.toml"
+      ],
+      "command": "\"$BIN\" --preset local_cli --doctor --ollama-host \"$OLLAMA_UNREACHABLE\" </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": "nonzero",
+        "stdout_contains": [
+          "exact-model-id (source=preset"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at",
+          "✗ Configuration",
+          "✗ Preset"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    },
+    {
+      "id": "BB-DOCS-011",
+      "area": "docs",
+      "purpose": "configuration.md local_role_split example resolves",
+      "source": "docs/guide/ja/configuration.md#preset",
+      "setup": [
+        "mkdir -p .commandagent && printf '[preset.local_role_split]\\nmodel = \\\"qwen3.8:27b-mlx\\\"\\nprovider = \\\"ollama\\\"\\napi = \\\"chat_completions\\\"\\ntool_protocol = \\\"native\\\"\\nplanner_model = \\\"qwen3.8:27b-mlx\\\"\\nplanner_provider = \\\"ollama\\\"\\nplanner_think = \\\"false\\\"\\nclassifier_model = \\\"qwen3.5:4b\\\"\\nclassifier_provider = \\\"ollama\\\"\\ncontext_budget = 65536\\nchat_timeout_secs = 600\\nprofile = \\\"generic\\\"\\nnarration = \\\"normal\\\"\\nfooter = \\\"on\\\"\\nstream = \\\"on\\\"\\nprompt_layout = \\\"legacy\\\"\\nplan_preset = \\\"none\\\"\\n' > .commandagent/config.toml"
+      ],
+      "command": "\"$BIN\" --preset local_role_split --doctor --ollama-host \"$OLLAMA_UNREACHABLE\" </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": "nonzero",
+        "stdout_contains": [
+          "qwen3.8:27b-mlx (source=preset"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at",
+          "✗ Configuration",
+          "✗ Preset"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    },
+    {
+      "id": "BB-DOCS-012",
+      "area": "docs",
+      "purpose": "configuration.md team_base/alice extends example resolves with env",
+      "source": "docs/guide/ja/configuration.md#preset",
+      "setup": [
+        "export TEAM_LLM_URL=http://127.0.0.1:9/v1 TEAM_EXECUTOR_MODEL=team-exec TEAM_PLANNER_MODEL=team-plan ALICE_EXECUTOR_MODEL=alice-exec",
+        "mkdir -p .commandagent && printf '[preset.team_base]\\nprovider = \\\"openai-compatible\\\"\\nbase_url = \\\"${TEAM_LLM_URL}\\\"\\nmodel = \\\"${TEAM_EXECUTOR_MODEL}\\\"\\nplanner_model = \\\"${TEAM_PLANNER_MODEL}\\\"\\n\\n[preset.alice]\\nextends = \\\"team_base\\\"\\nmodel = \\\"${ALICE_EXECUTOR_MODEL}\\\"\\n' > .commandagent/config.toml"
+      ],
+      "command": "\"$BIN\" --preset alice --doctor --ollama-host \"$OLLAMA_UNREACHABLE\" </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": "nonzero",
+        "stdout_contains": [
+          "<redacted> (source=preset",
+          "detail=preset:team_base"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at",
+          "✗ Configuration",
+          "alice-exec",
+          "team-exec",
+          "team-plan"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      },
+      "note": "Old expectation: alice-exec and team-plan shown in --doctor. Fixed: docs/guide/ja/configuration.md:113-115 says a ${ENV} expansion is never shown in --doctor, so the model and planner model print as <redacted>; the expanded values must not appear (same form as BB-CFG-018). PM ruling 2026-10-19."
+    },
+    {
+      "id": "BB-DOCS-013",
+      "area": "docs",
+      "purpose": "providers.md gateway preset example parses",
+      "source": "docs/guide/ja/providers.md#汎用-openai-互換-server",
+      "setup": [
+        "mkdir -p .commandagent && printf '[preset.gateway]\\nmodel = \\\"served-model-id\\\"\\nprovider = \\\"openai-compatible\\\"\\nbase_url = \\\"http://127.0.0.1:9/v1\\\"\\napi_key_env = \\\"GATEWAY_API_KEY\\\"\\n' > .commandagent/config.toml"
+      ],
+      "command": "\"$BIN\" --preset gateway --doctor --ollama-host \"$OLLAMA_UNREACHABLE\" </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": "nonzero",
+        "stdout_contains": [
+          "served-model-id (source=preset"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at",
+          "✗ Configuration",
+          "✗ Preset"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    },
+    {
+      "id": "BB-DOCS-014",
+      "area": "docs",
+      "purpose": "configuration.md top-level example parses",
+      "source": "docs/guide/ja/configuration.md#トップレベルキー",
+      "setup": [
+        "mkdir -p extensions",
+        "mkdir -p .commandagent && printf 'extension_root = \\\"extensions\\\"\\nnarration = \\\"quiet\\\"\\nfooter = \\\"off\\\"\\nstream = \\\"on\\\"\\nprompt_layout = \\\"stable\\\"\\nplan_preset = \\\"none\\\"\\n' > .commandagent/config.toml"
+      ],
+      "command": "\"$BIN\" --doctor --ollama-host \"$OLLAMA_UNREACHABLE\" </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": "nonzero",
+        "stdout_contains": [],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at",
+          "✗ Configuration",
+          "✗ Config file"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    },
+    {
+      "id": "BB-DOCS-015",
+      "area": "docs",
+      "purpose": "configuration.md pack example: missing pack fails with exit 2",
+      "source": "docs/guide/ja/configuration.md#pack-選択",
+      "setup": [
+        "mkdir -p extensions",
+        "mkdir -p .commandagent && printf 'extension_root = \\\"extensions\\\"\\n\\n[preset.nextjs_acme_cagentpack]\\npack = \\\"nextjs-acme@1.0.0\\\"\\nprofile = \\\"nextjs\\\"\\n' > .commandagent/config.toml"
+      ],
+      "command": "\"$BIN\" --preset nextjs_acme_cagentpack --prompt hi --ollama-host \"$OLLAMA_UNREACHABLE\" </dev/null",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": 2,
+        "stdout_contains": [],
+        "stderr_contains": [
+          "nextjs-acme@1.0.0"
+        ],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": [
+          "$T/ws/.commandagent/runs"
+        ]
+      }
+    },
+    {
+      "id": "BB-DOCS-016",
+      "area": "docs",
+      "purpose": "Troubleshooting: busy port with --yes never auto-kills (exact text)",
+      "source": "docs/guide/ja/troubleshooting.md#preflight-port-n-is-busy",
+      "setup": [
+        "exec 3< <(python3 -I -c '\nimport os, signal, socket, sys\n\nhits = 0\n\ndef stop(*_):\n    raise SystemExit\n\nsignal.signal(signal.SIGTERM, stop)\nserver = socket.socket()\nserver.bind((\"127.0.0.1\", 0))\nserver.listen(8)\nserver.settimeout(float(sys.argv[1]))\nprint(server.getsockname()[1], os.getpid(), flush=True)\ntry:\n    while True:\n        conn, _ = server.accept()\n        hits += 1\n        conn.close()\nexcept (SystemExit, socket.timeout):\n    pass\nfinally:\n    print(\"hits=%d\" % hits, flush=True)\n' 60)\nread -r -t 20 -u 3 PORT MPID || { echo MOCK_NOT_READY; exit 1; }"
+      ],
+      "command": "\"$BIN\" --yes --profile nextjs --plan-run build app on port \"$PORT\" --ollama-host \"$OLLAMA_UNREACHABLE\" </dev/null\nrc=$?\nkill -TERM \"$MPID\"\nread -r -t 20 -u 3 REPORT || echo MOCK_NO_REPORT\nread -r -t 20 -u 3 _ || true\necho \"$REPORT\"\nexit $rc",
+      "timeout_sec": 120,
+      "expected": {
+        "exit_code": "nonzero",
+        "stdout_contains": [],
+        "stderr_contains": [
+          "preflight: port ",
+          " is busy",
+          "--yes never auto-kills processes"
+        ],
+        "must_not_contain": [
+          "panicked at",
+          "MOCK_NOT_READY",
+          "MOCK_NO_REPORT"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      },
+      "note": "The audit case bound a fixed port 3011 and slept; this one owns a loopback listener on an OS-assigned port, announces readiness on a pipe, and collects it."
+    },
+    {
+      "id": "BB-DOCS-017",
+      "area": "docs",
+      "purpose": "Troubleshooting: busy port without TTY fails with the exact no-TTY text",
+      "source": "docs/guide/ja/troubleshooting.md#preflight-port-n-is-busy",
+      "setup": [
+        "exec 3< <(python3 -I -c '\nimport os, signal, socket, sys\n\nhits = 0\n\ndef stop(*_):\n    raise SystemExit\n\nsignal.signal(signal.SIGTERM, stop)\nserver = socket.socket()\nserver.bind((\"127.0.0.1\", 0))\nserver.listen(8)\nserver.settimeout(float(sys.argv[1]))\nprint(server.getsockname()[1], os.getpid(), flush=True)\ntry:\n    while True:\n        conn, _ = server.accept()\n        hits += 1\n        conn.close()\nexcept (SystemExit, socket.timeout):\n    pass\nfinally:\n    print(\"hits=%d\" % hits, flush=True)\n' 60)\nread -r -t 20 -u 3 PORT MPID || { echo MOCK_NOT_READY; exit 1; }"
+      ],
+      "command": "\"$BIN\" --profile nextjs --plan-run build app on port \"$PORT\" --ollama-host \"$OLLAMA_UNREACHABLE\" </dev/null\nrc=$?\nkill -TERM \"$MPID\"\nread -r -t 20 -u 3 REPORT || echo MOCK_NO_REPORT\nread -r -t 20 -u 3 _ || true\necho \"$REPORT\"\nexit $rc",
+      "timeout_sec": 120,
+      "expected": {
+        "exit_code": "nonzero",
+        "stdout_contains": [],
+        "stderr_contains": [
+          "preflight: port ",
+          " is busy",
+          "no TTY available for [k]ill/[a]bort"
+        ],
+        "must_not_contain": [
+          "panicked at",
+          "MOCK_NOT_READY",
+          "MOCK_NO_REPORT"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      },
+      "note": "The audit case bound a fixed port 3011 and slept; this one owns a loopback listener on an OS-assigned port, announces readiness on a pipe, and collects it."
+    },
+    {
+      "id": "BB-INS-001",
+      "area": "install",
+      "purpose": "install.sh --help prints usage",
+      "source": "README.ja.md",
+      "setup": [
+        ": \"${SRC:?repository root, provided by tests/test_providerless_docs_install.py}\"",
+        "mkdir -p \"$T/shim\"",
+        "printf '%s\\n' '#!/bin/sh' 'echo \"$*\" >> \"$T/curl-calls.log\"' 'exit 97' > \"$T/shim/curl\"\nchmod 755 \"$T/shim/curl\"",
+        "export PATH=\"$T/shim:$PATH\""
+      ],
+      "command": "sh \"$SRC/scripts/install.sh\" --help",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "Usage: install.sh"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": [
+          "$T/curl-calls.log",
+          "$T/home/.local/bin/commandagent"
+        ]
+      },
+      "note": "Read-only: the case-owned curl is a tripwire that records any call, and the installer fails or prints help before it would download."
+    },
+    {
+      "id": "BB-INS-002",
+      "area": "install",
+      "purpose": "install.sh unknown option fails",
+      "source": "robustness",
+      "setup": [
+        ": \"${SRC:?repository root, provided by tests/test_providerless_docs_install.py}\"",
+        "mkdir -p \"$T/shim\"",
+        "printf '%s\\n' '#!/bin/sh' 'echo \"$*\" >> \"$T/curl-calls.log\"' 'exit 97' > \"$T/shim/curl\"\nchmod 755 \"$T/shim/curl\"",
+        "export PATH=\"$T/shim:$PATH\""
+      ],
+      "command": "sh \"$SRC/scripts/install.sh\" --bogus",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": "nonzero",
+        "stdout_contains": [],
+        "stderr_contains": [
+          "unknown option: --bogus"
+        ],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": [
+          "$T/curl-calls.log",
+          "$T/home/.local/bin/commandagent"
+        ]
+      },
+      "note": "Read-only: the case-owned curl is a tripwire that records any call, and the installer fails or prints help before it would download."
+    },
+    {
+      "id": "BB-INS-003",
+      "area": "install",
+      "purpose": "install.sh empty --prefix fails",
+      "source": "robustness",
+      "setup": [
+        ": \"${SRC:?repository root, provided by tests/test_providerless_docs_install.py}\"",
+        "mkdir -p \"$T/shim\"",
+        "printf '%s\\n' '#!/bin/sh' 'echo \"$*\" >> \"$T/curl-calls.log\"' 'exit 97' > \"$T/shim/curl\"\nchmod 755 \"$T/shim/curl\"",
+        "export PATH=\"$T/shim:$PATH\""
+      ],
+      "command": "sh \"$SRC/scripts/install.sh\" --prefix ''",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": "nonzero",
+        "stdout_contains": [],
+        "stderr_contains": [
+          "installation prefix must not be empty"
+        ],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": [
+          "$T/curl-calls.log",
+          "$T/home/.local/bin/commandagent"
+        ]
+      },
+      "note": "Read-only: the case-owned curl is a tripwire that records any call, and the installer fails or prints help before it would download."
+    },
+    {
+      "id": "BB-INS-004",
+      "area": "install",
+      "purpose": "install.sh rejects a version with spaces",
+      "source": "robustness",
+      "setup": [
+        ": \"${SRC:?repository root, provided by tests/test_providerless_docs_install.py}\"",
+        "mkdir -p \"$T/shim\"",
+        "printf '%s\\n' '#!/bin/sh' 'echo \"$*\" >> \"$T/curl-calls.log\"' 'exit 97' > \"$T/shim/curl\"\nchmod 755 \"$T/shim/curl\"",
+        "export PATH=\"$T/shim:$PATH\""
+      ],
+      "command": "sh \"$SRC/scripts/install.sh\" --version 'a b' --prefix \"$T/bin\"",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": "nonzero",
+        "stdout_contains": [],
+        "stderr_contains": [
+          "invalid release version"
+        ],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": [
+          "$T/bin/commandagent",
+          "$T/curl-calls.log",
+          "$T/home/.local/bin/commandagent"
+        ]
+      },
+      "note": "Read-only: the case-owned curl is a tripwire that records any call, and the installer fails or prints help before it would download."
+    },
+    {
+      "id": "BB-INS-005",
+      "area": "install",
+      "purpose": "install.sh with a nonexistent release fails and installs nothing",
+      "source": "README.ja.md",
+      "setup": [
+        ": \"${SRC:?repository root, provided by tests/test_providerless_docs_install.py}\"",
+        "mkdir -p \"$T/stage\" \"$T/release/api\" \"$T/release/download/v0.1.0-rc.1\"",
+        "printf '%s\\n' '#!/bin/sh' 'echo \"commandagent 0.1.0\"' > \"$T/stage/commandagent\"",
+        "chmod 755 \"$T/stage/commandagent\"",
+        "mkdir -p \"$T/shim\"",
+        "printf '%s\\n' '#!/bin/sh' 'case \"$1\" in -m) echo x86_64 ;; *) echo Linux ;; esac' > \"$T/shim/uname\"\nchmod 755 \"$T/shim/uname\"",
+        "TARGET=x86_64-unknown-linux-musl",
+        "ARCHIVE=\"commandagent-0.1.0-rc.1-$TARGET.tar.gz\"",
+        "tar -czf \"$T/release/download/v0.1.0-rc.1/$ARCHIVE\" -C \"$T/stage\" commandagent",
+        "if command -v sha256sum >/dev/null 2>&1; then SHA=\"sha256sum\"; else SHA=\"shasum -a 256\"; fi",
+        "(cd \"$T/release/download/v0.1.0-rc.1\" && $SHA \"$ARCHIVE\" > \"$ARCHIVE.sha256\")",
+        "printf '%s\\n' '[{\"tag_name\":\"v0.1.0-rc.1\",\"draft\":false,\"prerelease\":true}]' > \"$T/release/api/releases\"",
+        "real_curl=\"$(command -v curl)\"",
+        "mkdir -p \"$T/shim\"",
+        "printf '%s\\n' \"#!/bin/sh\" \"real_curl=\\\"$real_curl\\\"\" > \"$T/shim/curl\"",
+        "printf '%s\\n' 'port=$(cat \"$T/mock.port\" 2>/dev/null) || { echo \"no-mock-port\" >> \"$T/curl-refused.log\"; exit 7; }' 'n=$#; i=0' 'while [ \"$i\" -lt \"$n\" ]; do' '  a=$1; shift' '  case \"$a\" in' '    https://github.com/Kewton/CommandAgent/releases/download/*)' '      a=\"http://127.0.0.1:$port/download/${a#https://github.com/Kewton/CommandAgent/releases/download/}\" ;;' '    https://api.github.com/repos/Kewton/CommandAgent/*)' '      a=\"http://127.0.0.1:$port/api/${a#https://api.github.com/repos/Kewton/CommandAgent/}\" ;;' '    http://*|https://*) echo \"$a\" >> \"$T/curl-refused.log\"; exit 7 ;;' '  esac' '  set -- \"$@\" \"$a\"; i=$((i + 1))' 'done' 'exec \"$real_curl\" --max-time 20 \"$@\"' >> \"$T/shim/curl\"",
+        "chmod 755 \"$T/shim/curl\"",
+        "export PATH=\"$T/shim:$PATH\"",
+        "exec 3< <(python3 -I -c '\nimport http.server, os, signal, sys, time\n\nroot = os.path.realpath(sys.argv[1])\nlog = sys.argv[2]\ndeadline = float(sys.argv[3])\nrequests = 0\n\nclass Handler(http.server.BaseHTTPRequestHandler):\n    def do_GET(self):\n        global requests\n        requests += 1\n        rel = self.path.split(\"?\", 1)[0].lstrip(\"/\")\n        full = os.path.realpath(os.path.join(root, rel))\n        found = full.startswith(root + os.sep) and os.path.isfile(full)\n        with open(log, \"a\") as fh:\n            fh.write(\"GET /%s %d\\n\" % (rel, 200 if found else 404))\n        if not found:\n            self.send_error(404)\n            return\n        with open(full, \"rb\") as fh:\n            body = fh.read()\n        self.send_response(200)\n        self.send_header(\"Content-Length\", str(len(body)))\n        self.end_headers()\n        self.wfile.write(body)\n\n    def log_message(self, *args):\n        pass\n\ndef stop(*_):\n    raise SystemExit\n\nsignal.signal(signal.SIGTERM, stop)\nserver = http.server.HTTPServer((\"127.0.0.1\", 0), Handler)\nprint(server.server_address[1], os.getpid(), flush=True)\nend = time.monotonic() + deadline\ntry:\n    while time.monotonic() < end:\n        server.timeout = max(0.1, end - time.monotonic())\n        server.handle_request()\nexcept SystemExit:\n    pass\nfinally:\n    print(\"requests=%d\" % requests, flush=True)\n' \"$T/release\" \"$T/mock-requests.log\" 60)\nread -r -t 20 -u 3 PORT MPID || { echo MOCK_NOT_READY; exit 1; }",
+        "echo \"$PORT\" > \"$T/mock.port\""
+      ],
+      "command": "[ \"$(command -v curl)\" = \"$T/shim/curl\" ] && echo CURL_IS_CASE_SHIM\nsh \"$SRC/scripts/install.sh\" --version 0.0.0-nonexistent --prefix \"$T/bin\"\nrc=$?\nkill -TERM \"$MPID\"\nread -r -t 20 -u 3 REPORT || echo MOCK_NO_REPORT\nread -r -t 20 -u 3 _ || true\necho \"$REPORT\"\ncat \"$T/mock-requests.log\"\nexit $rc",
+      "timeout_sec": 120,
+      "expected": {
+        "exit_code": "nonzero",
+        "stdout_contains": [
+          "CURL_IS_CASE_SHIM",
+          "requests=1",
+          "404",
+          "v0.0.0-nonexistent"
+        ],
+        "stderr_contains": [
+          "could not download"
+        ],
+        "must_not_contain": [
+          "panicked at",
+          "Verified SHA-256",
+          "MOCK_NOT_READY",
+          "MOCK_NO_REPORT"
+        ],
+        "files_exist": [],
+        "files_absent": [
+          "$T/bin/commandagent",
+          "$T/curl-refused.log",
+          "$T/home/.local/bin/commandagent"
+        ]
+      },
+      "note": "Mock HTTP: curl is the case shim; it rewrites the two GitHub URL prefixes to the case-owned loopback mock and refuses every other URL. Nothing reaches GitHub or the user's install directory."
+    },
+    {
+      "id": "BB-INS-006",
+      "area": "install",
+      "purpose": "install.sh installs a pinned release after checksum verification",
+      "source": "README.ja.md",
+      "setup": [
+        ": \"${SRC:?repository root, provided by tests/test_providerless_docs_install.py}\"",
+        "mkdir -p \"$T/stage\" \"$T/release/api\" \"$T/release/download/v0.1.0-rc.1\"",
+        "printf '%s\\n' '#!/bin/sh' 'echo \"commandagent 0.1.0\"' > \"$T/stage/commandagent\"",
+        "chmod 755 \"$T/stage/commandagent\"",
+        "mkdir -p \"$T/shim\"",
+        "printf '%s\\n' '#!/bin/sh' 'case \"$1\" in -m) echo x86_64 ;; *) echo Linux ;; esac' > \"$T/shim/uname\"\nchmod 755 \"$T/shim/uname\"",
+        "TARGET=x86_64-unknown-linux-musl",
+        "ARCHIVE=\"commandagent-0.1.0-rc.1-$TARGET.tar.gz\"",
+        "tar -czf \"$T/release/download/v0.1.0-rc.1/$ARCHIVE\" -C \"$T/stage\" commandagent",
+        "if command -v sha256sum >/dev/null 2>&1; then SHA=\"sha256sum\"; else SHA=\"shasum -a 256\"; fi",
+        "(cd \"$T/release/download/v0.1.0-rc.1\" && $SHA \"$ARCHIVE\" > \"$ARCHIVE.sha256\")",
+        "printf '%s\\n' '[{\"tag_name\":\"v0.1.0-rc.1\",\"draft\":false,\"prerelease\":true}]' > \"$T/release/api/releases\"",
+        "real_curl=\"$(command -v curl)\"",
+        "mkdir -p \"$T/shim\"",
+        "printf '%s\\n' \"#!/bin/sh\" \"real_curl=\\\"$real_curl\\\"\" > \"$T/shim/curl\"",
+        "printf '%s\\n' 'port=$(cat \"$T/mock.port\" 2>/dev/null) || { echo \"no-mock-port\" >> \"$T/curl-refused.log\"; exit 7; }' 'n=$#; i=0' 'while [ \"$i\" -lt \"$n\" ]; do' '  a=$1; shift' '  case \"$a\" in' '    https://github.com/Kewton/CommandAgent/releases/download/*)' '      a=\"http://127.0.0.1:$port/download/${a#https://github.com/Kewton/CommandAgent/releases/download/}\" ;;' '    https://api.github.com/repos/Kewton/CommandAgent/*)' '      a=\"http://127.0.0.1:$port/api/${a#https://api.github.com/repos/Kewton/CommandAgent/}\" ;;' '    http://*|https://*) echo \"$a\" >> \"$T/curl-refused.log\"; exit 7 ;;' '  esac' '  set -- \"$@\" \"$a\"; i=$((i + 1))' 'done' 'exec \"$real_curl\" --max-time 20 \"$@\"' >> \"$T/shim/curl\"",
+        "chmod 755 \"$T/shim/curl\"",
+        "export PATH=\"$T/shim:$PATH\"",
+        "exec 3< <(python3 -I -c '\nimport http.server, os, signal, sys, time\n\nroot = os.path.realpath(sys.argv[1])\nlog = sys.argv[2]\ndeadline = float(sys.argv[3])\nrequests = 0\n\nclass Handler(http.server.BaseHTTPRequestHandler):\n    def do_GET(self):\n        global requests\n        requests += 1\n        rel = self.path.split(\"?\", 1)[0].lstrip(\"/\")\n        full = os.path.realpath(os.path.join(root, rel))\n        found = full.startswith(root + os.sep) and os.path.isfile(full)\n        with open(log, \"a\") as fh:\n            fh.write(\"GET /%s %d\\n\" % (rel, 200 if found else 404))\n        if not found:\n            self.send_error(404)\n            return\n        with open(full, \"rb\") as fh:\n            body = fh.read()\n        self.send_response(200)\n        self.send_header(\"Content-Length\", str(len(body)))\n        self.end_headers()\n        self.wfile.write(body)\n\n    def log_message(self, *args):\n        pass\n\ndef stop(*_):\n    raise SystemExit\n\nsignal.signal(signal.SIGTERM, stop)\nserver = http.server.HTTPServer((\"127.0.0.1\", 0), Handler)\nprint(server.server_address[1], os.getpid(), flush=True)\nend = time.monotonic() + deadline\ntry:\n    while time.monotonic() < end:\n        server.timeout = max(0.1, end - time.monotonic())\n        server.handle_request()\nexcept SystemExit:\n    pass\nfinally:\n    print(\"requests=%d\" % requests, flush=True)\n' \"$T/release\" \"$T/mock-requests.log\" 60)\nread -r -t 20 -u 3 PORT MPID || { echo MOCK_NOT_READY; exit 1; }",
+        "echo \"$PORT\" > \"$T/mock.port\""
+      ],
+      "command": "[ \"$(command -v curl)\" = \"$T/shim/curl\" ] && echo CURL_IS_CASE_SHIM\nsh \"$SRC/scripts/install.sh\" --version v0.1.0-rc.1 --prefix \"$T/bin\"\nrc=$?\nif [ \"$rc\" -eq 0 ]; then \"$T/bin/commandagent\" --version || rc=$?; fi\nkill -TERM \"$MPID\"\nread -r -t 20 -u 3 REPORT || echo MOCK_NO_REPORT\nread -r -t 20 -u 3 _ || true\necho \"$REPORT\"\ncat \"$T/mock-requests.log\"\nexit $rc",
+      "timeout_sec": 120,
+      "expected": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "CURL_IS_CASE_SHIM",
+          "Verified SHA-256 checksum.",
+          "Installed commandagent to",
+          "commandagent 0.1.0",
+          "requests=2",
+          "GET /download/v0.1.0-rc.1/"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at",
+          "MOCK_NOT_READY",
+          "MOCK_NO_REPORT"
+        ],
+        "files_exist": [
+          "$T/bin/commandagent"
+        ],
+        "files_absent": [
+          "$T/curl-refused.log",
+          "$T/home/.local/bin/commandagent"
+        ]
+      },
+      "note": "Mock HTTP: curl is the case shim; it rewrites the two GitHub URL prefixes to the case-owned loopback mock and refuses every other URL. Nothing reaches GitHub or the user's install directory."
+    },
+    {
+      "id": "BB-INS-007",
+      "area": "install",
+      "purpose": "install.sh without --version falls back to newest pre-release while no stable exists",
+      "source": "README.ja.md",
+      "setup": [
+        ": \"${SRC:?repository root, provided by tests/test_providerless_docs_install.py}\"",
+        "mkdir -p \"$T/stage\" \"$T/release/api\" \"$T/release/download/v0.1.0-rc.1\"",
+        "printf '%s\\n' '#!/bin/sh' 'echo \"commandagent 0.1.0\"' > \"$T/stage/commandagent\"",
+        "chmod 755 \"$T/stage/commandagent\"",
+        "mkdir -p \"$T/shim\"",
+        "printf '%s\\n' '#!/bin/sh' 'case \"$1\" in -m) echo x86_64 ;; *) echo Linux ;; esac' > \"$T/shim/uname\"\nchmod 755 \"$T/shim/uname\"",
+        "TARGET=x86_64-unknown-linux-musl",
+        "ARCHIVE=\"commandagent-0.1.0-rc.1-$TARGET.tar.gz\"",
+        "tar -czf \"$T/release/download/v0.1.0-rc.1/$ARCHIVE\" -C \"$T/stage\" commandagent",
+        "if command -v sha256sum >/dev/null 2>&1; then SHA=\"sha256sum\"; else SHA=\"shasum -a 256\"; fi",
+        "(cd \"$T/release/download/v0.1.0-rc.1\" && $SHA \"$ARCHIVE\" > \"$ARCHIVE.sha256\")",
+        "printf '%s\\n' '[{\"tag_name\":\"v0.1.0-rc.1\",\"draft\":false,\"prerelease\":true}]' > \"$T/release/api/releases\"",
+        "real_curl=\"$(command -v curl)\"",
+        "mkdir -p \"$T/shim\"",
+        "printf '%s\\n' \"#!/bin/sh\" \"real_curl=\\\"$real_curl\\\"\" > \"$T/shim/curl\"",
+        "printf '%s\\n' 'port=$(cat \"$T/mock.port\" 2>/dev/null) || { echo \"no-mock-port\" >> \"$T/curl-refused.log\"; exit 7; }' 'n=$#; i=0' 'while [ \"$i\" -lt \"$n\" ]; do' '  a=$1; shift' '  case \"$a\" in' '    https://github.com/Kewton/CommandAgent/releases/download/*)' '      a=\"http://127.0.0.1:$port/download/${a#https://github.com/Kewton/CommandAgent/releases/download/}\" ;;' '    https://api.github.com/repos/Kewton/CommandAgent/*)' '      a=\"http://127.0.0.1:$port/api/${a#https://api.github.com/repos/Kewton/CommandAgent/}\" ;;' '    http://*|https://*) echo \"$a\" >> \"$T/curl-refused.log\"; exit 7 ;;' '  esac' '  set -- \"$@\" \"$a\"; i=$((i + 1))' 'done' 'exec \"$real_curl\" --max-time 20 \"$@\"' >> \"$T/shim/curl\"",
+        "chmod 755 \"$T/shim/curl\"",
+        "export PATH=\"$T/shim:$PATH\"",
+        "exec 3< <(python3 -I -c '\nimport http.server, os, signal, sys, time\n\nroot = os.path.realpath(sys.argv[1])\nlog = sys.argv[2]\ndeadline = float(sys.argv[3])\nrequests = 0\n\nclass Handler(http.server.BaseHTTPRequestHandler):\n    def do_GET(self):\n        global requests\n        requests += 1\n        rel = self.path.split(\"?\", 1)[0].lstrip(\"/\")\n        full = os.path.realpath(os.path.join(root, rel))\n        found = full.startswith(root + os.sep) and os.path.isfile(full)\n        with open(log, \"a\") as fh:\n            fh.write(\"GET /%s %d\\n\" % (rel, 200 if found else 404))\n        if not found:\n            self.send_error(404)\n            return\n        with open(full, \"rb\") as fh:\n            body = fh.read()\n        self.send_response(200)\n        self.send_header(\"Content-Length\", str(len(body)))\n        self.end_headers()\n        self.wfile.write(body)\n\n    def log_message(self, *args):\n        pass\n\ndef stop(*_):\n    raise SystemExit\n\nsignal.signal(signal.SIGTERM, stop)\nserver = http.server.HTTPServer((\"127.0.0.1\", 0), Handler)\nprint(server.server_address[1], os.getpid(), flush=True)\nend = time.monotonic() + deadline\ntry:\n    while time.monotonic() < end:\n        server.timeout = max(0.1, end - time.monotonic())\n        server.handle_request()\nexcept SystemExit:\n    pass\nfinally:\n    print(\"requests=%d\" % requests, flush=True)\n' \"$T/release\" \"$T/mock-requests.log\" 60)\nread -r -t 20 -u 3 PORT MPID || { echo MOCK_NOT_READY; exit 1; }",
+        "echo \"$PORT\" > \"$T/mock.port\""
+      ],
+      "command": "[ \"$(command -v curl)\" = \"$T/shim/curl\" ] && echo CURL_IS_CASE_SHIM\nsh \"$SRC/scripts/install.sh\" --prefix \"$T/bin\"\nrc=$?\nkill -TERM \"$MPID\"\nread -r -t 20 -u 3 REPORT || echo MOCK_NO_REPORT\nread -r -t 20 -u 3 _ || true\necho \"$REPORT\"\ncat \"$T/mock-requests.log\"\nexit $rc",
+      "timeout_sec": 120,
+      "expected": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "CURL_IS_CASE_SHIM",
+          "Verified SHA-256 checksum.",
+          "requests=4",
+          "GET /api/releases/latest 404",
+          "GET /api/releases 200"
+        ],
+        "stderr_contains": [
+          "using pre-release v0.1.0-rc.1"
+        ],
+        "must_not_contain": [
+          "panicked at",
+          "MOCK_NOT_READY",
+          "MOCK_NO_REPORT"
+        ],
+        "files_exist": [
+          "$T/bin/commandagent"
+        ],
+        "files_absent": [
+          "$T/curl-refused.log",
+          "$T/home/.local/bin/commandagent"
+        ]
+      },
+      "note": "Mock HTTP: curl is the case shim; it rewrites the two GitHub URL prefixes to the case-owned loopback mock and refuses every other URL. Nothing reaches GitHub or the user's install directory."
+    },
+    {
+      "id": "BB-INS-008",
+      "area": "install",
+      "purpose": "install.sh fails clearly when HOME is unset",
+      "source": "robustness",
+      "setup": [
+        ": \"${SRC:?repository root, provided by tests/test_providerless_docs_install.py}\"",
+        "mkdir -p \"$T/shim\"",
+        "printf '%s\\n' '#!/bin/sh' 'echo \"$*\" >> \"$T/curl-calls.log\"' 'exit 97' > \"$T/shim/curl\"\nchmod 755 \"$T/shim/curl\"",
+        "export PATH=\"$T/shim:$PATH\""
+      ],
+      "command": "env -u HOME sh \"$SRC/scripts/install.sh\" --help",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": "nonzero",
+        "stdout_contains": [],
+        "stderr_contains": [
+          "HOME must be set"
+        ],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": [
+          "$T/curl-calls.log",
+          "$T/home/.local/bin/commandagent"
+        ]
+      },
+      "note": "Read-only: the case-owned curl is a tripwire that records any call, and the installer fails or prints help before it would download."
+    },
+    {
+      "id": "BB-INS-012",
+      "area": "install",
+      "purpose": "setup.sh --check-only succeeds and makes no changes",
+      "source": "docs/user/getting-started-cli.md#1-install-or-prepare-the-checkout",
+      "setup": [
+        ": \"${SRC:?repository root, provided by tests/test_providerless_docs_install.py}\"",
+        "mkdir -p \"$T/shim\"",
+        "printf '%s\\n' '#!/bin/sh' 'echo \"$*\" >> \"$T/curl-calls.log\"' 'exit 7' > \"$T/shim/curl\"\nchmod 755 \"$T/shim/curl\"",
+        "export PATH=\"$T/shim:$PATH\"",
+        "printf '%s\\n' '#!/bin/sh' 'echo \"rustc 99.0.0 (case fixture)\"' > \"$T/shim/rustc\"\nchmod 755 \"$T/shim/rustc\"",
+        "printf '%s\\n' '#!/bin/sh' 'echo \"cargo 99.0.0 (case fixture)\"' > \"$T/shim/cargo\"\nchmod 755 \"$T/shim/cargo\"",
+        "printf '%s\\n' '#!/bin/sh' 'echo \"git version 99.0.0 (case fixture)\"' > \"$T/shim/git\"\nchmod 755 \"$T/shim/git\"",
+        "mkdir -p \"$T/repo/scripts\" && cp \"$SRC/scripts/setup.sh\" \"$T/repo/scripts/\" && cp \"$SRC/Cargo.toml\" \"$T/repo/\""
+      ],
+      "command": "before=$(find \"$T/repo\" \"$HOME\" -type f | sort | shasum); \"$T/repo/scripts/setup.sh\" --check-only; rc=$?; after=$(find \"$T/repo\" \"$HOME\" -type f | sort | shasum); [ \"$before\" = \"$after\" ] && echo NO_CHANGES; exit $rc",
+      "timeout_sec": 180,
+      "expected": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "--check-only made no changes",
+          "NO_CHANGES"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      },
+      "note": "Read-only: setup.sh is copied into the case workspace and runs with the case HOME. cargo, rustc and git are case-owned stubs that report a fixed version, so the verdict does not depend on the host toolchain, and the Ollama probe hits the case curl shim, which refuses it."
+    },
+    {
+      "id": "BB-INS-013",
+      "area": "install",
+      "purpose": "setup.sh --check-only --write-config still writes nothing",
+      "source": "README.ja.md",
+      "setup": [
+        ": \"${SRC:?repository root, provided by tests/test_providerless_docs_install.py}\"",
+        "mkdir -p \"$T/shim\"",
+        "printf '%s\\n' '#!/bin/sh' 'echo \"$*\" >> \"$T/curl-calls.log\"' 'exit 7' > \"$T/shim/curl\"\nchmod 755 \"$T/shim/curl\"",
+        "export PATH=\"$T/shim:$PATH\"",
+        "printf '%s\\n' '#!/bin/sh' 'echo \"rustc 99.0.0 (case fixture)\"' > \"$T/shim/rustc\"\nchmod 755 \"$T/shim/rustc\"",
+        "printf '%s\\n' '#!/bin/sh' 'echo \"cargo 99.0.0 (case fixture)\"' > \"$T/shim/cargo\"\nchmod 755 \"$T/shim/cargo\"",
+        "printf '%s\\n' '#!/bin/sh' 'echo \"git version 99.0.0 (case fixture)\"' > \"$T/shim/git\"\nchmod 755 \"$T/shim/git\"",
+        "mkdir -p \"$T/repo/scripts\" && cp \"$SRC/scripts/setup.sh\" \"$T/repo/scripts/\" && cp \"$SRC/Cargo.toml\" \"$T/repo/\""
+      ],
+      "command": "\"$T/repo/scripts/setup.sh\" --check-only --write-config",
+      "timeout_sec": 180,
+      "expected": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "--check-only made no changes"
+        ],
+        "stderr_contains": [],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": [
+          "$T/repo/.commandagent/config.toml"
+        ]
+      },
+      "note": "Read-only: setup.sh is copied into the case workspace and runs with the case HOME. cargo, rustc and git are case-owned stubs that report a fixed version, so the verdict does not depend on the host toolchain, and the Ollama probe hits the case curl shim, which refuses it."
+    },
+    {
+      "id": "BB-INS-014",
+      "area": "install",
+      "purpose": "setup.sh --yes and --check-only cannot be combined",
+      "source": "scripts/setup.sh",
+      "setup": [
+        ": \"${SRC:?repository root, provided by tests/test_providerless_docs_install.py}\"",
+        "mkdir -p \"$T/shim\"",
+        "printf '%s\\n' '#!/bin/sh' 'echo \"$*\" >> \"$T/curl-calls.log\"' 'exit 7' > \"$T/shim/curl\"\nchmod 755 \"$T/shim/curl\"",
+        "export PATH=\"$T/shim:$PATH\"",
+        "printf '%s\\n' '#!/bin/sh' 'echo \"rustc 99.0.0 (case fixture)\"' > \"$T/shim/rustc\"\nchmod 755 \"$T/shim/rustc\"",
+        "printf '%s\\n' '#!/bin/sh' 'echo \"cargo 99.0.0 (case fixture)\"' > \"$T/shim/cargo\"\nchmod 755 \"$T/shim/cargo\"",
+        "printf '%s\\n' '#!/bin/sh' 'echo \"git version 99.0.0 (case fixture)\"' > \"$T/shim/git\"\nchmod 755 \"$T/shim/git\"",
+        "mkdir -p \"$T/repo/scripts\" && cp \"$SRC/scripts/setup.sh\" \"$T/repo/scripts/\" && cp \"$SRC/Cargo.toml\" \"$T/repo/\""
+      ],
+      "command": "\"$T/repo/scripts/setup.sh\" --yes --check-only",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": "nonzero",
+        "stdout_contains": [],
+        "stderr_contains": [
+          "cannot be combined"
+        ],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      },
+      "note": "Read-only: setup.sh is copied into the case workspace and runs with the case HOME. cargo, rustc and git are case-owned stubs that report a fixed version, so the verdict does not depend on the host toolchain, and the Ollama probe hits the case curl shim, which refuses it."
+    },
+    {
+      "id": "BB-INS-015",
+      "area": "install",
+      "purpose": "setup.sh rejects an unknown profile set",
+      "source": "scripts/setup.sh",
+      "setup": [
+        ": \"${SRC:?repository root, provided by tests/test_providerless_docs_install.py}\"",
+        "mkdir -p \"$T/shim\"",
+        "printf '%s\\n' '#!/bin/sh' 'echo \"$*\" >> \"$T/curl-calls.log\"' 'exit 7' > \"$T/shim/curl\"\nchmod 755 \"$T/shim/curl\"",
+        "export PATH=\"$T/shim:$PATH\"",
+        "printf '%s\\n' '#!/bin/sh' 'echo \"rustc 99.0.0 (case fixture)\"' > \"$T/shim/rustc\"\nchmod 755 \"$T/shim/rustc\"",
+        "printf '%s\\n' '#!/bin/sh' 'echo \"cargo 99.0.0 (case fixture)\"' > \"$T/shim/cargo\"\nchmod 755 \"$T/shim/cargo\"",
+        "printf '%s\\n' '#!/bin/sh' 'echo \"git version 99.0.0 (case fixture)\"' > \"$T/shim/git\"\nchmod 755 \"$T/shim/git\"",
+        "mkdir -p \"$T/repo/scripts\" && cp \"$SRC/scripts/setup.sh\" \"$T/repo/scripts/\" && cp \"$SRC/Cargo.toml\" \"$T/repo/\""
+      ],
+      "command": "\"$T/repo/scripts/setup.sh\" --check-only --profile-set django",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": "nonzero",
+        "stdout_contains": [],
+        "stderr_contains": [
+          "--profile-set must be nextjs or python-cli"
+        ],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      },
+      "note": "Read-only: setup.sh is copied into the case workspace and runs with the case HOME. cargo, rustc and git are case-owned stubs that report a fixed version, so the verdict does not depend on the host toolchain, and the Ollama probe hits the case curl shim, which refuses it."
+    },
+    {
+      "id": "BB-INS-016",
+      "area": "install",
+      "purpose": "setup.sh rejects a relative --base-path",
+      "source": "scripts/setup.sh",
+      "setup": [
+        ": \"${SRC:?repository root, provided by tests/test_providerless_docs_install.py}\"",
+        "mkdir -p \"$T/shim\"",
+        "printf '%s\\n' '#!/bin/sh' 'echo \"$*\" >> \"$T/curl-calls.log\"' 'exit 7' > \"$T/shim/curl\"\nchmod 755 \"$T/shim/curl\"",
+        "export PATH=\"$T/shim:$PATH\"",
+        "printf '%s\\n' '#!/bin/sh' 'echo \"rustc 99.0.0 (case fixture)\"' > \"$T/shim/rustc\"\nchmod 755 \"$T/shim/rustc\"",
+        "printf '%s\\n' '#!/bin/sh' 'echo \"cargo 99.0.0 (case fixture)\"' > \"$T/shim/cargo\"\nchmod 755 \"$T/shim/cargo\"",
+        "printf '%s\\n' '#!/bin/sh' 'echo \"git version 99.0.0 (case fixture)\"' > \"$T/shim/git\"\nchmod 755 \"$T/shim/git\"",
+        "mkdir -p \"$T/repo/scripts\" && cp \"$SRC/scripts/setup.sh\" \"$T/repo/scripts/\" && cp \"$SRC/Cargo.toml\" \"$T/repo/\""
+      ],
+      "command": "\"$T/repo/scripts/setup.sh\" --check-only --base-path rel",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": "nonzero",
+        "stdout_contains": [],
+        "stderr_contains": [
+          "--base-path must be"
+        ],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      },
+      "note": "Read-only: setup.sh is copied into the case workspace and runs with the case HOME. cargo, rustc and git are case-owned stubs that report a fixed version, so the verdict does not depend on the host toolchain, and the Ollama probe hits the case curl shim, which refuses it."
+    },
+    {
+      "id": "BB-REPL-001",
+      "area": "repl",
+      "purpose": "REPL refuses non-TTY stdin with a clear message",
+      "source": "robustness",
+      "setup": [],
+      "command": "printf '/exit\\n' | \"$BIN\" --ollama-host \"$OLLAMA_UNREACHABLE\"",
+      "timeout_sec": 60,
+      "expected": {
+        "exit_code": "nonzero",
+        "stdout_contains": [],
+        "stderr_contains": [
+          "stdin is not a TTY"
+        ],
+        "must_not_contain": [
+          "panicked at"
+        ],
+        "files_exist": [],
+        "files_absent": []
+      }
+    }
+  ]
+}

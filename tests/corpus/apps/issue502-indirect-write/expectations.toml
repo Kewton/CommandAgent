@@ -1,0 +1,21 @@
+case_id = "issue502-indirect-write"
+source = "Issue #655 (stage 1a of #502): the lexical Bash write guard cannot see writes performed inside a command body, so `sh -c 'cp ...'`, `eval`, `xargs`, `find -exec`, an interpreter's open(...,'w'), dd of=, sed -i, and a hardlink to an outside inode are closed by the OS write sandbox instead. This corpus declares the indirect-command table; tests/issue502_os_sandbox_write.rs drives each row through the Seatbelt backend and asserts the outside fixture is unchanged."
+acceptance_passed = true
+primary_reason = "pass"
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/indirect-cases.jsonl = [
+  "\"id\": \"sh-c-cp\"",
+  "\"id\": \"eval-redirect\"",
+  "\"id\": \"xargs-cp\"",
+  "\"id\": \"python-open\"",
+  "\"id\": \"find-exec-cp\"",
+  "\"id\": \"dd-of\"",
+  "\"id\": \"sed-inplace\"",
+  "\"id\": \"hardlink-outside\"",
+  "\"id\": \"inside-write\"",
+  "\"id\": \"python-open-inside\""
+]

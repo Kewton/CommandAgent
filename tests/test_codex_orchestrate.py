@@ -192,8 +192,13 @@ def test_issue_2_to_5_dependency_batches_are_not_fully_serial() -> None:
     assert merge_order == [2, 3, 4, 5]
 
 
-def test_dependency_batches_enforce_configured_max_parallel() -> None:
+def test_dependency_batches_enforce_configured_max_parallel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     module = load_script()
+    # These scheduling inputs are independent. Repository text containing
+    # "Independent" must not add incidental shared files to this unit fixture.
+    monkeypatch.setattr(module, "enrich_file_candidates_with_rg", lambda _text, paths: paths)
     analyses = [
         module.analyze_issue(
             module.Issue(
@@ -582,8 +587,11 @@ def test_commandmate_respond_command_targets_codex_instance() -> None:
     ]
 
 
-def test_dispatch_commandmate_sends_only_worker_task() -> None:
+def test_dispatch_commandmate_sends_only_worker_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     module = load_script()
+    monkeypatch.setattr(module, "REPO_ROOT", Path("/tmp/CommandAgent-develop"))
     issue = module.Issue(
         number=1,
         title="Add worker task",
@@ -796,8 +804,11 @@ def test_commandmate_ls_command_omits_empty_branch_prefix() -> None:
     ]
 
 
-def test_commandmate_worktree_id_uses_commandmate_worktree_format() -> None:
+def test_commandmate_worktree_id_uses_commandmate_worktree_format(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     module = load_script()
+    monkeypatch.setattr(module, "REPO_ROOT", Path("/tmp/CommandAgent-develop"))
 
     assert (
         module.commandmate_worktree_id("feature/issue-2-p0-m1-define-v1-sidecar-schema")
@@ -1830,6 +1841,19 @@ def test_order_pr_numbers_for_merge_rejects_incomplete_pr_set() -> None:
 
     with pytest.raises(ValueError, match="must match every requested issue"):
         module.order_pr_numbers_for_merge(results, [2, 3], [42])
+
+
+def test_issue_to_pr_numbers_maps_in_issue_order() -> None:
+    module = load_script()
+
+    assert module.issue_to_pr_numbers([2, 3, 4], [42, 43, 44]) == {2: 42, 3: 43, 4: 44}
+
+
+def test_issue_to_pr_numbers_rejects_length_mismatch() -> None:
+    module = load_script()
+
+    with pytest.raises(ValueError, match="same length"):
+        module.issue_to_pr_numbers([2, 3, 4], [42, 43])
 
 
 def test_merge_pull_requests_waits_for_ci_before_merge() -> None:

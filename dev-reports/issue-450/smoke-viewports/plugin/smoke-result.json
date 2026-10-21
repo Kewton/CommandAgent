@@ -1,0 +1,22 @@
+{
+  "status": "passed",
+  "operational_capabilities_verified": true,
+  "required_viewports": [
+    {
+      "name": "desktop",
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "name": "mobile",
+      "width": 390,
+      "height": 844
+    }
+  ],
+  "empty_tabs_reused_without_reset": true,
+  "viewport_override_reset": true,
+  "unmeasured_conditions_rejected": true,
+  "campaign_frozen": false,
+  "report": "ledger/2230630bd9204c6795ca839f6fdbc37c/report.json",
+  "plugin_permanent_repair": "not_established"
+}

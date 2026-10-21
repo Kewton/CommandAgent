@@ -170,6 +170,28 @@ impl PortControl for SystemPortControl {
         #[cfg(unix)]
         {
             let pid = i32::try_from(pid).context("owning pid does not fit platform pid type")?;
+            // Normal path (Issue #673): a pid that must not be signalled returns
+            // `Err`, never a panic. lsof can report pid 1 under socket activation
+            // (launchd/systemd), and a user who chose kill must still get the
+            // pre-#673 `Err`. 0 (the caller's own group) and 1 (init) are refused
+            // here, then the caller's own pid. This is not an ownership proof for
+            // the port owner.
+            if pid <= 1 {
+                bail!("refusing to signal pid {pid}");
+            }
+            if pid == std::process::id() as i32 {
+                bail!("refusing to signal the caller's own pid");
+            }
+            // Last, non-mutatable defense (Issue #673): the `bail!` paths above
+            // are the normal result, and these `assert!`s are the fortress for a
+            // mutated tree. cargo-mutants does not rewrite comparisons inside
+            // `assert!`, and they are written directly in the function that calls
+            // `kill`.
+            assert!(pid > 1, "refusing to signal pid {pid}");
+            assert!(
+                pid != std::process::id() as i32,
+                "refusing to signal the caller's own pid"
+            );
             // SAFETY: sends SIGTERM to the concrete pid reported by lsof after
             // explicit user confirmation in the preflight prompt.
             let rc = unsafe { libc::kill(pid, libc::SIGTERM) };
@@ -410,5 +432,27 @@ mod tests {
         let owner = parse_lsof_owner("p123\ncnext-server\n").unwrap();
         assert_eq!(owner.pid, Some(123));
         assert_eq!(owner.command, "next-server");
+    }
+
+    /// Issue #673 対処の方向 4: pass 0 (the caller's own group), 1 (init), and
+    /// the caller's own pid straight to the function that calls `kill`, so a
+    /// mutated tree reaches the last, non-mutatable `assert!`. On an unmutated
+    /// tree the `bail!` paths return `Err` before `libc::kill`, so the message
+    /// is `refusing …`, never `failed to kill owning process`. Under a mutation
+    /// it runs only in the isolated container; on an unmutated tree it also runs
+    /// in host CI and verify.
+    #[cfg(unix)]
+    #[test]
+    fn dangerous_value_system_port_control_kill_refuses_init_zero_and_own_pid() {
+        let ports = SystemPortControl;
+        for pid in [0, 1, std::process::id()] {
+            let error = ports.kill(pid).expect_err("must refuse");
+            let message = error.to_string();
+            assert!(message.contains("refusing"), "{message}");
+            assert!(
+                !message.contains("failed to kill owning process"),
+                "the refusal must not reach libc::kill: {message}"
+            );
+        }
     }
 }

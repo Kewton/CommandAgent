@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use reqwest::blocking::Client;
+use reqwest::Client;
 use serde_json::{Value, json};
 
 use crate::config::{Config, Provider, load_api_key};
@@ -12,35 +12,65 @@ use crate::tools::registry::ToolSpec;
 
 use super::parsing::sanitize_schema;
 use super::streaming::StreamControl;
+use super::streaming::{CancelToken, HttpCall};
 use super::{AssistantReply, ChatClient};
 
 const GEMINI_BASE_URL: &str = "https://generativelanguage.googleapis.com";
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct GeminiClient {
     api_key: String,
     http: Client,
+    cancel: CancelToken,
+    base_url: String,
     max_predict: usize,
     retries: usize,
     eval_events_path: Option<PathBuf>,
     previous_interaction_id: Arc<Mutex<Option<String>>>,
 }
 
+impl std::fmt::Debug for GeminiClient {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("GeminiClient")
+            .field("api_key", &"<redacted>")
+            .field("http", &self.http)
+            .field("max_predict", &self.max_predict)
+            .field("retries", &self.retries)
+            .field("eval_events_path", &self.eval_events_path)
+            .field("previous_interaction_id", &self.previous_interaction_id)
+            .finish()
+    }
+}
+
 impl GeminiClient {
     pub fn from_env(config: &Config) -> anyhow::Result<Self> {
         let api_key = load_api_key(&config.workspace_root, "GEMINI_API_KEY")?;
-        let http = Client::builder()
-            .connect_timeout(std::time::Duration::from_secs(config.chat_timeout_secs))
-            .timeout(std::time::Duration::from_secs(config.chat_timeout_secs))
-            .build()?;
+        let http = super::streaming::http_client(config.chat_timeout_secs)?;
         Ok(Self {
             api_key,
             http,
+            cancel: CancelToken::default(),
+            base_url: GEMINI_BASE_URL.to_string(),
             max_predict: config.num_predict,
             retries: config.chat_retries,
             eval_events_path: config.eval_events_path.clone(),
             previous_interaction_id: Arc::new(Mutex::new(None)),
         })
+    }
+
+    #[cfg(test)]
+    fn for_test(base_url: String) -> Self {
+        Self {
+            api_key: "gemini-test-key".to_string(),
+            http: super::streaming::http_client(30).expect("test Gemini client"),
+            cancel: CancelToken::default(),
+            base_url,
+            max_predict: 64,
+            retries: 0,
+            eval_events_path: None,
+            previous_interaction_id: Arc::new(Mutex::new(None)),
+        }
     }
 }
 
@@ -61,6 +91,10 @@ impl ChatClient for GeminiClient {
         false
     }
 
+    fn set_cancel_token(&mut self, token: CancelToken) {
+        self.cancel = token;
+    }
+
     fn supports_streaming(&self) -> bool {
         true
     }
@@ -76,7 +110,8 @@ impl ChatClient for GeminiClient {
         let body = build_stream_generate_content_request(messages, tools, self.max_predict);
         let normalized_model = model.strip_prefix("models/").unwrap_or(model);
         let url = format!(
-            "{GEMINI_BASE_URL}/v1beta/models/{normalized_model}:streamGenerateContent?alt=sse"
+            "{}/v1beta/models/{normalized_model}:streamGenerateContent?alt=sse",
+            self.base_url
         );
         eval_events::emit(
             self.eval_events_path.as_deref(),
@@ -88,22 +123,29 @@ impl ChatClient for GeminiClient {
                 "previous_interaction": false,
             }),
         );
+        let call = HttpCall::new(&self.cancel)?;
         for attempt in 0..=self.retries {
-            match self
-                .http
-                .post(&url)
-                .header("x-goog-api-key", &self.api_key)
-                .header("Content-Type", "application/json")
-                .json(&body)
-                .send()
-            {
+            match call.run(async {
+                self.http
+                    .post(&url)
+                    .header("x-goog-api-key", &self.api_key)
+                    .header("Content-Type", "application/json")
+                    .json(&body)
+                    .send()
+                    .await
+            })? {
                 Ok(response) if response.status().is_success() => {
                     let mut delivered = false;
-                    let parsed = parse_gemini_stream(response, &mut |chunk| {
+                    let parsed = parse_gemini_stream(call.reader(response), &mut |chunk| {
                         delivered = true;
                         on_chunk(chunk)
                     });
                     match parsed {
+                        // A cancel observed before commit wins even when the
+                        // buffered stream parsed cleanly.
+                        _ if call.is_cancelled() => {
+                            return Err(super::streaming::aborted_by_user());
+                        }
                         Ok(reply) => {
                             eval_events::emit(
                                 self.eval_events_path.as_deref(),
@@ -153,7 +195,7 @@ impl ChatClient for GeminiClient {
                         || !is_retryable_status(response.status().as_u16()) =>
                 {
                     let status = response.status();
-                    let response_body = response.text().unwrap_or_default();
+                    let response_body = call.run(response.text())?.unwrap_or_default();
                     eval_events::emit(
                         self.eval_events_path.as_deref(),
                         json!({
@@ -251,17 +293,19 @@ impl ChatClient for GeminiClient {
                 "previous_interaction": previous_interaction_id.is_some(),
             }),
         );
+        let call = HttpCall::new(&self.cancel)?;
         for attempt in 0..=self.retries {
-            match self
-                .http
-                .post(format!("{GEMINI_BASE_URL}/v1beta/interactions"))
-                .header("x-goog-api-key", &self.api_key)
-                .header("Content-Type", "application/json")
-                .json(&body)
-                .send()
-            {
+            match call.run(async {
+                self.http
+                    .post(format!("{}/v1beta/interactions", self.base_url))
+                    .header("x-goog-api-key", &self.api_key)
+                    .header("Content-Type", "application/json")
+                    .json(&body)
+                    .send()
+                    .await
+            })? {
                 Ok(response) if response.status().is_success() => {
-                    let body = response.text()?;
+                    let body = call.run(response.text())??;
                     let parsed = super::gemini_function_calling::parse_interactions_response(&body);
                     match parsed {
                         Ok(reply) => {
@@ -304,7 +348,7 @@ impl ChatClient for GeminiClient {
                         || !is_retryable_status(response.status().as_u16()) =>
                 {
                     let status = response.status();
-                    let body = response.text().unwrap_or_default();
+                    let body = call.run(response.text())?.unwrap_or_default();
                     eval_events::emit(
                         self.eval_events_path.as_deref(),
                         json!({
@@ -600,5 +644,205 @@ mod streaming_tests {
         .to_string();
         assert_eq!(chunks.concat(), "partial");
         assert!(err.contains("finish reason"), "{err}");
+    }
+}
+
+#[cfg(test)]
+mod cancel_tests {
+    use super::*;
+    use crate::providers::streaming::cancel_test_support::assert_cancel_closes_connection;
+
+    #[test]
+    fn cancel_closes_the_interactions_request() {
+        assert_cancel_closes_connection(None, |base_url, token| {
+            let mut client = GeminiClient::for_test(base_url);
+            client.set_cancel_token(token);
+            ChatClient::chat(
+                &mut client,
+                "gemini-test",
+                &[ConversationMessage::user("hi")],
+                &[],
+                false,
+            )
+        });
+    }
+
+    #[test]
+    fn cancel_closes_the_stream_request() {
+        assert_cancel_closes_connection(
+            Some("data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"partial\"}]}}]}\n\n"),
+            |base_url, token| {
+                let mut client = GeminiClient::for_test(base_url);
+                client.set_cancel_token(token);
+                client.chat_stream(
+                    "gemini-test",
+                    &[ConversationMessage::user("hi")],
+                    &[],
+                    false,
+                    &mut |_chunk| Ok(()),
+                )
+            },
+        );
+    }
+
+    #[test]
+    fn cancel_mid_stream_records_no_parse_error_or_retry() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let events = dir.path().join("events.jsonl");
+        let events_for_client = events.clone();
+        assert_cancel_closes_connection(
+            Some("data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"partial\"}]}}]}\n\n"),
+            move |base_url, token| {
+                let mut client = GeminiClient::for_test(base_url);
+                client.retries = 2;
+                client.eval_events_path = Some(events_for_client);
+                client.set_cancel_token(token);
+                client.chat_stream(
+                    "gemini-test",
+                    &[ConversationMessage::user("hi")],
+                    &[],
+                    false,
+                    &mut |_chunk| Ok(()),
+                )
+            },
+        );
+        let recorded = std::fs::read_to_string(&events).unwrap_or_default();
+        for forbidden in [
+            "provider_parse_error",
+            "provider_retry",
+            "provider_response",
+        ] {
+            assert!(
+                !recorded.contains(forbidden),
+                "{forbidden} recorded: {recorded}"
+            );
+        }
+    }
+
+    fn serve_complete_stream(stream_body: &'static str) -> String {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
+        let base_url = format!("http://{}", listener.local_addr().expect("address"));
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .expect("read timeout");
+            let mut data = Vec::new();
+            let mut buffer = [0_u8; 4096];
+            loop {
+                let read = stream.read(&mut buffer).expect("request");
+                if read == 0 {
+                    return;
+                }
+                data.extend_from_slice(&buffer[..read]);
+                let Some(end) = data.windows(4).position(|window| window == b"\r\n\r\n") else {
+                    continue;
+                };
+                let head = String::from_utf8_lossy(&data[..end]).to_ascii_lowercase();
+                let length = head
+                    .lines()
+                    .find_map(|line| line.strip_prefix("content-length:"))
+                    .and_then(|value| value.trim().parse::<usize>().ok())
+                    .unwrap_or(0);
+                if data.len() >= end + 4 + length {
+                    break;
+                }
+            }
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n{stream_body}"
+            )
+            .expect("stream");
+            stream.flush().expect("flush");
+        });
+        base_url
+    }
+
+    fn event_names(events: &std::path::Path) -> Vec<String> {
+        std::fs::read_to_string(events)
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+            .filter_map(|event| {
+                event
+                    .get("event")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            })
+            .collect()
+    }
+
+    /// Run the corpus case: the callback receives the complete final chunk and
+    /// optionally cancels the token, so the parser still returns `Ok`.
+    fn run_complete_buffer_case(case: &str) {
+        let cases: Value = serde_json::from_str(include_str!(
+            "../../tests/corpus/apps/issue697-gemini-cancel-terminal/fixtures/cases.json"
+        ))
+        .expect("cases.json");
+        let stream_body: &'static str = Box::leak(
+            cases["stream"]
+                .as_str()
+                .expect("stream")
+                .to_string()
+                .into_boxed_str(),
+        );
+        let expected = &cases[case];
+        let cancels = expected["callback_cancels_token"]
+            .as_bool()
+            .expect("cancels");
+        let dir = tempfile::tempdir().expect("tempdir");
+        let events = dir.path().join("events.jsonl");
+        let mut client = GeminiClient::for_test(serve_complete_stream(stream_body));
+        client.retries = 2;
+        client.eval_events_path = Some(events.clone());
+        let token = CancelToken::default();
+        client.set_cancel_token(token.clone());
+        let mut chunks = Vec::new();
+        let result = client.chat_stream(
+            "gemini-test",
+            &[ConversationMessage::user("hi")],
+            &[],
+            false,
+            &mut |chunk| {
+                chunks.push(chunk.to_string());
+                if cancels {
+                    token.cancel();
+                }
+                Ok(())
+            },
+        );
+        assert_eq!(chunks, ["done"], "the complete chunk reaches the callback");
+        match expected["outcome"].as_str().expect("outcome") {
+            "aborted_by_user" => {
+                let err = result.expect_err("a cancelled call must not return a reply");
+                assert!(err.to_string().contains("aborted_by_user"), "{err}");
+            }
+            "ok" => assert_eq!(result.expect("reply").content, "done"),
+            other => panic!("unknown outcome {other}"),
+        }
+        let names = event_names(&events);
+        for event in [
+            "provider_response",
+            "provider_parse_error",
+            "provider_retry",
+        ] {
+            let count = names.iter().filter(|name| *name == event).count() as u64;
+            assert_eq!(
+                count,
+                expected[event].as_u64().expect("count"),
+                "{case}: {event} in {names:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn cancel_after_complete_buffer_records_no_terminal_response() {
+        run_complete_buffer_case("cancelled_after_complete_buffer");
+    }
+
+    #[test]
+    fn complete_buffer_without_cancel_records_one_provider_response() {
+        run_complete_buffer_case("uncancelled_control");
     }
 }

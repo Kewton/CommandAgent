@@ -1,4 +1,4 @@
-pub const CLI_HELP: &str = "Block runtime dependency setup and Bash commands containing npm/pnpm/yarn/cargo install, curl, or wget. Provider/API requests and other network-capable commands are unaffected.";
+pub const CLI_HELP: &str = "Refuse runtime dependency setup and Bash commands containing npm/pnpm/yarn/cargo install, curl, or wget (lexical check, always). When --sandbox applies an OS backend, the OS also refuses outbound network connections from sandboxed commands: macOS allows only loopback (TCP and UDP) and unix sockets; Linux needs Landlock ABI4 (kernel 6.7) or later and then allows TCP only to the dev-server port(s) without restricting UDP, while below ABI4 the network is not confined and only the lexical check applies. Without a backend only the lexical check applies. Provider/API requests are unaffected.";
 
 pub const BLOCKED_BASH_COMMAND_FAMILIES: &[&str] = &[
     "npm install",
@@ -19,7 +19,7 @@ pub struct DoctorScope {
 impl DoctorScope {
     pub fn message(&self) -> &'static str {
         if self.enabled {
-            "enabled for runtime dependency setup and listed Bash commands; provider/API requests remain enabled"
+            "enabled: runtime dependency setup and listed Bash commands are refused by a lexical check; when a sandbox backend applies, the OS also refuses outbound network connections from sandboxed commands (macOS always; Linux only with Landlock ABI4, kernel 6.7 or later, below that the network is checked lexically only); without a backend only the lexical check applies; provider/API requests remain enabled"
         } else {
             "disabled; runtime dependency setup and network-capable Bash commands may run"
         }
@@ -47,6 +47,14 @@ mod tests {
             scope
                 .message()
                 .contains("provider/API requests remain enabled")
+        );
+    }
+
+    #[test]
+    fn enabled_message_separates_the_os_layer_from_the_lexical_check() {
+        assert_eq!(
+            doctor_scope(true).message(),
+            "enabled: runtime dependency setup and listed Bash commands are refused by a lexical check; when a sandbox backend applies, the OS also refuses outbound network connections from sandboxed commands (macOS always; Linux only with Landlock ABI4, kernel 6.7 or later, below that the network is checked lexically only); without a backend only the lexical check applies; provider/API requests remain enabled"
         );
     }
 }

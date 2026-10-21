@@ -1,0 +1,60 @@
+{
+  "required_paths": [
+    "package.json",
+    "tsconfig.json",
+    "postcss.config.js",
+    "tailwind.config.ts",
+    "src/app/layout.tsx",
+    "src/app/page.tsx",
+    "src/app/globals.css",
+    "src/app/global.d.ts"
+  ],
+  "protected_paths": [],
+  "verify_commands": [
+    "npm run build",
+    "grep -q 'data-anvil-action' src/app/page.tsx",
+    "node -p '(function(s,w,b){return [new RegExp(\"data-anvil-state\"+w+\"=\"),new RegExp(\"data-anvil-state\"+b)].some(function(r){return r.test(s)})?true:process.exit(1)})(String(require(\"fs\").readFileSync(\"src/app/page.tsx\")),String.fromCharCode(92)+\"s*\",String.fromCharCode(92)+\"b\")'",
+    "grep -q 'use client' src/app/page.tsx"
+  ],
+  "profile": "nextjs",
+  "goal": "小さなカフェ向けの週間シフト編成アプリを構築してください。スタッフは氏名と役割（責任者・キッチン・ホール）を持ち、作成・編集・削除できるようにしてください。シフトはスタッフ、日付、開始時刻、終了時刻、休憩分数を持ち、作成・編集・削除できるようにしてください。シフトは同一日内かつ30分単位とし、終了は開始より後、休憩は勤務時間未満にしてください。同じスタッフの時間帯が重なるシフトは拒否し、前の終了時刻と次の開始時刻が同じシフトは許可してください。実働時間を計算し、スタッフ別の週間実働時間、40時間超過、日別・役割別の配置人数を表示してください。日付、スタッフ、役割で絞り込める週間カレンダーまたは表を用意してください。日本語UIで、視覚的に洗練され、デスクトップとスマートフォンで使いやすく、空・読込中・成功・入力エラー・処理失敗の状態が分かるようにしてください。スタッフとシフトはサーバー側のJSONファイルへ保存し、ブラウザー再読み込みとサーバー再起動後も保持してください。localStorageだけの実装は不可です。操作確認用サンプルを初期表示してください。60302ポートで起動可能なNext.jsアプリとして開発してください。",
+  "required_capabilities": [
+    "stateful_interaction",
+    "user_input_or_action",
+    "visible_state_change",
+    "persistence"
+  ],
+  "deterministic_oracles": [],
+  "required_evidence": [
+    "nextjs_route_evidence",
+    "build_command_or_dependency_missing_boundary",
+    "implementation_artifact",
+    "visible_interactive_surface_evidence",
+    "user_input_handler_evidence",
+    "stateful_update_evidence",
+    "interactive_ui_source_evidence",
+    "non_static_screen_evidence",
+    "persistence_evidence"
+  ],
+  "evidence_hint_tokens": [
+    "json",
+    "localstorage",
+    "カフェ",
+    "シフト",
+    "スタッフ",
+    "・キッチン・ホール",
+    "カレンダー",
+    "デスクトップ",
+    "スマートフォン",
+    "エラー・",
+    "サーバー",
+    "ファイル",
+    "ブラウザー",
+    "サンプル"
+  ],
+  "required_obligations": [
+    "implementation"
+  ],
+  "deferred_verify_requirements": [],
+  "verify_repair_cap": 2
+}

@@ -1,0 +1,115 @@
+[
+  {
+    "remove": [
+      "data-anvil-action=\"primary\"",
+      "data-anvil-action=\"input\"",
+      "data-anvil-state"
+    ],
+    "expected_attribute": "data-anvil-action=\"primary\"",
+    "prefix_chars": 0,
+    "path": "src/app/page.tsx"
+  },
+  {
+    "remove": [
+      "data-anvil-action=\"primary\"",
+      "data-anvil-action=\"input\"",
+      "data-anvil-state"
+    ],
+    "expected_attribute": "data-anvil-action=\"input\"",
+    "prefix_chars": 0,
+    "path": "src/app/page.tsx",
+    "swap_first_checks": true
+  },
+  {
+    "remove": [
+      "data-anvil-action=\"input\"",
+      "data-anvil-state"
+    ],
+    "expected_attribute": "data-anvil-action=\"input\"",
+    "prefix_chars": 0,
+    "path": "src/app/page.tsx"
+  },
+  {
+    "remove": [
+      "data-anvil-action=\"primary\"",
+      "data-anvil-state"
+    ],
+    "expected_attribute": "data-anvil-action=\"primary\"",
+    "prefix_chars": 0,
+    "path": "src/app/page.tsx"
+  },
+  {
+    "remove": [
+      "data-anvil-action=\"primary\"",
+      "data-anvil-action=\"input\""
+    ],
+    "expected_attribute": "data-anvil-action=\"primary\"",
+    "prefix_chars": 0,
+    "path": "src/app/page.tsx"
+  },
+  {
+    "remove": [
+      "data-anvil-action=\"input\""
+    ],
+    "expected_attribute": "data-anvil-action=\"input\"",
+    "prefix_chars": 499,
+    "path": "src/components/Checked.tsx"
+  },
+  {
+    "remove": [
+      "data-anvil-action=\"input\""
+    ],
+    "expected_attribute": "data-anvil-action=\"input\"",
+    "prefix_chars": 500,
+    "path": "src/components/Checked.tsx"
+  },
+  {
+    "remove": [
+      "data-anvil-action=\"input\""
+    ],
+    "expected_attribute": "data-anvil-action=\"input\"",
+    "prefix_chars": 501,
+    "path": "src/components/Checked.tsx"
+  },
+  {
+    "remove": [
+      "data-anvil-action=\"input\""
+    ],
+    "expected_attribute": "data-anvil-action=\"input\"",
+    "prefix_chars": 23999,
+    "path": "src/components/Checked.tsx"
+  },
+  {
+    "remove": [
+      "data-anvil-action=\"input\""
+    ],
+    "expected_attribute": "data-anvil-action=\"input\"",
+    "prefix_chars": 24000,
+    "path": "src/components/Checked.tsx"
+  },
+  {
+    "remove": [
+      "data-anvil-action=\"input\""
+    ],
+    "expected_attribute": "data-anvil-action=\"input\"",
+    "prefix_chars": 24001,
+    "path": "src/components/Checked.tsx"
+  },
+  {
+    "remove": [
+      "data-anvil-action=\"input\""
+    ],
+    "expected_attribute": "data-anvil-action=\"input\"",
+    "prefix_chars": 32000,
+    "path": "src/components/Checked.tsx"
+  },
+  {
+    "remove": [
+      "data-anvil-action=\"primary\""
+    ],
+    "expected_attribute": "data-anvil-action=\"primary\"",
+    "prefix_chars": 0,
+    "path": "src/app/page.tsx",
+    "misleading_error_label": true
+  }
+]

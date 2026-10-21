@@ -1072,6 +1072,30 @@ SyntaxError: invalid syntax
     }
 
     #[test]
+    fn goal_derived_src_entrypoint_layout_passes_the_behavior_probe() {
+        let dir = tempfile::tempdir().unwrap();
+        let goal = "Create a wordcount.py CLI that counts words from stdin";
+
+        let paths = PythonCliProfile.expected_scaffold_paths(dir.path(), goal);
+        assert_eq!(
+            paths,
+            vec![
+                "pyproject.toml".to_string(),
+                "src/wordcount/main.py".to_string()
+            ],
+            "planner placement must match the probe's src/<package>/main.py requirement"
+        );
+        complete_scaffold(dir.path(), &paths).unwrap();
+
+        let report = PythonCliProfile
+            .behavior_probe(dir.path(), goal, &[], false)
+            .unwrap();
+
+        assert_eq!(report.status, "pass", "{report:?}");
+        assert!(report.reasons.is_empty(), "{report:?}");
+    }
+
+    #[test]
     #[cfg(unix)]
     fn python_cli_plan_run_passes_with_python3_only_path() {
         use std::os::unix::fs::symlink;

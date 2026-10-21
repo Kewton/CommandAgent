@@ -1,0 +1,349 @@
+[
+  {
+    "case": "N01",
+    "refusal": "formation lost original check",
+    "steps": [
+      {
+        "id": "verifier-owner",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Create the verifier. Produce verify-ui.cjs to check the task UI and document its checks in README.md.",
+        "expected_paths": [
+          "verify-ui.cjs"
+        ],
+        "verify": []
+      },
+      {
+        "id": "documentation-owner",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Document the checks. Produce verify-ui.cjs to check the task UI and document its checks in README.md.",
+        "expected_paths": [
+          "README.md"
+        ],
+        "verify": []
+      },
+      {
+        "id": "application-config",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Implement the UI and package configuration.\n\nProfile contract:\nFor the nextjs profile, create a runnable Next.js app, not only package metadata. Keep the project in the workspace root unless a project subdirectory already exists. Preserve the language and styling toolchains declared by an existing project. A JavaScript project using plain CSS requires package.json, an App Router page and layout, and the imported stylesheet; do not add TypeScript, @types, Tailwind, PostCSS, or Autoprefixer only to satisfy a template. A TypeScript project additionally requires a coherent tsconfig and type dependencies. If those mode-appropriate files are absent, write the coherent App Router scaffold before further inspection. package.json must include compatible next, react, and react-dom dependencies plus scripts.build = `next build`. If Tailwind is used, package.json must include tailwindcss/postcss/autoprefixer and postcss.config plugins must include BOTH tailwindcss and autoprefixer. For TypeScript/TSX apps, create tsconfig.json before treating the app as complete. Keep a single route-bound implementation; do not leave capability components unimported. Do not use deprecated moduleResolution=node10 or target=ES5; prefer moduleResolution=bundler and target=ES2017 or newer. For interactive UI, expose task-agnostic observability hooks: data-anvil-action=\"primary\" on the main start/submit/action control, data-anvil-action=\"input\" on the main text entry surface when one exists, and data-anvil-state containing JSON for meaningful visible state after each render. The data-anvil-state snapshot must include at least one dimension that immediately responds to input, such as the current selection or edited value. When the contract includes start_or_restart_flow, every restart affordance (including terminal and active states when present) should carry data-anvil-action=\"restart\"; the initial primary action alone cannot satisfy recovery verification. A restart reachable during active use (hook or keyboard shortcut) allows behavioral verification, while an overlay-only restart may verify as unverified:terminal_state_not_reached (partial). The dev/start scripts must run on the explicitly requested port 60302: `next dev -p 60302` and `next start -p 60302` or equivalent `--port 60302` forms.",
+        "expected_paths": [
+          "src/app/page.tsx",
+          "package.json"
+        ],
+        "verify": [
+          "npm run build"
+        ]
+      },
+      {
+        "id": "read-verifier-doc",
+        "kind": "verify",
+        "expected_result": "pass",
+        "instruction": "Run both original checks after the UI and verification files exist.",
+        "expected_paths": [],
+        "verify": [
+          "test -f README.md"
+        ]
+      }
+    ]
+  },
+  {
+    "case": "N02",
+    "refusal": "formation dropped original required output owner verify-ui.cjs",
+    "steps": [
+      {
+        "id": "verifier-owner",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Create the verifier. Produce verify-ui.cjs to check the task UI and document its checks in README.md.",
+        "expected_paths": [],
+        "verify": []
+      },
+      {
+        "id": "documentation-owner",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Document the checks. Produce verify-ui.cjs to check the task UI and document its checks in README.md.",
+        "expected_paths": [
+          "README.md"
+        ],
+        "verify": []
+      },
+      {
+        "id": "application-config",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Implement the UI and package configuration.\n\nProfile contract:\nFor the nextjs profile, create a runnable Next.js app, not only package metadata. Keep the project in the workspace root unless a project subdirectory already exists. Preserve the language and styling toolchains declared by an existing project. A JavaScript project using plain CSS requires package.json, an App Router page and layout, and the imported stylesheet; do not add TypeScript, @types, Tailwind, PostCSS, or Autoprefixer only to satisfy a template. A TypeScript project additionally requires a coherent tsconfig and type dependencies. If those mode-appropriate files are absent, write the coherent App Router scaffold before further inspection. package.json must include compatible next, react, and react-dom dependencies plus scripts.build = `next build`. If Tailwind is used, package.json must include tailwindcss/postcss/autoprefixer and postcss.config plugins must include BOTH tailwindcss and autoprefixer. For TypeScript/TSX apps, create tsconfig.json before treating the app as complete. Keep a single route-bound implementation; do not leave capability components unimported. Do not use deprecated moduleResolution=node10 or target=ES5; prefer moduleResolution=bundler and target=ES2017 or newer. For interactive UI, expose task-agnostic observability hooks: data-anvil-action=\"primary\" on the main start/submit/action control, data-anvil-action=\"input\" on the main text entry surface when one exists, and data-anvil-state containing JSON for meaningful visible state after each render. The data-anvil-state snapshot must include at least one dimension that immediately responds to input, such as the current selection or edited value. When the contract includes start_or_restart_flow, every restart affordance (including terminal and active states when present) should carry data-anvil-action=\"restart\"; the initial primary action alone cannot satisfy recovery verification. A restart reachable during active use (hook or keyboard shortcut) allows behavioral verification, while an overlay-only restart may verify as unverified:terminal_state_not_reached (partial). The dev/start scripts must run on the explicitly requested port 60302: `next dev -p 60302` and `next start -p 60302` or equivalent `--port 60302` forms.",
+        "expected_paths": [
+          "src/app/page.tsx",
+          "package.json"
+        ],
+        "verify": [
+          "npm run build"
+        ]
+      },
+      {
+        "id": "read-verifier-doc",
+        "kind": "verify",
+        "expected_result": "pass",
+        "instruction": "Run both original checks after the UI and verification files exist.",
+        "expected_paths": [],
+        "verify": [
+          "node verify-ui.cjs",
+          "test -f README.md"
+        ]
+      }
+    ]
+  },
+  {
+    "case": "N03",
+    "refusal": "lost original requirements/expected result",
+    "steps": [
+      {
+        "id": "verifier-owner",
+        "kind": "implement",
+        "expected_result": "fail",
+        "instruction": "Create the verifier. Produce verify-ui.cjs to check the task UI and document its checks in README.md.",
+        "expected_paths": [
+          "verify-ui.cjs"
+        ],
+        "verify": []
+      },
+      {
+        "id": "documentation-owner",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Document the checks. Produce verify-ui.cjs to check the task UI and document its checks in README.md.",
+        "expected_paths": [
+          "README.md"
+        ],
+        "verify": []
+      },
+      {
+        "id": "application-config",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Implement the UI and package configuration.\n\nProfile contract:\nFor the nextjs profile, create a runnable Next.js app, not only package metadata. Keep the project in the workspace root unless a project subdirectory already exists. Preserve the language and styling toolchains declared by an existing project. A JavaScript project using plain CSS requires package.json, an App Router page and layout, and the imported stylesheet; do not add TypeScript, @types, Tailwind, PostCSS, or Autoprefixer only to satisfy a template. A TypeScript project additionally requires a coherent tsconfig and type dependencies. If those mode-appropriate files are absent, write the coherent App Router scaffold before further inspection. package.json must include compatible next, react, and react-dom dependencies plus scripts.build = `next build`. If Tailwind is used, package.json must include tailwindcss/postcss/autoprefixer and postcss.config plugins must include BOTH tailwindcss and autoprefixer. For TypeScript/TSX apps, create tsconfig.json before treating the app as complete. Keep a single route-bound implementation; do not leave capability components unimported. Do not use deprecated moduleResolution=node10 or target=ES5; prefer moduleResolution=bundler and target=ES2017 or newer. For interactive UI, expose task-agnostic observability hooks: data-anvil-action=\"primary\" on the main start/submit/action control, data-anvil-action=\"input\" on the main text entry surface when one exists, and data-anvil-state containing JSON for meaningful visible state after each render. The data-anvil-state snapshot must include at least one dimension that immediately responds to input, such as the current selection or edited value. When the contract includes start_or_restart_flow, every restart affordance (including terminal and active states when present) should carry data-anvil-action=\"restart\"; the initial primary action alone cannot satisfy recovery verification. A restart reachable during active use (hook or keyboard shortcut) allows behavioral verification, while an overlay-only restart may verify as unverified:terminal_state_not_reached (partial). The dev/start scripts must run on the explicitly requested port 60302: `next dev -p 60302` and `next start -p 60302` or equivalent `--port 60302` forms.",
+        "expected_paths": [
+          "src/app/page.tsx",
+          "package.json"
+        ],
+        "verify": [
+          "npm run build"
+        ]
+      },
+      {
+        "id": "read-verifier-doc",
+        "kind": "verify",
+        "expected_result": "pass",
+        "instruction": "Run both original checks after the UI and verification files exist.",
+        "expected_paths": [],
+        "verify": [
+          "node verify-ui.cjs",
+          "test -f README.md"
+        ]
+      }
+    ]
+  },
+  {
+    "case": "N04",
+    "refusal": "complete scope and boundary",
+    "steps": [
+      {
+        "id": "read-verifier-doc",
+        "kind": "verify",
+        "expected_result": "pass",
+        "instruction": "Run both original checks after the UI and verification files exist.",
+        "expected_paths": [],
+        "verify": [
+          "node verify-ui.cjs",
+          "test -f README.md"
+        ]
+      },
+      {
+        "id": "verifier-owner",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Create the verifier. Produce verify-ui.cjs to check the task UI and document its checks in README.md.",
+        "expected_paths": [
+          "verify-ui.cjs"
+        ],
+        "verify": []
+      },
+      {
+        "id": "documentation-owner",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Document the checks. Produce verify-ui.cjs to check the task UI and document its checks in README.md.",
+        "expected_paths": [
+          "README.md"
+        ],
+        "verify": []
+      },
+      {
+        "id": "application-config",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Implement the UI and package configuration.\n\nProfile contract:\nFor the nextjs profile, create a runnable Next.js app, not only package metadata. Keep the project in the workspace root unless a project subdirectory already exists. Preserve the language and styling toolchains declared by an existing project. A JavaScript project using plain CSS requires package.json, an App Router page and layout, and the imported stylesheet; do not add TypeScript, @types, Tailwind, PostCSS, or Autoprefixer only to satisfy a template. A TypeScript project additionally requires a coherent tsconfig and type dependencies. If those mode-appropriate files are absent, write the coherent App Router scaffold before further inspection. package.json must include compatible next, react, and react-dom dependencies plus scripts.build = `next build`. If Tailwind is used, package.json must include tailwindcss/postcss/autoprefixer and postcss.config plugins must include BOTH tailwindcss and autoprefixer. For TypeScript/TSX apps, create tsconfig.json before treating the app as complete. Keep a single route-bound implementation; do not leave capability components unimported. Do not use deprecated moduleResolution=node10 or target=ES5; prefer moduleResolution=bundler and target=ES2017 or newer. For interactive UI, expose task-agnostic observability hooks: data-anvil-action=\"primary\" on the main start/submit/action control, data-anvil-action=\"input\" on the main text entry surface when one exists, and data-anvil-state containing JSON for meaningful visible state after each render. The data-anvil-state snapshot must include at least one dimension that immediately responds to input, such as the current selection or edited value. When the contract includes start_or_restart_flow, every restart affordance (including terminal and active states when present) should carry data-anvil-action=\"restart\"; the initial primary action alone cannot satisfy recovery verification. A restart reachable during active use (hook or keyboard shortcut) allows behavioral verification, while an overlay-only restart may verify as unverified:terminal_state_not_reached (partial). The dev/start scripts must run on the explicitly requested port 60302: `next dev -p 60302` and `next start -p 60302` or equivalent `--port 60302` forms.",
+        "expected_paths": [
+          "src/app/page.tsx",
+          "package.json"
+        ],
+        "verify": [
+          "npm run build"
+        ]
+      }
+    ]
+  },
+  {
+    "case": "N05",
+    "refusal": "lost original requirements/expected result",
+    "steps": [
+      {
+        "id": "verifier-owner",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Create the verifier. Produce verify-ui.cjs to check the task UI and document its checks in README.md.",
+        "expected_paths": [
+          "verify-ui.cjs"
+        ],
+        "verify": []
+      },
+      {
+        "id": "documentation-owner",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Document the checks. ",
+        "expected_paths": [
+          "README.md"
+        ],
+        "verify": []
+      },
+      {
+        "id": "application-config",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Implement the UI and package configuration.\n\nProfile contract:\nFor the nextjs profile, create a runnable Next.js app, not only package metadata. Keep the project in the workspace root unless a project subdirectory already exists. Preserve the language and styling toolchains declared by an existing project. A JavaScript project using plain CSS requires package.json, an App Router page and layout, and the imported stylesheet; do not add TypeScript, @types, Tailwind, PostCSS, or Autoprefixer only to satisfy a template. A TypeScript project additionally requires a coherent tsconfig and type dependencies. If those mode-appropriate files are absent, write the coherent App Router scaffold before further inspection. package.json must include compatible next, react, and react-dom dependencies plus scripts.build = `next build`. If Tailwind is used, package.json must include tailwindcss/postcss/autoprefixer and postcss.config plugins must include BOTH tailwindcss and autoprefixer. For TypeScript/TSX apps, create tsconfig.json before treating the app as complete. Keep a single route-bound implementation; do not leave capability components unimported. Do not use deprecated moduleResolution=node10 or target=ES5; prefer moduleResolution=bundler and target=ES2017 or newer. For interactive UI, expose task-agnostic observability hooks: data-anvil-action=\"primary\" on the main start/submit/action control, data-anvil-action=\"input\" on the main text entry surface when one exists, and data-anvil-state containing JSON for meaningful visible state after each render. The data-anvil-state snapshot must include at least one dimension that immediately responds to input, such as the current selection or edited value. When the contract includes start_or_restart_flow, every restart affordance (including terminal and active states when present) should carry data-anvil-action=\"restart\"; the initial primary action alone cannot satisfy recovery verification. A restart reachable during active use (hook or keyboard shortcut) allows behavioral verification, while an overlay-only restart may verify as unverified:terminal_state_not_reached (partial). The dev/start scripts must run on the explicitly requested port 60302: `next dev -p 60302` and `next start -p 60302` or equivalent `--port 60302` forms.",
+        "expected_paths": [
+          "src/app/page.tsx",
+          "package.json"
+        ],
+        "verify": [
+          "npm run build"
+        ]
+      },
+      {
+        "id": "read-verifier-doc",
+        "kind": "verify",
+        "expected_result": "pass",
+        "instruction": "Run both original checks after the UI and verification files exist. Produce verify-ui.cjs to check the task UI and document its checks in README.md.",
+        "expected_paths": [],
+        "verify": [
+          "node verify-ui.cjs",
+          "test -f README.md"
+        ]
+      }
+    ]
+  },
+  {
+    "case": "N06",
+    "refusal": null,
+    "steps": [
+      {
+        "id": "verifier-owner",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Create the verifier. Produce verify-ui.cjs to check the task UI and document its checks in README.md.",
+        "expected_paths": [
+          "verify-ui.cjs"
+        ],
+        "verify": []
+      },
+      {
+        "id": "documentation-owner",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Document the checks. Produce verify-ui.cjs to check the task UI and document its checks in README.md.",
+        "expected_paths": [
+          "README.md"
+        ],
+        "verify": []
+      },
+      {
+        "id": "application-config",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Implement the UI and package configuration.",
+        "expected_paths": [
+          "src/app/page.tsx",
+          "package.json"
+        ],
+        "verify": [
+          "npm run build"
+        ]
+      },
+      {
+        "id": "read-verifier-doc",
+        "kind": "verify",
+        "expected_result": "pass",
+        "instruction": "Run both original checks after the UI and verification files exist.",
+        "expected_paths": [],
+        "verify": [
+          "node verify-ui.cjs",
+          "test -f README.md"
+        ]
+      }
+    ]
+  },
+  {
+    "case": "N07",
+    "refusal": "lost original requirements/expected result",
+    "steps": [
+      {
+        "id": "verifier-owner",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Create the verifier. Produce verify-ui.cjs to check the task UI and document its checks in README.md.",
+        "expected_paths": [
+          "verify-ui.cjs"
+        ],
+        "verify": []
+      },
+      {
+        "id": "documentation-owner",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Document the checks. ",
+        "expected_paths": [
+          "README.md"
+        ],
+        "verify": []
+      },
+      {
+        "id": "application-config",
+        "kind": "implement",
+        "expected_result": "pass",
+        "instruction": "Implement the UI and package configuration.\n\nProfile contract:\nFor the nextjs profile, create a runnable Next.js app, not only package metadata. Keep the project in the workspace root unless a project subdirectory already exists. Preserve the language and styling toolchains declared by an existing project. A JavaScript project using plain CSS requires package.json, an App Router page and layout, and the imported stylesheet; do not add TypeScript, @types, Tailwind, PostCSS, or Autoprefixer only to satisfy a template. A TypeScript project additionally requires a coherent tsconfig and type dependencies. If those mode-appropriate files are absent, write the coherent App Router scaffold before further inspection. package.json must include compatible next, react, and react-dom dependencies plus scripts.build = `next build`. If Tailwind is used, package.json must include tailwindcss/postcss/autoprefixer and postcss.config plugins must include BOTH tailwindcss and autoprefixer. For TypeScript/TSX apps, create tsconfig.json before treating the app as complete. Keep a single route-bound implementation; do not leave capability components unimported. Do not use deprecated moduleResolution=node10 or target=ES5; prefer moduleResolution=bundler and target=ES2017 or newer. For interactive UI, expose task-agnostic observability hooks: data-anvil-action=\"primary\" on the main start/submit/action control, data-anvil-action=\"input\" on the main text entry surface when one exists, and data-anvil-state containing JSON for meaningful visible state after each render. The data-anvil-state snapshot must include at least one dimension that immediately responds to input, such as the current selection or edited value. When the contract includes start_or_restart_flow, every restart affordance (including terminal and active states when present) should carry data-anvil-action=\"restart\"; the initial primary action alone cannot satisfy recovery verification. A restart reachable during active use (hook or keyboard shortcut) allows behavioral verification, while an overlay-only restart may verify as unverified:terminal_state_not_reached (partial). The dev/start scripts must run on the explicitly requested port 60302: `next dev -p 60302` and `next start -p 60302` or equivalent `--port 60302` forms.",
+        "expected_paths": [
+          "src/app/page.tsx",
+          "package.json"
+        ],
+        "verify": [
+          "npm run build"
+        ]
+      },
+      {
+        "id": "read-verifier-doc",
+        "kind": "verify",
+        "expected_result": "pass",
+        "instruction": "Run both original checks after the UI and verification files exist.",
+        "expected_paths": [],
+        "verify": [
+          "node verify-ui.cjs",
+          "test -f README.md"
+        ]
+      }
+    ]
+  }
+]

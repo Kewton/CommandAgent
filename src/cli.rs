@@ -406,7 +406,7 @@ pub struct Cli {
         long,
         action = ArgAction::SetTrue,
         help_heading = "Actions (use one)",
-        help = "Diagnose configuration files, provider readiness, interaction probes, and the local environment without making network requests."
+        help = "Diagnose configuration files, provider readiness, interaction probes, and the local environment. Depending on the configured provider, reachability checks connect to that host (for example OpenAI /v1/models or Responses, Ollama, or LM Studio); a check is skipped when its API key is absent."
     )]
     pub doctor: bool,
     #[arg(
@@ -421,7 +421,12 @@ pub struct Cli {
         long,
         value_enum,
         value_name = "SHELL",
-        conflicts_with = "generate_man",
+        conflicts_with_all = [
+            "extensions", "packs", "pack_verify", "pack_pin", "workflow", "prompt",
+            "plan_steps", "plan_run", "run_plan", "ultra_plan", "ultra_plan_run", "run_ultra_plan",
+            "validate_plan", "setup_interaction_probe", "runs", "ux_demo", "model_probe", "doctor",
+            "generate_man", "init_config", "validate_manifest", "init_profile", "goal"
+        ],
         help_heading = "Actions (use one)",
         help = "Generate a completion script from the current Clap definition and write it to stdout."
     )]
@@ -429,7 +434,12 @@ pub struct Cli {
     #[arg(
         long,
         action = ArgAction::SetTrue,
-        conflicts_with = "completions",
+        conflicts_with_all = [
+            "extensions", "packs", "pack_verify", "pack_pin", "workflow", "prompt",
+            "plan_steps", "plan_run", "run_plan", "ultra_plan", "ultra_plan_run", "run_ultra_plan",
+            "validate_plan", "setup_interaction_probe", "runs", "ux_demo", "model_probe", "doctor",
+            "completions", "init_config", "validate_manifest", "init_profile", "goal"
+        ],
         help_heading = "Actions (use one)",
         help = "Generate the `commandagent(1)` man page from the current Clap definition and write it to stdout."
     )]
@@ -500,6 +510,15 @@ pub struct Cli {
         help = crate::tools::offline_policy::CLI_HELP
     )]
     pub offline: bool,
+    #[arg(
+        long,
+        value_enum,
+        value_name = "auto|required|off",
+        default_value = "auto",
+        help_heading = "Workspace and State",
+        help = "Select the OS write sandbox for Bash and verifier commands. `auto` applies it when the backend is available and otherwise continues with lexical checks only; `required` fails those commands when the backend is unavailable; `off` keeps the previous behavior."
+    )]
+    pub sandbox: crate::tools::os_sandbox::SandboxMode,
     #[arg(
         long,
         action = ArgAction::SetTrue,
@@ -689,8 +708,16 @@ mod tests {
         assert!(help.contains("npm/pnpm/yarn/cargo install"), "{help}");
         assert!(help.contains("Provider/API requests"), "{help}");
         assert!(
-            help.contains("other network-capable commands are unaffected"),
+            !help.contains("network-capable commands are unaffected"),
             "{help}"
+        );
+        // The help wraps, so compare the whole sentence on normalized spaces.
+        let flat = help.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            flat.contains(
+                "Refuse runtime dependency setup and Bash commands containing npm/pnpm/yarn/cargo install, curl, or wget (lexical check, always). When --sandbox applies an OS backend, the OS also refuses outbound network connections from sandboxed commands: macOS allows only loopback (TCP and UDP) and unix sockets; Linux needs Landlock ABI4 (kernel 6.7) or later and then allows TCP only to the dev-server port(s) without restricting UDP, while below ABI4 the network is not confined and only the lexical check applies. Without a backend only the lexical check applies. Provider/API requests are unaffected."
+            ),
+            "{flat}"
         );
     }
 
@@ -1092,6 +1119,12 @@ mod tests {
     fn help_includes_quiet() {
         let help = Cli::command().render_long_help().to_string();
         assert!(help.contains("--quiet"));
+    }
+
+    #[test]
+    fn help_includes_sandbox() {
+        let help = Cli::command().render_long_help().to_string();
+        assert!(help.contains("--sandbox"));
     }
 
     #[test]

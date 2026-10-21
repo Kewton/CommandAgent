@@ -10,6 +10,13 @@ emits the same final JSON line with `status: "interrupted"` and
 `exit_code: 130`. An interruption before an event file exists has no summary to
 project. Omitting the flag preserves the existing stdout bytes.
 
+A summary is assembled only when there is real evidence to project: the run's
+persisted event stream, or a pack selected for the invocation. An action that
+starts no run writes none unless it resolved a pack. `--ux-demo` never writes
+one, and `--runs` writes one only when it selected a pack; in that case `run_id`
+and `events_path` are `null`, because no run was persisted. The action's own
+output and exit code `0` are unchanged by the flag.
+
 ```bash
 commandagent --yes --no-footer --summary-json \
   --profile nextjs --ultra-plan-run "Create the app" \
@@ -23,7 +30,7 @@ jq -R 'fromjson? // empty' commandagent.log | tail -n 1
 | ---: | --- |
 | `0` | The command process completed. Read `verdict`, `assurance`, and `gate`; process success alone does not upgrade acceptance. |
 | `1` | Execution or validation failed. The summary is still the final stdout line when a run was started; read `stop_class`, `stop_reason`, and the evidence paths. |
-| `2` | CLI arguments or pack selection were rejected before a run started, so no run summary is available. |
+| `2` | CLI arguments, configuration, or pack selection were rejected before a run started, so no run summary is available. |
 | `130` | The command was interrupted, including by `SIGINT`. When run evidence exists, the final stdout line reports `status: "interrupted"` and `exit_code: 130`. |
 
 ## JSON schema
@@ -51,9 +58,9 @@ provider turns. The additive `pack` object is omitted when no pack was selected.
 | `status` | Terminal process status: `completed`, `failed`, or `interrupted`; `null` when no terminal status can be projected. This does not replace `verdict` or `assurance`. |
 | `gate` | Existing terminal release-gate status; `null` when no gate was recorded. |
 | `stop_reason` | Existing terminal stop, primary, or failure reason; `null` when unavailable. |
-| `next_action` | Existing terminal recovery/next-action value; `null` when unavailable. |
+| `next_action` | Existing terminal recovery/next-action value; `run_acceptance_or_review_changes` when final acceptance was not checked; `null` when unavailable. |
 | `changed_files` | Sorted, deduplicated Git working-tree paths observed at summary projection time; empty when the workspace cannot provide them. |
-| `verify_commands` | Verification command strings found in run evidence. Absence of result evidence never upgrades a command to passed. |
+| `verify_commands` | Verification command strings projected from run evidence. Each executed plan verify step records an execution observation with its declared and effective command; a command that was only declared and never executed stays not-recorded and is never reported as passed. |
 | `exit_code` | Projected process exit code (`0`, `1`, or `130`) for a known terminal status; `null` when unavailable. |
 | `pack` | Selected pack `id`, exact `version`, verified exact-byte `hash`, and winning `source` (`extension_root` or `repository`). Omitted when no pack is active. |
 
@@ -62,6 +69,26 @@ then use `artifacts_dir`, `acceptance_sheet_path`, and `events_path` as the
 machine-readable handoff. On failure they should retain those paths and route
 `stop_class` into the existing resume/fix policy rather than treating a nonzero
 exit code as permission to weaken acceptance.
+
+## Process status and acceptance
+
+`status` and `exit_code` describe the process, not acceptance. A run whose
+final acceptance was never checked, such as a contract-free `--prompt` run,
+still reports `status: "completed"` and exit `0`. It does not report success:
+
+- `next_action` is `run_acceptance_or_review_changes` instead of `none`. Run an
+  acceptance check, or review the changed files and the test results yourself,
+  before you adopt the change.
+- `verdict` and `assurance` keep the earned level (for example `reduced` or
+  `static`).
+- `summary.md` reports `Release quality completion: not_checked` instead of
+  `release_ready`, and its header shows the result as
+  `acceptance unverified (process completed)` (Japanese:
+  `受入未検証（処理は終了）`) instead of `completed`.
+
+A run with `full_success` final acceptance and no applicable release gate still
+reports `release_ready` and `next_action: "none"`. The `task_status` wording in
+`summary.md` (for example `completed (reduced assurance)`) is unchanged.
 
 For a direct, contract-free `--prompt` run, CommandAgent also bounds a model's
 post-write confirmation loop. Consecutive successful reads of files written in

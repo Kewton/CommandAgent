@@ -1,0 +1,42 @@
+{
+  "goal": "Implement a small static Next.js page on port 60302 and run its production build.",
+  "steps": [
+    {
+      "expected_paths": [
+        "package.json"
+      ],
+      "expected_result": "pass",
+      "id": "package-read-original",
+      "instruction": "Verify the profile-owned package_manifest contract by running every declared check and report any exact failure.",
+      "kind": "verify",
+      "verify": [
+        "node -p \"['dev'].every(function(k){return String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='next' ? a.slice(i+1).find(function(x){return x})==k : false}) ? String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='--port=60302' ? true : t=='-p' ? a.slice(i+1).find(function(x){return x})=='60302' : t=='-p60302' ? true : t=='--port' ? a.slice(i+1).find(function(x){return x})=='60302' : false}) : false}) ? true : process.exit(1)\"",
+        "node -p \"['start'].every(function(k){return Object(require('./package.json').scripts)[k] ? String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='next' ? a.slice(i+1).find(function(x){return x})==k : false}) ? String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='--port=60302' ? true : t=='-p' ? a.slice(i+1).find(function(x){return x})=='60302' : t=='-p60302' ? true : t=='--port' ? a.slice(i+1).find(function(x){return x})=='60302' : false}) : false : true}) ? true : process.exit(1)\"",
+        "node -p \"String(require('./package.json').scripts.build)=='next build' ? true : process.exit(1)\""
+      ]
+    },
+    {
+      "id": "implement-page",
+      "kind": "implement",
+      "expected_result": "pass",
+      "instruction": "Write the supplied fixed page source to src/app/page.tsx.",
+      "expected_paths": [
+        "src/app/page.tsx"
+      ],
+      "verify": [
+        "test -f src/app/page.tsx"
+      ]
+    },
+    {
+      "expected_paths": [],
+      "expected_result": "pass",
+      "id": "verify-build",
+      "instruction": "Run the Next.js production build to confirm the entire app compiles without type errors, all route modules resolve, and the output is valid.",
+      "kind": "verify",
+      "verify": [
+        "npm run build",
+        "node -p \"String(require('./package.json').scripts.build)=='next build' ? true : process.exit(1)\""
+      ]
+    }
+  ]
+}

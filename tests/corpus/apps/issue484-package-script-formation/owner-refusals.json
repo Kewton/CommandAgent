@@ -1,0 +1,20 @@
+[
+  "model_text",
+  "host_text",
+  "model_result",
+  "host_result",
+  "model_scope",
+  "host_scope",
+  "delete_model",
+  "delete_host",
+  "third_writer",
+  "alias_third_writer",
+  "non_normalized_writer",
+  "same_id",
+  "host_before_model",
+  "check_between_writers",
+  "check_before_writers",
+  "partial_checks",
+  "host_source_verify",
+  "host_source_result"
+]

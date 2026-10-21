@@ -1,0 +1,467 @@
+[
+  {
+    "name": "preserved",
+    "diagnostics": [
+      {
+        "code": 2322,
+        "file": "src/app/api/projects/[id]/tasks/route.ts",
+        "line": 137,
+        "column": 7,
+        "message": "Type '{ id: string; name: string; role?: string | undefined; } | undefined' is not assignable to type 'Member | undefined'.\n  Type '{ id: string; name: string; role?: string | undefined; }' is not assignable to type 'Member'.\n    Types of property 'role' are incompatible.\n      Type 'string | undefined' is not assignable to type 'string'.\n        Type 'undefined' is not assignable to type 'string'."
+      },
+      {
+        "code": 2352,
+        "file": "src/app/api/projects/route.ts",
+        "line": 17,
+        "column": 7,
+        "message": "Conversion of type '{ error: { code: string; message: string; details: string; }; }' to type 'ApiResponse<Project[]>' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.\n  Types of property 'error' are incompatible.\n    Type '{ code: string; message: string; details: string; }' is not comparable to type 'string'."
+      },
+      {
+        "code": 2352,
+        "file": "src/app/api/projects/route.ts",
+        "line": 36,
+        "column": 7,
+        "message": "Conversion of type '{ error: { code: string; message: string; }; }' to type 'ApiResponse<Project>' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.\n  Types of property 'error' are incompatible.\n    Type '{ code: string; message: string; }' is not comparable to type 'string'."
+      },
+      {
+        "code": 2352,
+        "file": "src/app/api/projects/route.ts",
+        "line": 50,
+        "column": 7,
+        "message": "Conversion of type '{ error: { code: string; message: string; }; }' to type 'ApiResponse<Project>' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.\n  Types of property 'error' are incompatible.\n    Type '{ code: string; message: string; }' is not comparable to type 'string'."
+      },
+      {
+        "code": 2352,
+        "file": "src/app/api/projects/route.ts",
+        "line": 62,
+        "column": 7,
+        "message": "Conversion of type '{ error: { code: string; message: string; }; }' to type 'ApiResponse<Project>' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.\n  Types of property 'error' are incompatible.\n    Type '{ code: string; message: string; }' is not comparable to type 'string'."
+      },
+      {
+        "code": 2352,
+        "file": "src/app/api/projects/route.ts",
+        "line": 74,
+        "column": 7,
+        "message": "Conversion of type '{ error: { code: string; message: string; }; }' to type 'ApiResponse<Project>' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.\n  Types of property 'error' are incompatible.\n    Type '{ code: string; message: string; }' is not comparable to type 'string'."
+      },
+      {
+        "code": 2339,
+        "file": "src/app/api/projects/route.ts",
+        "line": 88,
+        "column": 30,
+        "message": "Property 'status' does not exist on type 'string'."
+      },
+      {
+        "code": 2352,
+        "file": "src/app/api/projects/route.ts",
+        "line": 94,
+        "column": 7,
+        "message": "Conversion of type '{ error: { code: string; message: string; details: string; }; }' to type 'ApiResponse<Project>' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.\n  Types of property 'error' are incompatible.\n    Type '{ code: string; message: string; details: string; }' is not comparable to type 'string'."
+      },
+      {
+        "code": 2339,
+        "file": "src/app/api/tasks/[id]/route.ts",
+        "line": 35,
+        "column": 21,
+        "message": "Property 'assigneeId' does not exist on type 'Partial<UpdateTaskBody>'."
+      },
+      {
+        "code": 2339,
+        "file": "src/app/api/tasks/[id]/route.ts",
+        "line": 51,
+        "column": 18,
+        "message": "Property 'ok' does not exist on type '{ data: Task | null; error: string | null | undefined; }'."
+      },
+      {
+        "code": 2339,
+        "file": "src/app/api/tasks/[id]/route.ts",
+        "line": 53,
+        "column": 26,
+        "message": "Property 'item' does not exist on type '{ data: Task | null; error: string | null | undefined; }'."
+      },
+      {
+        "code": 2339,
+        "file": "src/app/api/tasks/[id]/route.ts",
+        "line": 58,
+        "column": 50,
+        "message": "Property 'details' does not exist on type '{ data: Task | null; error: string | null | undefined; }'."
+      },
+      {
+        "code": 2345,
+        "file": "src/app/api/tasks/[id]/route.ts",
+        "line": 76,
+        "column": 43,
+        "message": "Argument of type 'string | null' is not assignable to parameter of type 'Member | null'.\n  Type 'string' is not assignable to type 'Member'."
+      },
+      {
+        "code": 2339,
+        "file": "src/app/api/tasks/[id]/route.ts",
+        "line": 77,
+        "column": 18,
+        "message": "Property 'ok' does not exist on type '{ data: Task | null; error: string | null | undefined; }'."
+      },
+      {
+        "code": 2339,
+        "file": "src/app/api/tasks/[id]/route.ts",
+        "line": 79,
+        "column": 26,
+        "message": "Property 'item' does not exist on type '{ data: Task | null; error: string | null | undefined; }'."
+      },
+      {
+        "code": 2339,
+        "file": "src/app/api/tasks/[id]/route.ts",
+        "line": 84,
+        "column": 50,
+        "message": "Property 'details' does not exist on type '{ data: Task | null; error: string | null | undefined; }'."
+      },
+      {
+        "code": 2339,
+        "file": "src/app/api/tasks/[id]/route.ts",
+        "line": 124,
+        "column": 16,
+        "message": "Property 'ok' does not exist on type '{ data: { id: string; deleted: boolean; } | null; error: string | null | undefined; }'."
+      },
+      {
+        "code": 2339,
+        "file": "src/app/api/tasks/[id]/route.ts",
+        "line": 126,
+        "column": 30,
+        "message": "Property 'item' does not exist on type '{ data: { id: string; deleted: boolean; } | null; error: string | null | undefined; }'."
+      },
+      {
+        "code": 2339,
+        "file": "src/app/api/tasks/[id]/route.ts",
+        "line": 131,
+        "column": 48,
+        "message": "Property 'details' does not exist on type '{ data: { id: string; deleted: boolean; } | null; error: string | null | undefined; }'."
+      },
+      {
+        "code": 2322,
+        "file": "src/lib/store.ts",
+        "line": 64,
+        "column": 21,
+        "message": "Type '{ code: string; message: string; }' is not assignable to type 'string'."
+      },
+      {
+        "code": 2322,
+        "file": "src/lib/store.ts",
+        "line": 74,
+        "column": 23,
+        "message": "Type '{ code: string; message: string; }' is not assignable to type 'string'."
+      },
+      {
+        "code": 2322,
+        "file": "src/lib/store.ts",
+        "line": 77,
+        "column": 19,
+        "message": "Type '{ code: string; message: string; }' is not assignable to type 'string'."
+      },
+      {
+        "code": 2322,
+        "file": "src/lib/store.ts",
+        "line": 144,
+        "column": 27,
+        "message": "Type '{ code: string; message: string; }' is not assignable to type 'string'."
+      },
+      {
+        "code": 2322,
+        "file": "src/lib/store.ts",
+        "line": 151,
+        "column": 25,
+        "message": "Type '{ code: string; message: string; }' is not assignable to type 'string'."
+      },
+      {
+        "code": 2322,
+        "file": "src/lib/store.ts",
+        "line": 165,
+        "column": 27,
+        "message": "Type '{ code: string; message: string; }' is not assignable to type 'string'."
+      },
+      {
+        "code": 2322,
+        "file": "src/lib/store.ts",
+        "line": 172,
+        "column": 25,
+        "message": "Type '{ code: string; message: string; }' is not assignable to type 'string'."
+      },
+      {
+        "code": 2322,
+        "file": "src/lib/store.ts",
+        "line": 181,
+        "column": 3,
+        "message": "Type 'Promise<Promise<{ data: null; error: string | { code: string; message: string; }; }> | Promise<{ data: null; error: string | null | undefined; }> | Promise<{ data: Project; error: null; }>>' is not assignable to type 'Promise<{ data: Project | null; error: string | null | undefined; }>'.\n  Type 'Promise<{ data: null; error: string | { code: string; message: string; }; }> | Promise<{ data: null; error: string | null | undefined; }> | Promise<{ data: Project; error: null; }>' is not assignable to type '{ data: Project | null; error: string | null | undefined; }'.\n    Type 'Promise<{ data: null; error: string | { code: string; message: string; }; }>' is missing the following properties from type '{ data: Project | null; error: string | null | undefined; }': data, error"
+      },
+      {
+        "code": 2322,
+        "file": "src/lib/store.ts",
+        "line": 214,
+        "column": 3,
+        "message": "Type 'Promise<Promise<{ data: Project[] | null; error: string | null | undefined; }>>' is not assignable to type 'Promise<{ data: Project[] | null; error: string | null | undefined; }>'.\n  Type 'Promise<{ data: Project[] | null; error: string | null | undefined; }>' is missing the following properties from type '{ data: Project[] | null; error: string | null | undefined; }': data, error"
+      },
+      {
+        "code": 2322,
+        "file": "src/lib/store.ts",
+        "line": 221,
+        "column": 3,
+        "message": "Type 'Promise<Promise<{ data: null; error: string | { code: string; message: string; }; }> | Promise<{ data: null; error: string | null | undefined; }> | Promise<{ data: Task; error: null; }>>' is not assignable to type 'Promise<{ data: Task | null; error: string | null | undefined; }>'.\n  Type 'Promise<{ data: null; error: string | { code: string; message: string; }; }> | Promise<{ data: null; error: string | null | undefined; }> | Promise<{ data: Task; error: null; }>' is not assignable to type '{ data: Task | null; error: string | null | undefined; }'.\n    Type 'Promise<{ data: null; error: string | { code: string; message: string; }; }>' is missing the following properties from type '{ data: Task | null; error: string | null | undefined; }': data, error"
+      },
+      {
+        "code": 2322,
+        "file": "src/lib/store.ts",
+        "line": 291,
+        "column": 3,
+        "message": "Type 'Promise<Promise<{ data: null; error: string | { code: string; message: string; }; }> | Promise<{ data: Task[]; error: null; }>>' is not assignable to type 'Promise<{ data: Task[] | null; error: string | null | undefined; }>'.\n  Type 'Promise<{ data: null; error: string | { code: string; message: string; }; }> | Promise<{ data: Task[]; error: null; }>' is not assignable to type '{ data: Task[] | null; error: string | null | undefined; }'.\n    Type 'Promise<{ data: null; error: string | { code: string; message: string; }; }>' is missing the following properties from type '{ data: Task[] | null; error: string | null | undefined; }': data, error"
+      },
+      {
+        "code": 2322,
+        "file": "src/lib/store.ts",
+        "line": 313,
+        "column": 3,
+        "message": "Type 'Promise<Promise<{ data: null; error: string | { code: string; message: string; }; }> | Promise<{ data: null; error: string | null | undefined; }> | Promise<{ data: Task; error: null; }>>' is not assignable to type 'Promise<{ data: Task | null; error: string | null | undefined; }>'.\n  Type 'Promise<{ data: null; error: string | { code: string; message: string; }; }> | Promise<{ data: null; error: string | null | undefined; }> | Promise<{ data: Task; error: null; }>' is not assignable to type '{ data: Task | null; error: string | null | undefined; }'.\n    Type 'Promise<{ data: null; error: string | { code: string; message: string; }; }>' is missing the following properties from type '{ data: Task | null; error: string | null | undefined; }': data, error"
+      },
+      {
+        "code": 2322,
+        "file": "src/lib/store.ts",
+        "line": 339,
+        "column": 3,
+        "message": "Type 'Promise<Promise<{ data: null; error: string | { code: string; message: string; }; }> | Promise<{ data: null; error: string | null | undefined; }> | Promise<{ data: Task; error: null; }>>' is not assignable to type 'Promise<{ data: Task | null; error: string | null | undefined; }>'.\n  Type 'Promise<{ data: null; error: string | { code: string; message: string; }; }> | Promise<{ data: null; error: string | null | undefined; }> | Promise<{ data: Task; error: null; }>' is not assignable to type '{ data: Task | null; error: string | null | undefined; }'.\n    Type 'Promise<{ data: null; error: string | { code: string; message: string; }; }>' is missing the following properties from type '{ data: Task | null; error: string | null | undefined; }': data, error"
+      },
+      {
+        "code": 2322,
+        "file": "src/lib/store.ts",
+        "line": 367,
+        "column": 3,
+        "message": "Type 'Promise<Promise<{ data: null; error: string | { code: string; message: string; }; }> | Promise<{ data: null; error: string | null | undefined; }> | Promise<{ data: { id: string; deleted: boolean; }; error: null; }>>' is not assignable to type 'Promise<{ data: { id: string; deleted: boolean; } | null; error: string | null | undefined; }>'.\n  Type 'Promise<{ data: null; error: string | { code: string; message: string; }; }> | Promise<{ data: null; error: string | null | undefined; }> | Promise<{ data: { id: string; deleted: boolean; }; error: null; }>' is not assignable to type '{ data: { id: string; deleted: boolean; } | null; error: string | null | undefined; }'.\n    Type 'Promise<{ data: null; error: string | { code: string; message: string; }; }>' is missing the following properties from type '{ data: { id: string; deleted: boolean; } | null; error: string | null | undefined; }': data, error"
+      }
+    ]
+  },
+  {
+    "name": "in_memory_required_role",
+    "diagnostics": [
+      {
+        "code": 2352,
+        "file": "src/app/api/projects/route.ts",
+        "line": 17,
+        "column": 7,
+        "message": "Conversion of type '{ error: { code: string; message: string; details: string; }; }' to type 'ApiResponse<Project[]>' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.\n  Types of property 'error' are incompatible.\n    Type '{ code: string; message: string; details: string; }' is not comparable to type 'string'."
+      },
+      {
+        "code": 2352,
+        "file": "src/app/api/projects/route.ts",
+        "line": 36,
+        "column": 7,
+        "message": "Conversion of type '{ error: { code: string; message: string; }; }' to type 'ApiResponse<Project>' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.\n  Types of property 'error' are incompatible.\n    Type '{ code: string; message: string; }' is not comparable to type 'string'."
+      },
+      {
+        "code": 2352,
+        "file": "src/app/api/projects/route.ts",
+        "line": 50,
+        "column": 7,
+        "message": "Conversion of type '{ error: { code: string; message: string; }; }' to type 'ApiResponse<Project>' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.\n  Types of property 'error' are incompatible.\n    Type '{ code: string; message: string; }' is not comparable to type 'string'."
+      },
+      {
+        "code": 2352,
+        "file": "src/app/api/projects/route.ts",
+        "line": 62,
+        "column": 7,
+        "message": "Conversion of type '{ error: { code: string; message: string; }; }' to type 'ApiResponse<Project>' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.\n  Types of property 'error' are incompatible.\n    Type '{ code: string; message: string; }' is not comparable to type 'string'."
+      },
+      {
+        "code": 2352,
+        "file": "src/app/api/projects/route.ts",
+        "line": 74,
+        "column": 7,
+        "message": "Conversion of type '{ error: { code: string; message: string; }; }' to type 'ApiResponse<Project>' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.\n  Types of property 'error' are incompatible.\n    Type '{ code: string; message: string; }' is not comparable to type 'string'."
+      },
+      {
+        "code": 2339,
+        "file": "src/app/api/projects/route.ts",
+        "line": 88,
+        "column": 30,
+        "message": "Property 'status' does not exist on type 'string'."
+      },
+      {
+        "code": 2352,
+        "file": "src/app/api/projects/route.ts",
+        "line": 94,
+        "column": 7,
+        "message": "Conversion of type '{ error: { code: string; message: string; details: string; }; }' to type 'ApiResponse<Project>' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.\n  Types of property 'error' are incompatible.\n    Type '{ code: string; message: string; details: string; }' is not comparable to type 'string'."
+      },
+      {
+        "code": 2339,
+        "file": "src/app/api/tasks/[id]/route.ts",
+        "line": 35,
+        "column": 21,
+        "message": "Property 'assigneeId' does not exist on type 'Partial<UpdateTaskBody>'."
+      },
+      {
+        "code": 2339,
+        "file": "src/app/api/tasks/[id]/route.ts",
+        "line": 51,
+        "column": 18,
+        "message": "Property 'ok' does not exist on type '{ data: Task | null; error: string | null | undefined; }'."
+      },
+      {
+        "code": 2339,
+        "file": "src/app/api/tasks/[id]/route.ts",
+        "line": 53,
+        "column": 26,
+        "message": "Property 'item' does not exist on type '{ data: Task | null; error: string | null | undefined; }'."
+      },
+      {
+        "code": 2339,
+        "file": "src/app/api/tasks/[id]/route.ts",
+        "line": 58,
+        "column": 50,
+        "message": "Property 'details' does not exist on type '{ data: Task | null; error: string | null | undefined; }'."
+      },
+      {
+        "code": 2345,
+        "file": "src/app/api/tasks/[id]/route.ts",
+        "line": 76,
+        "column": 43,
+        "message": "Argument of type 'string | null' is not assignable to parameter of type 'Member | null'.\n  Type 'string' is not assignable to type 'Member'."
+      },
+      {
+        "code": 2339,
+        "file": "src/app/api/tasks/[id]/route.ts",
+        "line": 77,
+        "column": 18,
+        "message": "Property 'ok' does not exist on type '{ data: Task | null; error: string | null | undefined; }'."
+      },
+      {
+        "code": 2339,
+        "file": "src/app/api/tasks/[id]/route.ts",
+        "line": 79,
+        "column": 26,
+        "message": "Property 'item' does not exist on type '{ data: Task | null; error: string | null | undefined; }'."
+      },
+      {
+        "code": 2339,
+        "file": "src/app/api/tasks/[id]/route.ts",
+        "line": 84,
+        "column": 50,
+        "message": "Property 'details' does not exist on type '{ data: Task | null; error: string | null | undefined; }'."
+      },
+      {
+        "code": 2339,
+        "file": "src/app/api/tasks/[id]/route.ts",
+        "line": 124,
+        "column": 16,
+        "message": "Property 'ok' does not exist on type '{ data: { id: string; deleted: boolean; } | null; error: string | null | undefined; }'."
+      },
+      {
+        "code": 2339,
+        "file": "src/app/api/tasks/[id]/route.ts",
+        "line": 126,
+        "column": 30,
+        "message": "Property 'item' does not exist on type '{ data: { id: string; deleted: boolean; } | null; error: string | null | undefined; }'."
+      },
+      {
+        "code": 2339,
+        "file": "src/app/api/tasks/[id]/route.ts",
+        "line": 131,
+        "column": 48,
+        "message": "Property 'details' does not exist on type '{ data: { id: string; deleted: boolean; } | null; error: string | null | undefined; }'."
+      },
+      {
+        "code": 2322,
+        "file": "src/lib/store.ts",
+        "line": 64,
+        "column": 21,
+        "message": "Type '{ code: string; message: string; }' is not assignable to type 'string'."
+      },
+      {
+        "code": 2322,
+        "file": "src/lib/store.ts",
+        "line": 74,
+        "column": 23,
+        "message": "Type '{ code: string; message: string; }' is not assignable to type 'string'."
+      },
+      {
+        "code": 2322,
+        "file": "src/lib/store.ts",
+        "line": 77,
+        "column": 19,
+        "message": "Type '{ code: string; message: string; }' is not assignable to type 'string'."
+      },
+      {
+        "code": 2322,
+        "file": "src/lib/store.ts",
+        "line": 144,
+        "column": 27,
+        "message": "Type '{ code: string; message: string; }' is not assignable to type 'string'."
+      },
+      {
+        "code": 2322,
+        "file": "src/lib/store.ts",
+        "line": 151,
+        "column": 25,
+        "message": "Type '{ code: string; message: string; }' is not assignable to type 'string'."
+      },
+      {
+        "code": 2322,
+        "file": "src/lib/store.ts",
+        "line": 165,
+        "column": 27,
+        "message": "Type '{ code: string; message: string; }' is not assignable to type 'string'."
+      },
+      {
+        "code": 2322,
+        "file": "src/lib/store.ts",
+        "line": 172,
+        "column": 25,
+        "message": "Type '{ code: string; message: string; }' is not assignable to type 'string'."
+      },
+      {
+        "code": 2322,
+        "file": "src/lib/store.ts",
+        "line": 181,
+        "column": 3,
+        "message": "Type 'Promise<Promise<{ data: null; error: string | { code: string; message: string; }; }> | Promise<{ data: null; error: string | null | undefined; }> | Promise<{ data: Project; error: null; }>>' is not assignable to type 'Promise<{ data: Project | null; error: string | null | undefined; }>'.\n  Type 'Promise<{ data: null; error: string | { code: string; message: string; }; }> | Promise<{ data: null; error: string | null | undefined; }> | Promise<{ data: Project; error: null; }>' is not assignable to type '{ data: Project | null; error: string | null | undefined; }'.\n    Type 'Promise<{ data: null; error: string | { code: string; message: string; }; }>' is missing the following properties from type '{ data: Project | null; error: string | null | undefined; }': data, error"
+      },
+      {
+        "code": 2322,
+        "file": "src/lib/store.ts",
+        "line": 214,
+        "column": 3,
+        "message": "Type 'Promise<Promise<{ data: Project[] | null; error: string | null | undefined; }>>' is not assignable to type 'Promise<{ data: Project[] | null; error: string | null | undefined; }>'.\n  Type 'Promise<{ data: Project[] | null; error: string | null | undefined; }>' is missing the following properties from type '{ data: Project[] | null; error: string | null | undefined; }': data, error"
+      },
+      {
+        "code": 2322,
+        "file": "src/lib/store.ts",
+        "line": 221,
+        "column": 3,
+        "message": "Type 'Promise<Promise<{ data: null; error: string | { code: string; message: string; }; }> | Promise<{ data: null; error: string | null | undefined; }> | Promise<{ data: Task; error: null; }>>' is not assignable to type 'Promise<{ data: Task | null; error: string | null | undefined; }>'.\n  Type 'Promise<{ data: null; error: string | { code: string; message: string; }; }> | Promise<{ data: null; error: string | null | undefined; }> | Promise<{ data: Task; error: null; }>' is not assignable to type '{ data: Task | null; error: string | null | undefined; }'.\n    Type 'Promise<{ data: null; error: string | { code: string; message: string; }; }>' is missing the following properties from type '{ data: Task | null; error: string | null | undefined; }': data, error"
+      },
+      {
+        "code": 2322,
+        "file": "src/lib/store.ts",
+        "line": 291,
+        "column": 3,
+        "message": "Type 'Promise<Promise<{ data: null; error: string | { code: string; message: string; }; }> | Promise<{ data: Task[]; error: null; }>>' is not assignable to type 'Promise<{ data: Task[] | null; error: string | null | undefined; }>'.\n  Type 'Promise<{ data: null; error: string | { code: string; message: string; }; }> | Promise<{ data: Task[]; error: null; }>' is not assignable to type '{ data: Task[] | null; error: string | null | undefined; }'.\n    Type 'Promise<{ data: null; error: string | { code: string; message: string; }; }>' is missing the following properties from type '{ data: Task[] | null; error: string | null | undefined; }': data, error"
+      },
+      {
+        "code": 2322,
+        "file": "src/lib/store.ts",
+        "line": 313,
+        "column": 3,
+        "message": "Type 'Promise<Promise<{ data: null; error: string | { code: string; message: string; }; }> | Promise<{ data: null; error: string | null | undefined; }> | Promise<{ data: Task; error: null; }>>' is not assignable to type 'Promise<{ data: Task | null; error: string | null | undefined; }>'.\n  Type 'Promise<{ data: null; error: string | { code: string; message: string; }; }> | Promise<{ data: null; error: string | null | undefined; }> | Promise<{ data: Task; error: null; }>' is not assignable to type '{ data: Task | null; error: string | null | undefined; }'.\n    Type 'Promise<{ data: null; error: string | { code: string; message: string; }; }>' is missing the following properties from type '{ data: Task | null; error: string | null | undefined; }': data, error"
+      },
+      {
+        "code": 2322,
+        "file": "src/lib/store.ts",
+        "line": 339,
+        "column": 3,
+        "message": "Type 'Promise<Promise<{ data: null; error: string | { code: string; message: string; }; }> | Promise<{ data: null; error: string | null | undefined; }> | Promise<{ data: Task; error: null; }>>' is not assignable to type 'Promise<{ data: Task | null; error: string | null | undefined; }>'.\n  Type 'Promise<{ data: null; error: string | { code: string; message: string; }; }> | Promise<{ data: null; error: string | null | undefined; }> | Promise<{ data: Task; error: null; }>' is not assignable to type '{ data: Task | null; error: string | null | undefined; }'.\n    Type 'Promise<{ data: null; error: string | { code: string; message: string; }; }>' is missing the following properties from type '{ data: Task | null; error: string | null | undefined; }': data, error"
+      },
+      {
+        "code": 2322,
+        "file": "src/lib/store.ts",
+        "line": 367,
+        "column": 3,
+        "message": "Type 'Promise<Promise<{ data: null; error: string | { code: string; message: string; }; }> | Promise<{ data: null; error: string | null | undefined; }> | Promise<{ data: { id: string; deleted: boolean; }; error: null; }>>' is not assignable to type 'Promise<{ data: { id: string; deleted: boolean; } | null; error: string | null | undefined; }>'.\n  Type 'Promise<{ data: null; error: string | { code: string; message: string; }; }> | Promise<{ data: null; error: string | null | undefined; }> | Promise<{ data: { id: string; deleted: boolean; }; error: null; }>' is not assignable to type '{ data: { id: string; deleted: boolean; } | null; error: string | null | undefined; }'.\n    Type 'Promise<{ data: null; error: string | { code: string; message: string; }; }>' is missing the following properties from type '{ data: { id: string; deleted: boolean; } | null; error: string | null | undefined; }': data, error"
+      }
+    ]
+  }
+]

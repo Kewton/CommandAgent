@@ -1,12 +1,18 @@
 use std::path::{Path, PathBuf};
 
+mod compile_context;
+mod recovery_paths;
+
+pub(crate) use recovery_paths::{display_text, workspace_relative_handoff_path};
+use recovery_paths::{redacted_list, shell_quote_path};
+
 use crate::config::PromptLayout;
-use crate::eval_events;
 use crate::minimal_loop::completion::{
     CompileRepairPromptProtection, compile_repair_prompt_section_with_root,
 };
 use crate::minimal_loop::repair_target::classify_repair_target;
 use crate::planner::profiles::data::repair_policy;
+use crate::planner::runner::{refuse_runnable_commands, scrub_saved_text};
 use crate::planner::ultra_plan::{
     UltraPhase, UltraPlan, parse_ultra_plan, quote_yaml_string, render_ultra_plan,
 };
@@ -107,53 +113,7 @@ fn build_repair_prompt_stable(
         prompt.push_str("\n\nVerification commands for this step:\n");
         prompt.push_str(&bullet_list(&context.verify_commands));
     }
-    if !report.compile_errors.is_empty() {
-        prompt.push_str("\n\nCompile errors:\n");
-        prompt.push_str(&compile_repair_prompt_section_with_root(
-            context.workspace_root.as_deref(),
-            &report.compile_errors,
-            CompileRepairPromptProtection {
-                reanchored_retry: context.compile_reanchored_retry,
-                narrow_no_snapshot_retry: context.compile_narrow_no_snapshot_retry,
-            },
-        ));
-    }
-    crate::minimal_loop::python_traceback::append_repair_guidance(&mut prompt, report);
-    let contract_attribute_guidance = contract_attribute_repair::guidance_section(
-        context.workspace_root.as_deref(),
-        report,
-        context.eval_events_path.as_deref(),
-    );
-    if !contract_attribute_guidance.is_empty() {
-        prompt.push_str("\n\n");
-        prompt.push_str(&contract_attribute_guidance);
-    }
-    append_profile_repair_guidance(&mut prompt, report, context);
-    if let Some(expected) = &context.expected_result {
-        prompt.push_str("\n\nExpected verification result:\n");
-        prompt.push_str(expected);
-    }
-    if !report.missing_paths.is_empty() {
-        prompt.push_str("\n\nMissing expected paths:\n");
-        prompt.push_str(&bullet_list(&report.missing_paths));
-    }
-    if !report.command_failures.is_empty() {
-        prompt.push_str("\n\nCommand failures:\n");
-        let failures = report
-            .command_failures
-            .iter()
-            .map(|failure| format!("{}: {}", failure.command, failure.reason))
-            .collect::<Vec<_>>();
-        prompt.push_str(&bullet_list(&failures));
-    }
-    if !context.changed_files.is_empty() {
-        prompt.push_str("\n\nFiles already changed in this step:\n");
-        prompt.push_str(&bullet_list(&context.changed_files));
-    }
-    if let Some(warning) = &context.progress_warning {
-        prompt.push_str("\n\nProgress warning:\n");
-        prompt.push_str(warning);
-    }
+    append_shared_repair_tail(&mut prompt, report, context);
     prompt
 }
 
@@ -195,6 +155,17 @@ Make the smallest bounded change, then stop.",
         prompt.push_str("\n\nVerification commands for this step:\n");
         prompt.push_str(&bullet_list(&context.verify_commands));
     }
+    append_shared_repair_tail(&mut prompt, report, context);
+    prompt.push_str("\n\n");
+    prompt.push_str(&repair_rules_prefix());
+    prompt
+}
+
+fn append_shared_repair_tail(
+    prompt: &mut String,
+    report: &VerificationReport,
+    context: &RepairContext,
+) {
     if !report.compile_errors.is_empty() {
         prompt.push_str("\n\nCompile errors:\n");
         prompt.push_str(&compile_repair_prompt_section_with_root(
@@ -206,7 +177,8 @@ Make the smallest bounded change, then stop.",
             },
         ));
     }
-    crate::minimal_loop::python_traceback::append_repair_guidance(&mut prompt, report);
+    prompt.push_str(&compile_context::contract_context(report, context));
+    crate::minimal_loop::python_traceback::append_repair_guidance(prompt, report);
     let contract_attribute_guidance = contract_attribute_repair::guidance_section(
         context.workspace_root.as_deref(),
         report,
@@ -216,7 +188,7 @@ Make the smallest bounded change, then stop.",
         prompt.push_str("\n\n");
         prompt.push_str(&contract_attribute_guidance);
     }
-    append_profile_repair_guidance(&mut prompt, report, context);
+    append_profile_repair_guidance(prompt, report, context);
     if let Some(expected) = &context.expected_result {
         prompt.push_str("\n\nExpected verification result:\n");
         prompt.push_str(expected);
@@ -242,9 +214,6 @@ Make the smallest bounded change, then stop.",
         prompt.push_str("\n\nProgress warning:\n");
         prompt.push_str(warning);
     }
-    prompt.push_str("\n\n");
-    prompt.push_str(&repair_rules_prefix());
-    prompt
 }
 
 fn append_profile_repair_guidance(
@@ -280,10 +249,12 @@ pub fn build_compact_compile_repair_prompt_with_context(
         PromptLayout::Stable => format!("{}\n\n", repair_rules_prefix()),
         PromptLayout::Legacy => String::new(),
     };
+    let retained_context = compile_context::render(report, context);
     format!(
         "{prefix}\
 Repair session mode: compact.\n\
 Compile-error repair for step `{step_id}`.\n\n\
+{retained_context}\
 Compile error frames and remedies:\n\
 {compile_errors}\n\n\
 Tool schema reminder:\n\
@@ -316,10 +287,12 @@ pub fn build_compile_regeneration_prompt_with_context(
         PromptLayout::Stable => format!("{}\n\n", repair_rules_prefix()),
         PromptLayout::Legacy => String::new(),
     };
+    let retained_context = compile_context::render(report, context);
     format!(
         "{prefix}\
 Repair session mode: compact regeneration.\n\
 Compile-error regeneration for step `{step_id}`.\n\n\
+{retained_context}\
 Compile error frames and remedies:\n\
 {compile_errors}\n\n\
 Current content of {target_path}:\n\
@@ -362,7 +335,11 @@ pub fn save_repair_report_with_context(
     let dir = crate::runtime_paths::repairs_dir(root);
     std::fs::create_dir_all(&dir)?;
     let path = dir.join(format!("repair-{step_id}-{}.md", uuid::Uuid::now_v7()));
-    std::fs::write(&path, render_repair_report(step_id, report, context))?;
+    let mut context = context.clone();
+    context.workspace_root = Some(root.to_path_buf());
+    let rendered = render_repair_report(step_id, report, &context);
+    let text = recovery_paths::display_text(Some(root), &rendered);
+    std::fs::write(&path, scrub_saved_text(root, &text))?;
     Ok(path)
 }
 
@@ -374,11 +351,20 @@ pub fn save_ultra_recovery_prompt(
     let dir = crate::runtime_paths::repairs_dir(root);
     std::fs::create_dir_all(&dir)?;
     let path = dir.join(format!("repair-{scope}-{}.md", uuid::Uuid::now_v7()));
-    std::fs::write(&path, render_ultra_recovery_prompt(handoff))?;
+    let prompt = render_ultra_recovery_prompt_at_root(Some(root), handoff);
+    std::fs::write(&path, scrub_saved_text(root, &prompt))?;
     Ok(path)
 }
 
 pub fn build_recovery_ultra_plan(handoff: &RecoveryHandoff) -> UltraPlan {
+    build_recovery_ultra_plan_at_root(None, handoff)
+}
+
+pub(crate) fn build_recovery_ultra_plan_at_root(
+    root: Option<&Path>,
+    handoff: &RecoveryHandoff,
+) -> UltraPlan {
+    let handoff = &recovery_paths::handoff(root, handoff);
     let failed_phase = handoff.failed_phase.as_deref().unwrap_or("unknown");
     let failed_step = handoff.failed_step.as_deref().unwrap_or("unknown");
     let missing_signals = recovery_missing_signals(handoff);
@@ -394,7 +380,7 @@ pub fn build_recovery_ultra_plan(handoff: &RecoveryHandoff) -> UltraPlan {
                 prompt: format!(
                     "Inspect the current workspace before changing files. Original goal: {}. Failed acceptance layer or phase: {failed_phase}. Failed step: {failed_step}. Failure kind: {}. Preserve useful existing artifacts and identify the smallest remaining implementation gap. Historical failures are immutable evidence, not commands that the current workspace must make fail. Use expected_result=pass for every Recovery step.",
                     handoff.original_goal, handoff.failure_kind
-                ),
+                ) + &crate::planner::recovery_inspection::handoff_prompt(root, handoff),
             },
             UltraPhase {
                 id: format!("repair-{}", recovery_plan_phase_token(failed_phase)),
@@ -418,14 +404,38 @@ pub fn build_recovery_ultra_plan(handoff: &RecoveryHandoff) -> UltraPlan {
     }
 }
 
+/// Scrub a handoff at the value stage (before YAML render/escape or token
+/// split), resolving the scope by workspace path so a scope-less thread still
+/// redacts. Runnable commands are refused separately on the original values.
+fn scrub_recovery_handoff(root: &Path, source: &RecoveryHandoff) -> RecoveryHandoff {
+    let clean = |value: &str| scrub_saved_text(root, value);
+    let list = |values: &[String]| values.iter().map(|value| clean(value)).collect();
+    RecoveryHandoff {
+        profile: clean(&source.profile),
+        original_goal: clean(&source.original_goal),
+        failed_phase: source.failed_phase.as_deref().map(clean),
+        failed_step: source.failed_step.as_deref().map(clean),
+        failure_kind: clean(&source.failure_kind),
+        failure_evidence: list(&source.failure_evidence),
+        missing_paths: list(&source.missing_paths),
+        missing_capabilities: list(&source.missing_capabilities),
+        verify_commands: list(&source.verify_commands),
+        changed_paths: list(&source.changed_paths),
+        repair_targets: list(&source.repair_targets),
+    }
+}
+
 pub fn save_recovery_ultra_plan(
     root: &Path,
     scope: &str,
     handoff: &RecoveryHandoff,
 ) -> anyhow::Result<std::path::PathBuf> {
-    let plan = build_recovery_ultra_plan(handoff);
-    let rendered = render_recovery_ultra_plan(handoff, &plan);
-    save_recovery_ultra_plan_rendered(root, scope, handoff, &plan, rendered)
+    refuse_runnable_commands(root, "plan.verify", &handoff.verify_commands)?;
+    let handoff = scrub_recovery_handoff(root, handoff);
+    let plan = build_recovery_ultra_plan_at_root(Some(root), &handoff);
+    let rendered =
+        render_recovery_ultra_plan(&recovery_paths::handoff(Some(root), &handoff), &plan);
+    save_recovery_ultra_plan_rendered(root, scope, &handoff, &plan, rendered)
 }
 
 fn save_recovery_ultra_plan_rendered(
@@ -436,7 +446,11 @@ fn save_recovery_ultra_plan_rendered(
     rendered: String,
 ) -> anyhow::Result<std::path::PathBuf> {
     let rendered = if let Some(reason) = recovery_ultra_plan_roundtrip_error(&rendered, plan) {
-        render_recovery_ultra_plan_with_review(handoff, plan, Some(&reason))
+        render_recovery_ultra_plan_with_review(
+            &recovery_paths::handoff(Some(root), handoff),
+            plan,
+            Some(&reason),
+        )
     } else {
         rendered
     };
@@ -542,48 +556,19 @@ pub fn suggested_recovery_ultra_plan_command(path: &Path) -> String {
     format!("/run-ultra-plan {}", shell_quote_path(path))
 }
 
-fn shell_quote_path(path: &Path) -> String {
-    let display = workspace_relative_handoff_path(path);
-    if display
-        .chars()
-        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '/'))
-    {
-        display
-    } else {
-        format!("{display:?}")
-    }
-}
-
-pub(crate) fn workspace_relative_handoff_path(path: &Path) -> String {
-    let components = path
-        .components()
-        .map(|component| component.as_os_str().to_string_lossy().to_string())
-        .collect::<Vec<_>>();
-    if let Some(index) = components
-        .iter()
-        .position(|part| matches!(part.as_str(), ".commandagent" | ".anvil"))
-    {
-        return components[index..].join("/");
-    }
-    path.to_string_lossy().replace('\\', "/")
-}
-
 fn recovery_missing_signals(handoff: &RecoveryHandoff) -> Vec<String> {
-    let mut signals = Vec::new();
-    signals.extend(handoff.missing_capabilities.iter().cloned());
-    signals.extend(
-        handoff
-            .missing_paths
-            .iter()
-            .map(|value| format!("missing artifact: {value}")),
-    );
+    let mut signals = handoff.missing_capabilities.clone();
+    let missing = handoff
+        .missing_paths
+        .iter()
+        .map(|v| format!("missing artifact: {v}"));
+    signals.extend(missing);
     if signals.is_empty() {
-        signals.extend(
-            handoff
-                .repair_targets
-                .iter()
-                .map(|value| format!("repair target: {value}")),
-        );
+        let targets = handoff
+            .repair_targets
+            .iter()
+            .map(|v| format!("repair target: {v}"));
+        signals.extend(targets);
     }
     signals
 }
@@ -615,6 +600,11 @@ fn recovery_plan_phase_token(value: &str) -> String {
 }
 
 pub fn render_ultra_recovery_prompt(handoff: &RecoveryHandoff) -> String {
+    render_ultra_recovery_prompt_at_root(None, handoff)
+}
+
+fn render_ultra_recovery_prompt_at_root(root: Option<&Path>, handoff: &RecoveryHandoff) -> String {
+    let handoff = recovery_paths::handoff(root, handoff);
     format!(
         "Recover this failed run by producing and executing a focused ultra plan.\n\n\
 Original goal:\n{}\n\n\
@@ -751,7 +741,7 @@ Suggested command:\n\
         list_or_none(&context.verify_commands),
         context.initial_stop_reason.as_deref().unwrap_or("unknown"),
         context.repair_stop_reason.as_deref().unwrap_or("unknown"),
-        render_ultra_recovery_prompt(&recovery)
+        render_ultra_recovery_prompt_at_root(context.workspace_root.as_deref(), &recovery)
     )
 }
 
@@ -769,13 +759,6 @@ fn bullet_list(items: &[String]) -> String {
         .map(|item| format!("- {item}"))
         .collect::<Vec<_>>()
         .join("\n")
-}
-
-fn redacted_list(items: &[String]) -> Vec<String> {
-    items
-        .iter()
-        .map(|item| eval_events::body_snippet(item))
-        .collect()
 }
 
 fn shell_quote_token(value: &str) -> String {
@@ -859,11 +842,7 @@ mod tests {
         )
         .unwrap();
         let events = dir.path().join("events.jsonl");
-        let mut report = VerificationReport::pass();
-        report.push_command_failure(
-            r#"node -p 'String(require("fs").readFileSync("src/app/page.tsx")).includes("data-anvil-state") ? true : process.exit(1)'"#,
-            "command failed",
-        );
+        let report = crate::node_failure::tests::failure_report(dir.path(), "data-anvil-state");
         let context = RepairContext {
             workspace_root: Some(dir.path().to_path_buf()),
             eval_events_path: Some(events.clone()),

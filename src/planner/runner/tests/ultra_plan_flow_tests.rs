@@ -1,3 +1,6 @@
+#[path = "issue442_preset_routing_tests.rs"]
+mod issue442_preset_routing_tests;
+
 #[cfg(test)]
 mod moved {
     use super::super::*;
@@ -1594,6 +1597,7 @@ if __name__ == "__main__":
         let events = dir.path().join("events.jsonl");
         let port = free_local_port();
         enable_dev_server_probe_test_override(dir.path());
+        test_transport::enable(dir.path());
         write_fake_nextjs_package_manager(dir.path(), false);
         let mut cfg = config(dir.path().to_path_buf());
         cfg.profile = "nextjs".to_string();
@@ -1773,6 +1777,12 @@ if __name__ == "__main__":
             message
                 .content
                 .contains("Repair the final acceptance failure")
+                && message
+                    .content
+                    .contains("missing attribute: `data-anvil-action=\"restart\"`")
+                && message
+                    .content
+                    .contains("target source file: `src/app/page.tsx`")
         }));
     }
 
@@ -1993,8 +2003,12 @@ if __name__ == "__main__":
         let mut cfg = config(dir.path().to_path_buf());
         cfg.profile = "nextjs".to_string();
         cfg.eval_events_path = Some(events.clone());
+        write_fake_nextjs_package_manager(dir.path(), false);
         enable_browser_probe_test_override(dir.path());
         let port = write_browser_probe_mock_command(dir.path(), "500");
+        // The logical port is a fixed number the goal and package name; holding
+        // it here proves the probe never depends on that port being free.
+        let _occupied_logical_port = std::net::TcpListener::bind(("127.0.0.1", port)).ok();
         std::fs::create_dir_all(dir.path().join("src/app")).unwrap();
         std::fs::write(
             dir.path().join("package.json"),
@@ -3705,6 +3719,7 @@ if __name__ == "__main__":
         let port = free_local_port();
         let events = dir.path().join(".anvil/runs/fake/events.jsonl");
         enable_dev_server_probe_test_override(dir.path());
+        test_transport::enable(dir.path());
         write_fake_nextjs_package_manager(dir.path(), false);
         let mut cfg = config(dir.path().to_path_buf());
         cfg.profile = "nextjs".to_string();

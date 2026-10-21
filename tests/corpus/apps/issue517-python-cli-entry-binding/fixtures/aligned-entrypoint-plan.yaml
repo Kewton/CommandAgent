@@ -1,0 +1,9 @@
+goal: "Original ultra goal: Create a wordcount.py CLI that counts words\nProfile: python-cli\nStyle: default\nIntent: create\nPhase id: cli-implementation\nPhase task: Implement the Python CLI so it counts words from stdin"
+steps:
+  - id: "model-implement"
+    kind: "implement"
+    expected_result: "pass"
+    instruction: "Implement the goal-derived src/wordcount/main.py entrypoint and count the words"
+    expected_paths:
+      - "src/wordcount/main.py"
+    verify: []

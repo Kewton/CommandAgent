@@ -22,6 +22,8 @@ pub(crate) fn convert_preset_phase_setup_steps(
     preset_phase: bool,
     eval_events_path: Option<&Path>,
 ) -> usize {
+    #[cfg(test)]
+    super::issue492_tests::record("sanitized", plan);
     let phase_id = phase_scope.map(|(id, _)| id);
     let mut converted = if is_data_profile(profile) {
         if phase_scope.is_some_and(|(id, _)| {
@@ -53,7 +55,9 @@ pub(crate) fn convert_preset_phase_setup_steps(
         {
             continue;
         }
-        if !references_template_owned_artifacts(profile, step) {
+        if super::retain_implementation_checks(root, profile, goal, step, phase_id)
+            || !references_template_owned_artifacts(profile, step)
+        {
             continue;
         }
         let Some(checks) = profile_setup_checks(root, profile, goal, step, phase_id) else {
@@ -85,6 +89,8 @@ pub(crate) fn convert_preset_phase_setup_steps(
         );
         converted += 1;
     }
+    #[cfg(test)]
+    super::issue492_tests::record("converted", plan);
     converted
 }
 

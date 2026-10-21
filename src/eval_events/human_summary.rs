@@ -62,16 +62,18 @@ fn render_document(
         .exit_code
         .map(|code| code.to_string())
         .unwrap_or_else(|| language.unavailable().to_string());
+    let result = if status == "completed" && next_action == super::ACCEPTANCE_UNVERIFIED_NEXT_ACTION
+    {
+        language.acceptance_unverified_result().to_string()
+    } else {
+        language.status(&status).into_owned()
+    };
     let verification_summary = verification_summary(language, &report.verifications);
     let mut lines = vec![
         crate::build_info::summary_line(),
         format!("# {}", language.heading()),
         String::new(),
-        format!(
-            "- {}: {}",
-            language.result_label(),
-            language.status(&status)
-        ),
+        format!("- {}: {result}", language.result_label()),
         format!("- {}: {assurance}", language.assurance_label()),
         format!("- {}: {}", language.gate_label(), language.gate(&gate)),
         format!(
@@ -269,6 +271,53 @@ mod tests {
             rendered.contains("Failure kind: direct_cli_command_failed"),
             "{rendered}"
         );
+    }
+
+    #[test]
+    fn issue500_unverified_run_header_does_not_claim_completion_or_no_action() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "tests/corpus/apps/issue500-unverified-minimal-loop/fixtures/e2e-3b-events.jsonl",
+        );
+        let events = terminal_report::read_events(Some(&path));
+        let report = terminal_report::project(&events, Some(&path), None, None, None);
+        assert_eq!(report.exit_code, Some(0));
+
+        let english = render_document("", SummaryLanguage::English, &report);
+        let header = english.lines().take(10).collect::<Vec<_>>().join("\n");
+        assert!(
+            header.contains("- Result: acceptance unverified (process completed)"),
+            "{english}"
+        );
+        assert!(
+            header.contains("- Next action: run_acceptance_or_review_changes"),
+            "{english}"
+        );
+        assert!(!header.contains("- Result: completed"), "{english}");
+        assert!(!header.contains("- Next action: none"), "{english}");
+
+        let japanese = render_document("", SummaryLanguage::Japanese, &report);
+        let header = japanese.lines().take(10).collect::<Vec<_>>().join("\n");
+        assert!(
+            header.contains("- 結果: 受入未検証（処理は終了）"),
+            "{japanese}"
+        );
+        assert!(
+            header.contains("- 次の一手: 受入検査を実行するか、変更内容とテスト結果を確認する"),
+            "{japanese}"
+        );
+        assert!(!header.contains("- 結果: 完了"), "{japanese}");
+        assert!(!header.contains("追加操作なし"), "{japanese}");
+        assert!(japanese.contains("- 終了コード: 0"), "{japanese}");
+    }
+
+    #[test]
+    fn checked_completion_keeps_completed_result() {
+        let mut report = report();
+        report.status = Some(TerminalStatus::Completed);
+        report.next_action = Some("none".to_string());
+        let rendered = render_document("", SummaryLanguage::Japanese, &report);
+        assert!(rendered.contains("- 結果: 完了"), "{rendered}");
+        assert!(rendered.contains("- 次の一手: 追加操作なし"), "{rendered}");
     }
 
     #[test]

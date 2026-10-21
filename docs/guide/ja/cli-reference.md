@@ -10,17 +10,19 @@
 ## 呼び出し方
 
 直接コマンドを実行するにはアクション選択フラグを 1 つ使い、TUI を使う場合はすべて省略します。
-アクション選択フラグは `--prompt`、`--plan-steps`、`--plan-run`、`--run-plan`、
+アクション選択フラグは `--workflow`、`--prompt`、`--plan-steps`、`--plan-run`、`--run-plan`、
 `--ultra-plan`、`--ultra-plan-run`、`--run-ultra-plan`、
 `--validate-plan`、`--setup-interaction-probe`、`--runs`、`--ux-demo`、`--model-probe`、
 `--doctor`、`--extensions` です。
 オフライン pack アクションの `--packs`、`--pack-verify`、`--pack-pin`、生成アクションの
 `--completions` と `--generate-man`、設定アクションの `--init-config`、委譲された manifest
 アクションの `--validate-manifest` と `--init-profile` も、help の
-`Actions (use one)` グループに表示します。相互排他の action contract を組み合わせると拒否されます。
+`Actions (use one)` グループに表示します。相互排他の action contract を組み合わせると、Clap が
+構文解析中に拒否するものと、構文解析後の解決済み設定が拒否するものがあります。詳細は
+[排他関係と組み合わせ](#排他関係と組み合わせ)を参照してください。
 
 Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリケーション固有の
-66 フラグには含めません。非表示の `--completion-contract-json <PATH>` は内部連携用であり、
+67 フラグには含めません。非表示の `--completion-contract-json <PATH>` は内部連携用であり、
 公開ユーザーフラグではありません。
 
 ## フラグ一覧
@@ -65,7 +67,7 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 | `--filter` | `<phase\|tool\|provider>` | なし | `--events` を 1 つの event family に絞ります。 | [トラブルシューティング](troubleshooting.md) |
 | `--ux-demo` | なし | オフ | オフラインのプレゼンテーション UX デモを実行します。 | [排他関係と組み合わせ](#排他関係と組み合わせ) |
 | `--model-probe` | なし | オフ | 限定的なモデル動作プローブ一式を実行します。 | [モデルプローブ](model-probe.md) |
-| `--doctor` | なし | オフ | ネットワーク要求を行わず、設定ファイル、プロバイダ readiness、interaction probe、ローカル環境を診断します。 | [スラッシュ `/doctor`](slash-commands.md#コマンド一覧) |
+| `--doctor` | なし | オフ | 設定ファイル、プロバイダ readiness、interaction probe、ローカル環境を診断します。設定されたプロバイダによっては、そのホストへ到達確認を行います（例: OpenAI の /v1/models または Responses、Ollama、LM Studio）。API キーがない確認は試行しません。 | [スラッシュ `/doctor`](slash-commands.md#コマンド一覧) |
 | `--json` | なし | オフ | `--doctor`、`--extensions`、または `--runs` の出力を安定した機械可読 JSON として表示します。 | [スラッシュ `/doctor`](slash-commands.md#コマンド一覧) |
 | `--completions` | `<SHELL>`: `bash`、`elvish`、`fish`、`powershell`、`zsh` | なし | 現在の Clap 定義から補完スクリプトを生成し、stdout に出力します。 | [シェル補完と man ページ](#シェル補完と-man-ページ) |
 | `--generate-man` | なし | オフ | 現在の Clap 定義から `commandagent(1)` man ページを生成し、stdout に出力します。 | [シェル補完と man ページ](#シェル補完と-man-ページ) |
@@ -75,7 +77,8 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 | `--profile` | `<PROFILE>` | 推論後に `generic` | 組み込み profile または外部 draft ID を明示します。外部 ID には `profiles/<id>/manifest.toml` を宣言する extension root が必要です。 | [プロファイル推論](slash-commands.md#プロファイル推論) |
 | `--style` | `<STYLE>` | `default` | plan の表示／生成スタイルを渡します。 | [インラインフラグ](slash-commands.md#インラインフラグ) |
 | `--resume` | `<RESUME>` | なし | 直接 `--prompt` 実行で、指定した保存済み minimal-loop セッションを読み込みます。 | [セッションオプション](#排他関係と組み合わせ) |
-| `--offline` | なし | オフ | runtime の依存関係セットアップと、npm/pnpm/yarn/cargo install、curl、wget を含む Bash コマンドを禁止します。provider/API 要求とその他のネットワーク可能なコマンドには影響しません。 | [プロバイダ](providers.md) |
+| `--offline` | なし | オフ | runtime の依存関係セットアップと、npm/pnpm/yarn/cargo install、curl、wget を含む Bash コマンドを、字句検査で常に拒否します。`--sandbox` が OS の backend を適用するときは、サンドボックス内のコマンドの外向きのネットワーク接続も OS が拒否します（macOS は loopback（TCP と UDP）と unix socket だけを許可します。Linux は Landlock ABI4（kernel 6.7）以上が要り、そのとき dev server の port への TCP だけを許可して UDP は制限しません。ABI4 未満では backend が適用されてもネットワークは閉じず、字句検査だけが働きます）。backend が使えないときも字句検査だけが働きます。provider/API 要求と `--offline` でない run には影響しません。 | [OS 書き込み・読み取り・ネットワークサンドボックス](#os-書き込み読み取りネットワークサンドボックス) |
+| `--sandbox` | `<auto\|required\|off>` | `auto` | モデルの Bash ツール・検証・受け入れコマンド・依存関係セットアップに対する OS レベルの書き込み・読み取り・（`--offline` のとき）ネットワークのサンドボックスを選びます。`auto` は backend が使えれば適用し、使えなければ字句検査だけで続けます。`required` は backend が使えないときに対象コマンドを失敗させます。`off` は今までの挙動を保ちます。 | [OS 書き込み・読み取り・ネットワークサンドボックス](#os-書き込み読み取りネットワークサンドボックス) |
 | `--quiet` | なし | オフ（`narration = "normal"`） | プレゼンテーションのナレーションを抑制します。 | [トップレベルキー](configuration.md#トップレベルキー) |
 | `--summary-json` | なし | オフ | stdout 最終行へ機械可読な終端runサマリを1件追加します。省略時は既存stdout bytesを維持します。 | [Headless execution](../../user/headless.md) |
 | `--trace` | なし | オフ | active run の `trace/` directory に scrub 済み provider exchange を opt-in 保存します。 | [トラブルシューティング](troubleshooting.md) |
@@ -94,6 +97,19 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 | `--footer` | `<on\|off>` | `on` | 固定 TUI フッターを制御します。off でもスクロールバックの breadcrumb は残ります。 | [フッターの問題](troubleshooting.md#フッター描画の問題) |
 | `--no-footer` | なし | オフ | 固定 TUI フッターを無効にします。効果は `--footer off` と同じです。 | [フッターの問題](troubleshooting.md#フッター描画の問題) |
 
+## OS 書き込み・読み取り・ネットワークサンドボックス
+
+フラグ `--sandbox auto|required|off`（既定 `auto`）は、モデルの Bash ツール・検証・受け入れコマンド・依存関係セットアップ（Python の `sh -c` と `npm install`）に対する OS レベルの書き込みサンドボックスと、home の資格情報の読み取りサンドボックス、`--offline` のときのネットワークのサンドボックスを制御します。字句検査は先に働き、サンドボックスは字句検査から見えない書き込み・読み取り・（`--offline` のとき）ネットワークを閉じ込めます。
+
+- **OS が閉じるもの（backend が使えるとき）：** コマンドやスクリプトの中の書き込み — `sh -c 'cp ...'`、`eval`、`xargs`、`find -exec`、インタープリタの `open(..., 'w')`、`dd of=`、`sed -i`、`setup.py` や npm の lifecycle script のようなインストール時のスクリプト — と、workspace の外の inode への hardlink です。書き込めるのは、workspace・run の一時ディレクトリ・既知の依存キャッシュ・`/dev/null` などのデバイスだけです。
+- **読み取りの隔離：** home の秘密の場所（`.ssh`・`.aws`・`.gnupg`・`.netrc`・`.git-credentials`・`.npmrc`・`.pypirc`・`.docker/config.json`・`.kube`・`.config/gh`・`.config/gcloud`）の読み取りを拒否し、macOS では #501 の規則に当たる workspace の資格情報も拒否します。厳密な dotenv テンプレート（`.env.example`・`.env.sample`・`.env.template`）は読めます。これにより、秘密でない名前の symlink 経由、`BASH_ENV` のような環境変数で名指す形、インタープリタが実行時に組み立てた名前が拒否一覧の名前そのものを指す場合など、字句検査から見えない読み取りを閉じます。Linux では home の秘密の場所だけを拒否するため、秘密でない名前の symlink 経由の workspace の資格情報は読み取りの隔離では閉じません。home の npm の設定を拒否するため、private registry の `~/.npmrc` を読む `npm` は Bash の中で失敗します。Linux は拒否リストをコマンドの起動ごとに読み取り許可リストへ展開し直すため、起動の後にできた場所はそのコマンドの中では読めません（`ls /`・`ls $HOME`・`echo $HOME/*` は意図どおり失敗します）。書き込みの許可の場所（たとえば workspace）が home そのものか home の秘密の場所の祖先のときは、書き込みの許可がその秘密の場所の下位も読ませるため読み取りでは閉じられず、status は適用と偽らず「読み取りの隔離が効かない」と記録します。HOME が空のときも同じです。
+- **ネットワーク（`--offline` のときだけ）：** backend が適用されているとき、`--offline` の run は外向きの接続を OS が拒否するため、字句検査が名指しできない任意のプログラム（`python -c "urllib..."`、`node -e "fetch(...)"`）はネットワークに出られません。macOS は loopback（TCP と UDP）と unix socket 以外のネットワーク操作をすべて拒否します。Linux（Landlock ABI4、kernel 6.7）は run の dev server の port 以外の TCP の connect をすべて拒否します。Landlock は port しか区別しないため同じ port の外部ホストへは通り、UDP は制限できません。dev server の port が goal からも profile からも取れないときは、Linux は localhost を含めてすべての TCP の connect を拒否します。Landlock の TCP の規則が Multipath TCP（MPTCP、`IPPROTO_MPTCP`）の socket の connect にも効くかは kernel によって異なり、効かない kernel では MPTCP の connect が通ります（UDP と同じ種類の限界です。CI は観測した結果を `issue672/mptcp` の probe の verdict として記録します）。ABI4 未満ではネットワークを閉じ込めません（`bash_sandbox_status` の reason にそう書きます）。`--offline` でない run のネットワークは変わりません。
+- **字句検査だけのもの：** backend が使えないときの全コマンドです。`--yes`・`--allow bash:verify`・`--offline` は、それ自体では間接的な書き込みや home の秘密の読み取りを閉じません。適用されたサンドボックスだけが閉じます。`--allow bash:verify` はコマンドを分類で通すだけなので、そのコマンドが呼ぶスクリプトの中身を制限するのはサンドボックスだけです。`auto` で backend が使えないときは依存関係セットアップもこれまでどおり隔離の外で動き、status が未適用と記録します。`required` では正直に失敗します。
+- **モード：** `auto` は backend が使えれば適用し、使えなければ起動時に一度警告し、`applied=false` と理由つきの `bash_sandbox_status` を記録して字句検査だけで続けます。`required` は Bash と検証コマンドを `bash_sandbox_unavailable` で失敗させます。`off` は今までの挙動を保ちます。読み取りの隔離は同じイベントの `reason` で報告します（適用中は read isolation を名指し、完全に閉じている場合は空です）。macOS は Seatbelt で、入れ子の sandbox（`rc=71`）では未適用です。Linux は Landlock で、ABI1（kernel 5.13）未満・無効化・seccomp による拒否では未適用です。
+- 依存キャッシュ（cargo・npm・pip・Playwright のブラウザ）はビルドとテストのために書き込み可能なままにします。workspace の外の汚染経路として残ります。
+
+macOS の `mktemp` は `TMPDIR` を見ません。`mktemp -p "$TMPDIR"` か `$TMPDIR` 配下のテンプレートを使ってください。書き込みの適用の記録は `tests/corpus/apps/issue502-indirect-write/fixtures/macos-probe-results.md`、読み取りの適用の記録は `tests/corpus/apps/issue502-indirect-read/fixtures/macos-probe-results.md` にあります。
+
 ## 対話型 REPL の操作
 
 1 回の TUI セッション内で、`/model <id>` と `/provider <name>` は executor の
@@ -108,6 +124,13 @@ identity を維持します。実行時の使用法と例は、グループ化�
 `sha256:` 前方一致も受け付けます。CommandAgent の起動前に
 `COMMANDAGENT_STRICT_CONFIRM=1` を設定すると完全 hash を必須にできます。前方一致は、
 confirmation を保存する前に固定済みの完全 hash へ展開されます。
+
+`/provider` が切り替えられるのは組み込みの 4 名 `ollama`、`lm-studio`、`openai`、`gemini`
+だけです。汎用 `openai-compatible` は base URL やキー変数を含めて起動前に
+`--provider`、`--base-url`、`--api-key-env`、または preset で設定します。変更する場合は
+`/provider` ではなく設定を見直して CommandAgent を再起動してください。executor プロバイダが
+OpenAI のとき、`/model <id>` と `/provider openai` への切替は、起動時と同じ検査で曖昧な
+alias `gpt-5.6` を拒否します。
 
 REPL 履歴は `--state-dir` 配下の
 `workspace-history/<canonical-workspaceのsha256>.txt` に分離されます。アクティブな
@@ -136,20 +159,49 @@ context budget、timeout、profile、footer、stream などは `Config::from_cli
 - `--footer` と `--no-footer` は Clap レベルで排他であり、同時に使えません。
 - `--allow` は `read`、`write`、`bash:verify` を反復またはカンマ区切りで受け付けます。
   指定した場合、省略したツールクラスは拒否されます。`--yes` は後方互換の全ツール許可です。
-- アクション選択フラグは 1 つだけ使用できます。構文解析後に検査され、違反すると
-  `only one action selector can be used at a time` で失敗します。
+- `--yes` と `--allow` は、workspace の資格情報ファイル（`.env`、`.envrc`、`.npmrc`、
+  `.pypirc`、`.netrc`、`.git-credentials`、`.ssh` 配下、`.aws/credentials`、
+  `.docker/config.json`、`.config/gcloud/application_default_credentials.json`、
+  `service-account*.json`、`*.private.key`、`*.private.pem`、`*.p12`、`*.pfx` など）に
+  対する Read/Glob/Grep/Write/Edit の遮断と、Bash/argv の明示した直接参照の実行前拒否を
+  解除しません。例外は `.env.example`、`.env.sample`、`.env.template` の厳密な basename
+  だけで、`.env.example.local` のような変種は拒否され、template 名から秘密への symlink も
+  拒否されます。親ディレクトリの symlink（`keys` → `.ssh`、`cfg` → `.aws` など）経由や、
+  canonical target がワークスペース外になる path も Read/Write/Edit/Grep で拒否され、
+  広域列挙では秘密本文を出さずにポリシー除外を知らせます。詳細は
+  [セキュリティモデル](../../../SECURITY.md) を参照してください。
+- Clap は構文解析中に一部の組み合わせを拒否します。`--workflow` は `--intent` と排他で、
+  `--origin` には `--workflow` が必要です。`--doctor`／`--extensions`／`--runs` の JSON
+  グループと pack 直接アクショングループは、それぞれ 1 つだけ受け付けます。例えば
+  `--doctor --runs` は Clap レベルの排他です。
+- 構文解析後、解決済み設定はアクション選択フラグを 1 つだけ受け付け、違反すると
+  `only one action selector can be used at a time` で失敗します。例えば `--prompt x --ux-demo`
+  は、どちらも単独では有効な selector のため、この検査に到達します。`--origin` なしの
+  `--workflow` もここで `--workflow requires --origin` として失敗します。
+- `--completions` と `--generate-man` は、他のすべてのアクション選択フラグおよび
+  末尾のゴールと Clap レベルで排他です。併用した呼び出しは生成を始める前に拒否されます。
+- 実行前の引数・設定の拒否は、run の開始前に exit `2` で終了し、run summary を
+  生成しません。詳細は [headless 実行](../../user/headless.md)を参照してください。
+  `--doctor` は例外で、診断経路を通り、失敗した Configuration 検査を report（JSON を含む）に
+  記録して exit `1` になります。例えば `--ux-demo --doctor --json` は、通常の exit `2` ではなく
+  JSON report とともに exit `1` になります。
 - `--packs`、`--pack-verify`、`--pack-pin` は Clap レベルの直接アクションです。
   相互、run アクション、`--pack`、`--pack-hash` と排他です。一覧では
   `--extension-root` を使えますが、verify と pin は対象 directory を直接取ります。
 - `--extensions` は read-only で `--extension-root` を受け付けます。省略時は
-  トップレベルの `extension_root` 設定を解決します。`--json` は
-  `--extensions` と `--doctor` のどちらでも利用できます。
+  トップレベルの `extension_root` 設定を解決します。`--json` は `--doctor`、
+  `--extensions`、`--runs` に適用され、これらの対象なしで使うと拒否されます。
 - `--plan-steps`、`--plan-run`、`--ultra-plan`、`--ultra-plan-run` には末尾のゴールが必要です。
 - `--validate-plan` は offline かつ read-only の action で、実行 action および生成物 action の
   すべてと排他です。step plan、UltraPlan、recovery UltraPlan YAML を受け付けます。詳細は
   [Plan YAML の編集](plan-yaml.md)を参照してください。
 - `--planner-provider` が実行プロバイダと異なる場合、明示または preset の
   `planner_model` が必要です。なければ起動に失敗します。
+- 汎用プロバイダに解決される役割には base URL が必要です。executor、planner、classifier の
+  いずれかが `openai-compatible` の場合は `--base-url` または preset の `base_url` を指定します。
+  preset で classifier だけを汎用プロバイダにする場合も含みます。汎用プロバイダの役割がない
+  状態で `--base-url` や `--api-key-env` を指定すると、解決済み設定が拒否します。これらは
+  Clap の `requires` ではありません。
 - `--think` には、解決後の provider 役割の少なくとも一方で Ollama が必要です。
   両方が別プロバイダの場合、フラグを無視せず起動に失敗します。
 - 直接 minimal-loop prompt では `--fresh-session` が `--resume` より優先されます。

@@ -436,7 +436,7 @@ fn nextjs_profile_strengthening_does_not_reintroduce_duplicate_package_owner() {
         parse_generated_step_plan_json(generated, "Scaffold a Next.js Space Invaders app")
             .unwrap();
     repair_generated_step_plan_contract(&mut plan);
-    strengthen_step_plan_for_profile(&mut plan, &cfg);
+    crate::planner::recovery_step_plan_binding::profile_augmentation::strengthen_step_plan_for_profile(&mut plan, &cfg);
     repair_generated_step_plan_contract(&mut plan);
     crate::planner::lint::lint_step_plan(&plan).unwrap();
     let package_owners = plan

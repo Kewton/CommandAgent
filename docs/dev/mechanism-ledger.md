@@ -1772,3 +1772,20 @@ completionからclearする。
 境界時刻がない場合はfile metadataやevent順から推測せず`未記録`とし、terminal time profileが
 存在する場合だけトータル処理時間を表示する。honest-failure、acceptance／verification判定、
 event schema version、`.anvil/` namespaceは変更しない。
+
+
+## CLI-LOOP-440 — repeated output-limit replies (2026-09-08)
+
+`loop_run/max_length_guard.rs` counts token-cap replies without normalized tool
+calls until a successful Write/Edit resets count and provider duration. Default
+limit two means no third request. Reads, shorter replies, and failed mutations
+do not reset it. The stop reason `max_length_no_tool_call_repeated` records count,
+limit, accumulated matching provider milliseconds, and existing Recovery paths;
+the plan writer registers the typed Recovery candidate. No wall-clock cap,
+completion, acceptance, or runtime namespace migration is involved.
+
+`eval_events/provider_turn.rs` finalizes additive response call count and
+Write/Edit success fields for persisted `provider_turn_duration` events,
+preserving offered-tool counts, event order, and schema version. Its scoped
+tail has a 64 KiB memory threshold with temporary-file spill. The I1 projection
+and synthetic 16 KiB Write fixture live under `tests/corpus/apps/issue440-max-length`.

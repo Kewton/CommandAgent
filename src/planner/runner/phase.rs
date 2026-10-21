@@ -1,5 +1,4 @@
 // StepPlan execution, bounded repair, and phase-owned context (pre-split runner.rs:960-3602).
-#[allow(unused_imports)]
 use super::{
     BTreeSet, BoundCompletionContract, BuildVerifierLifecycleObservation, BuildVerifierObservation,
     BuildVerifierRequirement, BuildVerifierStatus, CarriedPressure, ChatClient,
@@ -74,6 +73,9 @@ use super::{
     verify_setup_dependency_state_with_setup_observed_with_offline, verify_step_with_context,
     verify_step_with_profile_setup_observed_with_offline, writable_workspace_source_path,
 };
+use crate::planner::recovery_contract_authority::handoff_commands;
+#[path = "phase/compile_snapshot.rs"]
+mod compile_snapshot;
 #[path = "phase/effects.rs"]
 mod effects;
 #[path = "phase/flow.rs"]
@@ -86,10 +88,14 @@ mod plan_step_events;
 pub(super) mod recovery_fix;
 #[path = "phase/state.rs"]
 mod state;
+#[path = "phase/step_failure_handoff.rs"]
+mod step_failure_handoff;
+use step_failure_handoff::StepFailureHandoff;
 #[path = "phase/step_plan_execution.rs"]
 mod step_plan_execution;
 #[path = "phase/transition.rs"]
 mod transition;
+use compile_snapshot::production_build_lifecycle_passed;
 pub use flow::{
     generate_and_run_ultra_plan, generate_and_run_ultra_plan_with_ui, generate_ultra_plan,
     generate_ultra_plan_with_ui, run_ultra_plan, run_ultra_plan_file, run_ultra_plan_file_with_ui,
@@ -1021,6 +1027,7 @@ pub(super) fn dependency_reconciliation_lifecycle(
         requires_dependency_setup: true,
         dependency_ready: false,
         attempted: false,
+        duration_ms: None,
         status: BuildVerifierStatus::DependencyMissing,
         primary_reason: requirement.reason.clone(),
         output_snippet: String::new(),
@@ -1047,6 +1054,7 @@ pub(super) fn dependency_reconciliation_lifecycle(
         requires_dependency_setup: true,
         dependency_ready: true,
         attempted: false,
+        duration_ms: None,
         status: BuildVerifierStatus::Passed,
         primary_reason: "dependency setup reconciliation passed".to_string(),
         output_snippet: String::new(),
@@ -1086,7 +1094,8 @@ pub(super) struct StepPromptContext {
     pub(super) completion_contract_path: Option<PathBuf>,
 }
 
-#[allow(clippy::result_large_err, clippy::too_many_arguments)]
+#[allow(clippy::result_large_err, reason = "error carries step outcome")]
+#[allow(clippy::too_many_arguments, reason = "step inputs borrowed apart")]
 pub(super) fn run_step(
     client: &mut dyn ChatClient,
     session: &mut SessionSnapshot,
@@ -1148,7 +1157,7 @@ pub(super) fn run_step(
     let recovery_fix = recovery_fix::bind(&step_config, step, prompt_context, setup_authority)
         .map_err(|err| *err)?;
     let local_repair_turns = recovery_fix.local_repair_turns(STEP_REPAIR_MAX_TURNS);
-    let mut step_options = step_run_session_options(
+    let step_options = step_run_session_options(
         plan,
         step,
         contract_enforcement,
@@ -1157,19 +1166,15 @@ pub(super) fn run_step(
     )
     .with_repair_target_priority(repair_targeting::RepairTargetPriority::for_intent(
         config.resolved_intent(&prompt_context.overall_goal),
-    ))
-    .with_required_write_for_action_prompt(recovery_fix.requires_write())
-    .with_required_mutation_before_short_circuit(
-        synthesized_precheck || recovery_fix.requires_write(),
-    );
-    recovery_fix::defer_contract_verification(&mut step_options, recovery_fix.requires_write());
+    ));
+    let step_options = recovery_fix.configure(plan, step, step_options, synthesized_precheck)?;
     let data_pre_satisfied =
         runtime.pre_satisfied_verify_first(&config.workspace_root, &runtime_step);
     let verify_first_applicable = host_owned_recovery_verify
         || data_pre_satisfied
             .unwrap_or_else(|| runtime.step_short_circuit_precheck_applicable(&runtime_step));
     if verify_first_applicable {
-        let (report, build_lifecycles) = verify_step_completion_observed(
+        let (mut report, build_lifecycles) = verify_step_completion_observed(
             config,
             &prompt_context.overall_goal,
             &runtime_step,
@@ -1177,6 +1182,7 @@ pub(super) fn run_step(
             phase_scope,
             setup_authority,
         );
+        recovery_fix::verify_obligation(&step_config, &step_options, &mut report);
         apply_runtime_command_normalizations(&mut runtime_step, &report);
         for lifecycle in &build_lifecycles {
             emit_dependency_build_lifecycle(
@@ -1337,6 +1343,7 @@ pub(super) fn run_step(
         setup_authority,
     );
     recovery_fix.merge_verification(&mut report, &initial_changed_paths);
+    recovery_fix::verify_obligation(&step_config, &step_options, &mut report);
     apply_runtime_command_normalizations(&mut runtime_step, &report);
     for lifecycle in &build_lifecycles {
         emit_dependency_build_lifecycle(
@@ -1616,6 +1623,7 @@ pub(super) fn run_step(
                 config.eval_events_path.as_deref(),
             );
             recovery_fix.merge_verification(&mut retry, &context.changed_files);
+            recovery_fix::verify_obligation(&step_config, &step_options, &mut retry);
             apply_runtime_command_normalizations(&mut runtime_step, &retry);
             context.verify_commands = runtime_step.verify.clone();
             recovery_fix.merge_verify_commands(&mut context.verify_commands);
@@ -2132,208 +2140,18 @@ pub(super) fn run_step(
             }
         }
     }
-    eval_events::emit(
-        config.eval_events_path.as_deref(),
-        json!({
-            "event": "loop_stop",
-            "reason": final_failure_kind,
-            "step_id": step.id,
-            "repair_target": final_repair_target.as_str(),
-            "repair_stop_reason": repair_stop_reason.clone().unwrap_or_default(),
-            "local_repair_exhausted": true,
-        }),
-    );
-    let repair_report_path = match save_repair_report_with_context(
-        &config.workspace_root,
-        &step.id,
-        &current_report,
-        &context,
-    ) {
-        Ok(path) => path,
-        Err(err) => {
-            outcome.primary_failure = Some(err.to_string());
-            outcome.stop_reason = Some("repair_report_save_error".to_string());
-            outcome.partial = true;
-            return Err(StepRunError {
-                message: err.to_string(),
-                outcome,
-            });
-        }
-    };
-    let step_handoff = RecoveryHandoff {
-        profile: config.profile.clone(),
-        original_goal: context
-            .overall_goal
-            .clone()
-            .unwrap_or_else(|| plan.goal.clone()),
-        failed_phase: None,
-        failed_step: Some(step.id.clone()),
-        failure_kind: final_failure_kind.to_string(),
-        failure_evidence: std::iter::once(current_report.primary_reason())
-            .chain(reachability_blocked_evidence(
-                &terminal_blocked_requirements,
-            ))
-            .chain(
-                current_report
-                    .command_failures
-                    .iter()
-                    .map(|failure| format!("{}: {}", failure.command, failure.reason)),
-            )
-            .chain(
-                current_report
-                    .verifier_command_false_negatives
-                    .iter()
-                    .map(|failure| {
-                        format!(
-                            "deterministic_verify_command_bug: {}: {}",
-                            failure.command, failure.reason
-                        )
-                    }),
-            )
-            .collect(),
-        missing_paths: current_report.missing_paths.clone(),
-        missing_capabilities: vec![final_repair_target.as_str().to_string()],
-        verify_commands: context.verify_commands.clone(),
-        changed_paths: context.changed_files.clone(),
-        repair_targets: vec![final_repair_target.as_str().to_string()],
-    };
-    let recovery_plan_path =
-        match save_recovery_ultra_plan(&config.workspace_root, &step.id, &step_handoff) {
-            Ok(path) => Some(path),
-            Err(err) => {
-                let repair_report_display = handoff_path(&repair_report_path);
-                eval_events::emit(
-                    config.eval_events_path.as_deref(),
-                    json!({
-                        "event": "recovery_ultra_plan_save_failed",
-                        "recovery_handoff_kind": final_failure_kind,
-                        "step_id": step.id,
-                        "recovery_prompt_path": repair_report_display,
-                        "reason": eval_events::body_snippet(&err.to_string()),
-                        "recovery_yaml_missing": true,
-                    }),
-                );
-                None
-            }
-        };
-    let validation =
-        validate_recovery_artifacts(&repair_report_path, recovery_plan_path.as_deref());
-    let raw_suggested_command =
-        suggested_ultra_recovery_command(&repair_report_path, &config.profile);
-    let suggested_command = if validation.prompt_command_available() {
-        raw_suggested_command
-    } else {
-        String::new()
-    };
-    let suggested_yaml_command = recovery_plan_path
-        .as_ref()
-        .filter(|_| validation.yaml_command_available())
-        .map(|path| suggested_recovery_ultra_plan_command(path));
-    let repair_report_display = handoff_path(&repair_report_path);
-    let recovery_plan_display = optional_handoff_path(recovery_plan_path.as_ref());
-    eval_events::emit(
-        config.eval_events_path.as_deref(),
-        json!({
-            "event": "recovery_prompt_saved",
-            "recovery_handoff_kind": final_failure_kind,
-            "step_id": step.id,
-            "recovery_prompt_path": &repair_report_display,
-            "recovery_ultra_plan_path": &recovery_plan_display,
-            "recovery_yaml_missing": recovery_plan_path.is_none(),
-            "recovery_prompt_exists": validation.prompt_exists,
-            "recovery_prompt_parse_ok": validation.prompt_parse_ok,
-            "recovery_prompt_parse_error": validation.prompt_parse_error.as_deref().unwrap_or_default(),
-            "recovery_yaml_exists": validation.yaml_exists,
-            "recovery_yaml_parse_ok": validation.yaml_parse_ok,
-            "recovery_yaml_parse_error": validation.yaml_parse_error.as_deref().unwrap_or_default(),
-            "recovery_command_targets_valid": validation.command_targets_valid(),
-            "suggested_recovery_command": suggested_command.clone(),
-            "suggested_recovery_yaml_command": suggested_yaml_command.clone().unwrap_or_default(),
-            "recovery_profile": config.profile,
-            "local_repair_exhausted": true,
-            "failure_kind": final_failure_kind,
-            "status": "incomplete",
-        }),
-    );
-    let yaml_summary = recovery_plan_path
-        .as_ref()
-        .map(|path| {
-            let display = handoff_path(path);
-            if validation.yaml_parse_ok {
-                format!("Recovery UltraPlan YAML saved: {display}")
-            } else {
-                format!(
-                    "Recovery UltraPlan YAML invalid: {} ({})",
-                    display,
-                    validation
-                        .yaml_parse_error
-                        .as_deref()
-                        .unwrap_or("recovery_yaml_invalid")
-                )
-            }
-        })
-        .unwrap_or_else(|| {
-            "Recovery UltraPlan YAML missing: failed to save valid recovery plan".to_string()
-        });
-    let prompt_command_summary = if validation.prompt_command_available() {
-        format!("Suggested command: {suggested_command}")
-    } else {
-        format!(
-            "Suggested command: unavailable because recovery prompt validation failed ({})",
-            validation
-                .prompt_parse_error
-                .as_deref()
-                .unwrap_or("recovery_prompt_invalid")
-        )
-    };
-    let yaml_command_summary = suggested_yaml_command
-        .as_ref()
-        .map(|command| format!("Suggested YAML command: {command}"))
-        .unwrap_or_else(|| {
-            "Suggested YAML command: unavailable because recovery YAML is missing".to_string()
-        });
-    let artifact_check_summary = recovery_artifact_check_summary(&validation);
-    eval_events::write_run_summary(
-        config.eval_events_path.as_deref(),
-        &format!(
-            "Status: incomplete\n{}\n{}\nRecovery prompt saved: {}\n{}\n{}\nFailure: {}",
-            yaml_summary,
-            yaml_command_summary,
-            repair_report_display,
-            prompt_command_summary,
-            artifact_check_summary,
-            eval_events::body_snippet(&current_report.primary_reason())
-        ),
-    );
-    let prompt_message = if validation.prompt_command_available() {
-        format!("suggested command: {suggested_command}")
-    } else {
-        "suggested command unavailable because recovery prompt validation failed".to_string()
-    };
-    let yaml_message = suggested_yaml_command
-        .as_ref()
-        .map(|command| format!("suggested YAML command: {command}"))
-        .unwrap_or_else(|| {
-            "suggested YAML command unavailable because recovery YAML is missing".to_string()
-        });
-    let message = eval_events::render_stop_reason(&eval_events::StopReasonParts {
-        free_text: format!(
-            "step {} failed verification after bounded repair: {}; failure_kind={}; incomplete; {}",
-            step.id,
-            current_report.primary_reason(),
-            final_failure_kind,
-            artifact_check_summary
-        ),
-        paths: vec![
-            format!("repair prompt saved: {repair_report_display}"),
-            yaml_summary,
-        ],
-        commands: vec![prompt_message, yaml_message],
-    });
-    outcome.primary_failure = Some(current_report.primary_reason());
-    outcome.stop_reason = Some(final_failure_kind.to_string());
-    outcome.partial = true;
-    Err(StepRunError { message, outcome })
+    Err(StepFailureHandoff {
+        config,
+        plan_goal: &plan.goal,
+        step_id: &step.id,
+        report: &current_report,
+        context: &context,
+        failure_kind: &final_failure_kind,
+        repair_target: final_repair_target,
+        repair_stop_reason: repair_stop_reason.as_deref(),
+        blocked_requirements: &terminal_blocked_requirements,
+    }
+    .into_error(outcome))
 }
 
 pub(super) fn step_verify_setup_authority(
@@ -2480,13 +2298,15 @@ pub(super) fn step_run_session_options(
     phase_scope: Option<&str>,
     setup_authority: NodeDependencySetupAuthority,
 ) -> RunSessionOptions {
-    RunSessionOptions::plan_step_with_enforcement(
+    let mut options = RunSessionOptions::plan_step_with_enforcement(
         run_session_step_kind(step),
         contract_enforcement,
         phase_scope.map(str::to_string),
     )
     .with_dependency_setup_authority(setup_authority)
-    .with_path_fallback_candidates(plan_expected_paths(plan))
+    .with_path_fallback_candidates(plan_expected_paths(plan));
+    options.step_id = Some(step.id.clone());
+    options
 }
 
 pub(super) fn plan_expected_paths(plan: &StepPlan) -> Vec<String> {
@@ -2669,7 +2489,7 @@ pub(super) fn emit_completion_contract_bound(
 }
 
 // Intermediate invariant repair and phase/recovery event boundary.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "run state borrowed apart")]
 pub(super) fn repair_intermediate_profile_invariant(
     execution: &mut dyn ChatClient,
     ultra_session: &mut SessionSnapshot,
@@ -2895,7 +2715,7 @@ pub(super) fn repair_intermediate_profile_invariant(
     Ok(retry)
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "flat event fields")]
 pub(super) fn emit_profile_invariant_repair_event(
     config: &Config,
     plan: &UltraPlan,
@@ -2998,14 +2818,6 @@ pub(super) fn phase_build_verify_commands(plan: &StepPlan) -> Vec<String> {
         }
     }
     commands
-}
-
-pub(super) fn production_build_lifecycle_passed(
-    lifecycles: &[BuildVerifierLifecycleObservation],
-) -> bool {
-    lifecycles
-        .iter()
-        .any(|lifecycle| lifecycle.final_status == BuildVerifierStatus::Passed)
 }
 
 pub(super) fn route_bound_source_paths(root: &Path, profile: &str) -> Vec<String> {
@@ -3319,7 +3131,7 @@ pub(super) fn ultra_plan_signal_text(plan: &UltraPlan) -> String {
         format!("{}\n{}", plan.goal, phase_text)
     }
 }
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "flat event fields")]
 pub(super) fn emit_ultra_phase_event(
     config: &Config,
     event: &str,
@@ -3410,7 +3222,7 @@ pub(super) fn save_ultra_phase_recovery_handoff_with_evidence(
         },
         missing_paths: request.missing_paths.to_vec(),
         missing_capabilities: request.missing_signals.to_vec(),
-        verify_commands: request.verify_commands.to_vec(),
+        verify_commands: handoff_commands(config, request.verify_commands),
         changed_paths: Vec::new(),
         repair_targets: request.repair_targets.to_vec(),
     };
@@ -3601,7 +3413,7 @@ pub(super) fn render_failure_stop_reason(
     eval_events::render_stop_reason(&parts)
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "flat handoff fields")]
 pub(super) fn save_release_recovery_handoff(
     config: &Config,
     profile: &str,

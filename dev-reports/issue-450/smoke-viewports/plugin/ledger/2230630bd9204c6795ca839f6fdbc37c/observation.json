@@ -1,0 +1,47 @@
+{
+  "ticket_id": "2230630bd9204c6795ca839f6fdbc37c",
+  "conditions": {
+    "automation_version": "26.825.51511",
+    "headless": false,
+    "viewport": {
+      "height": 900,
+      "width": 1440
+    }
+  },
+  "stage": "complete",
+  "tabs_count": 0,
+  "url": "http://127.0.0.1:65237/",
+  "before": "before.txt",
+  "after": "after.txt",
+  "action": {
+    "role": "button",
+    "name": "Check browser",
+    "before": "Ready for browser check",
+    "after": "Browser action confirmed"
+  },
+  "views": [
+    {
+      "name": "desktop",
+      "viewport": {
+        "height": 900,
+        "width": 1440
+      },
+      "url": "http://127.0.0.1:65237/",
+      "state": "view-desktop.txt",
+      "screenshot": "view-desktop.jpg"
+    },
+    {
+      "name": "mobile",
+      "viewport": {
+        "height": 844,
+        "width": 390
+      },
+      "url": "http://127.0.0.1:65237/",
+      "state": "view-mobile.txt",
+      "screenshot": "view-mobile.jpg"
+    }
+  ],
+  "screenshot": "view-desktop.jpg",
+  "viewport_override_reset": true,
+  "owned_tab_closed": true
+}
