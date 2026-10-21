@@ -13,6 +13,7 @@ pub mod presentation;
 pub(crate) mod repair_display;
 pub mod repl;
 pub mod repl_output;
+pub(crate) mod sandbox_status;
 pub mod slash;
 pub mod spinner;
 pub mod status;

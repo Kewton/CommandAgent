@@ -61,9 +61,8 @@ pub(crate) fn downgrade_for_test(reason: &str) {
 }
 
 /// Announce the status event. Without a path nothing is written to disk. The event
-/// still goes through `eval_events::emit`, but the status bus and presentation
-/// have no branch for `bash_sandbox_status` yet, so it is not shown in the TUI (a
-/// separate Issue).
+/// still goes through `eval_events::emit`, so presentation shows a downgrade as one
+/// fixed line (Issue #803); with a path the file record and that line are both made.
 #[cfg(any(target_os = "linux", test))]
 pub(super) fn announce(path: Option<&std::path::Path>, event: serde_json::Value) {
     #[cfg(test)]

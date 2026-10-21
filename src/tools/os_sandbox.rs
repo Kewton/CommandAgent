@@ -649,7 +649,7 @@ fn store(
 
 /// The events file a downgrade is reported to. The run's path is chosen by the
 /// binary at run start, so it hands it over with [`events_scope::EventsScope`];
-/// without it a downgrade is recorded in the status only and is not shown in the TUI.
+/// without it a downgrade is not written to a file; it is still shown as one TUI line.
 static EVENTS_PATH: Mutex<Option<PathBuf>> = Mutex::new(None);
 
 /// Tell the sandbox where the run's events file is, so a later downgrade can
@@ -690,8 +690,8 @@ fn mark_backend_unavailable(reason: String) {
     state.availability = SandboxAvailability::Unavailable(reason);
     drop(installed);
     if let Some(status) = status() {
-        // Without a path the event goes through `emit` but is not recorded on disk
-        // and, having no TUI branch yet, is not shown there either.
+        // Without a path the event goes through `emit` and is shown as one TUI line
+        // (Issue #803) but is not recorded on disk.
         let path = events_scope::current_path();
         events_scope::announce(path.as_deref(), status_event(&status));
     }

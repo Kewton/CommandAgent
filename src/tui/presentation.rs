@@ -439,6 +439,7 @@ pub fn render_step_plan_block(
 pub fn render_activity_line(event: &Value) -> Option<String> {
     let name = event.get("event").and_then(Value::as_str)?;
     match name {
+        "bash_sandbox_status" => crate::tui::sandbox_status::render_line(event),
         "ultra_phase_start" => {
             let index = event
                 .get("phase_index")
