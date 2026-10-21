@@ -190,7 +190,11 @@ pub fn wrap(command: Command, policy: &SandboxPolicy) -> Command {
     );
 
     for (index, location) in home_secrets.iter().enumerate() {
-        define(&mut wrapped, &format!("RDENY_HOME_{index}"), Some(location));
+        define_text(
+            &mut wrapped,
+            &format!("RDENY_HOME_{index}"),
+            &location.to_string_lossy(),
+        );
     }
     define_text(
         &mut wrapped,
@@ -242,9 +246,10 @@ fn define_text(command: &mut Command, name: &str, value: &str) {
     command.arg("-D").arg(format!("{name}={value}"));
 }
 
+/// Resolve a path for a `-D` parameter. Not used for `RDENY_HOME_*`: Seatbelt
+/// also matches the path as written, so the home deny list keeps both spellings.
 fn canonical(path: &Path) -> String {
-    path.canonicalize()
-        .unwrap_or_else(|_| path.to_path_buf())
+    secret_locations::resolve_nearest_existing(path)
         .to_string_lossy()
         .into_owned()
 }
@@ -252,6 +257,88 @@ fn canonical(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Issue #805: a `-D` path parameter is resolved by the same function as the
+    /// secret locations, so a missing tail under a symlinked ancestor follows the
+    /// link (the old copy kept the symlinked spelling), and an existing path is
+    /// unchanged.
+    #[cfg(unix)]
+    #[test]
+    fn canonical_resolves_a_missing_tail_like_the_secret_locations() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().canonicalize().unwrap();
+        std::fs::create_dir(base.join("real")).unwrap();
+        std::os::unix::fs::symlink(base.join("real"), base.join("link")).unwrap();
+
+        let missing = base.join("link/a/b");
+        let expected = base.join("real/a/b");
+        assert_eq!(canonical(&missing), expected.to_string_lossy());
+        assert_eq!(
+            canonical(&missing),
+            secret_locations::resolve_nearest_existing(&missing).to_string_lossy()
+        );
+        assert_eq!(
+            canonical(&base.join("link")),
+            base.join("real").to_string_lossy()
+        );
+        assert_eq!(canonical(Path::new("relative/missing")), "relative/missing");
+    }
+
+    /// Issue #805: `RDENY_HOME_*` carries `home_secret_locations` verbatim, so the
+    /// written and the resolved spelling of a secret under a symlinked ancestor
+    /// both stay denied, without duplicates.
+    #[cfg(unix)]
+    #[test]
+    fn rdeny_home_keeps_written_and_resolved_spellings_without_duplicates() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path();
+        let home = base.join("home");
+        std::fs::create_dir_all(home.join(".config")).unwrap();
+        std::fs::create_dir_all(base.join("real-cargo")).unwrap();
+        std::fs::create_dir_all(base.join("outside")).unwrap();
+        // ~/.ssh is dangling; ~/.cargo and ~/.config/gh point elsewhere.
+        std::os::unix::fs::symlink(base.join("real/ssh"), home.join(".ssh")).unwrap();
+        std::os::unix::fs::symlink(base.join("real-cargo"), home.join(".cargo")).unwrap();
+        std::os::unix::fs::symlink(base.join("outside"), home.join(".config/gh")).unwrap();
+
+        let policy = SandboxPolicy {
+            workspace_root: base.join("ws"),
+            run_tmp_dir: base.join("tmp"),
+            caches: Default::default(),
+            home: home.clone(),
+            offline: false,
+            dev_server_ports: Vec::new(),
+        };
+        let wrapped = wrap(Command::new("true"), &policy);
+        let args: Vec<String> = wrapped
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        let values: Vec<&str> = args
+            .iter()
+            .filter_map(|arg| arg.strip_prefix("RDENY_HOME_"))
+            .filter_map(|rest| rest.split_once('=').map(|(_, value)| value))
+            .collect();
+
+        for written in [
+            home.join(".ssh"),
+            home.join(".cargo/credentials"),
+            home.join(".config/gh"),
+        ] {
+            let resolved = secret_locations::resolve_nearest_existing(&written);
+            assert_ne!(written, resolved, "fixture must make the spellings differ");
+            for spelling in [&written, &resolved] {
+                let spelling = spelling.to_string_lossy();
+                assert!(values.contains(&&*spelling), "{spelling} in {values:?}");
+            }
+        }
+        let unique: std::collections::HashSet<&&str> = values.iter().collect();
+        assert_eq!(
+            unique.len(),
+            values.len(),
+            "duplicate RDENY_HOME value: {values:?}"
+        );
+    }
 
     #[test]
     fn profile_denies_each_home_location_and_re_allows_templates_last() {
