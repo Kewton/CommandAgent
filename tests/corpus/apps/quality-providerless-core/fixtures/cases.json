@@ -1473,6 +1473,7 @@
       "id": "BB-CFG-007",
       "area": "config",
       "purpose": "Unknown top-level key (model) is rejected with file and line",
+      "note": "Old expectation: stdout contains the unknown-key message and a bare '1'. New (Issue #782): the diagnostic must name the config file path with its line (config.toml:1) and the key, and the value must not appear. The doctor exit is nonzero because startup config resolution fails, with or without a preset.",
       "source": "docs/guide/ja/configuration.md#トップレベルキー",
       "setup": [
         "mkdir -p .commandagent && printf 'model = \"top\"\\n' > .commandagent/config.toml"
@@ -1482,12 +1483,14 @@
       "expected": {
         "exit_code": "nonzero",
         "stdout_contains": [
-          "unknown config key 'model'",
-          "1"
+          "✗ Configuration",
+          ".commandagent/config.toml:1",
+          "unknown config key 'model'"
         ],
         "stderr_contains": [],
         "must_not_contain": [
-          "panicked at"
+          "panicked at",
+          "\"top\""
         ],
         "files_exist": [],
         "files_absent": []
@@ -1496,7 +1499,8 @@
     {
       "id": "BB-CFG-008",
       "area": "config",
-      "purpose": "Broken workspace file is skipped for top-level lookup; lower file value still applies",
+      "purpose": "Unknown top-level key in the workspace file fails startup and is not skipped for the lower file footer (Issue #782; was skipped with the lower footer applied)",
+      "note": "Old expectation: exit nonzero only because doctor reported other failures, stdout 'disabled by resolved footer configuration' (broken workspace file skipped, lower HOME footer applied) and no failed Configuration check. New: the unknown key is a startup error, so doctor reports a failed Configuration check naming the file, line and key, and the lower footer is never applied. Changed per the 2026-10-21 decision recorded in Issue #782.",
       "source": "docs/guide/ja/configuration.md#トップレベルキー",
       "setup": [
         "mkdir -p .commandagent && printf 'bogus_key = 1\\n' > .commandagent/config.toml",
@@ -1507,12 +1511,14 @@
       "expected": {
         "exit_code": "nonzero",
         "stdout_contains": [
-          "disabled by resolved footer configuration"
+          "✗ Configuration",
+          ".commandagent/config.toml:1",
+          "unknown config key 'bogus_key'"
         ],
         "stderr_contains": [],
         "must_not_contain": [
           "panicked at",
-          "✗ Configuration"
+          "disabled by resolved footer configuration"
         ],
         "files_exist": [],
         "files_absent": []
@@ -1522,6 +1528,7 @@
       "id": "BB-CFG-009",
       "area": "config",
       "purpose": "Unknown preset key is rejected naming preset.<name>.<key> and line",
+      "note": "Old expectation: stdout contains preset.p.bogus and a bare '3'. New (Issue #782): the diagnostic must name the config file with line 3 (config.toml:3); behaviour is unchanged, only the expectation is stricter.",
       "source": "docs/guide/ja/configuration.md#preset",
       "setup": [
         "mkdir -p .commandagent && printf '[preset.p]\\ncontext_budget = 1024\\nbogus = \\\"x\\\"\\n' > .commandagent/config.toml"
@@ -1531,8 +1538,8 @@
       "expected": {
         "exit_code": "nonzero",
         "stdout_contains": [
-          "preset.p.bogus",
-          "3"
+          ".commandagent/config.toml:3",
+          "preset.p.bogus"
         ],
         "stderr_contains": [],
         "must_not_contain": [
@@ -1546,6 +1553,7 @@
       "id": "BB-CFG-010",
       "area": "config",
       "purpose": "Invalid TOML syntax is reported without panic",
+      "note": "Old expectation: stdout contains 'invalid TOML syntax' and the message carried the parser's source excerpt. New (Issue #782): the diagnostic is file and line only (config.toml:1) with no source excerpt, so a malformed value cannot leak; startup fails with or without a preset.",
       "source": "docs/guide/ja/configuration.md#preset",
       "setup": [
         "mkdir -p .commandagent && printf '[preset.p\\nmodel = \\n' > .commandagent/config.toml"
@@ -1555,11 +1563,12 @@
       "expected": {
         "exit_code": "nonzero",
         "stdout_contains": [
-          "invalid TOML syntax"
+          ".commandagent/config.toml:1 contains invalid TOML syntax"
         ],
         "stderr_contains": [],
         "must_not_contain": [
-          "panicked at"
+          "panicked at",
+          "TOML parse error"
         ],
         "files_exist": [],
         "files_absent": []
