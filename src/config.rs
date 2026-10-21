@@ -12,11 +12,12 @@ pub use crate::planner::adjudication::contract::IntentId;
 use crate::planner::intent::detect_intent;
 use crate::planner::profile::{ProfileInference, infer_profile, resolve_profile_runtime};
 
+mod env_deferral;
 mod resolution;
 mod validation;
 use resolution::{
-    ProviderResolution, load_named_preset, merge_preset, parse_preset_key, preset_missing_keys,
-    resolve_named_preset, resolve_providers,
+    ProviderResolution, load_named_preset, merge_preset, preset_missing_keys, resolve_named_preset,
+    resolve_providers,
 };
 
 pub const LOCAL_PROVIDER_CHAT_TIMEOUT_SECS: u64 = 600;
@@ -995,7 +996,7 @@ fn planner_model_tier(model: &str) -> PlannerModelTier {
 
 fn config_file_narration(root: &Path) -> Option<Sourced<NarrationMode>> {
     for path in config_paths(root) {
-        if let Ok(Some(file)) = parse_config_file_if_present(&path)
+        if let Ok(Some(file)) = parse_config_file_if_present(&path, None)
             && let Some(narration) = file.narration
         {
             return Some(narration);
@@ -1006,7 +1007,7 @@ fn config_file_narration(root: &Path) -> Option<Sourced<NarrationMode>> {
 
 fn config_file_footer(root: &Path) -> Option<Sourced<FooterMode>> {
     for path in config_paths(root) {
-        if let Ok(Some(file)) = parse_config_file_if_present(&path)
+        if let Ok(Some(file)) = parse_config_file_if_present(&path, None)
             && let Some(footer) = file.footer
         {
             return Some(footer);
@@ -1017,7 +1018,7 @@ fn config_file_footer(root: &Path) -> Option<Sourced<FooterMode>> {
 
 fn config_file_stream(root: &Path) -> Option<Sourced<bool>> {
     for path in config_paths(root) {
-        if let Ok(Some(file)) = parse_config_file_if_present(&path)
+        if let Ok(Some(file)) = parse_config_file_if_present(&path, None)
             && let Some(stream) = file.stream
         {
             return Some(stream);
@@ -1028,7 +1029,7 @@ fn config_file_stream(root: &Path) -> Option<Sourced<bool>> {
 
 fn config_file_prompt_layout(root: &Path) -> Option<Sourced<PromptLayout>> {
     for path in config_paths(root) {
-        if let Ok(Some(file)) = parse_config_file_if_present(&path)
+        if let Ok(Some(file)) = parse_config_file_if_present(&path, None)
             && let Some(prompt_layout) = file.prompt_layout
         {
             return Some(prompt_layout);
@@ -1039,7 +1040,7 @@ fn config_file_prompt_layout(root: &Path) -> Option<Sourced<PromptLayout>> {
 
 fn config_file_plan_preset(root: &Path) -> Option<Sourced<PlanPreset>> {
     for path in config_paths(root) {
-        if let Ok(Some(file)) = parse_config_file_if_present(&path)
+        if let Ok(Some(file)) = parse_config_file_if_present(&path, None)
             && let Some(plan_preset) = file.plan_preset
         {
             return Some(plan_preset);
@@ -1121,35 +1122,37 @@ pub(crate) fn inspect_config_files(root: &Path, preset_name: Option<&str>) -> Co
     let mut inspection_errors = Vec::new();
     let paths = config_paths(root)
         .into_iter()
-        .map(|path| match parse_config_file_if_present(&path) {
-            Ok(Some(file)) => {
-                if let Some(name) = preset_name
-                    && let Some(preset) = file.presets.get(name)
-                {
-                    preset_found = true;
-                    merge_preset(&mut merged, preset);
+        .map(
+            |path| match parse_config_file_if_present(&path, preset_name) {
+                Ok(Some(file)) => {
+                    if let Some(name) = preset_name
+                        && let Some(preset) = file.presets.get(name)
+                    {
+                        preset_found = true;
+                        merge_preset(&mut merged, preset);
+                    }
+                    ConfigPathInspection {
+                        path,
+                        exists: true,
+                        parse_error: None,
+                    }
                 }
-                ConfigPathInspection {
+                Ok(None) => ConfigPathInspection {
                     path,
-                    exists: true,
+                    exists: false,
                     parse_error: None,
+                },
+                Err(error) => {
+                    let error = format!("{error:#}");
+                    inspection_errors.push(error.clone());
+                    ConfigPathInspection {
+                        path,
+                        exists: true,
+                        parse_error: Some(error),
+                    }
                 }
-            }
-            Ok(None) => ConfigPathInspection {
-                path,
-                exists: false,
-                parse_error: None,
             },
-            Err(error) => {
-                let error = format!("{error:#}");
-                inspection_errors.push(error.clone());
-                ConfigPathInspection {
-                    path,
-                    exists: true,
-                    parse_error: Some(error),
-                }
-            }
-        })
+        )
         .collect();
     let preset = preset_name.map(|name| {
         if preset_found {
@@ -1173,15 +1176,25 @@ pub(crate) fn inspect_config_files(root: &Path, preset_name: Option<&str>) -> Co
     }
 }
 
-fn parse_config_file_if_present(path: &Path) -> anyhow::Result<Option<ConfigFile>> {
+/// Parses `path`; `${ENV}` references are expanded only in the
+/// `[preset.<selected>]` section, so an unselected preset cannot block startup.
+/// Every preset key still gets the usual key and value-shape validation.
+fn parse_config_file_if_present(
+    path: &Path,
+    selected: Option<&str>,
+) -> anyhow::Result<Option<ConfigFile>> {
     match std::fs::read_to_string(path) {
-        Ok(text) => parse_config_file(path, &text).map(Some),
+        Ok(text) => parse_config_file(path, &text, selected).map(Some),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(err) => Err(err).with_context(|| format!("failed to read {}", path.display())),
     }
 }
 
-fn parse_config_file(path: &Path, text: &str) -> anyhow::Result<ConfigFile> {
+fn parse_config_file(
+    path: &Path,
+    text: &str,
+    selected: Option<&str>,
+) -> anyhow::Result<ConfigFile> {
     if let Err(error) = text.parse::<toml::Table>() {
         bail!("{}", validation::invalid_toml_location(path, text, &error));
     }
@@ -1222,7 +1235,16 @@ fn parse_config_file(path: &Path, text: &str) -> anyhow::Result<ConfigFile> {
             ConfigSection::Preset(name) => {
                 let source = format!("preset:{name}");
                 let preset = file.presets.entry(name.clone()).or_default();
-                parse_preset_key(path, line_no, name, key, value, &source, preset)?;
+                env_deferral::parse_preset_key_deferring_env(
+                    path,
+                    line_no,
+                    name,
+                    key,
+                    value,
+                    &source,
+                    preset,
+                    selected != Some(name.as_str()),
+                )?;
             }
             ConfigSection::Other => {}
         }
@@ -1338,7 +1360,7 @@ pub(crate) fn preset_names(root: &Path) -> Vec<String> {
 
 pub(crate) fn configured_extension_root(root: &Path) -> anyhow::Result<Option<PathBuf>> {
     for path in config_paths(root) {
-        if let Ok(Some(file)) = parse_config_file_if_present(&path)
+        if let Ok(Some(file)) = parse_config_file_if_present(&path, None)
             && let Some(value) = file.extension_root
         {
             let configured = PathBuf::from(value.value);
@@ -1391,6 +1413,7 @@ fn parse_string_value(
 }
 
 fn expand_env_references(value: &str) -> anyhow::Result<String> {
+    let defer = env_deferral::env_expansion_is_deferred();
     let mut output = String::new();
     let mut remaining = value;
     while let Some(start) = remaining.find("${") {
@@ -1408,6 +1431,11 @@ fn expand_env_references(value: &str) -> anyhow::Result<String> {
             || !characters.all(|character| character == '_' || character.is_ascii_alphanumeric())
         {
             bail!("contains invalid environment reference '${{{name}}}'");
+        }
+        if defer {
+            env_deferral::note_env_expansion_deferred();
+            remaining = &reference[end + 1..];
+            continue;
         }
         let resolved = std::env::var(name)
             .with_context(|| format!("environment variable {name} is not set or is not Unicode"))?;
