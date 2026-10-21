@@ -80,6 +80,38 @@ jobs:
         env:
           COMMANDAGENT_PROBE_VERDICT_FILE: ${{ runner.temp }}/probe-verdicts.txt
         run: bash scripts/ci.sh
+      - name: Sandboxed cargo with an external toolchain
+        run: |
+          # Runs the one ignored test that proves `cargo --version` works through
+          # the OS sandbox when the toolchain lives outside $HOME. The toolchain is
+          # installed fresh into a directory this step owns (no copy of the runner
+          # user's home, no credentials). The shell is `bash -eo pipefail`, so any
+          # failing command, a missing toolchain or a test that did not run fails
+          # the step; nothing here is `|| true` or continue-on-error.
+          toolchain_root=/opt/commandagent-sandbox-toolchain
+          sudo mkdir -p "$toolchain_root"
+          sudo chown "$(id -u):$(id -g)" "$toolchain_root"
+          export RUSTUP_HOME="$toolchain_root/rustup"
+          export CARGO_HOME="$toolchain_root/cargo"
+          mkdir -p "$RUSTUP_HOME" "$CARGO_HOME"
+          for dir in "$RUSTUP_HOME" "$CARGO_HOME"; do
+            real="$(realpath "$dir")"
+            case "$real/" in
+              "$(realpath "$HOME")"/*) echo "toolchain dir $real is inside \$HOME" >&2; exit 1 ;;
+            esac
+          done
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o "$toolchain_root/rustup-init.sh"
+          sh "$toolchain_root/rustup-init.sh" -y --no-modify-path --profile minimal --default-toolchain stable
+          test -x "$CARGO_HOME/bin/cargo"
+          # Build with the already-installed toolchain, then run the test binary
+          # directly so only the test sees the external RUSTUP_HOME/CARGO_HOME.
+          unset RUSTUP_HOME CARGO_HOME
+          exe="$(cargo test --lib --no-run --message-format=json | jq -r 'select(.profile.test == true and (.target.kind | index("lib"))) | .executable' | tail -n 1)"
+          test -n "$exe"
+          out="$(RUSTUP_HOME="$toolchain_root/rustup" CARGO_HOME="$toolchain_root/cargo" PATH="$toolchain_root/cargo/bin:$PATH" "$exe" --ignored --exact bounded_process::tests::sandboxed_cargo_runs_with_toolchain_outside_home --nocapture 2>&1)"
+          printf '%s\n' "$out"
+          # `--exact` with an unmatched name exits 0 with "0 passed": require the one run.
+          printf '%s\n' "$out" | grep -q '^test result: ok\. 1 passed; 0 failed'
       - name: Report isolation probe verdicts
         if: always()
         env:

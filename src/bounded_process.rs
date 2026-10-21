@@ -729,43 +729,48 @@ mod tests {
     /// image: `RUSTUP_HOME=/usr/local/rustup`, `CARGO_HOME=/usr/local/cargo`)
     /// must run `cargo --version` through the real OS sandbox wrap. Without the
     /// two variables the rustup proxy looks under `$HOME/.rustup` and fails.
-    /// The test reports why it did not run instead of passing silently.
+    ///
+    /// Ignored by default: it needs an externally provisioned toolchain. The CI
+    /// step "Sandboxed cargo with an external toolchain" runs it with
+    /// `--ignored --exact`. When run explicitly, a missing prerequisite is a
+    /// failure, never a skipped pass.
     #[cfg(target_os = "linux")]
     #[test]
+    #[ignore = "needs RUSTUP_HOME/CARGO_HOME outside $HOME and an OS sandbox backend; run explicitly with --ignored --exact (CI step)"]
     fn sandboxed_cargo_runs_with_toolchain_outside_home() {
-        use crate::tools::os_sandbox::{self, SandboxAvailability, SandboxMode, SandboxPolicy};
+        use crate::tools::os_sandbox::{
+            self, SandboxAvailability, SandboxMode, SandboxPolicy, SandboxTestState,
+        };
 
-        struct ResetSandbox;
-        impl Drop for ResetSandbox {
-            fn drop(&mut self) {
-                os_sandbox::reset_for_test();
-            }
-        }
-
+        // Lock order: env lock first, sandbox state second (dropped first).
         let _guard = ENV_TEST_LOCK
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _state = SandboxTestState::acquire();
+
         let home = std::env::var_os("HOME")
             .map(PathBuf::from)
-            .unwrap_or_default();
+            .filter(|path| path.is_absolute())
+            .expect("HOME must be set to an absolute path to prove the toolchain is outside it");
+        let home_real = home.canonicalize().unwrap_or_else(|_| home.clone());
         let outside_home = |name: &str| {
-            std::env::var_os(name)
+            let path = std::env::var_os(name)
                 .map(PathBuf::from)
-                .filter(|path| path.is_absolute() && !path.starts_with(&home))
+                .unwrap_or_else(|| panic!("{name} must be set for this explicit run"));
+            assert!(path.is_absolute(), "{name} must be absolute: {path:?}");
+            let real = path
+                .canonicalize()
+                .unwrap_or_else(|error| panic!("{name} must exist: {path:?}: {error}"));
+            assert!(
+                !real.starts_with(&home) && !real.starts_with(&home_real),
+                "{name} must resolve outside $HOME: {real:?}"
+            );
+            real
         };
-        if outside_home("RUSTUP_HOME").is_none() || outside_home("CARGO_HOME").is_none() {
-            eprintln!(
-                "SKIPPED sandboxed_cargo_runs_with_toolchain_outside_home: RUSTUP_HOME and \
-                 CARGO_HOME are not both set outside $HOME"
-            );
-            return;
-        }
+        outside_home("RUSTUP_HOME");
+        outside_home("CARGO_HOME");
         if let SandboxAvailability::Unavailable(reason) = os_sandbox::probe() {
-            eprintln!(
-                "SKIPPED sandboxed_cargo_runs_with_toolchain_outside_home: no OS sandbox \
-                 backend: {reason}"
-            );
-            return;
+            panic!("no OS sandbox backend for this explicit run: {reason}");
         }
 
         let dir = tempfile::tempdir().unwrap();
@@ -773,7 +778,6 @@ mod tests {
         let run_tmp = dir.path().join("run-tmp");
         std::fs::create_dir_all(&workspace).unwrap();
         std::fs::create_dir_all(&run_tmp).unwrap();
-        let _reset = ResetSandbox;
         os_sandbox::install_for_test(
             SandboxMode::Required,
             SandboxPolicy::with_home(&workspace, &run_tmp, home),
