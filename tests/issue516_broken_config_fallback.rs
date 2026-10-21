@@ -5,8 +5,13 @@ use commandagent::cli::Cli;
 use commandagent::config::Config;
 use commandagent::planner::extension_profiles;
 
+// Issue #516 originally pinned that a broken higher-priority config file was
+// skipped and the lower-priority `extension_root` applied. Issue #782
+// (user decision, 2026-10-21) replaced that: an unknown top-level key in any
+// config layer is a startup error naming file, line and key, and a lower layer
+// is never used in its place.
 #[test]
-fn broken_higher_priority_config_falls_back_to_lower_priority_extension_root() {
+fn broken_higher_priority_config_is_an_error_and_does_not_fall_back_to_lower_priority() {
     let workspace = tempfile::tempdir().unwrap();
     let workspace_root = workspace.path().canonicalize().unwrap();
     let extension_root = workspace_root.join("extensions");
@@ -26,16 +31,22 @@ fn broken_higher_priority_config_falls_back_to_lower_priority_extension_root() {
     )
     .unwrap();
 
-    Config::from_cli(Cli::parse_from([
+    let error = Config::from_cli(Cli::parse_from([
         "commandagent",
         "--cwd",
         workspace_root.to_str().unwrap(),
     ]))
-    .expect("a broken higher-priority config must not abort configuration resolution");
-
-    assert_eq!(
+    .map(|_| ())
+    .expect_err("a broken higher-priority config must fail startup");
+    let message = format!("{error:#}");
+    assert!(
+        message.contains(".commandagent/config.toml:1 unknown config key 'extension_roots'"),
+        "{message}"
+    );
+    assert!(!message.contains("broken"), "{message}");
+    assert_ne!(
         extension_profiles::registered_root().as_deref(),
         Some(extension_root.as_path()),
-        "extension_root must fall back to the lower-priority config file"
+        "the lower-priority extension_root must not be used"
     );
 }
