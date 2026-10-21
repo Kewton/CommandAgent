@@ -1,0 +1,20 @@
+{
+  "contract": {
+    "event": "bash_sandbox_status",
+    "parent_destination": "evidence/workflow-events.jsonl",
+    "downgrades_per_run": 1,
+    "start_status_in_parent": false
+  },
+  "cases": [
+    {
+      "id": "downgrade-in-parent-stage",
+      "downgrade": "parent",
+      "expect": {"workflow_events_lines": 1, "child_lines": 0}
+    },
+    {
+      "id": "downgrade-in-child-run",
+      "downgrade": "child",
+      "expect": {"workflow_events_lines": 0, "child_lines": 1}
+    }
+  ]
+}
