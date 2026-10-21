@@ -163,6 +163,7 @@ checks still run first; the sandbox adds confinement for the writes, reads, and
   backend is Seatbelt and is unavailable under a nested sandbox (`rc=71`); on
   Linux it is Landlock and is unavailable below ABI1 (kernel 5.13), when
   disabled, or when a seccomp filter denies it.
+- **TUI:** a status with `applied=false` (and a mode other than `off`) also prints one fixed line in the TUI scrollback, with or without an events file; it names the mode and backend and never echoes the `reason`. An applied sandbox prints nothing.
 - Dependency caches (cargo, npm, pip, Playwright browsers) stay writable so
   builds and tests work; they remain a contamination path outside the workspace.
 

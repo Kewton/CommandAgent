@@ -1,0 +1,33 @@
+case_id = "issue803-sandbox-status-projection"
+source = "Issue #803 (child of #697): a bash_sandbox_status downgrade (applied=false, mode != off) is projected as one fixed scrollback line by src/tui/sandbox_status.rs, with or without an events path; an applied or off status renders nothing; the reason is never echoed. src/tui/sandbox_status.rs and src/tools/os_sandbox/events_scope/tests.rs drive the same cases; this corpus fixes the table with the existing fixture_contains and json_fields checks."
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[json_fields]
+fixtures/cases.json:contract.event = "bash_sandbox_status"
+fixtures/cases.json:contract.lines_per_downgrade = "1"
+fixtures/cases.json:contract.reason_echoed = "false"
+
+[fixture_contains]
+fixtures/cases.json = [
+  "\"id\": \"auto-downgrade\"",
+  "\"id\": \"required-downgrade\""
+]
