@@ -16,7 +16,7 @@
 //! location denies its target and a workspace under a symlinked root still
 //! matches. No secret bytes and no credential value ever appear here.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 /// Home-relative secret locations whose reads are denied (Issue #657). Aligned
 /// with #501's credential rule (`sensitive_name_rule` and `path_rule`) plus the
@@ -98,35 +98,82 @@ fn push_unique(locations: &mut Vec<PathBuf>, location: PathBuf) {
     }
 }
 
-/// Resolve a path through every symlink that exists. A path that does not exist
-/// yet (a secret a process creates during the run) keeps its missing tail: the
-/// nearest existing ancestor is canonicalized and the remaining names are
-/// appended to that real path, so the denial follows a symlinked ancestor to its
-/// target (Issue #788). Callers that must also deny the spelling as written keep
-/// the original path beside this one. The result is a snapshot taken when the
-/// sandbox is installed; a relink by a process outside the sandbox afterwards is
-/// not prevented.
+/// The most dangling links one resolution follows before it stops and keeps the
+/// rest as written, so a link cycle ends.
+const MAX_DANGLING_LINKS: usize = 40;
+
+/// Resolve a path through every symlink on it. A path that does not exist yet (a
+/// secret a process creates during the run) keeps its missing tail: the existing
+/// part is canonicalized and the remaining names are appended to that real path,
+/// so the denial follows a symlinked ancestor to its target (Issue #788). An
+/// ancestor that is a dangling link is followed by `read_link` (a relative
+/// target is taken from the link's directory), at most [`MAX_DANGLING_LINKS`]
+/// times; past that, or when the target cannot be read, the rest stays as
+/// written. Callers that must also deny the spelling as written keep the original
+/// path beside this one. The result is a snapshot taken when the sandbox is
+/// installed; a relink by a process outside the sandbox afterwards is not
+/// prevented.
 pub(super) fn resolve_nearest_existing(path: &Path) -> PathBuf {
+    let mut budget = MAX_DANGLING_LINKS;
+    resolve_with_budget(path, &mut budget)
+}
+
+fn resolve_with_budget(path: &Path, budget: &mut usize) -> PathBuf {
     if let Ok(resolved) = path.canonicalize() {
         return resolved;
     }
-    let mut missing = Vec::new();
-    let mut current = path;
-    while let Some(name) = current.file_name() {
-        missing.push(name);
-        let Some(parent) = current
-            .parent()
-            .filter(|parent| !parent.as_os_str().is_empty())
-        else {
-            break;
+    if !path.is_absolute() {
+        return path.to_path_buf();
+    }
+    let components: Vec<Component> = path.components().collect();
+    let mut resolved = PathBuf::from("/");
+    for (index, component) in components.iter().enumerate() {
+        let name = match component {
+            Component::Normal(name) => name,
+            Component::ParentDir => {
+                resolved.pop();
+                continue;
+            }
+            _ => continue,
         };
-        if let Ok(mut resolved) = parent.canonicalize() {
-            resolved.extend(missing.iter().rev());
+        let candidate = resolved.join(name);
+        let is_link = std::fs::symlink_metadata(&candidate)
+            .map(|meta| meta.file_type().is_symlink())
+            .unwrap_or(false);
+        if let Ok(real) = candidate.canonicalize() {
+            resolved = real;
+        } else if is_link {
+            // A dangling or cyclic link: follow it by hand within the budget.
+            let target = std::fs::read_link(&candidate).ok();
+            match target {
+                Some(target) if *budget > 0 => {
+                    *budget -= 1;
+                    let target = if target.is_absolute() {
+                        target
+                    } else {
+                        resolved.join(target)
+                    };
+                    resolved = resolve_with_budget(&target, budget);
+                }
+                _ => resolved = candidate,
+            }
+        } else {
+            // Nothing exists here, so nothing below can be a link.
+            resolved = candidate;
+        }
+        if index + 1 < components.len() && !resolved.exists() && !is_link {
+            resolved.extend(
+                components[index + 1..]
+                    .iter()
+                    .filter_map(|rest| match rest {
+                        Component::Normal(name) => Some(*name),
+                        _ => None,
+                    }),
+            );
             return resolved;
         }
-        current = parent;
     }
-    path.to_path_buf()
+    resolved
 }
 
 /// The workspace credential basenames denied for reading, mirroring #501's
@@ -351,6 +398,29 @@ mod missing_secret_tests {
             resolve_nearest_existing(std::path::Path::new("relative/missing")),
             std::path::Path::new("relative/missing")
         );
+    }
+
+    #[test]
+    fn a_dangling_link_is_followed_by_hand_and_a_cycle_ends() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().canonicalize().unwrap();
+        std::fs::create_dir_all(base.join("real")).unwrap();
+        // Absolute and relative dangling targets, and a chain of them.
+        std::os::unix::fs::symlink(base.join("real/ssh"), base.join("abs")).unwrap();
+        std::os::unix::fs::symlink("real/ssh", base.join("rel")).unwrap();
+        std::os::unix::fs::symlink(base.join("abs"), base.join("chain")).unwrap();
+        for link in ["abs", "rel", "chain"] {
+            assert_eq!(
+                resolve_nearest_existing(&base.join(link).join("id")),
+                base.join("real/ssh/id"),
+                "{link}"
+            );
+        }
+        // A cycle ends and keeps the rest as written.
+        std::os::unix::fs::symlink(base.join("b"), base.join("a")).unwrap();
+        std::os::unix::fs::symlink(base.join("a"), base.join("b")).unwrap();
+        let cyclic = resolve_nearest_existing(&base.join("a/id"));
+        assert!(cyclic.ends_with("id"), "{cyclic:?}");
     }
 
     #[test]

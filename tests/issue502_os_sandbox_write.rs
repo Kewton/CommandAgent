@@ -2757,6 +2757,42 @@ mod cache_policy_os {
         os_sandbox::reset_for_test();
     }
 
+    /// Issue #788: `~/.ssh` is a dangling link to `~/real/ssh` and `~/.npm` is a
+    /// link to `~/real`. The cache then holds the place the link points at, so it
+    /// grants no write: a command could otherwise create `~/.ssh/authorized_keys`.
+    #[test]
+    fn a_cache_over_the_target_of_a_dangling_secret_link_grants_no_write() {
+        let _guard = sandbox_lock();
+        if !os_layer_ready() {
+            return;
+        }
+        let fixture = fixture();
+        let home = home_of(&fixture);
+        let real = home.join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        symlink(real.join("ssh"), home.join(".ssh")).unwrap();
+        symlink(&real, home.join(".npm")).unwrap();
+        install(&fixture, &home);
+
+        for command in [
+            format!("mkdir -p '{}'", home.join(".npm/ssh").display()),
+            format!(
+                "echo pwn > '{}'",
+                home.join(".npm/authorized_keys").display()
+            ),
+        ] {
+            let output = run_wrapped(&fixture.root, &command);
+            assert!(
+                !output.success(),
+                "`{command}` must be denied; stderr={}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        assert!(!real.join("ssh").exists());
+        assert!(!real.join("authorized_keys").exists());
+        os_sandbox::reset_for_test();
+    }
+
     /// A cache linked outside the home, a dangling link, and a non-directory are
     /// not write grants, and the outside canary is unchanged.
     #[test]

@@ -1494,8 +1494,140 @@ fn read_credential_created_during_run(
             std::thread::sleep(Duration::from_millis(100));
         }
         assert!(ready.exists(), "the wrapped command must start");
+        std::fs::create_dir_all(create_path.parent().unwrap()).unwrap();
         std::fs::write(create_path, format!("{CARGO_CANARY}\n")).unwrap();
         std::fs::write(&go, "").unwrap();
         child.join().expect("the wrapped command thread")
     })
+}
+
+/// Issue #788: `~/.ssh` is a dangling link (its target does not exist when the
+/// sandbox is installed). A key created at the target during the run must stay
+/// unreadable by either spelling. The home and the canary are tempdir fakes.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn applied_secret_created_during_the_run_below_a_dangling_link_stays_denied() {
+    let _guard = sandbox_lock();
+    if !read_layer_ready() {
+        return;
+    }
+    let fixture = fixture();
+    let home = fixture._dir.path().join("home788b");
+    let target = home.join("real/ssh");
+    std::fs::create_dir_all(home.join("real")).unwrap();
+    std::os::unix::fs::symlink(&target, home.join(".ssh")).unwrap();
+    install_available_for(
+        &fixture.root,
+        &fixture._dir.path().join("home788b-run-tmp"),
+        &home,
+    );
+
+    for path in [home.join(".ssh/id_ed25519"), target.join("id_ed25519")] {
+        let _ = std::fs::remove_dir_all(&target);
+        let output =
+            read_credential_created_during_run(&fixture.root, &target.join("id_ed25519"), &path);
+        assert!(
+            !output.success() && !String::from_utf8_lossy(&output.stdout).contains(CARGO_CANARY),
+            "{}: a key created during the run must stay denied; stdout={:?} stderr={:?}",
+            path.display(),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    os_sandbox::reset_for_test();
+}
+
+/// Issue #788: a secret created during the run stays denied when the way to it
+/// goes through a two-step link (`~/.cargo -> hop -> real`) or when a parent of
+/// its parent is a link (`~/.config -> real-config`, `gh` created below it).
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn applied_secret_created_during_the_run_behind_a_chain_or_a_linked_grandparent_stays_denied() {
+    use std::os::unix::fs::symlink;
+
+    let _guard = sandbox_lock();
+    if !read_layer_ready() {
+        return;
+    }
+    let fixture = fixture();
+    let home = fixture._dir.path().join("home788c");
+    let real_cargo = fixture._dir.path().join("real-cargo788c");
+    let real_config = fixture._dir.path().join("real-config788c");
+    for dir in [&home, &real_cargo, &real_config] {
+        std::fs::create_dir_all(dir).unwrap();
+    }
+    symlink(&real_cargo, home.join("hop")).unwrap();
+    symlink(home.join("hop"), home.join(".cargo")).unwrap();
+    symlink(&real_config, home.join(".config")).unwrap();
+    install_available_for(
+        &fixture.root,
+        &fixture._dir.path().join("home788c-run-tmp"),
+        &home,
+    );
+
+    let cases = [
+        (
+            home.join(".cargo/credentials.toml"),
+            real_cargo.join("credentials.toml"),
+        ),
+        (
+            home.join(".config/gh/hosts.yml"),
+            real_config.join("gh/hosts.yml"),
+        ),
+    ];
+    for (read_path, create_path) in cases {
+        let _ = std::fs::remove_dir_all(real_config.join("gh"));
+        let _ = std::fs::remove_file(real_cargo.join("credentials.toml"));
+        let output = read_credential_created_during_run(&fixture.root, &create_path, &read_path);
+        assert!(
+            !output.success() && !String::from_utf8_lossy(&output.stdout).contains(CARGO_CANARY),
+            "{}: the secret created during the run must stay denied; stdout={:?} stderr={:?}",
+            read_path.display(),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    os_sandbox::reset_for_test();
+}
+
+/// Issue #788: a link cycle in place of a secret location (and of a cache)
+/// cannot be resolved. Installing still works, nothing is readable or writable
+/// through the cycle, and an ordinary file stays readable.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn applied_link_cycle_at_a_secret_location_fails_closed() {
+    use std::os::unix::fs::symlink;
+
+    let _guard = sandbox_lock();
+    if !read_layer_ready() {
+        return;
+    }
+    let fixture = fixture();
+    let home = fixture._dir.path().join("home788d");
+    std::fs::create_dir_all(&home).unwrap();
+    symlink(home.join("loop-b"), home.join("loop-a")).unwrap();
+    symlink(home.join("loop-a"), home.join("loop-b")).unwrap();
+    symlink(home.join("loop-a"), home.join(".ssh")).unwrap();
+    symlink(home.join("loop-a"), home.join(".npm")).unwrap();
+    std::fs::write(home.join("plain.txt"), "PLAIN_OK_788\n").unwrap();
+    install_available_for(
+        &fixture.root,
+        &fixture._dir.path().join("home788d-run-tmp"),
+        &home,
+    );
+
+    for command in [
+        format!("cat '{}'", home.join(".ssh/id_ed25519").display()),
+        format!("echo pwn > '{}'", home.join(".ssh/id_ed25519").display()),
+        format!("echo pwn > '{}'", home.join(".npm/x").display()),
+    ] {
+        let output = run_wrapped(&fixture.root, &command);
+        assert!(!output.success(), "`{command}` must fail closed");
+    }
+    assert_read_allowed(
+        &fixture.root,
+        &format!("cat '{}'", home.join("plain.txt").display()),
+        "PLAIN_OK_788",
+    );
+    os_sandbox::reset_for_test();
 }
