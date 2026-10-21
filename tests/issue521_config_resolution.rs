@@ -2087,4 +2087,36 @@ fn unselected_preset_with_unset_env_reference_does_not_block_startup() {
         selected.contains("COMMANDAGENT_TEST_UNSET_ENV_782"),
         "{selected}"
     );
+    // Selecting a different preset starts and uses that preset's values.
+    let other_selected = run_case(&Case {
+        name: "another preset selected while one references an unset env var",
+        files: &[("ws:.commandagent/config.toml", FILE)],
+        args: &["--preset", "ok"],
+        options: no_options(),
+        fake_env: None,
+        forbid: &[],
+        expect: "",
+    });
+    assert!(other_selected.starts_with("OK\n"), "{other_selected}");
+    assert!(other_selected.contains("model=\"m\""), "{other_selected}");
+}
+
+#[test]
+fn unselected_preset_with_unknown_key_is_still_an_error() {
+    const FILE: &str = "[preset.other]\nmodle = \"x\"\nmodel = \"${COMMANDAGENT_TEST_UNSET_ENV_782}\"\n\n[preset.ok]\nmodel = \"m\"\n";
+    let actual = run_case(&Case {
+        name: "unselected preset has an unknown key",
+        files: &[("ws:.commandagent/config.toml", FILE)],
+        args: &["--preset", "ok"],
+        options: no_options(),
+        fake_env: None,
+        forbid: &[],
+        expect: "",
+    });
+    assert!(actual.starts_with("ERR\n"), "{actual}");
+    assert!(actual.contains("preset.other.modle"), "{actual}");
+    assert!(
+        !actual.contains("COMMANDAGENT_TEST_UNSET_ENV_782"),
+        "{actual}"
+    );
 }

@@ -229,7 +229,7 @@ pub(super) fn resolve_named_preset(
     let mut found = false;
     let mut merged = PresetConfig::default();
     for path in config_paths(root) {
-        let Some(file) = parse_config_file_if_present(&path)? else {
+        let Some(file) = parse_config_file_if_present(&path, Some(name))? else {
             continue;
         };
         let Some(preset) = file.presets.get(name) else {

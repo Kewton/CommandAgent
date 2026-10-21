@@ -14,15 +14,33 @@ use super::{
     schema::{Carry, Intent, Node, Route, Workflow},
 };
 use crate::config::{Action, Config, IntentId, PlanPreset, Provider};
+use crate::tools::os_sandbox::events_scope::EventsScope;
 
 /// Runs a declarative workflow around the existing single-intent entry.
 pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow::Result<()> {
+    run_workflow_with(config, definition, origin, |child| {
+        crate::run_resolved_config_for_workflow(child).map_err(|e| e.to_string())
+    })
+}
+
+fn run_workflow_with<F>(
+    config: &Config,
+    definition: &Path,
+    origin: &Path,
+    run_child: F,
+) -> anyhow::Result<()>
+where
+    F: Fn(Config) -> Result<(), String>,
+{
     let yaml = fs::read_to_string(definition).context("read workflow definition")?;
     let workflow = Workflow::parse(&yaml).map_err(|e| anyhow::anyhow!(e.to_string()))?;
     let events_path = origin.join("evidence/workflow-events.jsonl");
     if let Some(parent) = events_path.parent() {
         fs::create_dir_all(parent)?;
     };
+    // A sandbox downgrade in this stage goes to the workflow's own events file; each
+    // child run enters its own scope and gives this one back when it ends.
+    let _events_scope = EventsScope::enter(Some(events_path.clone()));
     emit(
         &events_path,
         workflow_started_event(&workflow.entry, origin),
@@ -198,9 +216,7 @@ pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow
         super::node_pins::add_to_event(&mut created, &request);
         emit(&events_path, created)?;
         let execution = runner::execute_node(&request, &node_events, |req| {
-            execute_configured_node(config, node, req, &identity, |child| {
-                crate::run_resolved_config_for_workflow(child).map_err(|e| e.to_string())
-            })
+            execute_configured_node(config, node, req, &identity, &run_child)
         });
         if let Err(err) = execution {
             emit_node_run_stop_if_absent(&identity.events_path, "failed", Some(&err))?;
@@ -756,6 +772,10 @@ mod tests {
     use crate::planner::external_reproducer::ExternalReproducerBinding;
     use crate::providers::{AssistantReply, ChatClient};
     use crate::state::ConversationMessage;
+    use crate::tools::os_sandbox::events_scope::{EventsScope, current_path, downgrade_for_test};
+    use crate::tools::os_sandbox::{
+        SandboxAvailability, SandboxMode, SandboxPolicy, SandboxTestState, install_for_test,
+    };
     use crate::tools::registry::ToolSpec;
     use clap::Parser;
 
@@ -1226,6 +1246,7 @@ mod tests {
         let definition =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("workflows/recovery-circle-data.yaml");
 
+        let _sandbox = SandboxTestState::acquire();
         run_workflow(&config(&origin), &definition, &origin).unwrap();
 
         let circle: serde_json::Value = serde_json::from_slice(
@@ -1244,5 +1265,94 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    /// An origin whose failed run gives a derivable goal, so the first edge fires.
+    fn origin_with_failed_run(root: &Path) -> PathBuf {
+        let origin = root.join("origin");
+        let run_dir = origin.join(".anvil/runs/origin-run");
+        std::fs::create_dir_all(&run_dir).unwrap();
+        std::fs::create_dir_all(origin.join(".anvil/plans")).unwrap();
+        std::fs::write(
+            run_dir.join("events.jsonl"),
+            r#"{"event":"run_start","action":"Prompt(\"goal\")"}
+{"event":"run_stop","status":"failed"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            origin.join(".anvil/plans/recovery-origin.yaml"),
+            "version: 1\n",
+        )
+        .unwrap();
+        origin
+    }
+
+    fn status_lines(path: &Path) -> usize {
+        std::fs::read_to_string(path)
+            .map(|text| {
+                text.lines()
+                    .filter(|line| line.contains("\"bash_sandbox_status\""))
+                    .count()
+            })
+            .unwrap_or(0)
+    }
+
+    /// Run the workflow with a child that downgrades the sandbox `inside_child`
+    /// (to the child's file) or after its scope has been given back (the
+    /// parent's stage). Returns the parent and child status line counts.
+    fn run_with_downgrade(inside_child: bool) -> (usize, usize) {
+        let _sandbox = SandboxTestState::acquire();
+        let root = tempfile::tempdir().unwrap();
+        let policy = SandboxPolicy::with_home(
+            &root.path().join("work"),
+            &root.path().join("tmp"),
+            root.path().join("home"),
+        );
+        install_for_test(SandboxMode::Auto, policy, SandboxAvailability::Available);
+        let origin = origin_with_failed_run(root.path());
+        let definition =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("workflows/recovery-circle-data.yaml");
+        let child_events = root.path().join("child.jsonl");
+
+        run_workflow_with(&config(&origin), &definition, &origin, |_child| {
+            {
+                let _child_scope = EventsScope::enter(Some(child_events.clone()));
+                if inside_child {
+                    downgrade_for_test("fake backend failure");
+                }
+            }
+            if !inside_child {
+                downgrade_for_test("fake backend failure");
+            }
+            Ok(())
+        })
+        .unwrap();
+
+        assert_eq!(current_path(), None, "the parent scope is given back");
+        (
+            status_lines(&origin.join("evidence/workflow-events.jsonl")),
+            status_lines(&child_events),
+        )
+    }
+
+    const PARENT_STATUS_CASES: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/corpus/apps/issue804-workflow-parent-sandbox-status/fixtures/cases.json"
+    ));
+
+    #[test]
+    fn parent_and_child_downgrades_follow_the_corpus_table() {
+        let corpus: serde_json::Value = serde_json::from_str(PARENT_STATUS_CASES).unwrap();
+        let cases = corpus["cases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let id = case["id"].as_str().unwrap();
+            let got = run_with_downgrade(case["downgrade"] == "child");
+            let want = (
+                case["expect"]["workflow_events_lines"].as_u64().unwrap() as usize,
+                case["expect"]["child_lines"].as_u64().unwrap() as usize,
+            );
+            assert_eq!(got, want, "{id}");
+        }
     }
 }
