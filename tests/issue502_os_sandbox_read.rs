@@ -1524,6 +1524,7 @@ fn applied_secret_created_during_the_run_below_a_dangling_link_stays_denied() {
 
     for path in [home.join(".ssh/id_ed25519"), target.join("id_ed25519")] {
         let _ = std::fs::remove_file(target.join("id_ed25519"));
+        let _ = std::fs::remove_dir(&target);
         let output =
             read_credential_created_during_run(&fixture.root, &target.join("id_ed25519"), &path);
         assert!(
@@ -1577,6 +1578,7 @@ fn applied_secret_created_during_the_run_behind_a_chain_or_a_linked_grandparent_
     ];
     for (read_path, create_path) in cases {
         let _ = std::fs::remove_file(real_config.join("gh/hosts.yml"));
+        let _ = std::fs::remove_dir(real_config.join("gh"));
         let _ = std::fs::remove_file(real_cargo.join("credentials.toml"));
         let output = read_credential_created_during_run(&fixture.root, &create_path, &read_path);
         assert!(
