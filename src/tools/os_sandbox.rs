@@ -38,6 +38,8 @@ use clap::ValueEnum;
 /// The dependency-cache write allowance shared by both backends (Issue #772).
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub mod cache_policy;
+/// The run-scoped destination of the downgrade event (Issue #773).
+pub mod events_scope;
 #[cfg(target_os = "linux")]
 pub mod landlock;
 #[cfg(target_os = "macos")]
@@ -646,8 +648,8 @@ fn store(
 }
 
 /// The events file a downgrade is reported to. The run's path is chosen by the
-/// binary at run start, so it hands it over with [`set_events_path`]; without it
-/// a downgrade is recorded in the status only.
+/// binary at run start, so it hands it over with [`events_scope::EventsScope`];
+/// without it a downgrade is projected and recorded in the status only.
 static EVENTS_PATH: Mutex<Option<PathBuf>> = Mutex::new(None);
 
 /// Tell the sandbox where the run's events file is, so a later downgrade can
@@ -687,9 +689,10 @@ fn mark_backend_unavailable(reason: String) {
     }
     state.availability = SandboxAvailability::Unavailable(reason);
     drop(installed);
-    let path = EVENTS_PATH.lock().expect("sandbox events path").clone();
-    if let (Some(path), Some(status)) = (path, status()) {
-        crate::eval_events::emit(Some(&path), status_event(&status));
+    if let Some(status) = status() {
+        // Without a path the event is projected but not recorded on disk.
+        let path = events_scope::current_path();
+        events_scope::announce(path.as_deref(), status_event(&status));
     }
 }
 

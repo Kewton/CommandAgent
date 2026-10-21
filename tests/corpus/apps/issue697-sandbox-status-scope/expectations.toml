@@ -1,0 +1,36 @@
+case_id = "issue697-sandbox-status-scope"
+source = "Issue #773 (child of #697): the sandbox downgrade event goes to the destination of the run that is current. A nested child run gives the parent's destination back when it ends, fails or unwinds; restoring never re-enables the backend; a run without an events path still projects the status and records nothing on disk. src/tools/os_sandbox/events_scope/tests.rs consumes fixtures/cases.json; this corpus fixes its routing table with the existing fixture_contains and json_fields checks."
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[json_fields]
+fixtures/cases.json:contract.event = "bash_sandbox_status"
+fixtures/cases.json:contract.downgrades_per_run = "1"
+fixtures/cases.json:contract.restore_reinstates_backend = "false"
+
+[fixture_contains]
+fixtures/cases.json = [
+  "\"id\": \"parent-child-parent\"",
+  "\"id\": \"none-child-none\"",
+  "\"id\": \"child-without-path\"",
+  "\"id\": \"downgrade-after-child-returns\"",
+  "\"id\": \"consecutive-children\""
+]

@@ -256,6 +256,11 @@ fn run_config(
     let _terminal_notification_guard = tui::terminal_notifications::install();
     let _presentation_guard = tui::presentation::install(&config);
     let records_run = action_records_run_evidence(&config.action);
+    // Declared before the run start and stop so it drops after them, on every
+    // exit path: a nested child gives the parent's destination back (Issue #773).
+    let _sandbox_events_scope = records_run.then(|| {
+        tools::os_sandbox::events_scope::EventsScope::enter(config.eval_events_path.clone())
+    });
     if records_run {
         emit_run_start(&config);
     }
@@ -751,7 +756,6 @@ fn emit_run_start(config: &Config) {
             "build_timestamp": build_info::TIMESTAMP,
         }),
     );
-    tools::os_sandbox::set_events_path(config.eval_events_path.clone());
     if let Some(sandbox) = tools::os_sandbox::status() {
         eval_events::emit(
             config.eval_events_path.as_deref(),
