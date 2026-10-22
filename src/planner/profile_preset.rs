@@ -1,6 +1,5 @@
 use std::path::Path;
 
-use crate::planner::profile::DomainProfile;
 use crate::planner::step_plan::{PlanStep, StepPlan};
 
 pub(crate) fn nextjs_setup_fallback(root: &Path, goal: &str) -> Option<StepPlan> {
@@ -14,7 +13,7 @@ pub(crate) fn nextjs_setup_fallback(root: &Path, goal: &str) -> Option<StepPlan>
 pub(crate) fn python_cli_setup_fallback(root: &Path, goal: &str) -> Option<StepPlan> {
     fallback_setup_plan(
         goal,
-        crate::planner::profiles::python_cli::PythonCliProfile.setup_scaffold_paths(root),
+        crate::planner::profiles::python_cli::contract_scaffold_paths(root, goal),
         python_cli_instruction,
     )
 }
@@ -97,4 +96,43 @@ fn phase_id_and_task_text(goal: &str) -> Option<String> {
 
 fn compact_single_line(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::python_cli_setup_fallback;
+    use crate::planner::profiles::python_cli::complete_scaffold;
+
+    #[test]
+    fn python_cli_setup_fallback_uses_goal_package_not_default_app() {
+        let dir = tempfile::tempdir().unwrap();
+        let goal = "Set up the project scaffold for csv_stats.py";
+
+        let plan = python_cli_setup_fallback(dir.path(), goal).expect("fallback plan");
+        let paths = &plan.steps[0].expected_paths;
+        assert!(
+            paths.contains(&"src/csv_stats/main.py".to_string()),
+            "{paths:?}"
+        );
+        assert!(!paths.contains(&"src/app/main.py".to_string()), "{paths:?}");
+
+        complete_scaffold(dir.path(), paths).unwrap();
+        assert!(dir.path().join("src/csv_stats/main.py").is_file());
+        assert!(!dir.path().join("src/app").exists());
+        let pyproject = std::fs::read_to_string(dir.path().join("pyproject.toml")).unwrap();
+        assert!(pyproject.contains("csv_stats.main:main"), "{pyproject}");
+    }
+
+    #[test]
+    fn python_cli_complete_scaffold_keeps_existing_goal_package() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src/csv_stats")).unwrap();
+        std::fs::write(dir.path().join("src/csv_stats/main.py"), "print('x')\n").unwrap();
+
+        let goal = "Set up the project scaffold for csv_stats.py";
+        let plan = python_cli_setup_fallback(dir.path(), goal).expect("fallback plan");
+        complete_scaffold(dir.path(), &plan.steps[0].expected_paths).unwrap();
+
+        assert!(!dir.path().join("src/app").exists());
+    }
 }

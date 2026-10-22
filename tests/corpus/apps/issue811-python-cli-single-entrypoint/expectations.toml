@@ -1,0 +1,33 @@
+case_id = "issue811-python-cli-single-entrypoint"
+source = "Issue #811 generality G1 IC-8 (2026-10-22) python-cli final acceptance must see one src/<package>/main.py and a matching console script"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["python-cli", "single entrypoint"]
+acceptance_passed = true
+primary_reason = "pass"
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/cases.json = [
+  "\"id\": \"two-packages\"",
+  "\"id\": \"one-package\"",
+  "\"id\": \"goal-explicit-filename\"",
+  "\"scripts\": {\"csv-summarizer\": \"app.main:main\"}",
+  "\"src/app/main.py\", \"src/csv_summarizer/main.py\""
+]
