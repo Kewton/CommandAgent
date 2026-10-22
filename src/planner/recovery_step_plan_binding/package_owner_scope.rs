@@ -142,7 +142,11 @@ pub(crate) fn ordered_split(plan: &StepPlan, path: &str, first: &str, second: &s
     let runtime = crate::planner::profile::resolve_profile_runtime(
         crate::planner::profile_descriptor::NEXTJS_PROFILE_ID,
     );
-    if runtime.guidance(&host.instruction).as_deref() != Some(host.instruction.as_str()) {
+    if !super::profile_contract_reference::is_host_contract_text(
+        runtime,
+        &host.instruction,
+        &host.instruction,
+    ) {
         return false;
     }
     plan.steps.iter().enumerate().any(|(index, step)| {

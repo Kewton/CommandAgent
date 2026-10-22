@@ -1,8 +1,10 @@
 use super::*;
 use crate::planner::profile_descriptor::NEXTJS_PROFILE_ID;
+use profile_contract_reference::PROFILE_CONTRACT_REFERENCE;
 use sha2::{Digest, Sha256};
 
-pub(super) fn saved(attempt: usize) -> StepPlan {
+/// The recorded proposal exactly as saved in the corpus.
+pub(super) fn saved_recorded(attempt: usize) -> StepPlan {
     serde_json::from_str(match attempt {
         2 => include_str!(
             "../../../tests/corpus/apps/issue478-model-host-obligations/attempt-2.json"
@@ -14,6 +16,23 @@ pub(super) fn saved(attempt: usize) -> StepPlan {
     })
     .unwrap()
 }
+
+/// The recorded proposal adapted to the reference-based host duty (#810): the
+/// smoke owner is grown so that its text plus the reference still overflows one
+/// instruction, and the recorded full-guidance host owner carries the reference.
+pub(super) fn saved(attempt: usize) -> StepPlan {
+    let mut plan = saved_recorded(attempt);
+    plan.steps[2]
+        .instruction
+        .push_str(&"業".repeat(SMOKE_PADDING));
+    if attempt == 3 {
+        plan.steps[3].instruction = PROFILE_CONTRACT_REFERENCE.to_string();
+    }
+    plan
+}
+
+/// Scalars added to the 587-character recorded smoke instruction.
+pub(super) const SMOKE_PADDING: usize = 1_800;
 
 pub(super) fn nextjs_config(root: &Path) -> Config {
     // The saved run already had its application scaffold; an empty workspace
@@ -57,9 +76,14 @@ fn issue478_saved_split_preserves_executable_model_and_host_duties() {
     let before = saved(2);
     let after = saved(3);
     let smoke = &before.steps[2];
-    assert_eq!(smoke.instruction.chars().count(), 587);
+    // #810: the recorded 587-character smoke text is grown by SMOKE_PADDING so
+    // the reference-based host duty still overflows into the split path.
+    let recorded = saved_recorded(2).steps[2].instruction.clone();
+    assert_eq!(recorded.chars().count(), 587);
+    assert!(smoke.instruction.starts_with(&recorded));
+    assert_eq!(smoke.instruction.chars().count(), 587 + SMOKE_PADDING);
     assert_eq!(
-        format!("{:x}", Sha256::digest(smoke.instruction.as_bytes())),
+        format!("{:x}", Sha256::digest(recorded.as_bytes())),
         "75c69f8375ad4c8492158c3f65745a6532a82f26850cab51901015e8faa492e0"
     );
     assert_eq!(after.steps[2], *smoke);
@@ -334,15 +358,19 @@ fn issue478_first_split_cannot_lose_host_guidance_to_truncation() {
     let root = tempfile::tempdir().unwrap();
     let c = nextjs_config(root.path());
     let mut raw = saved(3);
-    raw.steps[3]
-        .instruction
-        .insert_str(0, "Maintain the existing package. ");
+    // #810: the host duty is the short reference, so the owner is grown with
+    // model text until the reference no longer fits in one instruction.
+    raw.steps[3].instruction.insert_str(
+        0,
+        &format!("Maintain the existing package. {}", "業".repeat(2_400)),
+    );
     let mut admission = admission::Admission::default();
     let mut formed = through_formation(&c, &mut admission, &raw);
-    let guidance = crate::planner::profile::resolve_profile_runtime(NEXTJS_PROFILE_ID)
-        .guidance(&raw.goal)
-        .unwrap();
-    assert!(formed.steps[3].instruction.contains(&guidance));
+    assert!(
+        formed.steps[3]
+            .instruction
+            .contains(PROFILE_CONTRACT_REFERENCE)
+    );
     let admission::Decision::Retry(feedback) =
         admission.check(&c, None, &raw, &mut formed, 1).unwrap()
     else {

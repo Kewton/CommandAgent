@@ -4,6 +4,7 @@ use super::{
     profile_setup_checks, references_template_owned_artifacts,
 };
 use crate::minimal_loop::evidence::package_script_check;
+use crate::planner::recovery_step_plan_binding::profile_contract_reference::contains_reference;
 use crate::planner::step_plan::{PlanStep, StepKind};
 use std::path::Path;
 
@@ -17,6 +18,7 @@ pub(super) fn carries_profile_implementation(profile: &str, step: &PlanStep) -> 
             .starts_with("Update package.json scripts so that ")
             || has_package_observation(step)
             || step.instruction.contains("\n\nProfile contract:")
+            || contains_reference(&step.instruction)
             || domain_profile(profile)
                 .guidance("")
                 .is_some_and(|guidance| {
@@ -74,4 +76,36 @@ pub(super) fn retain_implementation_checks(
         }
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::carries_profile_implementation;
+    use crate::planner::profile_descriptor::NEXTJS_PROFILE_ID;
+    use crate::planner::recovery_step_plan_binding::profile_contract_reference::PROFILE_CONTRACT_REFERENCE;
+    use crate::planner::step_plan::PlanStep;
+
+    fn owner(instruction: &str) -> PlanStep {
+        PlanStep {
+            id: "ensure-package-json".into(),
+            kind: "implement".into(),
+            expected_result: "pass".into(),
+            instruction: instruction.into(),
+            expected_paths: vec!["package.json".into()],
+            verify: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn reference_only_owner_carries_the_profile_implementation() {
+        // #810: an owner holding only the reference owns the whole contract.
+        assert!(carries_profile_implementation(
+            NEXTJS_PROFILE_ID,
+            &owner(PROFILE_CONTRACT_REFERENCE)
+        ));
+        assert!(!carries_profile_implementation(
+            NEXTJS_PROFILE_ID,
+            &owner("Create package.json.")
+        ));
+    }
 }

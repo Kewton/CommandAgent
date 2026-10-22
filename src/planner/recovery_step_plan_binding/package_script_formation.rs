@@ -185,7 +185,11 @@ impl PackageScripts {
                     );
                 }
                 let known_host = kind == "host"
-                    && runtime.guidance(&plan.goal).as_deref() == Some(step.instruction.as_str());
+                    && super::profile_contract_reference::is_host_contract_text(
+                        runtime,
+                        &plan.goal,
+                        &step.instruction,
+                    );
                 let literals = if known_host
                     && crate::planner::profile::is_nextjs_profile(&config.profile)
                 {
