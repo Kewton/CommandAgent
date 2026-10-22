@@ -549,6 +549,7 @@ fn run_setup_command(
     command
         .args(args)
         .current_dir(cwd)
+        .envs(playwright_browsers_path_env())
         .stdin(Stdio::null())
         .stdout(Stdio::from(stdout))
         .stderr(Stdio::from(stderr));
@@ -596,6 +597,14 @@ fn npm_global_root(root: &Path, npm_program: &OsStr) -> Option<PathBuf> {
 fn node_path_env(node_path: Option<&Path>) -> Vec<(&'static str, OsString)> {
     node_path
         .map(|path| vec![("NODE_PATH", path.as_os_str().to_os_string())])
+        .unwrap_or_default()
+}
+
+/// Forward the parent's `PLAYWRIGHT_BROWSERS_PATH` (a directory, not a secret)
+/// so Playwright looks where the user installed the browsers.
+pub(crate) fn playwright_browsers_path_env() -> Vec<(&'static str, OsString)> {
+    std::env::var_os("PLAYWRIGHT_BROWSERS_PATH")
+        .map(|path| vec![("PLAYWRIGHT_BROWSERS_PATH", path)])
         .unwrap_or_default()
 }
 
@@ -737,6 +746,7 @@ pub fn probe_browser_interaction_against_running_server_with_options(
         .envs(node_path_env(
             resolution.node_path.as_deref().map(Path::new),
         ))
+        .envs(playwright_browsers_path_env())
         .stdin(Stdio::null())
         .stdout(Stdio::from(stdout_log))
         .stderr(Stdio::from(stderr_log));
