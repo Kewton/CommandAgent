@@ -531,7 +531,7 @@ fn ensure_managed_package_json(tool_dir: &Path) -> anyhow::Result<()> {
     .with_context(|| format!("failed to write {}", path.display()))
 }
 
-fn run_setup_command(
+pub(crate) fn run_setup_command(
     root: &Path,
     cwd: &Path,
     program: &OsStr,

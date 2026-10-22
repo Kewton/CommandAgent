@@ -778,6 +778,51 @@ mod tests {
     }
 
     #[test]
+    fn setup_command_forwards_playwright_browsers_path_only_when_set() {
+        use crate::minimal_loop::interaction_probe::run_setup_command;
+
+        let _guard = ENV_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let dir = tempfile::tempdir().unwrap();
+        let run = |name: &str| {
+            let log = dir.path().join(format!("{name}.log"));
+            run_setup_command(
+                dir.path(),
+                dir.path(),
+                std::ffi::OsStr::new("sh"),
+                &["-c", "env"],
+                &log,
+                TEST_TIMEOUT,
+            )
+            .unwrap();
+            std::fs::read_to_string(log.with_extension("out")).unwrap()
+        };
+        {
+            let _env_guard =
+                TestEnvGuard::set([("PLAYWRIGHT_BROWSERS_PATH", "/opt/parent-browsers")]);
+            let env = run("set");
+            assert!(
+                env.contains("PLAYWRIGHT_BROWSERS_PATH=/opt/parent-browsers"),
+                "{env}"
+            );
+        }
+        let saved = std::env::var_os("PLAYWRIGHT_BROWSERS_PATH");
+        // SAFETY: `ENV_TEST_LOCK` is held, so no other test in this module touches the environment.
+        unsafe {
+            std::env::remove_var("PLAYWRIGHT_BROWSERS_PATH");
+        }
+        let env = run("unset");
+        if let Some(value) = saved {
+            // SAFETY: `ENV_TEST_LOCK` is still held.
+            unsafe {
+                std::env::set_var("PLAYWRIGHT_BROWSERS_PATH", value);
+            }
+        }
+        assert!(!env.contains("PLAYWRIGHT_BROWSERS_PATH"), "{env}");
+    }
+
+    #[test]
     fn child_env_inherits_toolchain_homes_but_not_unknown_variables() {
         let _guard = ENV_TEST_LOCK
             .lock()
