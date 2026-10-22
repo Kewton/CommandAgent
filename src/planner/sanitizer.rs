@@ -7,8 +7,8 @@ use crate::planner::lint::{
 use crate::planner::side_effect_paths::{SideEffectPathTier, diagnose_expected_path};
 use crate::planner::step_plan::{PlanStep, StepKind, StepPlan};
 use crate::planner::verify::{
-    VerifyCommandViolationKind, dependency_install_verify_segment, diagnose_verify_command,
-    normalize_verify_command_for_oracle_repair,
+    VerifyCommandOracleRepair, VerifyCommandViolationKind, dependency_install_verify_segment,
+    diagnose_verify_command, normalize_verify_command_for_oracle_repair,
     normalize_verify_command_for_oracle_repair_with_root,
 };
 use crate::tools::path_guard::validate_workspace_relative;
@@ -434,7 +434,8 @@ fn normalize_repairable_verify_commands(
                 .and_then(|root| {
                     normalize_verify_command_for_oracle_repair_with_root(command, root)
                 })
-                .or_else(|| normalize_verify_command_for_oracle_repair(command));
+                .or_else(|| normalize_verify_command_for_oracle_repair(command))
+                .or_else(|| strengthen_package_script_predicate(command));
             let Some(repair) = repair else {
                 continue;
             };
@@ -453,6 +454,16 @@ fn normalize_repairable_verify_commands(
                 });
         }
     }
+}
+
+fn strengthen_package_script_predicate(command: &str) -> Option<VerifyCommandOracleRepair> {
+    use crate::minimal_loop::evidence::package_script_check as grammar;
+    let (script, method, value) = grammar::weak_predicate(command)?;
+    Some(VerifyCommandOracleRepair {
+        normalized: grammar::formed_predicate_command(&script, &method, &value),
+        reason: "package.json script predicate replaced with a string-typed assertion that fails when unsatisfied".to_string(),
+        kind: "package_json_script_predicate_assertion",
+    })
 }
 
 fn normalize_oversized_goal(plan: &mut StepPlan, report: &mut SanitizerReport) {
