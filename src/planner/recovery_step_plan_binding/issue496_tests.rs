@@ -1,5 +1,6 @@
 use super::*;
 use crate::planner::profile_descriptor::NEXTJS_PROFILE_ID;
+use profile_contract_reference::PROFILE_CONTRACT_REFERENCE;
 use sha2::{Digest, Sha256};
 
 const FIXTURE: &str = "tests/corpus/apps/issue496-profile-guidance-capacity/saved-plan.json";
@@ -49,12 +50,12 @@ fn target(plan: &StepPlan) -> &PlanStep {
         .unwrap()
 }
 
+/// A plan whose host-augmented owner has exactly `total_chars` scalars: the model
+/// text plus the marker and the fixed profile-contract reference.
 fn bounded_plan(config: &Config, total_chars: usize) -> StepPlan {
     let goal = "Implement a Next.js app on port 60302";
-    let guidance = crate::planner::profile::resolve_profile_runtime(&config.profile)
-        .guidance(goal)
-        .unwrap();
-    let suffix = format!("\n\nProfile contract:\n{guidance}");
+    let _ = config;
+    let suffix = format!("\n\nProfile contract:\n{PROFILE_CONTRACT_REFERENCE}");
     assert!(suffix.chars().count() < total_chars);
     StepPlan {
         goal: goal.into(),
@@ -69,8 +70,35 @@ fn bounded_plan(config: &Config, total_chars: usize) -> StepPlan {
     }
 }
 
+/// A model instruction that ends with the first 100 scalars of the host
+/// reference, padded so that appending the whole reference overflows but
+/// merging the shared text fits, and the merged form that keeps every model and
+/// host duty.
+fn overlapping_instructions() -> (String, String) {
+    let shared: String = PROFILE_CONTRACT_REFERENCE.chars().take(100).collect();
+    let rest: String = PROFILE_CONTRACT_REFERENCE.chars().skip(100).collect();
+    let pad = "業".repeat(2_300);
+    let before = format!("{pad}{shared}");
+    let after = format!("{before}{rest}");
+    (before, after)
+}
+
+/// The saved incident plan with its package owner grown so that the model text
+/// plus the marker and the reference no longer fits in one instruction.
+fn saved_overflowing() -> StepPlan {
+    let mut raw = saved();
+    let owner = raw
+        .steps
+        .iter_mut()
+        .find(|step| step.id == "implement-layout-and-config")
+        .unwrap();
+    let pad = 2_480 - owner.instruction.chars().count();
+    owner.instruction.push_str(&"業".repeat(pad));
+    raw
+}
+
 #[test]
-fn issue496_saved_profile_guidance_is_retained_and_rejected_for_capacity() {
+fn issue496_saved_plan_gets_the_profile_contract_reference_and_fits() {
     let root = tempfile::tempdir().unwrap();
     let config = super::issue478::nextjs_config(root.path());
     let raw = saved();
@@ -104,8 +132,53 @@ fn issue496_saved_profile_guidance_is_retained_and_rejected_for_capacity() {
     let mut admission = admission::Admission::default();
     let (mut plan, report) = through_policy(&config, &mut admission, &raw);
     let augmented = target(&plan);
-    assert_eq!(augmented.instruction.chars().count(), 2_786);
-    assert!(augmented.instruction.ends_with(&guidance));
+    // The step carries the marker and the short reference, not the full text.
+    assert!(augmented.instruction.ends_with(PROFILE_CONTRACT_REFERENCE));
+    assert!(augmented.instruction.contains("\n\nProfile contract:\n"));
+    assert!(!augmented.instruction.contains(&guidance));
+    assert_eq!(
+        augmented.instruction.chars().count(),
+        529 + "\n\nProfile contract:\n".chars().count()
+            + PROFILE_CONTRACT_REFERENCE.chars().count()
+    );
+    assert!(augmented.instruction.chars().count() <= 2_500);
+    assert!(
+        report
+            .instruction_truncations
+            .iter()
+            .all(|record| record.step_id != augmented.id)
+    );
+
+    let decision = admission
+        .check(&config, Some("core-implementation"), &raw, &mut plan, 1)
+        .unwrap();
+    // The saved plan's only remaining refusal is its unrelated weak inline
+    // check; the profile contract no longer exceeds the instruction capacity.
+    let admission::Decision::Retry(feedback) = decision else {
+        panic!("the saved plan's weak inline check must still be refused")
+    };
+    assert!(feedback.contains("weak inline verification"), "{feedback}");
+    assert!(!feedback.contains("2500-character capacity"), "{feedback}");
+    let event = events(&config)
+        .into_iter()
+        .find(|event| event["event"] == "recovery_verifier_plan_admission")
+        .unwrap();
+    assert_eq!(
+        event["original_obligation_sources"]["host"]["steps"][0]["instruction"],
+        PROFILE_CONTRACT_REFERENCE
+    );
+}
+
+#[test]
+fn issue496_saved_plan_with_oversized_model_text_is_still_rejected_for_capacity() {
+    let root = tempfile::tempdir().unwrap();
+    let config = super::issue478::nextjs_config(root.path());
+    let raw = saved_overflowing();
+    let mut admission = admission::Admission::default();
+    let (mut plan, report) = through_policy(&config, &mut admission, &raw);
+    let augmented = target(&plan);
+    assert!(augmented.instruction.ends_with(PROFILE_CONTRACT_REFERENCE));
+    assert!(augmented.instruction.chars().count() > 2_500);
     assert!(
         report
             .instruction_truncations
@@ -139,20 +212,7 @@ fn issue496_saved_profile_guidance_is_retained_and_rejected_for_capacity() {
     );
     assert_eq!(
         event["original_obligation_sources"]["host"]["steps"][0]["instruction"],
-        guidance
-    );
-    assert_eq!(
-        event["original_scope"]["steps"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|step| step["id"] == "implement-layout-and-config")
-            .unwrap()["instruction"]
-            .as_str()
-            .unwrap()
-            .chars()
-            .count(),
-        2_786
+        PROFILE_CONTRACT_REFERENCE
     );
 }
 
@@ -229,7 +289,7 @@ fn issue498_saved_capacity_failure_stops_without_another_request_or_fallback() {
     };
     let mut config = super::issue478::nextjs_config(root.path());
     config.intent_override = Some(crate::planner::adjudication::contract::IntentId::Create);
-    let raw = saved();
+    let raw = saved_overflowing();
     let before: Vec<_> = raw
         .steps
         .iter()
@@ -287,18 +347,6 @@ fn issue498_saved_capacity_failure_stops_without_another_request_or_fallback() {
     ] {
         assert_eq!(event[key], expected[key], "{key}");
     }
-    for key in [
-        "model_chars",
-        "host_chars",
-        "model_to_host_overlap",
-        "host_to_model_overlap",
-        "minimum_chars",
-        "limit_chars",
-        "excess_chars",
-        "registered_split",
-    ] {
-        assert_eq!(event["bounded_repair_proof"][key], expected[key], "{key}");
-    }
     assert_eq!(event["status"], "stopped");
     assert_eq!(event["planner_attempt"], 1);
     assert_eq!(event["remaining_planner_attempts"], 2);
@@ -306,11 +354,15 @@ fn issue498_saved_capacity_failure_stops_without_another_request_or_fallback() {
     assert_eq!(event["retry_allowed"], false);
     assert_eq!(event["terminal_reason"], "bounded_repair_infeasible");
     let proof = &event["bounded_repair_proof"];
-    assert_eq!(proof["model_chars"], 529);
-    assert_eq!(proof["host_chars"], 2237);
-    assert_eq!(proof["minimum_chars"], 2766);
+    let host_chars = PROFILE_CONTRACT_REFERENCE.chars().count();
+    assert_eq!(proof["model_chars"], 2_480);
+    assert_eq!(proof["host_chars"], host_chars);
+    assert_eq!(proof["minimum_chars"], 2_480 + host_chars);
     assert_eq!(proof["limit_chars"], 2500);
-    assert_eq!(proof["excess_chars"], 266);
+    assert_eq!(proof["excess_chars"], 2_480 + host_chars - 2_500);
+    // Same as the recorded terminal-expectation.json: bounded_repair.rs sets this
+    // constant for every proof, whatever the lengths (the split is inapplicable).
+    assert_eq!(proof["registered_split"], "package_owner_scope");
     assert_eq!(proof["model_to_host_overlap"], 0);
     assert_eq!(proof["host_to_model_overlap"], 0);
     assert_eq!(proof["normalized_paths"].as_array().unwrap().len(), 4);

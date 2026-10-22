@@ -1,0 +1,15 @@
+case_id = "issue810-nextjs-profile-contract-capacity"
+source = "Issue #810 TOOL-G shapes (378 and 683 character model steps) through strengthen, sanitize and check; no live model or application build"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/cases.json = ["tool_g", "tool_g_split", "port 3011", "src/hooks/useTodos.ts", "model_only_over_capacity_chars", "greeter.py"]

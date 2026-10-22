@@ -4,6 +4,7 @@ use super::*;
 use crate::minimal_loop::completion::CompletionContract;
 use crate::planner::recovery_contract_authority as authority;
 use crate::planner::recovery_contract_authority::verifier_obligations as scope;
+use crate::planner::recovery_step_plan_binding::profile_contract_reference::PROFILE_CONTRACT_REFERENCE;
 use crate::providers::AssistantReply;
 use clap::Parser;
 use std::cell::RefCell;
@@ -39,6 +40,19 @@ fn fixture(name: &str) -> String {
             .join(name),
     )
     .unwrap()
+}
+/// #810: the recorded proposals carry the full profile contract after the
+/// marker; the host now adds the short reference, so a proposal that keeps the
+/// host duty carries the reference there instead.
+fn with_reference(mut plan: StepPlan) -> StepPlan {
+    const MARKER: &str = "\n\nProfile contract:\n";
+    for step in &mut plan.steps {
+        if let Some(at) = step.instruction.find(MARKER) {
+            step.instruction.truncate(at + MARKER.len());
+            step.instruction.push_str(PROFILE_CONTRACT_REFERENCE);
+        }
+    }
+    plan
 }
 fn raw(case: &str, attempt: usize) -> StepPlan {
     serde_json::from_str(&fixture(&format!("{case}-attempt-{attempt}.json"))).unwrap()
@@ -204,6 +218,7 @@ fn copy_tree(source: &Path, target: &Path) {
     }
 }
 fn replay(first: StepPlan, second: StepPlan, refusal: Option<&str>) -> Observation {
+    let second = with_reference(second);
     let root = tempfile::tempdir().unwrap();
     copy_tree(
         &Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -246,9 +261,15 @@ fn replay(first: StepPlan, second: StepPlan, refusal: Option<&str>) -> Observati
     );
     assert_eq!(admissions[0]["remaining_planner_attempts"], 2);
     assert_eq!(admissions[0]["recovery_budget_changed"], false);
+    // #810: the host duty is the reference; the full contract is delivered
+    // to the executor as Profile guidance.
+    assert_eq!(
+        admissions[0]["original_obligation_sources"]["host"]["steps"][0]["instruction"],
+        PROFILE_CONTRACT_REFERENCE
+    );
     assert!(
-        admissions[0]["original_obligation_sources"]["host"]["steps"][0]["instruction"]
-            .as_str()
+        crate::planner::profile::resolve_profile_runtime(&c.profile)
+            .guidance(&plan.goal)
             .unwrap()
             .contains("runnable Next.js app")
     );
@@ -379,7 +400,8 @@ fn assert_registration(o: &Observation) {
         app.instruction
             .contains("Implement the UI and package configuration.")
     );
-    assert!(app.instruction.contains("runnable Next.js app"));
+    // #810: the step carries the reference; the full contract is Profile guidance.
+    assert!(app.instruction.contains(PROFILE_CONTRACT_REFERENCE));
     assert!(app.verify.contains(&"npm run build".into()));
 }
 #[test]
@@ -388,7 +410,7 @@ fn issue490_p02_d_normal_return_save_before_phase_registration() {
     let second = raw("P02-D", 2);
     let o = replay(first.clone(), second, None);
     let plan = o.registered.unwrap();
-    assert_eq!(plan.steps, raw("P02-D", 2).steps);
+    assert_eq!(plan.steps, with_reference(raw("P02-D", 2)).steps);
     assert_eq!(plan.steps[0], first.steps[0]);
     assert_eq!(plan.steps[5].expected_paths, ["package.json"]);
     assert_eq!(plan.steps[5].verify, first.steps[0].verify);
@@ -451,3 +473,134 @@ fn issue490_acquired_before_and_after_reach_normal_registration_separately() {
 
 #[path = "issue492_tests.rs"]
 mod issue492;
+
+/// #810 (D2, D3): the step carries only the reference, while the executor still
+/// receives the complete profile contract as Profile guidance.
+mod issue810 {
+    use super::super::super::super::{StepPromptContext, build_step_prompt};
+    use crate::config::{Config, PromptLayout};
+    use crate::minimal_loop::prompt::{ToolPromptMode, build_request_messages};
+    use crate::planner::profile::resolve_profile_runtime;
+    use crate::planner::profile_descriptor::{NEXTJS_PROFILE_ID, PYTHON_CLI_PROFILE_ID};
+    use crate::planner::recovery_step_plan_binding::admission::Admission;
+    use crate::planner::recovery_step_plan_binding::profile_contract_reference::PROFILE_CONTRACT_REFERENCE;
+    use crate::planner::step_plan::{PlanStep, StepPlan};
+    use crate::state::ConversationMessage;
+    use clap::Parser;
+
+    const CASES: &str = include_str!(
+        "../../../../tests/corpus/apps/issue810-nextjs-profile-contract-capacity/fixtures/cases.json"
+    );
+
+    fn config(root: &std::path::Path, profile: &str) -> Config {
+        let mut c =
+            Config::from_cli(crate::cli::Cli::parse_from(["commandagent", "--ux-demo"])).unwrap();
+        c.workspace_root = root.to_path_buf();
+        c.profile = profile.into();
+        c.eval_events_path = Some(root.join("events.jsonl"));
+        c
+    }
+
+    /// Inject the host profile addition and return the step prompt for it.
+    fn injected_prompt(c: &Config, goal: &str, step: PlanStep) -> (PlanStep, String) {
+        let mut plan = StepPlan {
+            goal: goal.into(),
+            steps: vec![step],
+        };
+        let mut admission = Admission::default();
+        admission.strengthen(c, &mut plan);
+        let step = plan.steps[0].clone();
+        let context = StepPromptContext {
+            overall_goal: goal.into(),
+            required_final_artifacts: Vec::new(),
+            prior_expected_paths: Vec::new(),
+            final_required_capabilities: Vec::new(),
+            final_required_evidence: Vec::new(),
+            completion_contract_path: None,
+        };
+        let prompt = build_step_prompt(&plan, &step, &context, PromptLayout::Stable);
+        (step, prompt)
+    }
+
+    fn system_prompt(root: &std::path::Path, prompt: &str, guidance: Option<&str>) -> String {
+        build_request_messages(
+            &[ConversationMessage::user(prompt.to_string())],
+            &[],
+            root,
+            None,
+            guidance,
+            ToolPromptMode::Native,
+        )[0]
+        .content
+        .clone()
+    }
+
+    #[test]
+    fn issue810_injected_nextjs_step_still_delivers_the_full_contract() {
+        let cases: serde_json::Value = serde_json::from_str(CASES).unwrap();
+        let nextjs = &cases["web_app"];
+        let goal = nextjs["goal"].as_str().unwrap();
+        for shape in nextjs["shapes"].as_array().unwrap() {
+            let root = tempfile::tempdir().unwrap();
+            let c = config(root.path(), NEXTJS_PROFILE_ID);
+            let (step, prompt) = injected_prompt(
+                &c,
+                goal,
+                PlanStep {
+                    id: nextjs["step_id"].as_str().unwrap().into(),
+                    kind: "implement".into(),
+                    expected_result: "pass".into(),
+                    instruction: shape["instruction"].as_str().unwrap().into(),
+                    expected_paths: vec!["src/hooks/useTodos.ts".into()],
+                    verify: Vec::new(),
+                },
+            );
+            assert!(step.instruction.ends_with(PROFILE_CONTRACT_REFERENCE));
+            assert!(prompt.contains(PROFILE_CONTRACT_REFERENCE));
+            // The executor derives its guidance from this prompt (loop_run).
+            let guidance = resolve_profile_runtime(&c.profile)
+                .guidance(&prompt)
+                .unwrap();
+            assert_eq!(
+                guidance,
+                resolve_profile_runtime(&c.profile).guidance(goal).unwrap()
+            );
+            assert!(guidance.contains("runnable Next.js app"));
+            assert!(guidance.contains("explicitly requested port 3011"));
+            assert!(guidance.contains("next dev -p 3011"));
+            let system = system_prompt(root.path(), &prompt, Some(&guidance));
+            assert!(system.contains("Profile guidance:"));
+            assert!(system.contains(&guidance));
+        }
+    }
+
+    #[test]
+    fn issue810_injected_python_cli_step_keeps_the_same_entrypoint_guidance() {
+        let cases: serde_json::Value = serde_json::from_str(CASES).unwrap();
+        let python = &cases["python_cli"];
+        let goal = python["goal"].as_str().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let c = config(root.path(), PYTHON_CLI_PROFILE_ID);
+        let planning = resolve_profile_runtime(&c.profile).guidance(goal).unwrap();
+        assert!(planning.contains("src/greeter/main.py"));
+        let (step, prompt) = injected_prompt(
+            &c,
+            goal,
+            PlanStep {
+                id: python["step_id"].as_str().unwrap().into(),
+                kind: "implement".into(),
+                expected_result: "pass".into(),
+                instruction: python["instruction"].as_str().unwrap().into(),
+                expected_paths: vec!["src/greeter/main.py".into()],
+                verify: Vec::new(),
+            },
+        );
+        assert!(step.instruction.ends_with(PROFILE_CONTRACT_REFERENCE));
+        let guidance = resolve_profile_runtime(&c.profile)
+            .guidance(&prompt)
+            .unwrap();
+        assert_eq!(guidance, planning);
+        let system = system_prompt(root.path(), &prompt, Some(&guidance));
+        assert!(system.contains(&planning));
+    }
+}

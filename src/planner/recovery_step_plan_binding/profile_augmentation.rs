@@ -1,5 +1,6 @@
 //! Apply profile additions while recording their independent origin.
 use super::formation_scope::ProfileAddition;
+use super::profile_contract_reference::PROFILE_CONTRACT_REFERENCE;
 use super::*;
 use crate::planner::profile::resolve_profile_runtime;
 
@@ -33,18 +34,27 @@ pub(crate) fn strengthen_step_plan_for_profile(
         }
     }
     let guidance = runtime.guidance(&plan.goal).unwrap_or_default();
-    if !guidance.is_empty() && !target.instruction.contains(&guidance) {
-        if guidance.starts_with(&target.instruction) {
+    // The host duty is the exact text a step must retain: the short reference
+    // by default, or the full guidance when the model already carried it.
+    let mut duty = String::new();
+    if !guidance.is_empty() {
+        if target.instruction.contains(&guidance) {
+            duty = guidance;
+        } else if guidance.starts_with(&target.instruction) {
             // A model may have moved the host guidance verbatim to a new owner.
             // Extend an exact prefix without duplicating it past the text limit.
             target.instruction = guidance.clone();
+            duty = guidance;
         } else {
-            target.instruction =
-                format!("{}\n\nProfile contract:\n{}", target.instruction, guidance);
+            duty = PROFILE_CONTRACT_REFERENCE.to_string();
+            if !target.instruction.contains(&duty) {
+                target.instruction =
+                    format!("{}\n\nProfile contract:\n{}", target.instruction, duty);
+            }
         }
     }
-    if *target == model && guidance.is_empty() {
+    if *target == model && duty.is_empty() {
         return None;
     }
-    Some(ProfileAddition::new(model, target, guidance))
+    Some(ProfileAddition::new(model, target, duty))
 }

@@ -69,7 +69,8 @@ fn issue496_marker_capture_failure_is_frozen_instead_of_becoming_no_obligations(
             id: "owner".into(),
             kind: "implement".into(),
             expected_result: "pass".into(),
-            instruction: "業".repeat(600),
+            // #810: grown so that model text plus the reference overflows.
+            instruction: "業".repeat(2_400),
             expected_paths: vec!["page.tsx".into()],
             verify: vec!["node -e \"unterminated".into()],
         }],

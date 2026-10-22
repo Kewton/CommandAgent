@@ -77,7 +77,13 @@ fn issue496_provenance_covers_existing_host_prefix_and_model_only() {
                 assert!(matches!(decision, admission::Decision::Ready(false)));
             }
             _ => {
-                assert!(candidate.steps[0].instruction.contains(&guidance));
+                // #810: a model-carried full text is kept; otherwise the reference is.
+                let kept = if variant == "contained" {
+                    guidance.as_str()
+                } else {
+                    PROFILE_CONTRACT_REFERENCE
+                };
+                assert!(candidate.steps[0].instruction.contains(kept));
                 assert!(report.instruction_truncations.is_empty());
                 assert!(matches!(decision, admission::Decision::Retry(_)));
             }
@@ -175,7 +181,8 @@ fn issue496_capacity_cannot_partially_accept_scaffold_mutations() {
     let raw = StepPlan {
         goal: "Complete scaffold metadata".into(),
         steps: vec![PlanStep {
-            instruction: "業".repeat(600),
+            // #810: grown so that model text plus the reference overflows.
+            instruction: "業".repeat(2_400),
             ..step("scaffold-report", "report", &[])
         }],
     };
