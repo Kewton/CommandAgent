@@ -24,6 +24,7 @@ use crate::planner::verify::{
 };
 
 pub mod argv_probe;
+mod entry_cardinality;
 pub mod help_binding;
 pub mod manifest;
 pub(crate) mod readme_verify;
@@ -75,6 +76,9 @@ impl DomainProfile for PythonCliProfile {
         let invariant = verify_invariant_contract(root, Some(goal));
         if !invariant.is_pass() {
             return invariant;
+        }
+        if let Some(failure) = entry_cardinality::check(root, Some(goal)) {
+            return failure;
         }
         compile_report(root)
     }
