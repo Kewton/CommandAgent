@@ -277,8 +277,14 @@ Expected capability profile:
 
 Final acceptance requires:
 
-- The dependency lifecycle completes, including venv creation and pip
-  installation.
+- When `pyproject.toml` declares dependencies, the dependency lifecycle
+  completes, including venv creation and pip installation. A stdlib-only
+  package that declares no dependencies records `setup_status: not_required`
+  and has no setup stage.
+- In events, `requires_dependency_setup` is a property of the oracle kind (this
+  command may need setup), while `setup_status` is what that run observed, so
+  `requires_dependency_setup: true` with `setup_status: not_required` is not a
+  contradiction.
 - The Python compile oracle passes with `python3 -m compileall -q src`.
 - The profile behavior probe runs the CLI against generated fixture CSV input,
   passes the CSV path as an argument, observes exit 0, observes non-empty stdout,
@@ -291,8 +297,8 @@ Final acceptance requires:
 
 Partial means:
 
-- Dependency setup is blocked or unavailable, so venv/pip lifecycle completion
-  is unverified.
+- Dependencies are declared but dependency setup is blocked or unavailable, so
+  venv/pip lifecycle completion is unverified.
 - Compile passes but the behavior probe is unavailable or fails, so CSV argv
   handling, aggregate stdout, or input variation remains unverified.
 - The valid CSV behavior passes but missing/invalid file handling is only
