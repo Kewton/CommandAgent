@@ -18,6 +18,7 @@ pub(super) struct StepFailureHandoff<'a> {
     pub(super) repair_target: RepairTarget,
     pub(super) repair_stop_reason: Option<&'a str>,
     pub(super) blocked_requirements: &'a [String],
+    pub(super) extra_evidence: &'a [String],
 }
 
 impl StepFailureHandoff<'_> {
@@ -32,6 +33,7 @@ impl StepFailureHandoff<'_> {
             repair_target,
             repair_stop_reason,
             blocked_requirements,
+            extra_evidence,
         } = self;
         eval_events::emit(
             config.eval_events_path.as_deref(),
@@ -69,6 +71,7 @@ impl StepFailureHandoff<'_> {
             failure_kind: failure_kind.to_string(),
             failure_evidence: std::iter::once(report.primary_reason())
                 .chain(reachability_blocked_evidence(blocked_requirements))
+                .chain(extra_evidence.iter().cloned())
                 .chain(
                     report
                         .command_failures

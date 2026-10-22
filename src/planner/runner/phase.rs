@@ -82,6 +82,8 @@ mod effects;
 mod flow;
 #[path = "phase/intent_completion.rs"]
 mod intent_completion;
+#[path = "phase/model_verifier_disagreement.rs"]
+mod model_verifier_disagreement;
 #[path = "phase/plan_step_events.rs"]
 mod plan_step_events;
 #[path = "phase/recovery_fix.rs"]
@@ -1422,6 +1424,7 @@ pub(super) fn run_step(
     let mut repair_stop_reason = None;
     let mut terminal_repair_failure_kind: Option<String> = None;
     let mut terminal_blocked_requirements: Vec<String> = Vec::new();
+    let mut disagreement = None;
     let mut no_change_repairs = 0usize;
     let mut target_not_followed_repairs = 0usize;
     let mut identical_no_change_repairs = 0usize;
@@ -2100,8 +2103,17 @@ pub(super) fn run_step(
                 if RepairTarget::reclassify_no_change(config, &step.id, &mut current_report) {
                     continue;
                 }
+                disagreement = model_verifier_disagreement::detect(
+                    config,
+                    plan,
+                    step,
+                    &prompt_context.overall_goal,
+                    &current_report,
+                );
                 terminal_repair_failure_kind = Some(if !current_report.compile_errors.is_empty() {
                     "compile_repair_no_source_change".to_string()
+                } else if disagreement.is_some() {
+                    model_verifier_disagreement::FAILURE_KIND.to_string()
                 } else {
                     "verify_repair_progress_unchanged".to_string()
                 });
@@ -2112,7 +2124,10 @@ pub(super) fn run_step(
     let final_failure_kind =
         terminal_repair_failure_kind.unwrap_or_else(|| "bounded_repair_exhausted".to_string());
     context.repair_stop_reason = Some(final_failure_kind.to_string());
-    let final_repair_target = classify_repair_target(&current_report);
+    let final_repair_target = match disagreement {
+        Some(_) => RepairTarget::ModelVerifier,
+        None => classify_repair_target(&current_report),
+    };
     if !current_report.compile_errors.is_empty() {
         match try_compile_rollback_after_repair_exhaustion(
             config,
@@ -2150,6 +2165,7 @@ pub(super) fn run_step(
         repair_target: final_repair_target,
         repair_stop_reason: repair_stop_reason.as_deref(),
         blocked_requirements: &terminal_blocked_requirements,
+        extra_evidence: disagreement.as_ref().map_or(&[][..], |d| &d.evidence),
     }
     .into_error(outcome))
 }

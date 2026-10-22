@@ -19,6 +19,7 @@ pub enum RepairTarget {
     CapabilityMissing,
     RequiredEvidenceMissing,
     VerifierCommand,
+    ModelVerifier,
     Implementation,
     TestOrEvidence,
     Unknown,
@@ -87,6 +88,7 @@ impl RepairTarget {
             Self::CapabilityMissing => "capability_missing",
             Self::RequiredEvidenceMissing => "required_evidence_missing",
             Self::VerifierCommand => "verifier_command",
+            Self::ModelVerifier => "model_verifier",
             Self::Implementation => "implementation",
             Self::TestOrEvidence => "test_or_evidence",
             Self::Unknown => "unknown",
@@ -122,6 +124,9 @@ impl RepairTarget {
             Self::VerifierCommand => {
                 "The verify command is malformed; the artifact may already satisfy the requirement."
             }
+            Self::ModelVerifier => {
+                "A model-written verifier fails while the host's deterministic oracles pass; the disagreement is recorded, not resolved."
+            }
             Self::Implementation => {
                 "Fix the implementation files that should satisfy the requested behavior."
             }
@@ -148,6 +153,7 @@ impl RepairTarget {
                 "edit_or_create_verification_evidence"
             }
             Self::VerifierCommand => "fix_malformed_verify_command_only",
+            Self::ModelVerifier => "inspect_verifier_and_implementation_disagreement",
             Self::Unknown => "edit_smallest_relevant_workspace_artifact",
         }
     }
@@ -519,7 +525,7 @@ pub fn repair_target_matches_changed_path(target: RepairTarget, path: &str) -> b
                 "readme",
             ],
         ),
-        RepairTarget::VerifierCommand => false,
+        RepairTarget::VerifierCommand | RepairTarget::ModelVerifier => false,
         RepairTarget::Implementation => {
             contains_any(
                 &lower,

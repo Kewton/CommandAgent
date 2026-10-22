@@ -228,6 +228,12 @@ pub trait DomainProfile: Sync {
         VerificationReport::pass()
     }
 
+    /// True only when `behavior_probe` observes real behavior. The default
+    /// probe passes unconditionally and must not count as an oracle.
+    fn has_behavior_oracle(&self) -> bool {
+        false
+    }
+
     fn verify_final_with_events(
         &self,
         root: &Path,
