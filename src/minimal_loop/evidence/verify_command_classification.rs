@@ -50,6 +50,7 @@ pub(super) fn node_command_kind(
         || import_check::export_set_target(command).is_some()
         || import_check::require_export_set_target(command).is_some()
         || package_script_check::comparison(command).is_some()
+        || package_script_check::predicate(command).is_some()
     {
         return Some(VerifyCommandKind::StaticSyntax);
     }
