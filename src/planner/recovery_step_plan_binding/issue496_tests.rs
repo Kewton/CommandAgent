@@ -360,6 +360,9 @@ fn issue498_saved_capacity_failure_stops_without_another_request_or_fallback() {
     assert_eq!(proof["minimum_chars"], 2_480 + host_chars);
     assert_eq!(proof["limit_chars"], 2500);
     assert_eq!(proof["excess_chars"], 2_480 + host_chars - 2_500);
+    // Same as the recorded terminal-expectation.json: bounded_repair.rs sets this
+    // constant for every proof, whatever the lengths (the split is inapplicable).
+    assert_eq!(proof["registered_split"], "package_owner_scope");
     assert_eq!(proof["model_to_host_overlap"], 0);
     assert_eq!(proof["host_to_model_overlap"], 0);
     assert_eq!(proof["normalized_paths"].as_array().unwrap().len(), 4);
