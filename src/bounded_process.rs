@@ -98,6 +98,7 @@ fn child_env_allowed(key: &std::ffi::OsStr, source: EnvSource) -> bool {
                 "NODE_ENV"
                     | "NODE_OPTIONS"
                     | "NODE_PATH"
+                    | "PLAYWRIGHT_BROWSERS_PATH"
                     | "NEXT_TELEMETRY_DISABLED"
                     | "PORT"
                     | "TMPDIR"
@@ -693,6 +694,132 @@ mod tests {
             !env.contains("COMMANDAGENT_TEST_UNRELATED_PARENT_SECRET"),
             "{env}"
         );
+    }
+
+    fn child_env_dump(command: &mut Command) -> String {
+        command
+            .arg("-c")
+            .arg("env | sort")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let output = run_with_timeout(command, TEST_TIMEOUT).unwrap();
+        assert!(output.success(), "{output:?}");
+        String::from_utf8(output.stdout).unwrap()
+    }
+
+    #[test]
+    fn explicit_playwright_browsers_path_reaches_child() {
+        let _guard = ENV_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _env_guard = TestEnvGuard::set([("PLAYWRIGHT_BROWSERS_PATH", "/opt/parent-browsers")]);
+        let mut command = Command::new("sh");
+        command.env("PLAYWRIGHT_BROWSERS_PATH", "/opt/explicit-browsers");
+        let env = child_env_dump(&mut command);
+        assert!(
+            env.contains("PLAYWRIGHT_BROWSERS_PATH=/opt/explicit-browsers"),
+            "{env}"
+        );
+    }
+
+    #[test]
+    fn parent_only_playwright_browsers_path_does_not_reach_child() {
+        let _guard = ENV_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _env_guard = TestEnvGuard::set([("PLAYWRIGHT_BROWSERS_PATH", "/opt/parent-browsers")]);
+        let env = child_env_dump(&mut Command::new("sh"));
+        assert!(!env.contains("PLAYWRIGHT_BROWSERS_PATH"), "{env}");
+    }
+
+    #[test]
+    fn explicit_secret_variables_do_not_reach_child() {
+        let _guard = ENV_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut command = Command::new("sh");
+        command
+            .env("OPENAI_API_KEY", "explicit-openai-secret")
+            .env("PLAYWRIGHT_BROWSERS_PATH", "/opt/explicit-browsers");
+        let env = child_env_dump(&mut command);
+        assert!(!env.contains("OPENAI_API_KEY"), "{env}");
+        assert!(!env.contains("explicit-openai-secret"), "{env}");
+    }
+
+    #[test]
+    fn probe_command_forwards_playwright_browsers_path_only_when_set() {
+        use crate::minimal_loop::interaction_probe::playwright_browsers_path_env;
+
+        let _guard = ENV_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        {
+            let _env_guard =
+                TestEnvGuard::set([("PLAYWRIGHT_BROWSERS_PATH", "/opt/parent-browsers")]);
+            let pairs = playwright_browsers_path_env();
+            assert_eq!(pairs.len(), 1, "{pairs:?}");
+            assert_eq!(pairs[0].0, "PLAYWRIGHT_BROWSERS_PATH");
+            assert_eq!(pairs[0].1, "/opt/parent-browsers");
+        }
+        let saved = std::env::var_os("PLAYWRIGHT_BROWSERS_PATH");
+        // SAFETY: `ENV_TEST_LOCK` is held, so no other test in this module touches the environment.
+        unsafe {
+            std::env::remove_var("PLAYWRIGHT_BROWSERS_PATH");
+        }
+        let pairs = playwright_browsers_path_env();
+        if let Some(value) = saved {
+            // SAFETY: `ENV_TEST_LOCK` is still held.
+            unsafe {
+                std::env::set_var("PLAYWRIGHT_BROWSERS_PATH", value);
+            }
+        }
+        assert!(pairs.is_empty(), "{pairs:?}");
+    }
+
+    #[test]
+    fn setup_command_forwards_playwright_browsers_path_only_when_set() {
+        use crate::minimal_loop::interaction_probe::run_setup_command;
+
+        let _guard = ENV_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let dir = tempfile::tempdir().unwrap();
+        let run = |name: &str| {
+            let log = dir.path().join(format!("{name}.log"));
+            run_setup_command(
+                dir.path(),
+                dir.path(),
+                std::ffi::OsStr::new("sh"),
+                &["-c", "env"],
+                &log,
+                TEST_TIMEOUT,
+            )
+            .unwrap();
+            std::fs::read_to_string(log.with_extension("out")).unwrap()
+        };
+        {
+            let _env_guard =
+                TestEnvGuard::set([("PLAYWRIGHT_BROWSERS_PATH", "/opt/parent-browsers")]);
+            let env = run("set");
+            assert!(
+                env.contains("PLAYWRIGHT_BROWSERS_PATH=/opt/parent-browsers"),
+                "{env}"
+            );
+        }
+        let saved = std::env::var_os("PLAYWRIGHT_BROWSERS_PATH");
+        // SAFETY: `ENV_TEST_LOCK` is held, so no other test in this module touches the environment.
+        unsafe {
+            std::env::remove_var("PLAYWRIGHT_BROWSERS_PATH");
+        }
+        let env = run("unset");
+        if let Some(value) = saved {
+            // SAFETY: `ENV_TEST_LOCK` is still held.
+            unsafe {
+                std::env::set_var("PLAYWRIGHT_BROWSERS_PATH", value);
+            }
+        }
+        assert!(!env.contains("PLAYWRIGHT_BROWSERS_PATH"), "{env}");
     }
 
     #[test]
