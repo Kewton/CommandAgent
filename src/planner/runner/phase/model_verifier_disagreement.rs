@@ -10,8 +10,7 @@ use crate::eval_events::body_snippet;
 use crate::minimal_loop::completion::CompletionContract;
 use crate::planner::profile::{build_oracle_for_command, resolve_profile_runtime};
 use crate::planner::recovery_contract_authority::{
-    local_script_path,
-    verifier_obligations::{generated, normalized},
+    local_script_path, verifier_obligations::normalized,
 };
 use crate::planner::step_plan::{ExpectedResult, PlanStep, StepKind, StepPlan};
 use crate::planner::verify::VerificationReport;
@@ -82,9 +81,9 @@ fn only_command_failures(report: &VerificationReport) -> bool {
 }
 
 /// Every failed command must run a script produced by an earlier passing
-/// Implement step of the same plan or by a registered verifier producer, and
-/// none may be a host oracle command (profile build oracle or a command named
-/// by the effective completion contract's `deterministic_oracles`).
+/// Implement step of the same plan, and none may be a host oracle command
+/// (profile build oracle or a command named by the effective completion
+/// contract's `deterministic_oracles`).
 /// Returns the first failure with its script path and producing step id.
 fn model_verifier_failure<'a>(
     config: &Config,
@@ -93,7 +92,6 @@ fn model_verifier_failure<'a>(
     report: &'a VerificationReport,
 ) -> Option<(&'a crate::planner::verify::CommandFailure, String, String)> {
     let position = plan.steps.iter().position(|s| s.id == step.id)?;
-    let registered = generated(config);
     let oracles = CompletionContract::load_for_config(config)
         .ok()
         .flatten()
@@ -109,7 +107,6 @@ fn model_verifier_failure<'a>(
         let script = local_script_path(&failure.command)?;
         let producer = plan.steps[..position]
             .iter()
-            .chain(&registered)
             .find(|earlier| produces(earlier, &script))?;
         first.get_or_insert((failure, script, producer.id.clone()));
     }
