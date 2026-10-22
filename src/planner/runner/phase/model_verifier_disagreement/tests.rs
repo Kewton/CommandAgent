@@ -283,6 +283,22 @@ fn failed_host_oracle_command_stays_progress_unchanged() {
 }
 
 #[test]
+fn contract_deterministic_oracle_script_stays_progress_unchanged() {
+    let dir = workspace(false);
+    let (plan, step) = plan(true);
+    let mut cfg = config(dir.path(), "python-cli");
+    assert!(detect(&cfg, &plan, &step, &goal(), &failing_report()).is_some());
+    let contract = dir.path().join("contract.json");
+    std::fs::write(
+        &contract,
+        serde_json::json!({"deterministic_oracles": ["python3 verify_output.py"]}).to_string(),
+    )
+    .unwrap();
+    cfg.completion_contract_path = Some(contract);
+    assert!(detect(&cfg, &plan, &step, &goal(), &failing_report()).is_none());
+}
+
+#[test]
 fn classification_leaves_is_pass_and_the_auto_recovery_list_unchanged() {
     assert!(!failing_report().is_pass());
     assert_ne!(
