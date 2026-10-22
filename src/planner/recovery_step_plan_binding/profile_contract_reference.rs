@@ -2,7 +2,7 @@
 //! under `Profile guidance`, so the step does not copy it past the text limit.
 use crate::planner::profile_behavior::ProfileRuntime;
 
-pub(crate) const PROFILE_CONTRACT_REFERENCE: &str = "This step owns the active profile contract, which is given in full under Profile guidance in the system prompt; satisfy every requirement in it, including the dev/start script port.";
+pub(crate) const PROFILE_CONTRACT_REFERENCE: &str = "This step owns the active profile contract, which is given in full under Profile guidance in the system prompt; satisfy every requirement in it.";
 
 pub(crate) fn is_reference(text: &str) -> bool {
     text == PROFILE_CONTRACT_REFERENCE
@@ -63,6 +63,34 @@ mod tests {
         assert!(is_reference(PROFILE_CONTRACT_REFERENCE));
         assert!(!is_reference(&format!("{PROFILE_CONTRACT_REFERENCE} ")));
         assert!(!is_reference("Keep scripts on port 3011."));
+    }
+
+    /// #822: the reference is profile-neutral. The dev/start script port duty
+    /// lives only in the nextjs contract delivered under `Profile guidance`.
+    #[test]
+    fn reference_has_no_profile_specific_port_wording() {
+        let lowered = PROFILE_CONTRACT_REFERENCE.to_lowercase();
+        assert!(!lowered.contains("port"), "{PROFILE_CONTRACT_REFERENCE}");
+        assert!(
+            !lowered.contains("dev/start"),
+            "{PROFILE_CONTRACT_REFERENCE}"
+        );
+        let full = resolve_profile_runtime(NEXTJS_PROFILE_ID)
+            .guidance("Build a todo app on port 3011")
+            .unwrap();
+        assert!(full.contains("3011"));
+    }
+
+    /// #822: a saved plan written before the wording change carries the old
+    /// sentence. It is not the reference any more, so it is treated as plain
+    /// model text (never as a host contract duty).
+    #[test]
+    fn pre_822_reference_wording_is_not_recognized() {
+        let old = "This step owns the active profile contract, which is given in full under Profile guidance in the system prompt; satisfy every requirement in it, including the dev/start script port.";
+        let runtime = resolve_profile_runtime(NEXTJS_PROFILE_ID);
+        assert!(!is_reference(old));
+        assert!(!super::contains_reference(&format!("{MARKER}{old}")));
+        assert!(!is_host_contract_text(runtime, "Build a todo app", old));
     }
 
     #[test]
