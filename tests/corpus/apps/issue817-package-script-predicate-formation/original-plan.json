@@ -1,0 +1,130 @@
+{
+  "game-q-r1-setup-project": {
+    "goal": "Original ultra goal: あなたが考える最高に面白くかっこいいスペースインベーダーゲームを3011ポートで起動可能なnext.jsアプリとして開発してください。\nProfile: nextjs\nStyle: default\nIntent: create\nPhase id: setup-project\nPhase task: Initialize a Next.js project with TypeScript and Tailwind CSS. Configure postcss.config.js with tailwindcss and autoprefixer, and ensure scripts.dev/start are set to port 3011. Create src/lib/types.ts for game state, entities (Player, Alien, Bullet), and score types.\n\nWorkspace snapshot:\n- package.json\n- postcss.config.js\n- src\n- tailwind.config.ts\n- tsconfig.json\n\nPrior ultra context:\n- Pending final artifacts:\n  - package.json\n  - tsconfig.json\n  - postcss.config.js\n  - tailwind.config.ts\n  - src/app/layout.tsx\n  - src/app/page.tsx\n  - src/app/globals.css\n  - src/app/global.d.ts\n\nUnmet final requirements from earlier phases:\n- none\n\nRequested features not yet detected:\n- 60fps\n- alien\n- animations\n- anvil\n- autoprefixer\n- available\n- … and 74 more\n\nProfile generation rules:\n- Profile nextjs/create: preserve a real Next.js app contract. Include next/react/react-dom dependencies, keep scripts.build as next build, and end with a build verification phase. Put dependency setup before any npm run build verification when node_modules is not already present; setup instructions may install dependencies, but verify must not contain npm install. If dependency setup is not allowed or cannot run, stop with dependency_missing instead of claiming build success. Keep a single route-bound implementation; do not leave capability components unimported. For interactive UI, implement the requested interface, replacing unrelated scaffold content, and preserve data-anvil-* attributes on route-bound UI: data-anvil-action=\"primary\" on the main start/submit/action control, data-anvil-action=\"input\" on the main text entry surface when one exists, and data-anvil-state with a JSON snapshot of meaningful visible state after each render. When the contract includes start_or_restart_flow, every restart affordance (including terminal and active states when present) should carry data-anvil-action=\"restart\"; the initial primary action alone cannot satisfy recovery verification. A restart reachable during active use (hook or keyboard shortcut) allows behavioral verification, while an overlay-only restart may verify as unverified:terminal_state_not_reached (partial). If you use Tailwind utility classes or @tailwind directives, include tailwindcss/postcss/autoprefixer and create tailwind.config.* plus postcss.config.*; postcss.config plugins must include BOTH tailwindcss and autoprefixer. Otherwise use plain CSS and do not write Tailwind utility classes. Keep scripts.dev and scripts.start on the explicit requested port when the goal or plan requests one; otherwise use port 3011 with next dev/start -p 3011 or --port 3011.\n- For TypeScript apps, put shared domain and request/response types in src/lib/types.ts and import the same types from page and route modules. Use imported helpers and export every function consumed by another module. Decide one JSON response shape per operation (bare array, {items}, or {item}) and make the UI read exactly what the route returns. Check Response.ok before accepting a mutation; return errors as {error, details?} and display them in the UI. Connect each requested UI action through its API to persistence and reload the committed result.\n- For server-side file persistence, initialize only a missing file (ENOENT); distinguish valid empty data from missing data. Parse errors, directory replacement and other read or write I/O failures must return 5xx without overwriting any existing or related data. Serialize the complete read-modify-write transaction across all writers (including multiple processes), or use generation checks with conflict handling; write to a temporary file and atomically rename it. Atomic rename alone does not prevent lost updates.\n- Validate the complete proposed state before committing: aggregate quantities by entity key before checking availability, scope totals to the requested period, define rejection/cascade/reassignment for referenced parent deletion, and match strict/inclusive comparisons to the goal wording. Reject non-finite or invalid quantities and amounts at the API boundary.\n\nProfile runtime contract:\n- Preserve the workspace as a real Next.js app.\n- Keep next/react/react-dom dependencies in package.json.\n- Keep scripts.build as next build; do not replace it with echo/skip/no-op commands.\n- If npm run build cannot run because dependencies are not installed, report dependency_missing or use an explicit setup step; do not fake success.\n- Keep scripts.dev and scripts.start on the explicitly requested port 3011: next dev/start -p 3011 or --port 3011.\n- If using Tailwind utility classes or @tailwind directives, keep the Tailwind toolchain complete: tailwindcss/postcss/autoprefixer dependencies, tailwind.config.*, and postcss.config plugins with BOTH tailwindcss and autoprefixer. Otherwise use plain CSS.\n- Keep TypeScript and app router configuration coherent.\n- Keep a single route-bound implementation; do not leave capability components unimported.\n- For interactive UI, expose data-anvil-action=\"primary\" on the main start/submit/action control, data-anvil-action=\"input\" on the main text entry surface when one exists, and data-anvil-state with a JSON snapshot of meaningful visible state after each render. When the contract includes start_or_restart_flow, every restart affordance (including terminal and active states when present) should carry data-anvil-action=\"restart\"; the initial primary action alone cannot satisfy recovery verification. A restart reachable during active use (hook or keyboard shortcut) allows behavioral verification, while an overlay-only restart may verify as unverified:terminal_state_not_reached (partial).\n- Do not treat scaffold-only, package-only, or build-only output as complete.\nRoute-bound implementation constraint:\n- Keep a single route-bound implementation; do not leave capability components unimported.\n\nPre-provisioned scaffold note:\n- Required scaffold files are authored before phase 1 when absent; verify or extend the scaffold rather than re-planning file creation.\nDeterministic verification preference:\n- npm run build\n\n\nRequired final artifacts:\n- package.json\n- tsconfig.json\n- postcss.config.js\n- tailwind.config.ts\n- src/app/layout.tsx\n- src/app/page.tsx\n- src/app/globals.css\n- src/app/global.d.ts\n\nRequired final capabilities:\n- stateful_interaction\n- start_or_restart_flow\n- player_control\n- adversary_or_challenge\n- progression_or_score\n- failure_or_collision_rule\n\nRequired final evidence:\n- nextjs_route_evidence\n- build_command_or_dependency_missing_boundary\n- implementation_artifact\n- visible_interactive_surface_evidence\n- user_input_handler_evidence\n- stateful_update_evidence\n- interactive_ui_source_evidence\n- non_static_screen_evidence\n- restart_or_recoverable_state_evidence\n- challenge_or_adversary_evidence\n- score_or_progression_evidence\n- failure_or_collision_evidence",
+    "steps": [
+      {
+        "expected_paths": [
+          "package.json"
+        ],
+        "expected_result": "pass",
+        "id": "setup-dependencies",
+        "instruction": "Create package.json with next, react, react-dom, typescript, tailwindcss, postcss, and autoprefixer. Configure scripts.dev as 'next dev -p 3011', scripts.start as 'next start -p 3011', and scripts.build as 'next build'.",
+        "kind": "setup",
+        "verify": [
+          "node -p \"require('./package.json').scripts.dev\""
+        ]
+      },
+      {
+        "expected_paths": [
+          "tsconfig.json",
+          "postcss.config.js",
+          "tailwind.config.ts"
+        ],
+        "expected_result": "pass",
+        "id": "configure-tooling",
+        "instruction": "Create tsconfig.json for Next.js TypeScript support. Create postcss.config.js including 'tailwindcss' and 'autoprefixer' plugins. Create tailwind.config.ts with content paths covering the src directory.",
+        "kind": "implement",
+        "verify": [
+          "test -f postcss.config.js"
+        ]
+      },
+      {
+        "expected_paths": [
+          "src/lib/types.ts"
+        ],
+        "expected_result": "pass",
+        "id": "define-game-types",
+        "instruction": "Create src/lib/types.ts defining TypeScript interfaces for the game state, Player, Alien, Bullet, and Score tracking.",
+        "kind": "implement",
+        "verify": [
+          "test -f src/lib/types.ts"
+        ]
+      },
+      {
+        "expected_paths": [
+          "src/app/globals.css",
+          "src/app/layout.tsx",
+          "src/app/page.tsx",
+          "src/app/global.d.ts"
+        ],
+        "expected_result": "pass",
+        "id": "create-app-scaffold",
+        "instruction": "Create src/app/globals.css with Tailwind directives. Create src/app/layout.tsx for the root layout and src/app/page.tsx as the main game entry point. Create src/app/global.d.ts for any global type declarations.",
+        "kind": "implement",
+        "verify": [
+          "test -f src/app/page.tsx"
+        ]
+      },
+      {
+        "expected_paths": [],
+        "expected_result": "pass",
+        "id": "verify-build-config",
+        "instruction": "Verify that all required configuration files exist and the port is correctly set to 3011 in package.json.",
+        "kind": "verify",
+        "verify": [
+          "node -p \"require('./package.json').scripts.dev.includes('3011')\""
+        ]
+      }
+    ]
+  },
+  "tool-g-build-todo-ui": {
+    "goal": "Original ultra goal: ローカルストレージに保存されるTodoアプリ(追加・完了・削除・フィルタ)をNext.jsアプリとして3011ポートで起動可能に開発してください。\nProfile: nextjs\nStyle: default\nIntent: create\nPhase id: build-todo-ui\nPhase task: Implement the Todo UI in the main page. Include an input field (data-anvil-action='input'), an add button (data-anvil-action='primary'), a list of todos with completion checkboxes and delete buttons, and filter controls (All, Active, Completed). Ensure the UI reflects current state via data-anvil-state.\n\nWorkspace snapshot:\n- .next\n- next-env.d.ts\n- node_modules\n- package-lock.json\n- package.json\n- postcss.config.js\n- src\n- tailwind.config.ts\n- tsconfig.json\n\nPrior ultra context:\n- Completed phases:\n  - setup-project (2/2)\n  - implement-storage-logic (3/3)\n- Created or changed paths:\n  - src/lib/types.ts\n  - src/lib/todo-storage.ts\n  - package.json\n- Pending capability/evidence:\n  - implementation_artifact\n  - persistence_evidence\n  - implementation\n  - route_unbound_capability_artifact:src/lib/todo-storage.ts\n  - route_unbound_capability_artifact:src/lib/todo-storage.ts:persistence_evidence\n  - remedy: implementation_artifact: create route-bound task implementation files rather than only plans, notes, or scaffold\n  - remedy: persistence_evidence: add concrete route-bound implementation evidence for this pending contract key\n  - remedy: implementation: add concrete route-bound implementation evidence for this pending contract key\n  - remedy: route_unbound_capability_artifact:src/lib/todo-storage.ts: add concrete route-bound implementation evidence for this pending contract key\n  - remedy: route_unbound_capability_artifact:src/lib/todo-storage.ts:persistence_evidence: add concrete route-bound implementation evidence for this pending contract key\n\nUnmet final requirements from earlier phases:\n- implementation_artifact\n- persistence_evidence\n- implementation\n- route_unbound_capability_artifact:src/lib/todo-storage.ts\n- route_unbound_capability_artifact:src/lib/todo-storage.ts:persistence_evidence\n- … and 5 more\n- Close these requirements when they are in scope for this phase.\n\nRequested features not yet detected:\n- anvil\n- any\n- atomic\n- buttons\n- checkboxes\n- completion\n- … and 42 more\n\nProfile generation rules:\n- Profile nextjs/create: preserve a real Next.js app contract. Include next/react/react-dom dependencies, keep scripts.build as next build, and end with a build verification phase. Put dependency setup before any npm run build verification when node_modules is not already present; setup instructions may install dependencies, but verify must not contain npm install. If dependency setup is not allowed or cannot run, stop with dependency_missing instead of claiming build success. Keep a single route-bound implementation; do not leave capability components unimported. For interactive UI, implement the requested interface, replacing unrelated scaffold content, and preserve data-anvil-* attributes on route-bound UI: data-anvil-action=\"primary\" on the main start/submit/action control, data-anvil-action=\"input\" on the main text entry surface when one exists, and data-anvil-state with a JSON snapshot of meaningful visible state after each render. When the contract includes start_or_restart_flow, every restart affordance (including terminal and active states when present) should carry data-anvil-action=\"restart\"; the initial primary action alone cannot satisfy recovery verification. A restart reachable during active use (hook or keyboard shortcut) allows behavioral verification, while an overlay-only restart may verify as unverified:terminal_state_not_reached (partial). If you use Tailwind utility classes or @tailwind directives, include tailwindcss/postcss/autoprefixer and create tailwind.config.* plus postcss.config.*; postcss.config plugins must include BOTH tailwindcss and autoprefixer. Otherwise use plain CSS and do not write Tailwind utility classes. Keep scripts.dev and scripts.start on the explicit requested port when the goal or plan requests one; otherwise use port 3011 with next dev/start -p 3011 or --port 3011.\n- For TypeScript apps, put shared domain and request/response types in src/lib/types.ts and import the same types from page and route modules. Use imported helpers and export every function consumed by another module. Decide one JSON response shape per operation (bare array, {items}, or {item}) and make the UI read exactly what the route returns. Check Response.ok before accepting a mutation; return errors as {error, details?} and display them in the UI. Connect each requested UI action through its API to persistence and reload the committed result.\n- For server-side file persistence, initialize only a missing file (ENOENT); distinguish valid empty data from missing data. Parse errors, directory replacement and other read or write I/O failures must return 5xx without overwriting any existing or related data. Serialize the complete read-modify-write transaction across all writers (including multiple processes), or use generation checks with conflict handling; write to a temporary file and atomically rename it. Atomic rename alone does not prevent lost updates.\n- Validate the complete proposed state before committing: aggregate quantities by entity key before checking availability, scope totals to the requested period, define rejection/cascade/reassignment for referenced parent deletion, and match strict/inclusive comparisons to the goal wording. Reject non-finite or invalid quantities and amounts at the API boundary.\n\nProfile runtime contract:\n- Preserve the workspace as a real Next.js app.\n- Keep next/react/react-dom dependencies in package.json.\n- Keep scripts.build as next build; do not replace it with echo/skip/no-op commands.\n- If npm run build cannot run because dependencies are not installed, report dependency_missing or use an explicit setup step; do not fake success.\n- Keep scripts.dev and scripts.start on the explicitly requested port 3011: next dev/start -p 3011 or --port 3011.\n- If using Tailwind utility classes or @tailwind directives, keep the Tailwind toolchain complete: tailwindcss/postcss/autoprefixer dependencies, tailwind.config.*, and postcss.config plugins with BOTH tailwindcss and autoprefixer. Otherwise use plain CSS.\n- Keep TypeScript and app router configuration coherent.\n- Keep a single route-bound implementation; do not leave capability components unimported.\n- For interactive UI, expose data-anvil-action=\"primary\" on the main start/submit/action control, data-anvil-action=\"input\" on the main text entry surface when one exists, and data-anvil-state with a JSON snapshot of meaningful visible state after each render. When the contract includes start_or_restart_flow, every restart affordance (including terminal and active states when present) should carry data-anvil-action=\"restart\"; the initial primary action alone cannot satisfy recovery verification. A restart reachable during active use (hook or keyboard shortcut) allows behavioral verification, while an overlay-only restart may verify as unverified:terminal_state_not_reached (partial).\n- Do not treat scaffold-only, package-only, or build-only output as complete.\nRoute-bound implementation constraint:\n- Keep a single route-bound implementation; do not leave capability components unimported.\n\nPre-provisioned scaffold note:\n- Required scaffold files are authored before phase 1 when absent; verify or extend the scaffold rather than re-planning file creation.\nDeterministic verification preference:\n- npm run build\n\n\nRequired final artifacts:\n- package.json\n- tsconfig.json\n- postcss.config.js\n- tailwind.config.ts\n- src/app/layout.tsx\n- src/app/page.tsx\n- src/app/globals.css\n- src/app/global.d.ts\n\nRequired final capabilities:\n- stateful_interaction\n- user_input_or_action\n- visible_state_change\n- persistence\n\nRequired final evidence:\n- nextjs_route_evidence\n- build_command_or_dependency_missing_boundary\n- implementation_artifact\n- visible_interactive_surface_evidence\n- user_input_handler_evidence\n- stateful_update_evidence\n- interactive_ui_source_evidence\n- non_static_screen_evidence\n- persistence_evidence",
+    "steps": [
+      {
+        "expected_paths": [],
+        "expected_result": "pass",
+        "id": "inspect-storage-logic",
+        "instruction": "Review src/lib/todo-storage.ts and src/lib/types.ts to understand the available storage API for todos.",
+        "kind": "inspect",
+        "verify": []
+      },
+      {
+        "expected_paths": [
+          "src/app/page.tsx"
+        ],
+        "expected_result": "pass",
+        "id": "implement-todo-ui",
+        "instruction": "Implement the Todo UI in src/app/page.tsx. Use src/lib/todo-storage.ts for persistence. Include: 1. An input field with data-anvil-action='input'. 2. An add button with data-anvil-action='primary'. 3. A list of todos with checkboxes for completion and delete buttons. 4. Filter controls (All, Active, Completed). 5. Ensure the main container or a state-tracking element has data-anvil-state containing the current list and filter status as JSON. Use Tailwind CSS for styling.",
+        "kind": "implement",
+        "verify": [
+          "test -f src/app/page.tsx"
+        ]
+      },
+      {
+        "expected_paths": [
+          "src/app/layout.tsx",
+          "src/app/globals.css"
+        ],
+        "expected_result": "pass",
+        "id": "implement-app-layout",
+        "instruction": "Ensure src/app/layout.tsx and src/app/globals.css are configured to support the Tailwind UI and the main page.",
+        "kind": "implement",
+        "verify": [
+          "test -f src/app/layout.tsx"
+        ]
+      },
+      {
+        "expected_paths": [
+          "package.json"
+        ],
+        "expected_result": "pass",
+        "id": "configure-scripts",
+        "instruction": "Update package.json to ensure scripts.dev and scripts.start use port 3011 (e.g., \"next dev -p 3011\").",
+        "kind": "implement",
+        "verify": [
+          "node -p \"require('./package.json').scripts.dev.includes('3011')\""
+        ]
+      },
+      {
+        "expected_paths": [],
+        "expected_result": "pass",
+        "id": "verify-build",
+        "instruction": "Run the Next.js build command to ensure there are no TypeScript or compilation errors in the implemented UI.",
+        "kind": "verify",
+        "verify": [
+          "npm run build"
+        ]
+      }
+    ]
+  }
+}
