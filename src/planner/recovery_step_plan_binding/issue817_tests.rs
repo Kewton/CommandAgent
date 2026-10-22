@@ -147,12 +147,11 @@ fn issue817_sanitizer_leaves_a_plan_without_the_weak_form_unchanged() {
     assert_eq!(plan.steps[0].verify, vec![already]);
 }
 
-fn nextjs_config(root: &Path) -> Config {
-    std::fs::write(
-        root.join("package.json"),
-        r#"{"name":"issue817","private":true,"scripts":{"dev":"next dev -p 3011","start":"next start -p 3011","build":"next build"},"dependencies":{"next":"15.5.20","react":"19.1.0","react-dom":"19.1.0"}}"#,
-    )
-    .unwrap();
+const SCAFFOLD_PACKAGE: &str = r#"{"name":"issue817","private":true,"scripts":{"dev":"next dev -p 3011","start":"next start -p 3011","build":"next build"},"dependencies":{"next":"15.5.20","react":"19.1.0","react-dom":"19.1.0"}}"#;
+
+/// Workspace of the recorded tool-g admission: an installed app with routes.
+fn ready_workspace(root: &Path) {
+    std::fs::write(root.join("package.json"), SCAFFOLD_PACKAGE).unwrap();
     std::fs::create_dir_all(root.join("node_modules")).unwrap();
     std::fs::create_dir_all(root.join("src/app")).unwrap();
     std::fs::write(
@@ -165,6 +164,24 @@ fn nextjs_config(root: &Path) -> Config {
         "export default function Layout({children}) { return children; }",
     )
     .unwrap();
+}
+
+/// Workspace of the recorded game-q-r1 admission (events.jsonl line 13: phase 1,
+/// no changed paths; the saved goal's snapshot lists exactly these entries, with
+/// no node_modules and no routes).
+fn scaffold_workspace(root: &Path) {
+    std::fs::write(
+        root.join("package.json"),
+        r#"{"name":"issue817","private":true}"#,
+    )
+    .unwrap();
+    std::fs::write(root.join("postcss.config.js"), "module.exports = {};\n").unwrap();
+    std::fs::write(root.join("tailwind.config.ts"), "export default {};\n").unwrap();
+    std::fs::write(root.join("tsconfig.json"), "{}\n").unwrap();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+}
+
+fn nextjs_config(root: &Path) -> Config {
     let mut c =
         Config::from_cli(crate::cli::Cli::parse_from(["commandagent", "--ux-demo"])).unwrap();
     c.workspace_root = root.to_path_buf();
@@ -220,8 +237,13 @@ impl ChatClient for Replay {
 
 /// Replays the saved first proposal three times, as the recorded runs did, and
 /// returns the admission events with the number of planner requests.
-fn replay(case: &str, phase: &str) -> (Vec<Value>, usize, anyhow::Result<StepPlan>) {
+fn replay(
+    case: &str,
+    phase: &str,
+    setup: fn(&Path),
+) -> (Vec<Value>, usize, anyhow::Result<StepPlan>) {
     let root = tempfile::tempdir().unwrap();
+    setup(root.path());
     let c = nextjs_config(root.path());
     let plan = saved(case);
     let reply = AssistantReply::text(serde_json::to_string(&plan).unwrap());
@@ -267,7 +289,7 @@ fn assert_formed_in_place_of_weak(plan: &StepPlan, owner: &str) {
 
 #[test]
 fn issue817_tool_g_first_proposal_is_admitted_without_a_predicate_retry() {
-    let (admissions, requests, result) = replay(TOOL_G, "build-todo-ui");
+    let (admissions, requests, result) = replay(TOOL_G, "build-todo-ui", ready_workspace);
     let reasons = reasons(&admissions);
     assert!(
         reasons.iter().all(|r| !r.contains("scripts.dev.includes")),
@@ -280,13 +302,26 @@ fn issue817_tool_g_first_proposal_is_admitted_without_a_predicate_retry() {
 
 #[test]
 fn issue817_game_q_r1_first_proposal_loses_the_includes_reason() {
-    let (admissions, requests, result) = replay(GAME_Q, "setup-project");
+    let (admissions, requests, result) = replay(GAME_Q, "setup-project", scaffold_workspace);
     let reasons = reasons(&admissions);
     assert!(
         reasons.iter().all(|r| !r.contains(".includes('3011')")),
         "{reasons:?}"
     );
-    // Recorded next result: in the offline replay the first proposal is admitted.
+    // Recorded line 16 has stage preclosure_formation, so the replay is the non-recovery
+    // formation path. The recorded second reason (scripts.dev refusal) only rode along
+    // with the .includes failure; without it the first proposal is admitted.
     assert_eq!((requests, reasons.len()), (1, 0), "{reasons:?}");
-    assert_formed_in_place_of_weak(&result.unwrap(), "verify-build-config");
+    let plan = result.unwrap();
+    assert_formed_in_place_of_weak(&plan, "verify-build-config");
+    // The printed scripts.dev check is not a failure on its own and stays as proposed.
+    let owner = plan
+        .steps
+        .iter()
+        .find(|s| s.id == "setup-dependencies")
+        .unwrap();
+    assert_eq!(
+        owner.verify,
+        ["node -p \"require('./package.json').scripts.dev\""]
+    );
 }
