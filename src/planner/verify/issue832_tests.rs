@@ -168,6 +168,11 @@ fn issue832_dev_required_strictness_table() {
 
 #[test]
 fn issue832_game_g_final_phase_is_admitted_with_the_nextjs_port_scripts_template() {
+    // Mirrors the order of `deterministic_step_plan_for_phase` (src/planner/runner/driver.rs:692,
+    // develop 2d3e78b0): template :706 -> repair_generated_step_plan_contract :717 ->
+    // admission.strengthen :728 -> repair :729 -> canonicalize_create_plan :730 ->
+    // admission.sanitize :736 -> admission.check :738. The real function and the
+    // `deterministic_step_plan_used` event are checked by the G1 GAME rerun.
     let recorded = recorded();
     let prompt = format!(
         "Original ultra goal: {}\nProfile: nextjs\nStyle: default\nIntent: create\nPhase id: {}\nPhase task: {}",
