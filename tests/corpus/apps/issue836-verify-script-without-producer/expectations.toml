@@ -1,0 +1,5 @@
+case_id = "issue836-verify-script-without-producer"
+
+[fixture_contains]
+content-q-plan.yaml = ["verify-api-logic", "node smoke-check.js"]
+ambig-plan.yaml = ["create-smoke-test", "smoke-check.js", "node smoke-check.js"]
