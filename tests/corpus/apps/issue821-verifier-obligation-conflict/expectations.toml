@@ -1,0 +1,5 @@
+case_id = "issue821-verifier-obligation-conflict"
+
+[fixture_contains]
+phase1-plan.json = ["create-smoke-test", "smoke-check.js", "node smoke-check.js"]
+phase2-plan.json = ["update-smoke-check", "smoke-check.js", "node smoke-check.js"]
