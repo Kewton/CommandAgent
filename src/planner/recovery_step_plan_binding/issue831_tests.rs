@@ -86,7 +86,7 @@ fn issue831_game_q_profile_addition_skips_the_verifier_producer_and_admits() {
     assert!(owner.expected_paths.iter().any(|p| p == "package.json"));
     assert!(owner.instruction.contains(PROFILE_CONTRACT_REFERENCE));
     let contract: CompletionContract = serde_json::from_value(json!({
-        "goal": "g", "profile": "nextjs", "required_paths": ["smoke-check.js"],
+        "goal": "g", "profile": crate::planner::profile_descriptor::NEXTJS_PROFILE_ID, "required_paths": ["smoke-check.js"],
         "verify_commands": ["node smoke-check.js"], "protected_paths": []
     }))
     .unwrap();
@@ -229,7 +229,7 @@ fn issue831_issue478_attempt_2_gets_package_json_on_the_app_step() {
         ["smoke-check.js"]
     );
     let contract: CompletionContract = serde_json::from_value(json!({
-        "goal": "g", "profile": "nextjs", "required_paths": ["smoke-check.js"],
+        "goal": "g", "profile": crate::planner::profile_descriptor::NEXTJS_PROFILE_ID, "required_paths": ["smoke-check.js"],
         "verify_commands": ["node smoke-check.js"], "protected_paths": []
     }))
     .unwrap();
