@@ -124,7 +124,13 @@ impl crate::planner::runner::ChatClient for Replay {
         _: &[crate::tools::registry::ToolSpec],
         _: bool,
     ) -> anyhow::Result<AssistantReply> {
-        let plan = self.0.lock().unwrap().pop_front().expect("planned reply");
+        let mut queue = self.0.lock().unwrap();
+        let plan = if queue.len() > 1 {
+            queue.pop_front()
+        } else {
+            queue.front().cloned()
+        }
+        .expect("planned reply");
         Ok(AssistantReply::text(serde_json::to_string(&plan)?))
     }
 }
@@ -182,6 +188,7 @@ fn issue821_phase_conflict_emits_phase_failure_and_recovery_handoff() {
         .find(|e| e["event"] == "ultra_phase_failed")
         .expect("ultra_phase_failed");
     assert_eq!(failed["phase_id"], "implement-memo-logic");
+    assert_eq!(failed["stage"], "register");
     let saved = log
         .iter()
         .find(|e| e["event"] == "recovery_prompt_saved")
@@ -202,8 +209,65 @@ fn issue821_phase_conflict_emits_phase_failure_and_recovery_handoff() {
         "update-smoke-check",
         "smoke-check.js",
         "verifier_obligation",
+        "the registered verifier is kept unchanged",
+        "node smoke-check.js",
     ] {
         assert!(yaml.contains(needle), "{needle} missing from {yaml}");
     }
     assert!(!message.contains("direct_cli_command_failed"));
+}
+
+/// A non-conflict refusal never enters the conflict path. Planning-time
+/// admission applies the same producer checks as registration, so a mixed
+/// scope producer is refused before `register_plan`; it must keep the
+/// ordinary scaffold failure and must not be reported as a conflict.
+#[test]
+fn issue821_phase_non_conflict_refusal_keeps_its_own_path() {
+    let root = tempfile::tempdir().unwrap();
+    let config = config(root.path());
+    let plan = ultra_plan();
+    let (_paths, _guard) = super::super::recovery_authority::begin(&config, &plan).unwrap();
+    prepare_phase(&config, &plan, 0, plan_fixture("phase1-plan.json"))
+        .unwrap()
+        .unwrap();
+    let registered = scope::generated(&config);
+
+    let mut mixed = plan_fixture("phase2-plan.json");
+    for step in &mut mixed.steps {
+        if step.id == "update-smoke-check" {
+            step.expected_paths = vec!["other-check.js".into(), "index.html".into()];
+            step.verify = vec!["node other-check.js".into()];
+        }
+    }
+    let err = prepare_phase(&config, &plan, 1, mixed).unwrap_err();
+    let message = format!("{err:#}");
+    assert!(
+        message.contains("mixes application/configuration scope"),
+        "{message}"
+    );
+    assert!(
+        !message.contains("verifier obligation conflict"),
+        "{message}"
+    );
+    assert_eq!(scope::generated(&config), registered);
+    let log = events(&config);
+    let failed: Vec<_> = log
+        .iter()
+        .filter(|e| e["event"] == "ultra_phase_failed")
+        .collect();
+    assert_eq!(failed.len(), 1);
+    assert_eq!(failed[0]["stage"], "scaffold");
+    assert!(
+        log.iter()
+            .filter(|e| e["event"] == "recovery_prompt_saved")
+            .all(|e| e["recovery_handoff_kind"] != "verifier_obligation_conflict")
+    );
+
+    // Positive control: the conflicting plan does reach the conflict handoff.
+    prepare_phase(&config, &plan, 1, plan_fixture("phase2-plan.json")).unwrap_err();
+    assert!(
+        events(&config)
+            .iter()
+            .any(|e| e["recovery_handoff_kind"] == "verifier_obligation_conflict")
+    );
 }
