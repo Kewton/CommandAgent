@@ -85,7 +85,7 @@ fn only_command_failures(report: &VerificationReport) -> bool {
 /// (profile build oracle or a command named by the effective completion
 /// contract's `deterministic_oracles`).
 /// Returns the first failure with its script path and producing step id.
-fn model_verifier_failure<'a>(
+pub(super) fn model_verifier_failure<'a>(
     config: &Config,
     plan: &StepPlan,
     step: &PlanStep,
@@ -113,7 +113,7 @@ fn model_verifier_failure<'a>(
     first
 }
 
-fn names_command(oracles: &[String], command: &str) -> bool {
+pub(super) fn names_command(oracles: &[String], command: &str) -> bool {
     let words = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
     let script = local_script_path(command);
     oracles.iter().any(|oracle| {
@@ -124,7 +124,7 @@ fn names_command(oracles: &[String], command: &str) -> bool {
     })
 }
 
-fn produces(step: &PlanStep, script: &str) -> bool {
+pub(super) fn produces(step: &PlanStep, script: &str) -> bool {
     step.step_kind() == StepKind::Implement
         && step.expected_result_kind() == ExpectedResult::Pass
         && step

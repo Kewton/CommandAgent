@@ -22,6 +22,8 @@ mod cli_documented_input;
 mod command_observation;
 mod dependency_classification;
 mod failure_classification;
+#[cfg(test)]
+mod issue832_tests;
 mod shell_control;
 mod shell_rewrite;
 
@@ -2434,28 +2436,14 @@ fn package_json_port_only_pattern(pattern: &str) -> Option<String> {
 }
 
 pub fn package_json_port_script_check_command(port: &str) -> String {
-    // Keep the expression free of shell-control bytes so repaired commands can be revalidated.
-    format!(
-        concat!(
-            "node -p \"",
-            "['dev','start'].some(function(k){{",
-            "return String(Object(require('./package.json').scripts)[k]).split(' ')",
-            ".some(function(t,i,a){{",
-            "return t=='next' ? a.slice(i+1).find(function(x){{return x}})==k : false",
-            "}}) ? ",
-            "String(Object(require('./package.json').scripts)[k]).split(' ')",
-            ".some(function(t,i,a){{",
-            "return t=='--port={port}' ? true : ",
-            "t=='-p' ? a.slice(i+1).find(function(x){{return x}})=='{port}' : ",
-            "t=='-p{port}' ? true : ",
-            "t=='--port' ? a.slice(i+1).find(function(x){{return x}})=='{port}' : ",
-            "false",
-            "}}) : false",
-            "}}) ? true : process.exit(1)",
-            "\""
+    // Delegate so the catalog command stays byte-identical to the dev-required builder that the
+    // verify classifier admits (Issue #832); an unparsable port fails closed.
+    match port.parse::<u16>() {
+        Ok(port) => crate::planner::profiles::nextjs::package_script_required_port_verify_command(
+            "dev", port,
         ),
-        port = port
-    )
+        Err(_) => "node -p \"process.exit(1)\"".to_string(),
+    }
 }
 
 pub fn dependency_install_verify_segment(command: &str) -> Option<VerifyInstallCommandFamily> {
@@ -4305,10 +4293,18 @@ EOF\n\
 
         let spaced_report = package_port_token_report(
             r#"grep -q '"3011"' package.json"#,
+            "next dev --port 3011",
+            "next start",
+        );
+        assert!(spaced_report.is_pass(), "{spaced_report:?}");
+
+        // #832: the dev script must carry the port; a start-only port no longer passes.
+        let start_only = package_port_token_report(
+            r#"grep -q '"3011"' package.json"#,
             "next dev",
             "next start --port 3011",
         );
-        assert!(spaced_report.is_pass(), "{spaced_report:?}");
+        assert!(!start_only.is_pass(), "{start_only:?}");
     }
 
     #[test]

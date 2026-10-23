@@ -20,6 +20,7 @@ pub enum RepairTarget {
     RequiredEvidenceMissing,
     VerifierCommand,
     ModelVerifier,
+    ModelVerifierEdit,
     Implementation,
     TestOrEvidence,
     Unknown,
@@ -89,6 +90,7 @@ impl RepairTarget {
             Self::RequiredEvidenceMissing => "required_evidence_missing",
             Self::VerifierCommand => "verifier_command",
             Self::ModelVerifier => "model_verifier",
+            Self::ModelVerifierEdit => "model_verifier_edit",
             Self::Implementation => "implementation",
             Self::TestOrEvidence => "test_or_evidence",
             Self::Unknown => "unknown",
@@ -127,6 +129,9 @@ impl RepairTarget {
             Self::ModelVerifier => {
                 "A model-written verifier fails while the host's deterministic oracles pass; the disagreement is recorded, not resolved."
             }
+            Self::ModelVerifierEdit => {
+                "The model-written verifier may be fixed together with the implementation; the registered verify command stays unchanged and the host's deterministic oracle decides."
+            }
             Self::Implementation => {
                 "Fix the implementation files that should satisfy the requested behavior."
             }
@@ -154,6 +159,7 @@ impl RepairTarget {
             }
             Self::VerifierCommand => "fix_malformed_verify_command_only",
             Self::ModelVerifier => "inspect_verifier_and_implementation_disagreement",
+            Self::ModelVerifierEdit => "edit_model_verifier_or_implementation",
             Self::Unknown => "edit_smallest_relevant_workspace_artifact",
         }
     }
@@ -525,7 +531,9 @@ pub fn repair_target_matches_changed_path(target: RepairTarget, path: &str) -> b
                 "readme",
             ],
         ),
-        RepairTarget::VerifierCommand | RepairTarget::ModelVerifier => false,
+        RepairTarget::VerifierCommand
+        | RepairTarget::ModelVerifier
+        | RepairTarget::ModelVerifierEdit => false,
         RepairTarget::Implementation => {
             contains_any(
                 &lower,

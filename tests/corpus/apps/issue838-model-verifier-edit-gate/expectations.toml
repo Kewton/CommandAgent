@@ -1,0 +1,37 @@
+case_id = "issue838-model-verifier-edit-gate"
+source = "Issue #838 generality G1 IC-15 (a) (2026-10-24) a Verify step that rewrote a model-written verifier passes only when the host's deterministic oracle passes"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["python-cli", "model verifier", "host oracle"]
+acceptance_passed = true
+primary_reason = "pass"
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/cases.json = [
+  "\"id\": \"python-cli-verifier-rewritten-and-oracle-passes\"",
+  "\"id\": \"python-cli-verifier-rewritten-and-oracle-fails\"",
+  "\"id\": \"generic-verifier-rewritten-always-success\"",
+  "\"id\": \"deterministic-oracle-script-rewritten\"",
+  "\"id\": \"protected-path-script-rewritten\"",
+  "\"id\": \"implementation-only-repair\"",
+  "\"expect\": \"model_verifier_edited_without_host_oracle\"",
+  "\"expect\": \"model_verifier_edited_host_oracle_failed\"",
+  "\"verifier_command\": \"node smoke-check.js\""
+]
