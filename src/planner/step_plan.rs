@@ -214,6 +214,7 @@ fn normalize_generated_step_plan(
             step.expected_result,
             index,
             &step.instruction,
+            &verify,
             &step_id,
             &mut report,
         );
@@ -287,13 +288,14 @@ fn normalize_generated_expected_result(
     value: Option<String>,
     index: usize,
     instruction: &str,
+    verify: &[String],
     step_id: &str,
     report: &mut GeneratedStepPlanSanitizationReport,
 ) -> String {
     if let Some(value) = value.filter(|value| !value.trim().is_empty()) {
         return normalize_expected_result(&value);
     }
-    let default_value = default_expected_result_from_instruction(instruction);
+    let default_value = default_expected_result(instruction, verify);
     report.field_defaults.push(GeneratedStepPlanFieldDefault {
         step_index: index + 1,
         step_id: step_id.to_string(),
@@ -304,12 +306,25 @@ fn normalize_generated_expected_result(
     default_value
 }
 
-fn default_expected_result_from_instruction(instruction: &str) -> String {
+/// Phrases that name an expected failure; a bare `fail` substring (`failure`,
+/// `failsafe`, `fails gracefully`) does not.
+const EXPECTED_FAILURE_PHRASES: [&str; 6] = [
+    "red test",
+    "expected failure",
+    "failing test",
+    "should fail",
+    "must fail",
+    "expected to fail",
+];
+
+/// A `fail` result needs a verify command (lint rejects it otherwise), so a
+/// step without one defaults to `pass`.
+fn default_expected_result(instruction: &str, verify: &[String]) -> String {
     let lower = instruction.to_ascii_lowercase();
-    if lower.contains("fail")
-        || lower.contains("red test")
-        || lower.contains("expected failure")
-        || lower.contains("failing test")
+    if !verify.is_empty()
+        && EXPECTED_FAILURE_PHRASES
+            .iter()
+            .any(|phrase| lower.contains(phrase))
     {
         "fail".to_string()
     } else {
@@ -807,7 +822,7 @@ steps:
     #[test]
     fn generated_step_plan_defaults_missing_expected_result() {
         let (plan, report) = parse_generated_step_plan_json_with_report(
-            r#"{"goal":"g","steps":[{"id":"s1","instruction":"Add a red test for 日本語のゲーム behavior before implementation"}]}"#,
+            r#"{"goal":"g","steps":[{"id":"s1","instruction":"Add a red test for 日本語のゲーム behavior before implementation","verify":["cargo test"]}]}"#,
             "g",
         )
         .unwrap();
@@ -820,6 +835,75 @@ steps:
                 .source_excerpt
                 .contains("日本語のゲーム")
         );
+    }
+
+    fn defaulted_expected_result(instruction: &str, verify: &[&str]) -> String {
+        let plan = serde_json::json!({
+            "goal": "g",
+            "steps": [{"id": "s1", "instruction": instruction, "verify": verify}],
+        });
+        let (plan, _) = parse_generated_step_plan_json_with_report(&plan.to_string(), "g").unwrap();
+        plan.steps[0].expected_result.clone()
+    }
+
+    #[test]
+    fn default_expected_result_ignores_failure_substring_without_verify() {
+        assert_eq!(
+            defaulted_expected_result("Inspect storage so it handles I/O failures", &[]),
+            "pass"
+        );
+    }
+
+    #[test]
+    fn default_expected_result_ignores_failure_substring_with_verify() {
+        assert_eq!(
+            defaulted_expected_result("Add failure handling", &["cargo test"]),
+            "pass"
+        );
+    }
+
+    #[test]
+    fn default_expected_result_names_expected_failure_with_verify() {
+        for instruction in [
+            "Add red test",
+            "the new test should fail",
+            "this check must fail first",
+            "the build is expected to fail",
+            "Write a failing test",
+            "Record the expected failure",
+        ] {
+            assert_eq!(
+                defaulted_expected_result(instruction, &["cargo test"]),
+                "fail",
+                "{instruction}"
+            );
+        }
+    }
+
+    #[test]
+    fn default_expected_result_is_pass_for_expected_failure_without_verify() {
+        assert_eq!(defaulted_expected_result("Add red test", &[]), "pass");
+    }
+
+    #[test]
+    fn explicit_expected_result_is_kept_without_verify() {
+        let plan = parse_generated_step_plan_json(
+            r#"{"goal":"g","steps":[{"id":"s1","instruction":"handles I/O failures","expected_result":"fail"}]}"#,
+            "g",
+        )
+        .unwrap();
+        assert_eq!(plan.steps[0].expected_result, "fail");
+    }
+
+    #[test]
+    fn issue841_corpus_planner_output_lints_after_sanitize() {
+        let raw = include_str!(
+            "../../tests/corpus/apps/issue841-expected-result-default-failure-words/planner-output.json"
+        );
+        let (plan, report) = parse_generated_step_plan_json_with_report(raw, "g").unwrap();
+        assert_eq!(report.field_defaults.len(), 2);
+        assert!(plan.steps.iter().all(|step| step.expected_result == "pass"));
+        crate::planner::lint::lint_step_plan(&plan).unwrap();
     }
 
     #[test]
