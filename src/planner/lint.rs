@@ -160,7 +160,7 @@ impl PlanQualityReport {
 }
 
 pub fn lint_step_plan(plan: &StepPlan) -> anyhow::Result<()> {
-    let report = lint_report_internal(plan, None);
+    let report = lint_exempting(plan, None, &[]);
     if report.is_pass() {
         return Ok(());
     }
@@ -168,17 +168,21 @@ pub fn lint_step_plan(plan: &StepPlan) -> anyhow::Result<()> {
 }
 
 pub fn lint_step_plan_report(plan: &StepPlan) -> PlanLintReport {
-    lint_report_internal(plan, None)
+    lint_exempting(plan, None, &[])
 }
 
 pub fn lint_step_plan_report_with_workspace(
     plan: &StepPlan,
     work_root: Option<&Path>,
 ) -> PlanLintReport {
-    lint_report_internal(plan, work_root)
+    lint_exempting(plan, work_root, &[])
 }
 
-fn lint_report_internal(plan: &StepPlan, work_root: Option<&Path>) -> PlanLintReport {
+pub(crate) fn lint_exempting(
+    plan: &StepPlan,
+    work_root: Option<&Path>,
+    skip: &[String],
+) -> PlanLintReport {
     let mut report = PlanLintReport::pass();
     if plan.goal.chars().count() > 4000 {
         report.push("contract", "StepPlan goal is too long");
@@ -278,15 +282,20 @@ fn lint_report_internal(plan: &StepPlan, work_root: Option<&Path>) -> PlanLintRe
             ),
         );
     }
+    for message in crate::planner::verify_producer_lint::diagnose_script_without_producer(
+        plan, work_root, skip,
+    ) {
+        report.push("verify_semantics", message);
+    }
     report
 }
 
 pub(crate) fn lint_plan_for_execution(plan: &StepPlan, work_root: Option<&Path>) -> PlanLintReport {
-    lint_report_internal(plan, work_root)
+    lint_exempting(plan, work_root, &[])
 }
 
 pub(crate) fn lint_template_contract(plan: &StepPlan, work_root: Option<&Path>) -> PlanLintReport {
-    lint_report_internal(plan, work_root)
+    lint_exempting(plan, work_root, &[])
 }
 
 fn validate_verify_command_for_lint(command: &str) -> anyhow::Result<()> {

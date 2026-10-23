@@ -67,6 +67,7 @@ pub mod ultra_plan;
 pub mod ultra_preset;
 pub mod verify;
 pub(crate) mod verify_assertion;
+pub(crate) mod verify_producer_lint;
 pub(crate) mod verify_semantics;
 pub mod profiles {
     pub mod community_mini_app;
