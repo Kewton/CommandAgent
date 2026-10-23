@@ -14,6 +14,8 @@ pub(crate) mod formation_scope;
 mod issue466_tests;
 #[cfg(test)]
 mod issue817_tests;
+#[cfg(test)]
+mod issue831_tests;
 mod literal_marker_formation;
 pub(crate) mod package_owner_scope;
 mod package_script_formation;

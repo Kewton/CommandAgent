@@ -71,6 +71,8 @@ fn replay(c: &Config, after: &StepPlan) -> (anyhow::Result<StepPlan>, Replay) {
 
 #[test]
 fn issue478_saved_split_preserves_executable_model_and_host_duties() {
+    let _legacy =
+        crate::planner::recovery_step_plan_binding::profile_augmentation::legacy_pre_831_owner_for_issue478_fixtures();
     let root = tempfile::tempdir().unwrap();
     let c = nextjs_config(root.path());
     let before = saved(2);
@@ -155,6 +157,8 @@ fn issue478_saved_split_preserves_executable_model_and_host_duties() {
 
 #[test]
 fn issue478_runner_refuses_lost_model_duties_and_premature_checks() {
+    let _legacy =
+        crate::planner::recovery_step_plan_binding::profile_augmentation::legacy_pre_831_owner_for_issue478_fixtures();
     let cases: Vec<String> = serde_json::from_str(include_str!(
         "../../../tests/corpus/apps/issue478-model-host-obligations/refusals.json"
     ))
@@ -217,6 +221,8 @@ fn through_formation(c: &Config, admission: &mut admission::Admission, raw: &Ste
 
 #[test]
 fn issue478_admission_and_fallback_refuse_missing_or_nonexecuting_host_duties() {
+    let _legacy =
+        crate::planner::recovery_step_plan_binding::profile_augmentation::legacy_pre_831_owner_for_issue478_fixtures();
     for case in [
         "instruction",
         "result",
@@ -272,6 +278,8 @@ fn issue478_admission_and_fallback_refuse_missing_or_nonexecuting_host_duties() 
 
 #[test]
 fn issue478_profile_owner_cannot_short_circuit_at_package_checks() {
+    let _legacy =
+        crate::planner::recovery_step_plan_binding::profile_augmentation::legacy_pre_831_owner_for_issue478_fixtures();
     let root = tempfile::tempdir().unwrap();
     let c = nextjs_config(root.path());
     let formed = replay(&c, &saved(3)).0.unwrap();
@@ -330,6 +338,8 @@ fn issue478_profile_owner_cannot_short_circuit_at_package_checks() {
 
 #[test]
 fn issue478_model_profile_marker_is_not_host_provenance() {
+    let _legacy =
+        crate::planner::recovery_step_plan_binding::profile_augmentation::legacy_pre_831_owner_for_issue478_fixtures();
     let root = tempfile::tempdir().unwrap();
     let c = nextjs_config(root.path());
     let mut raw = saved(2);
