@@ -265,3 +265,34 @@ fn issue831_legacy_owner_guard_restores_the_new_choice_on_drop() {
     assert!(panicked.is_err());
     assert_eq!(owner_of(), "wire-data-anvil");
 }
+
+#[test]
+fn issue831_game_q_proposal_passes_admission_check_without_a_mixed_producer() {
+    use crate::planner::recovery_step_plan_binding::admission::{Admission, Decision};
+    let root = tempfile::tempdir().unwrap();
+    let c = nextjs_config(root.path());
+    let raw = saved();
+    let mut host = raw.clone();
+    let mut admission = Admission::default();
+    admission.strengthen(&c, &mut host);
+    assert!(
+        by_id(&host, "implement-game-ui")
+            .expected_paths
+            .iter()
+            .any(|p| p == "package.json")
+    );
+    match admission.check(&c, None, &raw, &mut host, 1).unwrap() {
+        Decision::Ready(_) => {}
+        Decision::Retry(reason) => {
+            assert!(
+                !reason.contains("mixes application/configuration"),
+                "{reason}"
+            );
+            panic!("unexpected retry: {reason}");
+        }
+    }
+    assert_eq!(
+        by_id(&host, "create-verification-script").expected_paths,
+        ["smoke-check.js"]
+    );
+}
