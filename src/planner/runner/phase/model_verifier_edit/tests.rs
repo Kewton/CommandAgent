@@ -372,6 +372,29 @@ fn generic_verifier_rewritten_to_always_succeed_fails_without_a_host_oracle() {
         vec![ambig_rewrite()],
     );
     assert_eq!(failure_kind(&run), WITHOUT_ORACLE_KIND);
+    // Pre-#838 this step passed: the registered command succeeds on the rewritten
+    // verifier and the retry's own `step_verify_repair` event is `ok: true`.
+    let registered = text(&corpus()["ambig_g"], "verifier_command");
+    let status = std::process::Command::new("sh")
+        .args(["-c", &registered])
+        .current_dir(dir.path())
+        .status()
+        .unwrap();
+    assert!(status.success(), "the rewritten verifier always succeeds");
+    let retry_passed = run
+        .events
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .any(|event| {
+            event["event"] == "step_verify_repair"
+                && event["ok"] == true
+                && event["failure_kind"] == ""
+        });
+    assert!(
+        retry_passed,
+        "verification alone passed before the gate: {}",
+        run.events
+    );
     let event = event_with(&run, WITHOUT_ORACLE_KIND);
     assert_eq!(event["ok"], false);
     assert!(
@@ -492,4 +515,32 @@ fn implementation_only_repair_is_unchanged() {
         repair["allowed_action"],
         "edit_task_implementation_artifact"
     );
+}
+
+/// The recorded CLI with only the mean off by one: table shape, sum, max, and
+/// min stay right.
+fn wrong_mean_cli() -> String {
+    let recorded = text(&recorded_cli_q()["files"], "src/csv_stats/main.py");
+    let right = "\"mean\": sum(vals) / len(vals),";
+    assert!(recorded.contains(right));
+    recorded.replace(right, "\"mean\": sum(vals) / len(vals) + 1,")
+}
+
+#[test]
+fn python_cli_verifier_rewrite_with_only_the_mean_wrong_fails_the_host_oracle() {
+    let dir = cli_workspace();
+    let cfg = config(dir.path(), "python-cli");
+    let mut repair = cli_verifier_rewrite();
+    repair.push(write_call("src/csv_stats/main.py", &wrong_mean_cli()));
+    let run = run_verify_step(
+        &dir,
+        &cfg,
+        &cli_plan("verify_output.py"),
+        &cli_goal(),
+        vec![repair],
+    );
+    assert_eq!(failure_kind(&run), ORACLE_FAILED_KIND);
+    let reason = event_with(&run, ORACLE_FAILED_KIND)["primary_reason"].to_string();
+    assert!(reason.contains("verify_final=pass"), "{reason}");
+    assert!(reason.contains("behavior_probe=failed"), "{reason}");
 }
