@@ -538,7 +538,7 @@ fn catalog_package_json_port_script_verify_command(port: u16) -> String {
     }
 }
 
-fn package_script_required_port_verify_command(script: &str, port: u16) -> String {
+pub(crate) fn package_script_required_port_verify_command(script: &str, port: u16) -> String {
     format!(
         concat!(
             "node -p \"",
