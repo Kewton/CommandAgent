@@ -1,0 +1,26 @@
+{
+  "source": "G1 stage 3a rerun (L-98, develop 2d3e78b0, 2026-10-23), game-g final-build-verification: recovery_verifier_plan_admission rejection; rejected_template_plan copied verbatim from model_proposal, no secrets",
+  "origin": {
+    "campaign": "campaign-G1-3a2",
+    "run": "stage3a/game-g",
+    "run_id": "01a168f5-ef76-7de1-9afa-f0c62754fbbd",
+    "file": "work/.commandagent/runs/01a168f5-ef76-7de1-9afa-f0c62754fbbd/events.jsonl",
+    "line": 324,
+    "events_sha256": "e9ffd6b61c6397cef5604709a51dd462d290492b7a718c1a768ec5abe131a64f",
+    "json_pointer": "/model_proposal"
+  },
+  "phase": {
+    "phase_id": "final-build-verification",
+    "phase_index": 5,
+    "planner_attempt": 1
+  },
+  "admission": {
+    "classification": "proposal_repairable",
+    "stage": "preclosure_formation",
+    "weak_reason": "node_smoke_without_assertion"
+  },
+  "capture": "live-prefix observation; the replay is offline with no live model",
+  "fixture_sha256": {
+    "template-plan.json": "3f28e27a89b675b7d136605838a8ddf271f5e54b2e13793ff8cc2e685ce9e427"
+  }
+}

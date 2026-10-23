@@ -1,0 +1,43 @@
+{
+  "goal": "あなたが考える最高に面白くかっこいいスペースインベーダーゲームを3011ポートで起動可能なnext.jsアプリとして開発してください。",
+  "profile": "nextjs",
+  "style": "default",
+  "intent": "create",
+  "phase_id": "final-build-verification",
+  "phase_task": "Ensure the app is configured to run on port 3011 via scripts.dev. Perform a final production build using 'next build' to verify that all types are correct and the bundle is optimized.",
+  "port": 3011,
+  "template_id": "nextjs-port-scripts",
+  "rejected_template_plan": {
+    "goal": "Configure deterministic Next.js package scripts.",
+    "steps": [
+      {
+        "expected_paths": [
+          "package.json",
+          "tsconfig.json",
+          "postcss.config.js",
+          "tailwind.config.ts",
+          "src/app/layout.tsx",
+          "src/app/page.tsx",
+          "src/app/globals.css",
+          "src/app/global.d.ts"
+        ],
+        "expected_result": "pass",
+        "id": "configure-nextjs-port-scripts",
+        "instruction": "Update package.json so scripts.dev runs next dev on port 3011, scripts.start runs next start on port 3011 when present, and scripts.build remains next build.",
+        "kind": "implement",
+        "verify": []
+      },
+      {
+        "expected_paths": [],
+        "expected_result": "pass",
+        "id": "verify-nextjs-port-scripts",
+        "instruction": "Verify package scripts preserve the requested Next.js port.",
+        "kind": "verify",
+        "verify": [
+          "node -p \"['dev','start'].some(function(k){return String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='next' ? a.slice(i+1).find(function(x){return x})==k : false}) ? String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='--port=3011' ? true : t=='-p' ? a.slice(i+1).find(function(x){return x})=='3011' : t=='-p3011' ? true : t=='--port' ? a.slice(i+1).find(function(x){return x})=='3011' : false}) : false}) ? true : process.exit(1)\""
+        ]
+      }
+    ]
+  },
+  "rejected_reason_prefix": "Recovery verifier binding ProposalRepairable: preclosure weak inline verificatio"
+}
