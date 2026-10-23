@@ -1,0 +1,21 @@
+{
+  "source_run": "campaign-G1/stage3a/ambig-q (develop cdbc4388)",
+  "files": [
+    {
+      "file": "phase1-plan.json",
+      "source": ".commandagent/plans/plan-01a1622c-b745-7c23-b495-6e031d54747f.yaml",
+      "sha256": "0beecad0a62084ea3e25cdc2807a295903c4d16c31c0dfddaa370898caabddc1"
+    },
+    {
+      "file": "phase2-plan.json",
+      "source": ".commandagent/plans/plan-01a1622d-5f0f-7662-ac4f-9f7c53699b4b.yaml",
+      "sha256": "930dc16bda26f59e90e0dd2df93b1d3d65e888d5636f95dc961bc7c0056b9f3e"
+    },
+    {
+      "file": null,
+      "source": "smoke-check.js",
+      "sha256": "493894443c712a17835710167dfca3d44cd90456fdf936dc1dd1307c6794acc4",
+      "note": "not copied; not needed by the tests"
+    }
+  ]
+}

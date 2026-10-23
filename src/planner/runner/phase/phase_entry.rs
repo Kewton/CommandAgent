@@ -1,5 +1,6 @@
 //! Resolve, persist and register a phase plan before executing any steps.
 use super::*;
+use crate::planner::recovery_contract_authority::verifier_obligations::VerifierObligationConflict;
 
 pub(super) fn start(
     config: &Config,
@@ -174,7 +175,44 @@ pub(super) fn prepare(
         return Ok(None);
     };
     phase_machine.before_phase_completed(false, final_phase)?;
-    recovery_authority::register_plan(config, &step_plan)?;
+    recovery_authority::register_plan(config, &step_plan).map_err(|err| {
+        let Some(conflict) = err.downcast_ref::<VerifierObligationConflict>() else {
+            return err;
+        };
+        let message = err.to_string();
+        emit_ultra_phase_event(
+            config,
+            "ultra_phase_failed",
+            plan,
+            phase,
+            index,
+            "register",
+            Some(false),
+            Some(&message),
+            None,
+        );
+        let handoff = save_ultra_phase_recovery_handoff_with_evidence(
+            config,
+            plan,
+            phase,
+            UltraPhaseRecoveryRequest {
+                failure_kind: "verifier_obligation_conflict",
+                reason: &message,
+                missing_paths: &missing_final_artifacts(
+                    &config.workspace_root,
+                    final_expected_paths,
+                ),
+                missing_signals: &[],
+                repair_targets: &["verifier_obligation".to_string()],
+                verify_commands: &conflict.registered_step.verify,
+            },
+            &conflict.evidence(),
+        );
+        anyhow::anyhow!(
+            "{}",
+            render_failure_stop_reason(format!("verifier obligation conflict: {message}"), handoff)
+        )
+    })?;
     #[cfg(test)]
     if issue490_tests::registered(config, &step_plan) {
         anyhow::bail!("issue490: registered before execution");
@@ -185,3 +223,6 @@ pub(super) fn prepare(
 #[cfg(test)]
 #[path = "issue490_tests.rs"]
 mod issue490_tests;
+#[cfg(test)]
+#[path = "issue821_tests.rs"]
+mod issue821_tests;
