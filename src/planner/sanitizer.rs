@@ -577,9 +577,24 @@ fn collapse_whitespace(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// ASCII `.`, `!`, `?` end a sentence only before whitespace or at the end of
+/// the text, so `Next.js`, `v1.2` and `page.tsx` stay whole. Full-width
+/// terminators and newlines always end one. Abbreviations such as `e.g.` are
+/// not recognised.
+fn is_sentence_end(text: &str, idx: usize, ch: char) -> bool {
+    match ch {
+        '。' | '！' | '？' | '\n' => true,
+        '.' | '!' | '?' => text[idx + ch.len_utf8()..]
+            .chars()
+            .next()
+            .is_none_or(char::is_whitespace),
+        _ => false,
+    }
+}
+
 fn first_sentence_or_line(text: &str) -> String {
     for (idx, ch) in text.char_indices() {
-        if matches!(ch, '.' | '!' | '?' | '。' | '！' | '？' | '\n') {
+        if is_sentence_end(text, idx, ch) {
             let end = idx + ch.len_utf8();
             let candidate = text[..end].trim();
             if !candidate.is_empty() {
@@ -601,7 +616,7 @@ fn truncate_at_sentence_or_line_boundary(text: &str, max_chars: usize) -> String
         if chars > max_chars {
             break;
         }
-        if matches!(ch, '.' | '!' | '?' | '。' | '！' | '？' | '\n') {
+        if is_sentence_end(text, idx, ch) {
             best = Some(end);
         }
     }
@@ -1041,6 +1056,84 @@ Profile runtime contract:\n- Preserve the workspace as a real Next.js app.\n- Ke
             lint_step_plan_report_with_workspace(&plan, Some(dir.path())).is_pass(),
             "{plan:?}"
         );
+    }
+
+    #[test]
+    fn first_sentence_keeps_dotted_tokens_whole() {
+        assert_eq!(
+            first_sentence_or_line("Initialize a Next.js project with Tailwind. Then add pages."),
+            "Initialize a Next.js project with Tailwind."
+        );
+        for (text, expected) in [
+            (
+                "Install Node.js first. Then continue.",
+                "Install Node.js first.",
+            ),
+            (
+                "Pin v1.2 of the tool. Then continue.",
+                "Pin v1.2 of the tool.",
+            ),
+            (
+                "Use Python 3.11 here. Then continue.",
+                "Use Python 3.11 here.",
+            ),
+            (
+                "Edit src/app/page.tsx now. Then continue.",
+                "Edit src/app/page.tsx now.",
+            ),
+        ] {
+            assert_eq!(first_sentence_or_line(text), expected);
+        }
+        assert_eq!(first_sentence_or_line("Wait! Then go"), "Wait!");
+        assert_eq!(first_sentence_or_line("Why? Then go"), "Why?");
+        assert_eq!(first_sentence_or_line("Done."), "Done.");
+        assert_eq!(first_sentence_or_line("line one\nline two"), "line one");
+    }
+
+    #[test]
+    fn first_sentence_keeps_fullwidth_terminators_unconditional() {
+        assert_eq!(
+            first_sentence_or_line("画面を作る。次にテスト"),
+            "画面を作る。"
+        );
+        assert_eq!(first_sentence_or_line("作る！次へ"), "作る！");
+        assert_eq!(first_sentence_or_line("作る？次へ"), "作る？");
+    }
+
+    #[test]
+    fn first_sentence_pins_abbreviation_behavior() {
+        // `e.g.` is not recognised: the first `.` followed by whitespace ends it.
+        assert_eq!(
+            first_sentence_or_line("Use tools, e.g. cargo, for builds."),
+            "Use tools, e.g."
+        );
+    }
+
+    #[test]
+    fn truncation_does_not_end_inside_dotted_token() {
+        let text = format!("{}Use Next.js now {}", "a ".repeat(1240), "b ".repeat(400));
+        let out = truncate_at_sentence_or_line_boundary(&text, 2500);
+        assert!(!out.ends_with("Next."), "{out}");
+        assert!(out.chars().count() <= 2500);
+        let text = format!("Ship Next.js apps. Use Next.js now {}", "b ".repeat(1400));
+        assert_eq!(
+            truncate_at_sentence_or_line_boundary(&text, 2500),
+            "Ship Next.js apps."
+        );
+    }
+
+    #[test]
+    fn sanitizer_goal_keeps_nextjs_sentence_whole() {
+        let dir = tempfile::tempdir().unwrap();
+        let goal = uat_shaped_echoed_phase_prompt().replace(
+            "Build the arcade UI and local storage persistence.",
+            "Initialize a Next.js project with Tailwind.",
+        );
+        let mut plan = valid_artifact_plan(goal);
+
+        sanitize_step_plan_against_policy(&mut plan, Some(dir.path()));
+
+        assert_eq!(plan.goal, "Initialize a Next.js project with Tailwind.");
     }
 
     #[test]
