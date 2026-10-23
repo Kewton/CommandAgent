@@ -5,7 +5,7 @@ use super::super::{
     ContractEnforcement, NOOP_UI, SessionSnapshot, StepPromptContext, StepRunError, StepRunOutcome,
     run_step,
 };
-use super::{ORACLE_FAILED_KIND, ORACLE_PASSED_KIND, WITHOUT_ORACLE_KIND};
+use super::{ORACLE_FAILED_KIND, ORACLE_PASSED_KIND, WITHOUT_ORACLE_KIND, reject};
 use crate::config::Config;
 use crate::planner::step_plan::{PlanStep, StepPlan};
 use crate::providers::{AssistantReply, ChatClient};
@@ -374,13 +374,13 @@ fn generic_verifier_rewritten_to_always_succeed_fails_without_a_host_oracle() {
     assert_eq!(failure_kind(&run), WITHOUT_ORACLE_KIND);
     // Pre-#838 this step passed: the registered command succeeds on the rewritten
     // verifier and the retry's own `step_verify_repair` event is `ok: true`.
-    let registered = text(&corpus()["ambig_g"], "verifier_command");
-    let status = std::process::Command::new("sh")
-        .args(["-c", &registered])
-        .current_dir(dir.path())
-        .status()
-        .unwrap();
-    assert!(status.success(), "the rewritten verifier always succeeds");
+    let verify = plan_verify_step(&ambig_plan("smoke-check.js"));
+    let report = crate::planner::verify::verify_step(dir.path(), &verify);
+    assert!(
+        report.is_pass(),
+        "the rewritten verifier always succeeds: {}",
+        report.primary_reason()
+    );
     let retry_passed = run
         .events
         .lines()
@@ -543,4 +543,54 @@ fn python_cli_verifier_rewrite_with_only_the_mean_wrong_fails_the_host_oracle() 
     let reason = event_with(&run, ORACLE_FAILED_KIND)["primary_reason"].to_string();
     assert!(reason.contains("verify_final=pass"), "{reason}");
     assert!(reason.contains("behavior_probe=failed"), "{reason}");
+}
+
+fn plan_verify_step(plan: &StepPlan) -> PlanStep {
+    plan.steps.last().unwrap().clone()
+}
+
+/// The hook-snapshot restore, compile regeneration, and compile rollback
+/// returns of `run_step` call `reject` with the outcome they would return. Those
+/// paths need a nextjs build shim and a multi-phase compile ladder, so each
+/// outcome is built directly here.
+#[test]
+fn check_rejects_the_outcomes_of_the_other_passing_returns() {
+    let dir = ambig_workspace();
+    let cfg = config(dir.path(), "generic");
+    let plan = ambig_plan("smoke-check.js");
+    let step = plan.steps.last().unwrap();
+    let goal = text(&corpus()["ambig_g"], "goal");
+    let ambig = &corpus()["ambig_g"];
+    write_file(
+        dir.path(),
+        &text(ambig, "verifier_path"),
+        &text(ambig, "always_pass_verifier"),
+    );
+    for stop in [
+        "hook_snapshot_restore_applied",
+        "compile_regeneration_applied",
+        "compile_rollback_applied",
+    ] {
+        let mut outcome = StepRunOutcome {
+            stop_reason: Some(stop.to_string()),
+            partial: stop == "compile_rollback_applied",
+            ..StepRunOutcome::default()
+        };
+        assert!(
+            reject(&cfg, &plan, step, &goal, &outcome).is_none(),
+            "{stop}"
+        );
+        outcome.changed_paths = vec!["script.js".to_string()];
+        assert!(
+            reject(&cfg, &plan, step, &goal, &outcome).is_none(),
+            "{stop}"
+        );
+        outcome.changed_paths = vec![text(ambig, "verifier_path")];
+        let error = reject(&cfg, &plan, step, &goal, &outcome).expect(stop);
+        assert_eq!(
+            error.outcome.stop_reason.as_deref(),
+            Some(WITHOUT_ORACLE_KIND),
+            "{stop}"
+        );
+    }
 }

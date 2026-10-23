@@ -1813,6 +1813,15 @@ pub(super) fn run_step(
                         if restored_retry.is_pass() {
                             outcome.primary_failure = None;
                             outcome.stop_reason = Some("hook_snapshot_restore_applied".to_string());
+                            if let Some(err) = model_verifier_edit::reject(
+                                config,
+                                plan,
+                                step,
+                                overall_goal,
+                                &outcome,
+                            ) {
+                                return Err(err);
+                            }
                             return Ok(outcome);
                         }
                         let restored_reachability = repair_policy.assess(
@@ -2011,6 +2020,15 @@ pub(super) fn run_step(
                                 outcome.primary_failure = None;
                                 outcome.stop_reason =
                                     Some("compile_regeneration_applied".to_string());
+                                if let Some(err) = model_verifier_edit::reject(
+                                    config,
+                                    plan,
+                                    step,
+                                    overall_goal,
+                                    &outcome,
+                                ) {
+                                    return Err(err);
+                                }
                                 return Ok(outcome);
                             }
                             let regenerated_reachability = repair_policy.assess(
@@ -2159,6 +2177,11 @@ pub(super) fn run_step(
                 outcome.stop_reason = Some("compile_rollback_applied".to_string());
                 outcome.partial = true;
                 outcome.compile_rollbacks.push(rollback);
+                if let Some(err) =
+                    model_verifier_edit::reject(config, plan, step, overall_goal, &outcome)
+                {
+                    return Err(err);
+                }
                 return Ok(outcome);
             }
             Ok(None) => {}
