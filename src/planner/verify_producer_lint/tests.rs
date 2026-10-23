@@ -243,3 +243,76 @@ pub(crate) fn tempdir_with_check_scripts() -> tempfile::TempDir {
     }
     dir
 }
+
+#[derive(Clone)]
+struct Recorder {
+    replies: std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<StepPlan>>>,
+    requests: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+}
+
+impl crate::providers::ChatClient for Recorder {
+    fn label(&self) -> &str {
+        "issue836-recorder"
+    }
+    fn boxed_clone(&self) -> Box<dyn crate::providers::ChatClient> {
+        Box::new(self.clone())
+    }
+    fn chat(
+        &mut self,
+        _: &str,
+        messages: &[crate::state::ConversationMessage],
+        _: &[crate::tools::registry::ToolSpec],
+        _: bool,
+    ) -> anyhow::Result<crate::providers::AssistantReply> {
+        self.requests.lock().unwrap().push(format!("{messages:?}"));
+        let plan = self
+            .replies
+            .lock()
+            .unwrap()
+            .pop_front()
+            .expect("no third planner request");
+        Ok(crate::providers::AssistantReply::text(
+            serde_json::to_string(&plan)?,
+        ))
+    }
+}
+
+#[test]
+fn issue836_planner_retries_with_the_lint_message_until_a_producer_is_declared() {
+    let dir = tempfile::tempdir().unwrap();
+    let goal = "Build a small notes API with a smoke check.";
+    let verify = step("verify-api", "verify", &[], &["node smoke-check.js"]);
+    let api = step("implement-api", "implement", &["api.js"], &[]);
+    let without_producer = plan(goal, vec![api.clone(), verify.clone()]);
+    let producer = step("create-smoke-check", "implement", &["smoke-check.js"], &[]);
+    let with_producer = plan(goal, vec![api, producer, verify]);
+    let requests = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let mut client = Recorder {
+        replies: std::sync::Arc::new(std::sync::Mutex::new(
+            [without_producer, with_producer.clone()].into(),
+        )),
+        requests: requests.clone(),
+    };
+    let cwd = dir.path().to_string_lossy().to_string();
+    let config = {
+        use clap::Parser;
+        crate::config::Config::from_cli(crate::cli::Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            &cwd,
+            "--offline",
+            goal,
+        ]))
+        .unwrap()
+    };
+    let accepted = crate::planner::runner::generate_step_plan(&mut client, goal, &config).unwrap();
+    assert_eq!(accepted.steps.len(), with_producer.steps.len());
+    let requests = requests.lock().unwrap();
+    assert_eq!(requests.len(), 2, "one retry");
+    assert!(!requests[0].contains("verify runs local script"));
+    assert!(
+        requests[1].contains("verify runs local script smoke-check.js"),
+        "{}",
+        requests[1]
+    );
+}
