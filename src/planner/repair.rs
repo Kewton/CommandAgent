@@ -41,6 +41,7 @@ pub struct RepairContext {
     pub workspace_root: Option<PathBuf>,
     pub eval_events_path: Option<PathBuf>,
     pub prompt_layout: PromptLayout,
+    pub model_verifier_edit_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -205,6 +206,9 @@ fn append_shared_repair_tail(
             .map(|failure| format!("{}: {}", failure.command, failure.reason))
             .collect::<Vec<_>>();
         prompt.push_str(&bullet_list(&failures));
+    }
+    if let Some(path) = &context.model_verifier_edit_path {
+        prompt.push_str(&format!("\n\nVerifier authority:\nThe model-written verifier `{path}` and the implementation may both be fixed; keep the verify command unchanged. The host's deterministic oracle must still pass."));
     }
     if !context.changed_files.is_empty() {
         prompt.push_str("\n\nFiles already changed in this step:\n");
