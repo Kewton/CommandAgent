@@ -22,7 +22,12 @@ pub struct MissingImport {
     pub source: String,
     pub specifier: String,
     pub issue: ImportScanIssue,
+    /// Sorted names the definition file exports; filled for `MissingExport` only.
+    pub available_exports: Vec<String>,
 }
+
+/// Longest export list that feedback and findings spell out.
+const MAX_LISTED_EXPORTS: usize = 30;
 
 impl MissingImport {
     fn missing_module(source: &str, specifier: &str) -> Self {
@@ -30,10 +35,17 @@ impl MissingImport {
             source: source.to_string(),
             specifier: specifier.to_string(),
             issue: ImportScanIssue::MissingModule,
+            available_exports: Vec::new(),
         }
     }
 
-    fn missing_export(source: &str, specifier: &str, imported_name: &str, target: &Path) -> Self {
+    fn missing_export(
+        source: &str,
+        specifier: &str,
+        imported_name: &str,
+        target: &Path,
+        available_exports: Vec<String>,
+    ) -> Self {
         Self {
             source: source.to_string(),
             specifier: specifier.to_string(),
@@ -41,6 +53,7 @@ impl MissingImport {
                 imported_name: imported_name.to_string(),
                 definition_path: normalize_pathbuf(target).display().to_string(),
             },
+            available_exports,
         }
     }
 
@@ -49,6 +62,7 @@ impl MissingImport {
             source: source.to_string(),
             specifier: String::new(),
             issue: ImportScanIssue::JsxInTs,
+            available_exports: Vec::new(),
         }
     }
 }
@@ -123,6 +137,7 @@ pub fn scan_relative_imports(root: &Path, paths: &[String]) -> anyhow::Result<Ve
                             &specifier,
                             &imported_name,
                             definition_rel,
+                            available_export_names(definition_file),
                         ),
                     );
                 }
@@ -368,6 +383,30 @@ fn missing_export_symbol(
         return Ok(false);
     };
     Ok(!exports.contains(imported_name))
+}
+
+fn available_export_names(definition_file: &Path) -> Vec<String> {
+    std::fs::read_to_string(definition_file)
+        .ok()
+        .and_then(|content| exported_symbols(&content))
+        .map(|symbols| symbols.into_iter().collect())
+        .unwrap_or_default()
+}
+
+fn format_available_exports(definition_path: &str, exports: &[String]) -> String {
+    if exports.is_empty() {
+        return format!("{definition_path} exports: (none)");
+    }
+    let listed = exports
+        .iter()
+        .take(MAX_LISTED_EXPORTS)
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .join(", ");
+    match exports.len().saturating_sub(MAX_LISTED_EXPORTS) {
+        0 => format!("{definition_path} exports: {listed}"),
+        more => format!("{definition_path} exports: {listed} (+{more} more)"),
+    }
 }
 
 fn exported_symbols(content: &str) -> Option<BTreeSet<String>> {
@@ -1198,8 +1237,13 @@ fn format_missing_import_feedback_entry(item: &MissingImport) -> String {
             imported_name,
             definition_path,
         } => format!(
-            "- {} imports `{{ {} }}` from `{}`, but {} does not export `{}`. Export it or correct the import name.",
-            item.source, imported_name, item.specifier, definition_path, imported_name
+            "- {} imports `{{ {} }}` from `{}`, but {} does not export `{}`. Export it or correct the import name. {}",
+            item.source,
+            imported_name,
+            item.specifier,
+            definition_path,
+            imported_name,
+            format_available_exports(definition_path, &item.available_exports)
         ),
         ImportScanIssue::JsxInTs => format!(
             "- {} contains JSX in a .ts file. Rename it to .tsx or remove JSX.",
@@ -1244,13 +1288,14 @@ pub fn format_missing_import_findings(root: &Path, missing: &[MissingImport]) ->
                 imported_name,
                 definition_path,
             } => format!(
-                "{} imports {{{}}} from {} but {} does not export {} - export {} or correct the import",
+                "{} imports {{{}}} from {} but {} does not export {} - export {} or correct the import ({})",
                 item.source,
                 imported_name,
                 item.specifier,
                 definition_path,
                 imported_name,
-                imported_name
+                imported_name,
+                format_available_exports(definition_path, &item.available_exports)
             ),
             ImportScanIssue::JsxInTs => format!(
                 "{} contains JSX but has a .ts extension - rename it to .tsx or remove JSX",
@@ -1502,7 +1547,8 @@ export default function Page() {
             vec![MissingImport {
                 source: "src/page.tsx".to_string(),
                 specifier: "./Widget".to_string(),
-                issue: ImportScanIssue::MissingModule
+                issue: ImportScanIssue::MissingModule,
+                available_exports: Vec::new()
             }]
         );
     }
@@ -1554,6 +1600,94 @@ export default function SpaceInvaders(){ return CANVAS_W; }"#,
         .unwrap();
         let missing =
             scan_relative_imports(dir.path(), &["src/SpaceInvaders.tsx".to_string()]).unwrap();
+        assert!(missing.is_empty(), "{missing:?}");
+    }
+
+    fn write_notes_project(dir: &Path, notes_ts: &str) {
+        std::fs::create_dir_all(dir.join("src/app/api/notes")).unwrap();
+        std::fs::create_dir_all(dir.join("src/lib")).unwrap();
+        std::fs::write(
+            dir.join("src/app/api/notes/route.ts"),
+            "import { listNotes, createNote } from '@/lib/notes';\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("src/lib/notes.ts"), notes_ts).unwrap();
+    }
+
+    #[test]
+    fn missing_export_feedback_and_findings_list_available_exports() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut notes = "// filler\n".repeat(25);
+        notes.push_str("export async function getNotes() {}\n");
+        notes.push_str("export async function saveNote() {}\n");
+        notes.push_str("export async function deleteNote() {}\n");
+        write_notes_project(dir.path(), &notes);
+
+        let missing =
+            scan_relative_imports(dir.path(), &["src/app/api/notes/route.ts".to_string()]).unwrap();
+
+        assert_eq!(missing.len(), 2, "{missing:?}");
+        let expected = "src/lib/notes.ts exports: deleteNote, getNotes, saveNote";
+        let feedback = format_missing_import_feedback(&missing);
+        assert_eq!(feedback.matches(expected).count(), 2, "{feedback}");
+        let findings = format_missing_import_findings(dir.path(), &missing);
+        assert_eq!(findings.len(), 2, "{findings:?}");
+        assert!(
+            findings.iter().all(|finding| finding.contains(expected)),
+            "{findings:?}"
+        );
+    }
+
+    #[test]
+    fn missing_export_list_is_capped_with_remaining_count() {
+        let dir = tempfile::tempdir().unwrap();
+        let notes = (0..33)
+            .map(|index| format!("export const name{index:02} = {index};\n"))
+            .collect::<String>();
+        write_notes_project(dir.path(), &notes);
+
+        let missing =
+            scan_relative_imports(dir.path(), &["src/app/api/notes/route.ts".to_string()]).unwrap();
+
+        let feedback = format_missing_import_feedback(&missing);
+        assert!(feedback.contains("name29 (+3 more)"), "{feedback}");
+        assert!(!feedback.contains("name30"), "{feedback}");
+        let findings = format_missing_import_findings(dir.path(), &missing);
+        assert!(
+            findings
+                .iter()
+                .all(|finding| finding.contains("name29 (+3 more)")),
+            "{findings:?}"
+        );
+    }
+
+    #[test]
+    fn missing_export_list_is_not_truncated_at_the_cap() {
+        let dir = tempfile::tempdir().unwrap();
+        let notes = (0..30)
+            .map(|index| format!("export const name{index:02} = {index};\n"))
+            .collect::<String>();
+        write_notes_project(dir.path(), &notes);
+
+        let missing =
+            scan_relative_imports(dir.path(), &["src/app/api/notes/route.ts".to_string()]).unwrap();
+
+        let feedback = format_missing_import_feedback(&missing);
+        assert!(feedback.contains("name29"), "{feedback}");
+        assert!(!feedback.contains("more)"), "{feedback}");
+    }
+
+    #[test]
+    fn export_star_definition_file_is_not_missing_and_lists_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        write_notes_project(
+            dir.path(),
+            "export * from './other';\nexport const getNotes = 1;\n",
+        );
+
+        let missing =
+            scan_relative_imports(dir.path(), &["src/app/api/notes/route.ts".to_string()]).unwrap();
+
         assert!(missing.is_empty(), "{missing:?}");
     }
 
