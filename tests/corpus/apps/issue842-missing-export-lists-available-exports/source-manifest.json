@@ -1,0 +1,27 @@
+{
+  "captures": [
+    {
+      "run": "L-98 content-g (campaign-G1-3a2, stage3a)",
+      "develop_commit": "2d3e78b0",
+      "source_dir": "/Users/<user>/share/work/gen-eval-1022/campaign-G1-3a2/stage3a/content-g/work/",
+      "copy": "verbatim",
+      "files": {
+        "src/app/api/notes/route.ts": "2d0583bf4a2736be694309fc2aab85366d7d5b1ca55e3dc5189d2a067642e356",
+        "src/lib/notes.ts": "e49950f1bf1a95ed8cff0232fe38bb20baaaa911299a32fa3f55e1e47197dc1a"
+      },
+      "observed": "route.ts imports listNotes, createNote; notes.ts exports getNotes, saveNote, deleteNote after line 21"
+    },
+    {
+      "run": "L-94 game-g (campaign-G1, stage3a)",
+      "develop_commit": "cdbc4388",
+      "source_dir": "/Users/<user>/share/work/gen-eval-1022/campaign-G1/stage3a/game-g/work/",
+      "copy": "verbatim",
+      "files": {
+        "src/app/page.tsx": "f6b730406d539787c274ec8cbfc7b74b15af461072c5e5bc597c3b4335f698e7",
+        "src/lib/game-logic.ts": "14a37ae4de2ecc2ce47269f09ae94ac520662df6b36dd80a0e3660236fd21fcb"
+      },
+      "observed": "page.tsx imports initGame; game-logic.ts exports GameState, Entity, Player, Alien, Projectile, GameWorld, INITIAL_WORLD, createAlienGrid, updateGame, fireProjectile"
+    }
+  ],
+  "note": "types.ts of each run is not copied, so the scan also reports the unresolved types import as a missing module; the test selects missing exports only."
+}
