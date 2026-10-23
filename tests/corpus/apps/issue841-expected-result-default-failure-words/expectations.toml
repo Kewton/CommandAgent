@@ -1,0 +1,32 @@
+case_id = "issue841-expected-result-default-failure-words"
+source = "L-104 content-q phase 2 planner output that omitted expected_result (IC-21)"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+planner-output.json = [
+  "inspect-storage-lib",
+  "handles I/O failures"
+]
+source-manifest.json = [
+  "campaign-G1-3a4",
+  "d72fb320"
+]
