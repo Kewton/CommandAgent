@@ -72,6 +72,10 @@ impl DomainProfile for PythonCliProfile {
         complete_scaffold(root, missing_paths)
     }
 
+    fn has_behavior_oracle(&self) -> bool {
+        true
+    }
+
     fn verify_final(&self, root: &Path, goal: &str) -> VerificationReport {
         let invariant = verify_invariant_contract(root, Some(goal));
         if !invariant.is_pass() {
