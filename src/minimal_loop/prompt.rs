@@ -74,7 +74,8 @@ fn sanitize_history_message_for_request(message: &ConversationMessage) -> Conver
     }
     if message.role == "tool" {
         let mut cloned = message.clone();
-        cloned.content = crate::eval_events::body_snippet_whole_tokens(&cloned.content);
+        cloned.content =
+            crate::state::tool_history::history_content(cloned.name.as_deref(), &cloned.content);
         return cloned;
     }
     message.clone()

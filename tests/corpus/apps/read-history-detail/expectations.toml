@@ -1,0 +1,54 @@
+case_id = "read-history-detail"
+source = "Issue #845 L-98 content-g notes.ts and L-94 game-g game-logic.ts: exports that sit after 500 characters and 20 lines of a Read result"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/notes.ts = [
+  "export async function getNotes",
+  "export async function saveNote",
+  "export async function deleteNote"
+]
+fixtures/game-logic.ts = [
+  "export const INITIAL_WORLD",
+  "export function createAlienGrid",
+  "export function updateGame",
+  "export function fireProjectile"
+]
+fixtures/requests.json = [
+  "\"workspace_path\": \"src/lib/notes.ts\"",
+  "\"workspace_path\": \"src/lib/game-logic.ts\""
+]
+source-manifest.json = [
+  "campaign-G1-3a2",
+  "campaign-G1",
+  "e49950f1bf1a95ed8cff0232fe38bb20baaaa911299a32fa3f55e1e47197dc1a",
+  "14a37ae4de2ecc2ce47269f09ae94ac520662df6b36dd80a0e3660236fd21fcb"
+]
+
+[fixture_ordered]
+fixtures/notes.ts = [
+  "import fs from",
+  "async function writeNotes",
+  "export async function getNotes",
+  "export async function saveNote",
+  "export async function deleteNote"
+]
