@@ -1,0 +1,8 @@
+{
+  "name": "issue849-node-smoke-rejection-detail-fixed",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "smoke": "node smoke-check.js"
+  }
+}

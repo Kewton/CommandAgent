@@ -11,17 +11,39 @@ pub(crate) mod package_script_check;
 #[path = "verify_command_classification/structural_checks.rs"]
 mod structural_checks;
 
+/// The repair line for a Node verify command refused for `detail`.
+pub(super) fn node_repair_guidance(command: &str, detail: &str) -> String {
+    node_checks::repair_guidance(command, detail)
+}
+
 pub(super) fn node_command_kind(
     command: &str,
     workspace: &WorkspaceEvidence,
 ) -> Option<VerifyCommandKind> {
+    node_verdict(command, workspace).map(|(kind, _)| kind)
+}
+
+/// Why `node_smoke_without_assertion` was reported for this command, if it was.
+pub(super) fn node_weak_detail(command: &str, workspace: &WorkspaceEvidence) -> Option<String> {
+    node_verdict(command, workspace)?.1
+}
+
+fn node_verdict(
+    command: &str,
+    workspace: &WorkspaceEvidence,
+) -> Option<(VerifyCommandKind, Option<String>)> {
     let program = command.split_whitespace().next()?;
     if !matches!(program, "node" | "npm" | "pnpm" | "yarn") {
         return None;
     }
-    let weak = || VerifyCommandKind::Weak("node_smoke_without_assertion".into());
+    let weak = |detail: &str| {
+        Some((
+            VerifyCommandKind::Weak("node_smoke_without_assertion".into()),
+            Some(detail.to_string()),
+        ))
+    };
     let Some(words) = single_command_words(command) else {
-        return Some(weak());
+        return weak("command_not_single_literal");
     };
     let args = &words[1..];
     let test_runner = if program == "node" {
@@ -32,11 +54,12 @@ pub(super) fn node_command_kind(
                 && args.get(1).is_some_and(|arg| arg == "test")
     };
     if test_runner {
-        return Some(if has_test_artifact(workspace) {
+        let kind = if has_test_artifact(workspace) {
             VerifyCommandKind::Test
         } else {
             VerifyCommandKind::Weak("node_test_without_test_artifact".into())
-        });
+        };
+        return Some((kind, None));
     }
     if program != "node" {
         return None;
@@ -44,7 +67,7 @@ pub(super) fn node_command_kind(
     // These exact generated predicates still execute in the completion contract.
     // Treating them as syntax checks does not let them supply business evidence.
     if crate::planner::profiles::nextjs::recovery_authority::is_generated_hook_check(command) {
-        return Some(VerifyCommandKind::StaticSyntax);
+        return Some((VerifyCommandKind::StaticSyntax, None));
     }
     if structural_checks::recognizes(command)
         || import_check::export_set_target(command).is_some()
@@ -52,19 +75,23 @@ pub(super) fn node_command_kind(
         || package_script_check::comparison(command).is_some()
         || package_script_check::predicate(command).is_some()
     {
-        return Some(VerifyCommandKind::StaticSyntax);
+        return Some((VerifyCommandKind::StaticSyntax, None));
     }
     if import_check::strengthened_target(command).is_some() {
-        return Some(VerifyCommandKind::Test);
+        return Some((VerifyCommandKind::Test, None));
     }
     let Some(first) = args.first() else {
-        return Some(weak());
+        return weak("no_script_argument");
     };
-    let checked = if let Some(inline) = inline_argument(args) {
-        inline.executable && node_checks::has_failure_check(inline.source)
+    let rejection = if let Some(inline) = inline_argument(args) {
+        if inline.executable {
+            node_checks::assertion_rejection(inline.source)
+        } else {
+            Some("inline_not_executable".to_string())
+        }
     } else {
         match first.as_str() {
-            option if option.starts_with('-') => false,
+            option if option.starts_with('-') => Some("node_option_before_script".to_string()),
             path => {
                 let path = std::path::Path::new(path);
                 let mut normalized = std::path::PathBuf::new();
@@ -72,23 +99,25 @@ pub(super) fn node_command_kind(
                     match component {
                         std::path::Component::CurDir => {}
                         std::path::Component::Normal(part) => normalized.push(part),
-                        _ => return Some(weak()),
+                        _ => return weak("script_path_not_plain_relative"),
                     }
                 }
-                workspace
+                match workspace
                     .source_files
                     .iter()
                     .chain(&workspace.test_files)
                     .find(|file| std::path::Path::new(&file.rel) == normalized)
-                    .is_some_and(|file| node_checks::has_failure_check(&file.content))
+                {
+                    Some(file) => node_checks::assertion_rejection(&file.content),
+                    None => Some("script_not_in_workspace_evidence".to_string()),
+                }
             }
         }
     };
-    Some(if checked {
-        VerifyCommandKind::Test
-    } else {
-        weak()
-    })
+    match rejection {
+        None => Some((VerifyCommandKind::Test, None)),
+        Some(detail) => weak(&detail),
+    }
 }
 
 pub(crate) struct InlineArgument<'a> {

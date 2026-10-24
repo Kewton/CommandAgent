@@ -1,0 +1,34 @@
+{
+  "schema": "issue851-final-repair-workspace-delta/1",
+  "reverified": [
+    {
+      "id": "bash-rm-extra-entry",
+      "command": "rm src/app/main.py",
+      "changed_paths": ["src/app/main.py"]
+    },
+    {
+      "id": "bash-mv-extra-entry",
+      "command": "mv src/app/main.py src/app/legacy.py",
+      "changed_paths": ["src/app/legacy.py", "src/app/main.py"]
+    },
+    {
+      "id": "bash-create-new-module",
+      "command": "printf 'VALUE = 1\\n' > src/csv_stats/helper.py && rm src/app/main.py",
+      "changed_paths": ["src/app/main.py", "src/csv_stats/helper.py"]
+    }
+  ],
+  "unchanged": [
+    {
+      "id": "bash-touch",
+      "command": "touch src/csv_stats/main.py"
+    },
+    {
+      "id": "bash-create-then-delete",
+      "command": "printf 'x = 1\\n' > src/app/scratch.py && rm src/app/scratch.py"
+    },
+    {
+      "id": "bash-log-and-cache-only",
+      "command": "printf 'x' > run.log && mkdir -p .cache && printf 'x' > .cache/a.js"
+    }
+  ]
+}
