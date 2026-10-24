@@ -1,0 +1,20 @@
+case_id = "issue849-node-smoke-rejection-detail"
+source = "L-107 tool-q smoke-check.js reduced to the constructs that made the recognizer refuse it"
+required_paths = ["package.json", "smoke-check.js"]
+verify_commands = ["node smoke-check.js"]
+required_capabilities = []
+required_evidence = ["implementation_artifact"]
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+acceptance_passed = false
+primary_reason = "weak_verification_evidence:node_smoke_without_assertion"
+
+[weak_evidence]
+contains = ["node_smoke_without_assertion"]
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+smoke-check.js = ["const assert = require(\"assert\");", "assert.ok("]
