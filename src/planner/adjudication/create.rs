@@ -741,6 +741,13 @@ pub(super) fn ultra_final_acceptance_report_inner(
         {
             report.push_profile_failure(format!("repair guidance: {guidance}"));
         }
+        for guidance in acceptance
+            .weak_evidence_sources
+            .iter()
+            .filter_map(crate::minimal_loop::evidence::WeakEvidenceSource::repair_guidance)
+        {
+            report.push_profile_failure(format!("repair guidance: {guidance}"));
+        }
         for target in &acceptance.obligation_repair_targets {
             report.push_profile_failure(format!(
                 "missing_required_obligation_target:{}:{}",
