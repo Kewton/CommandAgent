@@ -3,6 +3,9 @@ use super::CompileRepairPromptProtection;
 #[path = "final_acceptance/compile_rollback_verification.rs"]
 mod compile_rollback_verification;
 
+#[path = "final_acceptance/repair_workspace_snapshot.rs"]
+mod repair_workspace_snapshot;
+
 #[path = "final_acceptance/surface_fit.rs"]
 mod surface_fit;
 
@@ -218,35 +221,7 @@ pub(super) fn final_acceptance_source_snapshot(
     expected_paths: &[String],
     extra_paths: &[String],
 ) -> BTreeMap<String, Option<Vec<u8>>> {
-    let mut paths = snapshot_source_candidates(root, profile, goal, expected_paths);
-    merge_final_acceptance_snapshot_candidates(
-        &mut paths,
-        expected_paths.iter().map(String::as_str),
-    );
-    merge_final_acceptance_snapshot_candidates(&mut paths, extra_paths.iter().map(String::as_str));
-    merge_final_acceptance_snapshot_candidates(
-        &mut paths,
-        crate::planner::repair_targeting::final_acceptance_snapshot_candidates(root, profile)
-            .iter()
-            .map(String::as_str),
-    );
-    for path in route_bound_source_paths(root, profile) {
-        if !paths.contains(&path) {
-            paths.push(path);
-        }
-    }
-    snapshot_paths(root, &paths)
-}
-
-pub(super) fn snapshot_paths(root: &Path, paths: &[String]) -> BTreeMap<String, Option<Vec<u8>>> {
-    let mut snapshot = BTreeMap::new();
-    for path in paths {
-        let Some(rel) = safe_final_acceptance_snapshot_rel_path(path) else {
-            continue;
-        };
-        snapshot.insert(rel.clone(), std::fs::read(root.join(rel)).ok());
-    }
-    snapshot
+    repair_workspace_snapshot::capture(root, profile, goal, expected_paths, extra_paths)
 }
 
 pub(super) fn changed_snapshot_paths(
