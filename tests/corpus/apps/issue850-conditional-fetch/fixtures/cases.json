@@ -267,6 +267,47 @@
       "reason_contains": "POST /api/notes used by src/app/notes/[id]/page.tsx does not check Response.ok before accepting the mutation"
     },
     {
+      "name": "unproven ternary is not rescued by a later paren-ok log",
+      "expect": "reject",
+      "replace": [
+        {
+          "from": "      // Check Response.ok before accepting the mutation result.",
+          "to": "      console.log((res).ok);"
+        },
+        {
+          "from": "if (!res.ok || !body || typeof body.note?.updatedAt !== \"string\") {",
+          "to": "if (!body || typeof body.note?.updatedAt !== \"string\") {"
+        }
+      ],
+      "reason_contains": "POST /api/notes used by src/app/notes/[id]/page.tsx does not check Response.ok before accepting the mutation"
+    },
+    {
+      "name": "unproven ternary is not rescued by a paren-ok check of another call",
+      "expect": "reject",
+      "replace": [
+        {
+          "from": "if (!res.ok || !body || typeof body.note?.updatedAt !== \"string\") {",
+          "to": "if (!(await other()).ok || !body || typeof body.note?.updatedAt !== \"string\") {"
+        }
+      ],
+      "reason_contains": "POST /api/notes used by src/app/notes/[id]/page.tsx does not check Response.ok before accepting the mutation"
+    },
+    {
+      "name": "paren-ok check after a success update is not rescued",
+      "expect": "reject",
+      "replace": [
+        {
+          "from": "      // Check Response.ok before accepting the mutation result.",
+          "to": "      setStatus(\"保存完了\");\n      if (!(res).ok) { return; }"
+        },
+        {
+          "from": "if (!res.ok || !body || typeof body.note?.updatedAt !== \"string\") {",
+          "to": "if (!body || typeof body.note?.updatedAt !== \"string\") {"
+        }
+      ],
+      "reason_contains": "POST /api/notes used by src/app/notes/[id]/page.tsx does not check Response.ok before accepting the mutation"
+    },
+    {
       "name": "method not exported by the route even with a guard",
       "expect": "reject",
       "replace": [
