@@ -1,0 +1,33 @@
+case_id = "issue846-final-acceptance-status-outcome"
+source = "L-104 cli-q (develop d72fb320); Issue #846 final_acceptance_status follows the final report outcome"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/events.jsonl = [
+  "\"event\":\"ultra_final_acceptance\"",
+  "\"event\":\"ultra_final_acceptance_failed\"",
+  "\"event\":\"final_acceptance_repair_exhausted\"",
+  "\"event\":\"run_stop\"",
+  "\"release_gate_status\":\"pass\"",
+  "\"completion_status\":\"failed\"",
+  "Python CLI must have exactly one src/<package>/main.py; found 2"
+]

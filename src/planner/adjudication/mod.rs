@@ -1,5 +1,6 @@
 pub mod contract;
 mod core;
+pub(crate) mod final_outcome;
 pub mod fix;
 pub mod investigate;
 mod requirements;

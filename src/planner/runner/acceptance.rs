@@ -28,6 +28,7 @@ use super::{
     verify_runtime_acceptance_with_browser_dirs_and_hints, write_release_evidence_json,
 };
 use super::{DEV_SERVER_LIFECYCLE_STAGES, ReleaseRecoveryHandoffSummary};
+use crate::planner::adjudication::final_outcome::final_acceptance_status_for_outcome;
 use crate::planner::profile_contract_observations::{non_recovery_failure_kind, registered_probe};
 use std::io::{Read, Write};
 
@@ -2308,7 +2309,10 @@ pub(super) fn verify_plan_final_contract(
         && runtime_ok
         && pack_checks_ok
         && !release_gate_failed;
-    let final_acceptance_status = release_gate_final_acceptance_status(&release_gate);
+    let final_acceptance_status = final_acceptance_status_for_outcome(
+        release_gate_final_acceptance_status(&release_gate),
+        ok,
+    );
     let runtime_acceptance_status =
         profile_behavior_probe.runtime_acceptance_status(runtime_ok, runtime_acceptance.as_ref());
     let (base_assurance_level, base_assurance_reason) =
