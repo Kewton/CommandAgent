@@ -1,0 +1,333 @@
+{
+  "_comment": "Each case edits fixtures/page.tsx with exact-once string replacements, then runs the public Next.js profile checks. accept: both modes pass. reject: both modes report exactly one profile failure containing reason_contains.",
+  "unchecked_reason": "POST /api/notes used by src/app/notes/[id]/page.tsx does not check Response.ok before accepting the mutation",
+  "cases": [
+    {
+      "name": "live shape: newline ternary, guard with return",
+      "expect": "accept",
+      "replace": []
+    },
+    {
+      "name": "guard throws on plain !res.ok",
+      "expect": "accept",
+      "replace": [
+        {
+          "from": "if (!res.ok || !body || typeof body.note?.updatedAt !== \"string\") {",
+          "to": "if (!res.ok) throw new Error(\"save failed\");\n      if (!body || typeof body.note?.updatedAt !== \"string\") {"
+        }
+      ]
+    },
+    {
+      "name": "japanese and emoji comment before the read",
+      "expect": "accept",
+      "replace": [
+        {
+          "from": "      // Check Response.ok before accepting the mutation result.",
+          "to": "      // 保存結果を確かめる 😀 ─ it's fine"
+        }
+      ]
+    },
+    {
+      "name": "brackets and quotes in a comment after the method",
+      "expect": "accept",
+      "replace": [
+        {
+          "from": "method: \"POST\",",
+          "to": "method: \"POST\", // ) } ' \" `"
+        }
+      ]
+    },
+    {
+      "name": "no guard at all",
+      "expect": "reject",
+      "replace": [
+        {
+          "from": "if (!res.ok || !body || typeof body.note?.updatedAt !== \"string\") {",
+          "to": "if (!body || typeof body.note?.updatedAt !== \"string\") {"
+        }
+      ],
+      "reason_contains": "POST /api/notes used by src/app/notes/[id]/page.tsx does not check Response.ok before accepting the mutation"
+    },
+    {
+      "name": "and condition",
+      "expect": "reject",
+      "replace": [
+        {
+          "from": "if (!res.ok || !body || typeof body.note?.updatedAt !== \"string\") {",
+          "to": "if (!res.ok && !body) {"
+        }
+      ],
+      "reason_contains": "POST /api/notes used by src/app/notes/[id]/page.tsx does not check Response.ok before accepting the mutation"
+    },
+    {
+      "name": "bare res.ok statement",
+      "expect": "reject",
+      "replace": [
+        {
+          "from": "if (!res.ok || !body || typeof body.note?.updatedAt !== \"string\") {",
+          "to": "res.ok;\n      if (!body || typeof body.note?.updatedAt !== \"string\") {"
+        }
+      ],
+      "reason_contains": "POST /api/notes used by src/app/notes/[id]/page.tsx does not check Response.ok before accepting the mutation"
+    },
+    {
+      "name": "other name for ok",
+      "expect": "reject",
+      "replace": [
+        {
+          "from": "if (!res.ok || !body || typeof body.note?.updatedAt !== \"string\") {",
+          "to": "if (!res.okay || !body || typeof body.note?.updatedAt !== \"string\") {"
+        }
+      ],
+      "reason_contains": "POST /api/notes used by src/app/notes/[id]/page.tsx does not check Response.ok before accepting the mutation"
+    },
+    {
+      "name": "ok copied to another name",
+      "expect": "reject",
+      "replace": [
+        {
+          "from": "if (!res.ok || !body || typeof body.note?.updatedAt !== \"string\") {",
+          "to": "const ok = res.ok;\n      if (!ok || !body || typeof body.note?.updatedAt !== \"string\") {"
+        }
+      ],
+      "reason_contains": "POST /api/notes used by src/app/notes/[id]/page.tsx does not check Response.ok before accepting the mutation"
+    },
+    {
+      "name": "guard only in a comment",
+      "expect": "reject",
+      "replace": [
+        {
+          "from": "if (!res.ok || !body || typeof body.note?.updatedAt !== \"string\") {",
+          "to": "// if (!res.ok) { return; }\n      if (!body || typeof body.note?.updatedAt !== \"string\") {"
+        }
+      ],
+      "reason_contains": "POST /api/notes used by src/app/notes/[id]/page.tsx does not check Response.ok before accepting the mutation"
+    },
+    {
+      "name": "guard only in a string",
+      "expect": "reject",
+      "replace": [
+        {
+          "from": "if (!res.ok || !body || typeof body.note?.updatedAt !== \"string\") {",
+          "to": "const hint = \"if (!res.ok) { return; }\";\n      if (!body || typeof body.note?.updatedAt !== \"string\") {"
+        }
+      ],
+      "reason_contains": "POST /api/notes used by src/app/notes/[id]/page.tsx does not check Response.ok before accepting the mutation"
+    },
+    {
+      "name": "guard in a shadowing block",
+      "expect": "reject",
+      "replace": [
+        {
+          "from": "      // Check Response.ok before accepting the mutation result.",
+          "to": "      {\n        const res = await fetch(\"/api/notes\");\n        if (!res.ok) { return; }\n      }"
+        },
+        {
+          "from": "if (!res.ok || !body || typeof body.note?.updatedAt !== \"string\") {",
+          "to": "if (!body || typeof body.note?.updatedAt !== \"string\") {"
+        }
+      ],
+      "reason_contains": "POST /api/notes used by src/app/notes/[id]/page.tsx does not check Response.ok before accepting the mutation"
+    },
+    {
+      "name": "nearby unrelated fetch is checked instead",
+      "expect": "reject",
+      "replace": [
+        {
+          "from": "      // Check Response.ok before accepting the mutation result.",
+          "to": "      const probe = await fetch(\"/api/notes\");\n      if (!probe.ok) { return; }"
+        },
+        {
+          "from": "if (!res.ok || !body || typeof body.note?.updatedAt !== \"string\") {",
+          "to": "if (!body || typeof body.note?.updatedAt !== \"string\") {"
+        }
+      ],
+      "reason_contains": "POST /api/notes used by src/app/notes/[id]/page.tsx does not check Response.ok before accepting the mutation"
+    },
+    {
+      "name": "rebound before the guard",
+      "expect": "reject",
+      "replace": [
+        {
+          "from": "      // Check Response.ok before accepting the mutation result.",
+          "to": "      res = await fetch(\"/api/notes\");"
+        }
+      ],
+      "reason_contains": "POST /api/notes used by src/app/notes/[id]/page.tsx does not check Response.ok before accepting the mutation"
+    },
+    {
+      "name": "success display before the check",
+      "expect": "reject",
+      "replace": [
+        {
+          "from": "      // Check Response.ok before accepting the mutation result.",
+          "to": "      setStatus(\"保存完了\");"
+        }
+      ],
+      "reason_contains": "POST /api/notes used by src/app/notes/[id]/page.tsx does not check Response.ok before accepting the mutation"
+    },
+    {
+      "name": "guard does not leave",
+      "expect": "reject",
+      "replace": [
+        {
+          "from": "        return;\n      }\n      setLastSavedAt(body.note.updatedAt);",
+          "to": "      }\n      setLastSavedAt(body.note.updatedAt);"
+        }
+      ],
+      "reason_contains": "POST /api/notes used by src/app/notes/[id]/page.tsx does not check Response.ok before accepting the mutation"
+    },
+    {
+      "name": "one branch is not a fetch",
+      "expect": "reject",
+      "replace": [
+        {
+          "from": "        : await fetch(`/api/notes/${id}`, {",
+          "to": "        : await put(`/api/notes/${id}`, {"
+        }
+      ],
+      "reason_contains": "POST /api/notes used by src/app/notes/[id]/page.tsx does not check Response.ok before accepting the mutation"
+    },
+    {
+      "name": "only one branch awaits",
+      "expect": "reject",
+      "replace": [
+        {
+          "from": "? await fetch(\"/api/notes\", {",
+          "to": "? fetch(\"/api/notes\", {"
+        }
+      ],
+      "reason_contains": "POST /api/notes used by src/app/notes/[id]/page.tsx does not check Response.ok before accepting the mutation"
+    },
+    {
+      "name": "nested ternary",
+      "expect": "reject",
+      "replace": [
+        {
+          "from": "? await fetch(\"/api/notes\", {",
+          "to": "? isNew ? await fetch(\"/api/notes\", {"
+        }
+      ],
+      "reason_contains": "POST /api/notes used by src/app/notes/[id]/page.tsx does not check Response.ok before accepting the mutation"
+    },
+    {
+      "name": "assignment to a let after the fact",
+      "expect": "reject",
+      "replace": [
+        {
+          "from": "const res = isNew\n        ? await fetch(\"/api/notes\", {",
+          "to": "let res;\n      if (isNew) res = await fetch(\"/api/notes\", {"
+        },
+        {
+          "from": "        : await fetch(`/api/notes/${id}`, {",
+          "to": "      else res = await fetch(`/api/notes/${id}`, {"
+        }
+      ],
+      "reason_contains": "POST /api/notes used by src/app/notes/[id]/page.tsx does not check Response.ok before accepting the mutation"
+    },
+    {
+      "name": "await around the whole ternary",
+      "expect": "reject",
+      "replace": [
+        {
+          "from": "const res = isNew\n        ? await fetch(\"/api/notes\", {",
+          "to": "const res = await (isNew\n        ? fetch(\"/api/notes\", {"
+        },
+        {
+          "from": "        : await fetch(`/api/notes/${id}`, {",
+          "to": "        : fetch(`/api/notes/${id}`, {"
+        },
+        {
+          "from": "          });\n      // Check Response.ok before accepting the mutation result.",
+          "to": "          }));\n      // Check Response.ok before accepting the mutation result."
+        }
+      ],
+      "reason_contains": "POST /api/notes used by src/app/notes/[id]/page.tsx does not check Response.ok before accepting the mutation"
+    },
+    {
+      "name": "type annotation on the const",
+      "expect": "reject",
+      "replace": [
+        {
+          "from": "const res = isNew",
+          "to": "const res: Response = isNew"
+        }
+      ],
+      "reason_contains": "POST /api/notes used by src/app/notes/[id]/page.tsx does not check Response.ok before accepting the mutation"
+    },
+    {
+      "name": "line break right after the equals sign",
+      "expect": "reject",
+      "replace": [
+        {
+          "from": "const res = isNew",
+          "to": "const res =\n        isNew"
+        }
+      ],
+      "reason_contains": "POST /api/notes used by src/app/notes/[id]/page.tsx does not check Response.ok before accepting the mutation"
+    },
+    {
+      "name": "unproven ternary is not rescued by a later paren-ok log",
+      "expect": "reject",
+      "replace": [
+        {
+          "from": "      // Check Response.ok before accepting the mutation result.",
+          "to": "      console.log((res).ok);"
+        },
+        {
+          "from": "if (!res.ok || !body || typeof body.note?.updatedAt !== \"string\") {",
+          "to": "if (!body || typeof body.note?.updatedAt !== \"string\") {"
+        }
+      ],
+      "reason_contains": "POST /api/notes used by src/app/notes/[id]/page.tsx does not check Response.ok before accepting the mutation"
+    },
+    {
+      "name": "unproven ternary is not rescued by a paren-ok check of another call",
+      "expect": "reject",
+      "replace": [
+        {
+          "from": "if (!res.ok || !body || typeof body.note?.updatedAt !== \"string\") {",
+          "to": "if (!(await other()).ok || !body || typeof body.note?.updatedAt !== \"string\") {"
+        }
+      ],
+      "reason_contains": "POST /api/notes used by src/app/notes/[id]/page.tsx does not check Response.ok before accepting the mutation"
+    },
+    {
+      "name": "paren-ok check after a success update is not rescued",
+      "expect": "reject",
+      "replace": [
+        {
+          "from": "      // Check Response.ok before accepting the mutation result.",
+          "to": "      setStatus(\"保存完了\");\n      if (!(res).ok) { return; }"
+        },
+        {
+          "from": "if (!res.ok || !body || typeof body.note?.updatedAt !== \"string\") {",
+          "to": "if (!body || typeof body.note?.updatedAt !== \"string\") {"
+        }
+      ],
+      "reason_contains": "POST /api/notes used by src/app/notes/[id]/page.tsx does not check Response.ok before accepting the mutation"
+    },
+    {
+      "name": "method not exported by the route even with a guard",
+      "expect": "reject",
+      "replace": [
+        {
+          "from": "method: \"POST\",",
+          "to": "method: \"PATCH\","
+        }
+      ],
+      "reason_contains": "PATCH /api/notes used by src/app/notes/[id]/page.tsx is not exported by"
+    },
+    {
+      "name": "route missing even with a guard",
+      "expect": "reject",
+      "replace": [
+        {
+          "from": "? await fetch(\"/api/notes\", {",
+          "to": "? await fetch(\"/api/missing\", {"
+        }
+      ],
+      "reason_contains": "POST /api/missing used by src/app/notes/[id]/page.tsx has no matching App Router route"
+    }
+  ]
+}
