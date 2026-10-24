@@ -782,3 +782,51 @@ fn secrets_runtime_and_dependency_files_never_reach_evidence_or_the_compile_snap
     }
     assert!(flow.path(".env.js").is_file());
 }
+
+#[test]
+fn deep_dynamic_route_does_not_defeat_the_no_source_change_short_circuit() {
+    let flow = run_flow(
+        |root| {
+            let path = root.join("src/app/api/notes/[id]/route.ts");
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, "export async function GET() {}\n").unwrap();
+        },
+        &simple_scaffold(),
+        VALID_CLI,
+        vec![bash_reply("touch src/csv_stats/main.py")],
+    );
+    // An empty actual delta is what routes a repair into the compile
+    // no-source-change ladder and the evidence zero-edit attempts.
+    assert_short_circuited(&flow, "deep route");
+    assert!(
+        flow.events
+            .iter()
+            .all(|event| !event.to_string().contains("workspace-scan-incomplete"))
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn credential_named_symlink_is_not_named_in_events() {
+    let flow = run_flow(
+        |root| {
+            std::fs::create_dir_all(root.join("src/ext")).unwrap();
+            std::os::unix::fs::symlink(
+                "missing-target",
+                root.join("src/ext/service-account-x.json"),
+            )
+            .unwrap();
+            std::os::unix::fs::symlink("../../.env.js", root.join("src/ext/key.js")).unwrap();
+            std::fs::write(root.join(".env.js"), FAKE_SECRET).unwrap();
+        },
+        &simple_scaffold(),
+        VALID_CLI,
+        vec![bash_reply("touch src/csv_stats/main.py")],
+    );
+    assert_short_circuited(&flow, "credential symlinks");
+    let log =
+        std::fs::read_to_string(flow.path(".commandagent/runs/issue851/events.jsonl")).unwrap();
+    assert!(!log.contains("service-account-x"));
+    assert!(!log.contains("src/ext/key.js"));
+    assert!(!log.contains(FAKE_SECRET));
+}

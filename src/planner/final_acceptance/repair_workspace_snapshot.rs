@@ -72,11 +72,11 @@ pub(super) fn capture(
             paths.push(path);
         }
     }
-    let mut incomplete = walk.incomplete;
-    if paths.len() > MAX_CANDIDATES {
-        paths.truncate(MAX_CANDIDATES);
-        incomplete = true;
-    }
+    // The candidate count and depth limits are the scope boundary, as in the
+    // existing collector: what lies beyond them is not part of the delta and
+    // is not marked unknown. Deep route-bound sources stay covered because
+    // the legacy candidates come first and are hashed directly.
+    paths.truncate(MAX_CANDIDATES);
     let mut snapshot = BTreeMap::new();
     let mut budget = MAX_TOTAL_BYTES;
     for rel in paths.into_iter().collect::<BTreeSet<_>>() {
@@ -85,9 +85,14 @@ pub(super) fn capture(
         }
     }
     for rel in walk.unjudgeable {
-        snapshot.insert(rel, unknown());
+        if !matches!(
+            sensitive_skip(root, &root.join(&rel)),
+            Some(SkippedPath::Credential)
+        ) {
+            snapshot.insert(rel, unknown());
+        }
     }
-    if incomplete {
+    if walk.incomplete {
         snapshot.insert(INCOMPLETE_SCAN_KEY.to_string(), unknown());
     }
     snapshot
@@ -203,13 +208,11 @@ impl Walk {
                 format!("{rel_dir}/{name}")
             };
             if file_type.is_dir() {
-                self.dir(root, &rel, depth + 1);
-            } else if candidate_rel_path(&rel).is_some() {
-                if depth > MAX_DEPTH {
-                    self.incomplete = true;
-                } else {
-                    self.found.push(rel);
+                if depth < MAX_DEPTH {
+                    self.dir(root, &rel, depth + 1);
                 }
+            } else if candidate_rel_path(&rel).is_some() {
+                self.found.push(rel);
             } else if file_type.is_symlink()
                 && !std::fs::metadata(root.join(&rel)).is_ok_and(|meta| !meta.is_dir())
             {
@@ -463,24 +466,60 @@ mod tests {
     }
 
     #[test]
-    fn candidate_limit_is_unknown_not_silently_truncated() {
+    fn candidate_limit_is_a_scope_boundary_without_an_incomplete_mark() {
         let dir = tempfile::tempdir().unwrap();
         for index in 0..130 {
             write(dir.path(), &format!("pkg/m{index:03}.py"), "x = 1\n");
         }
         let before = snap(dir.path(), &[]);
-        assert_eq!(before.len(), 129);
-        assert_eq!(changed(dir.path(), &before), [INCOMPLETE_SCAN_KEY]);
+        assert_eq!(before.len(), 128);
+        assert!(!before.contains_key(INCOMPLETE_SCAN_KEY));
+        assert_eq!(changed(dir.path(), &before), Vec::<String>::new());
     }
 
     #[test]
-    fn source_below_the_depth_limit_is_unknown() {
+    fn source_below_the_depth_limit_is_outside_the_delta_without_a_mark() {
         let dir = tempfile::tempdir().unwrap();
         write(dir.path(), "a/b/c/d/ok.py", "x = 1\n");
         write(dir.path(), "a/b/c/d/e/deep.py", "x = 1\n");
         let before = snap(dir.path(), &[]);
         assert!(before.contains_key("a/b/c/d/ok.py"));
-        assert_eq!(changed(dir.path(), &before), [INCOMPLETE_SCAN_KEY]);
+        assert!(!before.contains_key("a/b/c/d/e/deep.py"));
+        assert!(!before.contains_key(INCOMPLETE_SCAN_KEY));
+        write(dir.path(), "a/b/c/d/e/deep.py", "x = 2\n");
+        assert_eq!(changed(dir.path(), &before), Vec::<String>::new());
+    }
+
+    #[test]
+    fn explicit_deep_path_is_still_hashed_directly() {
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), "a/b/c/d/e/route.ts", "x");
+        let extra = ["a/b/c/d/e/route.ts".to_string()];
+        let before = snap(dir.path(), &extra);
+        assert!(before["a/b/c/d/e/route.ts"].is_some());
+        write(dir.path(), "a/b/c/d/e/route.ts", "y");
+        assert_eq!(
+            changed_snapshot_paths(&before, &snap(dir.path(), &extra)),
+            ["a/b/c/d/e/route.ts"]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlink_to_a_credential_is_dropped_by_name_and_never_read() {
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), "src/app/main.py", "ok = 1\n");
+        write(dir.path(), ".env.js", "FAKE_SECRET_VALUE");
+        std::os::unix::fs::symlink("../../.env.js", dir.path().join("src/app/key.js")).unwrap();
+        std::os::unix::fs::symlink(
+            "missing-target",
+            dir.path().join("src/app/service-account-x.json"),
+        )
+        .unwrap();
+        let snapshot = snap(dir.path(), &[]);
+        assert!(!snapshot.contains_key("src/app/key.js"), "{snapshot:?}");
+        assert!(!snapshot.contains_key("src/app/service-account-x.json"));
+        assert!(!format!("{snapshot:?}").contains("FAKE_SECRET_VALUE"));
     }
 
     #[test]
