@@ -1,0 +1,26 @@
+{
+  "sources": [
+    {
+      "source": "<user>/share/work/gen-eval-1022/campaign-G1-3a2/stage3a/content-g/work/src/lib/notes.ts",
+      "source_sha256": "e49950f1bf1a95ed8cff0232fe38bb20baaaa911299a32fa3f55e1e47197dc1a",
+      "campaign": "campaign-G1-3a2",
+      "run": "L-98 content-g",
+      "develop_commit": "unknown (meta.json does not record it; Issue #845 states 2d3e78b0)",
+      "derived_fixture": "fixtures/notes.ts is a byte-for-byte copy (2006 bytes, 81 lines). getNotes starts on line 30, after 500 characters and 20 lines."
+    },
+    {
+      "source": "<user>/share/work/gen-eval-1022/campaign-G1/stage3a/game-g/work/src/lib/game-logic.ts",
+      "source_sha256": "14a37ae4de2ecc2ce47269f09ae94ac520662df6b36dd80a0e3660236fd21fcb",
+      "campaign": "campaign-G1",
+      "run": "L-94 game-g",
+      "develop_commit": "unknown (meta.json does not record it; Issue #845 states cdbc4388)",
+      "derived_fixture": "fixtures/game-logic.ts is a byte-for-byte copy (4651 bytes, 183 lines). INITIAL_WORLD starts on line 36, after 500 characters and 20 lines."
+    }
+  ],
+  "capture": "Issue #845 (S-105a, S-106a): Read results that the model could not see past the first 500 flattened characters.",
+  "requests": "fixtures/requests.json lists the Read calls tests/read_history_contract.rs replays against these files, and the exports each stored result must still show.",
+  "fixture_sha256": {
+    "notes.ts": "e49950f1bf1a95ed8cff0232fe38bb20baaaa911299a32fa3f55e1e47197dc1a",
+    "game-logic.ts": "14a37ae4de2ecc2ce47269f09ae94ac520662df6b36dd80a0e3660236fd21fcb"
+  }
+}
