@@ -208,9 +208,11 @@ mod tests {
         let secret = "fake-straddle-secret-0123456789abcdef";
         catalog.register(secret);
         install_scope(catalog, None, None);
-        let notice_len = TRUNCATION_NOTICE.len();
-        // Place the secret so the byte budget lands inside it.
-        let pad = READ_HISTORY_MAX_BYTES - notice_len - 1 - 10;
+        // Place the secret so that its first 15 bytes fall inside the head
+        // budget (counting the 9-byte path line) and the cut lands inside it.
+        let head_budget = READ_HISTORY_MAX_BYTES - TRUNCATION_NOTICE.len() - 1;
+        let inside = 15;
+        let pad = head_budget - inside - "src/a.ts\n".len();
         let input = format!(
             "src/a.ts\n{}{secret} tail {}",
             "p".repeat(pad),
@@ -223,5 +225,8 @@ mod tests {
         assert!(!stored.contains(secret));
         assert!(!stored.contains("fake-straddle"));
         assert!(!stored.contains("0123456789abcdef"));
+        // The part of the secret that sits inside the head budget.
+        assert!(!stored.contains(&secret[..inside]));
+        assert!(!stored.contains("fake-strad"));
     }
 }

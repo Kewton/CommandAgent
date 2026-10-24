@@ -435,6 +435,33 @@ fn secrets_never_reach_store_request_or_session_file() {
 }
 
 #[test]
+fn secret_straddling_the_cut_inside_one_long_line_leaves_no_fragment() {
+    let secret = "fake-longline-secret-ABCDEFGHIJ0123456789";
+    let _guard = ScopeGuard::install(&[secret]);
+    // 15 bytes of the secret fall inside the head budget; the line has no
+    // newline, so the cut can only land inside the secret.
+    let head_budget = MAX_BYTES - NOTICE.len() - 1;
+    let inside = 15;
+    let pad = head_budget - inside - "src/a.ts\n".len();
+    let input = format!(
+        "src/a.ts\n{}{secret} {}",
+        "p".repeat(pad),
+        "r".repeat(2_000)
+    );
+    assert!(!input[..head_budget].contains(secret));
+    assert!(input[..head_budget].contains(&secret[..inside]));
+    let stored = ConversationMessage::tool_result("Read", Some("c"), input.as_str());
+    let sent = request_for(std::slice::from_ref(&stored), ToolPromptMode::Native);
+    for content in [&stored.content, &sent[1].content] {
+        assert!(content.len() <= MAX_BYTES);
+        assert!(content.ends_with(NOTICE));
+        assert!(!content.contains(secret));
+        assert!(!content.contains(&secret[..inside]));
+        assert!(!content.contains("fake-longl"));
+    }
+}
+
+#[test]
 fn applying_the_policy_twice_does_not_grow_or_leak() {
     let _guard = ScopeGuard::install(&[
         SECRET_REGISTERED_JA,
