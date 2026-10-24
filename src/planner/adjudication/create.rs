@@ -27,7 +27,8 @@ use super::{
 use super::{ContractRequirements, ReleaseRecoveryHandoffSummary, contract_origin_for_acceptance};
 use crate::planner::adjudication::{
     GateObservation, append_gate_observation, dedup_strings, disconnected_gate_observations_reason,
-    execution_status_from_observed, profile_behavior_failure_reasons,
+    execution_status_from_observed, final_outcome::final_acceptance_status_for_outcome,
+    profile_behavior_failure_reasons,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -694,7 +695,110 @@ pub(super) fn ultra_final_acceptance_report_inner(
                 .collect(),
         );
     }
-    let final_acceptance_status = release_gate_final_acceptance_status(&release_gate);
+    let mut compile_errors = profile_report.compile_errors.clone();
+    if let Some(report) = external_report.as_ref() {
+        for error in &report.compile_errors {
+            if !compile_errors.contains(error) {
+                compile_errors.push(error.clone());
+            }
+        }
+    }
+    let primary_reason = if !missing.is_empty() {
+        format!("missing final artifacts: {}", missing.join(", "))
+    } else if contract_binding_missing {
+        "completion contract binding required but missing".to_string()
+    } else if !profile_report.is_pass() {
+        profile_report.primary_reason()
+    } else if let Some(report) = external_report.as_ref().filter(|report| {
+        !external_contract_ok_after_runtime_arbitration(Some(*report), Some(&acceptance))
+    }) {
+        report.primary_reason()
+    } else if profile_behavior_failed {
+        profile_behavior_probe.reasons.join("; ")
+    } else if !acceptance.passed {
+        acceptance.primary_reason.clone()
+    } else if matches!(release_gate.status.as_str(), "partial" | "failed") {
+        release_gate.reasons.join("; ")
+    } else {
+        acceptance.primary_reason.clone()
+    };
+    let mut command_diagnoses = crate::minimal_loop::evidence::command_diagnosis::collect(
+        &config.workspace_root,
+        &verify_commands,
+    );
+    if let Some(report) = &external_report {
+        crate::minimal_loop::evidence::command_diagnosis::annotate(&mut command_diagnoses, report);
+    }
+    let mut report = VerificationReport::pass();
+    for path in missing.iter().cloned() {
+        report.push_missing_path(path);
+    }
+    merge_verification_report(&mut report, profile_report);
+    if !acceptance.passed {
+        report.push_profile_failure(acceptance.primary_reason.clone());
+        for guidance in
+            runtime_acceptance_repair_guidance(&effective_profile, &plan.goal, &acceptance)
+        {
+            report.push_profile_failure(format!("repair guidance: {guidance}"));
+        }
+        for target in &acceptance.obligation_repair_targets {
+            report.push_profile_failure(format!(
+                "missing_required_obligation_target:{}:{}",
+                target.obligation, target.target_path
+            ));
+        }
+    }
+    if contract_binding_missing {
+        report.push_profile_failure("completion contract binding required but missing".to_string());
+    }
+    if profile_behavior_failed {
+        for reason in &profile_behavior_probe.reasons {
+            report.push_profile_failure(reason.clone());
+        }
+        if let Some(path) = &profile_behavior_probe.evidence_path {
+            report.push_profile_failure(format!("profile behavior evidence: {path}"));
+        }
+    }
+    if let Some(external_report) = external_report.filter(|report| {
+        !external_contract_ok_after_runtime_arbitration(Some(report), Some(&acceptance))
+    }) {
+        let reason = external_report.primary_reason();
+        merge_verification_report(&mut report, external_report);
+        report.push_profile_failure(format!("external contract failed: {}", reason));
+    }
+    let append_release_observations = !report.is_pass() || release_gate.status == "failed";
+    if release_gate.status == "failed" {
+        report.push_profile_failure(format!(
+            "release gate failed: {}",
+            release_gate.reasons.join("; ")
+        ));
+    }
+    if append_release_observations {
+        append_release_gate_observation_failures(&mut report, &release_gate);
+    }
+    if let Some(observation) = &browser_probe
+        && let Some(reason) = observation.failure_reason()
+    {
+        report.push_profile_failure(format!("browser_readiness_failed:{reason}"));
+        if !observation.output_excerpt.trim().is_empty() {
+            report.push_profile_failure(format!(
+                "browser_probe_output: {}",
+                eval_events::body_snippet(&observation.output_excerpt)
+            ));
+        }
+        if observation.failure_kind == "build_verifier_failed"
+            && !observation.compile_errors.is_empty()
+        {
+            report.push_compile_errors(
+                "browser readiness build verifier",
+                observation.compile_errors.clone(),
+            );
+        }
+    }
+    let final_acceptance_status = final_acceptance_status_for_outcome(
+        release_gate_final_acceptance_status(&release_gate),
+        report.is_pass(),
+    );
     let runtime_acceptance_status = match profile_behavior_probe.status {
         "failed" => "failed",
         "partial" => "partial",
@@ -739,33 +843,6 @@ pub(super) fn ultra_final_acceptance_report_inner(
         &plan.goal,
         Some(&phase_signal_text),
     );
-    let mut compile_errors = profile_report.compile_errors.clone();
-    if let Some(report) = external_report.as_ref() {
-        for error in &report.compile_errors {
-            if !compile_errors.contains(error) {
-                compile_errors.push(error.clone());
-            }
-        }
-    }
-    let primary_reason = if !missing.is_empty() {
-        format!("missing final artifacts: {}", missing.join(", "))
-    } else if contract_binding_missing {
-        "completion contract binding required but missing".to_string()
-    } else if !profile_report.is_pass() {
-        profile_report.primary_reason()
-    } else if let Some(report) = external_report.as_ref().filter(|report| {
-        !external_contract_ok_after_runtime_arbitration(Some(*report), Some(&acceptance))
-    }) {
-        report.primary_reason()
-    } else if profile_behavior_failed {
-        profile_behavior_probe.reasons.join("; ")
-    } else if !acceptance.passed {
-        acceptance.primary_reason.clone()
-    } else if matches!(release_gate.status.as_str(), "partial" | "failed") {
-        release_gate.reasons.join("; ")
-    } else {
-        acceptance.primary_reason.clone()
-    };
     let recovery_handoff = if acceptance.passed
         && external_ok
         && (matches!(release_gate.status.as_str(), "partial" | "failed")
@@ -799,13 +876,6 @@ pub(super) fn ultra_final_acceptance_report_inner(
     } else {
         None
     };
-    let mut command_diagnoses = crate::minimal_loop::evidence::command_diagnosis::collect(
-        &config.workspace_root,
-        &verify_commands,
-    );
-    if let Some(report) = &external_report {
-        crate::minimal_loop::evidence::command_diagnosis::annotate(&mut command_diagnoses, report);
-    }
     eval_events::emit(
         config.eval_events_path.as_deref(),
         json!({
@@ -930,72 +1000,6 @@ pub(super) fn ultra_final_acceptance_report_inner(
         "ultra_final_acceptance",
         &depth_profile,
     );
-    let mut report = VerificationReport::pass();
-    for path in missing {
-        report.push_missing_path(path);
-    }
-    merge_verification_report(&mut report, profile_report);
-    if !acceptance.passed {
-        report.push_profile_failure(acceptance.primary_reason.clone());
-        for guidance in
-            runtime_acceptance_repair_guidance(&effective_profile, &plan.goal, &acceptance)
-        {
-            report.push_profile_failure(format!("repair guidance: {guidance}"));
-        }
-        for target in &acceptance.obligation_repair_targets {
-            report.push_profile_failure(format!(
-                "missing_required_obligation_target:{}:{}",
-                target.obligation, target.target_path
-            ));
-        }
-    }
-    if contract_binding_missing {
-        report.push_profile_failure("completion contract binding required but missing".to_string());
-    }
-    if profile_behavior_failed {
-        for reason in &profile_behavior_probe.reasons {
-            report.push_profile_failure(reason.clone());
-        }
-        if let Some(path) = &profile_behavior_probe.evidence_path {
-            report.push_profile_failure(format!("profile behavior evidence: {path}"));
-        }
-    }
-    if let Some(external_report) = external_report.filter(|report| {
-        !external_contract_ok_after_runtime_arbitration(Some(report), Some(&acceptance))
-    }) {
-        let reason = external_report.primary_reason();
-        merge_verification_report(&mut report, external_report);
-        report.push_profile_failure(format!("external contract failed: {}", reason));
-    }
-    let append_release_observations = !report.is_pass() || release_gate.status == "failed";
-    if release_gate.status == "failed" {
-        report.push_profile_failure(format!(
-            "release gate failed: {}",
-            release_gate.reasons.join("; ")
-        ));
-    }
-    if append_release_observations {
-        append_release_gate_observation_failures(&mut report, &release_gate);
-    }
-    if let Some(observation) = &browser_probe
-        && let Some(reason) = observation.failure_reason()
-    {
-        report.push_profile_failure(format!("browser_readiness_failed:{reason}"));
-        if !observation.output_excerpt.trim().is_empty() {
-            report.push_profile_failure(format!(
-                "browser_probe_output: {}",
-                eval_events::body_snippet(&observation.output_excerpt)
-            ));
-        }
-        if observation.failure_kind == "build_verifier_failed"
-            && !observation.compile_errors.is_empty()
-        {
-            report.push_compile_errors(
-                "browser readiness build verifier",
-                observation.compile_errors.clone(),
-            );
-        }
-    }
     Ok(report)
 }
 

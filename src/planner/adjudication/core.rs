@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use super::final_outcome::final_acceptance_unmet;
 use crate::config::Config;
 use crate::minimal_loop::evidence::RuntimeAcceptanceReport;
 use crate::planner::profile::canonical_profile_name;
@@ -204,6 +205,7 @@ pub(crate) fn release_quality_from_gate_status(
     final_acceptance_status: &str,
 ) -> &'static str {
     match release_gate_status {
+        "pass" | "not_applicable" if final_acceptance_unmet(final_acceptance_status) => "failed",
         "pass" | "not_applicable" => "release_ready",
         "partial" => "partial",
         "failed" => "failed",
@@ -217,6 +219,9 @@ pub(crate) fn next_action_from_gate_status(
     final_acceptance_status: &str,
 ) -> &'static str {
     match release_gate_status {
+        "pass" | "not_applicable" if final_acceptance_unmet(final_acceptance_status) => {
+            "repair_final_acceptance_failure"
+        }
         "partial" => "collect_missing_release_evidence_or_continue_release_recovery",
         "failed" => "repair_release_gate_failure",
         _ if final_acceptance_status == "partial" => "collect_missing_final_acceptance_evidence",
