@@ -3,6 +3,9 @@ use std::path::{Path, PathBuf};
 
 use regex::Regex;
 
+mod conditional_response;
+use conditional_response::ResponseCheck;
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct ClientMutation {
     method: String,
@@ -41,7 +44,7 @@ pub(super) fn failure(root: &Path) -> Option<String> {
         }
         if !mutation.response_checked {
             return Some(format!(
-                "api_contract_failure: {} {} used by {} does not check Response.ok before accepting the mutation",
+                "api_contract_failure: {} {} used by {} does not check Response.ok before accepting the mutation; accepted forms: `const res = await fetch(...)` then return/throw when `!res.ok`, or a simple ternary whose two branches are both `await fetch(...)` bound to the same const and checked by the same guard",
                 mutation.method, mutation.route, mutation.source
             ));
         }
@@ -98,6 +101,11 @@ fn mutation_response_checked(content: &str, matched: Option<regex::Match<'_>>) -
     let prefix = content[prefix_start..matched.start()].trim();
     let suffix_end = crate::util::floor_char_boundary(content, matched.end().saturating_add(4_096));
     let suffix = &content[matched.end()..suffix_end];
+    match conditional_response::check(content, matched.start(), matched.end(), suffix_end) {
+        ResponseCheck::Confirmed => return true,
+        ResponseCheck::Unconfirmed => return false,
+        ResponseCheck::NotApplicable => {}
+    }
     if prefix.starts_with("return ") || suffix.contains(").ok") || suffix.contains(").ok;") {
         return true;
     }
