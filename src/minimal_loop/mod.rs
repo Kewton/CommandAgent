@@ -38,6 +38,7 @@ pub mod tool_feedback;
 pub(crate) mod tool_parse_failure;
 pub(crate) mod tool_parse_repair;
 pub(crate) mod tool_protocol;
+pub mod ts_missing_export;
 pub mod verifier_bootstrap;
 pub mod verifier_env;
 
