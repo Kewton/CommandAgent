@@ -66,6 +66,7 @@ mod implementation_completion;
 mod inspect_tool_policy;
 mod max_length_guard;
 mod recoverable_tool_errors;
+mod repair_turn_observation;
 #[path = "loop_run/runtime_bash_effects.rs"]
 mod runtime_bash_effects;
 mod runtime_bash_policy_telemetry;
@@ -1909,6 +1910,11 @@ pub(crate) fn run_session_with_outcome_with_options(
         if required_paths.is_empty()
             && options.allows_tool_only_step_completion()
             && !batch_had_recoverable_tool_error
+            && !repair_turn_observation::defers_tool_observation_completion(
+                &options,
+                batch_had_edit,
+                &batch_changed_paths,
+            )
         {
             eval_events::emit(
                 config.eval_events_path.as_deref(),
