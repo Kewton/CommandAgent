@@ -1,0 +1,11 @@
+{
+  "source_run": "L-112 #857 worker report (esc-857-2) and develop eadcaa42, derived by Issue #861",
+  "files": [
+    {
+      "file": "fixtures/cases.json",
+      "source": "synthetic: command shapes and expected policy decisions written for Issue #861; no recorded session text, secret, or absolute path is copied",
+      "sha256": null,
+      "note": "synthetic regression, not a recorded run"
+    }
+  ]
+}

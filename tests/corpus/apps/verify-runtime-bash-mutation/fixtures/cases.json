@@ -1,0 +1,61 @@
+{
+  "source": "Issue #861 IC-29: synthetic regression derived from the L-112 #857 worker report and develop eadcaa42. Verify and Report runtime Bash must refuse explicit workspace-update commands before execution (2026-10-25)",
+  "guarantee": "only the explicit update grammar in src/tools/bash_write_guard/verifier_mutation.rs is refused; sed w/e commands, perl bodies, inline interpreters, sh -c, bash -c, eval, xargs, find -exec, busybox, package scripts, and compiler hooks are not proven read-only",
+  "workspace": {
+    "files": {
+      "always-pass.sh": "exit 0\n",
+      "make-sentinel.sh": "touch sentinel-ran\n"
+    },
+    "verifier_path": "smoke-check.sh",
+    "verifier_content": "echo FAIL: widget missing\nexit 1\n",
+    "verifier_command": "sh smoke-check.sh"
+  },
+  "decision_cases": [
+    {"id": "sed-in-place-gnu", "command": "sed -i 's/1/2/' src/gameLogic.ts", "steps": ["verify", "report"], "expect": "reject", "reason_contains": "`sed -i`"},
+    {"id": "sed-in-place-long", "command": "sed --in-place=.bak 's/1/2/' src/gameLogic.ts", "steps": ["verify", "report"], "expect": "reject", "reason_contains": "`sed -i`"},
+    {"id": "sed-in-place-bsd", "command": "sed -i '' 's/1/2/' src/gameLogic.ts", "steps": ["verify", "report"], "expect": "reject", "reason_contains": "`sed -i`"},
+    {"id": "perl-pi", "command": "perl -pi -e 's/1/2/' src/gameLogic.ts", "steps": ["verify", "report"], "expect": "reject", "reason_contains": "`perl -i`"},
+    {"id": "perl-i-suffix", "command": "perl -i.bak -pe 's/1/2/' src/gameLogic.ts", "steps": ["verify", "report"], "expect": "reject", "reason_contains": "`perl -i`"},
+    {"id": "rm-source", "command": "rm src/gameLogic.ts", "steps": ["verify", "report"], "expect": "reject", "reason_contains": "`rm`"},
+    {"id": "mv-source", "command": "mv src/a.ts src/b.ts", "steps": ["verify", "report"], "expect": "reject", "reason_contains": "`mv`"},
+    {"id": "cp-over-verifier", "command": "cp always-pass.sh smoke-check.sh", "steps": ["verify", "report"], "expect": "reject", "reason_contains": "`cp`"},
+    {"id": "tee-source", "command": "tee src/gameLogic.ts", "steps": ["verify", "report"], "expect": "reject", "reason_contains": "`tee`"},
+    {"id": "touch-marker", "command": "touch marker", "steps": ["verify", "report"], "expect": "reject", "reason_contains": "`touch`"},
+    {"id": "truncate-source", "command": "truncate -s 0 src/gameLogic.ts", "steps": ["verify", "report"], "expect": "reject", "reason_contains": "`truncate`"},
+    {"id": "absolute-program-path", "command": "/usr/bin/sed -i 's/1/2/' src/gameLogic.ts", "steps": ["verify", "report"], "expect": "reject", "reason_contains": "`sed -i`"},
+    {"id": "quoted-program-name", "command": "'sed' -i 's/1/2/' src/gameLogic.ts", "steps": ["verify", "report"], "expect": "reject", "reason_contains": "`sed -i`"},
+    {"id": "env-prefix", "command": "env FOO=1 sed -i 's/1/2/' src/gameLogic.ts", "steps": ["verify", "report"], "expect": "reject", "reason_contains": "`sed -i`"},
+    {"id": "command-prefix", "command": "command perl -pi -e 's/1/2/' src/gameLogic.ts", "steps": ["verify", "report"], "expect": "reject", "reason_contains": "`perl -i`"},
+    {"id": "timeout-prefix", "command": "timeout 5 sed -i 's/1/2/' src/gameLogic.ts", "steps": ["verify", "report"], "expect": "reject", "reason_contains": "`sed -i`"},
+    {"id": "writer-after-and", "command": "npm run build && sed -i 's/1/2/' src/gameLogic.ts", "steps": ["verify", "report"], "expect": "reject", "reason_contains": "`sed -i`"},
+    {"id": "writer-after-semicolon", "command": "npm run build ; rm src/gameLogic.ts", "steps": ["verify", "report"], "expect": "reject", "reason_contains": "`rm`"},
+    {"id": "writer-after-newline", "command": "npm run build\nperl -pi -e 's/1/2/' src/gameLogic.ts", "steps": ["verify", "report"], "expect": "reject", "reason_contains": "`perl -i`"},
+    {"id": "writer-after-sentinel-script", "command": "sh make-sentinel.sh && cp always-pass.sh smoke-check.sh", "steps": ["verify", "report"], "expect": "reject", "reason_contains": "`cp`"},
+    {"id": "bsd-sed-l-flag-then-i", "command": "sed -l -i '' 's/1/2/' src/gameLogic.ts", "steps": ["verify", "report"], "expect": "reject", "reason_contains": "`sed -i`"},
+    {"id": "bsd-sed-cluster-li", "command": "sed -li '' 's/1/2/' src/gameLogic.ts", "steps": ["verify", "report"], "expect": "reject", "reason_contains": "`sed -i`"},
+    {"id": "sed-n-l-i-suffix", "command": "sed -n -l -i.bak 's/1/2/p' src/gameLogic.ts", "steps": ["verify", "report"], "expect": "reject", "reason_contains": "`sed -i`"},
+    {"id": "timeout-attached-signal", "command": "timeout -sKILL 5 sed -i 's/1/2/' src/gameLogic.ts", "steps": ["verify", "report"], "expect": "reject", "reason_contains": "sed/perl"},
+    {"id": "timeout-attached-kill-after", "command": "timeout -k5 10 perl -pi -e 's/1/2/' src/gameLogic.ts", "steps": ["verify", "report"], "expect": "reject", "reason_contains": "sed/perl"},
+    {"id": "nice-attached-adjustment", "command": "nice -n5 sed -i 's/1/2/' src/gameLogic.ts", "steps": ["verify", "report"], "expect": "reject", "reason_contains": "sed/perl"},
+    {"id": "timeout-plain-test", "command": "timeout 5 npm test", "steps": ["verify", "report"], "expect": "allow"},
+    {"id": "nice-attached-plain-test", "command": "nice -n5 npm test", "steps": ["verify", "report"], "expect": "allow"},
+    {"id": "build-npm-run-build", "command": "npm run build", "steps": ["verify", "report"], "expect": "allow"},
+    {"id": "build-npx-tsc", "command": "npx tsc", "steps": ["verify", "report"], "expect": "allow"},
+    {"id": "build-npx-tsc-noemit", "command": "npx tsc --noEmit", "steps": ["verify", "report"], "expect": "allow"},
+    {"id": "smoke-node", "command": "node smoke-check.js", "steps": ["verify", "report"], "expect": "allow"},
+    {"id": "pytest", "command": "pytest", "steps": ["verify", "report"], "expect": "allow"},
+    {"id": "python-m-pytest", "command": "python3 -m pytest", "steps": ["verify", "report"], "expect": "allow"},
+    {"id": "compileall", "command": "python3 -m compileall -q src", "steps": ["verify", "report"], "expect": "allow"},
+    {"id": "sed-print-only", "command": "sed -n '1,5p' src/gameLogic.ts", "steps": ["verify", "report"], "expect": "allow"},
+    {"id": "quoted-sed-i-text", "command": "grep -n 'sed -i' src/gameLogic.ts", "steps": ["verify", "report"], "expect": "allow"},
+    {"id": "quoted-rm-text", "command": "grep -n \"rm src\" src/gameLogic.ts", "steps": ["verify", "report"], "expect": "allow"},
+    {"id": "implement-sed-in-place", "command": "sed -i 's/1/2/' src/gameLogic.ts", "steps": ["implement", "setup"], "expect": "allow"},
+    {"id": "implement-rm", "command": "rm src/gameLogic.ts", "steps": ["implement", "setup"], "expect": "allow"}
+  ],
+  "host_cases": [
+    {"id": "registry-cp-over-verifier", "path": "registry", "command": "cp always-pass.sh smoke-check.sh", "expect_policy": "blocked"},
+    {"id": "split-sentinel-then-cp", "path": "split", "command": "sh make-sentinel.sh && cp always-pass.sh smoke-check.sh", "expect_policy": "blocked"},
+    {"id": "registry-sed-in-place-on-verifier", "path": "registry", "command": "sed -i 's/exit 1/exit 0/' smoke-check.sh", "expect_policy": "blocked"},
+    {"id": "registry-perl-in-place-on-verifier", "path": "registry", "command": "perl -pi -e 's/exit 1/exit 0/' smoke-check.sh", "expect_policy": "blocked"}
+  ]
+}

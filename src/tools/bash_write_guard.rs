@@ -6,6 +6,7 @@ use super::shell_lexical;
 mod ansi_c_quoting;
 mod command_prefix;
 mod option_directory;
+pub(crate) mod verifier_mutation;
 mod working_directory;
 
 pub(super) use working_directory::Inspection;
