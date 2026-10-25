@@ -1,0 +1,38 @@
+case_id = "issue850-conditional-fetch"
+source = "L-107 content-q phase 4 note editor: const res = isNew ? await fetch(POST) : await fetch(PUT) with an !res.ok guard (IC-24)"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/page.tsx = [
+  "const res = isNew",
+  "? await fetch(\"/api/notes\", {",
+  ": await fetch(`/api/notes/${id}`, {",
+  "if (!res.ok || !body"
+]
+fixtures/routes.ts = [
+  "function POST",
+  "function PUT"
+]
+source-manifest.json = [
+  "campaign-G1-3a5",
+  "8261861c"
+]
