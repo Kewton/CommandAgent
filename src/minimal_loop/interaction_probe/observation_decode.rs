@@ -112,6 +112,7 @@ pub(super) fn decode_observation(
         input_after_marker: str_field(value, "input_after_marker", ""),
         recovery_before_marker: str_field(value, "recovery_before_marker", ""),
         recovery_after_marker: str_field(value, "recovery_after_marker", ""),
+        recovery_control: str_field(value, "recovery_control", ""),
         input_state_changed: flow.input_state_changed,
         input_contract_state_changed: flow.input_contract_state_changed,
         input_state_evaluated_after_start: flow.input_state_evaluated_after_start,

@@ -13,6 +13,8 @@ use crate::eval_events;
 use crate::minimal_loop::verifier_env;
 
 mod observation_decode;
+#[cfg(test)]
+mod recovery_attribution_tests;
 
 const AVAILABILITY_TIMEOUT: Duration = Duration::from_secs(10);
 const INTERACTION_TIMEOUT: Duration = Duration::from_secs(120);
@@ -144,6 +146,7 @@ pub struct BrowserInteractionObservation {
     pub input_after_marker: String,
     pub recovery_before_marker: String,
     pub recovery_after_marker: String,
+    pub recovery_control: String,
     pub input_state_changed: bool,
     pub input_contract_state_changed: bool,
     pub input_state_evaluated_after_start: bool,
@@ -1250,6 +1253,7 @@ fn merge_script_stdout_failure_value(mut value: Value, logs: &InteractionStdio) 
             "input_after_marker",
             "recovery_before_marker",
             "recovery_after_marker",
+            "recovery_control",
             "start_transition",
             "start_control_found",
             "primary_start_transition",
@@ -1454,6 +1458,7 @@ fn failure_observation(
         input_after_marker: String::new(),
         recovery_before_marker: String::new(),
         recovery_after_marker: String::new(),
+        recovery_control: String::new(),
         input_state_changed: false,
         input_contract_state_changed: false,
         input_state_evaluated_after_start: false,
@@ -1746,6 +1751,9 @@ fn interaction_observation_json(observation: &BrowserInteractionObservation) -> 
     }
     if let Some(measured_navigation_ms) = observation.measured_navigation_ms {
         value["probe"]["measured_navigation_ms"] = json!(measured_navigation_ms);
+    }
+    if !observation.recovery_control.is_empty() {
+        value["recovery_control"] = json!(observation.recovery_control);
     }
     if !observation.failure_kind.is_empty() {
         value["failure_kind"] = json!(observation.failure_kind);
@@ -2051,7 +2059,7 @@ mod tests {
         let digest = Sha256::digest(interaction_probe_script().as_bytes());
         assert_eq!(
             format!("{digest:x}"),
-            "34dec4fba96134a7413291ef8baa42b2bc2964c738866db73ed2a7915a00d29b"
+            "b0d434efc754ae68076ffff2c847743ffb30609381a054924b04942e2d0d2eff"
         );
         let script = interaction_probe_script();
         assert!(script.contains("HELD_INPUT_OBSERVE_MS"));
@@ -2383,7 +2391,7 @@ mod tests {
         );
     }
 
-    fn node_available() -> bool {
+    pub(super) fn node_available() -> bool {
         matches!(
             Command::new("node")
                 .arg("--version")
@@ -2395,7 +2403,7 @@ mod tests {
         )
     }
 
-    fn spawn_probe_http_server() -> Option<(u16, thread::JoinHandle<()>)> {
+    pub(super) fn spawn_probe_http_server() -> Option<(u16, thread::JoinHandle<()>)> {
         let listener = match TcpListener::bind(("127.0.0.1", 0)) {
             Ok(listener) => listener,
             Err(err) => {
@@ -2852,7 +2860,7 @@ module.exports = {
     /// machine. A 12s budget therefore left no headroom for CI scheduling
     /// jitter and produced spurious `probe_infrastructure_failed:probe_timeout`
     /// failures instead of the persistence verdict under test.
-    const FAKE_PROBE_SCENARIO_BUDGET: Duration = Duration::from_secs(60);
+    pub(super) const FAKE_PROBE_SCENARIO_BUDGET: Duration = Duration::from_secs(60);
 
     /// Wall-clock budget for tests that spawn a fake npm/npx/node child and
     /// assert the child's lifecycle: setup artifacts plus second-run
