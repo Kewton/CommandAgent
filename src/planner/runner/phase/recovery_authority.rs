@@ -74,3 +74,7 @@ mod issue480_acceptance_tests;
 #[cfg(test)]
 #[path = "../../final_acceptance/issue488_tests.rs"]
 mod issue488_acceptance_tests;
+
+#[cfg(test)]
+#[path = "../../final_acceptance/snapshot_sensitive_tests.rs"]
+mod snapshot_sensitive_acceptance_tests;
