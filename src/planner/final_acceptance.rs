@@ -1,4 +1,5 @@
 use super::CompileRepairPromptProtection;
+use crate::tools::sensitive_path::path_is_sensitive;
 
 #[path = "final_acceptance/compile_rollback_verification.rs"]
 mod compile_rollback_verification;
@@ -157,10 +158,15 @@ pub(super) fn snapshot_last_known_good_sources(
     let mut saved_paths = Vec::new();
     let mut snapshot_origins = Vec::new();
     let mut failures = Vec::new();
+    let mut sensitive_skipped = 0usize;
     for rel in paths {
         let Some(source) = readable_workspace_source_path(&config.workspace_root, &rel) else {
             continue;
         };
+        if path_is_sensitive(&config.workspace_root, &source) {
+            sensitive_skipped += 1;
+            continue;
+        }
         let destination = latest_dir.join(&rel);
         if let Some(parent) = destination.parent()
             && let Err(err) = std::fs::create_dir_all(parent)
@@ -176,7 +182,7 @@ pub(super) fn snapshot_last_known_good_sources(
             Err(err) => failures.push(format!("{rel}: snapshot copy failed: {err}")),
         }
     }
-    if !saved_paths.is_empty() || !failures.is_empty() {
+    if !saved_paths.is_empty() || !failures.is_empty() || sensitive_skipped > 0 {
         eval_events::emit(
             config.eval_events_path.as_deref(),
             json!({
@@ -186,6 +192,7 @@ pub(super) fn snapshot_last_known_good_sources(
                 "snapshot_paths": saved_paths,
                 "snapshot_origins": snapshot_origins,
                 "snapshot_failures": failures,
+                "snapshot_sensitive_skipped": sensitive_skipped,
             }),
         );
     }
@@ -939,7 +946,7 @@ pub(super) fn try_compile_rollback_after_repair_exhaustion(
     let mut snapshot_paths = Vec::new();
     for rel in &failing_paths {
         let snapshot = latest_dir.join(rel);
-        if !snapshot.is_file() {
+        if !snapshot_restorable(config, &latest_dir, rel) {
             emit_compile_rollback_skipped(
                 config,
                 &failing_paths,
@@ -1074,7 +1081,12 @@ pub(super) fn compile_rollback_snapshot_available(
     };
     failing_paths
         .iter()
-        .all(|rel| latest_dir.join(rel).is_file())
+        .all(|rel| snapshot_restorable(config, &latest_dir, rel))
+}
+
+fn snapshot_restorable(config: &Config, latest_dir: &Path, rel: &str) -> bool {
+    latest_dir.join(rel).is_file()
+        && !path_is_sensitive(&config.workspace_root, &config.workspace_root.join(rel))
 }
 
 pub(super) fn emit_compile_no_snapshot_narrow_retry(
