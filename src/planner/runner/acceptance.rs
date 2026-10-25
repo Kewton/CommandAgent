@@ -2274,6 +2274,8 @@ pub(super) fn verify_plan_final_contract(
             &required_capabilities,
             &required_evidence,
         ),
+        &config.workspace_root,
+        &config.profile,
     );
     let profile_behavior_probe = plan_final_probe::PlanFinalProbe::dispatch(
         config,
