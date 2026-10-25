@@ -22,6 +22,9 @@ const SERVER_CHECK_TIMEOUT_MS = 5000;
 const RENDER_POLL_INTERVAL_MS = 250;
 const MARKER_POLL_INTERVAL_MS = 80;
 const RENDER_SETTLE_MS = 120;
+const RECOVERY_ATTEMPT_MS = 2500;
+const RECOVERY_EFFECT_WINDOW_MS = 700;
+const RECOVERY_QUIET_MS = 450;
 const HELD_INPUT_OBSERVE_MS = 320;
 const TOKEN_ECHO_SETTLE_MS = 3000;
 const PERSISTENCE_SURFACE_SETTLE_MS = 3000;
@@ -36,6 +39,7 @@ let input_after_marker = "";
 let recovery_before_marker = "";
 let recovery_after_marker = "";
 let recovery_transition_status = "unknown";
+let recovery_control = "none";
 let probe_mode = "heuristic";
 let contract_hook_status = "unknown";
 let contract_hooks = null;
@@ -727,7 +731,35 @@ async function evaluatePersistenceReload(page, mode) {
   }
 }
 
-function contractResetWardChange(beforeText, afterText, baselineText) {
+// Maps each key that moved between consecutive samples to its largest single change,
+// or to null when the key is not numeric (its jump cannot be measured).
+function movingKeyLargestSteps(samples) {
+  const steps = new Map();
+  for (let index = 1; index < samples.length; index += 1) {
+    const before = contractStatesFromMarker(samples[index - 1]);
+    const after = contractStatesFromMarker(samples[index]);
+    for (const key of changedTopLevelStateKeys(samples[index - 1], samples[index])) {
+      for (let slot = 0; slot < Math.max(before.length, after.length); slot += 1) {
+        const from = (before[slot] || {})[key];
+        const to = (after[slot] || {})[key];
+        if (stableStateString(from) === stableStateString(to)) continue;
+        const numeric = typeof from === "number" && typeof to === "number";
+        const known = steps.has(key) ? steps.get(key) : 0;
+        steps.set(key, numeric && known !== null ? Math.max(known, Math.abs(to - from)) : null);
+      }
+    }
+  }
+  return steps;
+}
+
+// `scope` narrows which keys can prove a restart: `playedKeys` (keys the probe's own
+// inputs changed; empty means any key) and `movingKeys` (keys that moved by themselves
+// before the press, with their largest single change). A moving key counts only when it
+// lands exactly on the baseline with one jump (`trail`: the samples from the press to
+// the end) clearly larger than any of its own steps.
+function contractResetWardChange(beforeText, afterText, baselineText, scope = {}) {
+  const movingKeys = scope.movingKeys || new Map();
+  const playedKeys = scope.playedKeys || new Set();
   if (!beforeText || !afterText || beforeText === afterText) return false;
   const changed = changedTopLevelStateKeys(beforeText, afterText);
   if (changed.length === 0) return false;
@@ -740,9 +772,26 @@ function contractResetWardChange(beforeText, afterText, baselineText) {
     const afterState = after[index] || {};
     const baselineState = baseline[index] || {};
     for (const key of changed) {
+      if (playedKeys.size > 0 && !playedKeys.has(key)) continue;
       const beforeValue = beforeState[key];
       const afterValue = afterState[key];
       const baselineValue = baselineState[key];
+      if (movingKeys.has(key)) {
+        const largestStep = movingKeys.get(key);
+        // Sampling can merge two natural steps into one, hence twice the largest step.
+        const largestJump = movingKeyLargestSteps(scope.trail || []).get(key);
+        if (
+          largestStep !== null &&
+          typeof largestJump === "number" &&
+          typeof beforeValue === "number" &&
+          typeof afterValue === "number" &&
+          stableStateString(afterValue) === stableStateString(baselineValue) &&
+          largestJump > 2 * largestStep
+        ) {
+          return true;
+        }
+        continue;
+      }
       if (
         stableStateString(afterValue) === stableStateString(baselineValue) &&
         stableStateString(beforeValue) !== stableStateString(baselineValue)
@@ -759,7 +808,7 @@ function contractResetWardChange(beforeText, afterText, baselineText) {
       }
     }
   }
-  return true;
+  return false;
 }
 
 async function contractHookStatus(page) {
@@ -1226,36 +1275,92 @@ async function attemptRecoveryTransition(page, initialStartText, mode) {
   recovery_transition_status = "not_observed";
 }
 
+// Samples the marker until it is quiet for `quietMs` or `limitMs` passes.
+async function sampleContractMarker(page, first, limitMs, quietMs) {
+  const samples = [first];
+  const endAt = Date.now() + limitMs;
+  let last = first;
+  let quietSince = Date.now();
+  while (Date.now() < endAt) {
+    await page.waitForTimeout(MARKER_POLL_INTERVAL_MS);
+    const current = await activeMarker(page, "contract");
+    if (current !== last) {
+      samples.push(current);
+      last = current;
+      quietSince = Date.now();
+    } else if (Date.now() - quietSince >= quietMs) {
+      samples.quiet = true;
+      break;
+    }
+  }
+  return samples;
+}
+
+async function pressContractRecoveryControl(page, postStartMarker, press) {
+  // Watch the state without pressing, as long as the effect window lasts, so only the
+  // press can move the marker and every key that moves by itself is known.
+  const settling = await sampleContractMarker(
+    page,
+    await activeMarker(page, "contract"),
+    RECOVERY_EFFECT_WINDOW_MS,
+    RECOVERY_QUIET_MS
+  );
+  const movingKeys = movingKeyLargestSteps(settling);
+  recovery_before_marker = settling[settling.length - 1];
+  try {
+    await press();
+    const first = await markerAfterActiveChange(page, "contract", recovery_before_marker, 700);
+    // Follow the effect of this same press to the end (async or lagging resets).
+    const window = first === recovery_before_marker
+      ? [first]
+      : await sampleContractMarker(page, first, RECOVERY_EFFECT_WINDOW_MS, RECOVERY_QUIET_MS);
+    recovery_after_marker = window[window.length - 1];
+    // Only the value the press finally leaves counts, and only for keys the probe's own
+    // inputs changed that did not move by themselves before the press.
+    const scope = {
+      movingKeys,
+      playedKeys: new Set(state_dimensions_changed),
+      trail: [recovery_before_marker, ...window]
+    };
+    return contractResetWardChange(recovery_before_marker, recovery_after_marker, postStartMarker, scope);
+  } catch (_) {
+    return false;
+  }
+}
+
 async function attemptContractRecoveryTransition(page, postStartMarker) {
-  const deadline = Date.now() + 1200;
+  const deadline = Date.now() + RECOVERY_ATTEMPT_MS;
+  let hasRestart = false;
   while (Date.now() < deadline) {
-    let candidate = page.locator('[data-anvil-action="restart"]').first();
-    if (!(await candidate.count())) {
-      candidate = page.locator('[data-anvil-action="primary"]').first();
+    const restart = page.locator('[data-anvil-action="restart"]').first();
+    hasRestart = (await restart.count()) > 0;
+    recovery_control = hasRestart ? "restart" : "none";
+    if (hasRestart && await pressContractRecoveryControl(page, postStartMarker, () => restart.click({ timeout: 1000 }))) {
+      steps.push("recovery_transition");
+      recovery_transition_status = "observed";
+      return;
     }
-    if (await candidate.count()) {
-      recovery_before_marker = await activeMarker(page, "contract");
-      try {
-        await candidate.click({ timeout: 1000 });
-        recovery_after_marker = await markerAfterActiveChange(page, "contract", recovery_before_marker, 700);
-        if (contractResetWardChange(recovery_before_marker, recovery_after_marker, postStartMarker)) {
-          steps.push("recovery_transition");
-          recovery_transition_status = "observed";
-          return;
-        }
-      } catch (_) {}
-    }
-    recovery_before_marker = await activeMarker(page, "contract");
-    try {
+    const keyboardRestarted = await pressContractRecoveryControl(page, postStartMarker, async () => {
+      await page.evaluate(() => {
+        const active = document.activeElement;
+        if (active && active !== document.body && typeof active.blur === "function") active.blur();
+      });
       await page.keyboard.press("r");
-      recovery_after_marker = await markerAfterActiveChange(page, "contract", recovery_before_marker, 700);
-      if (contractResetWardChange(recovery_before_marker, recovery_after_marker, postStartMarker)) {
-        steps.push("recovery_transition");
-        recovery_transition_status = "observed";
-        return;
-      }
-    } catch (_) {}
+    });
+    if (keyboardRestarted) {
+      recovery_control = "keyboard_r";
+      steps.push("recovery_transition");
+      recovery_transition_status = "observed";
+      return;
+    }
     await page.waitForTimeout(120);
+  }
+  const primary = page.locator('[data-anvil-action="primary"]').first();
+  if (!hasRestart && (await primary.count()) > 0) {
+    // A primary press is not a restart: press it once, after the restart controls
+    // had their time, and never count its effect.
+    recovery_control = "primary_fallback";
+    await pressContractRecoveryControl(page, postStartMarker, () => primary.click({ timeout: 1000 }));
   }
   steps.push("recovery_transition:not_observed");
   recovery_transition_status = "not_observed";
@@ -1490,6 +1595,7 @@ function interactionFailureKind(transitionObserved, inputEvaluated, inputStateCh
       visible_state_changed: inputStateChanged,
       recovery_transition: recoveryObserved,
       recovery_transition_status,
+      recovery_control,
       start_transition: transitionObserved,
       start_control_found,
       primary_start_transition: primary_transition_observed,
@@ -1571,6 +1677,7 @@ function interactionFailureKind(transitionObserved, inputEvaluated, inputStateCh
       visible_state_changed: steps.includes("input_state_change"),
       recovery_transition: steps.includes("recovery_transition"),
       recovery_transition_status,
+      recovery_control,
       start_transition: steps.includes("start_transition") || steps.includes("recovery_transition"),
       start_control_found,
       primary_start_transition: primary_transition_observed,
