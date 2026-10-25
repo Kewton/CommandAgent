@@ -46,6 +46,7 @@ class FakeElement {
 
   getAttribute(name) {
     if (this.kind === "state" && name === "data-anvil-state") {
+      this.page.onStateRead();
       return JSON.stringify(this.page.snapshot());
     }
     return Object.prototype.hasOwnProperty.call(this.attrs, name) ? this.attrs[name] : null;
@@ -187,6 +188,8 @@ class FakePage {
       angle: 0
     };
     this.cooldownTimer = null;
+    this.readsSinceSpace = null;
+    this.readsSinceRestart = null;
     this.tickPausedUntil = 0;
     this.vx = 0;
     this.inertia = null;
@@ -229,30 +232,20 @@ class FakePage {
           this.s.score = 50;
           this.s.lives = 0;
           this.s.status = "gameover";
-          if (scenario === "restart_noop_unrelated_return") {
-            setTimeout(() => {
-              this.s.toast = "msg";
-            }, 100);
-          }
+          this.readsSinceSpace = 0;
         }
         if (scenario.startsWith("restart_noop_cooldown") && key === "Space" && this.s.status === "playing") {
-          const lastStep = scenario === "restart_noop_cooldown_last_step";
-          const slow = scenario === "restart_noop_cooldown_slow" || lastStep;
-          this.s.cooldown = lastStep ? 2 : slow ? 3 : scenario === "restart_noop_cooldown" ? 60 : 14;
-          const step = () => {
-            if (this.s.cooldown > 0) this.s.cooldown -= 1;
-          };
-          if (!this.cooldownTimer) {
-            // The slow cooldown takes its first step while the probe watches, then one per second.
-            if (slow) {
-              setTimeout(() => {
-                step();
-                this.cooldownTimer = setInterval(step, 1000);
-              }, 300);
-              this.cooldownTimer = true;
-            } else {
-              this.cooldownTimer = setInterval(step, 100);
+          if (scenario === "restart_noop_cooldown") {
+            this.s.cooldown = 60;
+            if (!this.cooldownTimer) {
+              this.cooldownTimer = setInterval(() => {
+                if (this.s.cooldown > 0) this.s.cooldown -= 1;
+              }, 100);
             }
+          } else {
+            // The other cooldowns advance with the probe's marker reads, not the wall clock.
+            this.s.cooldown = { restart_noop_cooldown_expiring: 12, restart_noop_cooldown_slow: 3 }[scenario] || 2;
+            this.readsSinceSpace = 0;
           }
         }
       },
@@ -280,6 +273,48 @@ class FakePage {
     this.mouse = {
       click: async () => {}
     };
+  }
+
+  // Time-like changes that depend on when the probe looks are driven by its marker reads
+  // after the Space key, so the result does not depend on how loaded the machine is.
+  // Read 1 is the read that sees Space's effect; read 2 starts the pre-press watch.
+  // After a restart click, the effects that arrive later are driven by the reads that
+  // follow it: read 1 is the read that sees the click's first effect.
+  onRestartRead() {
+    if (this.readsSinceRestart === null) return;
+    this.readsSinceRestart += 1;
+    const m = this.readsSinceRestart;
+    if (scenario === "restart_noop_cooldown_slow" || scenario === "restart_noop_cooldown_last_step") {
+      if (m === 1 && this.s.cooldown > 0) this.s.cooldown -= 1;
+    }
+    if (scenario === "restart_async_reset") {
+      if (m === 1) this.s.loading = true;
+      if (m === 2) {
+        this.resetRun();
+        this.s.loading = false;
+      }
+    }
+    if (scenario === "restart_transient_baseline") {
+      if (m === 1) this.s.score = 0;
+      if (m === 2) this.s.score = 50;
+    }
+  }
+
+  onStateRead() {
+    this.onRestartRead();
+    if (this.readsSinceSpace === null) return;
+    this.readsSinceSpace += 1;
+    const n = this.readsSinceSpace;
+    if (scenario === "restart_noop_unrelated_return" && n === 2) this.s.toast = "msg";
+    const stepReads = {
+      // one step per read from read 2 on, so a read never sees two steps at once
+      restart_noop_cooldown_expiring: n >= 2,
+      // one step early in the pre-press watch, then one well into the post-press window
+      // (the later step comes from the restart click's first read, see onRestartRead)
+      restart_noop_cooldown_slow: n === 3,
+      restart_noop_cooldown_last_step: n === 3
+    };
+    if (stepReads[scenario] && this.s.cooldown > 0) this.s.cooldown -= 1;
   }
 
   snapshot() {
@@ -421,20 +456,13 @@ class FakePage {
         this.s.tick = 0;
         this.tickPausedUntil = Date.now() + 2000;
       }
-      if (scenario === "restart_transient_baseline") {
-        setTimeout(() => {
-          this.s.score = 0;
-        }, 100);
-        setTimeout(() => {
-          this.s.score = 50;
-        }, 300);
-      }
-      if (scenario === "restart_async_reset") {
-        this.s.loading = true;
-        setTimeout(() => {
-          this.resetRun();
-          this.s.loading = false;
-        }, 300);
+      if (
+        this.readsSinceRestart === null &&
+        ["restart_transient_baseline", "restart_async_reset", "restart_noop_cooldown_slow", "restart_noop_cooldown_last_step"].includes(scenario)
+      ) {
+        // The first click's effects arrive with the probe's next reads (see onRestartRead);
+        // later clicks do nothing more.
+        this.readsSinceRestart = 0;
       }
       if (scenario === "restart_tick_lag_reset") {
         setTimeout(() => this.resetRun(), 100);
