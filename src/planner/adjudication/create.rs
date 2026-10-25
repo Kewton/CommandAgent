@@ -648,6 +648,8 @@ pub(super) fn ultra_final_acceptance_report_inner(
             &required_capabilities,
             &required_evidence,
         ),
+        &config.workspace_root,
+        &effective_profile,
     );
     let signal_text = ultra_plan_signal_text(plan);
     let gate_telemetry = acceptance_gate_telemetry(

@@ -4,6 +4,8 @@ use serde_json::Value;
 
 use crate::minimal_loop::interaction_probe::BrowserInteractionProbeOptions;
 
+mod restart_terminal;
+
 pub const INTERACTION_VERIFIED_HEURISTIC_ONLY: &str = "interaction_verified_heuristic_only";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -168,12 +170,28 @@ pub(crate) fn enforce_release_gate(
     interaction_evidence_status: &mut String,
     interaction_evidence_path: &str,
     restart_required: bool,
+    root: &Path,
+    profile: &str,
 ) {
     if interaction_evidence_status != "passed" {
         return;
     }
     let qualification = read_qualification(interaction_evidence_path, restart_required);
     if qualification.full_eligible {
+        return;
+    }
+    // Partial only ever replaces a gate that has not failed yet; it never lifts one.
+    if matches!(release_gate_status.as_str(), "pass" | "partial")
+        && let Some(partial) =
+            restart_terminal::overlay_only_restart_partial(&qualification, root, profile)
+    {
+        *release_gate_status = "partial".to_string();
+        *interaction_evidence_status = partial.evidence_status;
+        for reason in partial.release_gate_reasons {
+            if !release_gate_reasons.contains(&reason) {
+                release_gate_reasons.push(reason);
+            }
+        }
         return;
     }
     *release_gate_status = "failed".to_string();
