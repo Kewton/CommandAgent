@@ -966,3 +966,220 @@ fn reason_found_only_beyond_the_certain_closure_makes_other_routes_unverified() 
     );
     assert!(report.reached_routes.is_empty());
 }
+
+fn markdown_home(string_expression: &str) -> String {
+    format!(
+        "export default function Home() {{\n  const html = text.replace(/\\[(.+)\\]\\((.+)\\)/g, {string_expression});\n  return <main><button data-anvil-action=\"primary\">New</button><div dangerouslySetInnerHTML={{{{ __html: html }}}} /></main>;\n}}\n"
+    )
+}
+
+fn detail_outcome_with_home(home: &str) -> ReachabilityReport {
+    let dir = app(&[
+        ("src/app/page.tsx", home),
+        ("src/app/notes/[id]/page.tsx", HOOKED_PAGE),
+    ]);
+    evaluate(dir.path())
+}
+
+#[test]
+fn substitution_href_inside_a_js_string_is_not_an_unresolved_navigation() {
+    let report =
+        detail_outcome_with_home(&markdown_home("'<a href=\"$2\" target=\"_blank\">$1</a>'"));
+    assert_eq!(report.status, ReachabilityStatus::Failed, "{report:?}");
+    assert_eq!(
+        report.violations,
+        vec!["route_unreachable_from_entry:/notes/[id]".to_string()]
+    );
+    assert!(report.unverified.is_empty() && report.unresolved_navigations.is_empty());
+    assert_eq!(report.targets[0].outcome, "unreachable");
+    assert!(report.targets[0].repair.is_some());
+}
+
+#[test]
+fn only_replacement_references_inside_a_js_string_href_count_as_nothing() {
+    for value in ["$1", "$&", "$1$2"] {
+        let report =
+            detail_outcome_with_home(&markdown_home(&format!("'<a href=\"{value}\">x</a>'")));
+        assert_eq!(
+            report.status,
+            ReachabilityStatus::Failed,
+            "{value}: {report:?}"
+        );
+        assert!(report.unresolved_navigations.is_empty(), "{value}");
+    }
+    for value in ["$1/x", "$name"] {
+        let report =
+            detail_outcome_with_home(&markdown_home(&format!("'<a href=\"{value}\">x</a>'")));
+        assert_eq!(
+            report.status,
+            ReachabilityStatus::Partial,
+            "{value}: {report:?}"
+        );
+    }
+}
+
+#[test]
+fn internal_href_inside_a_js_string_still_reaches_the_route() {
+    let report = detail_outcome_with_home(&markdown_home("'<a href=\"/notes/abc\">open</a>'"));
+    assert_reached(&report);
+    assert_eq!(
+        report.targets[0].reached_via.as_ref().unwrap().syntax,
+        "href"
+    );
+    assert!(report.targets[0].repair.is_none());
+}
+
+#[test]
+fn internal_href_inside_a_template_string_still_reaches_the_route() {
+    let template = detail_outcome_with_home(&markdown_home("`<a href=\"/notes/${id}\">open</a>`"));
+    assert_reached(&template);
+}
+
+#[test]
+fn escaped_quote_internal_href_stays_partial_not_reached() {
+    let escaped =
+        detail_outcome_with_home(&markdown_home("\"<a href=\\\"/notes/abc\\\">open</a>\""));
+    assert_eq!(escaped.status, ReachabilityStatus::Partial, "{escaped:?}");
+    assert!(escaped.reached_routes.is_empty());
+}
+
+#[test]
+fn external_hrefs_inside_a_js_string_count_as_nothing() {
+    for value in [
+        "https://example.com",
+        "mailto:a@b.c",
+        "",
+        "#top",
+        "//cdn.example.com",
+    ] {
+        let report =
+            detail_outcome_with_home(&markdown_home(&format!("'<a href=\"{value}\">x</a>'")));
+        assert_eq!(
+            report.status,
+            ReachabilityStatus::Failed,
+            "{value}: {report:?}"
+        );
+        assert!(
+            report.unresolved_navigations.is_empty(),
+            "{value}: {report:?}"
+        );
+    }
+}
+
+#[test]
+fn escaped_quote_substitution_href_keeps_the_ordinary_reading() {
+    let report = detail_outcome_with_home(&markdown_home("\"<a href=\\\"$2\\\">$1</a>\""));
+    assert_eq!(report.status, ReachabilityStatus::Partial, "{report:?}");
+}
+
+#[test]
+fn jsx_href_with_an_unresolved_expression_stays_partial() {
+    let report = detail_route_outcome("<Link href={target}>go</Link>");
+    assert_eq!(report.status, ReachabilityStatus::Partial, "{report:?}");
+    assert_eq!(report.unresolved_navigations.len(), 1);
+    assert_eq!(report.unresolved_navigations[0].syntax, "href");
+}
+
+#[test]
+fn jsx_attribute_href_substitution_text_stays_unresolved() {
+    let report = detail_route_outcome("<a href=\"$2\">go</a>");
+    assert_eq!(report.status, ReachabilityStatus::Partial, "{report:?}");
+}
+
+#[test]
+fn string_href_reading_never_raises_the_status() {
+    // A string href either reaches a route (as before) or counts as nothing;
+    // it never turns a failed final into partial or pass.
+    let report = detail_outcome_with_home(&markdown_home(
+        "'<a href=\"$2\">$1</a><a href=\"https://x.test\">y</a>'",
+    ));
+    assert_eq!(report.status, ReachabilityStatus::Failed, "{report:?}");
+    assert!(report.reached_routes.is_empty());
+}
+
+#[test]
+fn concatenated_or_variable_href_inside_a_js_string_stays_partial() {
+    for expression in [
+        "'<a href=\"' + note.url + '\">x</a>'",
+        "`<a href=\"${note.url}\">x</a>`",
+        "'<a href=\"notes/1\">x</a>'",
+    ] {
+        let report = detail_outcome_with_home(&markdown_home(expression));
+        assert_eq!(
+            report.status,
+            ReachabilityStatus::Partial,
+            "{expression}: {report:?}"
+        );
+        assert!(report.violations.is_empty(), "{expression}: {report:?}");
+    }
+}
+
+#[test]
+fn relative_href_between_two_apostrophes_in_jsx_text_stays_partial() {
+    let home = home_with("<p>Don't <a href=\"notes/1\">go</a> isn't</p>");
+    let report = detail_outcome_with_home(&home);
+    assert_eq!(report.status, ReachabilityStatus::Partial, "{report:?}");
+    assert!(report.violations.is_empty());
+}
+
+#[test]
+fn template_href_with_a_leading_base_substitution_is_not_reached() {
+    let report =
+        detail_outcome_with_home(&markdown_home("`<a href=\"${base}/notes/${id}\">open</a>`"));
+    assert_eq!(report.status, ReachabilityStatus::Partial, "{report:?}");
+    assert!(report.reached_routes.is_empty());
+}
+
+#[test]
+fn template_href_substitution_does_not_match_a_static_segment() {
+    let dir = app(&[
+        (
+            "src/app/page.tsx",
+            &markdown_home("`<a href=\"/notes/${id}\">open</a>`"),
+        ),
+        ("src/app/notes/[id]/page.tsx", HOOKED_PAGE),
+        ("src/app/notes/archive/page.tsx", HOOKED_PAGE),
+    ]);
+    let report = evaluate(dir.path());
+    assert_eq!(report.status, ReachabilityStatus::Failed, "{report:?}");
+    assert_eq!(report.reached_routes, vec!["/notes/[id]".to_string()]);
+    assert_eq!(
+        report.violations,
+        vec!["route_unreachable_from_entry:/notes/archive".to_string()]
+    );
+}
+
+#[test]
+fn route_shaped_concatenation_inside_a_js_string_still_reaches_the_route() {
+    let report = detail_outcome_with_home(&markdown_home(
+        "'<a href=\"/notes/' + note.id + '\">' + note.title + '</a>'",
+    ));
+    assert_reached(&report);
+}
+
+#[test]
+fn multi_line_route_shaped_concatenation_stays_partial_not_reached() {
+    let report = detail_outcome_with_home(&markdown_home(
+        "'<a href=\"/notes/' +\n    note.id +\n    '\">x</a>'",
+    ));
+    assert_eq!(report.status, ReachabilityStatus::Partial, "{report:?}");
+    assert!(report.reached_routes.is_empty());
+}
+
+#[test]
+fn route_shaped_concatenation_does_not_match_a_static_segment() {
+    let dir = app(&[
+        (
+            "src/app/page.tsx",
+            &markdown_home("'<a href=\"/notes/' + note.id + '\">x</a>'"),
+        ),
+        ("src/app/notes/[id]/page.tsx", HOOKED_PAGE),
+        ("src/app/notes/archive/page.tsx", HOOKED_PAGE),
+    ]);
+    let report = evaluate(dir.path());
+    assert_eq!(report.status, ReachabilityStatus::Failed, "{report:?}");
+    assert_eq!(
+        report.violations,
+        vec!["route_unreachable_from_entry:/notes/archive".to_string()]
+    );
+}

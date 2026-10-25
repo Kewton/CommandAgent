@@ -36,6 +36,7 @@
 //! | absolute path literal (query and hash dropped; `${..}` and `[id]` match one segment) | compared with every page route |
 //! | absolute path that starts with a base expression (`${base}/notes`) | the base may stand for leading route segments (`[locale]`); a match that needs skipped segments is never a reach, it makes that route unverifiable (`leading_base_expression:<route>`) |
 //! | `http:`, `mailto:`, `#..`, `?..`, `//host`, empty | not a route navigation, ignored |
+//! | `href="$1"` (only `$n`/`$&` replacement references) written inside a JS string | not a navigation, ignored (never unresolved) |
 //! | relative path (`notes/1`, `./x`) | unresolved |
 //! | variable, call, member access, a literal-free template | unresolved |
 //!
@@ -81,6 +82,8 @@ pub(crate) const EVIDENCE_RELATIVE_PATH: &str =
 
 const HOOK_ATTRIBUTE: &str = "data-anvil-action";
 const UNREACHABLE_REASON: &str = "route_unreachable_from_entry";
+const UNREACHABLE_REPAIR: &str =
+    "add a link from the entry page to this route, or delete the page if it is not used";
 const UNVERIFIED_REASON: &str = "route_reachability_unverified";
 const MAX_CLOSURE_FILES: usize = 2000;
 const MAX_EVIDENCE_UNRESOLVED: usize = 50;
@@ -122,6 +125,9 @@ pub(crate) struct TargetEvidence {
     pub hook_source: String,
     pub outcome: &'static str,
     pub reached_via: Option<Transition>,
+    /// What to change when the page is unreachable; absent otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repair: Option<&'static str>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -430,6 +436,7 @@ fn record_targets(
             continue;
         };
         let via = reached.get(&index).cloned();
+        let mut repair = None;
         let outcome = if via.is_some() {
             "reached"
         } else if unverified.everywhere || unverified.routes.contains(&page.route) {
@@ -441,6 +448,7 @@ fn record_targets(
             report
                 .violations
                 .push(format!("{UNREACHABLE_REASON}:{}", page.route));
+            repair = Some(UNREACHABLE_REPAIR);
             "unreachable"
         };
         report.targets.push(TargetEvidence {
@@ -449,6 +457,7 @@ fn record_targets(
             hook_source,
             outcome,
             reached_via: via,
+            repair,
         });
     }
 }
@@ -930,6 +939,7 @@ static PATHNAME: LazyLock<Regex> =
 
 fn scan_navigations(code: &str, file: &str) -> Vec<Navigation> {
     let mut out = Vec::new();
+    let spans = string_spans(code);
     for (syntax, regex, literal_only) in NAV_PATTERNS.iter() {
         let (syntax, literal_only) = (*syntax, *literal_only);
         for found in regex.find_iter(code) {
@@ -940,7 +950,13 @@ fn scan_navigations(code: &str, file: &str) -> Vec<Navigation> {
             while code[start..].starts_with(char::is_whitespace) {
                 start += code[start..].chars().next().map_or(1, char::len_utf8);
             }
-            let targets = argument_targets(&code[start..], syntax, literal_only);
+            let targets = if syntax == "href"
+                && replacement_reference_in_string(&code[start..], found.end(), &spans)
+            {
+                vec![NavTarget::Ignore]
+            } else {
+                argument_targets(&code[start..], syntax, literal_only)
+            };
             let line = line_of(code, found.start());
             out.extend(targets.into_iter().map(|target| Navigation {
                 file: file.to_string(),
@@ -951,6 +967,41 @@ fn scan_navigations(code: &str, file: &str) -> Vec<Navigation> {
         }
     }
     out
+}
+
+/// Byte ranges (opening quote to closing quote) of every string and template
+/// literal in `code`.
+fn string_spans(code: &str) -> Vec<(usize, usize)> {
+    let bytes = code.as_bytes();
+    let mut out = Vec::new();
+    let mut index = 0;
+    while index < bytes.len() {
+        if matches!(bytes[index], b'"' | b'\'' | b'`')
+            && let Some((_, end)) = read_string(code, index)
+        {
+            out.push((index, end));
+            index = end;
+            continue;
+        }
+        index += code[index..].chars().next().map_or(1, char::len_utf8);
+    }
+    out
+}
+
+/// A quoted `href` value inside a JS string literal that is only `$1`-style
+/// replacement references (`'<a href="$2">'`). Such a value is no navigation.
+/// Only used to turn an unresolved reading into `Ignore`; it never makes a
+/// route reachable.
+fn replacement_reference_in_string(text: &str, offset: usize, spans: &[(usize, usize)]) -> bool {
+    static REFERENCES: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"^(?:\$(?:\d+|&))+$").expect("valid reference regex"));
+    spans
+        .iter()
+        .any(|(open, close)| *open < offset && offset < *close)
+        && read_string(text, 0).is_some_and(|(flat, _)| {
+            let compact: String = flat.split_whitespace().collect();
+            REFERENCES.is_match(&compact)
+        })
 }
 
 fn argument_targets(text: &str, syntax: &str, literal_only: bool) -> Vec<NavTarget> {
