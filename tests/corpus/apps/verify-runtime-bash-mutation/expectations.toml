@@ -1,0 +1,37 @@
+case_id = "verify-runtime-bash-mutation"
+source = "Issue #861 IC-29 (2026-10-25) synthetic regression derived from the L-112 #857 worker report and develop eadcaa42: a Verify or Report step runtime Bash must not admit an explicit workspace-update command as deterministic verifier evidence"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+acceptance_passed = true
+primary_reason = "pass"
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/cases.json = [
+  "\"id\": \"sed-in-place-gnu\"",
+  "\"id\": \"sed-in-place-bsd\"",
+  "\"id\": \"perl-pi\"",
+  "\"id\": \"build-npm-run-build\"",
+  "\"id\": \"quoted-sed-i-text\"",
+  "\"id\": \"cp-over-verifier\"",
+  "\"id\": \"writer-after-sentinel-script\"",
+  "\"expect\": \"reject\"",
+  "\"expect\": \"allow\""
+]

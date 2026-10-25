@@ -126,7 +126,7 @@ pub fn bash_verify_command_is_auto_approvable(command: &str, workspace_root: &Pa
     // The verify normalization replaces vertical tabs and Unicode spaces with a
     // normal space, so it can turn a `#x;rm -rf src` tail into a comment. The raw
     // text must not be a recognized mutation on its own (B6).
-    if super::bash_write_guard::has_recognized_mutation(command) {
+    if super::bash_write_guard::verifier_mutation::find(command, false).is_some() {
         return false;
     }
     crate::planner::verify::normalize_runtime_bash_command_for_boundary(command, workspace_root)
@@ -136,7 +136,8 @@ pub fn bash_verify_command_is_auto_approvable(command: &str, workspace_root: &Pa
                     &segment.command,
                     crate::planner::verify::RuntimeNormalizedCommand::Verify(_)
                 )
-            }) && !super::bash_write_guard::has_recognized_mutation(&plan.normalized_command)
+            }) && super::bash_write_guard::verifier_mutation::find(&plan.normalized_command, false)
+                .is_none()
         })
         .unwrap_or(false)
 }
@@ -246,5 +247,56 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn issue861_bash_verify_rejects_in_place_edits_and_keeps_read_only_forms() {
+        let root = tempfile::tempdir().unwrap();
+        let _guard = install(false, &[AllowTarget::BashVerify]);
+        for command in [
+            "sed -i 's/1/2/' src/a.ts",
+            "sed -i '' 's/1/2/' src/a.ts",
+            "sed --in-place s/1/2/ src/a.ts",
+            "perl -pi -e 's/1/2/' src/a.ts",
+            "perl -i.bak -pe 's/1/2/' src/a.ts",
+            "env FOO=1 /usr/bin/sed -i s/1/2/ src/a.ts",
+            "npm run build && sed -i s/1/2/ src/a.ts",
+            "cp always-pass.sh smoke-check.sh",
+            "sed -l -i '' s/1/2/ src/a.ts",
+            "timeout -sKILL 5 sed -i s/1/2/ src/a.ts",
+            "nice -n5 perl -pi -e x src/a.ts",
+        ] {
+            let arguments = json!({ "command": command });
+            assert!(
+                ensure_current_allows("Bash", &arguments, root.path()).is_err(),
+                "{command}"
+            );
+            assert!(
+                authorize_current("Bash", &arguments, root.path(), false, false).is_err(),
+                "{command}"
+            );
+        }
+        for command in [
+            "sed -n '1,5p' src/a.ts",
+            "npm run build",
+            "node smoke-check.js",
+        ] {
+            let arguments = json!({ "command": command });
+            assert!(
+                ensure_current_allows("Bash", &arguments, root.path()).is_ok(),
+                "{command}"
+            );
+        }
+    }
+
+    #[test]
+    fn issue861_bash_verify_classifier_reads_the_normalized_text_too() {
+        let root = tempfile::tempdir().unwrap();
+        // A vertical tab is a blank to the verify normalization but not to the
+        // lexical guard, so the update only shows in the normalized reading.
+        assert!(!bash_verify_command_is_auto_approvable(
+            "npm run build\u{b}&&\u{b}sed -i s/1/2/ src/a.ts",
+            root.path()
+        ));
     }
 }
