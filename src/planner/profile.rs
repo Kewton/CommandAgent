@@ -559,9 +559,17 @@ impl ProfileRuntime for crate::planner::profiles::nextjs::NextjsProfile {
             interaction_evidence_path,
         )?;
         crate::planner::profiles::nextjs::testimony_binding::write_evidence(root, &report)?;
+        let reachability = crate::planner::profiles::nextjs::route_reachability::evaluate(root);
+        crate::planner::profiles::nextjs::route_reachability::write_evidence(root, &reachability)?;
+        let (status, reasons) =
+            crate::planner::profiles::nextjs::route_reachability::merge_with_testimony(
+                report.failed(),
+                report.violations,
+                &reachability,
+            );
         Ok(Some(ProfileBehaviorProbeReport {
-            status: if report.failed() { "failed" } else { "pass" },
-            reasons: report.violations,
+            status,
+            reasons,
             evidence_path: Some(
                 crate::planner::profiles::nextjs::testimony_binding::EVIDENCE_RELATIVE_PATH
                     .to_string(),

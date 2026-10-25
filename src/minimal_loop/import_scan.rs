@@ -1009,7 +1009,7 @@ fn resolve_import(parent: &Path, specifier: &str) -> Vec<PathBuf> {
     candidates
 }
 
-fn resolve_route_import(parent: &Path, specifier: &str) -> Vec<PathBuf> {
+pub(crate) fn resolve_route_import(parent: &Path, specifier: &str) -> Vec<PathBuf> {
     let base = parent.join(specifier);
     let mut candidates = vec![base.clone()];
     for ext in ["tsx", "ts", "jsx", "js", "css"] {
@@ -1021,7 +1021,7 @@ fn resolve_route_import(parent: &Path, specifier: &str) -> Vec<PathBuf> {
     candidates
 }
 
-fn resolve_workspace_alias_import(project_root: &Path, specifier: &str) -> Vec<PathBuf> {
+pub(crate) fn resolve_workspace_alias_import(project_root: &Path, specifier: &str) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
     for base in [
         project_root.join("src").join(specifier),
@@ -1066,7 +1066,7 @@ fn collect_route_source_files(root: &Path) -> BTreeSet<PathBuf> {
     out
 }
 
-fn nextjs_project_root(root: &Path) -> Option<(PathBuf, PathBuf)> {
+pub(crate) fn nextjs_project_root(root: &Path) -> Option<(PathBuf, PathBuf)> {
     if root.join("package.json").is_file()
         || root.join("src/app").is_dir()
         || root.join("app").is_dir()
@@ -1155,7 +1155,7 @@ fn collect_nextjs_app_router_entrypoints(
     }
 }
 
-fn is_relative_specifier(value: &str) -> bool {
+pub(crate) fn is_relative_specifier(value: &str) -> bool {
     value.starts_with("./") || value.starts_with("../")
 }
 
@@ -1319,7 +1319,7 @@ fn normalize_joined_path(path: &Path) -> PathBuf {
     normalized
 }
 
-fn normalize_pathbuf(path: &Path) -> PathBuf {
+pub(crate) fn normalize_pathbuf(path: &Path) -> PathBuf {
     let mut normalized = PathBuf::new();
     for component in path.components() {
         match component {

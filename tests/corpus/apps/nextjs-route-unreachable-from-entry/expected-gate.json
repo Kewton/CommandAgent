@@ -1,0 +1,4 @@
+{
+  "release_gate_status": "failed",
+  "reasons": ["route_unreachable_from_entry:/notes/[id]"]
+}
