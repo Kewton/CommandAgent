@@ -1,0 +1,49 @@
+case_id = "verify-repair-readonly-batch"
+source = "Issue #857 verify step repair must not end on a read-only first batch (campaign G1-3a6 GAME G)"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["step_tool_observation_completed", "verify_repair_no_change"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/before-readonly-batch-ends-repair.jsonl = [
+  "\"reason\":\"step_tool_observation_completed\"",
+  "\"failure_kind\":\"verify_repair_no_change\"",
+  "\"changed_paths\":[]"
+]
+fixtures/after-repair-reads-then-writes.jsonl = [
+  "\"name\":\"Write\"",
+  "\"changed_paths\":[\"src/lib/gameLogic.ts\"]",
+  "\"ok\":true"
+]
+
+[fixture_ordered]
+fixtures/before-readonly-batch-ends-repair.jsonl = [
+  "\"event\":\"step_verify_failure\"",
+  "\"name\":\"Read\"",
+  "\"event\":\"loop_stop\"",
+  "\"failure_kind\":\"verify_repair_no_change\""
+]
+fixtures/after-repair-reads-then-writes.jsonl = [
+  "\"event\":\"step_verify_failure\"",
+  "\"name\":\"Read\"",
+  "\"name\":\"Write\"",
+  "\"event\":\"loop_stop\"",
+  "\"event\":\"step_verify_repair\""
+]

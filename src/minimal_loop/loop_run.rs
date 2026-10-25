@@ -66,6 +66,7 @@ mod implementation_completion;
 mod inspect_tool_policy;
 mod max_length_guard;
 mod recoverable_tool_errors;
+mod repair_turn_observation;
 #[path = "loop_run/runtime_bash_effects.rs"]
 mod runtime_bash_effects;
 mod runtime_bash_policy_telemetry;
@@ -1234,6 +1235,12 @@ pub(crate) fn run_session_with_outcome_with_options(
         let mut batch_had_execution_progress = false;
         let mut write_required_rejection: Option<(String, bool, usize, Vec<String>, String)> = None;
         let missing_before_batch = missing_paths(&config.workspace_root, &required_paths);
+        let repair_batch_probe = repair_turn_observation::RepairBatchProbe::before_batch(
+            &config.workspace_root,
+            &options,
+            &verify_repair_state.changed_paths_at_failure,
+            &tool_calls,
+        );
         for mut call in tool_calls {
             let mut split_bash_segments = Vec::new();
             let mut bash_policy_substituted = false;
@@ -1909,6 +1916,12 @@ pub(crate) fn run_session_with_outcome_with_options(
         if required_paths.is_empty()
             && options.allows_tool_only_step_completion()
             && !batch_had_recoverable_tool_error
+            && !repair_turn_observation::defers_tool_observation_completion(
+                &options,
+                batch_had_edit,
+                &repair_batch_probe,
+                &config.workspace_root,
+            )
         {
             eval_events::emit(
                 config.eval_events_path.as_deref(),
