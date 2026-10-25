@@ -4,6 +4,14 @@ import { useEffect, useState } from "react";
 
 type Note = { id: string; title: string };
 
+// Markdown links become external anchors; `$2` is a replacement reference.
+function renderLinks(text: string) {
+  return text.replace(
+    /\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g,
+    '<a href="$2" target="_blank" rel="noreferrer">$1</a>',
+  );
+}
+
 export default function Home() {
   const [notes, setNotes] = useState<Note[]>([]);
   const [search, setSearch] = useState("");
@@ -33,7 +41,9 @@ export default function Home() {
         {notes
           .filter((note) => note.title.includes(search))
           .map((note) => (
-            <li key={note.id}>{note.title}</li>
+            <li key={note.id}>
+              <span dangerouslySetInnerHTML={{ __html: renderLinks(note.title) }} />
+            </li>
           ))}
       </ul>
     </main>
