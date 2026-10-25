@@ -1267,6 +1267,13 @@ fn apply_final_testimony_check(
             gate.reasons =
                 dedup_strings(gate.reasons.iter().cloned().chain(report.reasons).collect());
         }
+        Ok(Some(report)) if report.status == "partial" => {
+            if gate.status == "pass" {
+                gate.status = "partial".to_string();
+            }
+            gate.reasons =
+                dedup_strings(gate.reasons.iter().cloned().chain(report.reasons).collect());
+        }
         Ok(_) => {}
         Err(error) => {
             gate.status = "failed".to_string();
@@ -1496,20 +1503,7 @@ pub(super) enum ReleaseEvidenceKind {
 
 #[cfg(test)]
 pub(super) fn browser_release_gate(config: &Config) -> ReleaseGateSummary {
-    browser_release_gate_with_expectations(config, false)
-}
-
-#[cfg(test)]
-pub(super) fn browser_release_gate_with_expectations(
-    config: &Config,
-    canvas_surface_expected: bool,
-) -> ReleaseGateSummary {
-    browser_release_gate_with_options(
-        config,
-        canvas_surface_expected,
-        BrowserInteractionProbeOptions::default(),
-        None,
-    )
+    browser_release_gate_with_options(config, false, Default::default(), None)
 }
 
 pub(super) fn browser_release_gate_with_options(
@@ -2163,3 +2157,7 @@ pub(super) fn text_field(value: &Value, keys: &[&str]) -> Option<String> {
         .find_map(|key| value.get(*key).and_then(Value::as_str))
         .map(|text| text.trim().to_ascii_lowercase())
 }
+
+#[cfg(test)]
+#[path = "create_testimony_partial_tests.rs"]
+mod testimony_partial_tests;

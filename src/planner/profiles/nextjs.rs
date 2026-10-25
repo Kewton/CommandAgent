@@ -7,6 +7,7 @@ pub(crate) mod knowledge;
 pub(crate) mod recovery_authority;
 mod repair_excerpts;
 mod response_shape;
+pub(crate) mod route_reachability;
 
 pub(crate) fn contract_repair_advisory(root: &std::path::Path) -> Option<String> {
     response_shape::advisory(root)
