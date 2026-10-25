@@ -180,6 +180,11 @@ fn append_shared_repair_tail(
     }
     prompt.push_str(&compile_context::contract_context(report, context));
     crate::minimal_loop::python_traceback::append_repair_guidance(prompt, report);
+    crate::minimal_loop::ts_missing_export::append_repair_guidance(
+        prompt,
+        report,
+        context.workspace_root.as_deref(),
+    );
     let contract_attribute_guidance = contract_attribute_repair::guidance_section(
         context.workspace_root.as_deref(),
         report,

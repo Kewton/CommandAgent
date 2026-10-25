@@ -385,7 +385,7 @@ fn missing_export_symbol(
     Ok(!exports.contains(imported_name))
 }
 
-fn available_export_names(definition_file: &Path) -> Vec<String> {
+pub(crate) fn available_export_names(definition_file: &Path) -> Vec<String> {
     std::fs::read_to_string(definition_file)
         .ok()
         .and_then(|content| exported_symbols(&content))
@@ -393,7 +393,7 @@ fn available_export_names(definition_file: &Path) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn format_available_exports(definition_path: &str, exports: &[String]) -> String {
+pub(crate) fn format_available_exports(definition_path: &str, exports: &[String]) -> String {
     if exports.is_empty() {
         return format!("{definition_path} exports: (none)");
     }
