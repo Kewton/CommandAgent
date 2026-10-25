@@ -1235,6 +1235,12 @@ pub(crate) fn run_session_with_outcome_with_options(
         let mut batch_had_execution_progress = false;
         let mut write_required_rejection: Option<(String, bool, usize, Vec<String>, String)> = None;
         let missing_before_batch = missing_paths(&config.workspace_root, &required_paths);
+        let repair_batch_probe = repair_turn_observation::RepairBatchProbe::before_batch(
+            &config.workspace_root,
+            &options,
+            &verify_repair_state.changed_paths_at_failure,
+            &tool_calls,
+        );
         for mut call in tool_calls {
             let mut split_bash_segments = Vec::new();
             let mut bash_policy_substituted = false;
@@ -1913,7 +1919,8 @@ pub(crate) fn run_session_with_outcome_with_options(
             && !repair_turn_observation::defers_tool_observation_completion(
                 &options,
                 batch_had_edit,
-                &batch_changed_paths,
+                &repair_batch_probe,
+                &config.workspace_root,
             )
         {
             eval_events::emit(

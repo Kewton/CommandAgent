@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use serde_json::{Value, json};
 
-use super::{defers_tool_observation_completion, is_step_repair_turn};
+use super::{RepairBatchProbe, defers_tool_observation_completion, is_step_repair_turn};
 use crate::config::Config;
 use crate::minimal_loop::stagnation_carryover::{EscalationCarryoverHandle, attach_to_options};
 use crate::planner::run_step_plan_with_ui;
@@ -148,22 +148,235 @@ fn seed_workspace() -> tempfile::TempDir {
 
 #[test]
 fn helper_defers_only_unchanged_batches_of_repair_turns() {
+    let dir = seed_workspace();
+    let root = dir.path();
     let repair = repair_options();
     let first_observation = RunSessionOptions::plan_step(RunSessionStepKind::Verify);
-    let changed = vec!["src/a.ts".to_string()];
+    let reads = [ToolCall::new("Read", json!({"path": "src/gameLogic.ts"}))];
+    let probe =
+        |options: &RunSessionOptions| RepairBatchProbe::before_batch(root, options, &[], &reads);
 
     assert!(is_step_repair_turn(&repair));
     assert!(!is_step_repair_turn(&first_observation));
-    assert!(defers_tool_observation_completion(&repair, false, &[]));
-    assert!(!defers_tool_observation_completion(&repair, true, &[]));
+    assert!(defers_tool_observation_completion(
+        &repair,
+        false,
+        &probe(&repair),
+        root
+    ));
     assert!(!defers_tool_observation_completion(
-        &repair, false, &changed
+        &repair,
+        true,
+        &probe(&repair),
+        root
     ));
     assert!(!defers_tool_observation_completion(
         &first_observation,
         false,
-        &[]
+        &probe(&first_observation),
+        root
     ));
+}
+
+fn bash_true() -> Vec<ToolCall> {
+    vec![ToolCall::new("Bash", json!({"command": "true"}))]
+}
+
+fn bash_probe(root: &Path, targets: &[String]) -> RepairBatchProbe {
+    RepairBatchProbe::before_batch(root, &repair_options(), targets, &bash_true())
+}
+
+fn gamelogic() -> Vec<String> {
+    vec!["src/gameLogic.ts".to_string()]
+}
+
+#[test]
+fn bash_batch_that_leaves_targets_identical_is_deferred() {
+    let dir = seed_workspace();
+    let probe = bash_probe(dir.path(), &gamelogic());
+    assert!(defers_tool_observation_completion(
+        &repair_options(),
+        false,
+        &probe,
+        dir.path()
+    ));
+}
+
+#[test]
+fn bash_batch_that_rewrites_a_target_ends_the_session() {
+    let dir = seed_workspace();
+    let probe = bash_probe(dir.path(), &gamelogic());
+    std::fs::write(dir.path().join("src/gameLogic.ts"), "export const a = 9;\n").unwrap();
+    assert!(!defers_tool_observation_completion(
+        &repair_options(),
+        false,
+        &probe,
+        dir.path()
+    ));
+}
+
+#[test]
+fn bash_batch_that_creates_or_deletes_a_target_ends_the_session() {
+    let dir = seed_workspace();
+    let targets = vec!["src/gameLogic.ts".to_string(), "src/new.ts".to_string()];
+    let probe = bash_probe(dir.path(), &targets);
+    std::fs::write(dir.path().join("src/new.ts"), "x\n").unwrap();
+    assert!(!defers_tool_observation_completion(
+        &repair_options(),
+        false,
+        &probe,
+        dir.path()
+    ));
+    let probe = bash_probe(dir.path(), &targets);
+    std::fs::remove_file(dir.path().join("src/gameLogic.ts")).unwrap();
+    assert!(!defers_tool_observation_completion(
+        &repair_options(),
+        false,
+        &probe,
+        dir.path()
+    ));
+}
+
+#[test]
+fn bash_batch_without_known_targets_ends_the_session() {
+    let dir = seed_workspace();
+    let probe = bash_probe(dir.path(), &[]);
+    assert!(!defers_tool_observation_completion(
+        &repair_options(),
+        false,
+        &probe,
+        dir.path()
+    ));
+}
+
+#[test]
+fn bash_batch_over_target_limits_ends_the_session() {
+    let dir = seed_workspace();
+    let many: Vec<String> = (0..129).map(|index| format!("src/f{index}.ts")).collect();
+    let probe = bash_probe(dir.path(), &many);
+    assert!(probe.before.is_none());
+    assert!(!defers_tool_observation_completion(
+        &repair_options(),
+        false,
+        &probe,
+        dir.path()
+    ));
+
+    let at_limit: Vec<String> = many[..128].to_vec();
+    assert!(bash_probe(dir.path(), &at_limit).before.is_some());
+
+    std::fs::write(dir.path().join("src/big.ts"), vec![b'a'; 1024 * 1024 + 1]).unwrap();
+    let big = bash_probe(dir.path(), &["src/big.ts".to_string()]);
+    assert!(big.before.is_none());
+    assert!(!defers_tool_observation_completion(
+        &repair_options(),
+        false,
+        &big,
+        dir.path()
+    ));
+    std::fs::write(dir.path().join("src/edge.ts"), vec![b'a'; 1024 * 1024]).unwrap();
+    assert!(
+        bash_probe(dir.path(), &["src/edge.ts".to_string()])
+            .before
+            .is_some()
+    );
+}
+
+#[test]
+fn sensitive_and_outside_targets_are_never_fingerprinted() {
+    let dir = seed_workspace();
+    std::fs::write(dir.path().join(".env"), "TOKEN=fake-fixed-value\n").unwrap();
+    std::fs::write(dir.path().join("src/plain.txt"), "TOKEN=fake-fixed-value\n").unwrap();
+    assert!(
+        bash_probe(dir.path(), &[".env".to_string()])
+            .before
+            .is_none()
+    );
+    assert!(
+        bash_probe(dir.path(), &["src/plain.txt".to_string()])
+            .before
+            .is_some()
+    );
+    assert!(
+        bash_probe(dir.path(), &["../outside.txt".to_string()])
+            .before
+            .is_none()
+    );
+    let probe = bash_probe(dir.path(), &[".env".to_string()]);
+    assert!(!defers_tool_observation_completion(
+        &repair_options(),
+        false,
+        &probe,
+        dir.path()
+    ));
+}
+
+#[cfg(unix)]
+#[test]
+fn symlink_target_pointing_outside_root_is_never_fingerprinted() {
+    let dir = seed_workspace();
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::write(outside.path().join("elsewhere.txt"), "fixed\n").unwrap();
+    std::os::unix::fs::symlink(
+        outside.path().join("elsewhere.txt"),
+        dir.path().join("src/link.ts"),
+    )
+    .unwrap();
+    assert!(
+        bash_probe(dir.path(), &["src/link.ts".to_string()])
+            .before
+            .is_none()
+    );
+}
+
+#[test]
+fn session_bash_batch_with_unchanged_target_continues_to_next_turn() {
+    let dir = seed_workspace();
+    let mut fake = Fake::new(vec![
+        tool_reply("Bash", json!({"command": "true"})),
+        write_reply("src/other.ts", "export const b = 1;\n"),
+    ]);
+    let mut session = SessionSnapshot::new();
+    let options = repair_options().with_path_fallback_candidates(gamelogic());
+
+    let outcome = run_session_with_outcome_with_options(
+        &mut fake,
+        &mut session,
+        "Repair step `verify-engine-types`: TS2305 no exported member.",
+        &[],
+        &config(dir.path().to_path_buf()),
+        &NOOP_UI,
+        options,
+    )
+    .unwrap();
+
+    assert_eq!(fake.remaining_replies(), 0);
+    assert_eq!(outcome.changed_paths, vec!["src/other.ts".to_string()]);
+}
+
+#[test]
+fn session_bash_batch_without_known_targets_ends_as_before() {
+    let dir = seed_workspace();
+    let mut fake = Fake::new(vec![
+        tool_reply("Bash", json!({"command": "true"})),
+        write_reply("src/other.ts", "export const b = 1;\n"),
+    ]);
+    let mut session = SessionSnapshot::new();
+
+    let outcome = run_session_with_outcome_with_options(
+        &mut fake,
+        &mut session,
+        "Repair step `verify-engine-types`: TS2305 no exported member.",
+        &[],
+        &config(dir.path().to_path_buf()),
+        &NOOP_UI,
+        repair_options(),
+    )
+    .unwrap();
+
+    assert_eq!(fake.remaining_replies(), 1);
+    assert_eq!(outcome.stop_reason, RunStopReason::AssistantFinal);
+    assert!(outcome.changed_paths.is_empty());
 }
 
 #[test]
