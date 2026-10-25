@@ -1,6 +1,8 @@
 use std::path::Path;
 
 use super::RuntimeBashPolicyDecision;
+use crate::planner::verify::VerifyCommandViolationKind;
+use crate::tools::bash_write_guard::verifier_mutation;
 
 pub(super) fn apply(
     mut decision: RuntimeBashPolicyDecision,
@@ -13,7 +15,7 @@ pub(super) fn apply(
         return decision;
     }
     let Some(rejection) = crate::tools::bash::path_confinement_rejection(command, root) else {
-        return decision;
+        return reject_verifier_mutation(decision, command);
     };
     decision.verifier_policy_ok = !decision.verifier_policy_checked;
     decision.deterministic_verifier_evidence = false;
@@ -37,6 +39,47 @@ pub(super) fn apply(
             .reason
             .push_str(" Private evidence recording failed; command remains blocked.");
     }
+    decision.normalized_command = None;
+    decision.split_segments.clear();
+    decision.normalization_kind = "";
+    decision.normalization_reason.clear();
+    decision
+}
+
+/// Refuses an explicit workspace-update command in a Verify or Report step
+/// before it runs (Issue #861). The raw command, the normalized command, and
+/// every split segment are read, so the update is refused whichever of them
+/// carries it. The rejected command's normalization is dropped so it is never
+/// executed.
+fn reject_verifier_mutation(
+    mut decision: RuntimeBashPolicyDecision,
+    command: &str,
+) -> RuntimeBashPolicyDecision {
+    if !decision.verifier_policy_checked || decision.blocked {
+        return decision;
+    }
+    let mutation = std::iter::once(command)
+        .chain(decision.normalized_command.as_deref())
+        .chain(
+            decision
+                .split_segments
+                .iter()
+                .map(|segment| segment.command.as_str()),
+        )
+        .find_map(|text| verifier_mutation::find(text, true));
+    let Some(mutation) = mutation else {
+        return decision;
+    };
+    decision.verifier_policy_ok = false;
+    decision.deterministic_verifier_evidence = false;
+    decision.blocked = true;
+    decision.policy_error_kind = "verify_command_policy_error";
+    decision.violation_kind = VerifyCommandViolationKind::Blocked.as_str();
+    decision.reason = format!(
+        "{} step runtime Bash must not update the workspace: {} is an explicit update command and is not accepted as deterministic verifier evidence; change files with Write or Edit and keep Bash for build, test, or read-only verification commands",
+        decision.step_kind,
+        mutation.describe()
+    );
     decision.normalized_command = None;
     decision.split_segments.clear();
     decision.normalization_kind = "";
@@ -136,5 +179,209 @@ mod tests {
         );
 
         assert!(!decision.blocked);
+    }
+
+    fn decide(step: RunSessionStepKind, command: &str, root: &Path) -> RuntimeBashPolicyDecision {
+        apply(
+            RuntimeBashPolicyDecision::for_step(step, command, root),
+            command,
+            root,
+        )
+    }
+
+    #[test]
+    fn issue861_verify_and_report_refuse_explicit_update_commands_before_execution() {
+        let root = tempfile::tempdir().unwrap();
+        for step in [RunSessionStepKind::Verify, RunSessionStepKind::Report] {
+            for command in [
+                "sed -i 's/1/2/' src/a.ts",
+                "sed -i '' 's/1/2/' src/a.ts",
+                "sed --in-place 's/1/2/' src/a.ts",
+                "perl -pi -e 's/1/2/' src/a.ts",
+                "rm src/a.ts",
+                "mv src/a.ts src/b.ts",
+                "cp fixtures/a.ts src/a.ts",
+                "tee src/a.ts",
+                "touch marker",
+                "truncate -s 0 src/a.ts",
+                "npm run build && sed -i 's/1/2/' src/a.ts",
+                "cp a b ; npm run build",
+                "env FOO=1 /usr/bin/sed -i s/1/2/ a.ts",
+            ] {
+                let decision = decide(step, command, root.path());
+                assert!(decision.blocked, "{step:?} {command}");
+                assert!(!decision.verifier_policy_ok, "{step:?} {command}");
+                assert!(
+                    !decision.deterministic_verifier_evidence,
+                    "{step:?} {command}"
+                );
+                assert_eq!(decision.policy_error_kind, "verify_command_policy_error");
+                assert_eq!(decision.violation_kind, "blocked", "{step:?} {command}");
+                assert!(
+                    decision.normalized_command.is_none() && decision.split_segments.is_empty(),
+                    "{step:?} {command}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn issue861_existing_redirect_rejection_is_kept() {
+        let root = tempfile::tempdir().unwrap();
+        for command in ["echo x > src/a.ts", "printf x >> src/a.ts"] {
+            let decision = decide(RunSessionStepKind::Verify, command, root.path());
+            assert!(decision.blocked, "{command}");
+            assert!(!decision.deterministic_verifier_evidence, "{command}");
+            assert_eq!(decision.violation_kind, "shell_control_syntax", "{command}");
+        }
+    }
+
+    #[test]
+    fn issue861_update_reason_names_the_update_and_the_step() {
+        let root = tempfile::tempdir().unwrap();
+        let decision = decide(
+            RunSessionStepKind::Verify,
+            "sed -i 's/1/2/' src/a.ts",
+            root.path(),
+        );
+        assert!(decision.reason.contains("verify step runtime Bash"));
+        assert!(decision.reason.contains("`sed -i`"));
+        assert!(
+            decision
+                .reason
+                .contains("not accepted as deterministic verifier evidence")
+        );
+    }
+
+    #[test]
+    fn issue861_verify_keeps_build_and_read_only_verifiers() {
+        let root = tempfile::tempdir().unwrap();
+        for command in [
+            "npm run build",
+            "npx tsc",
+            "npx tsc --noEmit",
+            "node smoke-check.js",
+            "pytest",
+            "python3 -m pytest",
+            "python3 -m compileall -q src",
+            "sed -n '1,5p' src/a.ts",
+            "grep -n 'sed -i' src/a.ts",
+        ] {
+            let decision = decide(RunSessionStepKind::Verify, command, root.path());
+            assert!(!decision.blocked, "{command}: {}", decision.reason);
+            assert!(decision.verifier_policy_ok, "{command}");
+            assert!(decision.deterministic_verifier_evidence, "{command}");
+        }
+    }
+
+    #[test]
+    fn issue861_implement_and_setup_keep_workspace_updates() {
+        let root = tempfile::tempdir().unwrap();
+        for step in [RunSessionStepKind::Implement, RunSessionStepKind::Setup] {
+            for command in ["sed -i 's/1/2/' src/a.ts", "rm src/a.ts", "cp a b"] {
+                let decision = decide(step, command, root.path());
+                assert!(!decision.blocked, "{step:?} {command}");
+            }
+        }
+    }
+
+    #[test]
+    fn issue861_outside_root_rejection_keeps_priority_over_update_rejection() {
+        let root = tempfile::tempdir().unwrap();
+        let decision = decide(
+            RunSessionStepKind::Verify,
+            "cp a /etc/issue861-outside",
+            root.path(),
+        );
+        assert!(decision.blocked);
+        assert_eq!(decision.policy_error_kind, "bash_path_confinement_error");
+    }
+
+    #[test]
+    fn issue861_corpus_decision_cases_match_the_runtime_policy() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/corpus/apps/verify-runtime-bash-mutation/fixtures/cases.json");
+        let cases: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let mut checked = 0;
+        for case in cases["decision_cases"].as_array().unwrap() {
+            let command = case["command"].as_str().unwrap();
+            for step in case["steps"].as_array().unwrap() {
+                let step_kind = match step.as_str().unwrap() {
+                    "verify" => RunSessionStepKind::Verify,
+                    "report" => RunSessionStepKind::Report,
+                    "implement" => RunSessionStepKind::Implement,
+                    "setup" => RunSessionStepKind::Setup,
+                    other => panic!("unknown step {other}"),
+                };
+                let id = format!("{} / {step}", case["id"]);
+                let decision = decide(step_kind, command, root.path());
+                match case["expect"].as_str().unwrap() {
+                    "reject" => {
+                        assert!(decision.blocked, "{id}");
+                        assert!(!decision.verifier_policy_ok, "{id}");
+                        assert!(!decision.deterministic_verifier_evidence, "{id}");
+                        assert!(decision.normalized_command.is_none(), "{id}");
+                        assert!(decision.split_segments.is_empty(), "{id}");
+                        let needle = case["reason_contains"].as_str().unwrap();
+                        assert!(
+                            decision.reason.contains(needle),
+                            "{id}: {}",
+                            decision.reason
+                        );
+                    }
+                    "allow" => assert!(!decision.blocked, "{id}: {}", decision.reason),
+                    other => panic!("unknown expectation {other}"),
+                }
+                checked += 1;
+            }
+        }
+        assert!(checked >= 40, "corpus table shrank: {checked}");
+    }
+
+    #[test]
+    fn issue861_null_sink_redirect_is_not_an_update_but_a_workspace_redirect_is() {
+        let root = tempfile::tempdir().unwrap();
+        // The refusal is the update classifier's, not the normalizer's.
+        assert!(verifier_mutation::find("npm test 2>/dev/null", true).is_none());
+        assert!(verifier_mutation::find("npm test > out.txt", true).is_some());
+        for step in [RunSessionStepKind::Verify, RunSessionStepKind::Report] {
+            let null = decide(step, "npm test 2>/dev/null", root.path());
+            assert!(
+                !null.reason.contains("must not update the workspace"),
+                "{step:?}: {}",
+                null.reason
+            );
+            let file = decide(step, "npm test > out.txt", root.path());
+            assert!(file.blocked, "{step:?}");
+            assert!(!file.deterministic_verifier_evidence, "{step:?}");
+        }
+    }
+
+    #[test]
+    fn issue861_update_visible_only_after_normalization_is_refused() {
+        let root = tempfile::tempdir().unwrap();
+        // A vertical tab is an ordinary word character to the lexical guard but
+        // a blank to the verify normalization, so only the normalized text
+        // names `sed -i`.
+        let command = "sed\u{b}-i s/1/2/ src/a.ts";
+        assert!(verifier_mutation::find(command, true).is_none());
+        let unrejected =
+            RuntimeBashPolicyDecision::for_step(RunSessionStepKind::Verify, command, root.path());
+        assert!(
+            unrejected
+                .normalized_command
+                .as_deref()
+                .is_some_and(|normalized| verifier_mutation::find(normalized, true).is_some()),
+            "{:?}",
+            unrejected.normalized_command
+        );
+        for step in [RunSessionStepKind::Verify, RunSessionStepKind::Report] {
+            let decision = decide(step, command, root.path());
+            assert!(decision.blocked, "{step:?}");
+            assert!(decision.reason.contains("`sed -i`"), "{}", decision.reason);
+            assert!(decision.normalized_command.is_none());
+        }
     }
 }
