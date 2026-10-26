@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 
 use crate::cli::Cli;
 use crate::config::Config;
+use crate::minimal_loop::dependency_setup::NodeDependencySetupAuthority;
 use crate::minimal_loop::evidence::command_diagnosis;
 use crate::minimal_loop::loop_run::{
     RunSessionOptions, RunSessionStepKind, RunStopReason, run_session_with_outcome_with_options,
@@ -558,6 +559,45 @@ fn issue879_corpus_shapes_pass_with_no_refusal_and_inline_node_is_refused() {
         assert!(
             error.contains(expected["inline_node_refused"]["error"].as_str().unwrap()),
             "{error}"
+        );
+    }
+}
+
+#[test]
+fn issue879_a_repaired_package_port_check_is_bound_to_the_nextjs_profile() {
+    // A grep on package.json is repaired into the dev port host check token; the host
+    // judges it in Rust, and only in the nextjs profile.
+    let grep = r#"grep -q '"3011"' package.json"#;
+    let step = crate::planner::step_plan::PlanStep {
+        id: "verify-port".to_string(),
+        kind: "verify".to_string(),
+        expected_result: "pass".to_string(),
+        instruction: "Check the package.json port".to_string(),
+        expected_paths: Vec::new(),
+        verify: vec![grep.to_string()],
+    };
+    let verify = |profile: Option<&str>| {
+        let root = workspace(r#"{"scripts":{"dev":"next dev -p 3011","build":"next build"}}"#);
+        crate::planner::verify::verify_step_with_profile_setup_observed_with_offline_and_events(
+            root.path(),
+            &step,
+            profile,
+            NodeDependencySetupAuthority::None,
+            false,
+            None,
+        )
+        .0
+    };
+    assert!(verify(Some(NEXTJS_PROFILE_ID)).is_pass());
+    for profile in [None, Some("python-cli"), Some("data")] {
+        let report = verify(profile);
+        assert!(!report.is_pass(), "{profile:?}: {report:?}");
+        assert!(
+            report
+                .command_failures
+                .iter()
+                .any(|failure| failure.reason.contains("outside the active nextjs profile")),
+            "{profile:?}: {report:?}"
         );
     }
 }

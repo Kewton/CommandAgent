@@ -51,9 +51,7 @@ impl HostCheckSegment {
 
 /// Runs one normalized verify command. A host check token (for instance the repair of
 /// a grep on package.json) is judged by the host and never reaches a shell; any other
-/// command runs as before. A token a plan declares is bound to the nextjs profile by the
-/// step check; this path only sees tokens the host itself produced by repair, which ran
-/// as an inline node check under any profile before, so it keeps that reach.
+/// command runs as before. Like a declared token, it is bound to the nextjs profile.
 pub(super) fn run_for_verify(
     command: &NormalizedVerifyCommand,
     root: &Path,
@@ -65,7 +63,7 @@ pub(super) fn run_for_verify(
             command, root, profile, offline,
         );
     }
-    let verdict = package_script_check::evaluate(root, command.as_str());
+    let verdict = package_script_check::evaluate_in_profile(root, profile, command.as_str());
     let (kind, status, reason) = match &verdict {
         Ok(()) => (BashOutcomeKind::Success, "exit status: 0", String::new()),
         Err(reason) => (

@@ -260,6 +260,14 @@ pub(crate) fn legacy_inline_covers(command: &str, port: u16) -> bool {
             .any(|script| command == legacy_inline_command(Check::PortScript { script, port }))
 }
 
+/// Whether a plan-quality lint reads  as a verify of package.json: only an
+/// exact declared token, and only in the nextjs profile. The inline check it replaced
+/// named package.json in its text; an unknown or malformed token, or one in another
+/// profile, is not coupled to any artifact and is refused as before.
+pub(crate) fn coupled(profile_is_nextjs: bool, command: &str) -> bool {
+    profile_is_nextjs && parse(command).is_some()
+}
+
 /// Step-level host judgement, run next to the other internal checks. Outside the
 /// nextjs profile a token fails (the data catalog's shape).
 pub(crate) fn run_step_check(

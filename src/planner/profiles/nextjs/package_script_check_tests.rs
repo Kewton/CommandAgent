@@ -463,3 +463,46 @@ fn the_corpus_table_agrees_with_the_host_judgement() {
         }
     }
 }
+
+#[test]
+fn the_quality_lint_couples_only_exact_tokens_in_the_nextjs_profile_to_package_json() {
+    use crate::planner::lint::{PlanQualityContext, step_plan_quality_report};
+    let coupling_issues = |profile: &str, command: &str| {
+        let plan = crate::planner::step_plan::StepPlan {
+            goal: "Configure the package scripts".to_string(),
+            steps: vec![PlanStep {
+                id: "configure".to_string(),
+                kind: "implement".to_string(),
+                expected_result: "pass".to_string(),
+                instruction: "Update package.json scripts".to_string(),
+                expected_paths: vec!["package.json".to_string()],
+                verify: vec![command.to_string()],
+            }],
+        };
+        let context = PlanQualityContext {
+            profile: profile.to_string(),
+            ..PlanQualityContext::default()
+        };
+        step_plan_quality_report(&plan, &context)
+            .issues
+            .iter()
+            .filter(|issue| issue.category == "verify_artifact_coupling")
+            .count()
+    };
+    for command in [
+        port_check_command(PortScript::Dev, 3011),
+        port_check_command(PortScript::Start, 3011),
+        build_check_command(),
+    ] {
+        assert_eq!(coupling_issues(NEXTJS_PROFILE_ID, &command), 0, "{command}");
+        assert_eq!(coupling_issues("python-cli", &command), 1, "{command}");
+    }
+    for altered in [
+        "anvil-nextjs-check:unknown_check",
+        "anvil-nextjs-check:build_script --lint",
+        "anvil-nextjs-check:package_script_port:dev:03011",
+        "anvil-nextjs-check:",
+    ] {
+        assert_eq!(coupling_issues(NEXTJS_PROFILE_ID, altered), 1, "{altered}");
+    }
+}

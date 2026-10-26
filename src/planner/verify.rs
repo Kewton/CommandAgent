@@ -4164,10 +4164,12 @@ EOF\n\
     fn package_port_token_report(command: &str, dev: &str, start: &str) -> VerificationReport {
         let dir = tempfile::tempdir().unwrap();
         write_package_scripts(dir.path(), dev, start);
-        verify_step_with_setup_observed_with_offline_and_events(
+        verify_step_with_setup_observed_with_options(
             dir.path(),
             &package_port_token_verify_step(command),
+            (Some("nextjs"), None),
             NodeDependencySetupAuthority::None,
+            Path::new("npm"),
             false,
             None,
         )
