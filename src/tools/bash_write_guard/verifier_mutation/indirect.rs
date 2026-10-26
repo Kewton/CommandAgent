@@ -271,6 +271,14 @@ fn package_launcher_options_unreadable(arguments: &[String], ends_at_package: bo
             continue;
         }
         if NPX_FLAGS.contains(&argument) {
+            // A boolean option takes an explicit `true`/`false` as its value, so
+            // that word is not the package.
+            if arguments
+                .get(index)
+                .is_some_and(|next| matches!(next.as_str(), "true" | "false"))
+            {
+                index += 1;
+            }
             continue;
         }
         if NPX_VALUED.contains(&argument) {

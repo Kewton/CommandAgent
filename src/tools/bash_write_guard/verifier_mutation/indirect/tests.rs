@@ -610,3 +610,31 @@ fn only_the_closed_option_list_is_read_before_an_npx_or_npm_exec_package() {
         assert_eq!(operation(command), None, "{command}");
     }
 }
+
+#[test]
+fn a_boolean_option_value_and_a_valued_option_value_are_not_the_package() {
+    for command in [
+        "npx --no true -c 'true>smoke-check.sh'",
+        "npx --no false --call 'true>smoke-check.sh'",
+        "npx --no true --call 'true>smoke-check.sh'",
+        "npx --no false -c 'true>smoke-check.sh'",
+        "npx -y true -c 'true>smoke-check.sh'",
+        "npm exec --no false --call 'true>smoke-check.sh'",
+        "npx -p typescript -c 'true>smoke-check.sh'",
+        "npx --package typescript --call 'true>smoke-check.sh'",
+        "npx --package=typescript -c 'true>smoke-check.sh'",
+        "npx -w web -c 'true>smoke-check.sh'",
+        "npm exec --workspace web --call 'true>smoke-check.sh'",
+        "npm exec -w web -c 'true>smoke-check.sh'",
+    ] {
+        assert!(find(command).is_some(), "{command}");
+        assert!(rejection(command, true).is_some(), "{command}");
+    }
+    for command in [
+        "npx --yes true",
+        "npx --no true tsc --noEmit",
+        "npx --quiet false vitest run -c vitest.config.ts",
+    ] {
+        assert_eq!(operation(command), None, "{command}");
+    }
+}

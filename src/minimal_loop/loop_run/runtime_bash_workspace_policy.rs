@@ -719,6 +719,38 @@ mod tests {
     }
 
     #[test]
+    fn issue871_option_values_are_not_taken_for_the_package() {
+        let root = tempfile::tempdir().unwrap();
+        for step in [RunSessionStepKind::Verify, RunSessionStepKind::Report] {
+            for command in [
+                "npx --no true -c 'true>smoke-check.sh'",
+                "npx --no false --call 'true>smoke-check.sh'",
+                "npx --no true --call 'true>smoke-check.sh'",
+                "npx --no false -c 'true>smoke-check.sh'",
+                "npx -y true -c 'true>smoke-check.sh'",
+                "npm exec --no false --call 'true>smoke-check.sh'",
+                "npx -p typescript -c 'true>smoke-check.sh'",
+                "npx --package typescript --call 'true>smoke-check.sh'",
+                "npx --package=typescript -c 'true>smoke-check.sh'",
+                "npx -w web -c 'true>smoke-check.sh'",
+                "npm exec --workspace web --call 'true>smoke-check.sh'",
+                "npm exec -w web -c 'true>smoke-check.sh'",
+            ] {
+                let id = format!("{step:?} {command}");
+                assert_refused_before_execution(&decide(step, command, root.path()), &id);
+            }
+            for command in [
+                "npx --yes true",
+                "npx --no true tsc --noEmit",
+                "npx --quiet false vitest run -c vitest.config.ts",
+            ] {
+                let decision = decide(step, command, root.path());
+                assert!(!decision.blocked, "{step:?} {command}: {}", decision.reason);
+            }
+        }
+    }
+
+    #[test]
     fn issue871_raw_check_alone_refuses_a_form_the_other_texts_do_not_show() {
         let root = tempfile::tempdir().unwrap();
         let mut decision = RuntimeBashPolicyDecision::for_step(
