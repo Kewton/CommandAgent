@@ -1507,10 +1507,16 @@ function interactionFailureKind(transitionObserved, inputEvaluated, inputStateCh
 
     if (transitionObserved && probe_mode === "contract") {
       await attemptContractRecoveryTransition(page, after_marker);
+    } else if (probe_mode === "contract") {
+      // No start was observed. The legacy recovery accepts any button that moves the
+      // marker, so it must not be used to invent a start the contract never showed.
+      steps.push("recovery_transition:not_observed");
+      recovery_transition_status = "not_observed";
+      recovery_control = "none";
     } else {
       await attemptRecoveryTransition(page, initial_start_text, probe_mode);
     }
-    if (!transitionObserved && steps.includes("recovery_transition")) {
+    if (!transitionObserved && probe_mode !== "contract" && steps.includes("recovery_transition")) {
       transitionObserved = true;
       steps.push("start_transition");
       after_marker = recovery_after_marker;

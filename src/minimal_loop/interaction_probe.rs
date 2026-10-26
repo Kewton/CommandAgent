@@ -15,6 +15,8 @@ use crate::minimal_loop::verifier_env;
 mod observation_decode;
 #[cfg(test)]
 mod recovery_attribution_tests;
+#[cfg(test)]
+mod start_attribution_tests;
 
 const AVAILABILITY_TIMEOUT: Duration = Duration::from_secs(10);
 const INTERACTION_TIMEOUT: Duration = Duration::from_secs(120);
@@ -2059,7 +2061,7 @@ mod tests {
         let digest = Sha256::digest(interaction_probe_script().as_bytes());
         assert_eq!(
             format!("{digest:x}"),
-            "b0d434efc754ae68076ffff2c847743ffb30609381a054924b04942e2d0d2eff"
+            "52a312128fc83b0237f6f63ebfb5bc37dfd674ed3c005b86ed10e106b9b6657c"
         );
         let script = interaction_probe_script();
         assert!(script.contains("HELD_INPUT_OBSERVE_MS"));
