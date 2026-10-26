@@ -377,3 +377,51 @@ fn arbitration_keeps_passing_a_recovery_attributed_to_restart() {
     assert_eq!(observation, "recovery_transition");
     assert_eq!(final_tier, "strong");
 }
+
+/// No restart hook before start (`action_hooks` is only `primary`), none seen
+/// after start, and a recovery the probe reports for the given control.
+fn late_hook_evidence(status: &str, control: Option<&str>) -> Value {
+    let mut evidence = with_fields(json!({
+        "recovery_transition": status == "observed",
+        "recovery_transition_status": status
+    }));
+    if let Some(control) = control {
+        evidence["recovery_control"] = json!(control);
+    }
+    evidence
+}
+
+#[test]
+fn observed_recovery_by_restart_without_any_earlier_hook_is_full() {
+    let evidence = late_hook_evidence("observed", Some("restart"));
+
+    let qualified = qualify_interaction_evidence(&evidence, true);
+    assert!(qualified.full_eligible, "{qualified:?}");
+    assert_eq!(qualified.evidence_status, "passed");
+    assert!(qualified.release_gate_reasons.is_empty(), "{qualified:?}");
+    let gate = run_gate(&evidence, true, "pass");
+    assert_eq!(gate.status, "pass", "{gate:?}");
+}
+
+#[test]
+fn recovery_without_a_restart_control_and_without_any_hook_stays_missing() {
+    let evidences = [
+        late_hook_evidence("observed", Some("keyboard_r")),
+        late_hook_evidence("observed", Some("primary_fallback")),
+        late_hook_evidence("observed", Some("none")),
+        late_hook_evidence("observed", None),
+        late_hook_evidence("not_observed", Some("restart")),
+    ];
+    for evidence in &evidences {
+        let qualified = qualify_interaction_evidence(evidence, true);
+        assert!(!qualified.full_eligible, "{evidence}: {qualified:?}");
+        assert_eq!(
+            qualified.release_gate_reasons,
+            [RESTART_MISSING],
+            "{evidence}"
+        );
+        let gate = run_gate(evidence, true, "pass");
+        assert_eq!(gate.status, "failed", "{evidence}: {gate:?}");
+        assert_eq!(gate.reasons, [RESTART_MISSING], "{evidence}: {gate:?}");
+    }
+}

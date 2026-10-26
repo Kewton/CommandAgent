@@ -9,7 +9,8 @@
   "interaction_performed": true,
   "interaction_success": true,
   "ok": true,
-  "primary_start_transition": true,
+  "primary_start_transition": false,
+  "primary_start_transition_missing": true,
   "probe_mode": "contract",
   "recovery_control": "none",
   "recovery_transition": true,
@@ -28,9 +29,10 @@
     "warmup_navigation",
     "measured_navigation",
     "surface_visible",
+    "primary_start_transition_missing",
+    "recovery_transition",
     "start_transition",
-    "input_state_change",
-    "recovery_transition"
+    "input_state_change"
   ],
   "url": "http://127.0.0.1:3011/"
 }
