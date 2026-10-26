@@ -20,13 +20,13 @@ export default function Page() {
         <button data-anvil-action="primary" onClick={() => {}}>
           Start
         </button>
-        <button onClick={() => {}}>Tap</button>
-        <button onClick={() => {}}>Tap</button>
-        <button onClick={() => {}}>Tap</button>
-        <button onClick={() => {}}>Tap</button>
         <button style={{ fontSize: 8 }} onClick={() => setStatus("playing")}>
           Go
         </button>
+        <button onClick={() => {}}>Tap</button>
+        <button onClick={() => {}}>Tap</button>
+        <button onClick={() => {}}>Tap</button>
+        <button onClick={() => {}}>Tap</button>
       </div>
     </main>
   );

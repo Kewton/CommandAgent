@@ -181,11 +181,19 @@ class FakePage {
     this.textarea = new FakeElement(this, "textarea");
     this.activeElement = null;
     this.primary = null;
+    this.restart = null;
     this.targets = [];
     this.others = [];
     const add = (text, big) => new FakeElement(this, "button", text, big);
     if (scenario === "startless_form") {
       this.primary = add("Submit", true);
+    } else if (scenario === "unstarted_restart_hook") {
+      // A restart hook exists before any start, as in a game that needs a restart.
+      this.primary = add("Start", true);
+      this.targets = [add("Go", false)];
+      this.restart = add("Restart", true);
+      this.restart.setAttribute("data-anvil-action", "restart");
+      this.others = [this.restart, add("Tap", true), add("Tap", true), add("Tap", true)];
     } else if (scenario === "delayed_primary") {
       this.primary = add("Start", true);
       this.others = [add("Tap", true), add("Tap", true), add("Tap", true), add("Tap", true)];
@@ -272,9 +280,13 @@ class FakePage {
         add(this.primary);
         continue;
       }
-      if (part === '[data-anvil-action="restart"]') continue;
+      if (part === '[data-anvil-action="restart"]') {
+        add(this.restart);
+        continue;
+      }
       if (part === "[data-anvil-action]") {
         add(this.primary);
+        add(this.restart);
         continue;
       }
       if (part.startsWith("[data-anvil-action")) continue;
@@ -411,10 +423,8 @@ fn has_step(observation: &BrowserInteractionObservation, step: &str) -> bool {
 
 /// The start was never observed: the run fails honestly and the legacy recovery
 /// neither runs nor leaves a start (or recovery) transition behind.
-fn assert_unstarted_contract_run(scenario: &str) {
-    let Some((observation, evidence)) = run_start_scenario(scenario) else {
-        return;
-    };
+fn assert_unstarted_contract_run(scenario: &str) -> Option<BrowserInteractionObservation> {
+    let (observation, evidence) = run_start_scenario(scenario)?;
     assert_eq!(
         observation.probe_mode, "contract",
         "{scenario}: {observation:?}"
@@ -445,6 +455,7 @@ fn assert_unstarted_contract_run(scenario: &str) {
     assert_eq!(evidence["recovery_control"], "none");
     assert_eq!(evidence["start_transition"], false);
     assert_eq!(evidence["ok"], false);
+    Some(observation)
 }
 
 #[test]
@@ -455,6 +466,21 @@ fn contract_unstarted_run_does_not_promote_a_fifth_button_to_the_start() {
 #[test]
 fn contract_unstarted_run_does_not_promote_a_self_moving_state_to_the_start() {
     assert_unstarted_contract_run("unstarted_tick");
+}
+
+#[test]
+fn contract_unstarted_run_with_a_restart_hook_reports_no_recovery_and_no_start() {
+    let Some(observation) = assert_unstarted_contract_run("unstarted_restart_hook") else {
+        return;
+    };
+    assert!(
+        observation
+            .action_hooks
+            .iter()
+            .any(|hook| hook == "restart"),
+        "{observation:?}"
+    );
+    assert!(!observation.restart_hook_reachable_after_start);
 }
 
 #[test]
