@@ -666,6 +666,9 @@ async function evaluatePersistenceReload(page, mode) {
   }
   mark("persistence_reload");
   const typedTokenWasPresent = text_input_state_change && token_echoed;
+  // A contract run judges persistence by the keys a commit changed. The typed token
+  // can survive as a draft copy, so it is only evidence for the heuristic probe.
+  const judgeByTypedToken = typedTokenWasPresent && mode !== "contract";
   persistence_before_reload_marker = await settledRenderedValue(
     page,
     () => activeMarker(page, mode),
@@ -674,7 +677,7 @@ async function evaluatePersistenceReload(page, mode) {
   try {
     await page.reload({ waitUntil: "domcontentloaded", timeout: GOTO_TIMEOUT_MS });
     await waitForAnySurface(page);
-    persistence_after_reload_marker = typedTokenWasPresent
+    persistence_after_reload_marker = judgeByTypedToken
       ? await settledRenderedValue(
         page,
         () => activeMarker(page, mode),
@@ -696,7 +699,7 @@ async function evaluatePersistenceReload(page, mode) {
         steps.push("token_echoed_after_reload");
       }
     }
-    if (typedTokenWasPresent) {
+    if (judgeByTypedToken) {
       let typedTokenSurvived = reloadEcho.matched;
       if (!typedTokenSurvived) {
         const tokenSurvivedStartedAt = Date.now();
@@ -717,6 +720,9 @@ async function evaluatePersistenceReload(page, mode) {
         persistence_before_reload_marker,
         persistence_after_reload_marker
       );
+      if (typedTokenWasPresent && persistence_after_reload === "not_evaluated") {
+        informational_failure_kinds.push("persistence_draft_only");
+      }
     }
     steps.push(
       persistence_after_reload === "not_evaluated"
@@ -1052,10 +1058,24 @@ async function tokenEchoedOutsideTextEntryTargetNow(page, token) {
   if (!token) return false;
   return await page.evaluate((value) => {
     const excluded = document.querySelector('[data-anvil-probe-text-target="1"]');
+    const isTextEntryElement = (element) => {
+      const tag = (element.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "textarea") return true;
+      const attr = element.getAttribute ? element.getAttribute("contenteditable") : null;
+      const editable = attr === null ? null : String(attr).toLowerCase();
+      return editable === "" || editable === "true" || editable === "plaintext-only";
+    };
+    // After a reload the probe's own mark is gone, so a text entry candidate is
+    // recognised by what it is: its text is the typed draft, never an echo.
     const isExcluded = (node) => {
-      if (!excluded || !node) return false;
+      if (!node) return false;
       const element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
-      return !!element && (element === excluded || excluded.contains(element));
+      if (!element) return false;
+      if (excluded && (element === excluded || excluded.contains(element))) return true;
+      for (let current = element; current; current = current.parentElement) {
+        if (isTextEntryElement(current)) return true;
+      }
+      return false;
     };
     const walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT);
     let node = walker.nextNode();
