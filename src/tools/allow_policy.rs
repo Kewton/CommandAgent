@@ -344,6 +344,79 @@ mod tests {
     }
 
     #[test]
+    fn issue871_bash_verify_rejects_launcher_cluster_perl_node_and_data_url_forms() {
+        let root = tempfile::tempdir().unwrap();
+        let _guard = install(false, &[AllowTarget::BashVerify]);
+        for command in [
+            "bash -oc pipefail 'cp a b'",
+            "bash -Oc extglob 'cp a b'",
+            "bash -eoc pipefail 'cp a b'",
+            "env FOO=1 bash -oc pipefail 'cp a b'",
+            "perl -M File::Copy -e 'print 1'",
+            "perl -MFile::Copy -m Foo -e 1",
+            "flock lockfile sh -c 'cp a b'",
+            "chrt 1 sh -c 'cp a b'",
+            "taskset 1 sh -c 'cp a b'",
+            "unshare sh -c 'cp a b'",
+            "strace -o /dev/null sh -c 'cp a b'",
+            "watch -n1 sh -c 'cp a b'",
+            "npx sh -c 'cp a b'",
+            "npm exec -- sh -c 'cp a b'",
+            "pnpm exec sh -c 'cp a b'",
+            "npx -c 'cp a b'",
+            "npx --call 'cp a b'",
+            "npm exec -c 'cp a b'",
+            "flock lockfile -c 'cp a b'",
+            "script -qc 'cp a b' /dev/null",
+            "node --import data:text/javascript,1 smoke-check.js",
+            "node --import=data:text/javascript,1 smoke-check.js",
+            "node -r data:text/javascript,1 smoke-check.js",
+            "node --loader=data:text/javascript,1 smoke-check.js",
+            "node --experimental-loader data:text/javascript,1 smoke-check.js",
+            "perl -M'5;system(1)' script.pl",
+            "perl -m'Foo bar' script.pl",
+            "node --unknown -e 1",
+            "node --foo=1 -p 1",
+            "node --inspect-port 1 -e 1",
+        ] {
+            let arguments = json!({ "command": command });
+            assert!(
+                ensure_current_allows("Bash", &arguments, root.path()).is_err(),
+                "{command}"
+            );
+        }
+        for command in [
+            "bash -o pipefail smoke-check.sh",
+            "bash -O extglob smoke-check.sh",
+            "perl -M File::Copy script.pl -e",
+            "perl -MFile::Copy script.pl",
+            "perl -MFoo=a,b script.pl",
+            "perl -M-strict script.pl",
+            "node --trace-uncaught smoke-check.js -e",
+            "node --trace-uncaught smoke-check.js",
+            "node --no-warnings --trace-exit smoke-check.js -p",
+            "node --require ./setup.js smoke-check.js",
+            "node --import ./setup.mjs smoke-check.mjs",
+            "npx tsc --noEmit",
+            "npx tsc",
+            "npx vitest run",
+            "npx vitest run -c vitest.config.ts",
+            "npm exec -- tsc --noEmit",
+            "npm test",
+            "pnpm exec tsc --noEmit",
+            "echo sh -c",
+            "grep -r 'sh -c' src",
+            "grep 'node -e' README.md",
+        ] {
+            let arguments = json!({ "command": command });
+            assert!(
+                ensure_current_allows("Bash", &arguments, root.path()).is_ok(),
+                "{command}"
+            );
+        }
+    }
+
+    #[test]
     fn issue871_bash_verify_keeps_canonical_verifiers() {
         let root = tempfile::tempdir().unwrap();
         let _guard = install(false, &[AllowTarget::BashVerify]);

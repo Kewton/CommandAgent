@@ -313,3 +313,151 @@ fn an_unknown_node_option_never_hides_an_inline_flag() {
         assert_eq!(operation(command), None, "{command}");
     }
 }
+
+#[test]
+fn fix2_and_launcher_forms_are_refused_whatever_their_body() {
+    for command in [
+        "bash -oc pipefail 'cp a b'",
+        "bash -Oc extglob 'cp a b'",
+        "bash -eoc pipefail 'cp a b'",
+        "env FOO=1 bash -oc pipefail 'cp a b'",
+        "perl -M File::Copy -e 'print 1'",
+        "perl -MFile::Copy -m Foo -e 1",
+        "flock lockfile sh -c 'cp a b'",
+        "chrt 1 sh -c 'cp a b'",
+        "taskset 1 sh -c 'cp a b'",
+        "unshare sh -c 'cp a b'",
+        "strace -o /dev/null sh -c 'cp a b'",
+        "watch -n1 sh -c 'cp a b'",
+        "npx sh -c 'cp a b'",
+        "npm exec -- sh -c 'cp a b'",
+        "pnpm exec sh -c 'cp a b'",
+        "npx -c 'cp a b'",
+        "npx --call 'cp a b'",
+        "npm exec -c 'cp a b'",
+        "flock lockfile -c 'cp a b'",
+        "script -qc 'cp a b' /dev/null",
+        "node --import data:text/javascript,1 smoke-check.js",
+        "node --import=data:text/javascript,1 smoke-check.js",
+        "node -r data:text/javascript,1 smoke-check.js",
+        "node --loader=data:text/javascript,1 smoke-check.js",
+        "node --experimental-loader data:text/javascript,1 smoke-check.js",
+        "perl -M'5;system(1)' script.pl",
+        "perl -m'Foo bar' script.pl",
+        "node --unknown -e 1",
+        "node --foo=1 -p 1",
+        "node --inspect-port 1 -e 1",
+    ] {
+        assert!(find(command).is_some(), "{command}");
+        assert!(rejection(command, true).is_some(), "{command}");
+    }
+}
+
+#[test]
+fn launchers_option_values_and_literal_text_keep_ordinary_verifiers() {
+    for command in [
+        "bash -o pipefail smoke-check.sh",
+        "bash -O extglob smoke-check.sh",
+        "perl -M File::Copy script.pl -e",
+        "perl -MFile::Copy script.pl",
+        "perl -MFoo=a,b script.pl",
+        "perl -M-strict script.pl",
+        "node --trace-uncaught smoke-check.js -e",
+        "node --trace-uncaught smoke-check.js",
+        "node --no-warnings --trace-exit smoke-check.js -p",
+        "node --require ./setup.js smoke-check.js",
+        "node --import ./setup.mjs smoke-check.mjs",
+        "npx tsc --noEmit",
+        "npx tsc",
+        "npx vitest run",
+        "npx vitest run -c vitest.config.ts",
+        "npm exec -- tsc --noEmit",
+        "npm test",
+        "pnpm exec tsc --noEmit",
+        "flock lockfile npm test",
+        "taskset -c 0 npm test",
+        "echo sh -c",
+        "grep -r 'sh -c' src",
+        "grep 'node -e' README.md",
+    ] {
+        assert_eq!(operation(command), None, "{command}");
+    }
+}
+
+#[test]
+fn node_boolean_known_valued_unknown_and_entrypoint_arguments_are_told_apart() {
+    for command in [
+        // known boolean, then the entrypoint, then its own arguments
+        "node --trace-uncaught smoke-check.js -e",
+        "node --trace-uncaught --no-warnings smoke-check.js -p",
+        // known valued option, entrypoint after it
+        "node --require ./hook.js smoke-check.js -e",
+        // unknown option swallows a plain word, entrypoint after
+        "node --unknown value smoke-check.js -e",
+    ] {
+        assert_eq!(operation(command), None, "{command}");
+    }
+    for command in [
+        "node --trace-uncaught -e 1",
+        "node --trace-uncaught --unknown -e 1",
+        "node --unknown -e 1",
+        "node --foo=1 -p 1",
+        "node --inspect-port 1 -e 1",
+        "node --require ./hook.js -e 1",
+    ] {
+        assert!(find(command).is_some(), "{command}");
+    }
+}
+
+#[test]
+fn an_option_cluster_goes_on_after_taking_its_value() {
+    for command in [
+        "bash -oc pipefail true",
+        "bash -Oc extglob true",
+        "bash -eoc pipefail true",
+    ] {
+        assert!(find(command).is_some(), "{command}");
+    }
+    for command in [
+        "bash -o pipefail smoke-check.sh",
+        "bash -O extglob smoke-check.sh",
+    ] {
+        assert_eq!(operation(command), None, "{command}");
+    }
+}
+
+#[test]
+fn a_perl_module_switch_value_is_not_the_script() {
+    for command in [
+        "perl -M File::Copy -e 1",
+        "perl -m Foo -I lib -e 1",
+        "perl -I lib -e 1",
+        "perl -M'5;system(1)' x.pl",
+        "perl -M'Foo=a;b' x.pl",
+    ] {
+        assert!(find(command).is_some(), "{command}");
+    }
+    for command in [
+        "perl -M File::Copy script.pl -e",
+        "perl -I lib script.pl -e",
+    ] {
+        assert_eq!(operation(command), None, "{command}");
+    }
+}
+
+#[test]
+fn a_data_url_module_option_is_code() {
+    for command in [
+        "node --import data:text/javascript,1 x.js",
+        "node --import=DATA:text/javascript,1 x.js",
+        "node -r data:text/javascript,1 x.js",
+        "node -rdata:text/javascript,1 x.js",
+        "node --loader data:text/javascript,1 x.js",
+        "node --experimental-loader=data:text/javascript,1 x.js",
+    ] {
+        assert!(find(command).is_some(), "{command}");
+    }
+    for command in ["node --import ./a.mjs x.js", "node -r ./a.js x.js"] {
+        assert_eq!(operation(command), None, "{command}");
+    }
+}

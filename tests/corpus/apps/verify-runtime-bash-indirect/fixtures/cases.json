@@ -803,6 +803,566 @@
         "implement"
       ],
       "expect": "allow"
+    },
+    {
+      "id": "fix2-reject-0",
+      "origin": "synthetic",
+      "command": "bash -oc pipefail 'cp a b'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`bash -c`"
+    },
+    {
+      "id": "fix2-reject-1",
+      "origin": "synthetic",
+      "command": "bash -Oc extglob 'cp a b'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`bash -c`"
+    },
+    {
+      "id": "fix2-reject-2",
+      "origin": "synthetic",
+      "command": "bash -eoc pipefail 'cp a b'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`bash -c`"
+    },
+    {
+      "id": "fix2-reject-3",
+      "origin": "synthetic",
+      "command": "env FOO=1 bash -oc pipefail 'cp a b'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`bash -c`"
+    },
+    {
+      "id": "fix2-reject-4",
+      "origin": "synthetic",
+      "command": "perl -M File::Copy -e 'print 1'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`perl -e`"
+    },
+    {
+      "id": "fix2-reject-5",
+      "origin": "synthetic",
+      "command": "perl -MFile::Copy -m Foo -e 1",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`perl -e`"
+    },
+    {
+      "id": "fix2-reject-6",
+      "origin": "synthetic",
+      "command": "flock lockfile sh -c 'cp a b'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`sh -c`"
+    },
+    {
+      "id": "fix2-reject-7",
+      "origin": "synthetic",
+      "command": "chrt 1 sh -c 'cp a b'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`sh -c`"
+    },
+    {
+      "id": "fix2-reject-8",
+      "origin": "synthetic",
+      "command": "taskset 1 sh -c 'cp a b'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`sh -c`"
+    },
+    {
+      "id": "fix2-reject-9",
+      "origin": "synthetic",
+      "command": "unshare sh -c 'cp a b'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`sh -c`"
+    },
+    {
+      "id": "fix2-reject-10",
+      "origin": "synthetic",
+      "command": "strace -o /dev/null sh -c 'cp a b'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`sh -c`"
+    },
+    {
+      "id": "fix2-reject-11",
+      "origin": "synthetic",
+      "command": "watch -n1 sh -c 'cp a b'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`sh -c`"
+    },
+    {
+      "id": "fix2-reject-12",
+      "origin": "synthetic",
+      "command": "npx sh -c 'cp a b'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`sh -c`"
+    },
+    {
+      "id": "fix2-reject-13",
+      "origin": "synthetic",
+      "command": "npm exec -- sh -c 'cp a b'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`sh -c`"
+    },
+    {
+      "id": "fix2-reject-14",
+      "origin": "synthetic",
+      "command": "pnpm exec sh -c 'cp a b'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`sh -c`"
+    },
+    {
+      "id": "fix2-reject-15",
+      "origin": "synthetic",
+      "command": "npx -c 'cp a b'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npx -c`"
+    },
+    {
+      "id": "fix2-reject-16",
+      "origin": "synthetic",
+      "command": "npx --call 'cp a b'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npx -c`"
+    },
+    {
+      "id": "fix2-reject-17",
+      "origin": "synthetic",
+      "command": "npm exec -c 'cp a b'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npm -c`"
+    },
+    {
+      "id": "fix2-reject-18",
+      "origin": "synthetic",
+      "command": "flock lockfile -c 'cp a b'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`flock -c`"
+    },
+    {
+      "id": "fix2-reject-19",
+      "origin": "synthetic",
+      "command": "script -qc 'cp a b' /dev/null",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`script -c`"
+    },
+    {
+      "id": "fix2-reject-20",
+      "origin": "synthetic",
+      "command": "node --import data:text/javascript,1 smoke-check.js",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`node -e/-p`"
+    },
+    {
+      "id": "fix2-reject-21",
+      "origin": "synthetic",
+      "command": "node --import=data:text/javascript,1 smoke-check.js",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`node -e/-p`"
+    },
+    {
+      "id": "fix2-reject-22",
+      "origin": "synthetic",
+      "command": "node -r data:text/javascript,1 smoke-check.js",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`node -e/-p`"
+    },
+    {
+      "id": "fix2-reject-23",
+      "origin": "synthetic",
+      "command": "node --loader=data:text/javascript,1 smoke-check.js",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`node -e/-p`"
+    },
+    {
+      "id": "fix2-reject-24",
+      "origin": "synthetic",
+      "command": "node --experimental-loader data:text/javascript,1 smoke-check.js",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`node -e/-p`"
+    },
+    {
+      "id": "fix2-reject-25",
+      "origin": "synthetic",
+      "command": "perl -M'5;system(1)' script.pl",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`perl -e`"
+    },
+    {
+      "id": "fix2-reject-26",
+      "origin": "synthetic",
+      "command": "perl -m'Foo bar' script.pl",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`perl -e`"
+    },
+    {
+      "id": "fix2-reject-27",
+      "origin": "synthetic",
+      "command": "node --unknown -e 1",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`node -e/-p`"
+    },
+    {
+      "id": "fix2-reject-28",
+      "origin": "synthetic",
+      "command": "node --foo=1 -p 1",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`node -e/-p`"
+    },
+    {
+      "id": "fix2-reject-29",
+      "origin": "synthetic",
+      "command": "node --inspect-port 1 -e 1",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`node -e/-p`"
+    },
+    {
+      "id": "fix2-allow-0",
+      "origin": "synthetic",
+      "command": "bash -o pipefail smoke-check.sh",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix2-allow-1",
+      "origin": "synthetic",
+      "command": "bash -O extglob smoke-check.sh",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix2-allow-2",
+      "origin": "synthetic",
+      "command": "perl -M File::Copy script.pl -e",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix2-allow-3",
+      "origin": "synthetic",
+      "command": "perl -MFile::Copy script.pl",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix2-allow-4",
+      "origin": "synthetic",
+      "command": "perl -MFoo=a,b script.pl",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix2-allow-5",
+      "origin": "synthetic",
+      "command": "perl -M-strict script.pl",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix2-allow-6",
+      "origin": "synthetic",
+      "command": "node --trace-uncaught smoke-check.js -e",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix2-allow-7",
+      "origin": "synthetic",
+      "command": "node --trace-uncaught smoke-check.js",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix2-allow-8",
+      "origin": "synthetic",
+      "command": "node --no-warnings --trace-exit smoke-check.js -p",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix2-allow-9",
+      "origin": "synthetic",
+      "command": "node --require ./setup.js smoke-check.js",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix2-allow-10",
+      "origin": "synthetic",
+      "command": "node --import ./setup.mjs smoke-check.mjs",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix2-allow-11",
+      "origin": "synthetic",
+      "command": "npx tsc --noEmit",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix2-allow-12",
+      "origin": "synthetic",
+      "command": "npx tsc",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix2-allow-13",
+      "origin": "synthetic",
+      "command": "npx vitest run",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix2-allow-14",
+      "origin": "synthetic",
+      "command": "npx vitest run -c vitest.config.ts",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix2-allow-15",
+      "origin": "synthetic",
+      "command": "npm exec -- tsc --noEmit",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix2-allow-16",
+      "origin": "synthetic",
+      "command": "npm test",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix2-allow-17",
+      "origin": "synthetic",
+      "command": "pnpm exec tsc --noEmit",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix2-allow-18",
+      "origin": "synthetic",
+      "command": "flock lockfile npm test",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix2-allow-19",
+      "origin": "synthetic",
+      "command": "taskset -c 0 npm test",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix2-allow-20",
+      "origin": "synthetic",
+      "command": "echo sh -c",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix2-allow-21",
+      "origin": "synthetic",
+      "command": "grep -r 'sh -c' src",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix2-allow-22",
+      "origin": "synthetic",
+      "command": "grep 'node -e' README.md",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
     }
   ],
   "host_cases": [

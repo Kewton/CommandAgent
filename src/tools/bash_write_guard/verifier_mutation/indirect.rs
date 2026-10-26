@@ -20,6 +20,13 @@
 //! | `perl` | a switch cluster holding `e` or `E`, or `-` |
 //! | `sed`, `gsed` | anything but `-n <N[,M]p> [file...]` |
 //!
+//! A known launcher (`flock`, `chrt`, `taskset`, `strace`, `watch`, `npx`,
+//! `npm exec`, `pnpm exec`, ...) starts the command in its arguments, so every
+//! later word is tried as the program; its own shell-string option (`npx -c`,
+//! `flock -c`, `script -qc`) is refused. A `data:` URL given to node's
+//! `--import`/`--require`/`-r`/`--loader` and a perl `-M`/`-m` value that is not
+//! a module name are code and are refused.
+//!
 //! An option is told apart from the entrypoint and from `--`, so
 //! `node smoke-check.js --label=-e` and `python -m pytest -c cfg` are not
 //! refused, and a quoted `sh -c` inside an `echo` or `grep` argument is one
@@ -44,7 +51,19 @@ const SHELLS: [&str; 15] = [
 
 /// `node` options that take no separate value word. Any other `--option`
 /// without `=` may swallow the next word, which is then not the entrypoint.
-const NODE_FLAGS: [&str; 14] = [
+const NODE_FLAGS: [&str; 26] = [
+    "trace-uncaught",
+    "trace-exit",
+    "trace-sigint",
+    "trace-sync-io",
+    "trace-tls",
+    "pending-deprecation",
+    "abort-on-uncaught-exception",
+    "experimental-strip-types",
+    "experimental-transform-types",
+    "experimental-require-module",
+    "experimental-detect-module",
+    "use-strict",
     "check",
     "test",
     "watch",
@@ -78,6 +97,23 @@ const FIND_PATTERNS: [&str; 10] = [
     "-iregex",
     "-lname",
     "-ilname",
+];
+
+/// `node` options whose value, when it is a `data:` URL, is code.
+const NODE_CODE_LOADERS: [&str; 4] = ["import", "require", "loader", "experimental-loader"];
+
+/// Programs that start the command given in their own arguments. Their options
+/// are not parsed: every later word is tried as the program instead.
+const LAUNCHERS: [&str; 14] = [
+    "flock", "chrt", "taskset", "ionice", "setsid", "unshare", "nsenter", "strace", "ltrace",
+    "watch", "script", "npx", "bunx", "pnpx",
+];
+
+/// Package managers whose first argument turns them into a launcher.
+const EXEC_SUBCOMMANDS: [(&str, &[&str]); 3] = [
+    ("npm", &["exec", "x"]),
+    ("pnpm", &["exec", "dlx"]),
+    ("yarn", &["exec", "dlx"]),
 ];
 
 /// Names the first execution form in `command` whose body cannot be inspected.
@@ -114,7 +150,7 @@ fn segment_operation(words: &[&str]) -> Option<String> {
     match command_prefix::resolve(words) {
         Resolution::Program {
             program, arguments, ..
-        } => classify(&program, &arguments, true),
+        } => classify(&program, &arguments, true).or_else(|| launched(&program, &arguments)),
         // An unresolvable prefix hides which program runs, so every word is
         // tried as the program with the words after it as its arguments.
         Resolution::Undecidable { .. } | Resolution::NoExecution { .. } => (0..words.len())
@@ -128,6 +164,69 @@ fn segment_operation(words: &[&str]) -> Option<String> {
         // The parent's write table already refuses `env -S`.
         Resolution::UnverifiableSplitString { .. } => None,
     }
+}
+
+fn is_launcher(program: &str, arguments: &[String]) -> bool {
+    LAUNCHERS.contains(&program)
+        || EXEC_SUBCOMMANDS.iter().any(|(name, subcommands)| {
+            *name == program
+                && arguments
+                    .first()
+                    .is_some_and(|first| subcommands.contains(&first.as_str()))
+        })
+}
+
+/// The launcher's own shell-string option, or the first refused form among the
+/// words it starts.
+fn launched(program: &str, arguments: &[String]) -> Option<String> {
+    if !is_launcher(program, arguments) {
+        return None;
+    }
+    (0..arguments.len())
+        .find_map(|index| classify(base_name(&arguments[index]), &arguments[index + 1..], false))
+        .or_else(|| launcher_runs_string(program, arguments).then(|| format!("{program} -c")))
+}
+
+/// `npx -c`, `npm exec --call`, `flock --command`, `script -qc`: the launcher
+/// hands one string to a shell.
+fn launcher_runs_string(program: &str, arguments: &[String]) -> bool {
+    // `npm exec <options> <package>`: the subcommand word is not an option.
+    let (arguments, scans_all) = match program {
+        "flock" | "script" => (arguments, true),
+        "npx" => (arguments, false),
+        "npm" => (arguments.get(1..).unwrap_or_default(), false),
+        _ => return false,
+    };
+    let mut index = 0;
+    while index < arguments.len() {
+        let argument = arguments[index].as_str();
+        index += 1;
+        if argument == "--" {
+            return false;
+        }
+        if matches!(
+            argument,
+            "-p" | "--package" | "-w" | "--workspace" | "--registry"
+        ) {
+            index += 1;
+            continue;
+        }
+        if matches!(argument, "--call" | "--command")
+            || argument.starts_with("--call=")
+            || argument.starts_with("--command=")
+        {
+            return true;
+        }
+        if let Some(cluster) = argument.strip_prefix('-') {
+            if !cluster.starts_with('-') && cluster.contains('c') {
+                return true;
+            }
+        } else if !scans_all {
+            // The package ends the launcher's own options.
+            return false;
+        }
+    }
+    false
 }
 
 fn base_name(word: &str) -> &str {
@@ -199,10 +298,8 @@ fn shell_form(arguments: &[String]) -> ShellForm {
                 'c' if sign == Some('-') => return ShellForm::Command,
                 's' if sign == Some('-') => return ShellForm::Stdin,
                 // `-o name` and `-O name` take the next word.
-                'o' | 'O' => {
-                    index += 1;
-                    break;
-                }
+                // The cluster goes on after the value is taken: `-oc name` is `-c`.
+                'o' | 'O' => index += 1,
                 _ => {}
             }
         }
@@ -264,12 +361,19 @@ fn node_inline(arguments: &[String]) -> bool {
             return true;
         }
         if let Some(long) = argument.strip_prefix("--") {
-            let (name, has_value) = match long.split_once('=') {
-                Some((name, _)) => (name, true),
-                None => (long, false),
+            let (name, value) = match long.split_once('=') {
+                Some((name, value)) => (name, Some(value)),
+                None => (long, None),
             };
+            let has_value = value.is_some();
             if matches!(name, "eval" | "print") {
                 return true;
+            }
+            if NODE_CODE_LOADERS.contains(&name) {
+                let value = value.or_else(|| arguments.get(index).map(String::as_str));
+                if value.is_some_and(is_data_url) {
+                    return true;
+                }
             }
             // An unknown option may take the next word as its value; that word
             // is then not the entrypoint. Skipping only widens the scan.
@@ -289,8 +393,15 @@ fn node_inline(arguments: &[String]) -> bool {
                 'e' | 'p' => return true,
                 // `-r module` and `-C condition` take a value.
                 'r' | 'C' => {
-                    if position + ch.len_utf8() == cluster.len() {
+                    let rest = &cluster[position + ch.len_utf8()..];
+                    let value = if rest.is_empty() {
                         index += 1;
+                        arguments.get(index - 1).map(String::as_str)
+                    } else {
+                        Some(rest)
+                    };
+                    if ch == 'r' && value.is_some_and(is_data_url) {
+                        return true;
                     }
                     break;
                 }
@@ -299,6 +410,11 @@ fn node_inline(arguments: &[String]) -> bool {
         }
     }
     false
+}
+
+/// A `data:` URL handed to a module option is code the command line carries.
+fn is_data_url(value: &str) -> bool {
+    value.trim_start().to_ascii_lowercase().starts_with("data:")
 }
 
 fn is_python(program: &str) -> bool {
@@ -383,12 +499,33 @@ fn perl_inline(arguments: &[String]) -> bool {
             match ch {
                 'e' | 'E' => return true,
                 'I' => {
-                    if position == chars.len() {
+                    if position == chars.len()
+                        && arguments
+                            .get(index)
+                            .is_some_and(|next| !next.starts_with('-'))
+                    {
                         index += 1;
                     }
                     break;
                 }
-                'C' | 'd' | 'D' | 'F' | 'm' | 'M' | 'V' | 'x' => break,
+                'm' | 'M' => {
+                    let rest: String = chars[position..].iter().collect();
+                    let value = if rest.is_empty() {
+                        arguments
+                            .get(index)
+                            .filter(|next| !next.starts_with('-'))
+                            .inspect(|_| index += 1)
+                            .cloned()
+                            .unwrap_or_default()
+                    } else {
+                        rest
+                    };
+                    if !is_module_spec(&value) {
+                        return true;
+                    }
+                    break;
+                }
+                'C' | 'd' | 'D' | 'F' | 'V' | 'x' => break,
                 '0' | 'l' => {
                     let hex = ch == '0' && matches!(chars.get(position), Some('x' | 'X'));
                     if hex {
@@ -409,4 +546,24 @@ fn perl_inline(arguments: &[String]) -> bool {
         }
     }
     false
+}
+
+/// `-M`/`-m` value: `Foo::Bar`, `-Foo`, or `Foo=a,b`. Anything else (a `;`, a
+/// space, a call) is perl code the switch would run.
+fn is_module_spec(value: &str) -> bool {
+    if value.is_empty() {
+        return true;
+    }
+    let value = value.strip_prefix('-').unwrap_or(value);
+    let (name, imports) = match value.split_once('=') {
+        Some((name, imports)) => (name, imports),
+        None => (value, ""),
+    };
+    !name.is_empty()
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b':'))
+        && imports.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b':' | b',' | b'.' | b'/' | b'-')
+        })
 }
