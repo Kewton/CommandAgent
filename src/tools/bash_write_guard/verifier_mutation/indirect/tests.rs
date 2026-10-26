@@ -461,3 +461,26 @@ fn a_data_url_module_option_is_code() {
         assert_eq!(operation(command), None, "{command}");
     }
 }
+
+#[test]
+fn a_launcher_started_by_a_launcher_keeps_its_shell_string_option_refused() {
+    for command in [
+        "chrt 1 npx -c 'cp a b'",
+        "taskset 1 npm exec -c 'cp a b'",
+        "setsid script -qc 'cp a b' /dev/null",
+        "nice -n 5 chrt 1 flock f -c 'cp a b'",
+        "timeout 5 strace -o /dev/null npx -c 'cp a b'",
+        "chrt 1 taskset 1 setsid sh -c 'cp a b'",
+    ] {
+        assert!(find(command).is_some(), "{command}");
+        assert!(rejection(command, true).is_some(), "{command}");
+    }
+    for command in [
+        "chrt 1 npx tsc --noEmit",
+        "taskset -c 0 npm exec -- tsc --noEmit",
+        "nice -n 5 chrt 1 npx vitest run",
+        "timeout 5 strace -o /dev/null npm test",
+    ] {
+        assert_eq!(operation(command), None, "{command}");
+    }
+}

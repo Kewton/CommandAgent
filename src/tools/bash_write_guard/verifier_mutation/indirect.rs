@@ -183,7 +183,12 @@ fn launched(program: &str, arguments: &[String]) -> Option<String> {
         return None;
     }
     (0..arguments.len())
-        .find_map(|index| classify(base_name(&arguments[index]), &arguments[index + 1..], false))
+        .find_map(|index| {
+            let name = base_name(&arguments[index]);
+            let rest = &arguments[index + 1..];
+            // A launcher started by a launcher is read the same way, at any depth.
+            classify(name, rest, false).or_else(|| launched(name, rest))
+        })
         .or_else(|| launcher_runs_string(program, arguments).then(|| format!("{program} -c")))
 }
 

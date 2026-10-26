@@ -1363,6 +1363,112 @@
         "report"
       ],
       "expect": "allow"
+    },
+    {
+      "id": "nested-reject-0",
+      "origin": "synthetic",
+      "command": "chrt 1 npx -c 'cp a b'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npx -c`"
+    },
+    {
+      "id": "nested-reject-1",
+      "origin": "synthetic",
+      "command": "taskset 1 npm exec -c 'cp a b'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npm -c`"
+    },
+    {
+      "id": "nested-reject-2",
+      "origin": "synthetic",
+      "command": "setsid script -qc 'cp a b' /dev/null",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`script -c`"
+    },
+    {
+      "id": "nested-reject-3",
+      "origin": "synthetic",
+      "command": "nice -n 5 chrt 1 flock f -c 'cp a b'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`flock -c`"
+    },
+    {
+      "id": "nested-reject-4",
+      "origin": "synthetic",
+      "command": "timeout 5 strace -o /dev/null npx -c 'cp a b'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npx -c`"
+    },
+    {
+      "id": "nested-reject-5",
+      "origin": "synthetic",
+      "command": "chrt 1 taskset 1 setsid sh -c 'cp a b'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`sh -c`"
+    },
+    {
+      "id": "nested-allow-0",
+      "origin": "synthetic",
+      "command": "chrt 1 npx tsc --noEmit",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "nested-allow-1",
+      "origin": "synthetic",
+      "command": "taskset -c 0 npm exec -- tsc --noEmit",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "nested-allow-2",
+      "origin": "synthetic",
+      "command": "nice -n 5 chrt 1 npx vitest run",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "nested-allow-3",
+      "origin": "synthetic",
+      "command": "timeout 5 strace -o /dev/null npm test",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
     }
   ],
   "host_cases": [

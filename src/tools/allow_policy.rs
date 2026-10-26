@@ -417,6 +417,38 @@ mod tests {
     }
 
     #[test]
+    fn issue871_bash_verify_handles_nested_launcher_string_options() {
+        let root = tempfile::tempdir().unwrap();
+        let _guard = install(false, &[AllowTarget::BashVerify]);
+        for command in [
+            "chrt 1 npx -c 'cp a b'",
+            "taskset 1 npm exec -c 'cp a b'",
+            "setsid script -qc 'cp a b' /dev/null",
+            "nice -n 5 chrt 1 flock f -c 'cp a b'",
+            "timeout 5 strace -o /dev/null npx -c 'cp a b'",
+            "chrt 1 taskset 1 setsid sh -c 'cp a b'",
+        ] {
+            let arguments = json!({ "command": command });
+            assert!(
+                ensure_current_allows("Bash", &arguments, root.path()).is_err(),
+                "{command}"
+            );
+        }
+        for command in [
+            "chrt 1 npx tsc --noEmit",
+            "taskset -c 0 npm exec -- tsc --noEmit",
+            "nice -n 5 chrt 1 npx vitest run",
+            "timeout 5 strace -o /dev/null npm test",
+        ] {
+            let arguments = json!({ "command": command });
+            assert!(
+                ensure_current_allows("Bash", &arguments, root.path()).is_ok(),
+                "{command}"
+            );
+        }
+    }
+
+    #[test]
     fn issue871_bash_verify_keeps_canonical_verifiers() {
         let root = tempfile::tempdir().unwrap();
         let _guard = install(false, &[AllowTarget::BashVerify]);
