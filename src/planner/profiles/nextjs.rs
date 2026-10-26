@@ -5,7 +5,6 @@ mod domain;
 mod fix_reproducer;
 pub(crate) mod knowledge;
 pub(crate) mod package_script_check;
-pub(crate) use package_script_check::coupled;
 pub(crate) mod recovery_authority;
 mod repair_excerpts;
 mod response_shape;

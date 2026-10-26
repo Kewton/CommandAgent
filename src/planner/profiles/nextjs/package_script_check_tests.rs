@@ -467,7 +467,7 @@ fn the_corpus_table_agrees_with_the_host_judgement() {
 #[test]
 fn the_quality_lint_couples_only_exact_tokens_in_the_nextjs_profile_to_package_json() {
     use crate::planner::lint::{PlanQualityContext, step_plan_quality_report};
-    let coupling_issues = |profile: &str, command: &str| {
+    let coupling_issues = |profile: &str, paths: &[&str], command: &str| {
         let plan = crate::planner::step_plan::StepPlan {
             goal: "Configure the package scripts".to_string(),
             steps: vec![PlanStep {
@@ -475,7 +475,7 @@ fn the_quality_lint_couples_only_exact_tokens_in_the_nextjs_profile_to_package_j
                 kind: "implement".to_string(),
                 expected_result: "pass".to_string(),
                 instruction: "Update package.json scripts".to_string(),
-                expected_paths: vec!["package.json".to_string()],
+                expected_paths: paths.iter().map(ToString::to_string).collect(),
                 verify: vec![command.to_string()],
             }],
         };
@@ -489,13 +489,22 @@ fn the_quality_lint_couples_only_exact_tokens_in_the_nextjs_profile_to_package_j
             .filter(|issue| issue.category == "verify_artifact_coupling")
             .count()
     };
+    // The exemption does not look at the plan's paths: package.json present or not.
+    let path_sets: [&[&str]; 3] = [&["package.json"], &["src/app/page.tsx"], &[]];
     for command in [
         port_check_command(PortScript::Dev, 3011),
         port_check_command(PortScript::Start, 3011),
         build_check_command(),
     ] {
-        assert_eq!(coupling_issues(NEXTJS_PROFILE_ID, &command), 0, "{command}");
-        assert_eq!(coupling_issues("python-cli", &command), 1, "{command}");
+        for paths in path_sets {
+            let id = format!("{paths:?} {command}");
+            assert_eq!(
+                coupling_issues(NEXTJS_PROFILE_ID, paths, &command),
+                0,
+                "{id}"
+            );
+            assert_eq!(coupling_issues("python-cli", paths, &command), 1, "{id}");
+        }
     }
     for altered in [
         "anvil-nextjs-check:unknown_check",
@@ -503,64 +512,13 @@ fn the_quality_lint_couples_only_exact_tokens_in_the_nextjs_profile_to_package_j
         "anvil-nextjs-check:package_script_port:dev:03011",
         "anvil-nextjs-check:",
     ] {
-        assert_eq!(coupling_issues(NEXTJS_PROFILE_ID, altered), 1, "{altered}");
-    }
-}
-
-#[test]
-fn the_lint_exempts_a_token_only_when_package_json_is_an_expected_path() {
-    use crate::planner::lint::{PlanQualityContext, step_plan_quality_report};
-    let coupling_issues = |paths: &[&str], command: &str| {
-        let plan = crate::planner::step_plan::StepPlan {
-            goal: "Configure the package scripts".to_string(),
-            steps: vec![PlanStep {
-                id: "configure".to_string(),
-                kind: "implement".to_string(),
-                expected_result: "pass".to_string(),
-                instruction: "Update package.json scripts and the page".to_string(),
-                expected_paths: paths.iter().map(ToString::to_string).collect(),
-                verify: vec![command.to_string()],
-            }],
-        };
-        let context = PlanQualityContext {
-            profile: NEXTJS_PROFILE_ID.to_string(),
-            ..PlanQualityContext::default()
-        };
-        step_plan_quality_report(&plan, &context)
-            .issues
-            .iter()
-            .filter(|issue| issue.category == "verify_artifact_coupling")
-            .count()
-    };
-    let checks = [
-        Check::PortScript {
-            script: PortScript::Dev,
-            port: 3011,
-        },
-        Check::PortScript {
-            script: PortScript::Start,
-            port: 3011,
-        },
-        Check::BuildScript,
-    ];
-    for check in checks {
-        let token = match check {
-            Check::PortScript { script, port } => port_check_command(script, port),
-            Check::BuildScript => build_check_command(),
-        };
-        let legacy = legacy_inline_command(check);
-        // The inline text started with `node `, which the lint reads as a strong verify
-        // whatever the paths are; the token is stricter: it needs package.json among them.
-        for paths in [&["package.json"][..], &["src/app/page.tsx"][..], &[][..]] {
-            assert_eq!(coupling_issues(paths, &legacy), 0, "{paths:?}");
+        for paths in path_sets {
+            let id = format!("{paths:?} {altered}");
+            assert_eq!(
+                coupling_issues(NEXTJS_PROFILE_ID, paths, altered),
+                1,
+                "{id}"
+            );
         }
-        assert_eq!(
-            coupling_issues(&["package.json", "src/app/page.tsx"], &token),
-            0,
-            "{token}"
-        );
-        assert_eq!(coupling_issues(&[], &token), 1, "{token}");
-        assert_eq!(coupling_issues(&["package.json"], &token), 0, "{token}");
-        assert_eq!(coupling_issues(&["src/app/page.tsx"], &token), 1, "{token}");
     }
 }

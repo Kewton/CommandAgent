@@ -598,7 +598,7 @@ pub fn step_plan_quality_report(
             if is_strong_verify_command(command) || is_content_assertion_command(command) {
                 continue;
             }
-            if super::profiles::nextjs::coupled(looks_next_profile, command, &all_paths) {
+            if super::profiles::nextjs::package_script_check::coupled(looks_next_profile, command) {
                 continue;
             }
             if command_mentions_any_expected_path(command, &all_paths) {
