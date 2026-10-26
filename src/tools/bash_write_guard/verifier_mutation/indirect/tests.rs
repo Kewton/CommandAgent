@@ -518,7 +518,6 @@ fn unresolved_prefixes_option_values_and_stdin_shells_do_not_hide_a_launcher_str
     }
     for command in [
         "npx -p typescript tsc --noEmit",
-        "npm exec -p -- tsc --noEmit",
         "nice -n5 npx tsc --noEmit",
         "timeout -sKILL 5 npx vitest run",
         "chrt 1 npx tsc --noEmit",
@@ -573,7 +572,6 @@ fn launcher_option_values_stdin_shells_and_config_flags_are_told_apart() {
         "npx -y jest -c jest.config.js",
         "npm exec -- vitest -c vitest.config.ts",
         "npx --yes vitest -c cfg",
-        "npx -q --no-install vitest -c cfg",
         "chrt 1 bash smoke-check.sh",
         "chrt 1 bash -- smoke-check.sh -c",
     ] {
@@ -600,12 +598,8 @@ fn only_the_closed_option_list_is_read_before_an_npx_or_npm_exec_package() {
         assert!(rejection(command, true).is_some(), "{command}");
     }
     for command in [
-        "npx --package typescript tsc --noEmit",
         "npx --package=typescript tsc",
         "npx -p typescript -y tsc --noEmit",
-        "npm exec -w web -- tsc",
-        "npm exec --workspace=web -- tsc --noEmit",
-        "npx --quiet tsc",
     ] {
         assert_eq!(operation(command), None, "{command}");
     }
@@ -631,9 +625,49 @@ fn a_boolean_option_value_and_a_valued_option_value_are_not_the_package() {
         assert!(rejection(command, true).is_some(), "{command}");
     }
     for command in [
+        "npx --yes tsc --noEmit",
+        "npx --yes vitest run -c vitest.config.ts",
+    ] {
+        assert_eq!(operation(command), None, "{command}");
+    }
+}
+
+#[test]
+fn before_a_package_only_yes_and_package_options_are_read() {
+    for command in [
+        "npx -q --no-install vitest -c cfg",
+        "npm exec -p -- tsc --noEmit",
+        "npx --package typescript tsc --noEmit",
+        "npm exec -w web -- tsc",
+        "npm exec --workspace=web -- tsc --noEmit",
+        "npx --quiet tsc",
         "npx --yes true",
         "npx --no true tsc --noEmit",
         "npx --quiet false vitest run -c vitest.config.ts",
+        "npx --no tsc --noEmit",
+        "npx --yes true -c 'true>smoke-check.sh'",
+        "npx --yes null -c 'true>smoke-check.sh'",
+        "npx -y undefined --call 'true>smoke-check.sh'",
+        "npx --yes '' -c 'true>smoke-check.sh'",
+        "npx -y -p typescript tsc --noEmit",
+        "npx --ignore-existing tsc",
+        "npx --package typescript tsc",
+        "npm exec vitest",
+        "npm exec -p typescript -- tsc",
+        "npm x -y tsc --noEmit",
+        "npm exec --yes true -- tsc",
+        "npm exec --yes -- tsc --call",
+        "npm exec --yes -- tsc --noEmit",
+        "npm exec -y -- tsc",
+        "npx -y -- tsc",
+    ] {
+        assert!(find(command).is_some(), "{command}");
+        assert!(rejection(command, true).is_some(), "{command}");
+    }
+    for command in [
+        "npm exec --package=typescript -- tsc --noEmit",
+        "npx --yes tsc --noEmit",
+        "npx --package=typescript --yes tsc",
     ] {
         assert_eq!(operation(command), None, "{command}");
     }

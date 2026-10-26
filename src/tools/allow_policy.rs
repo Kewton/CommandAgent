@@ -486,7 +486,6 @@ mod tests {
         }
         for command in [
             "npx -p typescript tsc --noEmit",
-            "npm exec -p -- tsc --noEmit",
             "nice -n5 npx tsc --noEmit",
             "timeout -sKILL 5 npx vitest run",
             "chrt 1 npx tsc --noEmit",
@@ -536,7 +535,6 @@ mod tests {
             "npx -y jest -c jest.config.js",
             "npm exec -- vitest -c vitest.config.ts",
             "npx --yes vitest -c cfg",
-            "npx -q --no-install vitest -c cfg",
             "chrt 1 bash smoke-check.sh",
             "chrt 1 bash -- smoke-check.sh -c",
         ] {
@@ -572,12 +570,8 @@ mod tests {
             );
         }
         for command in [
-            "npx --package typescript tsc --noEmit",
             "npx --package=typescript tsc",
             "npx -p typescript -y tsc --noEmit",
-            "npm exec -w web -- tsc",
-            "npm exec --workspace=web -- tsc --noEmit",
-            "npx --quiet tsc",
         ] {
             let arguments = json!({ "command": command });
             assert!(
@@ -612,9 +606,58 @@ mod tests {
             );
         }
         for command in [
+            "npx --yes tsc --noEmit",
+            "npx --yes vitest run -c vitest.config.ts",
+        ] {
+            let arguments = json!({ "command": command });
+            assert!(
+                ensure_current_allows("Bash", &arguments, root.path()).is_ok(),
+                "{command}"
+            );
+        }
+    }
+
+    #[test]
+    fn issue871_bash_verify_before_a_package_reads_only_yes_and_package_options() {
+        let root = tempfile::tempdir().unwrap();
+        let _guard = install(false, &[AllowTarget::BashVerify]);
+        for command in [
+            "npx -q --no-install vitest -c cfg",
+            "npm exec -p -- tsc --noEmit",
+            "npx --package typescript tsc --noEmit",
+            "npm exec -w web -- tsc",
+            "npm exec --workspace=web -- tsc --noEmit",
+            "npx --quiet tsc",
             "npx --yes true",
             "npx --no true tsc --noEmit",
             "npx --quiet false vitest run -c vitest.config.ts",
+            "npx --no tsc --noEmit",
+            "npx --yes true -c 'true>smoke-check.sh'",
+            "npx --yes null -c 'true>smoke-check.sh'",
+            "npx -y undefined --call 'true>smoke-check.sh'",
+            "npx --yes '' -c 'true>smoke-check.sh'",
+            "npx -y -p typescript tsc --noEmit",
+            "npx --ignore-existing tsc",
+            "npx --package typescript tsc",
+            "npm exec vitest",
+            "npm exec -p typescript -- tsc",
+            "npm x -y tsc --noEmit",
+            "npm exec --yes true -- tsc",
+            "npm exec --yes -- tsc --call",
+            "npm exec --yes -- tsc --noEmit",
+            "npm exec -y -- tsc",
+            "npx -y -- tsc",
+        ] {
+            let arguments = json!({ "command": command });
+            assert!(
+                ensure_current_allows("Bash", &arguments, root.path()).is_err(),
+                "{command}"
+            );
+        }
+        for command in [
+            "npm exec --package=typescript -- tsc --noEmit",
+            "npx --yes tsc --noEmit",
+            "npx --package=typescript --yes tsc",
         ] {
             let arguments = json!({ "command": command });
             assert!(

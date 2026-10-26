@@ -1657,16 +1657,6 @@
       "expect": "allow"
     },
     {
-      "id": "fix4-allow-1",
-      "origin": "synthetic",
-      "command": "npm exec -p -- tsc --noEmit",
-      "steps": [
-        "verify",
-        "report"
-      ],
-      "expect": "allow"
-    },
-    {
       "id": "fix4-allow-2",
       "origin": "synthetic",
       "command": "nice -n5 npx tsc --noEmit",
@@ -1930,16 +1920,6 @@
       "expect": "allow"
     },
     {
-      "id": "fix6-allow-9",
-      "origin": "synthetic",
-      "command": "npx -q --no-install vitest -c cfg",
-      "steps": [
-        "verify",
-        "report"
-      ],
-      "expect": "allow"
-    },
-    {
       "id": "fix6-allow-10",
       "origin": "synthetic",
       "command": "chrt 1 bash smoke-check.sh",
@@ -2103,16 +2083,6 @@
       "reason_contains": "reading a script from stdin"
     },
     {
-      "id": "fix7-allow-0",
-      "origin": "synthetic",
-      "command": "npx --package typescript tsc --noEmit",
-      "steps": [
-        "verify",
-        "report"
-      ],
-      "expect": "allow"
-    },
-    {
       "id": "fix7-allow-1",
       "origin": "synthetic",
       "command": "npx --package=typescript tsc",
@@ -2126,36 +2096,6 @@
       "id": "fix7-allow-2",
       "origin": "synthetic",
       "command": "npx -p typescript -y tsc --noEmit",
-      "steps": [
-        "verify",
-        "report"
-      ],
-      "expect": "allow"
-    },
-    {
-      "id": "fix7-allow-3",
-      "origin": "synthetic",
-      "command": "npm exec -w web -- tsc",
-      "steps": [
-        "verify",
-        "report"
-      ],
-      "expect": "allow"
-    },
-    {
-      "id": "fix7-allow-4",
-      "origin": "synthetic",
-      "command": "npm exec --workspace=web -- tsc --noEmit",
-      "steps": [
-        "verify",
-        "report"
-      ],
-      "expect": "allow"
-    },
-    {
-      "id": "fix7-allow-5",
-      "origin": "synthetic",
-      "command": "npx --quiet tsc",
       "steps": [
         "verify",
         "report"
@@ -2295,19 +2235,273 @@
       "reason_contains": "`npm -c`"
     },
     {
-      "id": "fix8-allow-0",
+      "id": "fix9-reject-0",
+      "origin": "synthetic",
+      "command": "npx -q --no-install vitest -c cfg",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npx -c`"
+    },
+    {
+      "id": "fix9-reject-1",
+      "origin": "synthetic",
+      "command": "npm exec -p -- tsc --noEmit",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npm -c`"
+    },
+    {
+      "id": "fix9-reject-2",
+      "origin": "synthetic",
+      "command": "npx --package typescript tsc --noEmit",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npx -c`"
+    },
+    {
+      "id": "fix9-reject-3",
+      "origin": "synthetic",
+      "command": "npm exec -w web -- tsc",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npm -c`"
+    },
+    {
+      "id": "fix9-reject-4",
+      "origin": "synthetic",
+      "command": "npm exec --workspace=web -- tsc --noEmit",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npm -c`"
+    },
+    {
+      "id": "fix9-reject-5",
+      "origin": "synthetic",
+      "command": "npx --quiet tsc",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npx -c`"
+    },
+    {
+      "id": "fix9-reject-6",
       "origin": "synthetic",
       "command": "npx --yes true",
       "steps": [
         "verify",
         "report"
       ],
-      "expect": "allow"
+      "expect": "reject",
+      "reason_contains": "`npx -c`"
     },
     {
-      "id": "fix8-allow-1",
+      "id": "fix9-reject-7",
       "origin": "synthetic",
       "command": "npx --no true tsc --noEmit",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npx -c`"
+    },
+    {
+      "id": "fix9-reject-8",
+      "origin": "synthetic",
+      "command": "npx --quiet false vitest run -c vitest.config.ts",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npx -c`"
+    },
+    {
+      "id": "fix9-reject-9",
+      "origin": "synthetic",
+      "command": "npx --no tsc --noEmit",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npx -c`"
+    },
+    {
+      "id": "fix9-reject-10",
+      "origin": "synthetic",
+      "command": "npx --yes true -c 'true>smoke-check.sh'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npx -c`"
+    },
+    {
+      "id": "fix9-reject-11",
+      "origin": "synthetic",
+      "command": "npx --yes null -c 'true>smoke-check.sh'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npx -c`"
+    },
+    {
+      "id": "fix9-reject-12",
+      "origin": "synthetic",
+      "command": "npx -y undefined --call 'true>smoke-check.sh'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npx -c`"
+    },
+    {
+      "id": "fix9-reject-13",
+      "origin": "synthetic",
+      "command": "npx --yes '' -c 'true>smoke-check.sh'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npx -c`"
+    },
+    {
+      "id": "fix9-reject-14",
+      "origin": "synthetic",
+      "command": "npx -y -p typescript tsc --noEmit",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npx -c`"
+    },
+    {
+      "id": "fix9-reject-15",
+      "origin": "synthetic",
+      "command": "npx --ignore-existing tsc",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npx -c`"
+    },
+    {
+      "id": "fix9-reject-16",
+      "origin": "synthetic",
+      "command": "npx --package typescript tsc",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npx -c`"
+    },
+    {
+      "id": "fix9-reject-17",
+      "origin": "synthetic",
+      "command": "npm exec vitest",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npm -c`"
+    },
+    {
+      "id": "fix9-reject-18",
+      "origin": "synthetic",
+      "command": "npm exec -p typescript -- tsc",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npm -c`"
+    },
+    {
+      "id": "fix9-reject-19",
+      "origin": "synthetic",
+      "command": "npm x -y tsc --noEmit",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npm -c`"
+    },
+    {
+      "id": "fix9-reject-20",
+      "origin": "synthetic",
+      "command": "npm exec --yes true -- tsc",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npm -c`"
+    },
+    {
+      "id": "fix9-reject-21",
+      "origin": "synthetic",
+      "command": "npm exec --yes -- tsc --call",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npm -c`"
+    },
+    {
+      "id": "fix9-reject-dash-0",
+      "origin": "synthetic",
+      "command": "npm exec --yes -- tsc --noEmit",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npm -c`"
+    },
+    {
+      "id": "fix9-reject-dash-1",
+      "origin": "synthetic",
+      "command": "npm exec -y -- tsc",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npm -c`"
+    },
+    {
+      "id": "fix9-allow-2",
+      "origin": "synthetic",
+      "command": "npm exec --package=typescript -- tsc --noEmit",
       "steps": [
         "verify",
         "report"
@@ -2315,9 +2509,30 @@
       "expect": "allow"
     },
     {
-      "id": "fix8-allow-2",
+      "id": "fix9-allow-3",
       "origin": "synthetic",
-      "command": "npx --quiet false vitest run -c vitest.config.ts",
+      "command": "npx --yes tsc --noEmit",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix9-reject-dash-4",
+      "origin": "synthetic",
+      "command": "npx -y -- tsc",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npx -c`"
+    },
+    {
+      "id": "fix9-allow-5",
+      "origin": "synthetic",
+      "command": "npx --package=typescript --yes tsc",
       "steps": [
         "verify",
         "report"

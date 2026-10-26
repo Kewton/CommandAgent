@@ -209,31 +209,10 @@ fn launcher_string(program: &str, arguments: &[String]) -> Option<String> {
         .then(|| format!("{program} -c"))
 }
 
-/// `npx` options that take no value word.
-const NPX_FLAGS: [&str; 12] = [
-    "--yes",
-    "-y",
-    "--no",
-    "--quiet",
-    "-q",
-    "--no-install",
-    "--ignore-existing",
-    "--verbose",
-    "--silent",
-    "--version",
-    "-v",
-    "--help",
-];
-
-/// `npx`/`npm exec` options read before the package: the closed list. Any other
-/// dash word there (an abbreviation, a short alias, a cluster, an unknown
-/// option) is refused, so no spelling of a call option can hide in it.
-const NPX_VALUED: [&str; 4] = ["--package", "-p", "--workspace", "-w"];
-
 /// `flock --command`, `script -qc`, `npx -c`, `npm exec --call`: the launcher
 /// hands one string to a shell. `flock` and `script` are scanned whole. `npx`
-/// reads options up to its package and `npm exec` up to `--` (all words when
-/// there is none); only [`NPX_FLAGS`] and [`NPX_VALUED`] are understood there.
+/// and `npm exec` read options only from a closed list (see
+/// [`package_launcher_options_unreadable`]); the rest is refused unread.
 fn launcher_runs_string(program: &str, arguments: &[String]) -> bool {
     match program {
         "flock" | "script" => arguments
@@ -254,8 +233,21 @@ fn launcher_runs_string(program: &str, arguments: &[String]) -> bool {
     }
 }
 
-/// True when an option before the package is outside the closed list, which
-/// includes every spelling of `-c`/`--call`.
+/// A word `--yes`/`-y` must not be followed by: the boolean parser would take
+/// it as the option's value, so it is not the package.
+fn is_boolean_value_or_option(word: &str) -> bool {
+    word.is_empty()
+        || word.starts_with('-')
+        || matches!(word, "true" | "false" | "null" | "undefined")
+}
+
+/// True when the words before the package are outside the closed list, which
+/// includes every spelling of `-c`/`--call`. Before the package, `npx` accepts
+/// `--yes`, `-y`, `--package=<v>` and `-p <v>` only; `npm exec` accepts
+/// `--yes`, `-y` and `--package=<v>` only, up to `--` (all words when there is
+/// none). `--yes`/`-y` must not be followed by `true`, `false`, `null`,
+/// `undefined`, an empty word or an option. Nothing else is read: no
+/// abbreviation, alias, `--package <v>`, `--workspace`, `--quiet`, `--no`.
 fn package_launcher_options_unreadable(arguments: &[String], ends_at_package: bool) -> bool {
     let mut index = 0;
     while index < arguments.len() {
@@ -264,37 +256,31 @@ fn package_launcher_options_unreadable(arguments: &[String], ends_at_package: bo
         if argument == "--" {
             return false;
         }
-        if !argument.starts_with('-') {
-            if ends_at_package {
-                return false;
-            }
-            continue;
+        if ends_at_package && !argument.starts_with('-') {
+            return false;
         }
-        if NPX_FLAGS.contains(&argument) {
-            // A boolean option takes an explicit `true`/`false` as its value, so
-            // that word is not the package.
-            if arguments
-                .get(index)
-                .is_some_and(|next| matches!(next.as_str(), "true" | "false"))
-            {
+        match argument {
+            "--yes" | "-y" => {
+                if arguments
+                    .get(index)
+                    .is_some_and(|next| is_boolean_value_or_option(next))
+                {
+                    return true;
+                }
+            }
+            "-p" if ends_at_package => {
+                if arguments
+                    .get(index)
+                    .is_none_or(|next| next.starts_with('-') || next.is_empty())
+                {
+                    return true;
+                }
                 index += 1;
             }
-            continue;
-        }
-        if NPX_VALUED.contains(&argument) {
-            if arguments
-                .get(index)
-                .is_some_and(|next| !next.starts_with('-'))
-            {
-                index += 1;
-            }
-            continue;
-        }
-        let inline_value = argument
-            .strip_prefix("--package=")
-            .or_else(|| argument.strip_prefix("--workspace="));
-        if inline_value.is_none() {
-            return true;
+            _ if argument
+                .strip_prefix("--package=")
+                .is_some_and(|value| !value.is_empty()) => {}
+            _ => return true,
         }
     }
     false
