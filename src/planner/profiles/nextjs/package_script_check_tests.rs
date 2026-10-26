@@ -506,3 +506,61 @@ fn the_quality_lint_couples_only_exact_tokens_in_the_nextjs_profile_to_package_j
         assert_eq!(coupling_issues(NEXTJS_PROFILE_ID, altered), 1, "{altered}");
     }
 }
+
+#[test]
+fn the_lint_exempts_a_token_only_when_package_json_is_an_expected_path() {
+    use crate::planner::lint::{PlanQualityContext, step_plan_quality_report};
+    let coupling_issues = |paths: &[&str], command: &str| {
+        let plan = crate::planner::step_plan::StepPlan {
+            goal: "Configure the package scripts".to_string(),
+            steps: vec![PlanStep {
+                id: "configure".to_string(),
+                kind: "implement".to_string(),
+                expected_result: "pass".to_string(),
+                instruction: "Update package.json scripts and the page".to_string(),
+                expected_paths: paths.iter().map(ToString::to_string).collect(),
+                verify: vec![command.to_string()],
+            }],
+        };
+        let context = PlanQualityContext {
+            profile: NEXTJS_PROFILE_ID.to_string(),
+            ..PlanQualityContext::default()
+        };
+        step_plan_quality_report(&plan, &context)
+            .issues
+            .iter()
+            .filter(|issue| issue.category == "verify_artifact_coupling")
+            .count()
+    };
+    let checks = [
+        Check::PortScript {
+            script: PortScript::Dev,
+            port: 3011,
+        },
+        Check::PortScript {
+            script: PortScript::Start,
+            port: 3011,
+        },
+        Check::BuildScript,
+    ];
+    for check in checks {
+        let token = match check {
+            Check::PortScript { script, port } => port_check_command(script, port),
+            Check::BuildScript => build_check_command(),
+        };
+        let legacy = legacy_inline_command(check);
+        // The inline text started with `node `, which the lint reads as a strong verify
+        // whatever the paths are; the token is stricter: it needs package.json among them.
+        for paths in [&["package.json"][..], &["src/app/page.tsx"][..], &[][..]] {
+            assert_eq!(coupling_issues(paths, &legacy), 0, "{paths:?}");
+        }
+        assert_eq!(
+            coupling_issues(&["package.json", "src/app/page.tsx"], &token),
+            0,
+            "{token}"
+        );
+        assert_eq!(coupling_issues(&[], &token), 1, "{token}");
+        assert_eq!(coupling_issues(&["package.json"], &token), 0, "{token}");
+        assert_eq!(coupling_issues(&["src/app/page.tsx"], &token), 1, "{token}");
+    }
+}
