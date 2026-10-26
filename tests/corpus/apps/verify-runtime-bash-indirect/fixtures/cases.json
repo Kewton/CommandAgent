@@ -1695,6 +1695,291 @@
         "report"
       ],
       "expect": "allow"
+    },
+    {
+      "id": "fix6-reject-0",
+      "origin": "synthetic",
+      "command": "npx --cache npm-cache -c 'echo hi'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npx -c`"
+    },
+    {
+      "id": "fix6-reject-1",
+      "origin": "synthetic",
+      "command": "npx --cache=npm-cache -c 'echo hi'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npx -c`"
+    },
+    {
+      "id": "fix6-reject-2",
+      "origin": "synthetic",
+      "command": "npm exec --cache npm-cache --call 'echo hi'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npm -c`"
+    },
+    {
+      "id": "fix6-reject-3",
+      "origin": "synthetic",
+      "command": "npm exec vitest -c 'echo hi'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npm -c`"
+    },
+    {
+      "id": "fix6-reject-4",
+      "origin": "synthetic",
+      "command": "chrt -o 0 bash -s",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "reading a script from stdin"
+    },
+    {
+      "id": "fix6-reject-5",
+      "origin": "synthetic",
+      "command": "chrt -o 0 bash -s -- a b",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "reading a script from stdin"
+    },
+    {
+      "id": "fix6-reject-6",
+      "origin": "synthetic",
+      "command": "chrt 1 bash",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "reading a script from stdin"
+    },
+    {
+      "id": "fix6-reject-7",
+      "origin": "synthetic",
+      "command": "nice -n 5 chrt 1 bash -s",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "reading a script from stdin"
+    },
+    {
+      "id": "fix6-reject-8",
+      "origin": "synthetic",
+      "command": "bash -s --help",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "reading a script from stdin"
+    },
+    {
+      "id": "fix6-reject-9",
+      "origin": "synthetic",
+      "command": "bash -s --version",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "reading a script from stdin"
+    },
+    {
+      "id": "fix6-reject-10",
+      "origin": "synthetic",
+      "command": "chrt 1 bash -s --version",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "reading a script from stdin"
+    },
+    {
+      "id": "fix6-reject-11",
+      "origin": "synthetic",
+      "command": "nice -n 5 npx -c 'true>smoke-check.sh'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npx -c`"
+    },
+    {
+      "id": "fix6-reject-12",
+      "origin": "synthetic",
+      "command": "timeout -s KILL 5 npx -c 'true>smoke-check.sh'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npx -c`"
+    },
+    {
+      "id": "fix6-allow-0",
+      "origin": "synthetic",
+      "command": "npx -p typescript tsc --noEmit",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix6-allow-1",
+      "origin": "synthetic",
+      "command": "npx vitest run -c vitest.config.ts",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix6-allow-2",
+      "origin": "synthetic",
+      "command": "npm exec -- tsc --noEmit",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix6-allow-3",
+      "origin": "synthetic",
+      "command": "npm exec -- vitest run -c cfg",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix6-allow-4",
+      "origin": "synthetic",
+      "command": "npx vitest -c vitest.config.ts",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix6-allow-5",
+      "origin": "synthetic",
+      "command": "npx --yes vitest run -c vitest.config.ts",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix6-allow-6",
+      "origin": "synthetic",
+      "command": "npx -y jest -c jest.config.js",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix6-allow-7",
+      "origin": "synthetic",
+      "command": "npm exec -- vitest -c vitest.config.ts",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix6-allow-8",
+      "origin": "synthetic",
+      "command": "npx --yes vitest -c cfg",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix6-allow-9",
+      "origin": "synthetic",
+      "command": "npx -q --no-install vitest -c cfg",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix6-allow-10",
+      "origin": "synthetic",
+      "command": "chrt 1 bash smoke-check.sh",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix6-allow-11",
+      "origin": "synthetic",
+      "command": "chrt 1 bash -- smoke-check.sh -c",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix6-attached-reject-0",
+      "origin": "synthetic",
+      "command": "nice -n5 npx -c 'true>smoke-check.sh'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npx -c`"
+    },
+    {
+      "id": "fix6-attached-reject-1",
+      "origin": "synthetic",
+      "command": "timeout -sKILL 5 npx -c 'true>smoke-check.sh'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npx -c`"
     }
   ],
   "host_cases": [

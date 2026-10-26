@@ -153,15 +153,25 @@ fn segment_operation(words: &[&str]) -> Option<String> {
         } => classify(&program, &arguments, true).or_else(|| launched(&program, &arguments)),
         // An unresolvable prefix hides which program runs, so every word is
         // tried as the program with the words after it as its arguments.
-        Resolution::Undecidable { .. } | Resolution::NoExecution { .. } => (0..words.len())
-            .find_map(|index| {
+        Resolution::Undecidable { .. } | Resolution::NoExecution { .. } => {
+            let mut under_launcher = false;
+            for index in 0..words.len() {
                 let arguments: Vec<String> = words[index + 1..]
                     .iter()
                     .map(|word| (*word).to_string())
                     .collect();
                 let name = base_name(words[index]);
-                classify(name, &arguments, false).or_else(|| launcher_string(name, &arguments))
-            }),
+                // A shell under a launcher that was reached is certain enough for
+                // the stdin rule; a bare guess is not.
+                let found = classify(name, &arguments, under_launcher)
+                    .or_else(|| launcher_string(name, &arguments));
+                if found.is_some() {
+                    return found;
+                }
+                under_launcher |= is_launcher(name, &arguments);
+            }
+            None
+        }
         // The parent's write table already refuses `env -S`.
         Resolution::UnverifiableSplitString { .. } => None,
     }
@@ -188,7 +198,7 @@ fn launched(program: &str, arguments: &[String]) -> Option<String> {
         .find_map(|index| {
             let name = base_name(&arguments[index]);
             let rest = &arguments[index + 1..];
-            classify(name, rest, false).or_else(|| launcher_string(name, rest))
+            classify(name, rest, true).or_else(|| launcher_string(name, rest))
         })
         .or_else(|| launcher_string(program, arguments))
 }
@@ -199,25 +209,32 @@ fn launcher_string(program: &str, arguments: &[String]) -> Option<String> {
         .then(|| format!("{program} -c"))
 }
 
+/// `npx` options that take no value word.
+const NPX_FLAGS: [&str; 12] = [
+    "--yes",
+    "-y",
+    "--no",
+    "--quiet",
+    "-q",
+    "--no-install",
+    "--ignore-existing",
+    "--verbose",
+    "--silent",
+    "--version",
+    "-v",
+    "--help",
+];
+
 /// `npx -c`, `npm exec --call`, `flock --command`, `script -qc`: the launcher
-/// hands one string to a shell.
+/// hands one string to a shell. `npm` reads every option before `--` itself, so
+/// they are all scanned; `npx` options end at the first positional, and an
+/// option it does not know may take the next plain word as its value.
 fn launcher_runs_string(program: &str, arguments: &[String]) -> bool {
-    // `npm exec <options> <package>`: the subcommand word is not an option.
-    // `valued` options take the next word, unless that word is itself an
-    // option: an option never hides another one. npx `-p` is `--package`; npm
-    // `-p` is the boolean `--parseable`.
-    let (arguments, scans_all, valued): (&[String], bool, &[&str]) = match program {
-        "flock" | "script" => (arguments, true, &[]),
-        "npx" => (
-            arguments,
-            false,
-            &["-p", "--package", "-w", "--workspace", "--registry"],
-        ),
-        "npm" => (
-            arguments.get(1..).unwrap_or_default(),
-            false,
-            &["--package", "-w", "--workspace", "--registry"],
-        ),
+    let (arguments, ends_at_positional) = match program {
+        "flock" | "script" => (arguments, false),
+        "npx" => (arguments, true),
+        // `npm exec <options>`: the subcommand word is not an option.
+        "npm" => (arguments.get(1..).unwrap_or_default(), false),
         _ => return false,
     };
     let mut index = 0;
@@ -226,15 +243,6 @@ fn launcher_runs_string(program: &str, arguments: &[String]) -> bool {
         index += 1;
         if argument == "--" {
             return false;
-        }
-        if valued.contains(&argument) {
-            if arguments
-                .get(index)
-                .is_some_and(|next| !next.starts_with('-'))
-            {
-                index += 1;
-            }
-            continue;
         }
         if matches!(argument, "--call" | "--command")
             || argument.starts_with("--call=")
@@ -246,7 +254,18 @@ fn launcher_runs_string(program: &str, arguments: &[String]) -> bool {
             if !cluster.starts_with('-') && cluster.contains('c') {
                 return true;
             }
-        } else if !scans_all {
+            let takes_value = if cluster.starts_with('-') {
+                !argument.contains('=') && !NPX_FLAGS.contains(&argument)
+            } else {
+                matches!(argument, "-p" | "-w")
+            };
+            let next_is_plain = arguments
+                .get(index)
+                .is_some_and(|next| !next.starts_with('-'));
+            if ends_at_positional && takes_value && next_is_plain {
+                index += 1;
+            }
+        } else if ends_at_positional {
             // The package ends the launcher's own options.
             return false;
         }
@@ -307,7 +326,13 @@ fn shell_form(arguments: &[String]) -> ShellForm {
         }
         if let Some(long) = argument.strip_prefix("--") {
             match long {
-                "version" | "help" => return ShellForm::Script,
+                "version" | "help" => {
+                    return if reads_stdin {
+                        ShellForm::Stdin
+                    } else {
+                        ShellForm::Script
+                    };
+                }
                 "rcfile" | "init-file" => index += 1,
                 _ => {}
             }

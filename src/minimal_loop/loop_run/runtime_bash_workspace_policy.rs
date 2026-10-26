@@ -641,6 +641,50 @@ mod tests {
     }
 
     #[test]
+    fn issue871_launcher_option_values_stdin_shells_and_config_flags_are_told_apart() {
+        let root = tempfile::tempdir().unwrap();
+        for step in [RunSessionStepKind::Verify, RunSessionStepKind::Report] {
+            for command in [
+                "npx --cache npm-cache -c 'echo hi'",
+                "npx --cache=npm-cache -c 'echo hi'",
+                "npm exec --cache npm-cache --call 'echo hi'",
+                "npm exec vitest -c 'echo hi'",
+                "chrt -o 0 bash -s",
+                "chrt -o 0 bash -s -- a b",
+                "chrt 1 bash",
+                "nice -n 5 chrt 1 bash -s",
+                "bash -s --help",
+                "bash -s --version",
+                "chrt 1 bash -s --version",
+                "nice -n 5 npx -c 'true>smoke-check.sh'",
+                "timeout -s KILL 5 npx -c 'true>smoke-check.sh'",
+                "nice -n5 npx -c 'true>smoke-check.sh'",
+                "timeout -sKILL 5 npx -c 'true>smoke-check.sh'",
+            ] {
+                let id = format!("{step:?} {command}");
+                assert_refused_before_execution(&decide(step, command, root.path()), &id);
+            }
+            for command in [
+                "npx -p typescript tsc --noEmit",
+                "npx vitest run -c vitest.config.ts",
+                "npm exec -- tsc --noEmit",
+                "npm exec -- vitest run -c cfg",
+                "npx vitest -c vitest.config.ts",
+                "npx --yes vitest run -c vitest.config.ts",
+                "npx -y jest -c jest.config.js",
+                "npm exec -- vitest -c vitest.config.ts",
+                "npx --yes vitest -c cfg",
+                "npx -q --no-install vitest -c cfg",
+                "chrt 1 bash smoke-check.sh",
+                "chrt 1 bash -- smoke-check.sh -c",
+            ] {
+                let decision = decide(step, command, root.path());
+                assert!(!decision.blocked, "{step:?} {command}: {}", decision.reason);
+            }
+        }
+    }
+
+    #[test]
     fn issue871_raw_check_alone_refuses_a_form_the_other_texts_do_not_show() {
         let root = tempfile::tempdir().unwrap();
         let mut decision = RuntimeBashPolicyDecision::for_step(

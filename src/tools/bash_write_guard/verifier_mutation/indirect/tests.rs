@@ -540,3 +540,43 @@ fn a_deep_launcher_nesting_is_read_in_one_pass() {
     assert!(find(&format!("{mixed}npm exec -c 'cp a b'")).is_some());
     assert_eq!(operation(&format!("{mixed}npm exec -- tsc --noEmit")), None);
 }
+
+#[test]
+fn launcher_option_values_stdin_shells_and_config_flags_are_told_apart() {
+    for command in [
+        "npx --cache npm-cache -c 'echo hi'",
+        "npx --cache=npm-cache -c 'echo hi'",
+        "npm exec --cache npm-cache --call 'echo hi'",
+        "npm exec vitest -c 'echo hi'",
+        "chrt -o 0 bash -s",
+        "chrt -o 0 bash -s -- a b",
+        "chrt 1 bash",
+        "nice -n 5 chrt 1 bash -s",
+        "bash -s --help",
+        "bash -s --version",
+        "chrt 1 bash -s --version",
+        "nice -n 5 npx -c 'true>smoke-check.sh'",
+        "timeout -s KILL 5 npx -c 'true>smoke-check.sh'",
+        "nice -n5 npx -c 'true>smoke-check.sh'",
+        "timeout -sKILL 5 npx -c 'true>smoke-check.sh'",
+    ] {
+        assert!(find(command).is_some(), "{command}");
+        assert!(rejection(command, true).is_some(), "{command}");
+    }
+    for command in [
+        "npx -p typescript tsc --noEmit",
+        "npx vitest run -c vitest.config.ts",
+        "npm exec -- tsc --noEmit",
+        "npm exec -- vitest run -c cfg",
+        "npx vitest -c vitest.config.ts",
+        "npx --yes vitest run -c vitest.config.ts",
+        "npx -y jest -c jest.config.js",
+        "npm exec -- vitest -c vitest.config.ts",
+        "npx --yes vitest -c cfg",
+        "npx -q --no-install vitest -c cfg",
+        "chrt 1 bash smoke-check.sh",
+        "chrt 1 bash -- smoke-check.sh -c",
+    ] {
+        assert_eq!(operation(command), None, "{command}");
+    }
+}

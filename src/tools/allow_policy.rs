@@ -500,6 +500,55 @@ mod tests {
     }
 
     #[test]
+    fn issue871_bash_verify_tells_launcher_option_values_and_config_flags_apart() {
+        let root = tempfile::tempdir().unwrap();
+        let _guard = install(false, &[AllowTarget::BashVerify]);
+        for command in [
+            "npx --cache npm-cache -c 'echo hi'",
+            "npx --cache=npm-cache -c 'echo hi'",
+            "npm exec --cache npm-cache --call 'echo hi'",
+            "npm exec vitest -c 'echo hi'",
+            "chrt -o 0 bash -s",
+            "chrt -o 0 bash -s -- a b",
+            "chrt 1 bash",
+            "nice -n 5 chrt 1 bash -s",
+            "bash -s --help",
+            "bash -s --version",
+            "chrt 1 bash -s --version",
+            "nice -n 5 npx -c 'true>smoke-check.sh'",
+            "timeout -s KILL 5 npx -c 'true>smoke-check.sh'",
+            "nice -n5 npx -c 'true>smoke-check.sh'",
+            "timeout -sKILL 5 npx -c 'true>smoke-check.sh'",
+        ] {
+            let arguments = json!({ "command": command });
+            assert!(
+                ensure_current_allows("Bash", &arguments, root.path()).is_err(),
+                "{command}"
+            );
+        }
+        for command in [
+            "npx -p typescript tsc --noEmit",
+            "npx vitest run -c vitest.config.ts",
+            "npm exec -- tsc --noEmit",
+            "npm exec -- vitest run -c cfg",
+            "npx vitest -c vitest.config.ts",
+            "npx --yes vitest run -c vitest.config.ts",
+            "npx -y jest -c jest.config.js",
+            "npm exec -- vitest -c vitest.config.ts",
+            "npx --yes vitest -c cfg",
+            "npx -q --no-install vitest -c cfg",
+            "chrt 1 bash smoke-check.sh",
+            "chrt 1 bash -- smoke-check.sh -c",
+        ] {
+            let arguments = json!({ "command": command });
+            assert!(
+                ensure_current_allows("Bash", &arguments, root.path()).is_ok(),
+                "{command}"
+            );
+        }
+    }
+
+    #[test]
     fn issue871_bash_verify_keeps_canonical_verifiers() {
         let root = tempfile::tempdir().unwrap();
         let _guard = install(false, &[AllowTarget::BashVerify]);
