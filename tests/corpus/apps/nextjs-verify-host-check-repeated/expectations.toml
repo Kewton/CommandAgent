@@ -1,0 +1,18 @@
+case_id = "nextjs-verify-host-check-repeated"
+source = "synthetic, derived from the shape of campaign-G1-3a9 game-g phase 1 (nextjs-profile-verify refused three times in a Verify step); no recorded text, secret or absolute path"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+package-json-table.json = ["synthetic", "next dev -p 3011", "next build --lint"]
+declared-verify.json = ["anvil-nextjs-check:package_script_port:dev:3011", "anvil-nextjs-check:build_script"]
+model-commands.json = ["one_by_one", "newline", "and_and", "semicolon", "inline_node_refused"]
+expected.json = ["nextjs-profile-verify", "passed", "recoverable tool error repeated"]

@@ -54,12 +54,16 @@ mod tests {
 
     #[test]
     fn passed_verifier_inspection_does_not_authorize_compile_snapshot() {
-        let inspection = passed_lifecycle(
+        // The host's build-script inspection is a check token (Issue #879); the inline
+        // text it replaced is still no production build either.
+        let inspection = passed_lifecycle("anvil-nextjs-check:build_script");
+        let legacy = passed_lifecycle(
             r#"node -p "String(require('./package.json').scripts.build)=='next build' ? true : process.exit(1)""#,
         );
         let build = passed_lifecycle("npm run build");
 
         assert!(!production_build_lifecycle_passed(&[inspection]));
+        assert!(!production_build_lifecycle_passed(&[legacy]));
         assert!(production_build_lifecycle_passed(&[build]));
     }
 }

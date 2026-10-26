@@ -239,7 +239,17 @@ fn issue479_final_inventory_preserves_all_five_checks_and_full_issue478_duties()
         "../../../tests/corpus/apps/issue478-model-host-obligations/package-checks.json"
     ))
     .unwrap();
-    assert_eq!(formed.steps[3].verify, package);
+    // Issue #879: the host declares these checks as tokens; the fixture keeps the inline
+    // text it once declared, which names the same check byte for byte.
+    assert_eq!(formed.steps[3].verify.len(), package.len());
+    for (formed, original) in formed.steps[3].verify.iter().zip(&package) {
+        assert!(
+            crate::planner::profiles::nextjs::package_script_check::same_declared_check(
+                formed, original
+            ),
+            "{formed} vs {original}"
+        );
+    }
     assert_eq!(formed.steps[3].step_kind(), StepKind::Implement);
     assert!(
         formed.steps[3]

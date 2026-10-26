@@ -107,7 +107,17 @@ fn issue478_saved_split_preserves_executable_model_and_host_duties() {
         "../../../tests/corpus/apps/issue478-model-host-obligations/package-checks.json"
     ))
     .unwrap();
-    assert_eq!(formed.steps[3].verify, original_package_checks);
+    // Issue #879: the host declares these checks as tokens; the fixture keeps the inline
+    // text it once declared, which names the same check byte for byte.
+    assert_eq!(formed.steps[3].verify.len(), original_package_checks.len());
+    for (formed, original) in formed.steps[3].verify.iter().zip(&original_package_checks) {
+        assert!(
+            crate::planner::profiles::nextjs::package_script_check::same_declared_check(
+                formed, original
+            ),
+            "{formed} vs {original}"
+        );
+    }
     assert!(
         formed.steps[3]
             .instruction

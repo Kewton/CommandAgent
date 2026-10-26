@@ -7,6 +7,7 @@ pub(crate) fn is_internal_command(command: &str) -> bool {
     crate::planner::profiles::data::step_policy::catalog_check_id(command).is_some()
         || crate::planner::profiles::python_cli::readme_verify::is_check_command(command)
         || crate::planner::profiles::ingest::phase_verify::is_check_command(command)
+        || crate::planner::profiles::nextjs::package_script_check::is_check_command(command)
 }
 
 pub(crate) fn run(
@@ -29,4 +30,7 @@ pub(crate) fn run(
         root, profile, step, report,
     );
     crate::planner::profiles::ingest::phase_verify::run_step_check(root, profile, step, report);
+    crate::planner::profiles::nextjs::package_script_check::run_step_check(
+        root, profile, step, report,
+    );
 }

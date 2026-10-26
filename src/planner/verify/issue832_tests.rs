@@ -18,11 +18,17 @@ use crate::planner::adjudication::contract::IntentId;
 use crate::planner::capability_catalog::{ResolvedCapability, resolve};
 use crate::planner::profile::resolve_profile_runtime;
 use crate::planner::profile_descriptor::NEXTJS_PROFILE_ID;
+use crate::planner::profiles::nextjs::package_script_check::{
+    Check, PortScript, evaluate, legacy_inline_command,
+};
 use crate::planner::recovery_step_plan_binding::admission::{Admission, Decision};
 use crate::planner::step_plan::repair_generated_step_plan_contract;
 
 const FIXTURE: &str = "tests/corpus/apps/issue832-port-script-template-admission";
 const DEV_ONLY_BUILDER_3011: &str = "node -p \"['dev'].every(function(k){return String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='next' ? a.slice(i+1).find(function(x){return x})==k : false}) ? String(Object(require('./package.json').scripts)[k]).split(' ').some(function(t,i,a){return t=='--port=3011' ? true : t=='-p' ? a.slice(i+1).find(function(x){return x})=='3011' : t=='-p3011' ? true : t=='--port' ? a.slice(i+1).find(function(x){return x})=='3011' : false}) : false}) ? true : process.exit(1)\"";
+
+/// Issue #879: the host now assembles the dev check as this token, judged in Rust.
+const DEV_TOKEN_3011: &str = "anvil-nextjs-check:package_script_port:dev:3011";
 
 fn fixture(name: &str) -> String {
     std::fs::read_to_string(
@@ -105,6 +111,14 @@ fn issue832_manifest_pins_the_recorded_template_plan() {
 fn issue832_catalog_command_is_byte_identical_to_the_dev_required_builder() {
     assert_eq!(
         package_json_port_script_check_command("3011"),
+        DEV_TOKEN_3011
+    );
+    // The token stands for exactly the dev-required inline check recorded by #832.
+    assert_eq!(
+        legacy_inline_command(Check::PortScript {
+            script: PortScript::Dev,
+            port: 3011
+        }),
         DEV_ONLY_BUILDER_3011
     );
     for port in [3011_i64, 4321] {
@@ -114,11 +128,20 @@ fn issue832_catalog_command_is_byte_identical_to_the_dev_required_builder() {
         );
         assert!(!catalog_command(port).contains("['dev','start']"));
     }
-    // An out-of-range port can never be satisfied, so it fails closed.
+    // An out-of-range port can never be satisfied, so it fails closed: the token keeps the
+    // text, does not parse, and the host judgement rejects it.
+    let unparsable = package_json_port_script_check_command("99999");
     assert_eq!(
-        package_json_port_script_check_command("99999"),
-        "node -p \"process.exit(1)\""
+        unparsable,
+        "anvil-nextjs-check:package_script_port:dev:99999"
     );
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(
+        root.path().join("package.json"),
+        r#"{"scripts":{"dev":"next dev -p 99999"}}"#,
+    )
+    .unwrap();
+    assert!(evaluate(root.path(), &unparsable).is_err());
 }
 
 #[test]
@@ -146,12 +169,17 @@ fn issue832_catalog_command_is_static_syntax_without_an_immutable_failure() {
 #[test]
 fn issue832_dev_required_strictness_table() {
     let command = package_json_port_script_check_command("3011");
-    // Byte and token logic holds without node: dev is the only script that is checked.
-    assert!(command.starts_with("node -p \"['dev'].every("), "{command}");
-    assert!(!command.contains("'start'"), "{command}");
-    if !node_available() {
-        eprintln!("node is not available; the byte and token assertions above stand in");
-        return;
+    // Token logic holds without node: dev is the only script that is checked.
+    assert_eq!(command, DEV_TOKEN_3011);
+    let legacy = legacy_inline_command(Check::PortScript {
+        script: PortScript::Dev,
+        port: 3011,
+    });
+    assert!(legacy.starts_with("node -p \"['dev'].every("), "{legacy}");
+    assert!(!legacy.contains("'start'"), "{legacy}");
+    let have_node = node_available();
+    if !have_node {
+        eprintln!("SKIPPED: node is not available; only the Rust judgement of the table runs");
     }
     let table = [
         (Some(("next dev -p 3011", "next start")), true),
@@ -162,7 +190,21 @@ fn issue832_dev_required_strictness_table() {
         (None, false),
     ];
     for (scripts, expected) in table {
-        assert_eq!(check_passes(&command, scripts), expected, "{scripts:?}");
+        // The Rust judgement of the token.
+        let dir = tempfile::tempdir().unwrap();
+        if let Some((dev, start)) = scripts {
+            let manifest = serde_json::json!({ "scripts": { "dev": dev, "start": start } });
+            std::fs::write(dir.path().join("package.json"), manifest.to_string()).unwrap();
+        }
+        assert_eq!(
+            evaluate(dir.path(), &command).is_ok(),
+            expected,
+            "{scripts:?}"
+        );
+        // The former inline check gives the same verdict (node runs only when present).
+        if have_node {
+            assert_eq!(check_passes(&legacy, scripts), expected, "{scripts:?}");
+        }
     }
 }
 
@@ -217,9 +259,7 @@ fn issue832_game_g_final_phase_is_admitted_with_the_nextjs_port_scripts_template
         .flat_map(|step| step.verify.iter())
         .collect::<Vec<_>>();
     assert!(
-        verify
-            .iter()
-            .any(|command| **command == DEV_ONLY_BUILDER_3011),
+        verify.iter().any(|command| **command == DEV_TOKEN_3011),
         "{verify:?}"
     );
 }
@@ -229,7 +269,7 @@ fn issue832_grep_port_repair_stays_a_package_script_assertion_with_the_port_flag
     let repair = normalize_verify_command_for_oracle_repair(r#"grep -q '"3011"' package.json"#)
         .expect("the port-only grep is repaired");
     assert_eq!(repair.kind, "package_json_script_assertion", "{repair:?}");
-    assert!(repair.normalized.contains("--port=3011"), "{repair:?}");
+    assert_eq!(repair.normalized, DEV_TOKEN_3011, "{repair:?}");
     assert_eq!(
         repair.normalized,
         package_json_port_script_check_command("3011"),

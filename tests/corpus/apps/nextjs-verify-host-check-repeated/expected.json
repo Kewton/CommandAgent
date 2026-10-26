@@ -1,0 +1,14 @@
+{
+  "synthetic": "expectation for the shapes in model-commands.json",
+  "phase": 1,
+  "step": "nextjs-profile-verify",
+  "declared_shapes": {
+    "status": "passed",
+    "refusals": 0,
+    "result_contains": ["combined_outcome: Success", "host check passed"]
+  },
+  "inline_node_refused": {
+    "refusals": 3,
+    "error": "recoverable tool error repeated: verify_command_policy_error"
+  }
+}

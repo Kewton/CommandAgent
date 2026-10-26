@@ -70,7 +70,11 @@ pub(super) fn retain_implementation_checks(
         // without treating their subset as proof of the entire Profile duty.
         merge_unique_paths(&mut step.expected_paths, checks.expected_paths);
         for command in checks.verify_commands {
-            if !step.verify.contains(&command) {
+            if !step.verify.iter().any(|saved| {
+                crate::planner::profiles::nextjs::package_script_check::same_declared_check(
+                    &command, saved,
+                )
+            }) {
                 step.verify.push(command);
             }
         }

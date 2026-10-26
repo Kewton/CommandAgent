@@ -1,0 +1,6 @@
+[
+  "anvil-nextjs-check:package_script_port:dev:3011",
+  "anvil-nextjs-check:package_script_port:start:3011",
+  "anvil-nextjs-check:build_script",
+  "npm run build"
+]
