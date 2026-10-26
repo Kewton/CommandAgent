@@ -44,7 +44,7 @@
 {"id": "allow-features", "command": "cargo test --features=gui", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
 {"id": "allow-target-dir", "command": "cargo build --target-dir=target/h05", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
 {"id": "allow-display-message", "command": "ls data/ || echo \"data/ directory does not exist\"", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
-{"id": "allow-sh-c-body", "command": "sh -c \"cat a.txt\"", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
+{"id": "allow-sh-c-body", "command": "sh -c \"cat a.txt\"", "R": false, "A": false, "W": false, "P": false, "S": false, "V": false}
 {"id": "allow-sed-substitution", "command": "sed -i \"s/a b/c d/\" a.txt", "R": false, "A": false, "W": false, "P": false, "S": false, "V": false}
 {"id": "allow-awk-equals", "command": "awk -F= '{print $1}' a.txt", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}
 {"id": "allow-leading-assignment", "command": "RUST_LOG=debug cargo test", "R": false, "A": false, "W": false, "P": false, "S": false, "V": true}

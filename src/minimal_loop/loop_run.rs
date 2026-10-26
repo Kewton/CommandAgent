@@ -5327,7 +5327,7 @@ export default function Page(){
             content: String::new(),
             tool_calls: vec![ToolCall::new(
                 "Bash",
-                json!({"command":"ls -R src/app && node -p \"require('./package.json').scripts.build\""}),
+                json!({"command":"ls -R src/app && cat package.json"}),
             )],
             prompt_tokens: None,
             completion_tokens: None,
@@ -5359,7 +5359,7 @@ export default function Page(){
             "{bash_result}"
         );
         assert!(
-            bash_result.contains("segment 2 command: node -p"),
+            bash_result.contains("segment 2 command: cat package.json"),
             "{bash_result}"
         );
         assert!(bash_result.contains("page.tsx"), "{bash_result}");
@@ -5381,7 +5381,7 @@ export default function Page(){
         );
         assert_eq!(
             policy["original_command"],
-            "ls -R src/app && node -p \"require('./package.json').scripts.build\""
+            "ls -R src/app && cat package.json"
         );
         assert_eq!(policy["violation_kind"], "shell_control_split");
         assert_eq!(policy["normalized_commands"].as_array().unwrap().len(), 2);

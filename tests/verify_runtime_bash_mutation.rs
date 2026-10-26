@@ -14,14 +14,27 @@ use commandagent::planner::runner::run_step_plan;
 use commandagent::planner::step_plan::{PlanStep, StepPlan};
 use commandagent::providers::{AssistantReply, ChatClient};
 use commandagent::state::{ConversationMessage, ToolCall};
+use commandagent::tools::allow_policy::bash_verify_command_is_auto_approvable;
 use commandagent::tools::registry::ToolSpec;
 use serde_json::{Value, json};
 
 const MARKER: &str = "ISSUE861-VERIFY-STEP";
 
 fn corpus() -> Value {
+    corpus_named("verify-runtime-bash-mutation")
+}
+
+/// Issue #871: the opaque execution forms, from the synthetic corpus
+/// `tests/corpus/apps/verify-runtime-bash-indirect/`.
+fn indirect_corpus() -> Value {
+    corpus_named("verify-runtime-bash-indirect")
+}
+
+fn corpus_named(name: &str) -> Value {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/corpus/apps/verify-runtime-bash-mutation/fixtures/cases.json");
+        .join("tests/corpus/apps")
+        .join(name)
+        .join("fixtures/cases.json");
     serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
 }
 
@@ -33,7 +46,9 @@ struct ScriptedClient {
     verifier_content: String,
     bash_command: Option<String>,
     sent_write: Arc<Mutex<bool>>,
-    sent_bash: Arc<Mutex<bool>>,
+    /// How many times the Verify step re-sends `bash_command`.
+    bash_calls: usize,
+    sent_bash: Arc<Mutex<usize>>,
 }
 
 impl ChatClient for ScriptedClient {
@@ -57,9 +72,9 @@ impl ChatClient for ScriptedClient {
             .any(|message| message.content.contains(MARKER));
         let call = if in_verify_step {
             let mut sent = self.sent_bash.lock().unwrap();
-            match (&self.bash_command, *sent) {
-                (Some(command), false) => {
-                    *sent = true;
+            match (&self.bash_command, *sent < self.bash_calls) {
+                (Some(command), true) => {
+                    *sent += 1;
                     Some(ToolCall::new("Bash", json!({ "command": command })))
                 }
                 _ => None,
@@ -103,6 +118,16 @@ fn seed_workspace(root: &Path, corpus: &Value) {
 /// Runs "producer writes the verifier, then a Verify step whose declared host
 /// verify runs that verifier" with `bash_command` as the Verify step's Bash call.
 fn run_verify_case(corpus: &Value, step_kind: &str, bash_command: Option<&str>) -> Outcome {
+    run_verify_case_repeating(corpus, step_kind, bash_command, 1)
+}
+
+/// Like [`run_verify_case`], with the Bash call sent `bash_calls` times.
+fn run_verify_case_repeating(
+    corpus: &Value,
+    step_kind: &str,
+    bash_command: Option<&str>,
+    bash_calls: usize,
+) -> Outcome {
     let root = tempfile::tempdir().unwrap();
     seed_workspace(root.path(), corpus);
     let workspace = &corpus["workspace"];
@@ -112,6 +137,7 @@ fn run_verify_case(corpus: &Value, step_kind: &str, bash_command: Option<&str>) 
         verifier_content: workspace["verifier_content"].as_str().unwrap().to_string(),
         bash_command: bash_command.map(str::to_string),
         sent_write: Arc::default(),
+        bash_calls,
         sent_bash: Arc::default(),
     };
     let plan = StepPlan {
@@ -219,6 +245,167 @@ fn verify_bash_cannot_rewrite_the_verifier_into_always_success() {
             "{id}: a segment before the writer ran"
         );
     }
+}
+
+/// Issue #871: the same host-level negative through an execution form whose
+/// body cannot be inspected. The verifier stays failing, the original host verify
+/// still fails, and the step does not complete. The Report step cannot declare a
+/// host verify, so its refusal is pinned at the policy decision instead.
+#[test]
+fn verify_bash_cannot_rewrite_the_verifier_through_an_opaque_form() {
+    let corpus = indirect_corpus();
+    let original = corpus["workspace"]["verifier_content"].as_str().unwrap();
+    for case in corpus["host_cases"].as_array().unwrap() {
+        let id = case["id"].as_str().unwrap();
+        let command = case["command"].as_str().unwrap();
+        let outcome = run_verify_case(&corpus, "verify", Some(command));
+
+        let policy = verify_step_policy_events(&outcome);
+        assert_eq!(policy.len(), 1, "{id}: {:?}", outcome.events.len());
+        assert_eq!(policy[0]["blocked"], true, "{id}");
+        assert_eq!(policy[0]["verifier_policy_ok"], false, "{id}");
+        assert_eq!(policy[0]["deterministic_verifier_evidence"], false, "{id}");
+        assert_eq!(
+            policy[0]["policy_error_kind"], "verify_command_policy_error",
+            "{id}"
+        );
+        assert!(
+            policy[0]["reason"]
+                .as_str()
+                .unwrap()
+                .contains("not accepted as deterministic verifier evidence"),
+            "{id}: {}",
+            policy[0]["reason"]
+        );
+        assert_eq!(
+            read(&outcome, "smoke-check.sh"),
+            original,
+            "{id}: verifier bytes changed"
+        );
+        assert!(
+            outcome.result.is_err(),
+            "{id}: the original failing host verify must still fail"
+        );
+        assert!(!step_completed(&outcome, "verify-widget"), "{id}");
+        assert!(
+            outcome
+                .events
+                .iter()
+                .any(|event| event["event"] == "plan_step_failed"),
+            "{id}: no plan_step_failed event"
+        );
+        assert!(
+            !outcome.root.path().join("sentinel-ran").exists(),
+            "{id}: a segment before the refused form ran"
+        );
+    }
+}
+
+/// A refused writer sent again on every turn up to the iteration cap never
+/// reaches the shell, so the verifier stays as written and the host verify
+/// keeps failing.
+#[test]
+fn a_refused_writer_repeated_to_the_iteration_cap_never_changes_the_verifier() {
+    let corpus = indirect_corpus();
+    let original = corpus["workspace"]["verifier_content"].as_str().unwrap();
+    // More sends than `max_iterations` allows turns.
+    let outcome = run_verify_case_repeating(
+        &corpus,
+        "verify",
+        Some("sh -c 'cp always-pass.sh smoke-check.sh'"),
+        50,
+    );
+    let policy = verify_step_policy_events(&outcome);
+    assert!(
+        policy.len() >= 2,
+        "the writer was not repeated: {}",
+        policy.len()
+    );
+    assert!(policy.iter().all(|event| event["blocked"] == true));
+    assert!(
+        policy
+            .iter()
+            .all(|event| event["deterministic_verifier_evidence"] == false)
+    );
+    assert_eq!(read(&outcome, "smoke-check.sh"), original);
+    assert!(outcome.result.is_err(), "the host verify must still fail");
+    assert!(!step_completed(&outcome, "verify-widget"));
+    assert!(outcome.events.iter().all(
+        |event| event["event"] != "plan_step_completed" || event["step_id"] != "verify-widget"
+    ));
+}
+
+/// The same writer sent a few times, then the model ends its turn normally: the
+/// declared host verify runs afterwards on the untouched verifier and fails.
+#[test]
+fn a_refused_writer_then_a_normal_finish_reaches_the_failing_host_verify() {
+    let corpus = indirect_corpus();
+    let original = corpus["workspace"]["verifier_content"].as_str().unwrap();
+    let outcome = run_verify_case_repeating(
+        &corpus,
+        "verify",
+        Some("sh -c 'cp always-pass.sh smoke-check.sh'"),
+        2,
+    );
+    let policy = verify_step_policy_events(&outcome);
+    assert_eq!(policy.len(), 2, "{:?}", outcome.events.len());
+    assert!(policy.iter().all(|event| event["blocked"] == true));
+    assert_eq!(read(&outcome, "smoke-check.sh"), original);
+    assert!(!step_completed(&outcome, "verify-widget"));
+    // The model's session ended normally, so the failure comes from the host verify.
+    let observed: Vec<&Value> = outcome
+        .events
+        .iter()
+        .filter(|event| {
+            event["event"] == "verify_command_observed" && event["step"] == "verify-widget"
+        })
+        .collect();
+    assert_eq!(observed.len(), 1);
+    assert_eq!(observed[0]["effective_command"], "sh smoke-check.sh");
+    assert_eq!(observed[0]["status"], "failed");
+    let failure = outcome
+        .events
+        .iter()
+        .find(|event| {
+            event["event"] == "step_verify_failure" && event["step_id"] == "verify-widget"
+        })
+        .expect("the host verify failure is recorded");
+    assert_eq!(failure["command_failures"], 1);
+    assert!(
+        failure["primary_reason"]
+            .as_str()
+            .unwrap()
+            .contains("FAIL: widget missing"),
+        "{failure}"
+    );
+}
+
+/// Issue #871: the explicit `bash:verify` ceiling reads the same table as the
+/// runtime policy. A refused row is never auto-approved; an allowed row that
+/// the ceiling also admits as a plain verifier stays admitted.
+#[test]
+fn bash_verify_ceiling_refuses_the_corpus_opaque_forms() {
+    let corpus = indirect_corpus();
+    let root = tempfile::tempdir().unwrap();
+    let mut refused = 0;
+    for case in corpus["decision_cases"].as_array().unwrap() {
+        let id = case["id"].as_str().unwrap();
+        let command = case["command"].as_str().unwrap();
+        let steps = case["steps"].as_array().unwrap();
+        if !steps.iter().any(|step| step == "verify") {
+            continue;
+        }
+        let approved = bash_verify_command_is_auto_approvable(command, root.path());
+        match case["expect"].as_str().unwrap() {
+            "reject" => {
+                assert!(!approved, "{id}: {command}");
+                refused += 1;
+            }
+            "allow" => assert!(approved, "{id}: {command}"),
+            other => panic!("unknown expectation {other}"),
+        }
+    }
+    assert!(refused >= 40, "corpus table shrank: {refused}");
 }
 
 /// Repair stays possible through Write: a Verify step that fixes a source file

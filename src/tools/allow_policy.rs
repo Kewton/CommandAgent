@@ -126,7 +126,7 @@ pub fn bash_verify_command_is_auto_approvable(command: &str, workspace_root: &Pa
     // The verify normalization replaces vertical tabs and Unicode spaces with a
     // normal space, so it can turn a `#x;rm -rf src` tail into a comment. The raw
     // text must not be a recognized mutation on its own (B6).
-    if super::bash_write_guard::verifier_mutation::find(command, false).is_some() {
+    if super::bash_write_guard::verifier_mutation::rejection(command, false).is_some() {
         return false;
     }
     crate::planner::verify::normalize_runtime_bash_command_for_boundary(command, workspace_root)
@@ -136,8 +136,11 @@ pub fn bash_verify_command_is_auto_approvable(command: &str, workspace_root: &Pa
                     &segment.command,
                     crate::planner::verify::RuntimeNormalizedCommand::Verify(_)
                 )
-            }) && super::bash_write_guard::verifier_mutation::find(&plan.normalized_command, false)
-                .is_none()
+            }) && super::bash_write_guard::verifier_mutation::rejection(
+                &plan.normalized_command,
+                false,
+            )
+            .is_none()
         })
         .unwrap_or(false)
 }
@@ -298,5 +301,398 @@ mod tests {
             "npm run build\u{b}&&\u{b}sed -i s/1/2/ src/a.ts",
             root.path()
         ));
+    }
+
+    #[test]
+    fn issue871_bash_verify_rejects_opaque_forms_whatever_their_body() {
+        let root = tempfile::tempdir().unwrap();
+        let _guard = install(false, &[AllowTarget::BashVerify]);
+        for command in [
+            "sh -c 'cat a.txt'",
+            "sh -c 'cp always-pass.sh smoke-check.sh'",
+            "bash -lc 'npm test'",
+            "/bin/sh -c true",
+            "env FOO=1 timeout 5 sh -c true",
+            "timeout -sKILL 5 sh -c true",
+            "eval true",
+            "xargs cat",
+            "busybox cat a.txt",
+            "find . -exec cat {} +",
+            "find . -delete",
+            "node -e 'console.log(1)'",
+            "node -p 1",
+            "node --eval=1",
+            "python3 -c 'print(1)'",
+            "perl -e 'print 1'",
+            "perl -ne 'print' a.txt",
+            "sed 's/a/b/' a.txt",
+            "sed -n '1,5w out.txt' a.txt",
+            "gsed -f prog.sed a.txt",
+            "sh make-sentinel.sh && sh -c true",
+            "sh\u{b}-c\u{b}true",
+        ] {
+            let arguments = json!({ "command": command });
+            assert!(
+                ensure_current_allows("Bash", &arguments, root.path()).is_err(),
+                "{command}"
+            );
+            assert!(
+                authorize_current("Bash", &arguments, root.path(), false, false).is_err(),
+                "{command}"
+            );
+        }
+    }
+
+    #[test]
+    fn issue871_bash_verify_rejects_launcher_cluster_perl_node_and_data_url_forms() {
+        let root = tempfile::tempdir().unwrap();
+        let _guard = install(false, &[AllowTarget::BashVerify]);
+        for command in [
+            "bash -oc pipefail 'cp a b'",
+            "bash -Oc extglob 'cp a b'",
+            "bash -eoc pipefail 'cp a b'",
+            "env FOO=1 bash -oc pipefail 'cp a b'",
+            "perl -M File::Copy -e 'print 1'",
+            "perl -MFile::Copy -m Foo -e 1",
+            "flock lockfile sh -c 'cp a b'",
+            "chrt 1 sh -c 'cp a b'",
+            "taskset 1 sh -c 'cp a b'",
+            "unshare sh -c 'cp a b'",
+            "strace -o /dev/null sh -c 'cp a b'",
+            "watch -n1 sh -c 'cp a b'",
+            "npx sh -c 'cp a b'",
+            "npm exec -- sh -c 'cp a b'",
+            "pnpm exec sh -c 'cp a b'",
+            "npx -c 'cp a b'",
+            "npx --call 'cp a b'",
+            "npm exec -c 'cp a b'",
+            "flock lockfile -c 'cp a b'",
+            "script -qc 'cp a b' /dev/null",
+            "node --import data:text/javascript,1 smoke-check.js",
+            "node --import=data:text/javascript,1 smoke-check.js",
+            "node -r data:text/javascript,1 smoke-check.js",
+            "node --loader=data:text/javascript,1 smoke-check.js",
+            "node --experimental-loader data:text/javascript,1 smoke-check.js",
+            "perl -M'5;system(1)' script.pl",
+            "perl -m'Foo bar' script.pl",
+            "node --unknown -e 1",
+            "node --foo=1 -p 1",
+            "node --inspect-port 1 -e 1",
+        ] {
+            let arguments = json!({ "command": command });
+            assert!(
+                ensure_current_allows("Bash", &arguments, root.path()).is_err(),
+                "{command}"
+            );
+        }
+        for command in [
+            "bash -o pipefail smoke-check.sh",
+            "bash -O extglob smoke-check.sh",
+            "perl -M File::Copy script.pl -e",
+            "perl -MFile::Copy script.pl",
+            "perl -MFoo=a,b script.pl",
+            "perl -M-strict script.pl",
+            "node --trace-uncaught smoke-check.js -e",
+            "node --trace-uncaught smoke-check.js",
+            "node --no-warnings --trace-exit smoke-check.js -p",
+            "node --require ./setup.js smoke-check.js",
+            "node --import ./setup.mjs smoke-check.mjs",
+            "npx tsc --noEmit",
+            "npx tsc",
+            "npx vitest run",
+            "npx vitest run -c vitest.config.ts",
+            "npm exec -- tsc --noEmit",
+            "npm test",
+            "pnpm exec tsc --noEmit",
+            "echo sh -c",
+            "grep -r 'sh -c' src",
+            "grep 'node -e' README.md",
+        ] {
+            let arguments = json!({ "command": command });
+            assert!(
+                ensure_current_allows("Bash", &arguments, root.path()).is_ok(),
+                "{command}"
+            );
+        }
+    }
+
+    #[test]
+    fn issue871_bash_verify_handles_nested_launcher_string_options() {
+        let root = tempfile::tempdir().unwrap();
+        let _guard = install(false, &[AllowTarget::BashVerify]);
+        for command in [
+            "chrt 1 npx -c 'cp a b'",
+            "taskset 1 npm exec -c 'cp a b'",
+            "setsid script -qc 'cp a b' /dev/null",
+            "nice -n 5 chrt 1 flock f -c 'cp a b'",
+            "timeout 5 strace -o /dev/null npx -c 'cp a b'",
+            "chrt 1 taskset 1 setsid sh -c 'cp a b'",
+        ] {
+            let arguments = json!({ "command": command });
+            assert!(
+                ensure_current_allows("Bash", &arguments, root.path()).is_err(),
+                "{command}"
+            );
+        }
+        for command in [
+            "chrt 1 npx tsc --noEmit",
+            "taskset -c 0 npm exec -- tsc --noEmit",
+            "nice -n 5 chrt 1 npx vitest run",
+            "timeout 5 strace -o /dev/null npm test",
+        ] {
+            let arguments = json!({ "command": command });
+            assert!(
+                ensure_current_allows("Bash", &arguments, root.path()).is_ok(),
+                "{command}"
+            );
+        }
+    }
+
+    #[test]
+    fn issue871_bash_verify_handles_unresolved_prefix_option_value_and_stdin_shell_forms() {
+        let root = tempfile::tempdir().unwrap();
+        let _guard = install(false, &[AllowTarget::BashVerify]);
+        for command in [
+            "nice -n 5 npx -c 'cp a b'",
+            "nice -n 5 flock f -c 'cp a b'",
+            "nice -n 5 npm exec -c 'cp a b'",
+            "nice -n 5 sh -c 'cp a b'",
+            "nice -n5 npx -c 'cp a b'",
+            "nice -n5 flock f -c 'cp a b'",
+            "nice -n5 npm exec -c 'cp a b'",
+            "nice -n5 sh -c 'cp a b'",
+            "timeout -s KILL 5 npx -c 'cp a b'",
+            "timeout -s KILL 5 flock f -c 'cp a b'",
+            "timeout -s KILL 5 npm exec -c 'cp a b'",
+            "timeout -s KILL 5 sh -c 'cp a b'",
+            "timeout -sKILL 5 npx -c 'cp a b'",
+            "timeout -sKILL 5 flock f -c 'cp a b'",
+            "timeout -sKILL 5 npm exec -c 'cp a b'",
+            "timeout -sKILL 5 sh -c 'cp a b'",
+            "npm exec -p -c 'cp a b'",
+            "npm x -p --call 'cp a b'",
+            "npx -p -c 'cp a b'",
+            "chrt -o 0 bash -sc 'cp a b'",
+            "chrt -o 0 bash -s -c 'cp a b'",
+            "taskset 1 sh -cs 'cp a b'",
+            "bash -sc 'cp a b'",
+            "bash -s -c 'cp a b'",
+        ] {
+            let arguments = json!({ "command": command });
+            assert!(
+                ensure_current_allows("Bash", &arguments, root.path()).is_err(),
+                "{command}"
+            );
+        }
+        for command in [
+            "npx -p typescript tsc --noEmit",
+            "nice -n5 npx tsc --noEmit",
+            "timeout -sKILL 5 npx vitest run",
+            "chrt 1 npx tsc --noEmit",
+        ] {
+            let arguments = json!({ "command": command });
+            assert!(
+                ensure_current_allows("Bash", &arguments, root.path()).is_ok(),
+                "{command}"
+            );
+        }
+    }
+
+    #[test]
+    fn issue871_bash_verify_tells_launcher_option_values_and_config_flags_apart() {
+        let root = tempfile::tempdir().unwrap();
+        let _guard = install(false, &[AllowTarget::BashVerify]);
+        for command in [
+            "npx --cache npm-cache -c 'echo hi'",
+            "npx --cache=npm-cache -c 'echo hi'",
+            "npm exec --cache npm-cache --call 'echo hi'",
+            "npm exec vitest -c 'echo hi'",
+            "chrt -o 0 bash -s",
+            "chrt -o 0 bash -s -- a b",
+            "chrt 1 bash",
+            "nice -n 5 chrt 1 bash -s",
+            "bash -s --help",
+            "bash -s --version",
+            "chrt 1 bash -s --version",
+            "nice -n 5 npx -c 'true>smoke-check.sh'",
+            "timeout -s KILL 5 npx -c 'true>smoke-check.sh'",
+            "nice -n5 npx -c 'true>smoke-check.sh'",
+            "timeout -sKILL 5 npx -c 'true>smoke-check.sh'",
+        ] {
+            let arguments = json!({ "command": command });
+            assert!(
+                ensure_current_allows("Bash", &arguments, root.path()).is_err(),
+                "{command}"
+            );
+        }
+        for command in [
+            "npx -p typescript tsc --noEmit",
+            "npx vitest run -c vitest.config.ts",
+            "npm exec -- tsc --noEmit",
+            "npm exec -- vitest run -c cfg",
+            "npx vitest -c vitest.config.ts",
+            "npx --yes vitest run -c vitest.config.ts",
+            "npx -y jest -c jest.config.js",
+            "npm exec -- vitest -c vitest.config.ts",
+            "npx --yes vitest -c cfg",
+            "chrt 1 bash smoke-check.sh",
+            "chrt 1 bash -- smoke-check.sh -c",
+        ] {
+            let arguments = json!({ "command": command });
+            assert!(
+                ensure_current_allows("Bash", &arguments, root.path()).is_ok(),
+                "{command}"
+            );
+        }
+    }
+
+    #[test]
+    fn issue871_bash_verify_reads_only_the_closed_option_list_before_a_package() {
+        let root = tempfile::tempdir().unwrap();
+        let _guard = install(false, &[AllowTarget::BashVerify]);
+        for command in [
+            "npx -C . -c 'true>smoke-check.sh'",
+            "npx -m label -c 'true>smoke-check.sh'",
+            "npx --cal 'true>smoke-check.sh'",
+            "npm exec --cal 'true>smoke-check.sh'",
+            "npm x -C . --call 'true>smoke-check.sh'",
+            "npm exec --prefix . -c 'true>smoke-check.sh'",
+            "npx -yc 'true>smoke-check.sh'",
+            "npx --cac npm-cache --call 'true>smoke-check.sh'",
+            "npx --offline vitest -c cfg",
+            "npm exec --message label --call 'true>smoke-check.sh'",
+            "nice -n5 chrt 1 bash -s",
+        ] {
+            let arguments = json!({ "command": command });
+            assert!(
+                ensure_current_allows("Bash", &arguments, root.path()).is_err(),
+                "{command}"
+            );
+        }
+        for command in [
+            "npx --package=typescript tsc",
+            "npx -p typescript -y tsc --noEmit",
+        ] {
+            let arguments = json!({ "command": command });
+            assert!(
+                ensure_current_allows("Bash", &arguments, root.path()).is_ok(),
+                "{command}"
+            );
+        }
+    }
+
+    #[test]
+    fn issue871_bash_verify_does_not_take_option_values_for_the_package() {
+        let root = tempfile::tempdir().unwrap();
+        let _guard = install(false, &[AllowTarget::BashVerify]);
+        for command in [
+            "npx --no true -c 'true>smoke-check.sh'",
+            "npx --no false --call 'true>smoke-check.sh'",
+            "npx --no true --call 'true>smoke-check.sh'",
+            "npx --no false -c 'true>smoke-check.sh'",
+            "npx -y true -c 'true>smoke-check.sh'",
+            "npm exec --no false --call 'true>smoke-check.sh'",
+            "npx -p typescript -c 'true>smoke-check.sh'",
+            "npx --package typescript --call 'true>smoke-check.sh'",
+            "npx --package=typescript -c 'true>smoke-check.sh'",
+            "npx -w web -c 'true>smoke-check.sh'",
+            "npm exec --workspace web --call 'true>smoke-check.sh'",
+            "npm exec -w web -c 'true>smoke-check.sh'",
+        ] {
+            let arguments = json!({ "command": command });
+            assert!(
+                ensure_current_allows("Bash", &arguments, root.path()).is_err(),
+                "{command}"
+            );
+        }
+        for command in [
+            "npx --yes tsc --noEmit",
+            "npx --yes vitest run -c vitest.config.ts",
+        ] {
+            let arguments = json!({ "command": command });
+            assert!(
+                ensure_current_allows("Bash", &arguments, root.path()).is_ok(),
+                "{command}"
+            );
+        }
+    }
+
+    #[test]
+    fn issue871_bash_verify_before_a_package_reads_only_yes_and_package_options() {
+        let root = tempfile::tempdir().unwrap();
+        let _guard = install(false, &[AllowTarget::BashVerify]);
+        for command in [
+            "npx -q --no-install vitest -c cfg",
+            "npm exec -p -- tsc --noEmit",
+            "npx --package typescript tsc --noEmit",
+            "npm exec -w web -- tsc",
+            "npm exec --workspace=web -- tsc --noEmit",
+            "npx --quiet tsc",
+            "npx --yes true",
+            "npx --no true tsc --noEmit",
+            "npx --quiet false vitest run -c vitest.config.ts",
+            "npx --no tsc --noEmit",
+            "npx --yes true -c 'true>smoke-check.sh'",
+            "npx --yes null -c 'true>smoke-check.sh'",
+            "npx -y undefined --call 'true>smoke-check.sh'",
+            "npx --yes '' -c 'true>smoke-check.sh'",
+            "npx -y -p typescript tsc --noEmit",
+            "npx --ignore-existing tsc",
+            "npx --package typescript tsc",
+            "npm exec vitest",
+            "npm exec -p typescript -- tsc",
+            "npm x -y tsc --noEmit",
+            "npm exec --yes true -- tsc",
+            "npm exec --yes -- tsc --call",
+            "npm exec --yes -- tsc --noEmit",
+            "npm exec -y -- tsc",
+            "npx -y -- tsc",
+        ] {
+            let arguments = json!({ "command": command });
+            assert!(
+                ensure_current_allows("Bash", &arguments, root.path()).is_err(),
+                "{command}"
+            );
+        }
+        for command in [
+            "npm exec --package=typescript -- tsc --noEmit",
+            "npx --yes tsc --noEmit",
+            "npx --package=typescript --yes tsc",
+        ] {
+            let arguments = json!({ "command": command });
+            assert!(
+                ensure_current_allows("Bash", &arguments, root.path()).is_ok(),
+                "{command}"
+            );
+        }
+    }
+
+    #[test]
+    fn issue871_bash_verify_keeps_canonical_verifiers() {
+        let root = tempfile::tempdir().unwrap();
+        let _guard = install(false, &[AllowTarget::BashVerify]);
+        for command in [
+            "npm test",
+            "npm run build",
+            "npx tsc",
+            "npx tsc --noEmit",
+            "node smoke-check.js",
+            "node --check smoke-check.js",
+            "node smoke-check.js --label=-e",
+            "pytest",
+            "python3 -m pytest",
+            "python3 -m compileall -q src",
+            "sh smoke-check.sh",
+            "sed -n '1,5p' src/a.ts",
+            "sed -n 1,10p src/a.ts",
+            "find . -name '*.ts'",
+            "grep -n 'node -e' src/a.ts",
+        ] {
+            let arguments = json!({ "command": command });
+            assert!(
+                ensure_current_allows("Bash", &arguments, root.path()).is_ok(),
+                "{command}"
+            );
+        }
     }
 }

@@ -1,0 +1,11 @@
+{
+  "source_run": "Issue #871 IC-29b: S-118a static scope (develop 94674bc3) and the #861 corpus; recorded excerpts from the gen-eval-1022 campaign G1 (3a6, 3a8) runtime_bash_policy events",
+  "files": [
+    {
+      "file": "fixtures/cases.json",
+      "source": "synthetic: command shapes and expected policy decisions written for Issue #871, except three narrowed_legitimate_use rows: two (origin recorded-excerpt) copy one recorded runtime_bash_policy command each (campaign-G1-3a6 tool-g events.jsonl:189 and campaign-G1-3a8 tool-g events.jsonl:40; neither holds a secret or an absolute path), and one (origin existing-corpus) repeats the issue582 allow-sh-c-body row; recorded_at names each source; the campaign records are not edited",
+      "sha256": null,
+      "note": "mostly synthetic regression; the recorded rows are excerpts of one command each, not a replayed run"
+    }
+  ]
+}
