@@ -66,7 +66,7 @@ fn reject_verifier_mutation(
                 .iter()
                 .map(|segment| segment.command.as_str()),
         )
-        .find_map(|text| verifier_mutation::find(text, true));
+        .find_map(|text| verifier_mutation::rejection(text, true));
     let Some(mutation) = mutation else {
         return decision;
     };
@@ -75,11 +75,19 @@ fn reject_verifier_mutation(
     decision.blocked = true;
     decision.policy_error_kind = "verify_command_policy_error";
     decision.violation_kind = VerifyCommandViolationKind::Blocked.as_str();
-    decision.reason = format!(
-        "{} step runtime Bash must not update the workspace: {} is an explicit update command and is not accepted as deterministic verifier evidence; change files with Write or Edit and keep Bash for build, test, or read-only verification commands",
-        decision.step_kind,
-        mutation.describe()
-    );
+    decision.reason = if mutation.opaque {
+        format!(
+            "{} step runtime Bash must not run a command whose body cannot be inspected: {} is not accepted as deterministic verifier evidence; run the build, test, or read-only verification command directly (for example `npm test`, `node smoke-check.js`, or `sh smoke-check.sh`) and change files with Write or Edit",
+            decision.step_kind,
+            mutation.describe()
+        )
+    } else {
+        format!(
+            "{} step runtime Bash must not update the workspace: {} is an explicit update command and is not accepted as deterministic verifier evidence; change files with Write or Edit and keep Bash for build, test, or read-only verification commands",
+            decision.step_kind,
+            mutation.describe()
+        )
+    };
     decision.normalized_command = None;
     decision.split_segments.clear();
     decision.normalization_kind = "";
@@ -383,5 +391,260 @@ mod tests {
             assert!(decision.reason.contains("`sed -i`"), "{}", decision.reason);
             assert!(decision.normalized_command.is_none());
         }
+    }
+
+    const OPAQUE_REFUSALS: [&str; 24] = [
+        "sh -c 'cat a.txt'",
+        "sh -c 'print(1)'",
+        "sh -c 'cp always-pass.sh smoke-check.sh'",
+        "bash -lc 'npm test'",
+        "/bin/sh -c true",
+        "env FOO=1 sh -c true",
+        "timeout 5 bash -c true",
+        "timeout -sKILL 5 sh -c true",
+        "eval true",
+        "xargs cat",
+        "busybox cat a.txt",
+        "find . -exec cat {} +",
+        "find . -delete",
+        "node -e 'console.log(1)'",
+        "node -p '1'",
+        "node --eval='1'",
+        "node --print 1",
+        "python3 -c 'print(1)'",
+        "perl -e 'print 1'",
+        "perl -ne 'print' a.txt",
+        "sed -n '1,5w out.txt' a.txt",
+        "sed 's/a/b/' a.txt",
+        "gsed -f prog.sed a.txt",
+        "(sh -c true)",
+    ];
+
+    fn assert_refused_before_execution(decision: &RuntimeBashPolicyDecision, id: &str) {
+        assert!(decision.blocked, "{id}");
+        assert!(!decision.verifier_policy_ok, "{id}");
+        assert!(!decision.deterministic_verifier_evidence, "{id}");
+        assert_eq!(
+            decision.policy_error_kind, "verify_command_policy_error",
+            "{id}"
+        );
+        assert_eq!(decision.violation_kind, "blocked", "{id}");
+        assert!(decision.normalized_command.is_none(), "{id}");
+        assert!(decision.split_segments.is_empty(), "{id}");
+        assert!(decision.normalization_kind.is_empty(), "{id}");
+        assert!(decision.normalization_reason.is_empty(), "{id}");
+    }
+
+    #[test]
+    fn issue871_verify_and_report_refuse_opaque_forms_before_execution() {
+        let root = tempfile::tempdir().unwrap();
+        for step in [RunSessionStepKind::Verify, RunSessionStepKind::Report] {
+            for command in OPAQUE_REFUSALS {
+                let id = format!("{step:?} {command}");
+                let decision = decide(step, command, root.path());
+                assert_refused_before_execution(&decision, &id);
+                assert!(
+                    decision.reason.contains("cannot be inspected")
+                        && decision
+                            .reason
+                            .contains("not accepted as deterministic verifier evidence"),
+                    "{id}: {}",
+                    decision.reason
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn issue871_verify_keeps_canonical_verifiers_and_literal_text() {
+        let root = tempfile::tempdir().unwrap();
+        for step in [RunSessionStepKind::Verify, RunSessionStepKind::Report] {
+            for command in [
+                "npm test",
+                "npm run build",
+                "npx tsc",
+                "npx tsc --noEmit",
+                "node smoke-check.js",
+                "node smoke-check.js --label=-e",
+                "node --check smoke-check.js",
+                "pytest",
+                "python3 -m pytest",
+                "python -m pytest -c cfg.ini",
+                "python3 -m compileall -q src",
+                "sh smoke-check.sh",
+                "sed -n '1,5p' src/a.ts",
+                "sed -n 1,10p src/a.ts",
+                "find . -name '*.ts'",
+                "grep -n 'node -e' src/a.ts",
+                "grep -rn \"sh -c\" src",
+                "echo 'sh -c true'",
+            ] {
+                let decision = decide(step, command, root.path());
+                assert!(!decision.blocked, "{step:?} {command}: {}", decision.reason);
+                assert!(decision.verifier_policy_ok, "{step:?} {command}");
+                assert!(
+                    decision.deterministic_verifier_evidence,
+                    "{step:?} {command}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn issue871_implement_and_setup_keep_opaque_forms() {
+        let root = tempfile::tempdir().unwrap();
+        for step in [RunSessionStepKind::Implement, RunSessionStepKind::Setup] {
+            for command in ["sh -c 'cp a b'", "node -p '1'", "sed -n '1,5w out' a.txt"] {
+                let decision = decide(step, command, root.path());
+                assert!(!decision.blocked, "{step:?} {command}");
+            }
+        }
+    }
+
+    #[test]
+    fn issue871_compound_with_a_prior_sentinel_is_refused_as_a_whole() {
+        let root = tempfile::tempdir().unwrap();
+        for step in [RunSessionStepKind::Verify, RunSessionStepKind::Report] {
+            for command in [
+                "sh make-sentinel.sh && sh -c 'cp always-pass.sh smoke-check.sh'",
+                "npm test; node -p '1'",
+                "sh make-sentinel.sh && bash -lc true",
+            ] {
+                let id = format!("{step:?} {command}");
+                let decision = decide(step, command, root.path());
+                assert_refused_before_execution(&decision, &id);
+            }
+        }
+    }
+
+    #[test]
+    fn issue871_form_visible_only_after_normalization_is_refused() {
+        let root = tempfile::tempdir().unwrap();
+        // A vertical tab is an ordinary word character to the lexical guard but
+        // a blank to the verify normalization, so only the normalized text
+        // names `sh -c`.
+        let command = "sh\u{b}-c\u{b}true";
+        assert!(verifier_mutation::rejection(command, true).is_none());
+        let unrejected =
+            RuntimeBashPolicyDecision::for_step(RunSessionStepKind::Verify, command, root.path());
+        assert!(
+            unrejected
+                .normalized_command
+                .as_deref()
+                .is_some_and(|normalized| verifier_mutation::rejection(normalized, true).is_some()),
+            "{:?}",
+            unrejected.normalized_command
+        );
+        for step in [RunSessionStepKind::Verify, RunSessionStepKind::Report] {
+            let decision = decide(step, command, root.path());
+            assert_refused_before_execution(&decision, &format!("{step:?}"));
+            assert!(decision.reason.contains("`sh -c`"), "{}", decision.reason);
+        }
+    }
+
+    #[test]
+    fn issue871_form_visible_only_in_a_split_segment_is_refused() {
+        let root = tempfile::tempdir().unwrap();
+        let command = "npm install";
+        let mut decision =
+            RuntimeBashPolicyDecision::for_step(RunSessionStepKind::Verify, command, root.path());
+        assert!(!decision.blocked, "{}", decision.reason);
+        assert!(verifier_mutation::rejection(command, true).is_none());
+        assert!(
+            decision
+                .normalized_command
+                .as_deref()
+                .is_none_or(|normalized| verifier_mutation::rejection(normalized, true).is_none())
+        );
+        // Only the split segment names the opaque form.
+        let segment = decision.split_segments.first_mut().expect("one segment");
+        match &mut segment.command {
+            crate::planner::verify::RuntimeNormalizedCommand::DependencyInstall {
+                command, ..
+            } => *command = "sh -c true".to_string(),
+            other => panic!("expected a dependency install segment: {other:?}"),
+        }
+        let decision = apply(decision, command, root.path());
+        assert_refused_before_execution(&decision, "segment only");
+        assert!(decision.reason.contains("`sh -c`"), "{}", decision.reason);
+    }
+
+    #[test]
+    fn issue871_existing_update_reading_keeps_its_reason_over_an_opaque_form() {
+        let root = tempfile::tempdir().unwrap();
+        let decision = decide(
+            RunSessionStepKind::Verify,
+            "sh make-sentinel.sh && cp always-pass.sh smoke-check.sh",
+            root.path(),
+        );
+        assert!(decision.blocked);
+        assert!(decision.reason.contains("`cp`"), "{}", decision.reason);
+        assert!(decision.reason.contains("must not update the workspace"));
+    }
+
+    #[test]
+    fn issue871_outside_root_and_secret_rejections_keep_priority() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = decide(
+            RunSessionStepKind::Verify,
+            "sh -c true && cp a /etc/issue871-outside",
+            root.path(),
+        );
+        assert!(outside.blocked);
+        assert_eq!(outside.policy_error_kind, "bash_path_confinement_error");
+        let redirect = decide(
+            RunSessionStepKind::Verify,
+            "node -p 1 > out.txt",
+            root.path(),
+        );
+        assert!(redirect.blocked);
+        assert!(!redirect.deterministic_verifier_evidence);
+        assert_eq!(redirect.violation_kind, "shell_control_syntax");
+    }
+
+    #[test]
+    fn issue871_corpus_decision_cases_match_the_runtime_policy() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/corpus/apps/verify-runtime-bash-indirect/fixtures/cases.json");
+        let cases: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let mut checked = 0;
+        for case in cases["decision_cases"].as_array().unwrap() {
+            let command = case["command"].as_str().unwrap();
+            assert!(
+                matches!(
+                    case["origin"].as_str().unwrap(),
+                    "synthetic" | "recorded-excerpt" | "existing-corpus"
+                ),
+                "{}",
+                case["id"]
+            );
+            for step in case["steps"].as_array().unwrap() {
+                let step_kind = match step.as_str().unwrap() {
+                    "verify" => RunSessionStepKind::Verify,
+                    "report" => RunSessionStepKind::Report,
+                    "implement" => RunSessionStepKind::Implement,
+                    other => panic!("unknown step {other}"),
+                };
+                let id = format!("{} / {step}", case["id"]);
+                let decision = decide(step_kind, command, root.path());
+                match case["expect"].as_str().unwrap() {
+                    "reject" => {
+                        assert_refused_before_execution(&decision, &id);
+                        let needle = case["reason_contains"].as_str().unwrap();
+                        assert!(
+                            decision.reason.contains(needle),
+                            "{id}: {}",
+                            decision.reason
+                        );
+                    }
+                    "allow" => assert!(!decision.blocked, "{id}: {}", decision.reason),
+                    other => panic!("unknown expectation {other}"),
+                }
+                checked += 1;
+            }
+        }
+        assert!(checked >= 60, "corpus table shrank: {checked}");
     }
 }

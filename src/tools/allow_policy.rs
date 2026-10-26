@@ -126,7 +126,7 @@ pub fn bash_verify_command_is_auto_approvable(command: &str, workspace_root: &Pa
     // The verify normalization replaces vertical tabs and Unicode spaces with a
     // normal space, so it can turn a `#x;rm -rf src` tail into a comment. The raw
     // text must not be a recognized mutation on its own (B6).
-    if super::bash_write_guard::verifier_mutation::find(command, false).is_some() {
+    if super::bash_write_guard::verifier_mutation::rejection(command, false).is_some() {
         return false;
     }
     crate::planner::verify::normalize_runtime_bash_command_for_boundary(command, workspace_root)
@@ -136,8 +136,11 @@ pub fn bash_verify_command_is_auto_approvable(command: &str, workspace_root: &Pa
                     &segment.command,
                     crate::planner::verify::RuntimeNormalizedCommand::Verify(_)
                 )
-            }) && super::bash_write_guard::verifier_mutation::find(&plan.normalized_command, false)
-                .is_none()
+            }) && super::bash_write_guard::verifier_mutation::rejection(
+                &plan.normalized_command,
+                false,
+            )
+            .is_none()
         })
         .unwrap_or(false)
 }
@@ -298,5 +301,74 @@ mod tests {
             "npm run build\u{b}&&\u{b}sed -i s/1/2/ src/a.ts",
             root.path()
         ));
+    }
+
+    #[test]
+    fn issue871_bash_verify_rejects_opaque_forms_whatever_their_body() {
+        let root = tempfile::tempdir().unwrap();
+        let _guard = install(false, &[AllowTarget::BashVerify]);
+        for command in [
+            "sh -c 'cat a.txt'",
+            "sh -c 'cp always-pass.sh smoke-check.sh'",
+            "bash -lc 'npm test'",
+            "/bin/sh -c true",
+            "env FOO=1 timeout 5 sh -c true",
+            "timeout -sKILL 5 sh -c true",
+            "eval true",
+            "xargs cat",
+            "busybox cat a.txt",
+            "find . -exec cat {} +",
+            "find . -delete",
+            "node -e 'console.log(1)'",
+            "node -p 1",
+            "node --eval=1",
+            "python3 -c 'print(1)'",
+            "perl -e 'print 1'",
+            "perl -ne 'print' a.txt",
+            "sed 's/a/b/' a.txt",
+            "sed -n '1,5w out.txt' a.txt",
+            "gsed -f prog.sed a.txt",
+            "sh make-sentinel.sh && sh -c true",
+            "sh\u{b}-c\u{b}true",
+        ] {
+            let arguments = json!({ "command": command });
+            assert!(
+                ensure_current_allows("Bash", &arguments, root.path()).is_err(),
+                "{command}"
+            );
+            assert!(
+                authorize_current("Bash", &arguments, root.path(), false, false).is_err(),
+                "{command}"
+            );
+        }
+    }
+
+    #[test]
+    fn issue871_bash_verify_keeps_canonical_verifiers() {
+        let root = tempfile::tempdir().unwrap();
+        let _guard = install(false, &[AllowTarget::BashVerify]);
+        for command in [
+            "npm test",
+            "npm run build",
+            "npx tsc",
+            "npx tsc --noEmit",
+            "node smoke-check.js",
+            "node --check smoke-check.js",
+            "node smoke-check.js --label=-e",
+            "pytest",
+            "python3 -m pytest",
+            "python3 -m compileall -q src",
+            "sh smoke-check.sh",
+            "sed -n '1,5p' src/a.ts",
+            "sed -n 1,10p src/a.ts",
+            "find . -name '*.ts'",
+            "grep -n 'node -e' src/a.ts",
+        ] {
+            let arguments = json!({ "command": command });
+            assert!(
+                ensure_current_allows("Bash", &arguments, root.path()).is_ok(),
+                "{command}"
+            );
+        }
     }
 }

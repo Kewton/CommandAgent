@@ -1,0 +1,40 @@
+case_id = "verify-runtime-bash-indirect"
+source = "Issue #871 IC-29b (2026-10-26) regression derived from the S-118a static scope and develop 94674bc3: a Verify or Report step runtime Bash, and an explicit bash:verify, must not admit an execution form whose body cannot be inspected (sh -c, eval, xargs, busybox, find -exec, inline node/python/perl, sed outside the numeric print grammar) as deterministic verifier evidence"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+acceptance_passed = true
+primary_reason = "pass"
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/cases.json = [
+  "\"id\": \"sh-c-cat\"",
+  "\"id\": \"sentinel-then-sh-c\"",
+  "\"id\": \"recorded-3a6-tool-g-port-assert\"",
+  "\"id\": \"recorded-3a8-tool-g-build-script-assert\"",
+  "\"id\": \"issue582-47-read-only-sh-c\"",
+  "\"id\": \"keep-closed-sed-range\"",
+  "\"id\": \"keep-node-literal-e-after-entrypoint\"",
+  "\"id\": \"sh-c-cp-over-verifier\"",
+  "\"expect\": \"reject\"",
+  "\"expect\": \"allow\"",
+  "\"origin\": \"recorded-excerpt\"",
+  "\"origin\": \"synthetic\""
+]

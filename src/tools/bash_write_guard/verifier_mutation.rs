@@ -17,15 +17,18 @@
 //! | `sed -l` (BSD flag, no value) does not hide a later `-i`; an unresolvable prefix spelling (`timeout -sKILL 5`, `nice -n5`) before `sed`/`gsed`/`perl` is refused | `sed -i` / `perl -i` (fail closed) |
 //! | `perl` with `-i`, `-i<suffix>`, or a switch cluster holding `i` (`-pi`, `-0777pi`) | `perl -i` |
 //!
-//! Anything else is not proven read-only by this table. In particular the sed
-//! `w` and `e` commands, a perl program body, inline interpreters
-//! (`node -e`, `python -c`), `sh -c`, `bash -c`, `eval`, `xargs`, `find -exec`, `busybox`, package scripts, and compiler hooks can still
-//! write; they belong to a separate design, and a command that avoids the
-//! table above is not thereby "known read-only".
+//! Anything else is not proven read-only by this table. The execution forms
+//! that can run an update without naming it (`sh -c`, `eval`, `xargs`,
+//! `busybox`, `find -exec`, inline interpreters, sed outside one print grammar)
+//! are refused by [`indirect`] (Issue #871), and [`rejection`] composes the two.
+//! Package scripts, compiler hooks, and interpreters outside that table can
+//! still write; a command that avoids both tables is not thereby "known
+//! read-only".
 
 use super::command_prefix::{self, Resolution};
 use super::{CrMode, ShellToken, command_words, lex_shell, shell_lexical, write_targets};
 
+mod indirect;
 #[cfg(test)]
 mod tests;
 
@@ -34,6 +37,9 @@ mod tests;
 pub(crate) struct VerifierMutation {
     pub(crate) operation: String,
     pub(crate) target: Option<String>,
+    /// The command runs a body this classifier does not read, instead of
+    /// naming an update.
+    pub(crate) opaque: bool,
 }
 
 impl VerifierMutation {
@@ -66,9 +72,18 @@ pub(crate) fn find(command: &str, allow_null_sink: bool) -> Option<VerifierMutat
         return Some(VerifierMutation {
             operation: target.operation,
             target: Some(target.path),
+            opaque: false,
         });
     }
     in_place_edit(command)
+}
+
+/// Names what a Verify or Report step must not run: an explicit update
+/// ([`find`]) or an execution form whose body cannot be inspected
+/// ([`indirect::find`]). The runtime policy and the `bash:verify` ceiling both
+/// call this, so the two refuse the same commands.
+pub(crate) fn rejection(command: &str, allow_null_sink: bool) -> Option<VerifierMutation> {
+    find(command, allow_null_sink).or_else(|| indirect::find(command))
 }
 
 /// Finds a sed or perl in-place edit in any segment of `command`.
@@ -103,6 +118,7 @@ fn in_place_edit(command: &str) -> Option<VerifierMutation> {
                         return Some(VerifierMutation {
                             operation: "unresolved command prefix before sed/perl".to_string(),
                             target: Some((*word).to_string()),
+                            opaque: false,
                         });
                     }
                     continue;
@@ -113,6 +129,7 @@ fn in_place_edit(command: &str) -> Option<VerifierMutation> {
                 return Some(VerifierMutation {
                     operation: operation.to_string(),
                     target: None,
+                    opaque: false,
                 });
             }
         }

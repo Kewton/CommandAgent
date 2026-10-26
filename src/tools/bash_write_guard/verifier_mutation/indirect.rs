@@ -1,0 +1,412 @@
+//! Execution forms whose body a Verify or Report step cannot inspect (Issue
+//! #871, IC-29b).
+//!
+//! [`super::find`] names an explicit update command. This module refuses the
+//! forms that can run one without naming it: a shell `-c` body, `eval`,
+//! `xargs`, `busybox`, a `find` that runs or deletes, an inline interpreter
+//! (`node -e/-p`, `python -c`, `perl -e`), and any `sed` outside one closed
+//! print grammar. Each is refused without reading its body, so a body that is
+//! only `cat a.txt` is refused too. The segment split and prefix peeling are the
+//! parent's, so a quoted or absolute program name and an
+//! `env`/`command`/`timeout` prefix do not hide the program.
+//!
+//! | form | refused when |
+//! | --- | --- |
+//! | `sh`, `bash`, `dash`, `zsh`, `ksh`, ... | an option cluster before the script holds `c` (`-c`, `-lc`, `-ec`), or no script operand is given (`-s`, `-`, a bare shell reading stdin) |
+//! | `eval`, `xargs`, `busybox` | always |
+//! | `find`, `gfind` | `-exec`, `-execdir`, `-ok`, `-okdir`, `-delete`, `-fprint*`, `-fls` |
+//! | `node`, `nodejs` | `-e`, `--eval`, `-p`, `--print`, a cluster holding either, or `-` |
+//! | `python`, `python3`, `pypy`, ... | a cluster before `-m` or the script holds `c`, or `-` |
+//! | `perl` | a switch cluster holding `e` or `E`, or `-` |
+//! | `sed`, `gsed` | anything but `-n <N[,M]p> [file...]` |
+//!
+//! An option is told apart from the entrypoint and from `--`, so
+//! `node smoke-check.js --label=-e` and `python -m pytest -c cfg` are not
+//! refused, and a quoted `sh -c` inside an `echo` or `grep` argument is one
+//! word that never becomes a program. When the prefix chain cannot be resolved,
+//! every word is tried as the program and the rest of the words as its
+//! arguments, so an unresolved prefix does not hide the target either.
+//!
+//! The guarantee ends at this grammar: a script file, a package script, a
+//! compiler hook, an interpreter outside the table (`ruby -e`), and a command
+//! the host declared in its own verify are not read here.
+
+use super::command_prefix::{self, Resolution};
+use super::{CrMode, ShellToken, VerifierMutation, command_words, lex_shell, shell_lexical};
+
+#[cfg(test)]
+mod tests;
+
+const SHELLS: [&str; 15] = [
+    "sh", "bash", "dash", "zsh", "ksh", "ksh93", "mksh", "pdksh", "ash", "rbash", "yash", "posh",
+    "csh", "tcsh", "fish",
+];
+
+/// `node` options that take no separate value word. Any other `--option`
+/// without `=` may swallow the next word, which is then not the entrypoint.
+const NODE_FLAGS: [&str; 14] = [
+    "check",
+    "test",
+    "watch",
+    "no-warnings",
+    "trace-warnings",
+    "trace-deprecation",
+    "no-deprecation",
+    "throw-deprecation",
+    "enable-source-maps",
+    "expose-gc",
+    "harmony",
+    "preserve-symlinks",
+    "experimental-vm-modules",
+    "version",
+];
+
+/// `find` primaries that run a command or change the file system.
+const FIND_UPDATES: [&str; 9] = [
+    "-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprint0", "-fprintf", "-fls",
+];
+
+/// `find` primaries whose value word is a pattern, not a primary.
+const FIND_PATTERNS: [&str; 10] = [
+    "-name",
+    "-iname",
+    "-path",
+    "-ipath",
+    "-wholename",
+    "-iwholename",
+    "-regex",
+    "-iregex",
+    "-lname",
+    "-ilname",
+];
+
+/// Names the first execution form in `command` whose body cannot be inspected.
+pub(super) fn find(command: &str) -> Option<VerifierMutation> {
+    // Anything the lexer cannot read, or that carries ANSI-C quoting, was
+    // already named by the write table.
+    let view = shell_lexical::write_guard_view(command)?;
+    let mut modes = vec![CrMode::Separator];
+    if view.text.contains('\r') {
+        modes.push(CrMode::WordChar);
+    }
+    for mode in modes {
+        let Some(lexed) = lex_shell(&view.text, mode) else {
+            continue;
+        };
+        for segment in lexed.tokens.split(|token| *token == ShellToken::SegmentEnd) {
+            let words = command_words(segment);
+            if words.is_empty() {
+                continue;
+            }
+            if let Some(operation) = segment_operation(&words) {
+                return Some(VerifierMutation {
+                    operation,
+                    target: None,
+                    opaque: true,
+                });
+            }
+        }
+    }
+    None
+}
+
+fn segment_operation(words: &[&str]) -> Option<String> {
+    match command_prefix::resolve(words) {
+        Resolution::Program {
+            program, arguments, ..
+        } => classify(&program, &arguments, true),
+        // An unresolvable prefix hides which program runs, so every word is
+        // tried as the program with the words after it as its arguments.
+        Resolution::Undecidable { .. } | Resolution::NoExecution { .. } => (0..words.len())
+            .find_map(|index| {
+                let arguments: Vec<String> = words[index + 1..]
+                    .iter()
+                    .map(|word| (*word).to_string())
+                    .collect();
+                classify(base_name(words[index]), &arguments, false)
+            }),
+        // The parent's write table already refuses `env -S`.
+        Resolution::UnverifiableSplitString { .. } => None,
+    }
+}
+
+fn base_name(word: &str) -> &str {
+    word.rsplit('/').next().unwrap_or(word)
+}
+
+/// `resolved` is false when the program was guessed from an unresolvable
+/// chain; the stdin-script rule needs a certain program.
+fn classify(program: &str, arguments: &[String], resolved: bool) -> Option<String> {
+    if SHELLS.contains(&program) {
+        return match shell_form(arguments) {
+            ShellForm::Command => Some(format!("{program} -c")),
+            ShellForm::Stdin if resolved => Some(format!("{program} reading a script from stdin")),
+            ShellForm::Stdin | ShellForm::Script => None,
+        };
+    }
+    match program {
+        "eval" | "xargs" | "gxargs" | "busybox" => Some(program.to_string()),
+        "find" | "gfind" => find_update(arguments).map(|option| format!("{program} {option}")),
+        "sed" | "gsed" => {
+            (!sed_prints_numeric_range(arguments)).then(|| format!("{program} outside `-n N,Mp`"))
+        }
+        "node" | "nodejs" => node_inline(arguments).then(|| format!("{program} -e/-p")),
+        name if is_python(name) => python_inline(arguments).then(|| format!("{name} -c")),
+        name if is_perl(name) => perl_inline(arguments).then(|| format!("{name} -e")),
+        _ => None,
+    }
+}
+
+enum ShellForm {
+    /// `-c` (alone or in a cluster) before the script operand.
+    Command,
+    /// No script operand: the shell reads its program from stdin.
+    Stdin,
+    /// A script operand (or `--version`/`--help`).
+    Script,
+}
+
+fn shell_form(arguments: &[String]) -> ShellForm {
+    let mut index = 0;
+    while index < arguments.len() {
+        let argument = arguments[index].as_str();
+        index += 1;
+        if argument == "--" {
+            return if index < arguments.len() {
+                ShellForm::Script
+            } else {
+                ShellForm::Stdin
+            };
+        }
+        if let Some(long) = argument.strip_prefix("--") {
+            match long {
+                "version" | "help" => return ShellForm::Script,
+                "rcfile" | "init-file" => index += 1,
+                _ => {}
+            }
+            continue;
+        }
+        if argument == "-" {
+            return ShellForm::Stdin;
+        }
+        let mut chars = argument.chars();
+        let sign = chars.next();
+        if !matches!(sign, Some('-' | '+')) || argument.len() == 1 {
+            return ShellForm::Script;
+        }
+        for ch in chars {
+            match ch {
+                'c' if sign == Some('-') => return ShellForm::Command,
+                's' if sign == Some('-') => return ShellForm::Stdin,
+                // `-o name` and `-O name` take the next word.
+                'o' | 'O' => {
+                    index += 1;
+                    break;
+                }
+                _ => {}
+            }
+        }
+    }
+    ShellForm::Stdin
+}
+
+fn find_update(arguments: &[String]) -> Option<&str> {
+    let mut index = 0;
+    while index < arguments.len() {
+        let argument = arguments[index].as_str();
+        index += 1;
+        if FIND_UPDATES.contains(&argument) {
+            return Some(argument);
+        }
+        if FIND_PATTERNS.contains(&argument) {
+            index += 1;
+        }
+    }
+    None
+}
+
+/// The one sed form read here: `-n`, one numeric address or range ending in
+/// `p`, and operand files. Anything else is refused without being read.
+fn sed_prints_numeric_range(arguments: &[String]) -> bool {
+    let [quiet, script, files @ ..] = arguments else {
+        return false;
+    };
+    quiet == "-n" && is_numeric_print(script) && files.iter().all(|file| !file.starts_with('-'))
+}
+
+fn is_numeric_print(script: &str) -> bool {
+    let Some(range) = script.strip_suffix('p') else {
+        return false;
+    };
+    let mut parts = range.split(',');
+    let numeric = |part: Option<&str>| {
+        part.is_some_and(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()))
+    };
+    let first = numeric(parts.next());
+    let second = match parts.next() {
+        None => true,
+        Some(part) => numeric(Some(part)),
+    };
+    first && second && parts.next().is_none()
+}
+
+/// `node` options up to the entrypoint. `-e`, `--eval`, `-p`, `--print`, a
+/// cluster holding `e` or `p`, and a bare `-` (script on stdin) are inline.
+fn node_inline(arguments: &[String]) -> bool {
+    let mut index = 0;
+    while index < arguments.len() {
+        let argument = arguments[index].as_str();
+        index += 1;
+        if argument == "--" {
+            return false;
+        }
+        if argument == "-" {
+            return true;
+        }
+        if let Some(long) = argument.strip_prefix("--") {
+            let (name, has_value) = match long.split_once('=') {
+                Some((name, _)) => (name, true),
+                None => (long, false),
+            };
+            if matches!(name, "eval" | "print") {
+                return true;
+            }
+            // An unknown option may take the next word as its value; that word
+            // is then not the entrypoint. Skipping only widens the scan.
+            let next_is_plain = arguments
+                .get(index)
+                .is_some_and(|next| !next.starts_with('-'));
+            if !has_value && !NODE_FLAGS.contains(&name) && next_is_plain {
+                index += 1;
+            }
+            continue;
+        }
+        let Some(cluster) = argument.strip_prefix('-') else {
+            return false;
+        };
+        for (position, ch) in cluster.char_indices() {
+            match ch {
+                'e' | 'p' => return true,
+                // `-r module` and `-C condition` take a value.
+                'r' | 'C' => {
+                    if position + ch.len_utf8() == cluster.len() {
+                        index += 1;
+                    }
+                    break;
+                }
+                _ => {}
+            }
+        }
+    }
+    false
+}
+
+fn is_python(program: &str) -> bool {
+    matches!(program, "pypy" | "pypy3")
+        || program.strip_prefix("python").is_some_and(|rest| {
+            rest.bytes()
+                .all(|byte| byte.is_ascii_digit() || byte == b'.')
+        })
+}
+
+/// `python` options up to `-m` or the script. A cluster holding `c` is inline;
+/// `-m` hands the rest of the words to the module.
+fn python_inline(arguments: &[String]) -> bool {
+    let mut index = 0;
+    while index < arguments.len() {
+        let argument = arguments[index].as_str();
+        index += 1;
+        if argument == "--" {
+            return false;
+        }
+        if argument == "-" {
+            return true;
+        }
+        if let Some(long) = argument.strip_prefix("--") {
+            if long == "check-hash-based-pycs" {
+                index += 1;
+            }
+            continue;
+        }
+        let Some(cluster) = argument.strip_prefix('-') else {
+            return false;
+        };
+        for (position, ch) in cluster.char_indices() {
+            match ch {
+                'c' => return true,
+                'm' => return false,
+                // `-W arg` and `-X opt` take a value.
+                'W' | 'X' => {
+                    if position + ch.len_utf8() == cluster.len() {
+                        index += 1;
+                    }
+                    break;
+                }
+                _ => {}
+            }
+        }
+    }
+    false
+}
+
+fn is_perl(program: &str) -> bool {
+    program == "perl"
+        || program
+            .strip_prefix("perl")
+            .is_some_and(|rest| rest.starts_with(|ch: char| ch.is_ascii_digit()))
+}
+
+/// `perl` switch clusters up to the script. A switch that takes the rest of
+/// its cluster as a value ends the cluster, as the parent reads them.
+fn perl_inline(arguments: &[String]) -> bool {
+    let mut index = 0;
+    while index < arguments.len() {
+        let argument = arguments[index].as_str();
+        index += 1;
+        if argument == "--" {
+            return false;
+        }
+        if argument == "-" {
+            return true;
+        }
+        let Some(cluster) = argument.strip_prefix('-') else {
+            return false;
+        };
+        if cluster.starts_with('-') {
+            continue;
+        }
+        let chars: Vec<char> = cluster.chars().collect();
+        let mut position = 0;
+        while position < chars.len() {
+            let ch = chars[position];
+            position += 1;
+            match ch {
+                'e' | 'E' => return true,
+                'I' => {
+                    if position == chars.len() {
+                        index += 1;
+                    }
+                    break;
+                }
+                'C' | 'd' | 'D' | 'F' | 'm' | 'M' | 'V' | 'x' => break,
+                '0' | 'l' => {
+                    let hex = ch == '0' && matches!(chars.get(position), Some('x' | 'X'));
+                    if hex {
+                        position += 1;
+                    }
+                    while chars.get(position).is_some_and(|next| {
+                        if hex {
+                            next.is_ascii_hexdigit()
+                        } else {
+                            next.is_ascii_digit()
+                        }
+                    }) {
+                        position += 1;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    false
+}

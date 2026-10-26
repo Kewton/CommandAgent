@@ -14,14 +14,27 @@ use commandagent::planner::runner::run_step_plan;
 use commandagent::planner::step_plan::{PlanStep, StepPlan};
 use commandagent::providers::{AssistantReply, ChatClient};
 use commandagent::state::{ConversationMessage, ToolCall};
+use commandagent::tools::allow_policy::bash_verify_command_is_auto_approvable;
 use commandagent::tools::registry::ToolSpec;
 use serde_json::{Value, json};
 
 const MARKER: &str = "ISSUE861-VERIFY-STEP";
 
 fn corpus() -> Value {
+    corpus_named("verify-runtime-bash-mutation")
+}
+
+/// Issue #871: the opaque execution forms, from the synthetic corpus
+/// `tests/corpus/apps/verify-runtime-bash-indirect/`.
+fn indirect_corpus() -> Value {
+    corpus_named("verify-runtime-bash-indirect")
+}
+
+fn corpus_named(name: &str) -> Value {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/corpus/apps/verify-runtime-bash-mutation/fixtures/cases.json");
+        .join("tests/corpus/apps")
+        .join(name)
+        .join("fixtures/cases.json");
     serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
 }
 
@@ -219,6 +232,88 @@ fn verify_bash_cannot_rewrite_the_verifier_into_always_success() {
             "{id}: a segment before the writer ran"
         );
     }
+}
+
+/// Issue #871: the same host-level negative through an execution form whose
+/// body cannot be inspected. The verifier stays failing, the original host verify
+/// still fails, and the step does not complete. The Report step cannot declare a
+/// host verify, so its refusal is pinned at the policy decision instead.
+#[test]
+fn verify_bash_cannot_rewrite_the_verifier_through_an_opaque_form() {
+    let corpus = indirect_corpus();
+    let original = corpus["workspace"]["verifier_content"].as_str().unwrap();
+    for case in corpus["host_cases"].as_array().unwrap() {
+        let id = case["id"].as_str().unwrap();
+        let command = case["command"].as_str().unwrap();
+        let outcome = run_verify_case(&corpus, "verify", Some(command));
+
+        let policy = verify_step_policy_events(&outcome);
+        assert_eq!(policy.len(), 1, "{id}: {:?}", outcome.events.len());
+        assert_eq!(policy[0]["blocked"], true, "{id}");
+        assert_eq!(policy[0]["verifier_policy_ok"], false, "{id}");
+        assert_eq!(policy[0]["deterministic_verifier_evidence"], false, "{id}");
+        assert_eq!(
+            policy[0]["policy_error_kind"], "verify_command_policy_error",
+            "{id}"
+        );
+        assert!(
+            policy[0]["reason"]
+                .as_str()
+                .unwrap()
+                .contains("not accepted as deterministic verifier evidence"),
+            "{id}: {}",
+            policy[0]["reason"]
+        );
+        assert_eq!(
+            read(&outcome, "smoke-check.sh"),
+            original,
+            "{id}: verifier bytes changed"
+        );
+        assert!(
+            outcome.result.is_err(),
+            "{id}: the original failing host verify must still fail"
+        );
+        assert!(!step_completed(&outcome, "verify-widget"), "{id}");
+        assert!(
+            outcome
+                .events
+                .iter()
+                .any(|event| event["event"] == "plan_step_failed"),
+            "{id}: no plan_step_failed event"
+        );
+        assert!(
+            !outcome.root.path().join("sentinel-ran").exists(),
+            "{id}: a segment before the refused form ran"
+        );
+    }
+}
+
+/// Issue #871: the explicit `bash:verify` ceiling reads the same table as the
+/// runtime policy. A refused row is never auto-approved; an allowed row that
+/// the ceiling also admits as a plain verifier stays admitted.
+#[test]
+fn bash_verify_ceiling_refuses_the_corpus_opaque_forms() {
+    let corpus = indirect_corpus();
+    let root = tempfile::tempdir().unwrap();
+    let mut refused = 0;
+    for case in corpus["decision_cases"].as_array().unwrap() {
+        let id = case["id"].as_str().unwrap();
+        let command = case["command"].as_str().unwrap();
+        let steps = case["steps"].as_array().unwrap();
+        if !steps.iter().any(|step| step == "verify") {
+            continue;
+        }
+        let approved = bash_verify_command_is_auto_approvable(command, root.path());
+        match case["expect"].as_str().unwrap() {
+            "reject" => {
+                assert!(!approved, "{id}: {command}");
+                refused += 1;
+            }
+            "allow" => assert!(approved, "{id}: {command}"),
+            other => panic!("unknown expectation {other}"),
+        }
+    }
+    assert!(refused >= 40, "corpus table shrank: {refused}");
 }
 
 /// Repair stays possible through Write: a Verify step that fixes a source file
