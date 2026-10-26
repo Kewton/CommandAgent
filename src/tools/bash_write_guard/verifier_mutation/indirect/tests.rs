@@ -580,3 +580,33 @@ fn launcher_option_values_stdin_shells_and_config_flags_are_told_apart() {
         assert_eq!(operation(command), None, "{command}");
     }
 }
+
+#[test]
+fn only_the_closed_option_list_is_read_before_an_npx_or_npm_exec_package() {
+    for command in [
+        "npx -C . -c 'true>smoke-check.sh'",
+        "npx -m label -c 'true>smoke-check.sh'",
+        "npx --cal 'true>smoke-check.sh'",
+        "npm exec --cal 'true>smoke-check.sh'",
+        "npm x -C . --call 'true>smoke-check.sh'",
+        "npm exec --prefix . -c 'true>smoke-check.sh'",
+        "npx -yc 'true>smoke-check.sh'",
+        "npx --cac npm-cache --call 'true>smoke-check.sh'",
+        "npx --offline vitest -c cfg",
+        "npm exec --message label --call 'true>smoke-check.sh'",
+        "nice -n5 chrt 1 bash -s",
+    ] {
+        assert!(find(command).is_some(), "{command}");
+        assert!(rejection(command, true).is_some(), "{command}");
+    }
+    for command in [
+        "npx --package typescript tsc --noEmit",
+        "npx --package=typescript tsc",
+        "npx -p typescript -y tsc --noEmit",
+        "npm exec -w web -- tsc",
+        "npm exec --workspace=web -- tsc --noEmit",
+        "npx --quiet tsc",
+    ] {
+        assert_eq!(operation(command), None, "{command}");
+    }
+}

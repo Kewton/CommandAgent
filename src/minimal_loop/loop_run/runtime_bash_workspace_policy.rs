@@ -685,6 +685,40 @@ mod tests {
     }
 
     #[test]
+    fn issue871_only_the_closed_option_list_is_read_before_a_package() {
+        let root = tempfile::tempdir().unwrap();
+        for step in [RunSessionStepKind::Verify, RunSessionStepKind::Report] {
+            for command in [
+                "npx -C . -c 'true>smoke-check.sh'",
+                "npx -m label -c 'true>smoke-check.sh'",
+                "npx --cal 'true>smoke-check.sh'",
+                "npm exec --cal 'true>smoke-check.sh'",
+                "npm x -C . --call 'true>smoke-check.sh'",
+                "npm exec --prefix . -c 'true>smoke-check.sh'",
+                "npx -yc 'true>smoke-check.sh'",
+                "npx --cac npm-cache --call 'true>smoke-check.sh'",
+                "npx --offline vitest -c cfg",
+                "npm exec --message label --call 'true>smoke-check.sh'",
+                "nice -n5 chrt 1 bash -s",
+            ] {
+                let id = format!("{step:?} {command}");
+                assert_refused_before_execution(&decide(step, command, root.path()), &id);
+            }
+            for command in [
+                "npx --package typescript tsc --noEmit",
+                "npx --package=typescript tsc",
+                "npx -p typescript -y tsc --noEmit",
+                "npm exec -w web -- tsc",
+                "npm exec --workspace=web -- tsc --noEmit",
+                "npx --quiet tsc",
+            ] {
+                let decision = decide(step, command, root.path());
+                assert!(!decision.blocked, "{step:?} {command}: {}", decision.reason);
+            }
+        }
+    }
+
+    #[test]
     fn issue871_raw_check_alone_refuses_a_form_the_other_texts_do_not_show() {
         let root = tempfile::tempdir().unwrap();
         let mut decision = RuntimeBashPolicyDecision::for_step(

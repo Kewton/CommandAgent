@@ -549,6 +549,45 @@ mod tests {
     }
 
     #[test]
+    fn issue871_bash_verify_reads_only_the_closed_option_list_before_a_package() {
+        let root = tempfile::tempdir().unwrap();
+        let _guard = install(false, &[AllowTarget::BashVerify]);
+        for command in [
+            "npx -C . -c 'true>smoke-check.sh'",
+            "npx -m label -c 'true>smoke-check.sh'",
+            "npx --cal 'true>smoke-check.sh'",
+            "npm exec --cal 'true>smoke-check.sh'",
+            "npm x -C . --call 'true>smoke-check.sh'",
+            "npm exec --prefix . -c 'true>smoke-check.sh'",
+            "npx -yc 'true>smoke-check.sh'",
+            "npx --cac npm-cache --call 'true>smoke-check.sh'",
+            "npx --offline vitest -c cfg",
+            "npm exec --message label --call 'true>smoke-check.sh'",
+            "nice -n5 chrt 1 bash -s",
+        ] {
+            let arguments = json!({ "command": command });
+            assert!(
+                ensure_current_allows("Bash", &arguments, root.path()).is_err(),
+                "{command}"
+            );
+        }
+        for command in [
+            "npx --package typescript tsc --noEmit",
+            "npx --package=typescript tsc",
+            "npx -p typescript -y tsc --noEmit",
+            "npm exec -w web -- tsc",
+            "npm exec --workspace=web -- tsc --noEmit",
+            "npx --quiet tsc",
+        ] {
+            let arguments = json!({ "command": command });
+            assert!(
+                ensure_current_allows("Bash", &arguments, root.path()).is_ok(),
+                "{command}"
+            );
+        }
+    }
+
+    #[test]
     fn issue871_bash_verify_keeps_canonical_verifiers() {
         let root = tempfile::tempdir().unwrap();
         let _guard = install(false, &[AllowTarget::BashVerify]);

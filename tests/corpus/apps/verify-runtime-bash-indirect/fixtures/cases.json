@@ -1980,6 +1980,187 @@
       ],
       "expect": "reject",
       "reason_contains": "`npx -c`"
+    },
+    {
+      "id": "fix7-reject-0",
+      "origin": "synthetic",
+      "command": "npx -C . -c 'true>smoke-check.sh'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npx -c`"
+    },
+    {
+      "id": "fix7-reject-1",
+      "origin": "synthetic",
+      "command": "npx -m label -c 'true>smoke-check.sh'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npx -c`"
+    },
+    {
+      "id": "fix7-reject-2",
+      "origin": "synthetic",
+      "command": "npx --cal 'true>smoke-check.sh'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npx -c`"
+    },
+    {
+      "id": "fix7-reject-3",
+      "origin": "synthetic",
+      "command": "npm exec --cal 'true>smoke-check.sh'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npm -c`"
+    },
+    {
+      "id": "fix7-reject-4",
+      "origin": "synthetic",
+      "command": "npm x -C . --call 'true>smoke-check.sh'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npm -c`"
+    },
+    {
+      "id": "fix7-reject-5",
+      "origin": "synthetic",
+      "command": "npm exec --prefix . -c 'true>smoke-check.sh'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npm -c`"
+    },
+    {
+      "id": "fix7-reject-6",
+      "origin": "synthetic",
+      "command": "npx -yc 'true>smoke-check.sh'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npx -c`"
+    },
+    {
+      "id": "fix7-reject-7",
+      "origin": "synthetic",
+      "command": "npx --cac npm-cache --call 'true>smoke-check.sh'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npx -c`"
+    },
+    {
+      "id": "fix7-reject-8",
+      "origin": "synthetic",
+      "command": "npx --offline vitest -c cfg",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npx -c`"
+    },
+    {
+      "id": "fix7-reject-9",
+      "origin": "synthetic",
+      "command": "npm exec --message label --call 'true>smoke-check.sh'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npm -c`"
+    },
+    {
+      "id": "fix7-reject-10",
+      "origin": "synthetic",
+      "command": "nice -n5 chrt 1 bash -s",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "reading a script from stdin"
+    },
+    {
+      "id": "fix7-allow-0",
+      "origin": "synthetic",
+      "command": "npx --package typescript tsc --noEmit",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix7-allow-1",
+      "origin": "synthetic",
+      "command": "npx --package=typescript tsc",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix7-allow-2",
+      "origin": "synthetic",
+      "command": "npx -p typescript -y tsc --noEmit",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix7-allow-3",
+      "origin": "synthetic",
+      "command": "npm exec -w web -- tsc",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix7-allow-4",
+      "origin": "synthetic",
+      "command": "npm exec --workspace=web -- tsc --noEmit",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix7-allow-5",
+      "origin": "synthetic",
+      "command": "npx --quiet tsc",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
     }
   ],
   "host_cases": [

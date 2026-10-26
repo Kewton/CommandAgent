@@ -225,18 +225,38 @@ const NPX_FLAGS: [&str; 12] = [
     "--help",
 ];
 
-/// `npx -c`, `npm exec --call`, `flock --command`, `script -qc`: the launcher
-/// hands one string to a shell. `npm` reads every option before `--` itself, so
-/// they are all scanned; `npx` options end at the first positional, and an
-/// option it does not know may take the next plain word as its value.
+/// `npx`/`npm exec` options read before the package: the closed list. Any other
+/// dash word there (an abbreviation, a short alias, a cluster, an unknown
+/// option) is refused, so no spelling of a call option can hide in it.
+const NPX_VALUED: [&str; 4] = ["--package", "-p", "--workspace", "-w"];
+
+/// `flock --command`, `script -qc`, `npx -c`, `npm exec --call`: the launcher
+/// hands one string to a shell. `flock` and `script` are scanned whole. `npx`
+/// reads options up to its package and `npm exec` up to `--` (all words when
+/// there is none); only [`NPX_FLAGS`] and [`NPX_VALUED`] are understood there.
 fn launcher_runs_string(program: &str, arguments: &[String]) -> bool {
-    let (arguments, ends_at_positional) = match program {
-        "flock" | "script" => (arguments, false),
-        "npx" => (arguments, true),
+    match program {
+        "flock" | "script" => arguments
+            .iter()
+            .take_while(|word| *word != "--")
+            .any(|word| {
+                matches!(word.as_str(), "--call" | "--command")
+                    || word.starts_with("--call=")
+                    || word.starts_with("--command=")
+                    || word
+                        .strip_prefix('-')
+                        .is_some_and(|cluster| !cluster.starts_with('-') && cluster.contains('c'))
+            }),
+        "npx" => package_launcher_options_unreadable(arguments, true),
         // `npm exec <options>`: the subcommand word is not an option.
-        "npm" => (arguments.get(1..).unwrap_or_default(), false),
-        _ => return false,
-    };
+        "npm" => package_launcher_options_unreadable(arguments.get(1..).unwrap_or_default(), false),
+        _ => false,
+    }
+}
+
+/// True when an option before the package is outside the closed list, which
+/// includes every spelling of `-c`/`--call`.
+fn package_launcher_options_unreadable(arguments: &[String], ends_at_package: bool) -> bool {
     let mut index = 0;
     while index < arguments.len() {
         let argument = arguments[index].as_str();
@@ -244,30 +264,29 @@ fn launcher_runs_string(program: &str, arguments: &[String]) -> bool {
         if argument == "--" {
             return false;
         }
-        if matches!(argument, "--call" | "--command")
-            || argument.starts_with("--call=")
-            || argument.starts_with("--command=")
-        {
-            return true;
-        }
-        if let Some(cluster) = argument.strip_prefix('-') {
-            if !cluster.starts_with('-') && cluster.contains('c') {
-                return true;
+        if !argument.starts_with('-') {
+            if ends_at_package {
+                return false;
             }
-            let takes_value = if cluster.starts_with('-') {
-                !argument.contains('=') && !NPX_FLAGS.contains(&argument)
-            } else {
-                matches!(argument, "-p" | "-w")
-            };
-            let next_is_plain = arguments
+            continue;
+        }
+        if NPX_FLAGS.contains(&argument) {
+            continue;
+        }
+        if NPX_VALUED.contains(&argument) {
+            if arguments
                 .get(index)
-                .is_some_and(|next| !next.starts_with('-'));
-            if ends_at_positional && takes_value && next_is_plain {
+                .is_some_and(|next| !next.starts_with('-'))
+            {
                 index += 1;
             }
-        } else if ends_at_positional {
-            // The package ends the launcher's own options.
-            return false;
+            continue;
+        }
+        let inline_value = argument
+            .strip_prefix("--package=")
+            .or_else(|| argument.strip_prefix("--workspace="));
+        if inline_value.is_none() {
+            return true;
         }
     }
     false
