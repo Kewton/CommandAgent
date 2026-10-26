@@ -54,9 +54,12 @@ pub(super) fn preserve(original: &StepPlan, proposed: &StepPlan) -> anyhow::Resu
                             .expected_paths
                             .iter()
                             .any(|c| scope::normalized(p).ok() == scope::normalized(c).ok())
-                    })
-                    && reader.verify.iter().all(|c| candidate.verify.contains(c))
-                    && within_boundary(original, proposed, original_index, *index)
+                    }) && reader.verify.iter().all(|c| {
+                    crate::planner::profiles::nextjs::package_script_check::list_has_declared_check(
+                        &candidate.verify,
+                        c,
+                    )
+                }) && within_boundary(original, proposed, original_index, *index)
             });
         let Some((index, _)) = matched else {
             return Err(failure(

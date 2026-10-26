@@ -73,6 +73,7 @@ fn issue492_p1_build_reader_save_reload_registration_and_noop() {
     let stages = stages::take();
     assert_eq!(stages.len(), 8);
     let registered = o.registered.as_ref().unwrap();
+    let first = super::tokenize_declared(first);
     assert_eq!(registered.steps[0], first.steps[0]);
     let mut expected = build(&first).clone();
     let old: serde_json::Value = serde_json::from_str(&fixture("known-build-loss.json")).unwrap();
@@ -120,6 +121,13 @@ fn issue492_p1_build_reader_save_reload_registration_and_noop() {
                         step.expected_paths.clear();
                     }
                 }
+            }
+            if snapshot["stage"] == "converted" {
+                expected_steps = super::tokenize_declared(StepPlan {
+                    goal: String::new(),
+                    steps: expected_steps,
+                })
+                .steps;
             }
             assert_eq!(
                 p.steps, expected_steps,

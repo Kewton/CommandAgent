@@ -176,7 +176,7 @@ fn preserve_boundaries(original: &StepPlan, proposed: &StepPlan) -> anyhow::Resu
                     candidate.step_kind(),
                     StepKind::Implement | StepKind::Verify
                 ) && candidate.expected_result == step.expected_result
-                    && candidate.verify.contains(command)
+                    && crate::planner::profiles::nextjs::package_script_check::list_has_declared_check(&candidate.verify, command)
                     && preceding_outputs.iter().all(|path| {
                         proposed
                             .steps

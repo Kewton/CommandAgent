@@ -1,22 +1,12 @@
+use super::package_script_check;
+
 mod compound_hook;
 
 /// Classification only. Registry filtering still requires the goal's exact
 /// requested port through final_verifier_covers_command.
 pub(crate) fn is_package_check(command: &str) -> bool {
-    if command == super::package_build_script_verify_command() {
-        return true;
-    }
-    let Some((_, rest)) = command.split_once("--port=") else {
-        return false;
-    };
-    let Some((port, _)) = rest.split_once('\'') else {
-        return false;
-    };
-    port.parse::<u16>().is_ok_and(|port| {
-        super::package_script_port_verify_commands(port)
-            .iter()
-            .any(|c| c == command)
-    })
+    package_script_check::parse(command).is_some()
+        || package_script_check::is_legacy_inline_command(command)
 }
 
 /// These exact scaffold assertions duplicate verify/verify_invariant's
@@ -25,10 +15,12 @@ pub(crate) fn is_package_check(command: &str) -> bool {
 /// probes as additional business-success observations. Never exempt arbitrary
 /// Node commands or assertions about a different requested port.
 pub(crate) fn final_verifier_covers_command(goal: &str, command: &str) -> bool {
+    let port = super::requested_or_default_port(goal);
     command == super::package_build_script_verify_command()
-        || super::package_script_port_verify_commands(super::requested_or_default_port(goal))
+        || super::package_script_port_verify_commands(port)
             .iter()
             .any(|check| check == command)
+        || package_script_check::legacy_inline_covers(command, port)
 }
 
 /// Exact product predicates can be structural evidence while remaining in the

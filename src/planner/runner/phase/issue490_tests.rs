@@ -54,6 +54,32 @@ fn with_reference(mut plan: StepPlan) -> StepPlan {
     }
     plan
 }
+/// Issue #879: the host assembles its package-script checks as `anvil-nextjs-check:`
+/// tokens. The recorded fixtures keep the inline `node -p` text the host used to emit,
+/// so an expectation derived from them is read as the token it stands for.
+pub(super) fn tokenize_declared(mut plan: StepPlan) -> StepPlan {
+    use crate::planner::profiles::nextjs::package_script_check::{
+        PortScript, build_check_command, checked_port, port_check_command, same_declared_check,
+    };
+    // Only the host-converted reader steps carry the host's declaration; a model-written
+    // step keeps whatever text it was proposed with.
+    for command in plan
+        .steps
+        .iter_mut()
+        .filter(|step| step.id.starts_with("package-read-"))
+        .flat_map(|step| step.verify.iter_mut())
+    {
+        let port = checked_port(command);
+        let mut tokens = vec![build_check_command()];
+        for script in [PortScript::Dev, PortScript::Start] {
+            tokens.extend(port.map(|port| port_check_command(script, port)));
+        }
+        if let Some(token) = tokens.into_iter().find(|t| same_declared_check(t, command)) {
+            *command = token;
+        }
+    }
+    plan
+}
 fn raw(case: &str, attempt: usize) -> StepPlan {
     serde_json::from_str(&fixture(&format!("{case}-attempt-{attempt}.json"))).unwrap()
 }
@@ -410,7 +436,11 @@ fn issue490_p02_d_normal_return_save_before_phase_registration() {
     let second = raw("P02-D", 2);
     let o = replay(first.clone(), second, None);
     let plan = o.registered.unwrap();
-    assert_eq!(plan.steps, with_reference(raw("P02-D", 2)).steps);
+    assert_eq!(
+        plan.steps,
+        tokenize_declared(with_reference(raw("P02-D", 2))).steps
+    );
+    let first = tokenize_declared(first);
     assert_eq!(plan.steps[0], first.steps[0]);
     assert_eq!(plan.steps[5].expected_paths, ["package.json"]);
     assert_eq!(plan.steps[5].verify, first.steps[0].verify);
@@ -448,8 +478,9 @@ fn issue490_acquired_before_and_after_reach_normal_registration_separately() {
     let proposed: StepPlan = serde_json::from_value(fixture["proposed"].clone()).unwrap();
     let o = replay(original.clone(), proposed.clone(), None);
     let registered = o.registered.unwrap();
-    assert_eq!(registered.steps[0], original.steps[0]);
-    assert_eq!(registered.steps.last(), original.steps.last());
+    let tokenized = tokenize_declared(original.clone());
+    assert_eq!(registered.steps[0], tokenized.steps[0]);
+    assert_eq!(registered.steps.last(), tokenized.steps.last());
     for which in [0, 5] {
         let mut missing = proposed.clone();
         missing.steps.remove(which);

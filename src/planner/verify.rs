@@ -22,6 +22,7 @@ mod cli_documented_input;
 mod command_observation;
 mod dependency_classification;
 mod failure_classification;
+pub(crate) mod host_check_segment;
 #[cfg(test)]
 mod issue832_tests;
 mod shell_control;
@@ -209,6 +210,7 @@ pub enum RuntimeNormalizedCommand {
         command: String,
         family: VerifyInstallCommandFamily,
     },
+    HostCheck(host_check_segment::HostCheckSegment),
 }
 
 impl RuntimeNormalizedCommand {
@@ -216,13 +218,14 @@ impl RuntimeNormalizedCommand {
         match self {
             Self::Verify(command) => command.as_str(),
             Self::DependencyInstall { command, .. } => command.as_str(),
+            Self::HostCheck(check) => check.as_str(),
         }
     }
 
     pub fn verify_command(&self) -> Option<&NormalizedVerifyCommand> {
         match self {
             Self::Verify(command) => Some(command),
-            Self::DependencyInstall { .. } => None,
+            Self::DependencyInstall { .. } | Self::HostCheck(_) => None,
         }
     }
 
@@ -230,6 +233,7 @@ impl RuntimeNormalizedCommand {
         match self {
             Self::Verify(_) => None,
             Self::DependencyInstall { family, .. } => Some(*family),
+            Self::HostCheck(check) => check.runtime_owned_family(),
         }
     }
 }
@@ -829,7 +833,7 @@ fn run_verify_command_with_runtime_oracle(
     offline: bool,
     eval_events_path: Option<&Path>,
 ) -> VerifyCommandRunResult {
-    match verifier_env::run_structured_for_verify_with_profile(command, root, profile, offline) {
+    match host_check_segment::run_for_verify(command, root, profile, offline) {
         Ok(outcome) if outcome.is_success() => VerifyCommandRunResult::Passed {
             output: verifier_env::format_verify_outcome(&outcome),
             normalization: None,
@@ -909,12 +913,7 @@ fn handle_failed_verify_command(
             };
         }
     };
-    match verifier_env::run_structured_for_verify_with_profile(
-        &repaired_command,
-        root,
-        profile,
-        offline,
-    ) {
+    match host_check_segment::run_for_verify(&repaired_command, root, profile, offline) {
         Ok(repaired_outcome) if repaired_outcome.is_success() => {
             eval_events::emit(
                 eval_events_path,
@@ -1443,6 +1442,7 @@ pub fn normalize_runtime_bash_command_for_boundary(
         kinds.push(repair.kind);
     }
     if !has_multiple_command_lines(&current)
+        && !host_check_segment::names_check(&current)
         && let Ok(normalized) = normalize_verify_command(&current)
     {
         let normalized_command = normalized.as_str().to_string();
@@ -1479,6 +1479,9 @@ pub fn normalize_runtime_bash_command_for_boundary(
 }
 
 fn normalize_runtime_shell_segment(segment: &str) -> anyhow::Result<RuntimeNormalizedCommand> {
+    if let Some(check) = host_check_segment::recognize(segment) {
+        return Ok(RuntimeNormalizedCommand::HostCheck(check));
+    }
     match normalize_verify_command(segment) {
         Ok(command) => Ok(RuntimeNormalizedCommand::Verify(command)),
         Err(err) => {
@@ -2436,14 +2439,8 @@ fn package_json_port_only_pattern(pattern: &str) -> Option<String> {
 }
 
 pub fn package_json_port_script_check_command(port: &str) -> String {
-    // Delegate so the catalog command stays byte-identical to the dev-required builder that the
-    // verify classifier admits (Issue #832); an unparsable port fails closed.
-    match port.parse::<u16>() {
-        Ok(port) => crate::planner::profiles::nextjs::package_script_required_port_verify_command(
-            "dev", port,
-        ),
-        Err(_) => "node -p \"process.exit(1)\"".to_string(),
-    }
+    // The dev-required host check token (Issues #832, #879); an unparsable port fails closed.
+    crate::planner::profiles::nextjs::package_script_check::dev_port_check_command_for(port)
 }
 
 pub fn dependency_install_verify_segment(command: &str) -> Option<VerifyInstallCommandFamily> {
@@ -3012,15 +3009,12 @@ mod tests {
                 Some(VerifyCommandViolationKind::PackageJsonScriptGrep),
                 "{command}: {diagnosis:?}"
             );
-            assert!(
-                diagnosis.normalized.starts_with("node -p "),
+            // Issue #879: the repair is the dev port host check token, judged in Rust
+            // (`--port=3011`, `-p 3011`, `-p3011`, `--port 3011` are its accepted forms).
+            assert_eq!(
+                diagnosis.normalized, "anvil-nextjs-check:package_script_port:dev:3011",
                 "{diagnosis:?}"
             );
-            assert!(
-                diagnosis.normalized.contains("'--port=3011'"),
-                "{diagnosis:?}"
-            );
-            assert!(diagnosis.normalized.contains("'-p'"), "{diagnosis:?}");
             assert!(
                 validate_verify_command(&diagnosis.normalized).is_ok(),
                 "{diagnosis:?}"
@@ -4268,7 +4262,9 @@ EOF\n\
             assert!(!failing.is_pass(), "{command}: {failing:?}");
             assert_eq!(failing.command_failures.len(), 1, "{command}: {failing:?}");
             assert!(
-                failing.command_failures[0].command.starts_with("node -p "),
+                failing.command_failures[0]
+                    .command
+                    .starts_with("anvil-nextjs-check:package_script_port:dev:3011"),
                 "{command}: {failing:?}"
             );
             assert!(

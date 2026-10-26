@@ -245,7 +245,8 @@ impl PackageScripts {
                 crate::planner::profiles::nextjs::recovery_authority::is_package_check(command);
             if known_package_check
                 && script == "build"
-                && !command.contains("--port=")
+                && crate::planner::profiles::nextjs::package_script_check::checked_port(command)
+                    .is_none()
                 && expected != "next build"
             {
                 return Err(
@@ -264,9 +265,8 @@ impl PackageScripts {
                 );
             }
             if crate::planner::profiles::nextjs::recovery_authority::is_package_check(command)
-                && let Some((_, suffix)) = command.split_once("--port=")
-                && let Some((port, _)) = suffix.split_once('\'')
-                && let Ok(port) = port.parse::<u16>()
+                && let Some(port) =
+                    crate::planner::profiles::nextjs::package_script_check::checked_port(command)
             {
                 port_constraints.push(port);
             }

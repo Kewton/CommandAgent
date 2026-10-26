@@ -32,6 +32,12 @@ fn node_verdict(
     command: &str,
     workspace: &WorkspaceEvidence,
 ) -> Option<(VerifyCommandKind, Option<String>)> {
+    // The host's package script judgement is what the inline `node -p` predicate
+    // was (Issue #879): the same static syntax evidence, and no stronger. Only an
+    // exact declared token counts; an altered one is not evidence at all.
+    if crate::planner::profiles::nextjs::package_script_check::parse(command).is_some() {
+        return Some((VerifyCommandKind::StaticSyntax, None));
+    }
     let program = command.split_whitespace().next()?;
     if !matches!(program, "node" | "npm" | "pnpm" | "yarn") {
         return None;

@@ -1,0 +1,16 @@
+{
+  "synthetic": "the command shapes of a Verify step that repeats the declared verify of nextjs-profile-verify; `npm run build` is left out because it needs installed dependencies and has no host judgement",
+  "typed_times": 3,
+  "one_by_one": [
+    "anvil-nextjs-check:package_script_port:dev:3011",
+    "anvil-nextjs-check:package_script_port:start:3011",
+    "anvil-nextjs-check:build_script"
+  ],
+  "newline": "anvil-nextjs-check:package_script_port:dev:3011\nanvil-nextjs-check:package_script_port:start:3011\nanvil-nextjs-check:build_script",
+  "and_and": "anvil-nextjs-check:package_script_port:dev:3011 && anvil-nextjs-check:package_script_port:start:3011 && anvil-nextjs-check:build_script",
+  "semicolon": "anvil-nextjs-check:package_script_port:dev:3011; anvil-nextjs-check:package_script_port:start:3011; anvil-nextjs-check:build_script",
+  "inline_node_refused": [
+    "node -p \"String(require('./package.json').scripts.build)=='next build' ? true : process.exit(1)\"",
+    "node -e \"require('./package.json').scripts.build=='next build' || process.exit(1)\""
+  ]
+}

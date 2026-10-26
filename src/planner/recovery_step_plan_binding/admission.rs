@@ -576,11 +576,11 @@ pub(super) fn preserve(original: &StepPlan, proposed: &StepPlan) -> anyhow::Resu
         for command in &step.verify {
             if !proposed.steps.iter().enumerate().any(|(index, s)| {
                 s.expected_result == step.expected_result
-                    && s.verify.contains(command)
+                    && crate::planner::profiles::nextjs::package_script_check::list_has_declared_check(&s.verify, command)
                     && (owner_indices.iter().all(|i| *i == index)
                         && s.instruction.contains(&step.instruction)
                         || s.step_kind() == StepKind::Verify
-                            && step.verify.iter().all(|c| s.verify.contains(c))
+                            && step.verify.iter().all(|c| crate::planner::profiles::nextjs::package_script_check::list_has_declared_check(&s.verify, c))
                             && owner_indices.iter().all(|i| *i < index))
             }) {
                 return Err(failure(
