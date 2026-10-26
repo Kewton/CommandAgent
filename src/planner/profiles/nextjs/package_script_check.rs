@@ -7,6 +7,7 @@ use std::path::Path;
 
 use serde_json::Value;
 
+use super::source_checks;
 use crate::planner::step_plan::PlanStep;
 use crate::planner::verify::VerificationReport;
 
@@ -265,7 +266,14 @@ pub(crate) fn legacy_inline_covers(command: &str, port: u16) -> bool {
 /// named package.json in its text; an unknown or malformed token, or one in another
 /// profile, is not coupled to any artifact and is refused as before.
 pub(crate) fn coupled(profile_is_nextjs: bool, command: &str) -> bool {
-    profile_is_nextjs && parse(command).is_some()
+    profile_is_nextjs && (parse(command).is_some() || source_checks::parse(command).is_some())
+}
+
+/// The tokens the step verifier judges itself. The hook, includes and source tokens
+/// are not among them: they take the verify command route, where a failed source
+/// assertion can still be demoted to an advisory.
+pub(crate) fn is_step_check_command(command: &str) -> bool {
+    is_check_command(command) && !source_checks::is_source_check(command)
 }
 
 /// Step-level host judgement, run next to the other internal checks. Outside the
@@ -279,7 +287,7 @@ pub(crate) fn run_step_check(
     for command in step
         .verify
         .iter()
-        .filter(|command| is_check_command(command))
+        .filter(|command| is_step_check_command(command))
     {
         if let Err(reason) = evaluate_in_profile(root, profile, command) {
             report.push_command_failure(command.clone(), reason);
@@ -293,6 +301,9 @@ pub(crate) fn evaluate_in_profile(
     profile: Option<&str>,
     command: &str,
 ) -> Result<(), String> {
+    if source_checks::is_source_check(command) {
+        return source_checks::evaluate(root, command);
+    }
     if !profile.is_some_and(is_nextjs_profile) {
         return Err("nextjs host check is invalid outside the active nextjs profile".to_string());
     }

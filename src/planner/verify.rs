@@ -11,6 +11,7 @@ use crate::minimal_loop::dependency_setup::{
 };
 use crate::minimal_loop::verifier_env;
 use crate::planner::expected_result_observation::record_python_traceback as rt;
+use crate::planner::profiles::nextjs::source_checks;
 use crate::planner::profiles::step_checks;
 use crate::planner::step_plan::{ExpectedResult, PlanStep};
 use crate::planner::verify_semantics::checked_runtime_repair as cr;
@@ -1483,7 +1484,11 @@ fn normalize_runtime_shell_segment(segment: &str) -> anyhow::Result<RuntimeNorma
         return Ok(RuntimeNormalizedCommand::HostCheck(check));
     }
     match normalize_verify_command(segment) {
-        Ok(command) => Ok(RuntimeNormalizedCommand::Verify(command)),
+        // A grep the shared rewrite turned into a host check token is judged by the host.
+        Ok(command) => Ok(match host_check_segment::recognize(command.as_str()) {
+            Some(check) => RuntimeNormalizedCommand::HostCheck(check),
+            None => RuntimeNormalizedCommand::Verify(command),
+        }),
         Err(err) => {
             if let Some(family) = dependency_install_verify_segment(segment) {
                 Ok(RuntimeNormalizedCommand::DependencyInstall {
@@ -1510,7 +1515,7 @@ pub fn diagnose_verify_command(command: &str) -> VerifyCommandDiagnosis {
             normalized,
             VerifyCommandViolationKind::ShellControlSyntax,
             Some(
-                "verify command has unbalanced shell quotes; fix quoting by closing the node -p expression, e.g. `node -p \"require('./package.json').scripts.dev\"`"
+                "verify command has unbalanced shell quotes; fix quoting by closing the quoted pattern, e.g. `grep -q \"next dev\" package.json`"
                     .to_string(),
             ),
         );
@@ -2296,7 +2301,7 @@ fn parse_data_anvil_state_grep(pattern: &str) -> bool {
     rest.is_empty() || rest == "=" || rest.starts_with('=')
 }
 
-fn safe_hook_action_value(value: &str) -> bool {
+pub(crate) fn safe_hook_action_value(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 64
         && value
@@ -2316,7 +2321,7 @@ fn single_hook_grep_source_path(tokens: &[ShellWord]) -> Option<String> {
     hook_source_path(&path.value)
 }
 
-fn hook_source_path(path: &str) -> Option<String> {
+pub(crate) fn hook_source_path(path: &str) -> Option<String> {
     let rel = path.trim().trim_start_matches("./").replace('\\', "/");
     if rel.is_empty()
         || rel.starts_with('/')
@@ -2358,40 +2363,9 @@ fn hook_source_path(path: &str) -> Option<String> {
 fn hook_attribute_check_command(assertion: &HookGrepAssertion, source_path: &str) -> String {
     match assertion {
         HookGrepAssertion::Action { value } => {
-            format!(
-                concat!(
-                    "node -p '",
-                    "(function(s,w,d,q,b){{return [",
-                    "new RegExp(\"data-anvil-action\"+w+\"=\"+w+d+\"{value}\"+d),",
-                    "new RegExp(\"data-anvil-action\"+w+\"=\"+w+q+\"{value}\"+q),",
-                    "new RegExp(\"data-anvil-action\"+w+\"=\"+w+\"[{{]\"+w+d+\"{value}\"+d+w+\"[}}]\"),",
-                    "new RegExp(\"data-anvil-action\"+w+\"=\"+w+\"[{{]\"+w+q+\"{value}\"+q+w+\"[}}]\"),",
-                    "new RegExp(\"data-anvil-action\"+w+\"=\"+w+\"[{{]\"+w+b+\"{value}\"+b+w+\"[}}]\")",
-                    "].some(function(r){{return r.test(s)}})?true:process.exit(1)}})",
-                    "(String(require(\"fs\").readFileSync(\"{source_path}\")),",
-                    "String.fromCharCode(92)+\"s*\",String.fromCharCode(34),",
-                    "String.fromCharCode(39),String.fromCharCode(96))",
-                    "'"
-                ),
-                value = value,
-                source_path = source_path
-            )
+            source_checks::hook_action_command(value, source_path)
         }
-        HookGrepAssertion::State => {
-            format!(
-                concat!(
-                    "node -p '",
-                    "(function(s,w,b){{return [",
-                    "new RegExp(\"data-anvil-state\"+w+\"=\"),",
-                    "new RegExp(\"data-anvil-state\"+b)",
-                    "].some(function(r){{return r.test(s)}})?true:process.exit(1)}})",
-                    "(String(require(\"fs\").readFileSync(\"{source_path}\")),",
-                    "String.fromCharCode(92)+\"s*\",String.fromCharCode(92)+\"b\")",
-                    "'"
-                ),
-                source_path = source_path
-            )
-        }
+        HookGrepAssertion::State => source_checks::hook_state_command(source_path),
     }
 }
 
@@ -2400,30 +2374,7 @@ pub fn package_json_script_check_command(pattern: &str) -> Option<String> {
         return Some(package_json_port_script_check_command(&port));
     }
 
-    let lower = pattern.to_ascii_lowercase();
-    let script = if lower.contains("next build") || lower.contains("scripts.build") {
-        Some("build")
-    } else if lower.contains("next dev")
-        || lower.contains("scripts.dev")
-        || lower.contains("\"dev\"")
-        || lower.contains("'dev'")
-    {
-        Some("dev")
-    } else if lower.contains("next start")
-        || lower.contains("scripts.start")
-        || lower.contains("\"start\"")
-        || lower.contains("'start'")
-    {
-        Some("start")
-    } else {
-        None
-    }?;
-    if pattern.contains('\'') || pattern.contains('\\') {
-        return None;
-    }
-    Some(format!(
-        "node -p \"String(require('./package.json').scripts.{script}).includes('{pattern}') ? true : process.exit(1)\""
-    ))
+    source_checks::script_includes_command(pattern)
 }
 
 fn package_json_port_only_pattern(pattern: &str) -> Option<String> {
@@ -2886,7 +2837,7 @@ mod tests {
             "{diagnosis:?}"
         );
         let normalized = normalize_verify_command(command).unwrap();
-        crate::tools::bash::run_checked(normalized.as_str(), dir.path(), false)
+        source_checks::evaluate(dir.path(), normalized.as_str())
             .unwrap_or_else(|err| panic!("normalized hook grep failed: {err}"));
     }
 
@@ -2991,7 +2942,7 @@ mod tests {
         );
         assert_eq!(
             diagnosis.normalized,
-            r#"node -p "String(require('./package.json').scripts.dev).includes('next dev -p 3011') ? true : process.exit(1)""#
+            "anvil-nextjs-check:script_includes:dev:next%20dev%20-p%203011"
         );
     }
 
@@ -3040,7 +2991,7 @@ mod tests {
         );
         assert_eq!(
             diagnosis.normalized,
-            r#"node -p "String(require('./package.json').scripts.dev).includes('next dev -p 3011') ? true : process.exit(1)""#
+            "anvil-nextjs-check:script_includes:dev:next%20dev%20-p%203011"
         );
     }
 
@@ -3117,7 +3068,7 @@ mod tests {
             "{diagnosis:?}"
         );
         let normalized = normalize_verify_command(command).unwrap();
-        crate::tools::bash::run_checked(normalized.as_str(), dir.path(), false)
+        source_checks::evaluate(dir.path(), normalized.as_str())
             .unwrap_or_else(|err| panic!("normalized source assertion failed: {err}"));
     }
 
@@ -3349,7 +3300,7 @@ mod tests {
         let reason = diagnosis.reason.as_deref().unwrap_or_default();
         assert!(reason.contains("unbalanced shell quotes"), "{diagnosis:?}");
         assert!(
-            reason.contains(r#"node -p "require('./package.json').scripts.dev""#),
+            reason.contains(r#"grep -q "next dev" package.json"#),
             "{diagnosis:?}"
         );
     }

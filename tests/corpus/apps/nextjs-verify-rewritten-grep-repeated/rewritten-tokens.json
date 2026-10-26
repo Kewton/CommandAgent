@@ -1,0 +1,10 @@
+{
+  "synthetic": "what the planner sanitizer writes into the plan for each grep in planner-greps.json: a host check token, in the same order",
+  "tokens": [
+    "anvil-nextjs-check:hook_action:primary:src/app/page.tsx",
+    "anvil-nextjs-check:hook_state:src/app/page.tsx",
+    "anvil-nextjs-check:script_includes:dev:next%20dev",
+    "anvil-nextjs-check:source_token:useState:src/app/page.tsx",
+    "anvil-nextjs-check:source_keydown:src/app/page.tsx"
+  ]
+}

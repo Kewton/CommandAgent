@@ -31,33 +31,7 @@ pub(crate) fn is_generated_hook_check(command: &str) -> bool {
     if compound_hook::checked_path(command).is_some() {
         return true;
     }
-    let Some((_, rest)) = command.split_once("readFileSync(\"") else {
-        return false;
-    };
-    let Some((path, _)) = rest.split_once('"') else {
-        return false;
-    };
-    for pattern in [
-        "data-anvil-state".to_string(),
-        "primary".into(),
-        "restart".into(),
-        "input".into(),
-        "search".into(),
-        "submit".into(),
-    ] {
-        let pattern = if pattern == "data-anvil-state" {
-            pattern
-        } else {
-            format!("data-anvil-action=\"{pattern}\"")
-        };
-        let grep = format!("grep -q '{pattern}' {path}");
-        if let Ok(normalized) = crate::planner::verify::normalize_verify_command(&grep)
-            && normalized.as_str() == command
-        {
-            return true;
-        }
-    }
-    false
+    super::source_checks::is_generated_hook_check(command)
 }
 
 #[cfg(test)]

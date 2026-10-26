@@ -447,9 +447,11 @@ pub fn step_plan_quality_report(
         .collect();
     let lower_goal = plan.goal.to_ascii_lowercase();
     let looks_next_profile = resolve_profile_runtime(&context.profile).enforce_nextjs_plan_shape();
-    let has_strong_verify = verify_commands
-        .iter()
-        .any(|command| is_strong_verify_command(command));
+    let strong = |command: &str| {
+        is_strong_verify_command(command)
+            || super::profiles::nextjs::package_script_check::coupled(looks_next_profile, command)
+    };
+    let has_strong_verify = verify_commands.iter().any(|command| strong(command));
 
     if let Some(last) = plan.steps.last()
         && last.step_kind() == StepKind::Report
@@ -595,10 +597,7 @@ pub fn step_plan_quality_report(
             );
         }
         for command in &step.verify {
-            if is_strong_verify_command(command) || is_content_assertion_command(command) {
-                continue;
-            }
-            if super::profiles::nextjs::package_script_check::coupled(looks_next_profile, command) {
+            if strong(command) || is_content_assertion_command(command) {
                 continue;
             }
             if command_mentions_any_expected_path(command, &all_paths) {

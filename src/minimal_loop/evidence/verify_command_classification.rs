@@ -38,6 +38,12 @@ fn node_verdict(
     if crate::planner::profiles::nextjs::package_script_check::parse(command).is_some() {
         return Some((VerifyCommandKind::StaticSyntax, None));
     }
+    // The hook, includes and source tokens stand for the inline text they replaced
+    // (Issue #881) and are classified exactly as that text was.
+    if let Some(inline) = crate::planner::profiles::nextjs::source_checks::legacy_for_token(command)
+    {
+        return node_verdict(&inline, workspace);
+    }
     let program = command.split_whitespace().next()?;
     if !matches!(program, "node" | "npm" | "pnpm" | "yarn") {
         return None;
