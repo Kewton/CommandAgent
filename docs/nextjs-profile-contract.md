@@ -113,8 +113,10 @@ what the probe typed surviving the reload is not persistence. An app whose only
 surviving change is such a draft copy is reported as `not_evaluated`
 (`no_mutation_observed`) with `persistence_draft_only` in the informational
 failure kinds. An app that saves automatically should therefore expose the keys
-that change only when a save happens (for example `savedAt`,
-`savedContentLength`, or `revision`) in `data-anvil-state`.
+that change only when a save happens, after typing has finished (after a
+debounce, or on Save; for example `savedAt`, `savedContentLength`, or
+`revision`), in `data-anvil-state`. A key that changes at the same moment as a
+keystroke is treated as part of the draft.
 
 For canvas apps, non-blank output is not sufficient evidence that rendering
 continues. The probe compares readable pixel hashes before start, after start,

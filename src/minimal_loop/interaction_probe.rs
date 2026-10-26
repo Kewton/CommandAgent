@@ -2063,7 +2063,7 @@ mod tests {
         let digest = Sha256::digest(interaction_probe_script().as_bytes());
         assert_eq!(
             format!("{digest:x}"),
-            "f472a76d58198aa0346c07a5b73002b8b8850b13cf3eee77e5cdcc8f6f79600b"
+            "9d3e0c1afbd06cd51dbf5a239012ec57574b6e5d0ae31d5aef4bbb545a7d1ccc"
         );
         let script = interaction_probe_script();
         assert!(script.contains("HELD_INPUT_OBSERVE_MS"));

@@ -21,7 +21,8 @@ use super::{
 const FAKE_PERSISTENCE_PLAYWRIGHT: &str = r#"const scenario = "__SCENARIO__";
 const ELEMENT_NODE = 1;
 const TEXT_NODE = 3;
-const contractMode = scenario !== "heuristic_textarea_echo";
+const heuristicEcho = scenario.startsWith("heuristic_");
+const contractMode = !heuristicEcho;
 
 class FakeElement {
   constructor(page, kind, text = "") {
@@ -33,6 +34,10 @@ class FakeElement {
     this._textContent = text;
     this.tagName = kind === "textarea" ? "TEXTAREA" : kind === "button" ? "BUTTON" : "DIV";
     this.nodeType = ELEMENT_NODE;
+    if (kind === "textarea" && scenario === "heuristic_contenteditable_echo") {
+      this.tagName = "DIV";
+      this.attrs.contenteditable = "TRUE";
+    }
   }
 
   get textContent() {
@@ -208,7 +213,7 @@ class FakePage {
       this.persist(["search", "visibleCount"]);
     } else if (scenario === "contract_todo") {
       this.s.draft = value;
-    } else if (scenario === "heuristic_textarea_echo") {
+    } else if (heuristicEcho) {
       this.s.draft = value;
       this.persist(["draft"]);
     } else {
@@ -303,7 +308,7 @@ class FakePage {
     } else if (scenario === "contract_todo") {
       push(`Todos ${this.s.todos.length}`, this.body);
       for (const todo of this.s.todos) push(todo, this.body);
-    } else if (scenario === "heuristic_textarea_echo") {
+    } else if (heuristicEcho) {
       // Before the reload the draft is echoed in a preview; after it, the token is
       // only the default text of the restored textarea.
       if (this.restored) push(stored.draft, this.textarea);
@@ -336,7 +341,7 @@ class FakePage {
     this.restored = true;
     this.s = this.initialState();
     Object.assign(this.s, stored);
-    if (scenario === "heuristic_textarea_echo") this.s.draft = "";
+    if (heuristicEcho) this.s.draft = "";
     return { status: () => 200 };
   }
 
@@ -471,6 +476,7 @@ fn contract_todo_added_by_the_primary_action_is_preserved_by_its_commit_key() {
         return;
     };
     assert_eq!(observation.probe_mode, "contract", "{observation:?}");
+    assert!(observation.token_echoed, "{observation:?}");
     assert_eq!(
         observation.persistence_after_reload, "preserved",
         "{observation:?}"
@@ -493,6 +499,7 @@ fn contract_editor_save_key_that_survives_reload_is_preserved_by_the_commit_key(
         return;
     };
     assert_eq!(observation.probe_mode, "contract", "{observation:?}");
+    assert!(observation.token_echoed, "{observation:?}");
     assert_eq!(
         observation.persistence_after_reload, "preserved",
         "{observation:?}"
@@ -514,21 +521,37 @@ fn contract_editor_without_a_save_key_is_draft_only_not_preserved() {
     assert_draft_only_run("contract_editor_draft_copy");
 }
 
-#[test]
-fn heuristic_token_found_only_inside_the_textarea_after_reload_is_not_an_echo() {
-    let Some((observation, evidence)) = run_persistence_scenario("heuristic_textarea_echo") else {
+/// The token is echoed outside the entry control before the reload and only
+/// inside the control afterwards, so the heuristic typed-token verdict is reset.
+fn assert_entry_control_text_is_not_an_echo(scenario: &str) {
+    let Some((observation, evidence)) = run_persistence_scenario(scenario) else {
         return;
     };
-    assert_eq!(observation.probe_mode, "heuristic", "{observation:?}");
-    assert!(observation.token_echoed, "{observation:?}");
+    assert_eq!(
+        observation.probe_mode, "heuristic",
+        "{scenario}: {observation:?}"
+    );
+    assert!(observation.token_echoed, "{scenario}: {observation:?}");
     assert_eq!(
         observation.persistence_after_reload, "reset",
-        "{observation:?}"
+        "{scenario}: {observation:?}"
     );
-    assert!(!observation.ok, "{observation:?}");
+    assert!(!observation.ok, "{scenario}: {observation:?}");
     assert_eq!(
         observation.failure_kind, "persistence_after_reload_reset",
-        "{observation:?}"
+        "{scenario}: {observation:?}"
     );
     assert_eq!(evidence["persistence_after_reload"], "reset");
+}
+
+#[test]
+fn heuristic_token_found_only_inside_the_textarea_after_reload_is_not_an_echo() {
+    assert_entry_control_text_is_not_an_echo("heuristic_textarea_echo");
+}
+
+#[test]
+fn heuristic_token_found_only_inside_a_contenteditable_after_reload_is_not_an_echo() {
+    // The fake marks the control `contenteditable="TRUE"`: the value is compared
+    // without regard to case.
+    assert_entry_control_text_is_not_an_echo("heuristic_contenteditable_echo");
 }

@@ -1061,7 +1061,8 @@ async function tokenEchoedOutsideTextEntryTargetNow(page, token) {
     const isTextEntryElement = (element) => {
       const tag = (element.tagName || "").toLowerCase();
       if (tag === "input" || tag === "textarea") return true;
-      const editable = element.getAttribute ? element.getAttribute("contenteditable") : null;
+      const attr = element.getAttribute ? element.getAttribute("contenteditable") : null;
+      const editable = attr === null ? null : String(attr).toLowerCase();
       return editable === "" || editable === "true" || editable === "plaintext-only";
     };
     // After a reload the probe's own mark is gone, so a text entry candidate is

@@ -22,7 +22,7 @@
   "recovery_transition_status": "not_observed",
   "restart_hook_count_after_start": 0,
   "restart_hook_reachable_after_start": false,
-  "start_control_found": true,
+  "start_control_found": false,
   "start_transition": false,
   "state_changed": true,
   "state_dimensions_changed": [
