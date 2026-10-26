@@ -1,0 +1,41 @@
+case_id = "restart-pre-start-hook-only-partial"
+source = "synthetic, derived from S-118b P1 analysis (develop b08dc5a9)"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[release_qualification]
+evidence_fixture = "browser-interaction.json"
+restart_required = true
+full_eligible = false
+evidence_status = "unverified:restart_not_exercised"
+reasons = ["interaction_unverified:restart_not_exercised"]
+
+[json_fields]
+browser-interaction.json:recovery_control = "none"
+browser-interaction.json:recovery_transition_status = "observed"
+browser-interaction.json:restart_hook_count_after_start = "0"
+
+[fixture_contains]
+provenance.md = [
+  "synthetic",
+  "S-118b",
+  "b08dc5a9"
+]

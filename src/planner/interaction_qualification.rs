@@ -4,6 +4,7 @@ use serde_json::Value;
 
 use crate::minimal_loop::interaction_probe::BrowserInteractionProbeOptions;
 
+mod restart_attribution;
 mod restart_terminal;
 
 pub const INTERACTION_VERIFIED_HEURISTIC_ONLY: &str = "interaction_verified_heuristic_only";
@@ -41,14 +42,7 @@ pub fn qualify_interaction_evidence(
             .and_then(Value::as_bool)
             == Some(true);
     let state_changed = nonempty_string_array_deep(value, details, "state_dimensions_changed");
-    let restart_present = string_array_contains_deep(value, details, "action_hooks", "restart")
-        || bool_field_deep(value, details, "restart_hook_reachable_after_start") == Some(true)
-        || numeric_field_deep(value, details, "restart_hook_count_after_start")
-            .is_some_and(|count| count > 0)
-        || contract_hooks
-            .and_then(|hooks| hooks.get("restart_present"))
-            .and_then(Value::as_bool)
-            == Some(true);
+    let restart = restart_attribution::attribute_restart(value, details, contract_hooks);
 
     let mut reasons = Vec::new();
     if hook_status != "usable" || !primary_present {
@@ -57,10 +51,15 @@ pub fn qualify_interaction_evidence(
     if !state_changed {
         reasons.push("contract_instrumentation_missing:state_change".to_string());
     }
-    if restart_required && !restart_present {
+    if restart_required && restart == restart_attribution::RestartAttribution::Missing {
         reasons.push("contract_instrumentation_missing:restart".to_string());
     }
-    if reasons.is_empty() {
+    if reasons.is_empty()
+        && restart_required
+        && restart == restart_attribution::RestartAttribution::Declared
+    {
+        restart_attribution::restart_not_exercised_partial()
+    } else if reasons.is_empty() {
         InteractionFullQualification {
             full_eligible: true,
             evidence_status: "passed".to_string(),
@@ -182,8 +181,11 @@ pub(crate) fn enforce_release_gate(
     }
     // Partial only ever replaces a gate that has not failed yet; it never lifts one.
     if matches!(release_gate_status.as_str(), "pass" | "partial")
-        && let Some(partial) =
-            restart_terminal::overlay_only_restart_partial(&qualification, root, profile)
+        && let Some(partial) = restart_attribution::is_restart_not_exercised(&qualification)
+            .then(|| qualification.clone())
+            .or_else(|| {
+                restart_terminal::overlay_only_restart_partial(&qualification, root, profile)
+            })
     {
         *release_gate_status = "partial".to_string();
         *interaction_evidence_status = partial.evidence_status;
