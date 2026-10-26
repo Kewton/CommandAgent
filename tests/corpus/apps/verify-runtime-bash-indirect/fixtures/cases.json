@@ -1469,6 +1469,232 @@
         "report"
       ],
       "expect": "allow"
+    },
+    {
+      "id": "fix4-reject-0",
+      "origin": "synthetic",
+      "command": "nice -n 5 npx -c 'cp a b'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npx -c`"
+    },
+    {
+      "id": "fix4-reject-1",
+      "origin": "synthetic",
+      "command": "nice -n 5 flock f -c 'cp a b'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`flock -c`"
+    },
+    {
+      "id": "fix4-reject-2",
+      "origin": "synthetic",
+      "command": "nice -n 5 npm exec -c 'cp a b'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npm -c`"
+    },
+    {
+      "id": "fix4-reject-3",
+      "origin": "synthetic",
+      "command": "nice -n 5 sh -c 'cp a b'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`sh -c`"
+    },
+    {
+      "id": "fix4-reject-8",
+      "origin": "synthetic",
+      "command": "timeout -s KILL 5 npx -c 'cp a b'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npx -c`"
+    },
+    {
+      "id": "fix4-reject-9",
+      "origin": "synthetic",
+      "command": "timeout -s KILL 5 flock f -c 'cp a b'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`flock -c`"
+    },
+    {
+      "id": "fix4-reject-10",
+      "origin": "synthetic",
+      "command": "timeout -s KILL 5 npm exec -c 'cp a b'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npm -c`"
+    },
+    {
+      "id": "fix4-reject-11",
+      "origin": "synthetic",
+      "command": "timeout -s KILL 5 sh -c 'cp a b'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`sh -c`"
+    },
+    {
+      "id": "fix4-reject-16",
+      "origin": "synthetic",
+      "command": "npm exec -p -c 'cp a b'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npm -c`"
+    },
+    {
+      "id": "fix4-reject-17",
+      "origin": "synthetic",
+      "command": "npm x -p --call 'cp a b'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npm -c`"
+    },
+    {
+      "id": "fix4-reject-18",
+      "origin": "synthetic",
+      "command": "npx -p -c 'cp a b'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`npx -c`"
+    },
+    {
+      "id": "fix4-reject-19",
+      "origin": "synthetic",
+      "command": "chrt -o 0 bash -sc 'cp a b'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`bash -c`"
+    },
+    {
+      "id": "fix4-reject-20",
+      "origin": "synthetic",
+      "command": "chrt -o 0 bash -s -c 'cp a b'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`bash -c`"
+    },
+    {
+      "id": "fix4-reject-21",
+      "origin": "synthetic",
+      "command": "taskset 1 sh -cs 'cp a b'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`sh -c`"
+    },
+    {
+      "id": "fix4-reject-22",
+      "origin": "synthetic",
+      "command": "bash -sc 'cp a b'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`bash -c`"
+    },
+    {
+      "id": "fix4-reject-23",
+      "origin": "synthetic",
+      "command": "bash -s -c 'cp a b'",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "reject",
+      "reason_contains": "`bash -c`"
+    },
+    {
+      "id": "fix4-allow-0",
+      "origin": "synthetic",
+      "command": "npx -p typescript tsc --noEmit",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix4-allow-1",
+      "origin": "synthetic",
+      "command": "npm exec -p -- tsc --noEmit",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix4-allow-2",
+      "origin": "synthetic",
+      "command": "nice -n5 npx tsc --noEmit",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix4-allow-3",
+      "origin": "synthetic",
+      "command": "timeout -sKILL 5 npx vitest run",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
+    },
+    {
+      "id": "fix4-allow-4",
+      "origin": "synthetic",
+      "command": "chrt 1 npx tsc --noEmit",
+      "steps": [
+        "verify",
+        "report"
+      ],
+      "expect": "allow"
     }
   ],
   "host_cases": [

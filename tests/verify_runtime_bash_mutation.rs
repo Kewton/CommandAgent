@@ -335,6 +335,51 @@ fn a_refused_writer_repeated_to_the_iteration_cap_never_changes_the_verifier() {
     ));
 }
 
+/// The same writer sent a few times, then the model ends its turn normally: the
+/// declared host verify runs afterwards on the untouched verifier and fails.
+#[test]
+fn a_refused_writer_then_a_normal_finish_reaches_the_failing_host_verify() {
+    let corpus = indirect_corpus();
+    let original = corpus["workspace"]["verifier_content"].as_str().unwrap();
+    let outcome = run_verify_case_repeating(
+        &corpus,
+        "verify",
+        Some("sh -c 'cp always-pass.sh smoke-check.sh'"),
+        2,
+    );
+    let policy = verify_step_policy_events(&outcome);
+    assert_eq!(policy.len(), 2, "{:?}", outcome.events.len());
+    assert!(policy.iter().all(|event| event["blocked"] == true));
+    assert_eq!(read(&outcome, "smoke-check.sh"), original);
+    assert!(!step_completed(&outcome, "verify-widget"));
+    // The model's session ended normally, so the failure comes from the host verify.
+    let observed: Vec<&Value> = outcome
+        .events
+        .iter()
+        .filter(|event| {
+            event["event"] == "verify_command_observed" && event["step"] == "verify-widget"
+        })
+        .collect();
+    assert_eq!(observed.len(), 1);
+    assert_eq!(observed[0]["effective_command"], "sh smoke-check.sh");
+    assert_eq!(observed[0]["status"], "failed");
+    let failure = outcome
+        .events
+        .iter()
+        .find(|event| {
+            event["event"] == "step_verify_failure" && event["step_id"] == "verify-widget"
+        })
+        .expect("the host verify failure is recorded");
+    assert_eq!(failure["command_failures"], 1);
+    assert!(
+        failure["primary_reason"]
+            .as_str()
+            .unwrap()
+            .contains("FAIL: widget missing"),
+        "{failure}"
+    );
+}
+
 /// Issue #871: the explicit `bash:verify` ceiling reads the same table as the
 /// runtime policy. A refused row is never auto-approved; an allowed row that
 /// the ceiling also admits as a plain verifier stays admitted.

@@ -588,6 +588,59 @@ mod tests {
     }
 
     #[test]
+    fn issue871_unresolved_prefix_option_value_and_stdin_shell_forms_are_refused() {
+        let root = tempfile::tempdir().unwrap();
+        for step in [RunSessionStepKind::Verify, RunSessionStepKind::Report] {
+            for command in [
+                "nice -n 5 npx -c 'cp a b'",
+                "nice -n 5 flock f -c 'cp a b'",
+                "nice -n 5 npm exec -c 'cp a b'",
+                "nice -n 5 sh -c 'cp a b'",
+                "nice -n5 npx -c 'cp a b'",
+                "nice -n5 flock f -c 'cp a b'",
+                "nice -n5 npm exec -c 'cp a b'",
+                "nice -n5 sh -c 'cp a b'",
+                "timeout -s KILL 5 npx -c 'cp a b'",
+                "timeout -s KILL 5 flock f -c 'cp a b'",
+                "timeout -s KILL 5 npm exec -c 'cp a b'",
+                "timeout -s KILL 5 sh -c 'cp a b'",
+                "timeout -sKILL 5 npx -c 'cp a b'",
+                "timeout -sKILL 5 flock f -c 'cp a b'",
+                "timeout -sKILL 5 npm exec -c 'cp a b'",
+                "timeout -sKILL 5 sh -c 'cp a b'",
+                "npm exec -p -c 'cp a b'",
+                "npm x -p --call 'cp a b'",
+                "npx -p -c 'cp a b'",
+                "chrt -o 0 bash -sc 'cp a b'",
+                "chrt -o 0 bash -s -c 'cp a b'",
+                "taskset 1 sh -cs 'cp a b'",
+                "bash -sc 'cp a b'",
+                "bash -s -c 'cp a b'",
+            ] {
+                let id = format!("{step:?} {command}");
+                let decision = decide(step, command, root.path());
+                // The attached `-n5`/`-sKILL` forms are also stopped earlier by path
+                // confinement; either way the command never runs.
+                assert!(decision.blocked, "{id}");
+                assert!(!decision.deterministic_verifier_evidence, "{id}");
+                if decision.policy_error_kind == "verify_command_policy_error" {
+                    assert_refused_before_execution(&decision, &id);
+                }
+            }
+            for command in [
+                "npx -p typescript tsc --noEmit",
+                "npm exec -p -- tsc --noEmit",
+                "nice -n5 npx tsc --noEmit",
+                "timeout -sKILL 5 npx vitest run",
+                "chrt 1 npx tsc --noEmit",
+            ] {
+                let decision = decide(step, command, root.path());
+                assert!(!decision.blocked, "{step:?} {command}: {}", decision.reason);
+            }
+        }
+    }
+
+    #[test]
     fn issue871_raw_check_alone_refuses_a_form_the_other_texts_do_not_show() {
         let root = tempfile::tempdir().unwrap();
         let mut decision = RuntimeBashPolicyDecision::for_step(

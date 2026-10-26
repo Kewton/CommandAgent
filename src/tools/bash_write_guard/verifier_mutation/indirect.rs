@@ -159,7 +159,8 @@ fn segment_operation(words: &[&str]) -> Option<String> {
                     .iter()
                     .map(|word| (*word).to_string())
                     .collect();
-                classify(base_name(words[index]), &arguments, false)
+                let name = base_name(words[index]);
+                classify(name, &arguments, false).or_else(|| launcher_string(name, &arguments))
             }),
         // The parent's write table already refuses `env -S`.
         Resolution::UnverifiableSplitString { .. } => None,
@@ -176,8 +177,9 @@ fn is_launcher(program: &str, arguments: &[String]) -> bool {
         })
 }
 
-/// The launcher's own shell-string option, or the first refused form among the
-/// words it starts.
+/// The first refused form among the words a launcher starts, or a launcher's
+/// own shell-string option. Every word is a suffix start of `arguments`, so a
+/// launcher started by a launcher, at any depth, is read by this one pass.
 fn launched(program: &str, arguments: &[String]) -> Option<String> {
     if !is_launcher(program, arguments) {
         return None;
@@ -186,20 +188,36 @@ fn launched(program: &str, arguments: &[String]) -> Option<String> {
         .find_map(|index| {
             let name = base_name(&arguments[index]);
             let rest = &arguments[index + 1..];
-            // A launcher started by a launcher is read the same way, at any depth.
-            classify(name, rest, false).or_else(|| launched(name, rest))
+            classify(name, rest, false).or_else(|| launcher_string(name, rest))
         })
-        .or_else(|| launcher_runs_string(program, arguments).then(|| format!("{program} -c")))
+        .or_else(|| launcher_string(program, arguments))
+}
+
+/// `program`'s own shell-string option, when `program` is a launcher.
+fn launcher_string(program: &str, arguments: &[String]) -> Option<String> {
+    (is_launcher(program, arguments) && launcher_runs_string(program, arguments))
+        .then(|| format!("{program} -c"))
 }
 
 /// `npx -c`, `npm exec --call`, `flock --command`, `script -qc`: the launcher
 /// hands one string to a shell.
 fn launcher_runs_string(program: &str, arguments: &[String]) -> bool {
     // `npm exec <options> <package>`: the subcommand word is not an option.
-    let (arguments, scans_all) = match program {
-        "flock" | "script" => (arguments, true),
-        "npx" => (arguments, false),
-        "npm" => (arguments.get(1..).unwrap_or_default(), false),
+    // `valued` options take the next word, unless that word is itself an
+    // option: an option never hides another one. npx `-p` is `--package`; npm
+    // `-p` is the boolean `--parseable`.
+    let (arguments, scans_all, valued): (&[String], bool, &[&str]) = match program {
+        "flock" | "script" => (arguments, true, &[]),
+        "npx" => (
+            arguments,
+            false,
+            &["-p", "--package", "-w", "--workspace", "--registry"],
+        ),
+        "npm" => (
+            arguments.get(1..).unwrap_or_default(),
+            false,
+            &["--package", "-w", "--workspace", "--registry"],
+        ),
         _ => return false,
     };
     let mut index = 0;
@@ -209,11 +227,13 @@ fn launcher_runs_string(program: &str, arguments: &[String]) -> bool {
         if argument == "--" {
             return false;
         }
-        if matches!(
-            argument,
-            "-p" | "--package" | "-w" | "--workspace" | "--registry"
-        ) {
-            index += 1;
+        if valued.contains(&argument) {
+            if arguments
+                .get(index)
+                .is_some_and(|next| !next.starts_with('-'))
+            {
+                index += 1;
+            }
             continue;
         }
         if matches!(argument, "--call" | "--command")
@@ -271,12 +291,15 @@ enum ShellForm {
 }
 
 fn shell_form(arguments: &[String]) -> ShellForm {
+    // `-s` reads the script from stdin, but a later `-c` still wins and the
+    // words after `-s` are positional parameters, not a script operand.
+    let mut reads_stdin = false;
     let mut index = 0;
     while index < arguments.len() {
         let argument = arguments[index].as_str();
         index += 1;
         if argument == "--" {
-            return if index < arguments.len() {
+            return if index < arguments.len() && !reads_stdin {
                 ShellForm::Script
             } else {
                 ShellForm::Stdin
@@ -296,12 +319,16 @@ fn shell_form(arguments: &[String]) -> ShellForm {
         let mut chars = argument.chars();
         let sign = chars.next();
         if !matches!(sign, Some('-' | '+')) || argument.len() == 1 {
-            return ShellForm::Script;
+            return if reads_stdin {
+                ShellForm::Stdin
+            } else {
+                ShellForm::Script
+            };
         }
         for ch in chars {
             match ch {
                 'c' if sign == Some('-') => return ShellForm::Command,
-                's' if sign == Some('-') => return ShellForm::Stdin,
+                's' if sign == Some('-') => reads_stdin = true,
                 // `-o name` and `-O name` take the next word.
                 // The cluster goes on after the value is taken: `-oc name` is `-c`.
                 'o' | 'O' => index += 1,

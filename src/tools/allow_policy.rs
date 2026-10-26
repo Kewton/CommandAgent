@@ -449,6 +449,57 @@ mod tests {
     }
 
     #[test]
+    fn issue871_bash_verify_handles_unresolved_prefix_option_value_and_stdin_shell_forms() {
+        let root = tempfile::tempdir().unwrap();
+        let _guard = install(false, &[AllowTarget::BashVerify]);
+        for command in [
+            "nice -n 5 npx -c 'cp a b'",
+            "nice -n 5 flock f -c 'cp a b'",
+            "nice -n 5 npm exec -c 'cp a b'",
+            "nice -n 5 sh -c 'cp a b'",
+            "nice -n5 npx -c 'cp a b'",
+            "nice -n5 flock f -c 'cp a b'",
+            "nice -n5 npm exec -c 'cp a b'",
+            "nice -n5 sh -c 'cp a b'",
+            "timeout -s KILL 5 npx -c 'cp a b'",
+            "timeout -s KILL 5 flock f -c 'cp a b'",
+            "timeout -s KILL 5 npm exec -c 'cp a b'",
+            "timeout -s KILL 5 sh -c 'cp a b'",
+            "timeout -sKILL 5 npx -c 'cp a b'",
+            "timeout -sKILL 5 flock f -c 'cp a b'",
+            "timeout -sKILL 5 npm exec -c 'cp a b'",
+            "timeout -sKILL 5 sh -c 'cp a b'",
+            "npm exec -p -c 'cp a b'",
+            "npm x -p --call 'cp a b'",
+            "npx -p -c 'cp a b'",
+            "chrt -o 0 bash -sc 'cp a b'",
+            "chrt -o 0 bash -s -c 'cp a b'",
+            "taskset 1 sh -cs 'cp a b'",
+            "bash -sc 'cp a b'",
+            "bash -s -c 'cp a b'",
+        ] {
+            let arguments = json!({ "command": command });
+            assert!(
+                ensure_current_allows("Bash", &arguments, root.path()).is_err(),
+                "{command}"
+            );
+        }
+        for command in [
+            "npx -p typescript tsc --noEmit",
+            "npm exec -p -- tsc --noEmit",
+            "nice -n5 npx tsc --noEmit",
+            "timeout -sKILL 5 npx vitest run",
+            "chrt 1 npx tsc --noEmit",
+        ] {
+            let arguments = json!({ "command": command });
+            assert!(
+                ensure_current_allows("Bash", &arguments, root.path()).is_ok(),
+                "{command}"
+            );
+        }
+    }
+
+    #[test]
     fn issue871_bash_verify_keeps_canonical_verifiers() {
         let root = tempfile::tempdir().unwrap();
         let _guard = install(false, &[AllowTarget::BashVerify]);

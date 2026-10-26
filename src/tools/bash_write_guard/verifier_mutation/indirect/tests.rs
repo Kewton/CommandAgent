@@ -484,3 +484,59 @@ fn a_launcher_started_by_a_launcher_keeps_its_shell_string_option_refused() {
         assert_eq!(operation(command), None, "{command}");
     }
 }
+
+#[test]
+fn unresolved_prefixes_option_values_and_stdin_shells_do_not_hide_a_launcher_string() {
+    for command in [
+        "nice -n 5 npx -c 'cp a b'",
+        "nice -n 5 flock f -c 'cp a b'",
+        "nice -n 5 npm exec -c 'cp a b'",
+        "nice -n 5 sh -c 'cp a b'",
+        "nice -n5 npx -c 'cp a b'",
+        "nice -n5 flock f -c 'cp a b'",
+        "nice -n5 npm exec -c 'cp a b'",
+        "nice -n5 sh -c 'cp a b'",
+        "timeout -s KILL 5 npx -c 'cp a b'",
+        "timeout -s KILL 5 flock f -c 'cp a b'",
+        "timeout -s KILL 5 npm exec -c 'cp a b'",
+        "timeout -s KILL 5 sh -c 'cp a b'",
+        "timeout -sKILL 5 npx -c 'cp a b'",
+        "timeout -sKILL 5 flock f -c 'cp a b'",
+        "timeout -sKILL 5 npm exec -c 'cp a b'",
+        "timeout -sKILL 5 sh -c 'cp a b'",
+        "npm exec -p -c 'cp a b'",
+        "npm x -p --call 'cp a b'",
+        "npx -p -c 'cp a b'",
+        "chrt -o 0 bash -sc 'cp a b'",
+        "chrt -o 0 bash -s -c 'cp a b'",
+        "taskset 1 sh -cs 'cp a b'",
+        "bash -sc 'cp a b'",
+        "bash -s -c 'cp a b'",
+    ] {
+        assert!(find(command).is_some(), "{command}");
+        assert!(rejection(command, true).is_some(), "{command}");
+    }
+    for command in [
+        "npx -p typescript tsc --noEmit",
+        "npm exec -p -- tsc --noEmit",
+        "nice -n5 npx tsc --noEmit",
+        "timeout -sKILL 5 npx vitest run",
+        "chrt 1 npx tsc --noEmit",
+    ] {
+        assert_eq!(operation(command), None, "{command}");
+    }
+    assert!(find("echo x | bash -s").is_some());
+    assert!(find("bash -s -- a b").is_some());
+}
+
+#[test]
+fn a_deep_launcher_nesting_is_read_in_one_pass() {
+    let deep = "npx ".repeat(64);
+    assert_eq!(operation(&format!("{deep}tsc --noEmit")), None);
+    assert_eq!(operation(&format!("{deep}vitest run")), None);
+    assert!(find(&format!("{deep}-c 'cp a b'")).is_some());
+    assert!(find(&format!("{deep}sh -c 'cp a b'")).is_some());
+    let mixed = "chrt 1 ".repeat(64);
+    assert!(find(&format!("{mixed}npm exec -c 'cp a b'")).is_some());
+    assert_eq!(operation(&format!("{mixed}npm exec -- tsc --noEmit")), None);
+}
