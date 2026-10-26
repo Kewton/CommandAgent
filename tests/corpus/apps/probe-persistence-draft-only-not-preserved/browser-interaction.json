@@ -1,0 +1,49 @@
+{
+  "action_hooks": [
+    "primary"
+  ],
+  "contract_hook_status": "usable",
+  "failure_kind": "persistence_not_evaluated:no_mutation_observed",
+  "informational_failure_kinds": [
+    "persistence_draft_only"
+  ],
+  "input_contract_state_change": true,
+  "input_state_change": true,
+  "interaction_performed": false,
+  "interaction_success": false,
+  "ok": false,
+  "persistence_after_reload": "not_evaluated",
+  "persistence_after_reload_reason": "no_mutation_observed",
+  "persistence_changed_dimensions": [],
+  "primary_start_transition": false,
+  "probe_mode": "contract",
+  "recovery_control": "none",
+  "recovery_transition": false,
+  "recovery_transition_status": "not_observed",
+  "restart_hook_count_after_start": 0,
+  "restart_hook_reachable_after_start": false,
+  "start_control_found": true,
+  "start_transition": false,
+  "state_changed": true,
+  "state_dimensions_changed": [
+    "search",
+    "visibleCount"
+  ],
+  "status": "failed",
+  "steps": [
+    "warmup_navigation",
+    "measured_navigation",
+    "surface_visible",
+    "primary_start_transition_missing",
+    "text_entry",
+    "text_input_state_change",
+    "input_state_change",
+    "token_echoed",
+    "persistence_reload:not_evaluated",
+    "recovery_transition:not_observed"
+  ],
+  "text_entry": "entered",
+  "text_input_state_change": true,
+  "token_echoed": true,
+  "url": "http://127.0.0.1:3011/"
+}

@@ -14,6 +14,8 @@ use crate::minimal_loop::verifier_env;
 
 mod observation_decode;
 #[cfg(test)]
+mod persistence_attribution_tests;
+#[cfg(test)]
 mod recovery_attribution_tests;
 #[cfg(test)]
 mod start_attribution_tests;
@@ -2061,7 +2063,7 @@ mod tests {
         let digest = Sha256::digest(interaction_probe_script().as_bytes());
         assert_eq!(
             format!("{digest:x}"),
-            "52a312128fc83b0237f6f63ebfb5bc37dfd674ed3c005b86ed10e106b9b6657c"
+            "f472a76d58198aa0346c07a5b73002b8b8850b13cf3eee77e5cdcc8f6f79600b"
         );
         let script = interaction_probe_script();
         assert!(script.contains("HELD_INPUT_OBSERVE_MS"));
@@ -3014,7 +3016,7 @@ module.exports = {
             observation
                 .persistence_changed_dimensions
                 .iter()
-                .any(|dimension| dimension == "typed_token"),
+                .any(|dimension| dimension == "todos"),
             "{observation:?}"
         );
         assert!(
