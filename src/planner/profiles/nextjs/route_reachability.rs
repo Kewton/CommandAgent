@@ -180,6 +180,25 @@ pub(crate) fn merge_with_testimony(
     (status.as_str(), reasons)
 }
 
+/// Repair-prompt lines for hook-carrying pages the entry provably cannot
+/// reach, for a final acceptance whose runtime acceptance did not pass. It
+/// only reads: no evidence is written and no gate is touched. `unverified`
+/// targets yield nothing, so a line is never a guess.
+pub(crate) fn early_static_repair_guidance(root: &Path) -> Vec<String> {
+    evaluate(root)
+        .targets
+        .iter()
+        .filter_map(|target| {
+            target.repair.map(|repair| {
+                format!(
+                    "{UNREACHABLE_REASON}:{} ({}): {repair}",
+                    target.route, target.page
+                )
+            })
+        })
+        .collect()
+}
+
 pub(crate) fn write_evidence(root: &Path, report: &ReachabilityReport) -> anyhow::Result<()> {
     let path = root.join(EVIDENCE_RELATIVE_PATH);
     let parent = path

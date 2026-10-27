@@ -3,8 +3,8 @@ use std::path::Path;
 use serde_json::Value;
 
 use super::{
-    EVIDENCE_RELATIVE_PATH, ReachabilityReport, ReachabilityStatus, evaluate, merge_with_testimony,
-    write_evidence,
+    EVIDENCE_RELATIVE_PATH, ReachabilityReport, ReachabilityStatus, early_static_repair_guidance,
+    evaluate, merge_with_testimony, write_evidence,
 };
 use crate::planner::profile::{ProfileId, ProfileRuntimeRegistry};
 
@@ -1181,5 +1181,61 @@ fn route_shaped_concatenation_does_not_match_a_static_segment() {
     assert_eq!(
         report.violations,
         vec!["route_unreachable_from_entry:/notes/archive".to_string()]
+    );
+}
+
+#[test]
+fn early_guidance_is_one_line_for_an_unreachable_page() {
+    let dir = app(&[
+        ("src/app/page.tsx", &home_with("<p>notes</p>")),
+        ("src/app/notes/[id]/page.tsx", HOOKED_PAGE),
+    ]);
+    assert_eq!(
+        early_static_repair_guidance(dir.path()),
+        vec![
+            "route_unreachable_from_entry:/notes/[id] (src/app/notes/[id]/page.tsx): add a link from the entry page to this route, or delete the page if it is not used"
+        ]
+    );
+    assert!(
+        !dir.path().join(EVIDENCE_RELATIVE_PATH).exists(),
+        "the guidance read must not write evidence"
+    );
+}
+
+#[test]
+fn early_guidance_is_empty_for_reached_and_unverified_pages() {
+    let reached = app(&[
+        (
+            "src/app/page.tsx",
+            &home_with("<Link href=\"/notes/1\">open</Link>"),
+        ),
+        ("src/app/notes/[id]/page.tsx", HOOKED_PAGE),
+    ]);
+    assert!(early_static_repair_guidance(reached.path()).is_empty());
+
+    let unverified = app(&[
+        (
+            "src/app/page.tsx",
+            &home_with("<button onClick={() => router.push(target)}>x</button>"),
+        ),
+        ("src/app/notes/[id]/page.tsx", HOOKED_PAGE),
+    ]);
+    assert!(early_static_repair_guidance(unverified.path()).is_empty());
+}
+
+#[test]
+fn corpus_runtime_failure_shape_yields_the_pinned_guidance() {
+    let case = Path::new("tests/corpus/apps/nextjs-route-unreachable-behind-runtime-failure");
+    let expected: Value = serde_json::from_str(
+        &std::fs::read_to_string(case.join("expected-guidance.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        evaluate(case).status.as_str(),
+        expected["release_gate_status"]
+    );
+    assert_eq!(
+        serde_json::json!(early_static_repair_guidance(case)),
+        expected["guidance"]
     );
 }
