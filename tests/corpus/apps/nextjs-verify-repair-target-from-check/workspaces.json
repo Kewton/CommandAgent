@@ -1,0 +1,43 @@
+{
+  "synthetic": "derived from the shape of campaign-G1-3a10 content-g and tool-g; not a recorded run",
+  "cases": [
+    {
+      "name": "content-g: relative require resolves to the plain JS sibling",
+      "command": "node smoke-check.js",
+      "files": {
+        "smoke-check.js": "const { readOne } = require('./src/lib/persistence');\nif (readOne('missing') !== null) throw new Error('expected null');\n",
+        "src/lib/persistence.js": "exports.readOne = () => undefined;\n",
+        "src/lib/persistence.ts": "export {};\n",
+        "src/lib/types.ts": "export type Todo = { id: string };\n"
+      },
+      "stderr": "Error: Cannot find module './src/lib/persistence'\nRequire stack:\n- <workspace>/smoke-check.js\n  code: 'MODULE_NOT_FOUND'"
+    },
+    {
+      "name": "TypeScript-only sibling is not named",
+      "command": "node smoke-check.js",
+      "files": {
+        "smoke-check.js": "const { readOne } = require('./src/lib/persistence');\n",
+        "src/lib/persistence.ts": "export {};\n",
+        "src/lib/types.ts": "export type Todo = { id: string };\n"
+      },
+      "stderr": "Error: Cannot find module './src/lib/persistence'"
+    },
+    {
+      "name": "tool-g: a grep over a hook file is never named",
+      "command": "grep -q \"src/lib/types\" src/hooks/useTodos.ts",
+      "files": {
+        "src/hooks/useTodos.ts": "import { Todo } from '../lib/types';\nexport const useTodos = () => [] as Todo[];\n",
+        "src/lib/types.ts": "export type Todo = { id: string };\n"
+      },
+      "stderr": "exit status 1"
+    },
+    {
+      "name": "package name stays a dependency problem",
+      "command": "node smoke-check.js",
+      "files": {
+        "smoke-check.js": "require('react');\n"
+      },
+      "stderr": "Error: Cannot find module 'react'\nRequire stack:\n- <workspace>/smoke-check.js"
+    }
+  ]
+}

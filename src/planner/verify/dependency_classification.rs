@@ -110,4 +110,129 @@ mod tests {
             "ModuleNotFoundError: No module named 'requests'",
         ));
     }
+
+    const CONTENT_G_STDERR: &str = "node:internal/modules/cjs/loader:1228\n  throw err;\n  ^\n\nError: Cannot find module './src/lib/persistence'\nRequire stack:\n- /workspace/smoke-check.js\n    at Module._resolveFilename (node:internal/modules/cjs/loader:1225:15) {\n  code: 'MODULE_NOT_FOUND',\n  requireStack: [ '/workspace/smoke-check.js' ]\n}";
+
+    #[test]
+    fn node_relative_module_missing_is_not_dependency_setup() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(!super::is_dependency_missing_for_command(
+            dir.path(),
+            "node smoke-check.js",
+            CONTENT_G_STDERR,
+        ));
+        assert!(!super::is_dependency_missing_for_command(
+            dir.path(),
+            "node smoke-check.js",
+            "Error [ERR_MODULE_NOT_FOUND]: Cannot find module '../lib/store.mjs' imported from smoke-check.mjs",
+        ));
+    }
+
+    #[test]
+    fn node_missing_manifest_is_still_dependency_setup() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        assert!(super::is_dependency_missing_for_command(
+            dir.path(),
+            "node -e \"require('./package.json')\"",
+            "Error: Cannot find module './package.json'",
+        ));
+        assert!(super::is_dependency_missing_for_command(
+            dir.path(),
+            "node check.js",
+            &format!(
+                "Error: Cannot find module '{}'",
+                root.join("package.json").display()
+            ),
+        ));
+        assert!(!super::is_dependency_missing_for_command(
+            dir.path(),
+            "node smoke-check.js",
+            "Error: Cannot find module './src/lib/persistence'",
+        ));
+        assert!(super::is_dependency_missing_for_command(
+            dir.path(),
+            "node smoke-check.js",
+            "Error: Cannot find module 'react'",
+        ));
+    }
+
+    #[test]
+    fn node_missing_module_inside_node_modules_is_still_dependency_setup() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let root = root.display();
+        assert!(super::is_dependency_missing_for_command(
+            dir.path(),
+            "npm run build",
+            &format!(
+                "Error: Cannot find module '../lightningcss.darwin-arm64.node'\nRequire stack:\n- {root}/node_modules/lightningcss/node/index.js\n- {root}/node_modules/next/dist/build/index.js"
+            ),
+        ));
+        assert!(super::is_dependency_missing_for_command(
+            dir.path(),
+            "npx next build",
+            &format!("Error: Cannot find module '{root}/node_modules/next/dist/bin/next'"),
+        ));
+        assert!(!super::is_dependency_missing_for_command(
+            dir.path(),
+            "node smoke-check.js",
+            &format!(
+                "Error: Cannot find module './src/lib/persistence'\nRequire stack:\n- {root}/smoke-check.js"
+            ),
+        ));
+    }
+
+    #[test]
+    fn node_package_module_missing_is_still_dependency_setup() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(super::is_dependency_missing_for_command(
+            dir.path(),
+            "node smoke-check.js",
+            "Error: Cannot find module 'react'\nRequire stack:\n- /workspace/smoke-check.js",
+        ));
+    }
+
+    #[test]
+    fn node_absolute_missing_script_inside_workspace_is_not_dependency_setup() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let inside = format!(
+            "Error: Cannot find module '{}'",
+            root.join("verify.js").display()
+        );
+        assert!(!super::is_dependency_missing_for_command(
+            dir.path(),
+            "node verify.js",
+            &inside,
+        ));
+        assert!(super::is_dependency_missing_for_command(
+            dir.path(),
+            "node verify.js",
+            "Error: Cannot find module '/elsewhere/verify.js'",
+        ));
+    }
+
+    #[test]
+    fn node_relative_module_missing_does_not_run_dependency_lifecycle() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("smoke-check.js"),
+            "require('./src/lib/persistence');\n",
+        )
+        .unwrap();
+        let step = PlanStep {
+            id: "verify-storage".to_string(),
+            kind: "verify".to_string(),
+            expected_result: "pass".to_string(),
+            instruction: "Run the storage smoke check".to_string(),
+            expected_paths: Vec::new(),
+            verify: vec!["node smoke-check.js".to_string()],
+        };
+
+        let report = super::super::verify_step(dir.path(), &step);
+
+        assert!(report.dependency_missing.is_empty(), "{report:?}");
+        assert_eq!(report.command_failures.len(), 1, "{report:?}");
+    }
 }

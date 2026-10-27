@@ -41,5 +41,6 @@ pub(crate) mod tool_protocol;
 pub mod ts_missing_export;
 pub mod verifier_bootstrap;
 pub mod verifier_env;
+pub(crate) mod verify_failure_target;
 
 pub use loop_run::run_session;
