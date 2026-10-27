@@ -1383,9 +1383,7 @@ Profile runtime contract:\n- Preserve the workspace as a real Next.js app.\n- Ke
         assert_eq!(report.normalized_commands.len(), 1);
         assert_eq!(
             plan.steps[0].verify,
-            vec![
-                r#"node -p "String(require('./package.json').scripts.dev).includes('next dev -p 3011') ? true : process.exit(1)""#
-            ]
+            vec!["anvil-nextjs-check:script_includes:dev:next%20dev%20-p%203011"]
         );
         assert!(
             lint_step_plan_report_with_workspace(&plan, Some(dir.path())).is_pass(),

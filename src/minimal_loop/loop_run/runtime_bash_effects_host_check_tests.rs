@@ -601,3 +601,657 @@ fn issue879_a_repaired_package_port_check_is_bound_to_the_nextjs_profile() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// Issue #881: the hook, includes and source checks the host rewrites a grep into.
+// ---------------------------------------------------------------------------
+
+use crate::planner::profiles::nextjs::source_checks::{
+    Check, hook_action_command, hook_state_command, legacy_inline_command, script_includes_command,
+    source_keydown_command, source_token_command,
+};
+
+const PAGE_SOURCE: &str = "'use client';\nimport { useState } from 'react';\nexport default function Page() {\n  const [count, setCount] = useState(0);\n  return (\n    <main data-anvil-state={count}>\n      <button data-anvil-action=\"primary\" onKeyDown={() => setCount(count + 1)}>Go</button>\n    </main>\n  );\n}\n";
+
+/// The greps of a contract-wiring step: a hook attribute, the hook state, a package
+/// script, and two source assertions.
+const PLANNER_GREPS: [&str; 5] = [
+    "grep -q 'data-anvil-action=\"primary\"' src/app/page.tsx",
+    "grep -q 'data-anvil-state' src/app/page.tsx",
+    "grep -q \"next dev\" package.json",
+    "grep -q \"useState\" src/app/page.tsx",
+    "grep -q 'onKeyDown' src/app/page.tsx",
+];
+
+fn wired_workspace() -> tempfile::TempDir {
+    let dir = workspace(GOOD_PACKAGE);
+    std::fs::create_dir_all(dir.path().join("src/app")).unwrap();
+    std::fs::write(dir.path().join("src/app/page.tsx"), PAGE_SOURCE).unwrap();
+    dir
+}
+
+/// What the sanitizer writes into the plan for each planner grep.
+fn rewritten_tokens(root: &Path) -> Vec<String> {
+    PLANNER_GREPS
+        .iter()
+        .map(|grep| {
+            crate::planner::verify::normalize_verify_command_for_oracle_repair_with_root(grep, root)
+                .unwrap_or_else(|| panic!("{grep} is not rewritten"))
+                .normalized
+        })
+        .collect()
+}
+
+/// One typed command at a time, joined by a newline, `&&` or `;`, each typed three times.
+fn typed_shapes(commands: &[String]) -> Vec<(String, Vec<String>)> {
+    let repeat = |text: String| vec![text; 3];
+    let mut shapes = commands
+        .iter()
+        .map(|command| (format!("one by one: {command}"), repeat(command.clone())))
+        .collect::<Vec<_>>();
+    for (name, separator) in [("newline", "\n"), ("&&", " && "), (";", "; ")] {
+        shapes.push((format!("{name} joined"), repeat(commands.join(separator))));
+    }
+    shapes
+}
+
+fn assert_host_judged(shape: &str, run: &Run) {
+    assert_eq!(run.stop, RunStopReason::AssistantFinal, "{shape}");
+    assert!(!run.bash_results.is_empty(), "{shape}");
+    for result in &run.bash_results {
+        assert!(
+            result.contains("combined_outcome: Success"),
+            "{shape}: {result}"
+        );
+        assert!(result.contains("host check passed"), "{shape}: {result}");
+        assert!(!result.contains("command not found"), "{shape}: {result}");
+    }
+    for policy in run
+        .events
+        .iter()
+        .filter(|event| event["event"] == "runtime_bash_policy")
+    {
+        assert_eq!(policy["blocked"], false, "{shape}: {policy}");
+        assert_eq!(policy["policy_error_kind"], "", "{shape}: {policy}");
+    }
+    assert!(
+        !run.events
+            .iter()
+            .any(|event| event["event"] == "tool_policy_error"),
+        "{shape}"
+    );
+}
+
+#[test]
+fn issue881_rewritten_greps_typed_by_a_verify_step_are_judged_by_the_host() {
+    let tokens = rewritten_tokens(wired_workspace().path());
+    assert!(
+        tokens
+            .iter()
+            .all(|token| token.starts_with("anvil-nextjs-check:"))
+    );
+    for (shape, commands) in typed_shapes(&tokens) {
+        // A fresh workspace per shape keeps each run's events apart.
+        let root = wired_workspace();
+        let run = run_verify(root.path(), NEXTJS_PROFILE_ID, &commands)
+            .unwrap_or_else(|error| panic!("{shape}: {error}"));
+        assert_host_judged(&shape, &run);
+    }
+}
+
+#[test]
+fn issue881_the_model_typing_the_original_grep_gets_the_same_host_judgement() {
+    // The runtime rewrites the grep into the token, so the segment is host-judged too.
+    let greps = PLANNER_GREPS.map(str::to_string);
+    for (shape, commands) in typed_shapes(&greps) {
+        let root = wired_workspace();
+        let run = run_verify(root.path(), NEXTJS_PROFILE_ID, &commands)
+            .unwrap_or_else(|error| panic!("{shape}: {error}"));
+        assert_host_judged(&shape, &run);
+    }
+}
+
+#[test]
+fn issue881_a_failing_rewritten_check_is_a_failure_not_a_policy_error() {
+    let root = workspace(GOOD_PACKAGE);
+    std::fs::create_dir_all(root.path().join("src/app")).unwrap();
+    std::fs::write(
+        root.path().join("src/app/page.tsx"),
+        "export default () => null;\n",
+    )
+    .unwrap();
+    let tokens = rewritten_tokens(wired_workspace().path());
+    for token in &tokens {
+        let run = run_verify(root.path(), NEXTJS_PROFILE_ID, std::slice::from_ref(token)).unwrap();
+        let result = only_result(&run, token);
+        let package_check = token.contains("script_includes");
+        let outcome = if package_check {
+            "Success"
+        } else {
+            "CommandFailed"
+        };
+        assert!(
+            result.contains(&format!("combined_outcome: {outcome}")),
+            "{token}: {result}"
+        );
+    }
+}
+
+#[test]
+fn issue881_the_source_checks_are_not_bound_to_the_nextjs_profile() {
+    let tokens = rewritten_tokens(wired_workspace().path());
+    for profile in ["generic", "python-cli", "data", "ingest", NEXTJS_PROFILE_ID] {
+        for token in &tokens {
+            let root = wired_workspace();
+            let run = run_verify(root.path(), profile, std::slice::from_ref(token))
+                .unwrap_or_else(|error| panic!("{profile} {token}: {error}"));
+            let result = only_result(&run, token);
+            assert!(
+                result.contains("combined_outcome: Success"),
+                "{profile} {token}: {result}"
+            );
+            assert!(
+                !result.contains("outside the active nextjs profile"),
+                "{profile}: {result}"
+            );
+        }
+    }
+    // The package script tokens of Issue #879 stay bound to the profile.
+    let root = wired_workspace();
+    let run = run_verify(root.path(), "generic", &[DEV.to_string()]).unwrap();
+    assert!(only_result(&run, DEV).contains("outside the active nextjs profile"));
+}
+
+#[test]
+fn issue881_inline_text_equal_to_the_former_rewrite_stays_refused() {
+    let former = [
+        Check::HookAction {
+            value: "primary".to_string(),
+            path: "src/app/page.tsx".to_string(),
+        },
+        Check::HookState {
+            path: "src/app/page.tsx".to_string(),
+        },
+        Check::ScriptIncludes {
+            script: crate::planner::profiles::nextjs::source_checks::Script::Dev,
+            pattern: "next dev".to_string(),
+        },
+        Check::SourceKeydown {
+            path: "src/app/page.tsx".to_string(),
+        },
+        Check::SourceToken {
+            token: "useState".to_string(),
+            path: "src/app/page.tsx".to_string(),
+        },
+    ]
+    .iter()
+    .map(legacy_inline_command)
+    .collect::<Vec<_>>();
+    for step in [RunSessionStepKind::Verify, RunSessionStepKind::Report] {
+        for command in &former {
+            let root = wired_workspace();
+            let run = run_step(
+                root.path(),
+                NEXTJS_PROFILE_ID,
+                step,
+                std::slice::from_ref(command),
+            )
+            .unwrap_or_else(|error| panic!("{step:?} {command}: {error}"));
+            let policy = run
+                .events
+                .iter()
+                .find(|event| event["event"] == "runtime_bash_policy")
+                .unwrap_or_else(|| panic!("{step:?} {command}: {:?}", run.events));
+            assert_eq!(policy["blocked"], true, "{step:?} {command}");
+            assert_eq!(
+                policy["policy_error_kind"], "verify_command_policy_error",
+                "{command}"
+            );
+            assert!(
+                run.bash_results
+                    .iter()
+                    .all(|result| !result.contains("outcome: Success")),
+                "{command}: {:?}",
+                run.bash_results
+            );
+        }
+    }
+    // The repeated refusal still ends the loop, exactly as for any inline interpreter.
+    let root = wired_workspace();
+    let error = run_verify(root.path(), NEXTJS_PROFILE_ID, &vec![former[0].clone(); 3])
+        .err()
+        .expect("a typed inline hook check must stop the loop")
+        .to_string();
+    assert!(
+        error.contains("recoverable tool error repeated: verify_command_policy_error"),
+        "{error}"
+    );
+}
+
+#[test]
+fn issue881_an_altered_source_token_fails_and_is_not_run_in_a_shell() {
+    let root = wired_workspace();
+    let marker = root.path().join("ran-in-shell");
+    let touched = format!(
+        "{} && touch {}",
+        hook_state_command("src/app/page.tsx"),
+        marker.display()
+    );
+    let run = run_verify(root.path(), NEXTJS_PROFILE_ID, &[touched]).unwrap();
+    assert!(!marker.exists());
+    assert!(
+        run.events
+            .iter()
+            .any(|event| event["event"] == "runtime_bash_policy" && event["blocked"] == true),
+        "{:?}",
+        run.events
+    );
+    for altered in [
+        "anvil-nextjs-check:hook_state",
+        "anvil-nextjs-check:hook_state:src/app/page.css",
+        "anvil-nextjs-check:hook_state:../page.tsx",
+        "anvil-nextjs-check:hook_action:primary",
+        "anvil-nextjs-check:hook_action:pri%20mary:src/app/page.tsx",
+        "anvil-nextjs-check:script_includes:dev:next%2Fdev",
+        "anvil-nextjs-check:source_keydown:app/page.tsx",
+        "anvil-nextjs-check:source_token:useState:src/app/page.tsx:x",
+    ] {
+        let run = run_verify(root.path(), NEXTJS_PROFILE_ID, &[altered.to_string()]).unwrap();
+        let result = only_result(&run, altered);
+        assert!(
+            result.contains("combined_outcome: CommandFailed"),
+            "{altered}: {result}"
+        );
+        assert!(result.contains("malformed"), "{altered}: {result}");
+    }
+    // Spelled by the builders, the same shapes are judged by their content.
+    let ok = [
+        hook_action_command("primary", "src/app/page.tsx"),
+        script_includes_command("next dev").unwrap(),
+        source_keydown_command("src/app/page.tsx"),
+        source_token_command("useState", "src/app/page.tsx"),
+    ];
+    for token in ok {
+        let run = run_verify(root.path(), NEXTJS_PROFILE_ID, std::slice::from_ref(&token)).unwrap();
+        assert!(only_result(&run, &token).contains("combined_outcome: Success"));
+    }
+}
+
+#[test]
+fn issue881_corpus_rewritten_greps_pass_with_no_refusal_and_inline_node_is_refused() {
+    const DIR: &str = "../../../tests/corpus/apps/nextjs-verify-rewritten-grep-repeated";
+    let read = |name: &str| -> Value {
+        let text = match name {
+            "planner-greps.json" => include_str!(
+                "../../../tests/corpus/apps/nextjs-verify-rewritten-grep-repeated/planner-greps.json"
+            ),
+            "rewritten-tokens.json" => include_str!(
+                "../../../tests/corpus/apps/nextjs-verify-rewritten-grep-repeated/rewritten-tokens.json"
+            ),
+            "model-commands.json" => include_str!(
+                "../../../tests/corpus/apps/nextjs-verify-rewritten-grep-repeated/model-commands.json"
+            ),
+            "expected.json" => include_str!(
+                "../../../tests/corpus/apps/nextjs-verify-rewritten-grep-repeated/expected.json"
+            ),
+            _ => include_str!(
+                "../../../tests/corpus/apps/nextjs-verify-rewritten-grep-repeated/sources.json"
+            ),
+        };
+        serde_json::from_str(text).unwrap_or_else(|error| panic!("{DIR}/{name}: {error}"))
+    };
+    let strings = |value: &Value| -> Vec<String> {
+        value
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|command| command.as_str().unwrap().to_string())
+            .collect()
+    };
+    let (greps, tokens) = (read("planner-greps.json"), read("rewritten-tokens.json"));
+    let (commands, expected, sources) = (
+        read("model-commands.json"),
+        read("expected.json"),
+        read("sources.json"),
+    );
+    let corpus_workspace = |page: &str, package_json: &str| {
+        let dir = workspace(package_json);
+        std::fs::create_dir_all(dir.path().join("src/app")).unwrap();
+        std::fs::write(dir.path().join("src/app/page.tsx"), page).unwrap();
+        dir
+    };
+    let wired = || {
+        corpus_workspace(
+            sources["page_tsx"].as_str().unwrap(),
+            sources["package_json"].as_str().unwrap(),
+        )
+    };
+
+    // The sanitizer rewrites each planner grep into the recorded token.
+    let planner = greps["greps"].as_array().unwrap();
+    let recorded = strings(&tokens["tokens"]);
+    assert_eq!(planner.len(), recorded.len());
+    for (grep, token) in planner.iter().zip(&recorded) {
+        let command = grep["command"].as_str().unwrap();
+        let rewritten =
+            crate::planner::verify::normalize_verify_command_for_oracle_repair_with_root(
+                command,
+                wired().path(),
+            )
+            .unwrap_or_else(|| panic!("{command} is not rewritten"));
+        assert_eq!(&rewritten.normalized, token, "{command}");
+    }
+
+    let times = commands["typed_times"].as_u64().unwrap() as usize;
+    let mut shapes: Vec<(String, Vec<String>)> = Vec::new();
+    for key in ["one_by_one", "original_greps"] {
+        for command in strings(&commands[key]) {
+            shapes.push((command.clone(), vec![command; times]));
+        }
+    }
+    for key in ["newline", "and_and", "semicolon"] {
+        let command = commands[key].as_str().unwrap().to_string();
+        shapes.push((key.to_string(), vec![command; times]));
+    }
+    assert_eq!(expected["declared_shapes"]["refusals"], 0);
+    for (shape, typed) in shapes {
+        let root = wired();
+        let run = run_verify(root.path(), NEXTJS_PROFILE_ID, &typed)
+            .unwrap_or_else(|error| panic!("{shape}: {error}"));
+        assert_eq!(run.stop, RunStopReason::AssistantFinal, "{shape}");
+        assert!(
+            !run.events.iter().any(|event| event["blocked"] == true),
+            "{shape}: {:?}",
+            run.events
+        );
+        for needle in expected["declared_shapes"]["result_contains"]
+            .as_array()
+            .unwrap()
+        {
+            let needle = needle.as_str().unwrap();
+            assert!(
+                !run.bash_results.is_empty()
+                    && run
+                        .bash_results
+                        .iter()
+                        .all(|result| result.contains(needle)),
+                "{shape}: {needle}"
+            );
+        }
+    }
+
+    // What an inline interpreter gets is unchanged: #871's refusal, three times over.
+    let refused = expected["inline_node_refused"]["refusals"]
+        .as_u64()
+        .unwrap() as usize;
+    for inline in strings(&commands["inline_node_refused"]) {
+        let error = run_verify(wired().path(), NEXTJS_PROFILE_ID, &vec![inline; refused])
+            .err()
+            .expect("an inline node check typed repeatedly must stop the loop")
+            .to_string();
+        assert!(
+            error.contains(expected["inline_node_refused"]["error"].as_str().unwrap()),
+            "{error}"
+        );
+    }
+
+    // The file table: each token is judged by what the files hold.
+    for case in sources["cases"].as_array().unwrap() {
+        let root = corpus_workspace(
+            case["page_tsx"].as_str().unwrap(),
+            case["package_json"].as_str().unwrap(),
+        );
+        let passes = case["passes"].as_array().unwrap();
+        for (token, passes) in recorded.iter().zip(passes) {
+            let verdict =
+                crate::planner::profiles::nextjs::source_checks::evaluate(root.path(), token);
+            assert_eq!(
+                verdict.is_ok(),
+                passes.as_bool().unwrap(),
+                "{} / {token}: {verdict:?}",
+                case["name"]
+            );
+        }
+    }
+}
+
+/// Every caller of `run_reproducer` (FIX Before and After, investigation, origin
+/// reproducer) reaches the same execution, so a token is the host's judgement there.
+#[test]
+fn issue881_a_fix_reproducer_token_is_judged_by_the_host_not_a_shell() {
+    use crate::planner::adjudication::contract::{EvidenceStage, ExpectedOutcome};
+    use crate::planner::adjudication::fix::ProbeOutcome;
+
+    let token = hook_action_command("restart", "src/app/page.tsx");
+    let run = |root: &Path, stage, expected| {
+        let config = config(root, NEXTJS_PROFILE_ID);
+        crate::planner::fix_diagnostics::run_reproducer(
+            &config,
+            "run-881",
+            "reproducer_fails",
+            stage,
+            expected,
+            1,
+            &token,
+            "",
+            NEXTJS_PROFILE_ID,
+            "Build a Next.js game",
+        )
+    };
+    let root = wired_workspace();
+    // The attribute is missing: Before fails, which is what the baseline gate wants.
+    let before = run(root.path(), EvidenceStage::Before, ExpectedOutcome::Failure);
+    assert_eq!(before.evidence.outcome, ProbeOutcome::Failure);
+    // Investigation and the origin reproducer use the same call with the Diagnosis stage.
+    let diagnosis = run(
+        root.path(),
+        EvidenceStage::Diagnosis,
+        ExpectedOutcome::Failure,
+    );
+    assert_eq!(diagnosis.evidence.outcome, ProbeOutcome::Failure);
+    // The attribute exists: Before succeeds, so the baseline gate stops the run.
+    std::fs::write(
+        root.path().join("src/app/page.tsx"),
+        "<button data-anvil-action=\"restart\">Again</button>",
+    )
+    .unwrap();
+    let present = run(root.path(), EvidenceStage::Before, ExpectedOutcome::Failure);
+    assert_eq!(present.evidence.outcome, ProbeOutcome::Success);
+    // After the repair the same token passes.
+    let after = run(root.path(), EvidenceStage::After, ExpectedOutcome::Success);
+    assert_eq!(after.evidence.outcome, ProbeOutcome::Success);
+    for result in [&before, &diagnosis, &present, &after] {
+        let shown = format!(
+            "{:?}{}{}",
+            result.evidence, result.stdout_tail, result.stderr_tail
+        );
+        assert!(!shown.contains("command not found"), "{shown}");
+        assert!(!shown.contains("No such file or directory"), "{shown}");
+    }
+}
+
+/// The completion contract's verify and the fix regressions run a command the contract
+/// holds after validation, which is a token when the contract wrote a hook grep.
+fn contract_with(
+    verify: &[&str],
+    root: &Path,
+) -> crate::minimal_loop::completion::CompletionContract {
+    crate::minimal_loop::completion::CompletionContract {
+        required_paths: Vec::new(),
+        protected_paths: Vec::new(),
+        verify_commands: verify.iter().map(|command| command.to_string()).collect(),
+        fix_reproducer_command: None,
+        profile: Some(NEXTJS_PROFILE_ID.to_string()),
+        goal: None,
+        required_capabilities: Vec::new(),
+        deterministic_oracles: Vec::new(),
+        required_evidence: Vec::new(),
+        evidence_hint_tokens: Vec::new(),
+        required_obligations: Vec::new(),
+        deferred_verify_requirements: Vec::new(),
+        verify_repair_cap: 1,
+    }
+    .validate(root)
+    .unwrap()
+}
+
+#[test]
+fn issue881_completion_contract_verify_judges_tokens_in_the_host() {
+    let hook = PLANNER_GREPS[0];
+    let tokens = [DEV, START, BUILD];
+    // Present: the hook grep (stored as a token) and the #879 tokens pass.
+    let root = wired_workspace();
+    let contract = contract_with(&[hook, PLANNER_GREPS[2], DEV, START, BUILD], root.path());
+    assert!(
+        contract
+            .verify_commands
+            .iter()
+            .all(|c| c.starts_with("anvil-nextjs-check:"))
+    );
+    let report = contract.verify(root.path());
+    // The profile gate is not under test (it wants installed dependencies).
+    assert!(report.command_failures.is_empty(), "{report:?}");
+    // Absent: each fails on its own, with a reason and never a shell error.
+    let empty = workspace(r#"{"scripts":{"dev":"next","build":"next build --lint"}}"#);
+    std::fs::create_dir_all(empty.path().join("src/app")).unwrap();
+    std::fs::write(
+        empty.path().join("src/app/page.tsx"),
+        "export default () => null;",
+    )
+    .unwrap();
+    for command in std::iter::once(hook).chain(tokens) {
+        let contract = contract_with(&[command], empty.path());
+        let report = contract.verify(empty.path());
+        let shown = format!("{:?}", report.command_failures);
+        assert_eq!(
+            report.command_failures.len(),
+            usize::from(command != START),
+            "{command}: {shown}"
+        );
+        assert!(!shown.contains("command not found"), "{command}: {shown}");
+        assert!(!shown.contains("No such file"), "{command}: {shown}");
+    }
+}
+
+#[test]
+fn issue881_fix_regression_verify_commands_judge_tokens_in_the_host() {
+    use crate::planner::adjudication::fix::ProbeOutcome;
+    use crate::planner::profile::{ProfileFixRegressionAdapter, ProfileFixRegressionBinding};
+    let bindings = |commands: &[&str]| {
+        commands
+            .iter()
+            .enumerate()
+            .map(|(index, command)| ProfileFixRegressionBinding {
+                id: format!("regression_{index}"),
+                adapter: ProfileFixRegressionAdapter::VerifyCommand(command.to_string()),
+            })
+            .collect::<Vec<_>>()
+    };
+    let profile = crate::planner::profile::domain_profile(NEXTJS_PROFILE_ID);
+    let hook = hook_action_command("primary", "src/app/page.tsx");
+    let commands = [hook.as_str(), DEV, START, BUILD];
+    let root = wired_workspace();
+    let observed =
+        profile.run_fix_regressions(root.path(), "Build a game", &bindings(&commands), false);
+    assert!(
+        observed.iter().all(|o| o.outcome == ProbeOutcome::Success),
+        "{observed:?}"
+    );
+    let empty = workspace(r#"{"scripts":{"dev":"next","build":"next build --lint"}}"#);
+    std::fs::create_dir_all(empty.path().join("src/app")).unwrap();
+    std::fs::write(
+        empty.path().join("src/app/page.tsx"),
+        "export default () => null;",
+    )
+    .unwrap();
+    let observed =
+        profile.run_fix_regressions(empty.path(), "Build a game", &bindings(&commands), false);
+    let outcomes = observed.iter().map(|o| o.outcome).collect::<Vec<_>>();
+    assert_eq!(
+        outcomes,
+        [
+            ProbeOutcome::Failure,
+            ProbeOutcome::Failure,
+            ProbeOutcome::Success,
+            ProbeOutcome::Failure
+        ],
+        "{observed:?}"
+    );
+    for o in &observed {
+        assert!(!o.reason.contains("command not found"), "{o:?}");
+        assert!(!o.reason.contains("No such file"), "{o:?}");
+    }
+}
+
+#[test]
+fn issue881_a_setup_step_judges_tokens_even_when_dependencies_are_not_installed() {
+    // package.json declares dependencies and node_modules is absent: the dependency
+    // state path must not take a token for a command to run in a shell.
+    let manifest = r#"{"scripts":{"dev":"next dev -p 3011","build":"next build"},"dependencies":{"next":"^14.2.0","react":"^18.3.0"}}"#;
+    let tokens = [
+        hook_action_command("primary", "src/app/page.tsx"),
+        script_includes_command("next dev").unwrap(),
+        source_keydown_command("src/app/page.tsx"),
+        source_token_command("useState", "src/app/page.tsx"),
+        DEV.to_string(),
+    ];
+    let verify = |page: &str, token: &str| {
+        let root = workspace(manifest);
+        std::fs::create_dir_all(root.path().join("src/app")).unwrap();
+        std::fs::write(root.path().join("src/app/page.tsx"), page).unwrap();
+        assert!(!root.path().join("node_modules").exists());
+        let step = crate::planner::step_plan::PlanStep {
+            id: "verify-contract".to_string(),
+            kind: "verify".to_string(),
+            expected_result: "pass".to_string(),
+            instruction: "Check the contract".to_string(),
+            expected_paths: Vec::new(),
+            verify: vec![token.to_string()],
+        };
+        let (report, lifecycles) =
+            crate::planner::verify::verify_step_with_profile_setup_observed_with_offline_and_events(
+                root.path(),
+                &step,
+                Some(NEXTJS_PROFILE_ID),
+                NodeDependencySetupAuthority::PlanSetupStep,
+                true,
+                None,
+            );
+        assert!(lifecycles.is_empty(), "{token}: {lifecycles:?}");
+        assert!(!root.path().join("node_modules").exists(), "{token}");
+        report
+    };
+    for token in &tokens {
+        let ok = verify(PAGE_SOURCE, token);
+        assert!(ok.is_pass(), "{token}: {ok:?}");
+        let bad = verify("export default () => null;", token);
+        let shown = format!("{:?}", bad.command_failures);
+        assert!(!shown.contains("command not found"), "{token}: {shown}");
+        assert!(!shown.contains("No such file"), "{token}: {shown}");
+        // `dev` is satisfied by the manifest alone, the hooks and sources are not.
+        assert_eq!(
+            bad.is_pass(),
+            token.contains("script") || token == DEV,
+            "{token}: {bad:?}"
+        );
+    }
+}
+
+#[test]
+fn issue881_a_package_port_grep_joined_with_other_greps_is_host_judged() {
+    // The repaired port token of Issue #879 used to reach a shell (exit 127) when the
+    // grep was one segment of a joined command; every joined form is now host-judged.
+    let port = r#"grep -q '"3011"' package.json"#;
+    let hook = PLANNER_GREPS[0];
+    for joined in [
+        format!("{port}\n{hook}"),
+        format!("{port} && {hook}"),
+        format!("{port}; {hook}"),
+        format!("{hook} && {port} && {}", PLANNER_GREPS[2]),
+    ] {
+        let root = wired_workspace();
+        let run = run_verify(root.path(), NEXTJS_PROFILE_ID, &vec![joined.clone(); 3])
+            .unwrap_or_else(|error| panic!("{joined}: {error}"));
+        assert_host_judged(&joined, &run);
+    }
+}

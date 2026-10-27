@@ -1,0 +1,12 @@
+{
+  "synthetic": "derived from the shape of campaign-G1-3a9 game-q; not a recorded run",
+  "page_tsx": "'use client';\nimport { useState } from 'react';\nexport default function Page() {\n  const [count, setCount] = useState(0);\n  return (\n    <main data-anvil-state={count}>\n      <button data-anvil-action=\"primary\" onKeyDown={() => setCount(count + 1)}>Go</button>\n    </main>\n  );\n}\n",
+  "package_json": "{\"scripts\":{\"dev\":\"next dev -p 3011\",\"start\":\"next start -p 3011\",\"build\":\"next build\"}}",
+  "cases": [
+    { "name": "all hooks present", "page_tsx": "data-anvil-action=\"primary\" data-anvil-state onKeyDown useState", "package_json": "{\"scripts\":{\"dev\":\"next dev -p 3011\"}}", "passes": [true, true, true, true, true] },
+    { "name": "empty page", "page_tsx": "export default () => null;", "package_json": "{\"scripts\":{\"dev\":\"next dev -p 3011\"}}", "passes": [false, false, true, false, false] },
+    { "name": "other dev script", "page_tsx": "data-anvil-action=\"primary\" data-anvil-state onKeyDown useState", "package_json": "{\"scripts\":{\"dev\":\"vite\"}}", "passes": [true, true, false, true, true] },
+    { "name": "spaced attribute", "page_tsx": "data-anvil-action = {'primary'} data-anvil-state= onKeyDown useState", "package_json": "{\"scripts\":{\"dev\":\"next dev\"}}", "passes": [true, true, true, true, true] },
+    { "name": "attribute with another value", "page_tsx": "data-anvil-action=\"restart\" data-anvil-state onKeyDown useState", "package_json": "{\"scripts\":{\"dev\":\"next dev\"}}", "passes": [false, true, true, true, true] }
+  ]
+}

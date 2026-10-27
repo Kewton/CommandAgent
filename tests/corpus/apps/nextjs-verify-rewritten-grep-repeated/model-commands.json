@@ -1,0 +1,25 @@
+{
+  "synthetic": "the command shapes of a Verify step that repeats the rewritten contract-wiring checks, each typed three times; `typed_times` is the repeat count",
+  "typed_times": 3,
+  "one_by_one": [
+    "anvil-nextjs-check:hook_action:primary:src/app/page.tsx",
+    "anvil-nextjs-check:hook_state:src/app/page.tsx",
+    "anvil-nextjs-check:script_includes:dev:next%20dev",
+    "anvil-nextjs-check:source_token:useState:src/app/page.tsx",
+    "anvil-nextjs-check:source_keydown:src/app/page.tsx"
+  ],
+  "newline": "anvil-nextjs-check:hook_action:primary:src/app/page.tsx\nanvil-nextjs-check:hook_state:src/app/page.tsx\nanvil-nextjs-check:script_includes:dev:next%20dev\nanvil-nextjs-check:source_token:useState:src/app/page.tsx\nanvil-nextjs-check:source_keydown:src/app/page.tsx",
+  "and_and": "anvil-nextjs-check:hook_action:primary:src/app/page.tsx && anvil-nextjs-check:hook_state:src/app/page.tsx && anvil-nextjs-check:script_includes:dev:next%20dev && anvil-nextjs-check:source_token:useState:src/app/page.tsx && anvil-nextjs-check:source_keydown:src/app/page.tsx",
+  "semicolon": "anvil-nextjs-check:hook_action:primary:src/app/page.tsx; anvil-nextjs-check:hook_state:src/app/page.tsx; anvil-nextjs-check:script_includes:dev:next%20dev; anvil-nextjs-check:source_token:useState:src/app/page.tsx; anvil-nextjs-check:source_keydown:src/app/page.tsx",
+  "original_greps": [
+    "grep -q 'data-anvil-action=\"primary\"' src/app/page.tsx",
+    "grep -q 'data-anvil-state' src/app/page.tsx",
+    "grep -q \"next dev\" package.json",
+    "grep -q \"useState\" src/app/page.tsx",
+    "grep -q 'onKeyDown' src/app/page.tsx"
+  ],
+  "inline_node_refused": [
+    "node -p '(function(s,w,b){return [new RegExp(\"data-anvil-state\"+w+\"=\"),new RegExp(\"data-anvil-state\"+b)].some(function(r){return r.test(s)})?true:process.exit(1)})(String(require(\"fs\").readFileSync(\"src/app/page.tsx\")),String.fromCharCode(92)+\"s*\",String.fromCharCode(92)+\"b\")'",
+    "node -p \"String(require('./package.json').scripts.dev).includes('next dev') ? true : process.exit(1)\""
+  ]
+}

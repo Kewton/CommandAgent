@@ -104,7 +104,7 @@ fn issue_for_matching_check(check: &CheckBinding, command: &str) -> Option<Contr
     else {
         return None;
     };
-    if command_key(command)? != command_key(&canonical)? {
+    if !crate::planner::profiles::nextjs::source_checks::same_hook_check(command, &canonical) {
         return None;
     }
     let attribute = param(check, "attribute")?;
@@ -124,34 +124,6 @@ fn issue_for_matching_check(check: &CheckBinding, command: &str) -> Option<Contr
 
 fn param<'a>(check: &'a CheckBinding, name: &str) -> Option<&'a str> {
     check.params.get(name)?.as_str()
-}
-
-fn command_key(command: &str) -> Option<String> {
-    let script = command
-        .trim()
-        .strip_prefix("node -p '")?
-        .strip_suffix('\'')?;
-    let mut key = String::with_capacity(script.len());
-    let mut quote = None;
-    let mut escaped = false;
-    for ch in script.chars() {
-        if let Some(active_quote) = quote {
-            key.push(ch);
-            if escaped {
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
-            } else if ch == active_quote {
-                quote = None;
-            }
-        } else if matches!(ch, '"' | '\'' | '`') {
-            quote = Some(ch);
-            key.push(ch);
-        } else if !ch.is_ascii_whitespace() {
-            key.push(ch);
-        }
-    }
-    quote.is_none().then_some(key)
 }
 
 #[cfg(test)]
@@ -214,8 +186,11 @@ mod tests {
     fn harmless_command_whitespace_from_measured_run_keeps_manifest_lineage() {
         let root = workspace();
         let canonical = restart_command();
-        let variant = canonical.replacen(")].some", ") ].some", 1);
-        assert_ne!(variant, canonical);
+        // The measured run may carry the inline text the host once assembled.
+        let inline =
+            crate::planner::profiles::nextjs::source_checks::legacy_for_token(&canonical).unwrap();
+        let variant = inline.replacen(")].some", ") ].some", 1);
+        assert_ne!(variant, inline);
 
         assert!(
             FixContractPredicateContext::from_failed_reproducer(

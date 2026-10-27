@@ -3,6 +3,7 @@
 mod report_signature;
 pub(super) use report_signature::verification_report_signature;
 
+use super::super::profiles::step_checks;
 #[allow(unused_imports, reason = "names used by test modules")]
 use super::{
     AssistantReply, BTreeSet, ChatClient, CompletionContract, Config, Duration,
@@ -2713,7 +2714,7 @@ pub(super) fn build_step_plan_user_prompt_stable(goal: &str, config: &Config) ->
         prompt.push_str("- Browser readiness is verified by the runtime at final acceptance.\n");
         prompt.push_str("- GOOD verify examples:\n");
         prompt.push_str("  - test -f package.json\n");
-        prompt.push_str("  - node -p \"require('./package.json').scripts.dev\"\n");
+        prompt.push_str("  - grep -q \"next dev\" package.json\n");
         prompt.push_str("- BAD verify examples:\n");
         prompt.push_str("  - npm install\n");
         prompt.push_str("  - npm run dev\n");
@@ -2783,7 +2784,7 @@ pub(super) fn build_step_plan_user_prompt_legacy(goal: &str, config: &Config) ->
         prompt.push_str("- Browser readiness is verified by the runtime at final acceptance.\n");
         prompt.push_str("- GOOD verify examples:\n");
         prompt.push_str("  - test -f package.json\n");
-        prompt.push_str("  - node -p \"require('./package.json').scripts.dev\"\n");
+        prompt.push_str("  - grep -q \"next dev\" package.json\n");
         prompt.push_str("- BAD verify examples:\n");
         prompt.push_str("  - npm install\n");
         prompt.push_str("  - npm run dev\n");
@@ -2929,7 +2930,7 @@ pub(super) fn build_step_prompt_stable(
     append_bullets_or_none(&mut prompt, &step.expected_paths);
 
     prompt.push_str("\n\nVerification commands for this step:\n");
-    append_bullets_or_none(&mut prompt, &step.verify);
+    prompt.push_str(&step_checks::verify_prompt_bullets(&step.verify));
 
     prompt.push_str("\n\nExpected verification result:\n");
     prompt.push_str(step_expected_result(step));
@@ -2968,7 +2969,7 @@ pub(super) fn build_step_prompt_legacy(
     append_bullets_or_none(&mut prompt, &step.expected_paths);
 
     prompt.push_str("\n\nVerification commands for this step:\n");
-    append_bullets_or_none(&mut prompt, &step.verify);
+    prompt.push_str(&step_checks::verify_prompt_bullets(&step.verify));
 
     prompt.push_str("\n\nExpected verification result:\n");
     prompt.push_str(step_expected_result(step));
