@@ -18,8 +18,12 @@ use crate::minimal_loop::loop_run::{
 };
 use crate::minimal_loop::tool_feedback;
 use crate::planner::profile_descriptor::NEXTJS_PROFILE_ID;
+use crate::planner::verify::{
+    diagnose_verify_command, normalize_runtime_bash_command_for_boundary,
+};
 use crate::providers::{AssistantReply, ChatClient};
 use crate::state::{ConversationMessage, SessionSnapshot, ToolCall};
+use crate::tools::bash_write_guard::verifier_mutation;
 use crate::tui::NOOP_UI;
 
 const TOOL_G: &str = "grep -q \"from './types'\" src/lib/storage.ts && echo \"ok\" || echo \"ng\"";
@@ -335,4 +339,24 @@ fn a_base_whose_quoted_whitespace_would_be_collapsed_is_not_named() {
             tool_feedback::recoverable_tool_feedback("Bash", &err, None)
         );
     }
+}
+
+#[test]
+fn a_base_the_shared_diagnosis_flags_is_not_named_though_the_runtime_checks_admit_it() {
+    let base = "npm install";
+    let command = format!("{base} && echo ok || echo ng");
+    let root = tempfile::tempdir().unwrap();
+    // Only the shared diagnosis objects to this base; pin that so the test keeps
+    // covering `diagnose_verify_command` and not one of the other four checks.
+    assert!(diagnose_verify_command(base).violation.is_some());
+    assert!(normalize_runtime_bash_command_for_boundary(base, root.path()).is_ok());
+    assert!(crate::tools::bash::blocked_reason(base, false).is_none());
+    assert!(crate::tools::bash::path_confinement_rejection(base, root.path()).is_none());
+    assert!(verifier_mutation::rejection(base, true).is_none());
+    let refusal = first_refusal(&command);
+    assert!(
+        refusal.contains("success_failure_echo_stripped"),
+        "{refusal}"
+    );
+    assert!(!refusal.contains("Run the base command"), "{refusal}");
 }
