@@ -1,0 +1,35 @@
+case_id = "verify-refusal-base-command-hint"
+source = "Synthetic Issue 889 cases derived from the L-129 tool-g and ambig-g and L-127 cli-g refusal shapes"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["synthetic", "base-command", "write-tool"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/cases.txt = [
+  "Synthetic cases derived from the shapes",
+  "tool-g |",
+  "ambig-g |",
+  "fallback-true |",
+  "exit-code-echo |",
+  "cli-g |",
+  "base-refused |",
+  "Run the base command",
+  "Create fixture files with the Write tool"
+]
