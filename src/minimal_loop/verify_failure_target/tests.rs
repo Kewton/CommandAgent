@@ -262,3 +262,41 @@ fn mixed_or_non_command_failures_are_not_named() {
     append_repair_guidance(&mut prompt, &mixed, Some(dir.path()));
     assert_eq!(prompt, before);
 }
+
+#[test]
+fn node_failures_loading_different_files_are_not_named() {
+    let dir = workspace("require('./a');\n", &["a.js", "b.js"]);
+    write(dir.path(), "other-check.js", "require('./b');\n");
+    let mut both = report("node smoke-check.js");
+    both.push_command_failure("node other-check.js", "AssertionError");
+    assert_eq!(resolve_target(dir.path(), &both), None);
+
+    let mut prompt = "Repair step `verify`.".to_string();
+    let before = prompt.clone();
+    append_repair_guidance(&mut prompt, &both, Some(dir.path()));
+    assert_eq!(prompt, before);
+
+    let mut same = report("node smoke-check.js");
+    same.push_command_failure("node smoke-check.js", "AssertionError");
+    assert_eq!(resolve_target(dir.path(), &same).as_deref(), Some("a.js"));
+}
+
+#[cfg(unix)]
+#[test]
+fn script_symlinked_outside_the_workspace_is_not_named() {
+    // The outside script lives next to the workspace and requires a file that
+    // resolves back inside it, so only the script location check can refuse.
+    let outer = tempfile::tempdir().unwrap();
+    let root = outer.path().join("app");
+    write(&root, "lib.js", "module.exports = {};\n");
+    write(outer.path(), "outside-check.js", "require('./app/lib');\n");
+    std::os::unix::fs::symlink(
+        outer.path().join("outside-check.js"),
+        root.join("link-check.js"),
+    )
+    .unwrap();
+    let mut linked = VerificationReport::pass();
+    linked.push_command_failure("node link-check.js", "failed");
+
+    assert_eq!(resolve_target(&root, &linked), None);
+}
