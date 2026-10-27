@@ -24,6 +24,9 @@ use crate::planner::verify::{
 };
 
 pub mod argv_probe;
+mod csv_value_binding;
+#[cfg(test)]
+mod csv_value_binding_tests;
 mod entry_cardinality;
 pub mod help_binding;
 pub mod manifest;
@@ -369,6 +372,21 @@ fn run_csv_file_behavior_probe(
             "python_cli_behavior_probe_failed:second_stdout_missing_aggregate_label".to_string(),
         );
     }
+    let mut values_unbound = false;
+    for (ordinal, fixture, run) in [
+        ("first", &fixtures[0], &first),
+        ("second", &fixtures[1], &second),
+    ] {
+        match csv_value_binding::bind(&run.stdout, fixture.content) {
+            csv_value_binding::Binding::Bound => {}
+            csv_value_binding::Binding::Mismatch(mismatches) => {
+                reasons.extend(mismatches.into_iter().map(|mismatch| {
+                    format!("python_cli_behavior_probe_failed:{ordinal}_stdout_value_mismatch:{mismatch}")
+                }));
+            }
+            csv_value_binding::Binding::Unbound => values_unbound = true,
+        }
+    }
     let details = json!({
         "mode": "csv_file_arg",
         "entrypoint": entrypoint.to_string_lossy(),
@@ -387,10 +405,17 @@ fn run_csv_file_behavior_probe(
         "changed_by_input": first.stdout != second.stdout,
         "argv_invocation": true,
     });
-    if reasons.is_empty() {
-        write_behavior_report(root, "pass", Vec::new(), Some(details))
-    } else {
+    if !reasons.is_empty() {
         write_behavior_report(root, "failed", reasons, Some(details))
+    } else if values_unbound {
+        write_behavior_report(
+            root,
+            "partial",
+            vec!["python_cli_behavior_values_unbound".to_string()],
+            Some(details),
+        )
+    } else {
+        write_behavior_report(root, "pass", Vec::new(), Some(details))
     }
 }
 
@@ -400,15 +425,17 @@ fn write_csv_probe_fixtures(root: &Path) -> anyhow::Result<Vec<CsvProbeFixture>>
     let specs = [
         (
             "input-a.csv",
-            "name,score,count\nalpha,10,2\nbeta,20,4\ngamma,30,6\n",
+            "name,score,count\nalpha,15,21\nbeta,40,33\ngamma,65,69\n",
             &[
-                "score", "60", "20", "30", "10", "count", "12", "4", "6", "2",
+                "score", "120", "40", "65", "15", "count", "123", "41", "69", "21",
             ][..],
         ),
         (
             "input-b.csv",
-            "name,score,count\nalpha,3,1\nbeta,9,5\ngamma,12,7\n",
-            &["score", "24", "8", "12", "3", "count", "13", "7", "1"][..],
+            "name,score,count\nalpha,34,27\nbeta,52,58\ngamma,91,86\n",
+            &[
+                "score", "177", "59", "91", "34", "count", "171", "57", "86", "27",
+            ][..],
         ),
     ];
     let mut fixtures = Vec::with_capacity(specs.len());

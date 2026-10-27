@@ -1,0 +1,8 @@
+{
+  "profile": "python-cli",
+  "status": "failed",
+  "reasons": [
+    "python_cli_behavior_probe_failed:first_stdout_value_mismatch:score:max:expected_65:got_15",
+    "python_cli_behavior_probe_failed:first_stdout_value_mismatch:score:min:expected_15:got_65"
+  ]
+}

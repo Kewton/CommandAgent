@@ -1,0 +1,32 @@
+case_id = "python-cli-csv-swapped-columns"
+source = "Issue #887 IC-37 (2026-10-27) synthetic app derived from the shape of the campaign-G1-3a11 cli-q output (max and min columns swapped); no recorded run content"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["python-cli", "csv"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/expected-probe.json = [
+  "\"status\": \"failed\"",
+  "first_stdout_value_mismatch:score:max:expected_65:got_15",
+  "first_stdout_value_mismatch:score:min:expected_15:got_65"
+]
+src/csv_stats/main.py = [
+  "print(f\"{column} | {total:g} | {mean:g} | {min(values):g} | {max(values):g}\")"
+]
