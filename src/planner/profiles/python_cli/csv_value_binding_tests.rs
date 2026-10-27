@@ -344,3 +344,62 @@ fn corpus_swapped_columns_app_reproduces_the_recorded_expectation() {
         assert!(reasons.iter().any(|actual| actual == reason), "{reasons:?}");
     }
 }
+
+const SWAPPED_SCORE: &str = "column | sum | mean | max | min\nscore | 60 | 20 | 10 | 30\n";
+
+#[test]
+fn a_mismatch_survives_an_unreadable_row_of_another_label() {
+    let cases = [
+        // count row printed twice
+        "count | 12 | 4 | 6 | 2\ncount | 12 | 4 | 6 | 2\n",
+        // count row with a cell too many
+        "count | 12 | 4 | 6 | 2 | 9 | 9\n",
+        // count row with a non-numeric cell
+        "count | 12 | 4 | n/a | 2\n",
+    ];
+    for count_rows in cases {
+        let stdout = format!("{SWAPPED_SCORE}{count_rows}");
+        let Binding::Mismatch(mismatches) = bind(&stdout, OLD_A) else {
+            panic!("a score mismatch must not be hidden: {stdout:?}");
+        };
+        assert!(
+            mismatches.iter().all(|m| m.starts_with("score:")),
+            "{mismatches:?}"
+        );
+        assert_eq!(mismatches.len(), 2, "{mismatches:?}");
+    }
+}
+
+#[test]
+fn one_unreadable_label_without_a_mismatch_stays_unbound() {
+    let good_score = "column | sum | mean | max | min\nscore | 60 | 20 | 30 | 10\n";
+    for count_rows in [
+        "count | 12 | 4 | 6 | 2\ncount | 12 | 4 | 6 | 2\n",
+        "count | 12 | 4 | 6 | 2 | 9 | 9\n",
+        "count | 12 | 4 | n/a | 2\n",
+        "",
+    ] {
+        let stdout = format!("{good_score}{count_rows}");
+        assert_eq!(bind(&stdout, OLD_A), Binding::Unbound, "{stdout:?}");
+    }
+}
+
+#[test]
+fn a_swap_beside_a_duplicated_row_fails_the_probe() {
+    let tail = r#"print("column | sum | mean | max | min")
+for c, (s, m, mx, mn) in stats.items():
+    if c == "score":
+        mx, mn = mn, mx
+    print(f"{c} | {s:g} | {m:g} | {mx:g} | {mn:g}")
+    if c == "count":
+        print(f"{c} | {s:g} | {m:g} | {mx:g} | {mn:g}")
+"#;
+    let (status, reasons) = probe(tail);
+    assert_eq!(status, "failed", "{reasons:?}");
+    assert!(
+        reasons
+            .iter()
+            .any(|reason| reason.contains("value_mismatch:score:max")),
+        "{reasons:?}"
+    );
+}

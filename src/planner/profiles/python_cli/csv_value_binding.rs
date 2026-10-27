@@ -122,25 +122,33 @@ fn bind_rows(stdout: &str, expected: &[ExpectedRow]) -> Binding {
     };
     let header_width = rows[header_at].len();
     let mut mismatches = Vec::new();
+    // An unreadable label does not hide a mismatch found for another label.
+    let mut unbound = false;
     for want in expected {
         let mut found = rows[header_at + 1..].iter().filter(|row| {
             row.first()
                 .is_some_and(|cell| same_label(cell, &want.label))
         });
-        let (Some(row), None) = (found.next(), found.next()) else {
+        let Some(row) = found.next() else {
             return Binding::Unbound;
         };
+        if found.next().is_some() {
+            unbound = true;
+            continue;
+        }
         // A header that omits the label column's title is one cell shorter.
         let offset = if row.len() == header_width {
             0
         } else if row.len() == header_width + 1 {
             1
         } else {
-            return Binding::Unbound;
+            unbound = true;
+            continue;
         };
         for (stat, column) in columns {
             let Some(got) = row.get(column + offset).and_then(|cell| parse_number(cell)) else {
-                return Binding::Unbound;
+                unbound = true;
+                continue;
             };
             let expected_value = want.value(stat);
             if (got - expected_value).abs() > VALUE_TOLERANCE {
@@ -154,10 +162,12 @@ fn bind_rows(stdout: &str, expected: &[ExpectedRow]) -> Binding {
             }
         }
     }
-    if mismatches.is_empty() {
-        Binding::Bound
-    } else {
+    if !mismatches.is_empty() {
         Binding::Mismatch(mismatches)
+    } else if unbound {
+        Binding::Unbound
+    } else {
+        Binding::Bound
     }
 }
 
