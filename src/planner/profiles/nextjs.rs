@@ -756,6 +756,7 @@ pub fn quality_expectations(root: &Path, goal: &str) -> ProfileQualityExpectatio
             "npm install".to_string(),
             "pnpm install".to_string(),
             "yarn install".to_string(),
+            "an inline Node behaviour check (node -e, or a node check that requires a TypeScript module); it has no accepted form and is frozen once written. Use npm run build, a content grep (a host check token), or a smoke-check.js that asserts on plain JavaScript files only".to_string(),
         ],
         dependency_order_hint: Some(
             "Create package.json and a Next.js entrypoint before npm run build. Known-profile scaffolds are pre-provisioned before phase 1 when absent; verify or extend existing scaffold rather than re-planning file creation.".to_string(),

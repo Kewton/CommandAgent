@@ -275,6 +275,30 @@ fn direct(
     )
 }
 
+// No saved literal exists, so no later proposal can form the frozen weak
+// command: the first admission stops (#884) instead of retrying.
+fn stops_at_first(c: &Config, before: &StepPlan) -> admission::Admission {
+    let mut admission = admission::Admission::default();
+    match admission.check(c, None, before, &mut before.clone(), 1) {
+        Err(error) => assert!(
+            format!("{error:#}").contains("no acceptable form and is frozen"),
+            "{error:#}"
+        ),
+        Ok(_) => panic!("the first admission did not stop"),
+    }
+    // A formed command with the saved literal still cannot be admitted later.
+    let mut after = before.clone();
+    after.steps[0].verify = vec![check()];
+    assert!(
+        matches!(
+            admission.check(c, None, &after, &mut after.clone(), 2),
+            Ok(admission::Decision::Retry(_))
+        ),
+        "a formed proposal was not refused with a retry after the stop"
+    );
+    admission
+}
+
 #[test]
 fn issue484_unsupported_commands_and_unsafe_literals_never_gain_admission() {
     let controls: serde_json::Value =
@@ -284,12 +308,7 @@ fn issue484_unsupported_commands_and_unsafe_literals_never_gain_admission() {
     for command in controls["commands"].as_array().unwrap() {
         let mut before = single_owner(&saved(false).steps[4].instruction);
         before.steps[0].verify = vec![command.as_str().unwrap().into()];
-        let mut after = before.clone();
-        after.steps[0].verify = vec![check()];
-        assert!(
-            matches!(direct(&c, &before, &after).0, admission::Decision::Retry(_)),
-            "{command}"
-        );
+        stops_at_first(&c, &before);
     }
     for value in controls["unsafe_literals"].as_array().unwrap() {
         let value = value.as_str().unwrap();
@@ -299,12 +318,8 @@ fn issue484_unsupported_commands_and_unsafe_literals_never_gain_admission() {
         ));
         let mut after = before.clone();
         after.steps[0].verify = vec![check()];
-        let (decision, admission) = direct(&c, &before, &after);
-        assert!(
-            matches!(decision, admission::Decision::Retry(_)),
-            "{value:?}"
-        );
-        assert!(admission.finish(&c, None, after).is_err());
+        let admission = stops_at_first(&c, &before);
+        assert!(admission.finish(&c, None, after).is_err(), "{value:?}");
     }
     for instruction in [
         "Maintain package.json.",
@@ -314,12 +329,7 @@ fn issue484_unsupported_commands_and_unsafe_literals_never_gain_admission() {
         "Set dev to the currently generated value.",
     ] {
         let before = single_owner(instruction);
-        let mut after = before.clone();
-        after.steps[0].verify = vec![check()];
-        assert!(
-            matches!(direct(&c, &before, &after).0, admission::Decision::Retry(_)),
-            "{instruction}"
-        );
+        stops_at_first(&c, &before);
     }
 }
 

@@ -312,7 +312,17 @@ fn issue479_attached_weak_inline_cannot_close_with_app_edits() {
             [command]
         );
         let mut admission = admission::Admission::default();
-        for attempt in 1..=3 {
+        // No formation shape fits this inline check and it is frozen at the
+        // first rejection, so no later proposal can replace it: stop at once
+        // instead of spending the 3-attempt budget (#884).
+        std::fs::write(root.path().join("app.js"), "export const value=1;").unwrap();
+        let result = admission.check(&c, None, &original, &mut original.clone(), 1);
+        assert!(
+            result.is_err_and(|e| format!("{e:#}").contains("no acceptable form and is frozen")),
+            "{command}"
+        );
+        // App edits still cannot close it if the budget is walked anyway.
+        for attempt in 2..=3 {
             std::fs::write(
                 root.path().join("app.js"),
                 format!("export const value={attempt};"),
