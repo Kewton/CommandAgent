@@ -251,9 +251,9 @@ fn issue484_host_port_cannot_supply_literal_or_override_explicit_model_value() {
             let mut formed = before.clone();
             formed.steps[0].verify = vec![grammar::formed_command("dev", "next dev -p 60302")];
             assert!(
-                !matches!(
+                matches!(
                     admission.check(&c, None, &formed.clone(), &mut formed, 2),
-                    Ok(admission::Decision::Ready(false))
+                    Ok(admission::Decision::Retry(_))
                 ),
                 "{instruction}"
             );

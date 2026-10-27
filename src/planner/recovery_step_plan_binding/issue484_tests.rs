@@ -290,11 +290,11 @@ fn stops_at_first(c: &Config, before: &StepPlan) -> admission::Admission {
     let mut after = before.clone();
     after.steps[0].verify = vec![check()];
     assert!(
-        !matches!(
+        matches!(
             admission.check(c, None, &after, &mut after.clone(), 2),
-            Ok(admission::Decision::Ready(_))
+            Ok(admission::Decision::Retry(_))
         ),
-        "a formed proposal was admitted after the stop"
+        "a formed proposal was not refused with a retry after the stop"
     );
     admission
 }
