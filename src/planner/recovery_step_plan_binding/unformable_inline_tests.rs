@@ -390,3 +390,30 @@ fn issue884_corpus_records_the_synthetic_origin_and_expected_status() {
         assert_eq!(json!(commands(case, "first").len()), 1, "{case}");
     }
 }
+
+#[test]
+fn issue884_the_profile_gate_keeps_other_profiles_out_of_the_proof() {
+    let root = tempfile::tempdir().unwrap();
+    let original = plan(&["src/lib/storage.ts"], commands("content_q", "first"));
+    // `form` never rejects for another profile, so only a direct call reaches
+    // the gate: freeze the same plan under generic, then ask under others.
+    let generic = config(root.path(), "generic");
+    let mut admission = Admission::default();
+    assert!(check(&mut admission, &generic, &original, 1).is_err());
+    assert!(
+        admission
+            .prove_unformable_inline(&generic, &original, 1)
+            .is_some()
+    );
+    let other = config(root.path(), "python-cli");
+    assert!(
+        admission
+            .prove_unformable_inline(&other, &original, 1)
+            .is_none()
+    );
+    let mut fresh = Admission::default();
+    assert!(matches!(
+        check(&mut fresh, &other, &original, 1),
+        Ok(Decision::Ready(_))
+    ));
+}
