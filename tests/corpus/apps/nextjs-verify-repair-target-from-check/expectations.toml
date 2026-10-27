@@ -1,0 +1,16 @@
+case_id = "nextjs-verify-repair-target-from-check"
+source = "synthetic, derived from the shape of campaign-G1-3a10 content-g events 129-189 (a Node relative require failing a Verify step) and tool-g events 101-121 (a planner grep of a hook file); no recorded text, secret or absolute path"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+workspaces.json = ["synthetic", "smoke-check.js", "src/lib/persistence.js", "src/lib/persistence.ts", "src/hooks/useTodos.ts", "grep -q"]
+expected.json = ["synthetic", "src/lib/persistence.js", "diagnosis_mapped", "dependency_missing", "fallback"]

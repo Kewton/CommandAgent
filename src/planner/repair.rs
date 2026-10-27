@@ -195,6 +195,11 @@ fn append_shared_repair_tail(
         prompt.push_str(&contract_attribute_guidance);
     }
     append_profile_repair_guidance(prompt, report, context);
+    crate::minimal_loop::verify_failure_target::append_repair_guidance(
+        prompt,
+        report,
+        context.workspace_root.as_deref(),
+    );
     if let Some(expected) = &context.expected_result {
         prompt.push_str("\n\nExpected verification result:\n");
         prompt.push_str(expected);

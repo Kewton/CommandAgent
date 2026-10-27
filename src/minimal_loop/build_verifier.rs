@@ -928,10 +928,45 @@ fn python_module_is_workspace_internal(root: &Path, module: &str) -> bool {
             })
 }
 
+/// Node's `Cannot find module '<specifier>'` (CJS) and ESM `ERR_MODULE_NOT_FOUND`
+/// specifier; only the quoted value, so a package name stays distinguishable.
+fn node_cannot_find_module_specifier(line: &str) -> Option<&str> {
+    let (_, raw) = line.split_once("Cannot find module ")?;
+    let raw = raw.trim_start();
+    let quote = raw.chars().next()?;
+    if !matches!(quote, '\'' | '"' | '`') {
+        return None;
+    }
+    let value = &raw[quote.len_utf8()..];
+    let end = value.find(quote)?;
+    (!value[..end].is_empty()).then_some(&value[..end])
+}
+
+fn node_missing_module_is_workspace_internal(root: &Path, specifier: &str) -> bool {
+    // A missing manifest is a setup gap, not a missing source module.
+    if specifier == "./package.json" {
+        return false;
+    }
+    if specifier.starts_with("./") || specifier.starts_with("../") {
+        return true;
+    }
+    if !Path::new(specifier).is_absolute() {
+        return false;
+    }
+    let inside = |base: &Path| Path::new(specifier).starts_with(base);
+    let manifest = |base: &Path| Path::new(specifier) == base.join("package.json");
+    if manifest(root) || root.canonicalize().is_ok_and(|real| manifest(&real)) {
+        return false;
+    }
+    inside(root) || root.canonicalize().is_ok_and(|real| inside(&real))
+}
+
 pub(crate) fn output_reports_workspace_internal_missing(root: &Path, output: &str) -> bool {
     output.lines().any(|line| {
         module_not_found_specifier(trim_compile_line(line))
             .is_some_and(workspace_internal_specifier)
+            || node_cannot_find_module_specifier(line)
+                .is_some_and(|specifier| node_missing_module_is_workspace_internal(root, specifier))
             || python_missing_module_name(line)
                 .is_some_and(|module| python_module_is_workspace_internal(root, module))
     })
