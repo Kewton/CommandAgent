@@ -315,5 +315,24 @@ fn corpus_cases_match_the_refusal_sentences() {
         }
         checked += 1;
     }
-    assert_eq!(checked, 6);
+    assert_eq!(checked, 7);
+}
+
+#[test]
+fn a_base_whose_quoted_whitespace_would_be_collapsed_is_not_named() {
+    for command in [
+        "grep -q \"foo  bar\" f && echo ok || echo ng",
+        "grep -q \"foo\tbar\" f && echo ok || echo ng",
+    ] {
+        let refusal = first_refusal(command);
+        assert!(!refusal.contains("Run the base command"), "{refusal}");
+        let err = anyhow::anyhow!(
+            "verify_command_policy_error: success_failure_echo_stripped: verifier exit status already records pass/fail; trailing echo branches mask the base command"
+        );
+        let root = tempfile::tempdir().unwrap();
+        assert_eq!(
+            recoverable_tool_feedback("Bash", &err, command, root.path()),
+            tool_feedback::recoverable_tool_feedback("Bash", &err, None)
+        );
+    }
 }

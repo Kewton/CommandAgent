@@ -8,3 +8,4 @@ fallback-true | grep -q 'style.css' index.html || true | Run the base command `g
 exit-code-echo | grep -q 'style.css' index.html; echo "EXIT_CODE=$?" | Run the base command `grep -q 'style.css' index.html` as-is, once
 cli-g | echo "name,score" > test.csv | Create fixture files with the Write tool
 base-refused | node -e "process.exit(0)" && echo "ok" || echo "ng" | (no base named)
+quoted-space | grep -q "foo  bar" f && echo ok || echo ng | (no base named)

@@ -49,7 +49,9 @@ fn hint(err_text: &str, command: &str, root: &Path) -> Option<String> {
         | VerifyCommandViolationKind::FallbackTrueStripped
         | VerifyCommandViolationKind::ExitCodeEchoStripped => {
             let base = diagnosis.normalized;
-            base_is_accepted(&base, root).then(|| {
+            // Normalization collapses runs of whitespace, even inside quotes; a
+            // base the model did not type verbatim could mean something else.
+            (command.contains(base.as_str()) && base_is_accepted(&base, root)).then(|| {
                     format!(
                         "Run the base command `{base}` as-is, once (no echo or `|| true` branch; the verifier records pass/fail itself)."
                     )
