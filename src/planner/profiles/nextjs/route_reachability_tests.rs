@@ -6,7 +6,11 @@ use super::{
     EVIDENCE_RELATIVE_PATH, ReachabilityReport, ReachabilityStatus, early_static_repair_guidance,
     evaluate, merge_with_testimony, write_evidence,
 };
-use crate::planner::profile::{ProfileId, ProfileRuntimeRegistry};
+use crate::minimal_loop::repair_target::classify_repair_target;
+use crate::planner::profile::{
+    ProfileId, ProfileRuntimeRegistry, release_gate_static_repair_lines,
+};
+use crate::planner::verify::VerificationReport;
 
 const HOOKED_PAGE: &str = r#"export default function Page() {
   return <button data-anvil-action="primary">Go</button>;
@@ -1237,5 +1241,38 @@ fn corpus_runtime_failure_shape_yields_the_pinned_guidance() {
     assert_eq!(
         serde_json::json!(early_static_repair_guidance(case)),
         expected["guidance"]
+    );
+}
+
+#[test]
+fn corpus_runtime_pass_shape_yields_the_pinned_lines_and_repair_target() {
+    let case = Path::new("tests/corpus/apps/nextjs-route-unreachable-after-runtime-pass");
+    let expected: Value = serde_json::from_str(
+        &std::fs::read_to_string(case.join("expected-guidance.json")).unwrap(),
+    )
+    .unwrap();
+    let report = evaluate(case);
+    assert_eq!(report.status.as_str(), expected["release_gate_status"]);
+    let reasons = report.reasons();
+    assert_eq!(serde_json::json!(reasons), expected["release_gate_reasons"]);
+
+    let mut failures = VerificationReport::pass();
+    failures.push_profile_failure(format!("release gate failed: {}", reasons.join("; ")));
+    for line in release_gate_static_repair_lines(
+        ProfileRuntimeRegistry::resolve(&ProfileId::Nextjs),
+        case,
+        true,
+        false,
+        &reasons,
+    ) {
+        failures.push_profile_failure(line);
+    }
+    assert_eq!(
+        serde_json::json!(failures.profile_failures),
+        expected["profile_failures"]
+    );
+    assert_eq!(
+        classify_repair_target(&failures).as_str(),
+        expected["repair_target"]
     );
 }

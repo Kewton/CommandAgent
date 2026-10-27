@@ -1,0 +1,35 @@
+case_id = "nextjs-route-unreachable-after-runtime-pass"
+source = "Synthetic shape derived from G1 stage 3a12 and 3a13 CONTENT Q (IC-40), Issue #893"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = ["src/app/page.tsx", "src/app/notes/[id]/page.tsx"]
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[json_fields]
+expected-guidance.json:release_gate_status = "failed"
+expected-guidance.json:repair_target = "implementation"
+
+[fixture_contains]
+provenance.md = [
+  "IC-40",
+  "synthetic"
+]
+README.md = [
+  "route_unreachable_from_entry:/notes/[id]"
+]

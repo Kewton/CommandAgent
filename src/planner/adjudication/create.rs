@@ -789,6 +789,15 @@ pub(super) fn ultra_final_acceptance_report_inner(
             "release gate failed: {}",
             release_gate.reasons.join("; ")
         ));
+        for line in crate::planner::profile::release_gate_static_repair_lines(
+            runtime,
+            &config.workspace_root,
+            acceptance.passed,
+            production_build_failed,
+            &release_gate.reasons,
+        ) {
+            report.push_profile_failure(line);
+        }
     }
     if append_release_observations {
         append_release_gate_observation_failures(&mut report, &release_gate);

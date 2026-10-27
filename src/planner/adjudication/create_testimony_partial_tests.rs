@@ -12,8 +12,8 @@ use super::{
     ultra_final_acceptance_report_inner,
 };
 use crate::cli::Cli;
-use crate::minimal_loop::repair_target::classify_repair_target;
-use crate::planner::profile::early_static_repair_lines;
+use crate::minimal_loop::repair_target::{RepairTarget, classify_repair_target};
+use crate::planner::profile::{early_static_repair_lines, release_gate_static_repair_lines};
 use crate::planner::runner::final_acceptance::final_acceptance_model_fixable_profile_failures;
 
 const HOOKED_PAGE: &str =
@@ -312,4 +312,152 @@ fn final_acceptance_report_with_a_missing_build_setup_carries_no_guidance() {
         "{:?}",
         report.profile_failures
     );
+}
+
+// Release gate repair guidance after a passing runtime (Issue #893, IC-40):
+// the gate is unchanged; `repair guidance:` lines follow `release gate failed:`
+// only for the routes the gate names, and the repair targets the app source.
+fn passed_runtime_lines(root: &Path, gate: &ReleaseGateSummary) -> Vec<String> {
+    release_gate_static_repair_lines(
+        ProfileRuntimeRegistry::resolve(&ProfileId::Nextjs),
+        root,
+        true,
+        false,
+        &gate.reasons,
+    )
+}
+
+/// The `release gate failed:` branch of the final acceptance report.
+fn failed_gate_report(root: &Path, gate: &ReleaseGateSummary) -> VerificationReport {
+    let mut report = VerificationReport::pass();
+    report.push_profile_failure(format!("release gate failed: {}", gate.reasons.join("; ")));
+    for line in passed_runtime_lines(root, gate) {
+        report.push_profile_failure(line);
+    }
+    report
+}
+
+#[test]
+fn passed_runtime_release_gate_with_an_unreachable_page_is_unchanged() {
+    let dir = tempfile::tempdir().unwrap();
+    unreachable_workspace(dir.path());
+    assert_eq!(
+        gate(dir.path(), ABOUT_GOAL, &[]),
+        ReleaseGateSummary {
+            status: "failed".to_string(),
+            reasons: vec![FAILED_REASON.to_string()],
+            browser_readiness_status: "not_applicable".to_string(),
+            browser_readiness_evidence_path: String::new(),
+            interaction_evidence_status: "not_applicable".to_string(),
+            interaction_evidence_path: String::new(),
+        }
+    );
+}
+
+#[test]
+fn passed_runtime_unreachable_round_gets_one_guidance_line_after_the_gate_line() {
+    let dir = tempfile::tempdir().unwrap();
+    unreachable_workspace(dir.path());
+    let result = gate(dir.path(), ABOUT_GOAL, &[]);
+    let report = failed_gate_report(dir.path(), &result);
+    assert_eq!(
+        report.profile_failures,
+        vec![
+            format!("release gate failed: {FAILED_REASON}"),
+            GUIDANCE_LINE.to_string(),
+        ]
+    );
+    assert_eq!(
+        classify_repair_target(&report),
+        RepairTarget::Implementation
+    );
+    assert_eq!(
+        final_acceptance_model_fixable_profile_failures(&report),
+        report.profile_failures
+    );
+}
+
+#[test]
+fn passed_runtime_guidance_names_only_the_unreachable_page() {
+    let dir = tempfile::tempdir().unwrap();
+    write(
+        dir.path(),
+        "src/app/page.tsx",
+        "import Link from \"next/link\";\nexport default function Home() {\n  return <Link data-anvil-action=\"primary\" href=\"/notes\">Go</Link>;\n}\n",
+    );
+    write(dir.path(), "src/app/notes/page.tsx", HOOKED_PAGE);
+    write(dir.path(), "src/app/orphan/page.tsx", HOOKED_PAGE);
+    let result = gate(dir.path(), ABOUT_GOAL, &[]);
+    assert_eq!(result.status, "failed", "{result:?}");
+    assert_eq!(
+        result.reasons,
+        vec!["route_unreachable_from_entry:/orphan".to_string()]
+    );
+    assert_eq!(
+        passed_runtime_lines(dir.path(), &result),
+        vec![
+            "repair guidance: route_unreachable_from_entry:/orphan (src/app/orphan/page.tsx): add a link from the entry page to this route, or delete the page if it is not used"
+                .to_string()
+        ]
+    );
+}
+
+#[test]
+fn passed_runtime_guidance_is_empty_for_reached_unverified_and_unnamed_routes() {
+    let reached = tempfile::tempdir().unwrap();
+    reached_workspace(reached.path());
+    let reached_gate = gate(reached.path(), ABOUT_GOAL, &[]);
+    assert!(passed_runtime_lines(reached.path(), &reached_gate).is_empty());
+
+    let unverified = tempfile::tempdir().unwrap();
+    unverified_workspace(unverified.path());
+    let unverified_gate = gate(unverified.path(), ABOUT_GOAL, &[]);
+    assert_eq!(unverified_gate.reasons, vec![PARTIAL_REASON.to_string()]);
+    assert!(passed_runtime_lines(unverified.path(), &unverified_gate).is_empty());
+
+    let unnamed = tempfile::tempdir().unwrap();
+    unreachable_workspace(unnamed.path());
+    let other_reason = ReleaseGateSummary {
+        reasons: vec!["browser_readiness_failed:route_render".to_string()],
+        ..gate(unnamed.path(), ABOUT_GOAL, &[])
+    };
+    assert!(passed_runtime_lines(unnamed.path(), &other_reason).is_empty());
+}
+
+#[test]
+fn passed_runtime_guidance_is_empty_for_failed_runtime_build_failure_and_other_profiles() {
+    let dir = tempfile::tempdir().unwrap();
+    unreachable_workspace(dir.path());
+    let reasons = vec![FAILED_REASON.to_string()];
+    let nextjs = ProfileRuntimeRegistry::resolve(&ProfileId::Nextjs);
+    assert!(
+        release_gate_static_repair_lines(nextjs, dir.path(), false, false, &reasons).is_empty()
+    );
+    assert!(release_gate_static_repair_lines(nextjs, dir.path(), true, true, &reasons).is_empty());
+    assert!(
+        release_gate_static_repair_lines(
+            ProfileRuntimeRegistry::resolve(&ProfileId::Generic),
+            dir.path(),
+            true,
+            false,
+            &reasons,
+        )
+        .is_empty()
+    );
+}
+
+#[test]
+fn failed_runtime_round_keeps_only_the_early_guidance_line() {
+    let dir = tempfile::tempdir().unwrap();
+    unreachable_workspace(dir.path());
+    let result = failed_runtime_gate(dir.path());
+    let mut lines = nextjs_lines(dir.path(), false, false);
+    lines.extend(release_gate_static_repair_lines(
+        ProfileRuntimeRegistry::resolve(&ProfileId::Nextjs),
+        dir.path(),
+        false,
+        false,
+        &result.reasons,
+    ));
+    assert_eq!(lines, vec![GUIDANCE_LINE.to_string()]);
 }
