@@ -202,6 +202,11 @@ pub trait ProfileRuntime: DomainProfile {
         false
     }
 
+    /// Static repair-prompt lines evaluated before runtime acceptance passes.
+    fn early_static_repair_guidance(&self, _root: &Path) -> Vec<String> {
+        Vec::new()
+    }
+
     fn run_final_testimony_check(
         &self,
         _root: &Path,

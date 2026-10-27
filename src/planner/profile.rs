@@ -577,6 +577,10 @@ impl ProfileRuntime for crate::planner::profiles::nextjs::NextjsProfile {
         }))
     }
 
+    fn early_static_repair_guidance(&self, root: &Path) -> Vec<String> {
+        crate::planner::profiles::nextjs::route_reachability::early_static_repair_guidance(root)
+    }
+
     fn invariant_setup_paths(&self, root: &Path) -> Vec<String> {
         crate::planner::profiles::nextjs::setup_invariant_required_paths(root)
     }
@@ -1107,6 +1111,23 @@ impl ProfileRuntimeRegistry {
                     .map(|profile| profile.profile_id()),
             )
     }
+}
+
+/// Static repair guidance for a final acceptance whose runtime did not pass.
+/// Empty when the runtime passed (the release gate already carries the check)
+/// or when the production build failed (a compile repair gets no other task).
+pub fn early_static_repair_lines(
+    runtime: &dyn ProfileRuntime,
+    root: &Path,
+    runtime_passed: bool,
+    build_failed: bool,
+) -> Vec<String> {
+    if runtime_passed || build_failed {
+        return Vec::new();
+    }
+    (runtime.early_static_repair_guidance(root).into_iter())
+        .map(|guidance| format!("repair guidance: {guidance}"))
+        .collect()
 }
 
 pub fn resolve_profile_runtime(profile: &str) -> &'static dyn ProfileRuntime {

@@ -743,6 +743,14 @@ pub(super) fn ultra_final_acceptance_report_inner(
         {
             report.push_profile_failure(format!("repair guidance: {guidance}"));
         }
+        for line in crate::planner::profile::early_static_repair_lines(
+            runtime,
+            &config.workspace_root,
+            acceptance.passed,
+            production_build_failed,
+        ) {
+            report.push_profile_failure(line);
+        }
         for guidance in acceptance
             .weak_evidence_sources
             .iter()
