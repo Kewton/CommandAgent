@@ -52,7 +52,7 @@ impl HostCheckSegment {
 /// Runs one normalized verify command. A host check token (for instance the repair of
 /// a grep on package.json) is judged by the host and never reaches a shell; any other
 /// command runs as before. Like a declared token, it is bound to the nextjs profile.
-pub(super) fn run_for_verify(
+pub(crate) fn run_for_verify(
     command: &NormalizedVerifyCommand,
     root: &Path,
     profile: Option<&str>,

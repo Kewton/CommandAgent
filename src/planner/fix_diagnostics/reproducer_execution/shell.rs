@@ -10,7 +10,7 @@ pub(super) fn execute(
     config: &Config,
     profile: &str,
 ) -> ReproducerExecution {
-    match crate::minimal_loop::verifier_env::run_structured_for_verify_with_profile(
+    match crate::planner::verify::host_check_segment::run_for_verify(
         normalized,
         &config.workspace_root,
         Some(profile),

@@ -1015,6 +1015,61 @@ fn issue881_corpus_rewritten_greps_pass_with_no_refusal_and_inline_node_is_refus
     }
 }
 
+/// Every caller of `run_reproducer` (FIX Before and After, investigation, origin
+/// reproducer) reaches the same execution, so a token is the host's judgement there.
+#[test]
+fn issue881_a_fix_reproducer_token_is_judged_by_the_host_not_a_shell() {
+    use crate::planner::adjudication::contract::{EvidenceStage, ExpectedOutcome};
+    use crate::planner::adjudication::fix::ProbeOutcome;
+
+    let token = hook_action_command("restart", "src/app/page.tsx");
+    let run = |root: &Path, stage, expected| {
+        let config = config(root, NEXTJS_PROFILE_ID);
+        crate::planner::fix_diagnostics::run_reproducer(
+            &config,
+            "run-881",
+            "reproducer_fails",
+            stage,
+            expected,
+            1,
+            &token,
+            "",
+            NEXTJS_PROFILE_ID,
+            "Build a Next.js game",
+        )
+    };
+    let root = wired_workspace();
+    // The attribute is missing: Before fails, which is what the baseline gate wants.
+    let before = run(root.path(), EvidenceStage::Before, ExpectedOutcome::Failure);
+    assert_eq!(before.evidence.outcome, ProbeOutcome::Failure);
+    // Investigation and the origin reproducer use the same call with the Diagnosis stage.
+    let diagnosis = run(
+        root.path(),
+        EvidenceStage::Diagnosis,
+        ExpectedOutcome::Failure,
+    );
+    assert_eq!(diagnosis.evidence.outcome, ProbeOutcome::Failure);
+    // The attribute exists: Before succeeds, so the baseline gate stops the run.
+    std::fs::write(
+        root.path().join("src/app/page.tsx"),
+        "<button data-anvil-action=\"restart\">Again</button>",
+    )
+    .unwrap();
+    let present = run(root.path(), EvidenceStage::Before, ExpectedOutcome::Failure);
+    assert_eq!(present.evidence.outcome, ProbeOutcome::Success);
+    // After the repair the same token passes.
+    let after = run(root.path(), EvidenceStage::After, ExpectedOutcome::Success);
+    assert_eq!(after.evidence.outcome, ProbeOutcome::Success);
+    for result in [&before, &diagnosis, &present, &after] {
+        let shown = format!(
+            "{:?}{}{}",
+            result.evidence, result.stdout_tail, result.stderr_tail
+        );
+        assert!(!shown.contains("command not found"), "{shown}");
+        assert!(!shown.contains("No such file or directory"), "{shown}");
+    }
+}
+
 #[test]
 fn issue881_a_package_port_grep_joined_with_other_greps_is_host_judged() {
     // The repaired port token of Issue #879 used to reach a shell (exit 127) when the
