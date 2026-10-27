@@ -287,6 +287,7 @@ fn final_acceptance_report_with_a_missing_build_setup_carries_no_guidance() {
     unreachable_workspace(dir.path());
     let mut config = Config::from_cli(Cli::parse_from(["commandagent", "--ux-demo"])).unwrap();
     config.workspace_root = dir.path().to_path_buf();
+    config.eval_events_path = Some(dir.path().join("events.jsonl"));
     let plan = UltraPlan {
         goal: ABOUT_GOAL.to_string(),
         profile: ProfileId::Nextjs.to_string(),
