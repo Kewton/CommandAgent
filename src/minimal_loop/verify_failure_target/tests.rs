@@ -245,3 +245,20 @@ fn corpus_cases_match_expected_targets_and_classification() {
         );
     }
 }
+
+#[test]
+fn mixed_or_non_command_failures_are_not_named() {
+    let dir = workspace(SMOKE_CHECK, &["src/lib/persistence.js"]);
+    let mut mixed = report("node smoke-check.js");
+    mixed.push_command_failure("grep -q token src/hooks/useTodos.ts", "exit status 1");
+    assert_eq!(resolve_target(dir.path(), &mixed), None);
+
+    let mut missing = report("node smoke-check.js");
+    missing.missing_paths.push("src/app/page.tsx".to_string());
+    assert_eq!(resolve_target(dir.path(), &missing), None);
+
+    let mut prompt = "Repair step `verify`.".to_string();
+    let before = prompt.clone();
+    append_repair_guidance(&mut prompt, &mixed, Some(dir.path()));
+    assert_eq!(prompt, before);
+}

@@ -942,15 +942,42 @@ fn node_cannot_find_module_specifier(line: &str) -> Option<&str> {
     (!value[..end].is_empty()).then_some(&value[..end])
 }
 
-fn node_missing_module_is_workspace_internal(root: &Path, specifier: &str) -> bool {
+fn path_in_node_modules(path: &str) -> bool {
+    path.replace('\\', "/")
+        .split('/')
+        .any(|part| part == "node_modules")
+}
+
+/// The file that required the missing module: the first `- <path>` entry of
+/// the `Require stack:` that follows the error line, or the ESM
+/// `imported from <path>` tail.
+fn node_requirer<'a>(lines: &[&'a str], index: usize) -> Option<&'a str> {
+    if let Some((_, tail)) = lines[index].split_once(" imported from ") {
+        return Some(tail.trim());
+    }
+    let stack = lines[index + 1..]
+        .iter()
+        .position(|line| line.trim() == "Require stack:")?;
+    lines[index + 1 + stack + 1..]
+        .first()?
+        .trim()
+        .strip_prefix("- ")
+        .map(str::trim)
+}
+
+fn node_missing_module_is_workspace_internal(
+    root: &Path,
+    specifier: &str,
+    requirer: Option<&str>,
+) -> bool {
     // A missing manifest is a setup gap, not a missing source module.
     if specifier == "./package.json" {
         return false;
     }
     if specifier.starts_with("./") || specifier.starts_with("../") {
-        return true;
+        return !requirer.is_some_and(path_in_node_modules);
     }
-    if !Path::new(specifier).is_absolute() {
+    if !Path::new(specifier).is_absolute() || path_in_node_modules(specifier) {
         return false;
     }
     let inside = |base: &Path| Path::new(specifier).starts_with(base);
@@ -962,11 +989,17 @@ fn node_missing_module_is_workspace_internal(root: &Path, specifier: &str) -> bo
 }
 
 pub(crate) fn output_reports_workspace_internal_missing(root: &Path, output: &str) -> bool {
-    output.lines().any(|line| {
+    let lines = output.lines().collect::<Vec<_>>();
+    lines.iter().enumerate().any(|(index, line)| {
         module_not_found_specifier(trim_compile_line(line))
             .is_some_and(workspace_internal_specifier)
-            || node_cannot_find_module_specifier(line)
-                .is_some_and(|specifier| node_missing_module_is_workspace_internal(root, specifier))
+            || node_cannot_find_module_specifier(line).is_some_and(|specifier| {
+                node_missing_module_is_workspace_internal(
+                    root,
+                    specifier,
+                    node_requirer(&lines, index),
+                )
+            })
             || python_missing_module_name(line)
                 .is_some_and(|module| python_module_is_workspace_internal(root, module))
     })

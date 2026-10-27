@@ -44,11 +44,19 @@ pub(crate) fn append_repair_guidance(
 }
 
 pub(crate) fn resolve_target(root: &Path, report: &VerificationReport) -> Option<String> {
+    if report.command_failures.is_empty()
+        || !report.missing_paths.is_empty()
+        || !report.compile_errors.is_empty()
+    {
+        return None;
+    }
     let root = root.canonicalize().ok()?;
     let targets = report
         .command_failures
         .iter()
-        .filter_map(|failure| node_script(&failure.command))
+        .map(|failure| node_script(&failure.command))
+        .collect::<Option<Vec<_>>>()?
+        .into_iter()
         .map(|script| loaded_file(&root, &script))
         .collect::<Option<Vec<_>>>()?
         .into_iter()
