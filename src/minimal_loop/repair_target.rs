@@ -377,19 +377,14 @@ pub fn classify_repair_target(report: &VerificationReport) -> RepairTarget {
     }) {
         return RepairTarget::RequiredEvidenceMissing;
     }
-    if report.profile_failures.iter().any(|reason| {
-        contains_any(
-            reason,
-            &[
-                "required_capabilities",
-                "non_zero_test",
-                "test_artifact",
-                "bound_verify_command",
-                "release gate failed",
-                "browser_readiness_failed",
-            ],
-        )
-    }) {
+    if report
+        .profile_failures
+        .iter()
+        .any(|reason| contains_any(reason, TEST_OR_EVIDENCE_MARKERS))
+    {
+        if release_gate_fails_only_on_unreachable_routes(report) {
+            return RepairTarget::Implementation;
+        }
         return RepairTarget::TestOrEvidence;
     }
     if report.command_failures.iter().any(|failure| {
@@ -582,6 +577,37 @@ pub fn classify_repair_follow_through(
 
 pub fn repair_target_followed(target: RepairTarget, changed_paths: &[String]) -> bool {
     classify_repair_follow_through(target, changed_paths).followed()
+}
+
+const TEST_OR_EVIDENCE_MARKERS: &[&str] = &[
+    "required_capabilities",
+    "non_zero_test",
+    "test_artifact",
+    "bound_verify_command",
+    "release gate failed",
+    "browser_readiness_failed",
+];
+const RELEASE_GATE_FAILED_PREFIX: &str = "release gate failed: ";
+const UNREACHABLE_ROUTE_REASON_PREFIX: &str = "route_unreachable_from_entry:";
+
+// IC-40: a release gate that failed only because hook-carrying pages are
+// unreachable from the entry is fixed in the app source (add a link from the
+// entry page or delete the page), not in tests or evidence. Any other marker,
+// or any other gate reason, keeps the test-or-evidence target.
+fn release_gate_fails_only_on_unreachable_routes(report: &VerificationReport) -> bool {
+    report
+        .profile_failures
+        .iter()
+        .filter(|reason| contains_any(reason, TEST_OR_EVIDENCE_MARKERS))
+        .all(|reason| {
+            reason
+                .strip_prefix(RELEASE_GATE_FAILED_PREFIX)
+                .is_some_and(|reasons| {
+                    reasons
+                        .split("; ")
+                        .all(|reason| reason.starts_with(UNREACHABLE_ROUTE_REASON_PREFIX))
+                })
+        })
 }
 
 fn contains_any(value: &str, needles: &[&str]) -> bool {
@@ -1024,5 +1050,80 @@ mod tests {
             RepairTarget::FrameworkConfig,
             &["src/app/global.d.ts".to_string()]
         ));
+    }
+
+    // IC-40 (Issue #893): the profile failures of a final acceptance whose
+    // runtime passed and whose release gate failed only on reachability.
+    fn unreachable_only_release_gate_report(gate_reasons: &str) -> VerificationReport {
+        let mut report = VerificationReport::pass();
+        report.push_profile_failure(format!("release gate failed: {gate_reasons}"));
+        report.push_profile_failure(
+            "repair guidance: route_unreachable_from_entry:/notes/[id] (src/app/notes/[id]/page.tsx): add a link from the entry page to this route, or delete the page if it is not used",
+        );
+        report.push_profile_failure("browser readiness status: passed");
+        report.push_profile_failure(
+            "browser readiness evidence: .commandagent/evidence/browser-readiness.json",
+        );
+        report.push_profile_failure("interaction evidence status: passed");
+        report
+    }
+
+    #[test]
+    fn release_gate_failed_only_on_unreachable_routes_targets_implementation() {
+        for reasons in [
+            "route_unreachable_from_entry:/notes/[id]",
+            "route_unreachable_from_entry:/notes/[id]; route_unreachable_from_entry:/notes",
+        ] {
+            let report = unreachable_only_release_gate_report(reasons);
+            let target = classify_repair_target(&report);
+            assert_eq!(target, RepairTarget::Implementation, "{reasons}");
+            assert_eq!(
+                classify_repair_follow_through(
+                    target,
+                    &["src/app/notes/[id]/page.tsx".to_string()]
+                ),
+                RepairFollowThrough::TargetMatched
+            );
+            assert_eq!(
+                classify_repair_follow_through(target, &["package.json".to_string()]),
+                RepairFollowThrough::TargetNotFollowed
+            );
+        }
+    }
+
+    #[test]
+    fn release_gate_with_reachability_and_another_reason_keeps_test_or_evidence() {
+        for reasons in [
+            "route_unreachable_from_entry:/notes/[id]; browser_readiness_failed:route_render",
+            "route_unreachable_from_entry:/notes/[id]; testimony_binding_runtime_error:io",
+            "route_unreachable_from_entry:/notes/[id]; route_reachability_unverified:/notes",
+            "route_reachability_unverified:/notes/[id]",
+            "",
+        ] {
+            let report = unreachable_only_release_gate_report(reasons);
+            assert_eq!(
+                classify_repair_target(&report),
+                RepairTarget::TestOrEvidence,
+                "{reasons}"
+            );
+        }
+    }
+
+    #[test]
+    fn unreachable_release_gate_with_another_test_marker_keeps_test_or_evidence() {
+        for other in [
+            "browser_readiness_failed:route_render",
+            "bound_verify_command failed: npm test",
+            "non_zero_test: no tests ran",
+        ] {
+            let mut report =
+                unreachable_only_release_gate_report("route_unreachable_from_entry:/notes/[id]");
+            report.push_profile_failure(other);
+            assert_eq!(
+                classify_repair_target(&report),
+                RepairTarget::TestOrEvidence,
+                "{other}"
+            );
+        }
     }
 }

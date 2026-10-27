@@ -1130,6 +1130,31 @@ pub fn early_static_repair_lines(
         .collect()
 }
 
+/// Static repair guidance for a final acceptance whose runtime passed but
+/// whose release gate failed (IC-40). Only guidance for a target the gate
+/// itself names (`<reason> (<page>): <repair>`) is kept, so the lines never
+/// add a target the gate did not fail on. Empty when the runtime did not pass
+/// (`early_static_repair_lines` covers that round) or the build failed.
+pub fn release_gate_static_repair_lines(
+    runtime: &dyn ProfileRuntime,
+    root: &Path,
+    runtime_passed: bool,
+    build_failed: bool,
+    release_gate_reasons: &[String],
+) -> Vec<String> {
+    if !runtime_passed || build_failed || release_gate_reasons.is_empty() {
+        return Vec::new();
+    }
+    (runtime.early_static_repair_guidance(root).into_iter())
+        .filter(|guidance| {
+            release_gate_reasons
+                .iter()
+                .any(|reason| guidance.starts_with(&format!("{reason} (")))
+        })
+        .map(|guidance| format!("repair guidance: {guidance}"))
+        .collect()
+}
+
 pub fn resolve_profile_runtime(profile: &str) -> &'static dyn ProfileRuntime {
     ProfileRuntimeRegistry::resolve(&ProfileId::parse(profile))
 }
