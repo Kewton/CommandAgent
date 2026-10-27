@@ -3317,10 +3317,10 @@ if __name__ == "__main__":
             .get("second_stdout")
             .and_then(Value::as_str)
             .unwrap_or_default();
-        assert!(first_stdout.contains("60"), "{first_stdout}");
-        assert!(first_stdout.contains("20"), "{first_stdout}");
-        assert!(second_stdout.contains("24"), "{second_stdout}");
-        assert!(second_stdout.contains("8"), "{second_stdout}");
+        assert!(first_stdout.contains("120"), "{first_stdout}");
+        assert!(first_stdout.contains("40"), "{first_stdout}");
+        assert!(second_stdout.contains("177"), "{second_stdout}");
+        assert!(second_stdout.contains("59"), "{second_stdout}");
         assert!(
             dir.path()
                 .join(".commandagent/evidence/python-cli-fixtures/input-a.csv")
