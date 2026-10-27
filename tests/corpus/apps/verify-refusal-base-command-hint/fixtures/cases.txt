@@ -1,0 +1,11 @@
+# Synthetic cases derived from the shapes of L-129 tool-g and ambig-g and L-127 cli-g
+# (Issue #889). They are not recordings; no secret or absolute path is included.
+# Format: id | runtime Bash command in a Verify step | fragment the refusal must contain
+# Every command is still refused; only the guidance sentence differs.
+tool-g | grep -q "from './types'" src/lib/storage.ts && echo "ok" || echo "ng" | Run the base command `grep -q "from './types'" src/lib/storage.ts` as-is, once
+ambig-g | grep -q 'style.css' index.html && echo "pass" || echo "fail" | Run the base command `grep -q 'style.css' index.html` as-is, once
+fallback-true | grep -q 'style.css' index.html || true | Run the base command `grep -q 'style.css' index.html` as-is, once
+exit-code-echo | grep -q 'style.css' index.html; echo "EXIT_CODE=$?" | Run the base command `grep -q 'style.css' index.html` as-is, once
+cli-g | echo "name,score" > test.csv | Create fixture files with the Write tool
+base-refused | node -e "process.exit(0)" && echo "ok" || echo "ng" | (no base named)
+quoted-space | grep -q "foo  bar" f && echo ok || echo ng | (no base named)

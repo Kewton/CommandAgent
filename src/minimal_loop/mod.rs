@@ -42,5 +42,6 @@ pub mod ts_missing_export;
 pub mod verifier_bootstrap;
 pub mod verifier_env;
 pub(crate) mod verify_failure_target;
+pub(crate) mod verify_refusal_hint;
 
 pub use loop_run::run_session;

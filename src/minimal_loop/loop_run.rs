@@ -1454,10 +1454,11 @@ pub(crate) fn run_session_with_outcome_with_options(
                                 decision.policy_error_kind
                             );
                         }
-                        let feedback = super::tool_feedback::recoverable_tool_feedback(
+                        let feedback = super::verify_refusal_hint::recoverable_tool_feedback(
                             &call.name,
                             &policy_error,
-                            None,
+                            &command,
+                            &config.workspace_root,
                         );
                         session.messages.push(ConversationMessage::tool_result(
                             call.name,
