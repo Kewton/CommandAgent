@@ -286,6 +286,16 @@ fn stops_at_first(c: &Config, before: &StepPlan) -> admission::Admission {
         ),
         Ok(_) => panic!("the first admission did not stop"),
     }
+    // A formed command with the saved literal still cannot be admitted later.
+    let mut after = before.clone();
+    after.steps[0].verify = vec![check()];
+    assert!(
+        !matches!(
+            admission.check(c, None, &after, &mut after.clone(), 2),
+            Ok(admission::Decision::Ready(_))
+        ),
+        "a formed proposal was admitted after the stop"
+    );
     admission
 }
 

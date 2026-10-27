@@ -248,6 +248,15 @@ fn issue484_host_port_cannot_supply_literal_or_override_explicit_model_value() {
                 first.is_err_and(|e| format!("{e:#}").contains("no acceptable form and is frozen")),
                 "{instruction}"
             );
+            let mut formed = before.clone();
+            formed.steps[0].verify = vec![grammar::formed_command("dev", "next dev -p 60302")];
+            assert!(
+                !matches!(
+                    admission.check(&c, None, &formed.clone(), &mut formed, 2),
+                    Ok(admission::Decision::Ready(false))
+                ),
+                "{instruction}"
+            );
             continue;
         }
         assert!(matches!(first.unwrap(), admission::Decision::Retry(_)));
