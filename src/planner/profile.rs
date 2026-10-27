@@ -486,7 +486,7 @@ fn run_profile_fix_regression<P: DomainProfile + ?Sized>(
                         };
                     }
                 };
-            match crate::minimal_loop::verifier_env::run_structured_for_verify_with_profile(
+            match crate::planner::verify::host_check_segment::run_for_verify(
                 &normalized,
                 root,
                 Some(profile.id()),

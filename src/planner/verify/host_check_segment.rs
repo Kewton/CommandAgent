@@ -82,6 +82,17 @@ pub(crate) fn run_for_verify(
     })
 }
 
+/// The host's judgement of a lone token, for callers that report a failure reason
+/// rather than a `BashOutcome`; `None` when `command` is not a host check token.
+pub(crate) fn judge_token(
+    command: &NormalizedVerifyCommand,
+    root: &Path,
+    profile: Option<&str>,
+) -> Option<Result<(), String>> {
+    package_script_check::is_check_command(command.as_str())
+        .then(|| package_script_check::evaluate_in_profile(root, profile, command.as_str()))
+}
+
 /// Whether any segment of `command` is in the host's check namespace. The shared
 /// single-command normalization admits any word as a program, so such a command
 /// must take the segment route instead of reaching a shell.

@@ -1070,6 +1070,119 @@ fn issue881_a_fix_reproducer_token_is_judged_by_the_host_not_a_shell() {
     }
 }
 
+/// The completion contract's verify and the fix regressions run a command the contract
+/// holds after validation, which is a token when the contract wrote a hook grep.
+fn contract_with(
+    verify: &[&str],
+    root: &Path,
+) -> crate::minimal_loop::completion::CompletionContract {
+    crate::minimal_loop::completion::CompletionContract {
+        required_paths: Vec::new(),
+        protected_paths: Vec::new(),
+        verify_commands: verify.iter().map(|command| command.to_string()).collect(),
+        fix_reproducer_command: None,
+        profile: Some(NEXTJS_PROFILE_ID.to_string()),
+        goal: None,
+        required_capabilities: Vec::new(),
+        deterministic_oracles: Vec::new(),
+        required_evidence: Vec::new(),
+        evidence_hint_tokens: Vec::new(),
+        required_obligations: Vec::new(),
+        deferred_verify_requirements: Vec::new(),
+        verify_repair_cap: 1,
+    }
+    .validate(root)
+    .unwrap()
+}
+
+#[test]
+fn issue881_completion_contract_verify_judges_tokens_in_the_host() {
+    let hook = PLANNER_GREPS[0];
+    let tokens = [DEV, START, BUILD];
+    // Present: the hook grep (stored as a token) and the #879 tokens pass.
+    let root = wired_workspace();
+    let contract = contract_with(&[hook, PLANNER_GREPS[2], DEV, START, BUILD], root.path());
+    assert!(
+        contract
+            .verify_commands
+            .iter()
+            .all(|c| c.starts_with("anvil-nextjs-check:"))
+    );
+    let report = contract.verify(root.path());
+    // The profile gate is not under test (it wants installed dependencies).
+    assert!(report.command_failures.is_empty(), "{report:?}");
+    // Absent: each fails on its own, with a reason and never a shell error.
+    let empty = workspace(r#"{"scripts":{"dev":"next","build":"next build --lint"}}"#);
+    std::fs::create_dir_all(empty.path().join("src/app")).unwrap();
+    std::fs::write(
+        empty.path().join("src/app/page.tsx"),
+        "export default () => null;",
+    )
+    .unwrap();
+    for command in std::iter::once(hook).chain(tokens) {
+        let contract = contract_with(&[command], empty.path());
+        let report = contract.verify(empty.path());
+        let shown = format!("{:?}", report.command_failures);
+        assert_eq!(
+            report.command_failures.len(),
+            usize::from(command != START),
+            "{command}: {shown}"
+        );
+        assert!(!shown.contains("command not found"), "{command}: {shown}");
+        assert!(!shown.contains("No such file"), "{command}: {shown}");
+    }
+}
+
+#[test]
+fn issue881_fix_regression_verify_commands_judge_tokens_in_the_host() {
+    use crate::planner::adjudication::fix::ProbeOutcome;
+    use crate::planner::profile::{ProfileFixRegressionAdapter, ProfileFixRegressionBinding};
+    let bindings = |commands: &[&str]| {
+        commands
+            .iter()
+            .enumerate()
+            .map(|(index, command)| ProfileFixRegressionBinding {
+                id: format!("regression_{index}"),
+                adapter: ProfileFixRegressionAdapter::VerifyCommand(command.to_string()),
+            })
+            .collect::<Vec<_>>()
+    };
+    let profile = crate::planner::profile::domain_profile(NEXTJS_PROFILE_ID);
+    let hook = hook_action_command("primary", "src/app/page.tsx");
+    let commands = [hook.as_str(), DEV, START, BUILD];
+    let root = wired_workspace();
+    let observed =
+        profile.run_fix_regressions(root.path(), "Build a game", &bindings(&commands), false);
+    assert!(
+        observed.iter().all(|o| o.outcome == ProbeOutcome::Success),
+        "{observed:?}"
+    );
+    let empty = workspace(r#"{"scripts":{"dev":"next","build":"next build --lint"}}"#);
+    std::fs::create_dir_all(empty.path().join("src/app")).unwrap();
+    std::fs::write(
+        empty.path().join("src/app/page.tsx"),
+        "export default () => null;",
+    )
+    .unwrap();
+    let observed =
+        profile.run_fix_regressions(empty.path(), "Build a game", &bindings(&commands), false);
+    let outcomes = observed.iter().map(|o| o.outcome).collect::<Vec<_>>();
+    assert_eq!(
+        outcomes,
+        [
+            ProbeOutcome::Failure,
+            ProbeOutcome::Failure,
+            ProbeOutcome::Success,
+            ProbeOutcome::Failure
+        ],
+        "{observed:?}"
+    );
+    for o in &observed {
+        assert!(!o.reason.contains("command not found"), "{o:?}");
+        assert!(!o.reason.contains("No such file"), "{o:?}");
+    }
+}
+
 #[test]
 fn issue881_a_package_port_grep_joined_with_other_greps_is_host_judged() {
     // The repaired port token of Issue #879 used to reach a shell (exit 127) when the
