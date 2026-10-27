@@ -1184,6 +1184,60 @@ fn issue881_fix_regression_verify_commands_judge_tokens_in_the_host() {
 }
 
 #[test]
+fn issue881_a_setup_step_judges_tokens_even_when_dependencies_are_not_installed() {
+    // package.json declares dependencies and node_modules is absent: the dependency
+    // state path must not take a token for a command to run in a shell.
+    let manifest = r#"{"scripts":{"dev":"next dev -p 3011","build":"next build"},"dependencies":{"next":"^14.2.0","react":"^18.3.0"}}"#;
+    let tokens = [
+        hook_action_command("primary", "src/app/page.tsx"),
+        script_includes_command("next dev").unwrap(),
+        source_keydown_command("src/app/page.tsx"),
+        source_token_command("useState", "src/app/page.tsx"),
+        DEV.to_string(),
+    ];
+    let verify = |page: &str, token: &str| {
+        let root = workspace(manifest);
+        std::fs::create_dir_all(root.path().join("src/app")).unwrap();
+        std::fs::write(root.path().join("src/app/page.tsx"), page).unwrap();
+        assert!(!root.path().join("node_modules").exists());
+        let step = crate::planner::step_plan::PlanStep {
+            id: "verify-contract".to_string(),
+            kind: "verify".to_string(),
+            expected_result: "pass".to_string(),
+            instruction: "Check the contract".to_string(),
+            expected_paths: Vec::new(),
+            verify: vec![token.to_string()],
+        };
+        let (report, lifecycles) =
+            crate::planner::verify::verify_step_with_profile_setup_observed_with_offline_and_events(
+                root.path(),
+                &step,
+                Some(NEXTJS_PROFILE_ID),
+                NodeDependencySetupAuthority::PlanSetupStep,
+                true,
+                None,
+            );
+        assert!(lifecycles.is_empty(), "{token}: {lifecycles:?}");
+        assert!(!root.path().join("node_modules").exists(), "{token}");
+        report
+    };
+    for token in &tokens {
+        let ok = verify(PAGE_SOURCE, token);
+        assert!(ok.is_pass(), "{token}: {ok:?}");
+        let bad = verify("export default () => null;", token);
+        let shown = format!("{:?}", bad.command_failures);
+        assert!(!shown.contains("command not found"), "{token}: {shown}");
+        assert!(!shown.contains("No such file"), "{token}: {shown}");
+        // `dev` is satisfied by the manifest alone, the hooks and sources are not.
+        assert_eq!(
+            bad.is_pass(),
+            token.contains("script") || token == DEV,
+            "{token}: {bad:?}"
+        );
+    }
+}
+
+#[test]
 fn issue881_a_package_port_grep_joined_with_other_greps_is_host_judged() {
     // The repaired port token of Issue #879 used to reach a shell (exit 127) when the
     // grep was one segment of a joined command; every joined form is now host-judged.

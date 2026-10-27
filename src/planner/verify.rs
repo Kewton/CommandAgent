@@ -11,7 +11,7 @@ use crate::minimal_loop::dependency_setup::{
 };
 use crate::minimal_loop::verifier_env;
 use crate::planner::expected_result_observation::record_python_traceback as rt;
-use crate::planner::profiles::nextjs::source_checks;
+use crate::planner::profiles::nextjs::{package_script_check, source_checks};
 use crate::planner::profiles::step_checks;
 use crate::planner::step_plan::{ExpectedResult, PlanStep};
 use crate::planner::verify_semantics::checked_runtime_repair as cr;
@@ -487,6 +487,7 @@ fn verify_step_with_setup_observed_with_options(
             continue;
         }
         if setup_authority == NodeDependencySetupAuthority::PlanSetupStep
+            && !package_script_check::is_check_command(command)
             && let Some(requirement) = build_verifier::requirement_from_dependency_state(
                 root,
                 command,
