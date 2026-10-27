@@ -223,7 +223,10 @@ fn issue488_mock_exhaustion_and_missing_duties_never_register_or_execute() {
         );
         audits.push(audit(case, &c, &result, &client));
         assert!(result.is_err(), "{case}: {result:?}");
-        assert_eq!(client.requests.lock().unwrap().len(), 3, "{case}");
+        // An unknown regex acquires no marker obligation: no later proposal can
+        // form the frozen original, so the first admission stops (#884).
+        let calls = if case == "unknown_regex" { 1 } else { 3 };
+        assert_eq!(client.requests.lock().unwrap().len(), calls, "{case}");
         let mut execution = Replay::default();
         let result =
             result.and_then(|p| crate::planner::runner::run_step_plan(&mut execution, &p, &c));

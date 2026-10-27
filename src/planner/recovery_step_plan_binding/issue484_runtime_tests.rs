@@ -169,13 +169,20 @@ fn issue484_registered_contract_conflicts_and_frozen_hash_are_preserved() {
             .to_string(),
     )
     .unwrap();
-    let (decision, admission) = direct(&c, &before, &after);
-    assert!(matches!(decision, admission::Decision::Retry(_)));
+    // The conflict refuses the saved obligation, so no later proposal can form
+    // the frozen weak command and the first admission stops (#884).
+    let mut admission = admission::Admission::default();
+    assert!(
+        admission
+            .check(&c, None, &before, &mut before.clone(), 1)
+            .is_err_and(|e| format!("{e:#}").contains("no acceptable form and is frozen"))
+    );
     assert!(admission.finish(&c, None, after.clone()).is_err());
     assert!(events(&c).iter().any(|e| {
-        e["reason"]
-            .as_str()
-            .is_some_and(|s| s.contains("registered completion contract"))
+        e["terminal_reason"] == "unformable_inline_evidence"
+            && e["package_script_formation"]["refusals"]
+                .to_string()
+                .contains("registered completion contract")
     }));
 
     std::fs::write(
@@ -233,12 +240,17 @@ fn issue484_host_port_cannot_supply_literal_or_override_explicit_model_value() {
         before.goal = "Maintain package scripts on port 60302".into();
         let mut admission = admission::Admission::default();
         admission.strengthen(&c, &mut before);
-        assert!(matches!(
-            admission
-                .check(&c, None, &before.clone(), &mut before.clone(), 1)
-                .unwrap(),
-            admission::Decision::Retry(_)
-        ));
+        let first = admission.check(&c, None, &before.clone(), &mut before.clone(), 1);
+        if !accepted {
+            // The host port supplies no literal, so no later proposal can form
+            // the frozen weak command: the first admission stops (#884).
+            assert!(
+                first.is_err_and(|e| format!("{e:#}").contains("no acceptable form and is frozen")),
+                "{instruction}"
+            );
+            continue;
+        }
+        assert!(matches!(first.unwrap(), admission::Decision::Retry(_)));
         let mut after = before.clone();
         after.steps[0].verify = vec![grammar::formed_command(
             "dev",

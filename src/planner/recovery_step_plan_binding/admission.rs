@@ -10,6 +10,9 @@ use crate::planner::recovery_inspection::verifier_obligations::{
 mod bounded_repair;
 use bounded_repair::InstructionFailure;
 
+#[path = "unformable_inline.rs"]
+mod unformable_inline;
+
 #[derive(Default)]
 pub(crate) struct Admission {
     original: Option<StepPlan>,
@@ -278,7 +281,7 @@ impl Admission {
             .downcast_ref::<BindingFailure>()
             .map(|e| e.class)
             .unwrap_or(FailureClass::Unsafe);
-        let terminal = self.prove_bounded_repair_infeasible(&error, plan, attempt);
+        let terminal = self.prove_terminal(config, &error, plan, attempt, recovery);
         let retry = terminal.is_none() && class == FailureClass::ProposalRepairable && attempt < 3;
         crate::eval_events::emit(
             config.eval_events_path.as_deref(),
@@ -294,7 +297,7 @@ impl Admission {
                 "recovery_budget_changed":false,
                 "status":if terminal.is_some() {"stopped"} else if retry {"retry"} else if class == FailureClass::ProposalRepairable {"exhausted"} else {"stopped"},
                 "retry_allowed":retry,
-                "terminal_reason":terminal.as_ref().map(|_| "bounded_repair_infeasible"),
+                "terminal_reason":terminal.as_ref().map(unformable_inline::Terminal::reason),
                 "bounded_repair_proof":terminal,
                 "preservation_sources":self.preservation_sources,
                 "marker_obligations":self.marker_checks,
