@@ -1,0 +1,82 @@
+{
+  "description": "Issue 895: refused Verify runtime Bash sequences. Each case is sent three times in a row; the step still stops on the third refusal, and only the second refusal's lead changes.",
+  "provenance": {
+    "recorded": "commands are excerpts copied from runtime_bash_policy.original_command in the named events.jsonl lines (E = physical line number); the paths are relative to the gen-eval-1022 evaluation root",
+    "synthetic": "commands written for this corpus from the recorded shapes; not recordings",
+    "responses": "the model replies are always synthetic: a scripted client resends the listed commands in order; no provider was contacted"
+  },
+  "cases": [
+    {
+      "id": "l129-tool-g",
+      "origin": "recorded",
+      "source": "campaign-G1-3a12/stage3a/tool-g/work/.commandagent/runs/01a17c5b-fceb-78b1-bbfa-5f6c0e755a96/events.jsonl E103 E109 E115",
+      "commands": [
+        "grep -q \"from './types'\" src/lib/storage.ts && echo \"Verification successful\" || echo \"Verification failed\"",
+        "grep -q \"from './types'\" src/lib/storage.ts && echo \"Pass\" || echo \"Fail\"",
+        "grep -q \"from './types'\" src/lib/storage.ts && echo \"Verification passed\" || echo \"Verification failed\""
+      ],
+      "guidance_kinds": ["base_command", "repeat_base_call"],
+      "second_lead": "Repeated rejection (2/2). Next call: Bash {\"command\":\"grep -q \\\"from './types'\\\" src/lib/storage.ts\"}. Run it alone; a third refusal stops this step."
+    },
+    {
+      "id": "l129-ambig-g",
+      "origin": "recorded",
+      "source": "campaign-G1-3a12/stage3a/ambig-g/work/.commandagent/runs/01a17c75-d5c9-72d0-ac71-d267e1ae6be0/events.jsonl E63 E68 E73",
+      "commands": [
+        "grep -q 'style.css' index.html && echo \"pass\" || echo \"fail\"",
+        "grep -q 'style.css' index.html && echo \"pass\" || echo \"fail\"",
+        "grep -q 'style.css' index.html && echo \"pass\" || echo \"fail\""
+      ],
+      "guidance_kinds": ["base_command", "repeat_base_call"],
+      "second_lead": "Repeated rejection (2/2). Next call: Bash {\"command\":\"grep -q 'style.css' index.html\"}. Run it alone; a third refusal stops this step."
+    },
+    {
+      "id": "l135-ambig-g",
+      "origin": "recorded",
+      "source": "campaign-G1-3a14/stage3a/ambig-g/work/.commandagent/runs/01a17ff7-5d35-79b2-8c58-1c78071eddac/events.jsonl E122 E127 E132",
+      "commands": [
+        "grep -q \"addEventListener\" script.js && echo \"pass\" || echo \"fail\"",
+        "grep -q \"addEventListener\" script.js && echo \"pass\" || echo \"fail\"",
+        "grep -q \"addEventListener\" script.js && echo \"pass\" || echo \"fail\""
+      ],
+      "guidance_kinds": ["base_command", "repeat_base_call"],
+      "second_lead": "Repeated rejection (2/2). Next call: Bash {\"command\":\"grep -q \\\"addEventListener\\\" script.js\"}. Run it alone; a third refusal stops this step."
+    },
+    {
+      "id": "l135-cli-g",
+      "origin": "recorded",
+      "source": "campaign-G1-3a14/stage3a/cli-g/work/.commandagent/runs/01a17ff1-3f4a-7c03-ba40-0d4dd24ad4c4/events.jsonl E102 E107 E112",
+      "commands": [
+        "python3 -c \"import os; open('test.csv', 'w').write('a,b\\n1,2\\n3,4'); os.system('python3 src/app/main.py test.csv > out.txt'); os.remove('test.csv');\"\ntest -s out.txt",
+        "python3 -c \"import os; open('test.csv', 'w').write('a,b\\n1,2\\n3,4'); os.system('python3 src/app/main.py test.csv > out.txt'); os.remove('test.csv');\"\ntest -s out.txt",
+        "python3 -c \"import os; open('test.csv', 'w').write('a,b\\n1,2\\n3,4'); os.system('python3 src/app/main.py test.csv > out.txt'); os.remove('test.csv');\"\ntest -s out.txt"
+      ],
+      "guidance_kinds": ["none", "repeat_write_then_verifier"],
+      "second_lead": "Repeated rejection (2/2). Do not resend this command; a third refusal stops this step. Next calls: Write {\"path\":\"PATH\",\"content\":\"CONTENT\"} for each input file (syntax example: fill in PATH and CONTENT; do not overwrite host-managed fixtures)"
+    },
+    {
+      "id": "synthetic-redirect",
+      "origin": "synthetic",
+      "source": "shape of the L-127 cli-g fixture redirect; see tests/corpus/apps/verify-refusal-base-command-hint",
+      "commands": [
+        "echo \"name,score\" > test.csv",
+        "echo \"name,score\" > test.csv",
+        "echo \"name,score\" > test.csv"
+      ],
+      "guidance_kinds": ["write_tool", "repeat_write_then_verifier"],
+      "second_lead": "Repeated rejection (2/2). Do not resend this command; a third refusal stops this step. Next calls: Write {\"path\":\"PATH\",\"content\":\"CONTENT\"}"
+    },
+    {
+      "id": "synthetic-fallback-true",
+      "origin": "synthetic",
+      "source": "the `|| true` variant of the L-129 ambig-g base",
+      "commands": [
+        "grep -q 'style.css' index.html || true",
+        "grep -q 'style.css' index.html || true",
+        "grep -q 'style.css' index.html || true"
+      ],
+      "guidance_kinds": ["base_command", "repeat_base_call"],
+      "second_lead": "Repeated rejection (2/2). Next call: Bash {\"command\":\"grep -q 'style.css' index.html\"}. Run it alone; a third refusal stops this step."
+    }
+  ]
+}

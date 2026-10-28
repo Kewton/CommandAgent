@@ -1454,12 +1454,15 @@ pub(crate) fn run_session_with_outcome_with_options(
                                 decision.policy_error_kind
                             );
                         }
-                        let feedback = super::verify_refusal_hint::recoverable_tool_feedback(
-                            &call.name,
-                            &policy_error,
-                            &command,
-                            &config.workspace_root,
-                        );
+                        let feedback =
+                            super::verify_refusal_hint::recoverable_tool_feedback_for_repeat(
+                                &call.name,
+                                &policy_error,
+                                &command,
+                                &config.workspace_root,
+                                repeats,
+                                config.eval_events_path.as_deref(),
+                            );
                         session.messages.push(ConversationMessage::tool_result(
                             call.name,
                             Some(call.id),
