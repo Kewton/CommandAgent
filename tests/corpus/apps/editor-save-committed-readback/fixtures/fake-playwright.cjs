@@ -54,6 +54,13 @@ const DEFAULTS = {
   listShowsContent: true,
   listHidden: false,
   readsRecordAfterReload: false,
+  listKey: "notes",
+  listOmitsContent: false,
+  listPageField: false,
+  storeAsId: "",
+  saveDisabled: false,
+  autosaveOnBlockedPress: false,
+  deferAutosaveEvent: false,
   staleToken: "",
   tokenBeforeEntry: false,
   urlEcho: false,
@@ -91,7 +98,23 @@ const SCENARIOS = {
   save_timeout: { saveNeverResponds: true },
   token_before_entry: { tokenBeforeEntry: true },
   url_echo: { urlEcho: true },
-  readback_exact_without_token: { serverStores: false, readsRecordAfterReload: true, listShowsContent: false }
+  readback_exact_without_token: { serverStores: false, readsRecordAfterReload: true, listShowsContent: false },
+  collection_post_titles_only: {
+    save: "post_collection",
+    collection: "/api/memos",
+    listKey: "memos",
+    created: { id: "m1", title: "メモ", content: "" },
+    listOmitsContent: true,
+    listShowsContent: false
+  },
+  disabled_press_debounced_autosave: { save: "none", saveDisabled: true, autosaveOnBlockedPress: true },
+  id_field_collision: {
+    seed: [...RECORDED.seed, { id: "5", title: "別のノート", content: "別の本文" }],
+    created: { id: "1", title: "無題のノート", content: "# 新しいノート\n" },
+    storeAsId: "5",
+    listPageField: true
+  },
+  late_event_early_start: { save: "none", autosave: true, deferAutosaveEvent: true }
 };
 
 if (!Object.prototype.hasOwnProperty.call(SCENARIOS, scenario)) {
@@ -232,7 +255,11 @@ class FakeLocator {
 
   async click() {
     if (!this.elements.length) throw new Error(`no element for ${this.selector}`);
-    if (this.elements[0].disabled) throw new Error(`element is not enabled for ${this.selector}`);
+    if (this.elements[0].disabled) {
+      // A debounced autosave fires while the probe is trying to press.
+      this.page.blockedPress();
+      throw new Error(`element is not enabled for ${this.selector}`);
+    }
     this.page.clickElement(this.elements[0]);
   }
 
@@ -327,8 +354,10 @@ class FakePage {
     this.newEntry();
     this.activeElement = null;
     this.keyboard = {
-      type: async (text) => {
+      type: async (text, options = {}) => {
         if (this.activeElement === this.entry) this.typeInto(text);
+        // Typing takes the per-key delay the probe asks for.
+        await this.waitForTimeout((options.delay || 0) * text.length);
       },
       down: async () => {},
       up: async () => {},
@@ -370,6 +399,17 @@ class FakePage {
   fetch(method, path, payload, options = {}) {
     const url = `${options.origin || this.origin}${path}`;
     const request = new FakeRequest(method, url, payload);
+    if (options.deferEvent) {
+      // The request started now, but its event reaches the page only at the next press.
+      this.held.push(() => {
+        this.fetchStarted(request, options);
+      });
+      return;
+    }
+    this.fetchStarted(request, options);
+  }
+
+  fetchStarted(request, options) {
     this.emit("request", request);
     const finish = () => {
       if (options.fail) {
@@ -410,9 +450,14 @@ class FakePage {
 
   refresh(then) {
     this.fetch("GET", cfg.collection, null, {
-      body: () => JSON.stringify({ notes: server.notes }),
+      body: () => {
+        const list = cfg.listOmitsContent
+          ? server.notes.map((note) => ({ id: note.id, title: note.title }))
+          : server.notes;
+        return JSON.stringify(cfg.listPageField ? { page: 1, [cfg.listKey]: list } : { [cfg.listKey]: list });
+      },
       after: (response) => {
-        this.notes = JSON.parse(response._body).notes;
+        this.notes = JSON.parse(response._body)[cfg.listKey];
         this.loading = false;
         if (then) then();
       }
@@ -487,16 +532,25 @@ class FakePage {
     this.content = cfg.prependTyping ? `${text}${this.content}` : `${this.content}${text}`;
     this.savedLocally = false;
     if (cfg.localMirror) this.mirrorLocally();
-    if (cfg.autosave) {
-      const id = this.editingId;
-      const content = this.content;
-      this.store(id, this.title, content);
-      this.fetch("PUT", this.recordPath(id), JSON.stringify({ title: this.title, content }), {
-        hold: cfg.holdAutosaveResponse,
-        body: () => JSON.stringify({ note: this.serverNote(id) }),
-        after: () => this.refresh()
-      });
-    }
+    if (cfg.autosave) this.autosave();
+  }
+
+  autosave() {
+    const id = this.editingId;
+    const content = this.content;
+    this.store(id, this.title, content);
+    this.fetch("PUT", this.recordPath(id), JSON.stringify({ title: this.title, content }), {
+      hold: cfg.holdAutosaveResponse,
+      deferEvent: cfg.deferAutosaveEvent,
+      body: () => JSON.stringify({ note: this.serverNote(id) }),
+      after: () => this.refresh()
+    });
+  }
+
+  blockedPress() {
+    if (!cfg.autosaveOnBlockedPress || this.autosaved || !this.typed) return;
+    this.autosaved = true;
+    this.autosave();
   }
 
   mirrorLocally() {
@@ -520,12 +574,13 @@ class FakePage {
     const id = this.editingId;
     const original = this.serverNote(id);
     const content = cfg.save === "put_unchanged" && original ? original.content : this.content;
-    if (cfg.serverStores && cfg.save === "put") this.store(id, this.title, content);
+    if (cfg.serverStores && cfg.save !== "put_unchanged") this.store(cfg.storeAsId || id, this.title, content);
     if (cfg.save === "put_unchanged") this.store(id, this.title, content);
     const origin = cfg.saveOrigin === "other" ? this.origin.replace("127.0.0.1", "127.0.0.2") : this.origin;
-    this.fetch("PUT", this.recordPath(id), JSON.stringify({ title: this.title, content }), {
+    const toCollection = cfg.save === "post_collection";
+    this.fetch(toCollection ? "POST" : "PUT", toCollection ? cfg.collection : this.recordPath(id), JSON.stringify({ id, title: this.title, content }), {
       origin,
-      status: cfg.saveStatus,
+      status: toCollection ? 201 : cfg.saveStatus,
       fail: cfg.saveFails,
       never: cfg.saveNeverResponds,
       body: () => JSON.stringify({ note: this.serverNote(id) || null }),
@@ -565,6 +620,7 @@ class FakePage {
     const editing = this.route === "editor";
     const reloaded = this.typed && this.reloadCount > 0;
     this.primary.text = editing ? "Save" : "Create New Note";
+    this.primary.disabled = editing && cfg.saveDisabled;
     out.push(this.primary);
     if (editing) {
       this.entry.value = this.content;

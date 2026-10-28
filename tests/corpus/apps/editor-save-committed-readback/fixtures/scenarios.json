@@ -31,6 +31,10 @@
     { "name": "save_timeout", "kind": "synthetic", "covers": "the save never answers", "verdict": "not_evaluated", "steps": [] },
     { "name": "token_before_entry", "kind": "synthetic", "covers": "the token was on the page before typing", "verdict": "not_evaluated", "steps": [] },
     { "name": "url_echo", "kind": "synthetic", "covers": "the token is echoed in the page URL", "verdict": "not_evaluated", "steps": ["persistence_commit_http_observed"] },
-    { "name": "readback_exact_without_token", "kind": "synthetic", "covers": "D2: the read of the saved resource has lost the token and the page does not show it", "verdict": "reset", "steps": ["persistence_commit_http_observed"] }
+    { "name": "readback_exact_without_token", "kind": "synthetic", "covers": "the read of the saved resource has no token and the page does not show it: the witness never reports a reset", "verdict": "not_evaluated", "steps": ["persistence_commit_http_observed"] },
+    { "name": "collection_post_titles_only", "kind": "synthetic", "covers": "the save is a POST to the collection and the list read and the list carry titles only", "verdict": "not_evaluated", "steps": ["persistence_commit_http_observed"] },
+    { "name": "disabled_press_debounced_autosave", "kind": "synthetic", "covers": "the save control cannot be pressed and a debounced autosave starts while the probe tries", "verdict": "not_evaluated", "steps": [] },
+    { "name": "id_field_collision", "kind": "synthetic", "covers": "the list read has page 1 and the token in record 5 while the save was PUT /api/notes/1", "verdict": "not_evaluated", "steps": ["persistence_commit_http_observed", "persistence_committed_surface_observed"] },
+    { "name": "late_event_early_start", "kind": "synthetic", "covers": "a request started before the press reaches the page as an event inside the press", "verdict": "not_evaluated", "steps": [] }
   ]
 }

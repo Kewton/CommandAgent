@@ -10,7 +10,8 @@
 //   3. after the existing reload no text entry is displayed and the token is
 //      visible in a text node outside any text entry;
 //   4. a read started after the reload returned the saved resource with the token.
-// Anything less leaves persistence not evaluated. Request and response bodies are
+// Anything less leaves persistence not evaluated; this witness never reports a
+// reset, which only the commit keys can show. Request and response bodies are
 // read in memory only; the probe keeps booleans and the recorded steps.
 
 const PERSISTENCE_COMMIT_MUTATION_METHODS = ["POST", "PUT", "PATCH"];
@@ -21,6 +22,7 @@ const PERSISTENCE_COMMIT_POLL_MS = 100;
 const PERSISTENCE_COMMIT_BODY_LIMIT = 262144;
 const PERSISTENCE_COMMIT_MAX_REQUESTS = 400;
 const PERSISTENCE_COMMIT_MAX_JSON_NODES = 20000;
+const PERSISTENCE_COMMIT_ID_FIELDS = ["id", "_id", "uuid", "slug", "key"];
 
 function persistenceCommitUrlParts(text) {
   try {
@@ -31,8 +33,9 @@ function persistenceCommitUrlParts(text) {
   }
 }
 
-// True when some object in `value` names `id` in one of its own scalar fields and
-// carries `token` somewhere inside it: the record of that id still holds the token.
+// True when an object element of some array in `value` names `id` in one of its
+// identifier fields and carries `token` inside it: that record still holds the
+// token. Other fields that happen to equal the id (a page number) never count.
 function persistenceCommitRecordHoldsToken(value, id, token) {
   let visited = 0;
   const holdsToken = (node) => {
@@ -42,18 +45,21 @@ function persistenceCommitRecordHoldsToken(value, id, token) {
       return false;
     }
   };
+  const isRecordOf = (element) =>
+    !!element && typeof element === "object" && !Array.isArray(element) &&
+    PERSISTENCE_COMMIT_ID_FIELDS.some((name) => {
+      const field = element[name];
+      return (typeof field === "string" || typeof field === "number") && String(field) === id;
+    });
   const walk = (node, depth) => {
     visited += 1;
     if (visited > PERSISTENCE_COMMIT_MAX_JSON_NODES || depth > 8 || !node || typeof node !== "object") {
       return false;
     }
-    const children = Array.isArray(node) ? node : Object.values(node);
-    if (!Array.isArray(node)) {
-      const named = Object.values(node).some((field) =>
-        (typeof field === "string" || typeof field === "number") && String(field) === id
-      );
-      if (named && holdsToken(node)) return true;
+    if (Array.isArray(node) && node.some((element) => isRecordOf(element) && holdsToken(element))) {
+      return true;
     }
+    const children = Array.isArray(node) ? node : Object.values(node);
     return children.some((child) => walk(child, depth + 1));
   };
   return walk(value, 0);
@@ -182,7 +188,7 @@ function createPersistenceCommitWitness(probeUrl, token) {
   // The read that names the saved resource: the same path, or its parent collection
   // holding a record whose id is the saved path's last segment.
   const readback = (saves) => {
-    const result = { matched: false, exact_without_token: false };
+    const result = { matched: false };
     const reads = Array.from(records.values()).filter((record) =>
       record.phase === "after_reload" &&
       record.same_origin &&
@@ -195,7 +201,6 @@ function createPersistenceCommitWitness(probeUrl, token) {
       for (const save of saves) {
         if (read.path === save.path) {
           if (read.body_has_token) result.matched = true;
-          else if (read.body_json !== undefined) result.exact_without_token = true;
           continue;
         }
         if (!read.path || !save.path.startsWith(`${read.path}/`)) continue;
@@ -285,8 +290,18 @@ function createPersistenceCommitWitness(probeUrl, token) {
       saveWindowEndsAt = 0;
     },
 
-    markSaveEnd() {
-      if (phase === "save") saveWindowEndsAt = Date.now() + PERSISTENCE_COMMIT_SAVE_GRACE_MS;
+    // A press that did not happen opens no save window: whatever started meanwhile
+    // (a debounced autosave) is not a save.
+    markSaveEnd(pressed) {
+      if (phase !== "save") return;
+      if (pressed) {
+        saveWindowEndsAt = Date.now() + PERSISTENCE_COMMIT_SAVE_GRACE_MS;
+        return;
+      }
+      for (const record of records.values()) {
+        if (record.phase === "save") record.phase = "entry";
+      }
+      phase = "after_save";
     },
 
     // Waits, bounded, for the saves the press started to finish before the reload.
@@ -305,7 +320,7 @@ function createPersistenceCommitWitness(probeUrl, token) {
       phase = "after_reload";
     },
 
-    // Returns the verdict ("preserved", "reset" or "" for not evaluated) and the steps
+    // Returns the verdict ("preserved", or "" for not evaluated) and the steps
     // that record which parts of the witness were observed.
     async evaluate(page, context) {
       const result = { verdict: "", steps: [] };
@@ -340,11 +355,7 @@ function createPersistenceCommitWitness(probeUrl, token) {
       const read = readback(saves);
       if (surface.token_visible) result.steps.push("persistence_committed_surface_observed");
       if (read.matched) result.steps.push("persistence_committed_readback_observed");
-      if (surface.token_visible && read.matched) {
-        result.verdict = "preserved";
-      } else if (!surface.token_visible && !read.matched && read.exact_without_token) {
-        result.verdict = "reset";
-      }
+      if (surface.token_visible && read.matched) result.verdict = "preserved";
       return result;
     }
   };

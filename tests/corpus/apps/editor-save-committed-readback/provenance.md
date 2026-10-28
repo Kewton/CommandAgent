@@ -37,4 +37,8 @@ only when all four parts of the commit witness hold: the fresh token was absent
 before typing, the save press started a same-origin mutation that carried the
 token and answered 2xx before the reload, after the reload no text entry is
 shown and the token is visible outside one, and a read after the reload returned
-the saved resource with the token.
+the saved resource with the token, named by an identifier field (`id`, `_id`,
+`uuid`, `slug` or `key`) of an array element when the read is the collection.
+The save counts only when the probe's press actually happened, and a request the
+browser started before the press never counts. The witness never reports
+`reset`; anything short of all four parts leaves the verdict `not_evaluated`.

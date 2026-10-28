@@ -256,12 +256,29 @@ fn scenario_table_covers_every_fake_scenario_once() {
     unique.sort();
     unique.dedup();
     assert_eq!(unique.len(), names.len(), "{names:?}");
-    for name in &names {
-        assert!(
-            FAKE_COMMIT_PLAYWRIGHT.contains(&format!("\n  {name}: {{")),
-            "{name} has no scenario in fake-playwright.cjs"
-        );
-    }
+    let block = FAKE_COMMIT_PLAYWRIGHT
+        .split_once("const SCENARIOS = {\n")
+        .and_then(|(_, rest)| rest.split_once("\n};"))
+        .map(|(block, _)| block)
+        .expect("fake-playwright.cjs declares SCENARIOS");
+    let mut fake_names = block
+        .lines()
+        .filter(|line| line.starts_with("  ") && !line.starts_with("   "))
+        .filter_map(|line| line.trim_start().split_once(": {"))
+        .map(|(name, _)| name.to_string())
+        .collect::<Vec<_>>();
+    fake_names.sort();
+    assert_eq!(fake_names, unique, "scenarios.json and fake-playwright.cjs");
+    let verdicts = scenario_table()
+        .iter()
+        .map(|entry| entry["verdict"].as_str().unwrap().to_string())
+        .collect::<Vec<_>>();
+    assert!(
+        verdicts
+            .iter()
+            .all(|verdict| verdict == "preserved" || verdict == "not_evaluated"),
+        "the commit witness reports only preserved or not evaluated: {verdicts:?}"
+    );
     let preserved = scenario_table()
         .iter()
         .filter(|entry| entry["verdict"] == "preserved")
@@ -500,13 +517,50 @@ fn token_echoed_in_the_page_url_is_not_promoted() {
 }
 
 #[test]
-fn read_of_the_saved_resource_that_lost_the_token_is_reset() {
-    let Some(run) = assert_declared_scenario("readback_exact_without_token") else {
+fn read_of_the_saved_resource_without_the_token_is_not_evaluated_not_reset() {
+    assert_not_promoted("readback_exact_without_token");
+}
+
+#[test]
+fn collection_post_whose_list_read_omits_the_body_is_not_evaluated_not_reset() {
+    assert_not_promoted("collection_post_titles_only");
+}
+
+#[test]
+fn debounced_autosave_during_a_press_that_failed_is_not_a_save() {
+    let Some(run) = assert_not_promoted("disabled_press_debounced_autosave") else {
         return;
     };
-    assert_eq!(
-        run.observation.failure_kind, "persistence_after_reload_reset",
-        "{:?}",
+    let observation = &run.observation;
+    assert!(
+        has_kind(observation, "primary_action_disabled_after_text_entry"),
+        "{observation:?}"
+    );
+    assert!(
+        observation
+            .http_mutation_observations
+            .iter()
+            .any(|mutation| mutation.method == "PUT" && mutation.status == 200),
+        "the autosave must have run: {observation:?}"
+    );
+}
+
+#[test]
+fn id_matching_a_non_identifier_field_does_not_name_the_saved_record() {
+    assert_not_promoted("id_field_collision");
+}
+
+#[test]
+fn request_started_before_the_press_is_not_a_save_when_its_event_arrives_inside() {
+    let Some(run) = assert_not_promoted("late_event_early_start") else {
+        return;
+    };
+    assert!(
+        run.observation
+            .http_mutation_observations
+            .iter()
+            .any(|mutation| mutation.method == "PUT" && mutation.status == 200),
+        "the early request must have answered: {:?}",
         run.observation
     );
 }

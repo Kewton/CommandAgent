@@ -1137,7 +1137,7 @@ async function attemptTextEntry(page, mode) {
     input_typed_marker = await activeMarker(page, mode);
     persistence_commit.markSaveStart();
     const primaryClicked = await clickPrimaryActionIfPresent(page);
-    persistence_commit.markSaveEnd();
+    persistence_commit.markSaveEnd(primaryClicked);
     if (mode === "contract" && !primaryClicked) {
       informational_failure_kinds.push("primary_action_disabled_after_text_entry");
     }
