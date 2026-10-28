@@ -201,7 +201,17 @@ fn prove(tokens: &Tokens<'_>, fetch: usize, link: usize, window_end: usize) -> O
         .is_some_and(|before| tokens.is(before, "await") || tokens.is(before, "return"));
     let next = if tokens.is(at, ";") { at + 1 } else { at };
     let last_statement = next >= tokens.list.len() || tokens.is(next, "}");
-    if !(awaited || (statement_ends && last_statement)) {
+    // Elsewhere a `}` may close an object literal; only a concise arrow body
+    // closed by `}` (as in a JSX attribute) has nothing after it.
+    let arrow_body = fetch
+        .checked_sub(1)
+        .is_some_and(|before| tokens.is(before, "=>"));
+    let ends = if discarded {
+        statement_ends && last_statement
+    } else {
+        arrow_body && tokens.is(at, "}")
+    };
+    if !(awaited || ends) {
         return None;
     }
     let contained = match failure {

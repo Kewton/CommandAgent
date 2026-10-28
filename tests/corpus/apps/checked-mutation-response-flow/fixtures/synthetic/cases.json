@@ -149,6 +149,18 @@
       "code": "track(PATCH_FETCH\n      .then((reply) => { if (!reply.ok) throw new Error(\"x\"); }));\n    setNotice(\"saved\");"
     },
     {
+      "name": "object property throw chain followed by success",
+      "expect": "reject",
+      "d2": "unconditional_success_after_sentinel",
+      "code": "const tasks = { save: PATCH_FETCH\n      .then((reply) => { if (!reply.ok) throw new Error(\"x\"); }) };\n    setNotice(\"saved\");"
+    },
+    {
+      "name": "object argument throw chain followed by success",
+      "expect": "reject",
+      "d2": "unconditional_success_after_sentinel",
+      "code": "setState({ saving: PATCH_FETCH\n      .then((reply) => { if (!reply.ok) throw new Error(\"x\"); }) });\n    setNotice(\"saved\");"
+    },
+    {
       "name": "concise arrow whose throw chain closes a JSX expression",
       "expect": "accept",
       "code": "const retry = <button onClick={() => PATCH_FETCH.then((reply) => { if (!reply.ok) throw new Error(\"x\"); })}>retry</button>;\n    setNotice(String(retry));"

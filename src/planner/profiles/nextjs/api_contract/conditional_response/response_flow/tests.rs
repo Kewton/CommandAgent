@@ -374,6 +374,18 @@ fn rejects_chains_that_do_not_prove_the_check() {
             ),
         ),
         (
+            "object property throw chain then success",
+            format!(
+                "const tasks = {{ save: {FETCH}\n  .then((reply) => {{ if (!reply.ok) throw new Error(\"x\"); }}) }};\nsetNotice(\"saved\");\n"
+            ),
+        ),
+        (
+            "object argument throw chain then success",
+            format!(
+                "setState({{ saving: {FETCH}\n  .then((reply) => {{ if (!reply.ok) throw new Error(\"x\"); }}) }});\nsetNotice(\"saved\");\n"
+            ),
+        ),
+        (
             "throw chain in a comma expression",
             format!(
                 "{FETCH}.then((reply) => {{ if (!reply.ok) throw new Error(); }}), setNotice(\"saved\");\n"
