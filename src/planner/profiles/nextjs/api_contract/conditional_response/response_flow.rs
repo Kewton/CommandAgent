@@ -195,10 +195,13 @@ fn prove(tokens: &Tokens<'_>, fetch: usize, link: usize, window_end: usize) -> O
     let discarded = tokens.is_statement_start(fetch)
         || (tokens.is(fetch - 1, "void") && tokens.is_statement_start(fetch - 1));
     // Statements after an un-awaited chain run before the response arrives,
-    // so the chain must close its block or the file.
+    // so only an awaited or returned chain may have statements after it.
+    let awaited = fetch
+        .checked_sub(1)
+        .is_some_and(|before| tokens.is(before, "await") || tokens.is(before, "return"));
     let next = if tokens.is(at, ";") { at + 1 } else { at };
     let last_statement = next >= tokens.list.len() || tokens.is(next, "}");
-    if discarded && !(statement_ends && last_statement) {
+    if !(awaited || (statement_ends && last_statement)) {
         return None;
     }
     let contained = match failure {

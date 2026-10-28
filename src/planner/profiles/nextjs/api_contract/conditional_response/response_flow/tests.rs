@@ -111,6 +111,12 @@ fn confirms_callbacks_that_gate_success_on_the_response() {
             "void sentinel",
             format!("void {FETCH}.then((r) => r.ok ? r.json() : null){GUARD_THEN};\n"),
         ),
+        (
+            "concise arrow closing a JSX expression",
+            format!(
+                "const view = <button onClick={{() => {FETCH}.then((r) => {{ if (!r.ok) throw new Error(); }})}}>retry</button>;\n"
+            ),
+        ),
     ] {
         assert_eq!(verdict(&page), ResponseCheck::Confirmed, "{name}");
     }
@@ -353,6 +359,18 @@ fn rejects_chains_that_do_not_prove_the_check() {
             "throw chain then success inside a block",
             format!(
                 "function save() {{\n  {FETCH}.then((reply) => {{ if (!reply.ok) throw new Error(); }})\n  setNotice(\"saved\")\n}}\n"
+            ),
+        ),
+        (
+            "assigned throw chain then success",
+            format!(
+                "const pending = {FETCH}\n  .then((reply) => {{ if (!reply.ok) throw new Error(\"x\"); }});\nsetNotice(\"saved\");\n"
+            ),
+        ),
+        (
+            "argument throw chain then success",
+            format!(
+                "track({FETCH}\n  .then((reply) => {{ if (!reply.ok) throw new Error(\"x\"); }}));\nsetNotice(\"saved\");\n"
             ),
         ),
         (

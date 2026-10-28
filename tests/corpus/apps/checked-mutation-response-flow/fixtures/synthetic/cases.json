@@ -137,6 +137,23 @@
       "code": "PATCH_FETCH\n      .then((reply) => (reply.ok ? reply.json() : null))\n      .then((payload) => { if (!payload) return; setItems(payload.items); });\n    setNotice(\"saved\");"
     },
     {
+      "name": "assigned un-awaited throw chain followed by success",
+      "expect": "reject",
+      "d2": "unconditional_success_after_sentinel",
+      "code": "const pending = PATCH_FETCH\n      .then((reply) => { if (!reply.ok) throw new Error(\"x\"); });\n    setNotice(\"saved\");"
+    },
+    {
+      "name": "un-awaited throw chain passed as an argument followed by success",
+      "expect": "reject",
+      "d2": "unconditional_success_after_sentinel",
+      "code": "track(PATCH_FETCH\n      .then((reply) => { if (!reply.ok) throw new Error(\"x\"); }));\n    setNotice(\"saved\");"
+    },
+    {
+      "name": "concise arrow whose throw chain closes a JSX expression",
+      "expect": "accept",
+      "code": "const retry = <button onClick={() => PATCH_FETCH.then((reply) => { if (!reply.ok) throw new Error(\"x\"); })}>retry</button>;\n    setNotice(String(retry));"
+    },
+    {
       "name": "success on the failure branch",
       "expect": "reject",
       "d2": "both_branches_succeed",
