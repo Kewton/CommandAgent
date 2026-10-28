@@ -61,7 +61,7 @@ pub fn assess(root: &Path, plan: &StepPlan) -> EntryIdentity {
                 return EntryIdentity::Admitted;
             }
             EntryIdentity::Repairable(format!(
-                "python-cli entry identity: this plan names {} different entries ({}). A python-cli project has exactly one src/<package>/main.py. Choose one entry, create only that one, and use the same path for every producer, verification command and [project.scripts] target. Keep every original feature requirement, output and verification check of this phase.",
+                "python-cli entry identity: this plan names {} different entries ({}). A python-cli project has exactly one src/<package>/main.py. Choose one entry, create only that one, and use the same path for every producer, verification command and [project.scripts] target. Keep every original feature requirement, output and verification check of this phase. Do not write the path of any entry you did not choose in instructions, not even in a negative sentence such as \"do not create ...\".",
                 packages.len(),
                 describe(&named),
             ))
@@ -83,7 +83,7 @@ pub fn assess(root: &Path, plan: &StepPlan) -> EntryIdentity {
                 return EntryIdentity::Admitted;
             }
             EntryIdentity::Repairable(format!(
-                "python-cli entry identity: the existing entry is src/{entry}/main.py, but this plan names another package's entry ({}). Implement this phase's feature in src/{entry}/main.py (helper modules may sit beside it in src/{entry}/), do not create main.py in another package, and use src/{entry}/main.py as the target of every verification command and of [project.scripts] ({entry}.main:main). Keep every original feature requirement, output and verification check of this phase; change only the entry they target.",
+                "python-cli entry identity: the existing entry is src/{entry}/main.py, but this plan names another package's entry ({}). Implement this phase's feature in src/{entry}/main.py (helper modules may sit beside it in src/{entry}/), do not create main.py in another package, and use src/{entry}/main.py as the target of every verification command and of [project.scripts] ({entry}.main:main). Keep every original feature requirement, output and verification check of this phase; change only the entry they target. Do not write any other package's src/<package>/main.py path in instructions, not even in a negative sentence such as \"do not create ...\"; name only src/{entry}/main.py.",
                 describe(&conflicting),
             ))
         }

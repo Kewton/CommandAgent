@@ -799,3 +799,37 @@ fn issue896_other_profiles_other_intents_recovery_and_unphased_plans_are_out_of_
         "recovery"
     );
 }
+
+#[test]
+fn issue896_negative_instruction_naming_another_entry_is_returned_with_guidance() {
+    let root = workspace(&["src/app/main.py"]);
+    let goal = phase_prompt(
+        RECORDED_GOAL,
+        "implement-csv-logic",
+        "Implement the core logic.",
+        &["pyproject.toml", "src/app/main.py"],
+    );
+    // Detection counts any mention, including a negative one; the reason
+    // tells the planner not to echo another entry's path at all.
+    let mut plan = feature_plan(&goal, "src/app/main.py");
+    plan.steps[0]
+        .instruction
+        .push_str(" Do not create src/csv_aggregator/main.py.");
+    let reason = repairable(assess(root.path(), &plan));
+    assert!(reason.contains("src/csv_aggregator/main.py"), "{reason}");
+    assert!(
+        reason.contains("Do not write any other package's src/<package>/main.py path in instructions, not even in a negative sentence such as \"do not create ...\"; name only src/app/main.py."),
+        "{reason}"
+    );
+
+    let zero = workspace(&[]);
+    let mut two = feature_plan(&goal, "src/alpha/main.py");
+    two.steps[0]
+        .instruction
+        .push_str(" Do not create src/beta/main.py.");
+    let reason = repairable(assess(zero.path(), &two));
+    assert!(
+        reason.contains("Do not write the path of any entry you did not choose in instructions, not even in a negative sentence"),
+        "{reason}"
+    );
+}
