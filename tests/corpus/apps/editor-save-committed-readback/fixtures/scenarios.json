@@ -35,6 +35,10 @@
     { "name": "collection_post_titles_only", "kind": "synthetic", "covers": "the save is a POST to the collection and the list read and the list carry titles only", "verdict": "not_evaluated", "steps": ["persistence_commit_http_observed"] },
     { "name": "disabled_press_debounced_autosave", "kind": "synthetic", "covers": "the save control cannot be pressed and a debounced autosave starts while the probe tries", "verdict": "not_evaluated", "steps": [] },
     { "name": "id_field_collision", "kind": "synthetic", "covers": "the list read has page 1 and the token in record 5 while the save was PUT /api/notes/1", "verdict": "not_evaluated", "steps": ["persistence_commit_http_observed", "persistence_committed_surface_observed"] },
-    { "name": "late_event_early_start", "kind": "synthetic", "covers": "a request started before the press reaches the page as an event inside the press", "verdict": "not_evaluated", "steps": [] }
+    { "name": "late_event_early_start", "kind": "synthetic", "covers": "a request started before the press reaches the page as an event inside the press", "verdict": "not_evaluated", "steps": [] },
+    { "name": "token_in_read_before_entry", "kind": "synthetic", "covers": "a same-origin read answered before typing already holds the token, while the page, inputs and URL do not", "verdict": "not_evaluated", "steps": [] },
+    { "name": "cross_origin_readback", "kind": "synthetic", "covers": "after the reload only a read from another origin holds the token", "verdict": "not_evaluated", "steps": ["persistence_commit_http_observed", "persistence_committed_surface_observed"] },
+    { "name": "save_answers_after_reload", "kind": "synthetic", "covers": "the save answers 2xx only after the reload, beyond the probe's wait", "verdict": "not_evaluated", "steps": [] },
+    { "name": "id_like_field_in_element", "kind": "synthetic", "covers": "a list element whose order field equals the saved id holds the token while its id is another value", "verdict": "not_evaluated", "steps": ["persistence_commit_http_observed", "persistence_committed_surface_observed"] }
   ]
 }

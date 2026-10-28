@@ -565,6 +565,36 @@ fn request_started_before_the_press_is_not_a_save_when_its_event_arrives_inside(
     );
 }
 
+#[test]
+fn token_in_a_read_answered_before_typing_is_not_promoted() {
+    assert_not_promoted("token_in_read_before_entry");
+}
+
+#[test]
+fn token_only_in_a_read_from_another_origin_is_not_a_readback() {
+    assert_not_promoted("cross_origin_readback");
+}
+
+#[test]
+fn save_answered_only_after_the_reload_is_not_promoted() {
+    let Some(run) = assert_not_promoted("save_answers_after_reload") else {
+        return;
+    };
+    assert!(
+        run.observation
+            .http_mutation_observations
+            .iter()
+            .any(|mutation| mutation.method == "PUT" && mutation.status == 200),
+        "the save must have answered after the reload: {:?}",
+        run.observation
+    );
+}
+
+#[test]
+fn non_identifier_field_inside_a_list_element_does_not_name_the_saved_record() {
+    assert_not_promoted("id_like_field_in_element");
+}
+
 /// The witness clears only the persistence verdict: a route the entry cannot
 /// reach still fails the reachability check on the same app root.
 #[test]

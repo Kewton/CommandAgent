@@ -61,6 +61,9 @@ const DEFAULTS = {
   saveDisabled: false,
   autosaveOnBlockedPress: false,
   deferAutosaveEvent: false,
+  tokenInEarlyRead: false,
+  crossOriginRead: false,
+  saveAnswersAfterReload: false,
   staleToken: "",
   tokenBeforeEntry: false,
   urlEcho: false,
@@ -114,7 +117,15 @@ const SCENARIOS = {
     storeAsId: "5",
     listPageField: true
   },
-  late_event_early_start: { save: "none", autosave: true, deferAutosaveEvent: true }
+  late_event_early_start: { save: "none", autosave: true, deferAutosaveEvent: true },
+  token_in_read_before_entry: { tokenInEarlyRead: true },
+  cross_origin_readback: { serverStores: false, localMirror: true, crossOriginRead: true },
+  save_answers_after_reload: { saveAnswersAfterReload: true },
+  id_like_field_in_element: {
+    seed: [...RECORDED.seed, { id: "9", order: 1, title: "別のノート", content: "別の本文" }],
+    created: { id: "1", title: "無題のノート", content: "# 新しいノート\n" },
+    storeAsId: "9"
+  }
 };
 
 if (!Object.prototype.hasOwnProperty.call(SCENARIOS, scenario)) {
@@ -328,7 +339,7 @@ class FakeResponse {
   }
 
   async text() {
-    return this._body;
+    return this._text ? await this._text(this._body) : this._body;
   }
 }
 
@@ -337,6 +348,10 @@ class FakePage {
     this.listeners = { request: [], response: [], requestfailed: [] };
     this.origin = "";
     this.held = [];
+    this.heldUntilReload = [];
+    this.learnedToken = new Promise((resolve) => {
+      this.learnToken = resolve;
+    });
     this.typed = false;
     this.urlSuffix = "";
     this.route = "list";
@@ -418,12 +433,17 @@ class FakePage {
       }
       const status = options.status || 200;
       const response = new FakeResponse(request, status, options.body ? options.body() : "{}");
+      if (options.text) response._text = options.text;
       this.emit("response", response);
       if (options.after) options.after(response, status);
     };
     if (options.never) return;
     if (options.hold) {
       this.held.push(finish);
+      return;
+    }
+    if (options.holdUntilReload) {
+      this.heldUntilReload.push(finish);
       return;
     }
     setTimeout(finish, 0);
@@ -456,6 +476,17 @@ class FakePage {
           : server.notes;
         return JSON.stringify(cfg.listPageField ? { page: 1, [cfg.listKey]: list } : { [cfg.listKey]: list });
       },
+      // A list answered before typing already holds the probe's token in a record
+      // the page does not render. The fake learns the token only when the probe
+      // first looks for it, so the body is completed when the probe reads it.
+      text: cfg.tokenInEarlyRead && !this.typed
+        ? async (body) => {
+          const token = await this.learnedToken;
+          const parsed = JSON.parse(body);
+          parsed[cfg.listKey].push({ id: "seed-early", title: "以前のノート", content: token });
+          return JSON.stringify(parsed);
+        }
+        : null,
       after: (response) => {
         this.notes = JSON.parse(response._body)[cfg.listKey];
         this.loading = false;
@@ -484,6 +515,13 @@ class FakePage {
     }
     this.route = "list";
     this.refresh();
+    if (cfg.crossOriginRead && local.notes) {
+      // Another origin serves the mirrored list that the page renders.
+      this.fetch("GET", cfg.collection, null, {
+        origin: this.origin.replace("127.0.0.1", "127.0.0.2"),
+        body: () => JSON.stringify({ [cfg.listKey]: local.notes })
+      });
+    }
     if (cfg.readsRecordAfterReload && this.lastEditedId) {
       const id = this.lastEditedId;
       this.fetch("GET", `${cfg.collection}/${encodeURIComponent(id)}`, null, {
@@ -583,6 +621,7 @@ class FakePage {
       status: toCollection ? 201 : cfg.saveStatus,
       fail: cfg.saveFails,
       never: cfg.saveNeverResponds,
+      holdUntilReload: cfg.saveAnswersAfterReload,
       body: () => JSON.stringify({ note: this.serverNote(id) || null }),
       after: (_response, status) => {
         if (status >= 200 && status < 300) this.refresh(() => {
@@ -735,6 +774,7 @@ class FakePage {
     if (cfg.tokenBeforeEntry && !this.preseededToken && typeof arg === "string" && arg.startsWith("anvil-")) {
       this.preseededToken = arg;
     }
+    if (typeof arg === "string" && arg.startsWith("anvil-")) this.learnToken(arg);
     this.installGlobals();
     return fn(arg);
   }
@@ -757,6 +797,8 @@ class FakePage {
     this.newEntry();
     this.activeElement = null;
     this.load();
+    // A save answer that took longer than the probe waited arrives after the reload.
+    for (const finish of this.heldUntilReload.splice(0)) setTimeout(finish, 0);
     return { status: () => 200 };
   }
 

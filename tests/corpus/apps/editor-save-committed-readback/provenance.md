@@ -30,7 +30,10 @@ it. Its `recorded_content_q` and `l135_editor_after_reload` scenarios reproduce
 the recorded marker sequences above; every other scenario in
 `fixtures/scenarios.json` is synthetic: the positive app with one part changed,
 and with the typed token kept by the server wherever the scenario allows, so
-that only the changed part can stop the promotion.
+that only the changed part can stop the promotion. The fake learns the probe's
+token only when the probe first looks for it before typing, so the
+`token_in_read_before_entry` scenario completes the body of a read answered
+before typing when the probe reads that body.
 
 The probe promotes a not-evaluated contract persistence verdict to `preserved`
 only when all four parts of the commit witness hold: the fresh token was absent
