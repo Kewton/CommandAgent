@@ -1,0 +1,190 @@
+{
+  "source": {
+    "issue": "Kewton/CommandAgent#896 (IC-42)",
+    "recorded": "L-135 campaign-G1-3a14 stage3a cli-q, develop dc2a3f54: events.jsonl E18/E34 (phase 1 src/app/main.py), E97/E105 (phase 2 src/csv_aggregator/main.py), E179/E189 (phase 3 src/csv_analyzer/main.py), E195 verify_final 'found 3'. Steps are copied from the saved phase plans plan-01a17ff1-a8a1 (phase 1), plan-01a17ff2-a022 (phase 2) and plan-01a17ff3-fe62 (phase 3); profile-contract boilerplate and unrelated steps are omitted.",
+    "synthetic": "Same shapes with package names alpha/beta/gamma and a non-CSV goal, so the check does not depend on the recorded scenario's vocabulary."
+  },
+  "cases": [
+    {
+      "id": "recorded-phase1-first-entry",
+      "origin": "recorded",
+      "existing": [],
+      "goal": "CSVファイルを読み込み、数値列の合計・平均・最大・最小を集計して表形式で標準出力するCLIツールをPythonで開発してください。",
+      "phase_id": "project-setup",
+      "phase_task": "Initialize the project structure with pyproject.toml and src/csv_analyzer/main.py.",
+      "changed": [],
+      "steps": [
+        {"id": "setup-project", "kind": "setup", "instruction": "Create pyproject.toml to define the project metadata and dependencies (stdlib only).", "expected_paths": ["pyproject.toml"], "verify": []},
+        {"id": "implement-csv-analyzer", "kind": "implement", "instruction": "Create src/app/main.py. The script should read a CSV from stdin or a file path provided as an argument, identify numerical columns, calculate the sum, average, max, and min for each, and print the results in a formatted table to stdout.", "expected_paths": ["src/app/main.py"], "verify": []},
+        {"id": "verify-behavior", "kind": "verify", "instruction": "Run the listed deterministic verification commands without changing files.", "expected_paths": [], "verify": ["python3 src/app/main.py"]}
+      ],
+      "expect": "admitted",
+      "reason_contains": []
+    },
+    {
+      "id": "recorded-phase2-aggregator",
+      "origin": "recorded",
+      "existing": ["src/app/main.py"],
+      "goal": "CSVファイルを読み込み、数値列の合計・平均・最大・最小を集計して表形式で標準出力するCLIツールをPythonで開発してください。",
+      "phase_id": "implement-csv-logic",
+      "phase_task": "Implement the core logic in src/csv_analyzer/main.py to read CSV from stdin or a file path, identify numeric columns, and calculate sum, mean, max, and min.",
+      "changed": ["pyproject.toml", "src/app/main.py"],
+      "steps": [
+        {"id": "implement-csv-logic", "kind": "implement", "instruction": "Implement the core logic in src/csv_aggregator/main.py. The script should read CSV data from a file path provided as an argument or from stdin. It must identify numeric columns and calculate the sum, mean, maximum, and minimum for each, printing the results in a table format to stdout.", "expected_paths": ["src/csv_aggregator/main.py"], "verify": []},
+        {"id": "verify-syntax", "kind": "verify", "instruction": "Verify the Python syntax using compileall.", "expected_paths": [], "verify": ["python3 -m compileall -q src"]},
+        {"id": "verify-execution", "kind": "verify", "instruction": "Verify that the tool runs correctly with the sample CSV file and produces output.", "expected_paths": [], "verify": ["python3 src/csv_aggregator/main.py test_data.csv"]}
+      ],
+      "expect": "repairable",
+      "reason_contains": ["the existing entry is src/app/main.py", "src/csv_aggregator/main.py", "app.main:main"]
+    },
+    {
+      "id": "recorded-phase2-corrected",
+      "origin": "recorded",
+      "existing": ["src/app/main.py"],
+      "goal": "CSVファイルを読み込み、数値列の合計・平均・最大・最小を集計して表形式で標準出力するCLIツールをPythonで開発してください。",
+      "phase_id": "implement-csv-logic",
+      "phase_task": "Implement the core logic in src/csv_analyzer/main.py to read CSV from stdin or a file path, identify numeric columns, and calculate sum, mean, max, and min.",
+      "changed": ["pyproject.toml", "src/app/main.py"],
+      "steps": [
+        {"id": "implement-csv-logic", "kind": "implement", "instruction": "Implement the core logic in src/app/main.py. The script should read CSV data from a file path provided as an argument or from stdin. It must identify numeric columns and calculate the sum, mean, maximum, and minimum for each, printing the results in a table format to stdout.", "expected_paths": ["src/app/main.py"], "verify": []},
+        {"id": "verify-syntax", "kind": "verify", "instruction": "Verify the Python syntax using compileall.", "expected_paths": [], "verify": ["python3 -m compileall -q src"]},
+        {"id": "verify-execution", "kind": "verify", "instruction": "Verify that the tool runs correctly with the sample CSV file and produces output.", "expected_paths": [], "verify": ["python3 src/app/main.py test_data.csv"]}
+      ],
+      "expect": "admitted",
+      "reason_contains": []
+    },
+    {
+      "id": "recorded-phase3-analyzer-after-fix",
+      "origin": "recorded",
+      "existing": ["src/app/main.py"],
+      "goal": "CSVファイルを読み込み、数値列の合計・平均・最大・最小を集計して表形式で標準出力するCLIツールをPythonで開発してください。",
+      "phase_id": "implement-table-output",
+      "phase_task": "Format the aggregated results as a table in src/csv_analyzer/main.py.",
+      "changed": ["pyproject.toml", "src/app/main.py", "test_data.csv"],
+      "steps": [
+        {"id": "implement-table-formatting", "kind": "implement", "instruction": "Update src/csv_analyzer/main.py to read a CSV file, calculate the sum, average, max, and min for all numeric columns, and print these results in a clean, aligned table format to stdout using string formatting.", "expected_paths": ["src/csv_analyzer/main.py"], "verify": ["python3 -m compileall -q src"]},
+        {"id": "verify-output-format", "kind": "verify", "instruction": "Run the CLI tool with test_data.csv and check if the output is a non-empty table containing the aggregated metrics.", "expected_paths": [], "verify": ["python3 src/csv_analyzer/main.py test_data.csv"]}
+      ],
+      "expect": "repairable",
+      "reason_contains": ["the existing entry is src/app/main.py", "src/csv_analyzer/main.py"]
+    },
+    {
+      "id": "recorded-phase3-as-recorded-two-existing",
+      "origin": "recorded",
+      "existing": ["src/app/main.py", "src/csv_aggregator/main.py"],
+      "goal": "CSVファイルを読み込み、数値列の合計・平均・最大・最小を集計して表形式で標準出力するCLIツールをPythonで開発してください。",
+      "phase_id": "implement-table-output",
+      "phase_task": "Format the aggregated results as a table in src/csv_analyzer/main.py.",
+      "changed": ["pyproject.toml", "src/app/main.py", "src/csv_aggregator/main.py", "test_data.csv"],
+      "steps": [
+        {"id": "inspect-existing-logic", "kind": "inspect", "instruction": "Review the current implementation of src/csv_aggregator/main.py or src/csv_analyzer/main.py to identify where aggregation logic is implemented.", "expected_paths": [], "verify": []},
+        {"id": "implement-table-formatting", "kind": "implement", "instruction": "Update src/csv_analyzer/main.py to read a CSV file, calculate the sum, average, max, and min for all numeric columns, and print these results in a clean, aligned table format to stdout using string formatting.", "expected_paths": ["src/csv_analyzer/main.py"], "verify": ["python3 -m compileall -q src"]}
+      ],
+      "expect": "admitted",
+      "reason_contains": []
+    },
+    {
+      "id": "synthetic-phase2-beta",
+      "origin": "synthetic",
+      "existing": ["src/alpha/main.py"],
+      "goal": "Build a command that reverses each line it reads.",
+      "phase_id": "add-filtering",
+      "phase_task": "Add a --skip-blank flag in src/gamma/main.py.",
+      "changed": ["pyproject.toml", "src/alpha/main.py"],
+      "steps": [
+        {"id": "add-flag", "kind": "implement", "instruction": "Add a --skip-blank flag in src/beta/main.py that drops empty lines before reversing.", "expected_paths": ["src/beta/main.py"], "verify": []},
+        {"id": "run-flag", "kind": "verify", "instruction": "Run the command with the flag.", "expected_paths": [], "verify": ["python3 ./src/beta/main.py --skip-blank"]}
+      ],
+      "expect": "repairable",
+      "reason_contains": ["the existing entry is src/alpha/main.py", "src/beta/main.py", "alpha.main:main"]
+    },
+    {
+      "id": "synthetic-phase2-corrected",
+      "origin": "synthetic",
+      "existing": ["src/alpha/main.py"],
+      "goal": "Build a command that reverses each line it reads.",
+      "phase_id": "add-filtering",
+      "phase_task": "Add a --skip-blank flag in src/gamma/main.py.",
+      "changed": ["pyproject.toml", "src/alpha/main.py"],
+      "steps": [
+        {"id": "add-flag", "kind": "implement", "instruction": "Add a --skip-blank flag in src/alpha/main.py that drops empty lines before reversing; put the filter in src/alpha/filters.py.", "expected_paths": ["src/alpha/main.py", "src/alpha/filters.py"], "verify": []},
+        {"id": "run-flag", "kind": "verify", "instruction": "Run the command with the flag.", "expected_paths": [], "verify": ["python3 ./src/alpha/main.py --skip-blank"]}
+      ],
+      "expect": "admitted",
+      "reason_contains": []
+    },
+    {
+      "id": "synthetic-verify-only-module",
+      "origin": "synthetic",
+      "existing": ["src/alpha/main.py"],
+      "goal": "Build a command that reverses each line it reads.",
+      "phase_id": "add-filtering",
+      "phase_task": "Add a --skip-blank flag.",
+      "changed": ["src/alpha/main.py"],
+      "steps": [
+        {"id": "add-flag", "kind": "implement", "instruction": "Add a --skip-blank flag.", "expected_paths": ["src/alpha/main.py"], "verify": []},
+        {"id": "run-flag", "kind": "verify", "instruction": "Run the command with the flag.", "expected_paths": [], "verify": ["PYTHONPATH=src python3 -m beta.main --skip-blank"]}
+      ],
+      "expect": "repairable",
+      "reason_contains": ["src/beta/main.py", "src/alpha/main.py"]
+    },
+    {
+      "id": "synthetic-zero-two-declared",
+      "origin": "synthetic",
+      "existing": [],
+      "goal": "Build a command that reverses each line it reads.",
+      "phase_id": "scaffold",
+      "phase_task": "Create the package.",
+      "changed": [],
+      "steps": [
+        {"id": "create-alpha", "kind": "implement", "instruction": "Create the command.", "expected_paths": ["src/alpha/main.py"], "verify": []},
+        {"id": "create-beta", "kind": "implement", "instruction": "Create a second command.", "expected_paths": ["src/beta/main.py"], "verify": []}
+      ],
+      "expect": "repairable",
+      "reason_contains": ["2 different entries"]
+    },
+    {
+      "id": "synthetic-explicit-name-conflict",
+      "origin": "synthetic",
+      "existing": ["src/alpha/main.py"],
+      "goal": "Create beta.py that reverses each line it reads.",
+      "phase_id": "add-filtering",
+      "phase_task": "Add a --skip-blank flag.",
+      "changed": ["src/alpha/main.py"],
+      "steps": [
+        {"id": "add-flag", "kind": "implement", "instruction": "Add a --skip-blank flag.", "expected_paths": ["src/alpha/main.py"], "verify": []}
+      ],
+      "expect": "repairable",
+      "reason_contains": ["ambiguous", "original goal names src/beta/main.py", "only entry is src/alpha/main.py"]
+    }
+  ],
+  "final": [
+    {
+      "id": "recorded-final-three-mains",
+      "origin": "recorded",
+      "mains": ["src/app/main.py", "src/csv_aggregator/main.py", "src/csv_analyzer/main.py"],
+      "scripts": {"csv-aggregator": "app.main:main"},
+      "goal": "CSVファイルを読み込み、数値列の合計・平均・最大・最小を集計して表形式で標準出力するCLIツールをPythonで開発してください。",
+      "expect": "fail",
+      "reason_contains": ["found 3", "src/app/main.py, src/csv_aggregator/main.py, src/csv_analyzer/main.py"]
+    },
+    {
+      "id": "synthetic-final-script-targets-other-package",
+      "origin": "synthetic",
+      "mains": ["src/alpha/main.py"],
+      "scripts": {"alpha": "beta.main:main"},
+      "goal": "Build a command that reverses each line it reads.",
+      "expect": "fail",
+      "reason_contains": ["[project.scripts] must point at the entrypoint package `alpha`", "alpha -> beta"]
+    },
+    {
+      "id": "synthetic-final-single-entry",
+      "origin": "synthetic",
+      "mains": ["src/alpha/main.py"],
+      "scripts": {"alpha": "alpha.main:main"},
+      "goal": "Build a command that reverses each line it reads.",
+      "expect": "pass",
+      "reason_contains": []
+    }
+  ]
+}

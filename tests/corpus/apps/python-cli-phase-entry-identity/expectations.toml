@@ -1,0 +1,32 @@
+case_id = "python-cli-phase-entry-identity"
+source = "Issue #896 IC-42 (L-135 campaign-G1-3a14 cli-q, develop dc2a3f54, 2026-10-28): a python-cli create phase plan that names another package's src/<package>/main.py is returned at admission; recorded rows and alpha/beta synthetic rows are in fixtures/cases.json"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["python-cli", "entry identity"]
+acceptance_passed = true
+primary_reason = "pass"
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/cases.json = [
+  "\"id\": \"recorded-phase2-aggregator\"",
+  "\"id\": \"recorded-phase3-analyzer-after-fix\"",
+  "\"id\": \"synthetic-phase2-beta\"",
+  "\"mains\": [\"src/app/main.py\", \"src/csv_aggregator/main.py\", \"src/csv_analyzer/main.py\"]"
+]

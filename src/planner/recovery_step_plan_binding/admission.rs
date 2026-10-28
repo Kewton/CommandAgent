@@ -196,6 +196,7 @@ impl Admission {
         plan: StepPlan,
     ) -> anyhow::Result<StepPlan> {
         self.require_capture_boundary()?;
+        crate::planner::profiles::python_cli::entry_identity::admit(config, phase, &plan)?;
         if let Some(contract) =
             crate::planner::recovery_contract_authority::load_for_handoff(config)?
             && crate::planner::recovery_contract_authority::inline_admission::eligible(
@@ -270,6 +271,9 @@ impl Admission {
                         &self.marker_checks,
                         model,
                     )
+                })
+                .and_then(|()| {
+                    crate::planner::profiles::python_cli::entry_identity::admit(config, phase, plan)
                 })
                 .and_then(|()| self.form(config, plan, attempt))
                 .map(|()| false)

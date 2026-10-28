@@ -28,6 +28,7 @@ mod csv_value_binding;
 #[cfg(test)]
 mod csv_value_binding_tests;
 mod entry_cardinality;
+pub mod entry_identity;
 pub mod help_binding;
 pub mod manifest;
 pub(crate) mod readme_verify;
