@@ -252,6 +252,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "recovery_verifier_repairability",
     "repair_applied",
     "repair_regeneration",
+    "repair_start_write_guidance_queued",
     "repair_target_reclassified",
     "repair_unreachable",
     "resume_start",

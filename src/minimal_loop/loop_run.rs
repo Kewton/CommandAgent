@@ -66,6 +66,7 @@ mod implementation_completion;
 mod inspect_tool_policy;
 mod max_length_guard;
 mod recoverable_tool_errors;
+mod repair_start_feedback;
 mod repair_turn_observation;
 #[path = "loop_run/runtime_bash_effects.rs"]
 mod runtime_bash_effects;
@@ -614,6 +615,14 @@ pub(crate) fn run_session_with_outcome_with_options(
         }
         if ui.interrupted() {
             bail!("interrupted by user");
+        }
+        if iteration == 0 && pending_feedback.is_none() {
+            pending_feedback = repair_start_feedback::repair_start_write_guidance(
+                config.eval_events_path.as_deref(),
+                &options,
+                initial_read_only_streak,
+                config.max_iterations,
+            );
         }
         compact_if_needed(&mut session.messages, config.context_budget);
         let specs = registry.specs().to_vec();
