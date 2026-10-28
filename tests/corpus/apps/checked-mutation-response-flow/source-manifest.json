@@ -1,0 +1,16 @@
+{
+  "source": "<user>/share/work/gen-eval-1022/campaign-G1-3a15/stage3a/game-q/work/src/app/page.tsx",
+  "source_sha256": "873b4886e5e079faff1294446b94cf8baf97cbcbdf681240f3275abeca123a10",
+  "campaign": "campaign-G1-3a15",
+  "develop_commit": "2103047c",
+  "capture": "L-137 game-q phase 4/5 game-over-and-restart profile invariant failure: api_contract_failure POST /api/highscore does not check Response.ok (IC-43); the highscore callback is at source lines 111-124",
+  "derived_fixture": "fixtures/recorded/page.tsx keeps source lines 102-125 verbatim (the submit useEffect with the fetch(...).then(...).then(...).catch(...) chain at lines 111-124) inside a minimal client component; the imports, types, state hooks and markup around it are host-authored. fixtures/recorded/route.ts is host-authored. fixtures/recorded/cases.json is host-authored exact-once edits of the recorded page. fixtures/synthetic/ is entirely host-authored: a bookmarks page with one /* CASE */ marker, a POST/PATCH route and the positive and negative cases, with variable and route names that differ from the recorded game.",
+  "fixture_sha256": {
+    "fixtures/recorded/page.tsx": "00a943aa0e4294b68bdcec7d3d7af1b8d0dbf684b1b3f124a93bd57315bcebaa",
+    "fixtures/recorded/route.ts": "7f10176fb12f8d07183ae82532c6fc317c9635903b4176e9b9de8f1dd2785b24",
+    "fixtures/recorded/cases.json": "45954b7d36cf8d9ee7e4290558d9263875231678fcc15795897c503014484002",
+    "fixtures/synthetic/page.tsx": "7dcbd7d2370ceb139816485f40852f9bf802ab9453bb059054f61959a140c72a",
+    "fixtures/synthetic/route.ts": "b9651fa176b78aed12466ae080e725468e0740369a9247f857cd4982b45a58b7",
+    "fixtures/synthetic/cases.json": "4fef8516133c289f4f52db0682274c046ed85ad2f2d11fa2e103db4f66fece47"
+  }
+}

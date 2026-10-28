@@ -1,0 +1,44 @@
+case_id = "checked-mutation-response-flow"
+source = "L-137 game-q phase 4 game-over-and-restart: fetch(POST /api/highscore).then((res) => res.ok ? res.json() : null).then((data) => { if (!data ...) return; ... }) rejected by the api contract (IC-43)"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/recorded/page.tsx = [
+  "    fetch(\"/api/highscore\", {",
+  "        res.ok ? (res.json() as Promise<HighScoreSubmitResponse>) : null,",
+  "        if (!data || data.ok !== true) return;",
+  "      .catch(() => undefined);"
+]
+fixtures/recorded/route.ts = [
+  "function POST"
+]
+fixtures/synthetic/page.tsx = [
+  "    /* CASE */"
+]
+fixtures/synthetic/route.ts = [
+  "function POST",
+  "function PATCH"
+]
+source-manifest.json = [
+  "campaign-G1-3a15",
+  "2103047c"
+]

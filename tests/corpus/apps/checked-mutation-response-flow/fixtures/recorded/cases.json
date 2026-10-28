@@ -1,0 +1,51 @@
+{
+  "_comment": "Exact-once edits of fixtures/recorded/page.tsx, whose useEffect keeps source lines 102-125 verbatim. accept: the public final and invariant checks both pass. reject: both report exactly one profile failure containing unchecked_reason.",
+  "unchecked_reason": "POST /api/highscore used by src/app/page.tsx does not check Response.ok before accepting the mutation",
+  "cases": [
+    {
+      "name": "recorded callback",
+      "expect": "accept",
+      "replace": []
+    },
+    {
+      "name": "recorded callback without the sentinel guard",
+      "expect": "reject",
+      "replace": [
+        {
+          "from": "        if (!data || data.ok !== true) return;\n",
+          "to": ""
+        }
+      ]
+    },
+    {
+      "name": "recorded callback reading only the payload ok",
+      "expect": "reject",
+      "replace": [
+        {
+          "from": "res.ok ? (res.json() as Promise<HighScoreSubmitResponse>) : null,",
+          "to": "res.json() as Promise<HighScoreSubmitResponse>,"
+        }
+      ]
+    },
+    {
+      "name": "recorded callback with both branches reading the body",
+      "expect": "reject",
+      "replace": [
+        {
+          "from": "res.ok ? (res.json() as Promise<HighScoreSubmitResponse>) : null,",
+          "to": "res.ok ? (res.json() as Promise<HighScoreSubmitResponse>) : res.json(),"
+        }
+      ]
+    },
+    {
+      "name": "recorded callback returned to the caller",
+      "expect": "reject",
+      "replace": [
+        {
+          "from": "    fetch(\"/api/highscore\", {",
+          "to": "    return fetch(\"/api/highscore\", {"
+        }
+      ]
+    }
+  ]
+}

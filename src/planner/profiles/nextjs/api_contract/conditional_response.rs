@@ -4,6 +4,8 @@
 //! `if (!name.ok ...)` guard that returns or throws. Anything the scan cannot
 //! prove is `Unconfirmed`; it never falls back to a looser textual check.
 
+pub(super) mod response_flow;
+
 const WINDOW_BYTES: usize = 4_096;
 
 /// What the scan concluded about one `fetch(...)` mutation match.
