@@ -312,6 +312,10 @@ fn rejects_chains_that_do_not_prove_the_check() {
             "\n  .then((reply) => (reply.ok ? reply.json() : reply.text()))\n  .then((payload) => { if (!payload) return; setItems(payload.items); })",
         ),
         (
+            "identifier failure branch passes the next guard",
+            "\n  .then((reply) => (reply.ok ? reply.json() : cached))\n  .then((payload) => { if (!payload) return; setItems(payload.items); })",
+        ),
+        (
             "catch block returns a success object",
             "\n  .then((reply) => { if (!reply.ok) throw new Error(\"x\"); return reply.json(); })\n  .catch(() => { return { items: [] }; })\n  .then((payload) => { if (!payload) return; setItems(payload.items); })",
         ),

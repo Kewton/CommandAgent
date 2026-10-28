@@ -172,6 +172,12 @@
       "code": "PATCH_FETCH\n      .then((reply) => (reply.ok ? reply.json() : reply.text()))\n      .then((payload) => { if (!payload) return; setItems(payload.items); });"
     },
     {
+      "name": "identifier failure branch passes the next guard",
+      "expect": "reject",
+      "d2": "both_branches_succeed",
+      "code": "PATCH_FETCH\n      .then((reply) => (reply.ok ? reply.json() : cached))\n      .then((payload) => { if (!payload) return; setItems(payload.items); });"
+    },
+    {
       "name": "catch block returns a success object before a guarded then",
       "expect": "reject",
       "d2": "catch_returns_success",
