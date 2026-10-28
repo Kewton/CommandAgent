@@ -322,6 +322,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "verify_default_bound",
     "verify_demoted_advisory",
     "verify_install_substituted",
+    "verify_refusal_feedback_queued",
     "verify_repair_progress",
     "verify_repair_turn",
     "workflow_adjudicated",

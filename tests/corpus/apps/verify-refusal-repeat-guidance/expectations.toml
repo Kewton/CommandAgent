@@ -1,0 +1,36 @@
+case_id = "verify-refusal-repeat-guidance"
+source = "Issue 895 refusal sequences: recorded command excerpts from L-129 tool-g and ambig-g and L-135 ambig-g and cli-g, plus synthetic shapes; the model replies are scripted"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["recorded", "synthetic", "repeat-guidance"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/cases.json = [
+  "excerpts copied from runtime_bash_policy.original_command",
+  "written for this corpus from the recorded shapes",
+  "the model replies are always synthetic",
+  "l129-tool-g",
+  "l129-ambig-g",
+  "l135-ambig-g",
+  "l135-cli-g",
+  "synthetic-redirect",
+  "Repeated rejection (2/2). Next call: Bash",
+  "repeat_write_then_verifier"
+]
