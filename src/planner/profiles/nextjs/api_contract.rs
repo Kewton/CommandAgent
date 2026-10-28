@@ -44,7 +44,7 @@ pub(super) fn failure(root: &Path) -> Option<String> {
         }
         if !mutation.response_checked {
             return Some(format!(
-                "api_contract_failure: {} {} used by {} does not check Response.ok before accepting the mutation; accepted forms: `const res = await fetch(...)` then return/throw when `!res.ok`, or a simple ternary whose two branches are both `await fetch(...)` bound to the same const and checked by the same guard",
+                "api_contract_failure: {} {} used by {} does not check Response.ok before accepting the mutation; accepted forms: `const res = await fetch(...)` then return/throw when `!res.ok`, a simple ternary whose two branches are both `await fetch(...)` bound to the same const and checked by the same guard, or `fetch(...).then((res) => ...)` whose callback returns/throws first when `!res.ok`, is only `if (res.ok) {{ ... }}`, or is `res.ok ? res.json() : null` with the next `.then((data) => ...)` returning/throwing first when `!data`",
                 mutation.method, mutation.route, mutation.source
             ));
         }
@@ -102,6 +102,16 @@ fn mutation_response_checked(content: &str, matched: Option<regex::Match<'_>>) -
     let suffix_end = crate::util::floor_char_boundary(content, matched.end().saturating_add(4_096));
     let suffix = &content[matched.end()..suffix_end];
     match conditional_response::check(content, matched.start(), matched.end(), suffix_end) {
+        ResponseCheck::Confirmed => return true,
+        ResponseCheck::Unconfirmed => return false,
+        ResponseCheck::NotApplicable => {}
+    }
+    match conditional_response::response_flow::check(
+        content,
+        matched.start(),
+        matched.end(),
+        suffix_end,
+    ) {
         ResponseCheck::Confirmed => return true,
         ResponseCheck::Unconfirmed => return false,
         ResponseCheck::NotApplicable => {}

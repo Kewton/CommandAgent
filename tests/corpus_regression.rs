@@ -377,7 +377,7 @@ fn issue430_utf8_response_window_reports_honest_api_failure() {
         assert_eq!(
             report.profile_failures,
             [
-                "api_contract_failure: POST /api/shifts used by src/app/page.tsx does not check Response.ok before accepting the mutation; accepted forms: `const res = await fetch(...)` then return/throw when `!res.ok`, or a simple ternary whose two branches are both `await fetch(...)` bound to the same const and checked by the same guard"
+                "api_contract_failure: POST /api/shifts used by src/app/page.tsx does not check Response.ok before accepting the mutation; accepted forms: `const res = await fetch(...)` then return/throw when `!res.ok`, a simple ternary whose two branches are both `await fetch(...)` bound to the same const and checked by the same guard, or `fetch(...).then((res) => ...)` whose callback returns/throws first when `!res.ok`, is only `if (res.ok) { ... }`, or is `res.ok ? res.json() : null` with the next `.then((data) => ...)` returning/throwing first when `!data`"
             ],
             "{report:?}"
         );
