@@ -62,6 +62,7 @@ let action_hooks = [];
 let text_entry = "not_evaluated";
 let text_entry_target = "";
 let typed_token = `anvil-${Math.random().toString(36).slice(2, 8) || "probe"}`;
+const persistence_commit = createPersistenceCommitWitness(url, typed_token);
 let token_echoed = false;
 let echo_latency_ms = null;
 let token_echoed_after_reload = false;
@@ -669,12 +670,14 @@ async function evaluatePersistenceReload(page, mode) {
   // A contract run judges persistence by the keys a commit changed. The typed token
   // can survive as a draft copy, so it is only evidence for the heuristic probe.
   const judgeByTypedToken = typedTokenWasPresent && mode !== "contract";
+  if (mode === "contract") await persistence_commit.awaitSaveSettled(page);
   persistence_before_reload_marker = await settledRenderedValue(
     page,
     () => activeMarker(page, mode),
     PERSISTENCE_SURFACE_SETTLE_MS
   );
   try {
+    persistence_commit.markReload();
     await page.reload({ waitUntil: "domcontentloaded", timeout: GOTO_TIMEOUT_MS });
     await waitForAnySurface(page);
     persistence_after_reload_marker = judgeByTypedToken
@@ -720,6 +723,20 @@ async function evaluatePersistenceReload(page, mode) {
         persistence_before_reload_marker,
         persistence_after_reload_marker
       );
+      if (persistence_after_reload === "not_evaluated" && mode === "contract") {
+        const commit = await persistence_commit.evaluate(page, {
+          mode,
+          legacy_keys: contractPersistenceMutationKeys(persistence_before_reload_marker),
+          text_entry,
+          text_input_state_change,
+          http_mutation_failure
+        });
+        steps.push(...commit.steps);
+        if (commit.verdict) {
+          persistence_after_reload = commit.verdict;
+          persistence_after_reload_reason = "";
+        }
+      }
       if (typedTokenWasPresent && persistence_after_reload === "not_evaluated") {
         informational_failure_kinds.push("persistence_draft_only");
       }
@@ -1115,9 +1132,12 @@ async function attemptTextEntry(page, mode) {
       el.setAttribute("data-anvil-probe-text-target", "1");
     });
     await locator.focus({ timeout: 1200 });
+    await persistence_commit.markEntry(page);
     await page.keyboard.type(typed_token, { delay: 5 });
     input_typed_marker = await activeMarker(page, mode);
+    persistence_commit.markSaveStart();
     const primaryClicked = await clickPrimaryActionIfPresent(page);
+    persistence_commit.markSaveEnd();
     if (mode === "contract" && !primaryClicked) {
       informational_failure_kinds.push("primary_action_disabled_after_text_entry");
     }
@@ -1401,6 +1421,8 @@ function interactionFailureKind(transitionObserved, inputEvaluated, inputStateCh
     mark("launching");
     browser = await chromium.launch({ headless: true, timeout: LAUNCH_TIMEOUT_MS });
     const page = await browser.newPage();
+    // Registered first: a test double that keeps one handler per event keeps the last.
+    persistence_commit.attach(page);
     page.on("response", (response) => {
       try {
         const request = response.request();

@@ -1,0 +1,47 @@
+case_id = "editor-save-committed-readback"
+source = "recorded markers from L-137 content-q and L-135 content-g, synthetic scenarios, Issue #900 (IC-44)"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[json_fields]
+fixtures/recorded-markers.json:content_q.recorded_verdict.persistence_after_reload = "not_evaluated"
+fixtures/recorded-markers.json:content_q.recorded_verdict.persistence_after_reload_reason = "no_mutation_observed"
+fixtures/recorded-markers.json:content_g.recorded_verdict.persistence_after_reload = "not_evaluated"
+fixtures/recorded-markers.json:content_g.recorded_verdict.persistence_after_reload_reason = "no_mutation_observed"
+fixtures/recorded-markers.json:content_q.persistence_after_reload_marker.line = "82"
+fixtures/recorded-markers.json:content_g.persistence_after_reload_marker.line = "75"
+
+[fixture_contains]
+fixtures/recorded-markers.json = [
+  "campaign-G1-3a15/stage3a/content-q/",
+  "campaign-G1-3a14/stage3a/content-g/",
+  "{token}"
+]
+fixtures/scenarios.json = [
+  "\"name\": \"recorded_content_q\", \"kind\": \"recorded\"",
+  "\"name\": \"l135_editor_after_reload\", \"kind\": \"recorded\"",
+  "\"verdict\": \"preserved\""
+]
+provenance.md = [
+  "IC-44",
+  "recorded",
+  "synthetic"
+]

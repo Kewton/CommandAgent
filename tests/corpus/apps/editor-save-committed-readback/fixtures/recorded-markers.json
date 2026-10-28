@@ -1,0 +1,65 @@
+{
+  "description": "Marker sequences copied from two recorded probe evidence files. The recorded typed token is replaced by {token}; nothing else is changed. Paths are relative to the gen-eval-1022 evidence root and are read-only sources.",
+  "token_placeholder": "{token}",
+  "content_q": {
+    "run": "L-137 content-q (campaign-G1-3a15, develop 2103047c)",
+    "source": "campaign-G1-3a15/stage3a/content-q/work/.commandagent/evidence/browser-interaction.json",
+    "recorded_token": "anvil-roki5e",
+    "http_mutations": [
+      { "lines": "52-57", "method": "POST", "status": 201, "path": "/api/notes" },
+      { "lines": "58-63", "method": "PUT", "status": 200, "path": "/api/notes/c5d50490-c008-4c37-9313-494ff91c096f" }
+    ],
+    "input_before_marker": {
+      "line": 69,
+      "value": "{\"states\":[{\"index\":0,\"state\":{\"content\":\"# 新しいノート\\n\",\"dirty\":false,\"mode\":\"edit\",\"noteCount\":3,\"selectedId\":\"c5d50490-c008-4c37-9313-494ff91c096f\",\"title\":\"無題のノート\"}}]}"
+    },
+    "input_after_marker": {
+      "line": 68,
+      "value": "{\"states\":[{\"index\":0,\"state\":{\"content\":\"{token}# 新しいノート\\n\",\"dirty\":true,\"mode\":\"edit\",\"noteCount\":3,\"selectedId\":\"c5d50490-c008-4c37-9313-494ff91c096f\",\"title\":\"無題のノート\"}}]}"
+    },
+    "persistence_before_reload_marker": {
+      "line": 84,
+      "value": "{\"states\":[{\"index\":0,\"state\":{\"content\":\"{token}# 新しいノート\\n\",\"dirty\":false,\"mode\":\"edit\",\"noteCount\":3,\"selectedId\":\"c5d50490-c008-4c37-9313-494ff91c096f\",\"title\":\"無題のノート\"}}]}"
+    },
+    "persistence_after_reload_marker": {
+      "line": 82,
+      "value": "{\"states\":[{\"index\":0,\"state\":{\"content\":\"\",\"dirty\":false,\"mode\":\"list\",\"noteCount\":3,\"selectedId\":null,\"title\":\"\"}}]}"
+    },
+    "recorded_verdict": {
+      "lines": "81,83,85",
+      "persistence_after_reload": "not_evaluated",
+      "persistence_after_reload_reason": "no_mutation_observed",
+      "persistence_changed_dimensions": []
+    }
+  },
+  "content_g": {
+    "run": "L-135 content-g (campaign-G1-3a14)",
+    "source": "campaign-G1-3a14/stage3a/content-g/work/.commandagent/evidence/browser-interaction.json",
+    "recorded_token": "anvil-hm3ps9",
+    "http_mutations": [
+      { "lines": "51-56", "method": "PUT", "status": 200, "path": "/api/notes/new" }
+    ],
+    "input_before_marker": {
+      "line": 62,
+      "value": "{\"states\":[{\"index\":0,\"state\":{\"content\":\"\",\"title\":\"\"}}]}"
+    },
+    "input_after_marker": {
+      "line": 61,
+      "value": "{\"states\":[{\"index\":0,\"state\":{\"content\":\"{token}\",\"title\":\"\"}}]}"
+    },
+    "persistence_before_reload_marker": {
+      "line": 77,
+      "value": "{\"states\":[{\"index\":0,\"state\":{\"content\":\"{token}\",\"title\":\"\"}}]}"
+    },
+    "persistence_after_reload_marker": {
+      "line": 75,
+      "value": "{\"states\":[{\"index\":0,\"state\":{\"content\":\"{token}\",\"title\":\"\"}}]}"
+    },
+    "recorded_verdict": {
+      "lines": "74,76,78",
+      "persistence_after_reload": "not_evaluated",
+      "persistence_after_reload_reason": "no_mutation_observed",
+      "persistence_changed_dimensions": []
+    }
+  }
+}

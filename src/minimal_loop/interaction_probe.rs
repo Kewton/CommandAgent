@@ -16,6 +16,8 @@ mod observation_decode;
 #[cfg(test)]
 mod persistence_attribution_tests;
 #[cfg(test)]
+mod persistence_commit_tests;
+#[cfg(test)]
 mod recovery_attribution_tests;
 #[cfg(test)]
 mod start_attribution_tests;
@@ -1190,7 +1192,10 @@ fn write_probe_script(path: &Path) -> std::io::Result<()> {
 }
 
 fn interaction_probe_script() -> &'static str {
-    include_str!("assets/interaction_probe.js")
+    concat!(
+        include_str!("assets/interaction_probe/persistence_commit.js"),
+        include_str!("assets/interaction_probe.js")
+    )
 }
 
 fn open_stdio_logs(run_dir: &Path) -> std::io::Result<(std::fs::File, std::fs::File)> {
@@ -2063,7 +2068,7 @@ mod tests {
         let digest = Sha256::digest(interaction_probe_script().as_bytes());
         assert_eq!(
             format!("{digest:x}"),
-            "9d3e0c1afbd06cd51dbf5a239012ec57574b6e5d0ae31d5aef4bbb545a7d1ccc"
+            "3d3dc6a81103b31a7652bb8f1d7051952916ceb4c0d4f9313e3149f7acf1fe35"
         );
         let script = interaction_probe_script();
         assert!(script.contains("HELD_INPUT_OBSERVE_MS"));
@@ -2072,6 +2077,7 @@ mod tests {
         assert!(script.contains("startControl.isEnabled()"));
         assert!(script.contains("changedTopLevelStateKeys(input_before_marker, beforeReloadText)"));
         assert!(script.contains("!start_control_found && !textEntryObserved"));
+        assert!(script.starts_with("// Persistence commit witness (IC-44)."));
     }
 
     #[test]

@@ -1,0 +1,36 @@
+{
+  "description": "Scenarios of fake-playwright.cjs. Every scenario is the positive notes app with the listed part changed, and the server keeps the typed token wherever the scenario allows, so only the changed part can stop the promotion. The verdict is the probe's persistence_after_reload; the steps are the commit witness steps the probe records.",
+  "witness_steps": [
+    "persistence_commit_http_observed",
+    "persistence_committed_surface_observed",
+    "persistence_committed_readback_observed"
+  ],
+  "scenarios": [
+    { "name": "recorded_content_q", "kind": "recorded", "covers": "L-137 content-q marker sequence: POST, typing, PUT, reload to the list, the same id and token in the read", "verdict": "preserved", "steps": ["persistence_commit_http_observed", "persistence_committed_surface_observed", "persistence_committed_readback_observed"] },
+    { "name": "synthetic_renamed", "kind": "synthetic", "covers": "the positive with other state keys, mode values and resource paths", "verdict": "preserved", "steps": ["persistence_commit_http_observed", "persistence_committed_surface_observed", "persistence_committed_readback_observed"] },
+    { "name": "l135_editor_after_reload", "kind": "recorded", "covers": "L-135 content-g: PUT 200 and the same editor and preview after the reload", "verdict": "not_evaluated", "steps": ["persistence_commit_http_observed"] },
+    { "name": "save_without_change", "kind": "synthetic", "covers": "the save API is called without the typed change", "verdict": "not_evaluated", "steps": [] },
+    { "name": "dirty_only", "kind": "synthetic", "covers": "the save press only clears dirty", "verdict": "not_evaluated", "steps": [] },
+    { "name": "count_only", "kind": "synthetic", "covers": "only the record count matches after the reload", "verdict": "not_evaluated", "steps": [] },
+    { "name": "stale_token", "kind": "synthetic", "covers": "an old probe token is in the list and the read", "verdict": "not_evaluated", "steps": ["persistence_commit_http_observed"] },
+    { "name": "create_post_only", "kind": "synthetic", "covers": "only the first creating POST succeeded", "verdict": "not_evaluated", "steps": [] },
+    { "name": "autosave_only", "kind": "synthetic", "covers": "only an autosave while typing carried the token", "verdict": "not_evaluated", "steps": [] },
+    { "name": "late_response", "kind": "synthetic", "covers": "a request started before the press answers during the press", "verdict": "not_evaluated", "steps": [] },
+    { "name": "cross_origin", "kind": "synthetic", "covers": "the save went to another origin", "verdict": "not_evaluated", "steps": [] },
+    { "name": "other_resource", "kind": "synthetic", "covers": "the save went to a resource the read does not name", "verdict": "not_evaluated", "steps": ["persistence_commit_http_observed", "persistence_committed_surface_observed"] },
+    { "name": "readback_without_token", "kind": "synthetic", "covers": "the read after the reload has no token", "verdict": "not_evaluated", "steps": ["persistence_commit_http_observed", "persistence_committed_surface_observed"] },
+    { "name": "list_without_token", "kind": "synthetic", "covers": "the list after the reload has no token", "verdict": "not_evaluated", "steps": ["persistence_commit_http_observed", "persistence_committed_readback_observed"] },
+    { "name": "entry_only_after_reload", "kind": "synthetic", "covers": "the token is only inside a contenteditable after the reload", "verdict": "not_evaluated", "steps": ["persistence_commit_http_observed"] },
+    { "name": "preview_only", "kind": "synthetic", "covers": "only a preview of the local draft shows the token after the reload", "verdict": "not_evaluated", "steps": ["persistence_commit_http_observed", "persistence_committed_surface_observed"] },
+    { "name": "hidden_only", "kind": "synthetic", "covers": "the token is only in a hidden node after the reload", "verdict": "not_evaluated", "steps": ["persistence_commit_http_observed", "persistence_committed_readback_observed"] },
+    { "name": "local_storage_draft", "kind": "synthetic", "covers": "the save only writes local storage and the list renders it", "verdict": "not_evaluated", "steps": [] },
+    { "name": "http_4xx", "kind": "synthetic", "covers": "the save answers 409", "verdict": "not_evaluated", "steps": [] },
+    { "name": "http_5xx", "kind": "synthetic", "covers": "the save answers 500", "verdict": "not_evaluated", "steps": [] },
+    { "name": "request_failed", "kind": "synthetic", "covers": "the save request fails", "verdict": "not_evaluated", "steps": [] },
+    { "name": "reload_failed", "kind": "synthetic", "covers": "the reload fails", "verdict": "not_evaluated", "steps": [] },
+    { "name": "save_timeout", "kind": "synthetic", "covers": "the save never answers", "verdict": "not_evaluated", "steps": [] },
+    { "name": "token_before_entry", "kind": "synthetic", "covers": "the token was on the page before typing", "verdict": "not_evaluated", "steps": [] },
+    { "name": "url_echo", "kind": "synthetic", "covers": "the token is echoed in the page URL", "verdict": "not_evaluated", "steps": ["persistence_commit_http_observed"] },
+    { "name": "readback_exact_without_token", "kind": "synthetic", "covers": "D2: the read of the saved resource has lost the token and the page does not show it", "verdict": "reset", "steps": ["persistence_commit_http_observed"] }
+  ]
+}
