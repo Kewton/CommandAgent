@@ -41,14 +41,19 @@ fn confirms_recorded_two_step_callback() {
       })
       .catch(() => undefined);
 "#;
-    let page =
-        format!("useEffect(() => {{\n    submittedRef.current = true;\n{recorded}  }}, []);\n");
-    let start = page.find("fetch(").unwrap();
-    let end = page.find("\"PATCH\"").unwrap() + "\"PATCH\"".len();
-    assert_eq!(
-        check(&page, start, end, page.len()),
-        ResponseCheck::Confirmed
-    );
+    // The chain is the last statement of the effect, as in the record; a
+    // statement after it runs before the response arrives.
+    for (after, expected) in [
+        ("", ResponseCheck::Confirmed),
+        ("    setNotice(\"saved\");\n", ResponseCheck::Unconfirmed),
+    ] {
+        let page = format!(
+            "useEffect(() => {{\n    submittedRef.current = true;\n{recorded}{after}  }}, []);\n"
+        );
+        let start = page.find("fetch(").unwrap();
+        let end = page.find("\"PATCH\"").unwrap() + "\"PATCH\"".len();
+        assert_eq!(check(&page, start, end, page.len()), expected, "{after:?}");
+    }
 }
 
 #[test]
@@ -291,6 +296,11 @@ fn rejects_chains_that_do_not_prove_the_check() {
             "chain continues",
             ".then((reply) => { if (!reply.ok) throw new Error(); }).value",
         ),
+        (
+            "success on the failure branch",
+            ".then((r) => r.ok ? null : r.json())",
+        ),
+        ("logical and", ".then((r) => r.ok && r.json())"),
     ] {
         assert_eq!(
             verdict(&source(chain)),
@@ -326,6 +336,31 @@ fn rejects_chains_that_do_not_prove_the_check() {
                 "const probe = await fetch(\"/api/health\");\n{FETCH}.then((reply) => probe.ok ? reply.json() : null){GUARD_THEN};\n"
             ),
         ),
+        // An un-awaited chain does not hold back the statements after it.
+        (
+            "throw chain then success",
+            format!(
+                "{FETCH}\n  .then((reply) => {{ if (!reply.ok) throw new Error(\"x\"); }});\nsetNotice(\"saved\");\n"
+            ),
+        ),
+        (
+            "guarded sentinel chain then success",
+            format!(
+                "{FETCH}\n  .then((reply) => (reply.ok ? reply.json() : null))\n  .then((payload) => {{ if (!payload) return; setItems(payload.items); }});\nsetNotice(\"saved\");\n"
+            ),
+        ),
+        (
+            "throw chain then success inside a block",
+            format!(
+                "function save() {{\n  {FETCH}.then((reply) => {{ if (!reply.ok) throw new Error(); }})\n  setNotice(\"saved\")\n}}\n"
+            ),
+        ),
+        (
+            "throw chain in a comma expression",
+            format!(
+                "{FETCH}.then((reply) => {{ if (!reply.ok) throw new Error(); }}), setNotice(\"saved\");\n"
+            ),
+        ),
     ] {
         assert_eq!(verdict(&page), ResponseCheck::Unconfirmed, "{name}");
     }
@@ -349,7 +384,7 @@ fn leaves_fetches_without_a_direct_then_not_applicable() {
 #[test]
 fn judges_each_fetch_on_its_own() {
     let page = format!(
-        "{FETCH}.then((r) => {{ if (!r.ok) throw new Error(); }});\n{FETCH}.then((r) => r.json());\n{FETCH}.then((r) => r.ok ? r.json() : null){GUARD_THEN};\n"
+        "function a() {{\n  {FETCH}.then((r) => {{ if (!r.ok) throw new Error(); }});\n}}\nfunction b() {{\n  {FETCH}.then((r) => r.json());\n}}\nfunction c() {{\n  {FETCH}.then((r) => r.ok ? r.json() : null){GUARD_THEN};\n}}\n"
     );
     let verdicts = page
         .match_indices(NEEDLE)
@@ -375,11 +410,29 @@ fn rejects_truncated_or_unclosed_syntax() {
         format!("{FETCH}.then((r) => {{ if (!r.ok) throw new Error(); "),
         format!("{complete};\nconst s = `unclosed"),
         format!("{complete};\n/* unclosed"),
-        "fetch(\"/api/bookmarks\", { method: \"PATCH\" .then((r) => { if (!r.ok) throw new Error(); });"
-            .to_string(),
+        // A lone JSX backtick before the call stops the lexer, not the raw scan.
+        format!("const hint = <p>Press ` to open</p>;\n{complete};\n"),
     ] {
         assert_eq!(verdict(&page), ResponseCheck::Unconfirmed, "{page}");
     }
+    // When the call itself never closes, the old result applies unchanged.
+    let unclosed_call = "fetch(\"/api/bookmarks\", { method: \"PATCH\" .then((r) => { if (!r.ok) throw new Error(); });";
+    assert_eq!(verdict(unclosed_call), ResponseCheck::NotApplicable);
+}
+
+#[test]
+fn unlexable_file_keeps_fetches_without_then_not_applicable() {
+    // A lone backtick in JSX text stops the lexer for the whole file.
+    let tail = "\nexport function View() {\n  return <p>Press ` to open</p>;\n}\n";
+    for page in [
+        format!("const res = await {FETCH};\nif (!res.ok) return;\nload().then(setItems);{tail}"),
+        format!("return {FETCH};\nload().then(setItems);{tail}"),
+        format!("{FETCH} /* (.then) */;\nwindow.then = 1;{tail}"),
+    ] {
+        assert_eq!(verdict(&page), ResponseCheck::NotApplicable, "{page}");
+    }
+    let chained = format!("{FETCH}\n  // note\n  .then((r) => r.json());{tail}");
+    assert_eq!(verdict(&chained), ResponseCheck::Unconfirmed);
 }
 
 #[test]

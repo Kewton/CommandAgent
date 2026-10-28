@@ -125,6 +125,30 @@
       "code": "return PATCH_FETCH.then((reply) => (reply.ok ? reply.json() : null));"
     },
     {
+      "name": "un-awaited throw chain followed by success",
+      "expect": "reject",
+      "d2": "unconditional_success_after_sentinel",
+      "code": "PATCH_FETCH\n      .then((reply) => { if (!reply.ok) throw new Error(\"x\"); });\n    setNotice(\"saved\");"
+    },
+    {
+      "name": "un-awaited guarded sentinel chain followed by success",
+      "expect": "reject",
+      "d2": "unconditional_success_after_sentinel",
+      "code": "PATCH_FETCH\n      .then((reply) => (reply.ok ? reply.json() : null))\n      .then((payload) => { if (!payload) return; setItems(payload.items); });\n    setNotice(\"saved\");"
+    },
+    {
+      "name": "success on the failure branch",
+      "expect": "reject",
+      "d2": "both_branches_succeed",
+      "code": "PATCH_FETCH.then((r) => (r.ok ? null : r.json()));"
+    },
+    {
+      "name": "logical and instead of a ternary",
+      "expect": "reject",
+      "d2": "ok_ignored",
+      "code": "PATCH_FETCH.then((r) => r.ok && r.json());"
+    },
+    {
       "name": "return first then an unguarded then",
       "expect": "reject",
       "d2": "unconditional_success_after_sentinel",

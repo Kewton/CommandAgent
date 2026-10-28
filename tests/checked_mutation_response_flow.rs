@@ -199,6 +199,34 @@ fn recorded_guard_must_end_inside_the_4096_byte_window_around_utf8() {
 }
 
 #[test]
+fn unlexable_page_keeps_the_old_result_for_a_fetch_without_then() {
+    // A lone backtick in JSX text stops the token scan for the whole page; a
+    // fetch without `.then` keeps the assigned-`res.ok` result it had before.
+    let base = read(&format!("{CORPUS}/fixtures/synthetic/page.tsx"));
+    let jsx = "      <p>{notice}</p>";
+    assert_eq!(base.matches(jsx).count(), 1);
+    let page = base
+        .replacen(jsx, &format!("{jsx}\n      <p>Press ` to open</p>"), 1)
+        .replacen(
+            MARKER,
+            "    const res = await fetch(\"/api/bookmarks\", { method: \"POST\", body });\n    if (!res.ok) return;\n    load().then(setItems);",
+            1,
+        );
+    assert_accepted(synthetic_reports(&page), "unlexable page");
+    let chained = page.replacen(
+        "const res = await fetch(\"/api/bookmarks\", { method: \"POST\", body });",
+        "return fetch(\"/api/bookmarks\", { method: \"POST\", body }).then((r) => r.json());",
+        1,
+    );
+    let reason = "POST /api/bookmarks used by src/app/page.tsx does not check Response.ok";
+    assert_rejected(
+        synthetic_reports(&chained),
+        "unlexable chained page",
+        reason,
+    );
+}
+
+#[test]
 fn unchecked_reason_keeps_its_prefix_and_names_the_promise_forms() {
     let base = read(&format!("{CORPUS}/fixtures/recorded/page.tsx"));
     let page = base.replacen("        if (!data || data.ok !== true) return;\n", "", 1);

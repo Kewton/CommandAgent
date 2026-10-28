@@ -7,7 +7,9 @@
 //! cannot prove is `Unconfirmed`, and the caller must not fall back to a looser
 //! textual check for it.
 
-use super::{ResponseCheck, Tokens, lex};
+use super::{
+    ResponseCheck, Tokens, is_ident_byte, lex, skip_block_comment, skip_string, skip_template,
+};
 
 /// Where a failed Response leaves the chain after a link.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,10 +43,9 @@ pub(in super::super) fn check(
     if !rest.contains("then") {
         return ResponseCheck::NotApplicable;
     }
-    // Without the call structure a visible `.then` cannot be ruled out.
+    // Without tokens, only a raw `.then` right after the call is in scope.
     let unprovable = || {
-        let window = content.get(fetch_end..window_end).unwrap_or(rest);
-        if mentions_then(window) {
+        if raw_then_follows(content, fetch_start) {
             ResponseCheck::Unconfirmed
         } else {
             ResponseCheck::NotApplicable
@@ -74,9 +75,84 @@ pub(in super::super) fn check(
     }
 }
 
-fn mentions_then(text: &str) -> bool {
-    text.match_indices("then")
-        .any(|(at, _)| text[..at].trim_end().ends_with('.'))
+/// Whether the raw text after the `fetch(...)` call at `fetch_start` starts
+/// with `.then` or `?.then`, skipping strings, templates and comments inside
+/// the call. `false` when the call does not close by that scan.
+fn raw_then_follows(content: &str, fetch_start: usize) -> bool {
+    let bytes = content.as_bytes();
+    let Some(open) = content
+        .get(fetch_start..)
+        .and_then(|rest| rest.find('('))
+        .map(|offset| fetch_start + offset)
+    else {
+        return false;
+    };
+    let Some(close) = raw_close(bytes, open) else {
+        return false;
+    };
+    let mut index = skip_trivia(bytes, close + 1);
+    if bytes.get(index) == Some(&b'?') {
+        index += 1;
+    }
+    if bytes.get(index) != Some(&b'.') {
+        return false;
+    }
+    index = skip_trivia(bytes, index + 1);
+    bytes[index..].starts_with(b"then") && !bytes.get(index + 4).copied().is_some_and(is_ident_byte)
+}
+
+/// Index of the `)` that closes the `(` at `open` in raw text.
+fn raw_close(bytes: &[u8], open: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    let mut index = open;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'"' | b'\'' => {
+                index = skip_string(bytes, index)?;
+                continue;
+            }
+            b'`' => {
+                index = skip_template(bytes, index + 1)?;
+                continue;
+            }
+            b'/' if matches!(bytes.get(index + 1), Some(b'/' | b'*')) => {
+                index = skip_trivia(bytes, index);
+                continue;
+            }
+            b'(' | b'[' | b'{' => depth += 1,
+            byte @ (b')' | b']' | b'}') => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    return (byte == b')').then_some(index);
+                }
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    None
+}
+
+/// Skip whitespace and comments from `from`; an unclosed block comment runs
+/// to the end.
+fn skip_trivia(bytes: &[u8], from: usize) -> usize {
+    let mut index = from;
+    loop {
+        while bytes.get(index).is_some_and(u8::is_ascii_whitespace) {
+            index += 1;
+        }
+        match (bytes.get(index), bytes.get(index + 1)) {
+            (Some(b'/'), Some(b'/')) => {
+                while bytes.get(index).is_some_and(|byte| *byte != b'\n') {
+                    index += 1;
+                }
+            }
+            (Some(b'/'), Some(b'*')) => {
+                index = skip_block_comment(bytes, index + 2).unwrap_or(bytes.len());
+            }
+            _ => return index,
+        }
+    }
 }
 
 fn prove(tokens: &Tokens<'_>, fetch: usize, link: usize, window_end: usize) -> Option<()> {
@@ -116,9 +192,15 @@ fn prove(tokens: &Tokens<'_>, fetch: usize, link: usize, window_end: usize) -> O
         return None;
     }
     // A sentinel only stays contained when nothing awaits or uses the chain.
-    let discarded = statement_ends
-        && (tokens.is_statement_start(fetch)
-            || (tokens.is(fetch - 1, "void") && tokens.is_statement_start(fetch - 1)));
+    let discarded = tokens.is_statement_start(fetch)
+        || (tokens.is(fetch - 1, "void") && tokens.is_statement_start(fetch - 1));
+    // Statements after an un-awaited chain run before the response arrives,
+    // so the chain must close its block or the file.
+    let next = if tokens.is(at, ";") { at + 1 } else { at };
+    let last_statement = next >= tokens.list.len() || tokens.is(next, "}");
+    if discarded && !(statement_ends && last_statement) {
+        return None;
+    }
     let contained = match failure {
         Failure::Rejected => true,
         Failure::Sentinel { guarded } => guarded && discarded,
