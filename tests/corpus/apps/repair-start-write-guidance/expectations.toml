@@ -1,0 +1,49 @@
+case_id = "repair-start-write-guidance"
+source = "Issue #903 / IC-41 (G1 stage 3a): seeded step repairs read first and stop on two write_required rejections; the advisory moves the write guidance to the first request without changing enforcement"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["escalation_carryover", "write_required"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/recorded-sequences.jsonl = [
+  "\"kind\":\"recorded\"",
+  "\"pre_advanced\":true",
+  "\"initial_read_only_streak\":6",
+  "\"first_request_feedback\":\"not_recorded\"",
+  "Edit failed=edit_anchor_not_found",
+  "write_required_no_write_attempts=2"
+]
+fixtures/scripted-cases.json = [
+  "\"kind\": \"synthetic\"",
+  "\"id\": \"seeded-verify-repair-reads-only\"",
+  "\"id\": \"seeded-verify-repair-anchor-failures\"",
+  "\"id\": \"verify-repair-at-threshold-strong-feedback-wins\"",
+  "\"id\": \"sessions-without-carryover\""
+]
+
+[fixture_ordered]
+fixtures/recorded-sequences.jsonl = [
+  "seed initial_read_only_streak=6 pre_advanced=true",
+  "turn=1 Read executed",
+  "feedback stage=write_required read_only_streak=6",
+  "Read rejected attempts=1",
+  "Read rejected attempts=2",
+  "stop reason=model_stagnation:read_only_loop"
+]

@@ -148,9 +148,10 @@ impl ChatClient for ScriptedClient {
         _tools: &[ToolSpec],
         _native_tools_enabled: bool,
     ) -> anyhow::Result<AssistantReply> {
-        if let Some(last) = messages.last() {
-            self.prompts.lock().unwrap().push(last.content.clone());
-        }
+        self.prompts
+            .lock()
+            .unwrap()
+            .extend(messages.iter().map(|message| message.content.clone()));
         let mut replies = self.replies.lock().unwrap();
         if replies.is_empty() {
             anyhow::bail!("scripted client exhausted")
