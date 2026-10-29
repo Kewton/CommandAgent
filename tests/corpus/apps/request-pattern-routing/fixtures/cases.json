@@ -1,0 +1,82 @@
+{
+  "kind": "synthetic",
+  "issue": "#918",
+  "note": "Hand-authored jev answers replayed by a local mock server. No request text from the S-148a dataset is stored here; every case runs the same neutral synthetic request defined in tests/request_pattern_routing.rs.",
+  "threshold": 0.8,
+  "guidance_version": "v1",
+  "cases": [
+    {
+      "id": "answer-high",
+      "http_status": 200,
+      "body": "{\"model\":\"jev-1.14.0\",\"answers\":{\"work\":{\"choice\":\"ANSWER\",\"confidence\":0.99}}}",
+      "expect": {"adopted": true, "pattern": "ANSWER", "reason": "adopted", "confidence": 0.99, "model": "jev-1.14.0", "request_guidance_section": true}
+    },
+    {
+      "id": "create-high",
+      "http_status": 200,
+      "body": "{\"model\":\"jev-1.14.0\",\"answers\":{\"work\":{\"choice\":\"CREATE\",\"confidence\":1.0}}}",
+      "expect": {"adopted": true, "pattern": "CREATE", "reason": "adopted", "confidence": 1.0, "model": "jev-1.14.0", "request_guidance_section": true}
+    },
+    {
+      "id": "modify-high",
+      "http_status": 200,
+      "body": "{\"model\":\"jev-1.14.0\",\"answers\":{\"work\":{\"choice\":\"MODIFY\",\"confidence\":0.93}}}",
+      "expect": {"adopted": true, "pattern": "MODIFY", "reason": "adopted", "confidence": 0.93, "model": "jev-1.14.0", "request_guidance_section": true}
+    },
+    {
+      "id": "investigate-high",
+      "http_status": 200,
+      "body": "{\"model\":\"jev-1.14.0\",\"answers\":{\"work\":{\"choice\":\"INVESTIGATE\",\"confidence\":0.96}}}",
+      "expect": {"adopted": true, "pattern": "INVESTIGATE", "reason": "adopted", "confidence": 0.96, "model": "jev-1.14.0", "request_guidance_section": true}
+    },
+    {
+      "id": "at-threshold",
+      "http_status": 200,
+      "body": "{\"model\":\"jev-1.14.0\",\"answers\":{\"work\":{\"choice\":\"MODIFY\",\"confidence\":0.8}}}",
+      "expect": {"adopted": true, "pattern": "MODIFY", "reason": "adopted", "confidence": 0.8, "model": "jev-1.14.0", "request_guidance_section": true}
+    },
+    {
+      "id": "below-threshold",
+      "http_status": 200,
+      "body": "{\"model\":\"jev-1.14.0\",\"answers\":{\"work\":{\"choice\":\"MODIFY\",\"confidence\":0.59}}}",
+      "expect": {"adopted": false, "pattern": "default", "reason": "below_threshold", "confidence": 0.59, "model": "jev-1.14.0", "request_guidance_section": false}
+    },
+    {
+      "id": "http-500",
+      "http_status": 500,
+      "body": "{\"error\":\"internal\"}",
+      "expect": {"adopted": false, "pattern": "default", "reason": "http_error", "confidence": null, "model": null, "request_guidance_section": false}
+    },
+    {
+      "id": "broken-json",
+      "http_status": 200,
+      "body": "{\"model\":\"jev-1.14.0\",\"answers\":{\"work\":",
+      "expect": {"adopted": false, "pattern": "default", "reason": "parse_error", "confidence": null, "model": null, "request_guidance_section": false}
+    },
+    {
+      "id": "unknown-label",
+      "http_status": 200,
+      "body": "{\"model\":\"jev-1.14.0\",\"answers\":{\"work\":{\"choice\":\"DEPLOY\",\"confidence\":0.99}}}",
+      "expect": {"adopted": false, "pattern": "default", "reason": "unknown_label", "confidence": 0.99, "model": "jev-1.14.0", "request_guidance_section": false}
+    },
+    {
+      "id": "timeout",
+      "http_status": 200,
+      "delay_ms": 1500,
+      "body": "{\"model\":\"jev-1.14.0\",\"answers\":{\"work\":{\"choice\":\"CREATE\",\"confidence\":1.0}}}",
+      "expect": {"adopted": false, "pattern": "default", "reason": "timeout", "confidence": null, "model": null, "request_guidance_section": false}
+    },
+    {
+      "id": "missing-key",
+      "no_key": true,
+      "expect": {"adopted": false, "pattern": "default", "reason": "missing_key", "confidence": null, "model": null, "request_guidance_section": false}
+    },
+    {
+      "id": "offline",
+      "offline": true,
+      "http_status": 200,
+      "body": "{\"model\":\"jev-1.14.0\",\"answers\":{\"work\":{\"choice\":\"CREATE\",\"confidence\":1.0}}}",
+      "expect": {"adopted": false, "pattern": "default", "reason": "offline", "confidence": null, "model": null, "request_guidance_section": false}
+    }
+  ]
+}

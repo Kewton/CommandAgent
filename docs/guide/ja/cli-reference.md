@@ -22,7 +22,7 @@
 [排他関係と組み合わせ](#排他関係と組み合わせ)を参照してください。
 
 Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリケーション固有の
-67 フラグには含めません。非表示の `--completion-contract-json <PATH>` は内部連携用であり、
+68 フラグには含めません。非表示の `--completion-contract-json <PATH>` は内部連携用であり、
 公開ユーザーフラグではありません。
 
 ## フラグ一覧
@@ -49,6 +49,7 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 | `--prompt-layout` | `<stable\|legacy>` | `legacy` | A/B 測定用のプロンプトセクション順序を選びます。 | [解決の優先順位](configuration.md#解決の優先順位) |
 | `--plan-preset` | `<profile\|none>` | 通常は `none`。明示的な `data` の fix/investigate では `profile` | planner 層の UltraPlan preset 選択を上書きします。`data/fix` は F1–F3 ステップを合成でき、`nextjs/fix` は none 相当のままです。 | [解決の優先順位](configuration.md#解決の優先順位) |
 | `--intent` | `<create\|fix\|investigate>` | ゴールから推論 | ゴールに基づく解決ではなく intent を固定します。 | [例](#例) |
+| `--request-pattern` | `<off\|jev>` | オフ | direct の `--prompt` の依頼を TypeSafe jev（鍵は JEV_API_KEY）で判定し、依頼の進め方の案内を足します。既定はオフです。 | [設定](configuration.md#トップレベルキー) |
 | `--workflow` | `<PATH>` | なし | 宣言的な workflow-circle 定義を実行します。`--intent` とは排他です。 | [例](#例) |
 | `--origin` | `<PATH>` | なし | `--workflow` に、既存の失敗した origin run のワークスペースを渡します。 | [例](#例) |
 | `--planner-model` | `<PLANNER_MODEL>` | プロバイダが同じなら実行モデル | planner モデル ID を設定します。planner と実行のプロバイダが異なる場合は必須です。 | [プロバイダの役割](providers.md#プロバイダ対応表) |

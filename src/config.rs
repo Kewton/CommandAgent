@@ -54,6 +54,8 @@ pub const SUPPORTED_TOP_LEVEL_KEYS: &[&str] = &[
     "stream",
     "prompt_layout",
     "plan_preset",
+    "request_pattern",
+    "request_pattern_threshold",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1102,7 +1104,7 @@ fn legacy_config_file_value<T>(
     None
 }
 
-fn config_paths(root: &Path) -> Vec<PathBuf> {
+pub(crate) fn config_paths(root: &Path) -> Vec<PathBuf> {
     let mut paths = vec![
         root.join(".commandagent").join("config.toml"),
         root.join(".anvil").join("config.toml"),
@@ -1330,6 +1332,9 @@ fn parse_top_level_key(
             ));
             Ok(())
         }
+        "request_pattern" | "request_pattern_threshold" => {
+            crate::minimal_loop::request_pattern::check_config_value(path, line_no, key, value)
+        }
         _ => unreachable!("SUPPORTED_TOP_LEVEL_KEYS contains unhandled key '{key}'"),
     }
 }
@@ -1374,7 +1379,7 @@ pub(crate) fn configured_extension_root(root: &Path) -> anyhow::Result<Option<Pa
     Ok(None)
 }
 
-fn strip_toml_comment(line: &str) -> &str {
+pub(crate) fn strip_toml_comment(line: &str) -> &str {
     let mut quoted = false;
     let mut escaped = false;
     for (index, ch) in line.char_indices() {
@@ -1392,7 +1397,7 @@ fn strip_toml_comment(line: &str) -> &str {
     line
 }
 
-fn parse_string_value(
+pub(crate) fn parse_string_value(
     path: &Path,
     line_no: usize,
     key: &str,

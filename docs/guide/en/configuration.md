@@ -173,7 +173,7 @@ the 11-key early-stop condition.
 
 ## Top-level keys
 
-Only six keys are valid at the top level of a `config.toml` file:
+Only eight keys are valid at the top level of a `config.toml` file:
 
 | Key | Accepted value | Matching CLI override |
 | --- | --- | --- |
@@ -183,6 +183,8 @@ Only six keys are valid at the top level of a `config.toml` file:
 | `stream` | `"on"` or `"off"` | `--stream` |
 | `prompt_layout` | `"stable"` or `"legacy"` | `--prompt-layout` |
 | `plan_preset` | `"none"` or `"profile"` | `--plan-preset` |
+| `request_pattern` | `"off"` or `"jev"`; jev classifies a direct `--prompt` request to add request guidance | `--request-pattern` |
+| `request_pattern_threshold` | number from `0` to `1` (default `0.8`); a lower jev confidence adds no guidance | none |
 
 ```toml
 extension_root = "extensions"

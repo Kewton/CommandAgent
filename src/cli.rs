@@ -66,6 +66,12 @@ pub enum IntentArg {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum RequestPatternArg {
+    Off,
+    Jev,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum RunEventFilterArg {
     Phase,
     Tool,
@@ -265,6 +271,14 @@ pub struct Cli {
         help = "Force intent instead of goal-based resolution."
     )]
     pub intent: Option<IntentArg>,
+    #[arg(
+        long,
+        value_enum,
+        value_name = "off|jev",
+        help_heading = "Planning and Verification",
+        help = "Classify a direct `--prompt` request with TypeSafe jev (key from JEV_API_KEY) to add request guidance. Default off."
+    )]
+    pub request_pattern: Option<RequestPatternArg>,
     #[arg(
         long,
         conflicts_with = "intent",

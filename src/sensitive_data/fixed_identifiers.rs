@@ -255,6 +255,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "repair_start_write_guidance_queued",
     "repair_target_reclassified",
     "repair_unreachable",
+    "request_pattern_resolved",
     "resume_start",
     "route_confirmed",
     "route_proposed",

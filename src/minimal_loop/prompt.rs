@@ -9,6 +9,14 @@ pub enum ToolPromptMode {
     XmlFallback,
 }
 
+/// The optional system prompt blocks: the profile guidance and, for a direct
+/// prompt run that adopted a request pattern (Issue #918), the request guidance.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PromptGuidance<'a> {
+    pub profile: Option<&'a str>,
+    pub request: Option<&'a str>,
+}
+
 pub fn build_request_messages(
     history: &[ConversationMessage],
     tools: &[ToolSpec],
@@ -17,12 +25,30 @@ pub fn build_request_messages(
     profile_guidance: Option<&str>,
     mode: ToolPromptMode,
 ) -> Vec<ConversationMessage> {
-    let mut messages = Vec::new();
-    messages.push(ConversationMessage::system(system_prompt(
+    build_guided_request_messages(
+        history,
         tools,
         root,
-        profile_guidance,
+        pending_feedback,
+        PromptGuidance {
+            profile: profile_guidance,
+            request: None,
+        },
         mode,
+    )
+}
+
+pub fn build_guided_request_messages(
+    history: &[ConversationMessage],
+    tools: &[ToolSpec],
+    root: &Path,
+    pending_feedback: Option<&str>,
+    guidance: PromptGuidance<'_>,
+    mode: ToolPromptMode,
+) -> Vec<ConversationMessage> {
+    let mut messages = Vec::new();
+    messages.push(ConversationMessage::system(system_prompt(
+        tools, root, guidance, mode,
     )));
     messages.extend(history.iter().map(sanitize_history_message_for_request));
     if let Some(feedback) = pending_feedback {
@@ -34,7 +60,7 @@ pub fn build_request_messages(
 fn system_prompt(
     tools: &[ToolSpec],
     root: &Path,
-    profile_guidance: Option<&str>,
+    guidance: PromptGuidance<'_>,
     mode: ToolPromptMode,
 ) -> String {
     let tools = tools
@@ -52,8 +78,12 @@ Tools:\n{}",
         root.display(),
         tools
     );
-    if let Some(guidance) = profile_guidance {
+    if let Some(guidance) = guidance.profile {
         prompt.push_str("\n\nProfile guidance:\n");
+        prompt.push_str(guidance);
+    }
+    if let Some(guidance) = guidance.request {
+        prompt.push_str("\n\nRequest guidance:\n");
         prompt.push_str(guidance);
     }
     if mode == ToolPromptMode::XmlFallback {

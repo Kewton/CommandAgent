@@ -40,7 +40,7 @@ use super::evidence::{RuntimeAcceptanceReport, verify_runtime_acceptance};
 use super::execution_progress::{ExecutionProgress, ExecutionProgressTracker};
 use super::import_scan::{format_missing_import_feedback, scan_relative_imports};
 use super::post_write_completion::PostWriteCompletionTracker;
-use super::prompt::{ToolPromptMode, build_request_messages};
+use super::prompt::{ToolPromptMode, build_guided_request_messages};
 use super::reachability::{
     RepairReachability, assess_repair_reachability_at_root, reachability_failure_kind,
     reachability_recovery_reason,
@@ -647,12 +647,12 @@ pub(crate) fn run_session_with_outcome_with_options(
                 }),
             );
             fresh_retry_messages = vec![ConversationMessage::user(user_prompt.to_string())];
-            build_request_messages(
+            build_guided_request_messages(
                 &fresh_retry_messages,
                 &specs,
                 &config.workspace_root,
                 None,
-                profile_guidance.as_deref(),
+                options.prompt_guidance(profile_guidance.as_deref()),
                 if native_tools_enabled {
                     ToolPromptMode::Native
                 } else {
@@ -660,12 +660,12 @@ pub(crate) fn run_session_with_outcome_with_options(
                 },
             )
         } else {
-            build_request_messages(
+            build_guided_request_messages(
                 &session.messages,
                 &specs,
                 &config.workspace_root,
                 pending_feedback.as_deref(),
-                profile_guidance.as_deref(),
+                options.prompt_guidance(profile_guidance.as_deref()),
                 if native_tools_enabled {
                     ToolPromptMode::Native
                 } else {
