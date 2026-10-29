@@ -1,0 +1,44 @@
+case_id = "requested-artifact-code-expressions"
+source = "Issue #905 / IC-46: backticked code expressions and quoted dates in the e-mid instruction were extracted as requested artifact paths; only free-text backtick inference is narrowed, explicit declarations and path safety stay as they were"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["step_obligation_scope", "prompt_extracted_paths"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/recorded/runs.jsonl = [
+  "\"kind\":\"recorded\"",
+  "\"campaign\":\"L-142\"",
+  "\"source_code\":\"a520c084\"",
+  "\"prompt_extracted_paths\":[\"dates.py\",\"parse_date(\\\"03/04/2026\\\")\",\"\\\"31/12/2026\\\"\",\"tests/test_dates.py\"]",
+  "\"stop_reason\":\"artifact_follow_through_exhausted\"",
+  "\"stop_reason\":\"required_artifacts_satisfied_after_tool\""
+]
+fixtures/synthetic/cases.json = [
+  "\"kind\": \"synthetic\"",
+  "\"id\": \"e-mid-instruction\"",
+  "\"id\": \"backticked-code-or-data\"",
+  "\"id\": \"backticked-real-paths\"",
+  "\"id\": \"backticked-route-segments\"",
+  "\"id\": \"backticked-brackets-outside-route-segments\"",
+  "\"id\": \"required-final-artifacts-block\"",
+  "\"id\": \"explicit-and-contract-paths\"",
+  "\"id\": \"scripted-e-mid-fixed\"",
+  "\"id\": \"scripted-e-mid-source-missing\""
+]
