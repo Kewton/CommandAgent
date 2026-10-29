@@ -87,6 +87,45 @@ fn other_python_commands_stay_weak() {
     }
 }
 
+fn plan_with_owned(owned: &str, command: &str) -> StepPlan {
+    StepPlan {
+        goal: "Create the Python word counter topwords.py.".into(),
+        steps: vec![
+            step("implement-topwords", "implement", &["topwords.py"], &[]),
+            step("implement-check", "implement", &[owned], &[]),
+            step("verify-topwords", "verify", &[], &[command]),
+        ],
+    }
+}
+
+#[test]
+fn plan_created_files_that_are_not_py_scripts_stay_weak() {
+    for owned in ["check.sh", "data.txt", "checker"] {
+        let command = format!("python3 {owned}");
+        let plan = plan_with_owned(owned, &command);
+        assert!(!runs_plan_script(&plan, &command), "{command}");
+        let report = step_plan_quality_report(&plan, &PlanQualityContext::default());
+        let issue = report
+            .issues
+            .iter()
+            .find(|issue| issue.category == WEAK)
+            .unwrap_or_else(|| panic!("{command}: {report:?}"));
+        assert_eq!(
+            issue.message, "code task lacks test, build, smoke, or compile verification",
+            "{command}"
+        );
+    }
+}
+
+#[test]
+fn plan_paths_outside_the_workspace_stay_weak() {
+    for owned in ["../smoke_check.py", "/abs/smoke_check.py"] {
+        let command = format!("python3 {owned}");
+        let plan = plan_with_owned(owned, &command);
+        assert!(!runs_plan_script(&plan, &command), "{command}");
+    }
+}
+
 #[test]
 fn only_implement_and_setup_paths_count() {
     let command = "python3 smoke_check.py";
