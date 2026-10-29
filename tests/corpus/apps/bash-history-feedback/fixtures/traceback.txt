@@ -1,0 +1,20 @@
+Traceback (most recent call last):
+  File "app/report.py", line 112, in <module>
+    main(sys.argv[1:])
+  File "app/report.py", line 104, in main
+    rows = load_rows(args.input)
+  File "app/report.py", line 61, in load_rows
+    return [parse_row(line) for line in handle]
+  File "app/report.py", line 61, in <listcomp>
+    return [parse_row(line) for line in handle]
+  File "app/report.py", line 48, in parse_row
+    ratio = summarize(values)
+  File "app/stats.py", line 27, in summarize
+    return total(values) / count(values)
+  File "app/stats.py", line 19, in total
+    return sum(normalize(value) for value in values)
+  File "app/stats.py", line 19, in <genexpr>
+    return sum(normalize(value) for value in values)
+  File "app/stats.py", line 12, in normalize
+    return value / scale
+ZeroDivisionError: division by zero

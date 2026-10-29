@@ -1,0 +1,56 @@
+[
+  {
+    "case": "python-traceback-after-long-stdout",
+    "stdout_pad_lines": 300,
+    "stdout_files": [],
+    "stderr_files": ["traceback.txt"],
+    "exit_code": 1,
+    "outcome": "CommandFailed",
+    "must_contain": [
+      "Traceback (most recent call last):\n",
+      "  File \"app/stats.py\", line 12, in normalize\n    return value / scale\nZeroDivisionError: division by zero"
+    ],
+    "last_line": "ZeroDivisionError: division by zero"
+  },
+  {
+    "case": "compiler-diagnostic-after-long-stdout",
+    "stdout_pad_lines": 200,
+    "stdout_files": [],
+    "stderr_files": ["compiler.txt"],
+    "exit_code": 101,
+    "outcome": "CommandFailed",
+    "must_contain": [
+      "   Compiling calc v0.1.0\n",
+      "21 |         return 0;\n   |                ^ expected `f64`, found integer",
+      "error: could not compile `calc` (lib) due to 1 previous error; 1 warning emitted"
+    ],
+    "last_line": "error: could not compile `calc` (lib) due to 1 previous error; 1 warning emitted"
+  },
+  {
+    "case": "successful-cat-indentation",
+    "stdout_pad_lines": 0,
+    "stdout_files": ["inventory.py"],
+    "stderr_files": [],
+    "exit_code": 0,
+    "outcome": "Success",
+    "must_contain": [
+      "    def add(self, name, quantity=1, tags=None):\n        if quantity <= 0:\n            raise ValueError(\"quantity must be positive\")",
+      "            for tag in tags:\n                if tag not in item.tags:\n                    item.tags.append(tag)",
+      "        except ValueError:\n            continue\n    return inventory"
+    ],
+    "last_line": "    return inventory"
+  },
+  {
+    "case": "successful-cat-over-budget",
+    "stdout_pad_lines": 0,
+    "stdout_files": ["inventory.py", "inventory.py", "inventory.py"],
+    "stderr_files": [],
+    "exit_code": 0,
+    "outcome": "Success",
+    "must_contain": [
+      "\"\"\"Inventory helpers used to exercise indentation in Bash history.\"\"\"\n\nfrom dataclasses import dataclass, field",
+      "        except ValueError:\n            continue\n    return inventory"
+    ],
+    "last_line": "    return inventory"
+  }
+]

@@ -4,8 +4,14 @@
 //! sent to the model. `Read` is the one tool whose result is the model's only
 //! view of a file, so it keeps its line breaks and its content up to an
 //! explicit byte budget instead of the 500-character flattened snippet.
+//! `Bash` is the model's only view of a command's diagnostics, so it keeps its
+//! line breaks and the head and tail of each stream up to a smaller budget
+//! (see the `bash` module). Every other tool keeps the flattened snippet.
+
+mod bash;
 
 const READ_TOOL_NAME: &str = "Read";
+const BASH_TOOL_NAME: &str = "Bash";
 
 /// Upper bound, in UTF-8 bytes, of a stored `Read` result including the path
 /// line, the body and the truncation notice.
@@ -16,10 +22,11 @@ const TRUNCATION_NOTICE: &str = "[commandagent: read result truncated in history
 /// Bounded history content for a tool result produced by `name`.
 ///
 /// `name` is `None` for a message that carries no tool name. Only a tool named
-/// exactly `Read` gets the larger, line-preserving policy.
+/// exactly `Read` or `Bash` gets a line-preserving policy.
 pub(crate) fn history_content(name: Option<&str>, content: &str) -> String {
     match name {
         Some(READ_TOOL_NAME) => read_history_content(content),
+        Some(BASH_TOOL_NAME) => bash::bash_history_content(content),
         _ => crate::eval_events::body_snippet_whole_tokens(content),
     }
 }
@@ -185,8 +192,8 @@ mod tests {
     fn other_tools_and_missing_names_keep_the_flattened_snippet() {
         let input = format!("line one\nline two {}", "w ".repeat(600));
         let expected = crate::eval_events::body_snippet_whole_tokens(&input);
+        // `Bash` has its own line-preserving policy (`bash` module).
         for name in [
-            Some("Bash"),
             Some("Write"),
             Some("Edit"),
             Some("Grep"),
