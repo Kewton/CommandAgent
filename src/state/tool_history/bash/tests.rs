@@ -416,10 +416,50 @@ fn layout_scrub_matches_the_event_scrub_except_whitespace_on_issue504_inputs() {
     const E1: &str = "H09_MODEL_Only_In_ENV_19832";
     const MULTILINE: &str = "H05_NEWLINE_alpha\nH05_NEWLINE_beta";
     const PLAIN: &str = "plain-secret-value-123";
+    const BAD_BASE_URL_VALUE: &str = "http://bad host/\u{1F600}";
+    const ENV_MODEL_VALUE: &str = "H05_MODEL_Only_In_ENV_19832";
+    const PROVIDER_KEY_VALUE: &str = "H06_PROVIDER_EXTRA_4821";
+    // Shorter than the generic minimum or a fixed identifier: `register` may
+    // drop them, and both scrubs must then agree on leaving them.
+    const FIXED_VALUE: &str = "run_start";
+    const COMPATIBLE_SHORT_VALUE: &str = "日本語";
     let _scope = ScopeGuard::install(&[
-        C1, C2, C3, C4, C5, C6_EVENT, C6_ADJ, C6_SCHEMA, C7, C9, E1, MULTILINE, PLAIN,
+        C1,
+        C2,
+        C3,
+        C4,
+        C5,
+        C6_EVENT,
+        C6_ADJ,
+        C6_SCHEMA,
+        C7,
+        C9,
+        E1,
+        MULTILINE,
+        PLAIN,
+        BAD_BASE_URL_VALUE,
+        ENV_MODEL_VALUE,
+        PROVIDER_KEY_VALUE,
+        FIXED_VALUE,
+        COMPATIBLE_SHORT_VALUE,
     ]);
+    let combined_env = (0..8)
+        .map(|index| format!("SECRET_{index:04}=H06_COMBINED_VALUE_{index:04}_only\n"))
+        .collect::<String>();
     let inputs = [
+        format!(
+            "[preset.bad]\nmodel = \"issue504-model\"\nprovider = \"openai-compatible\"\nbase_url = \"{BAD_BASE_URL_VALUE}\"\n"
+        ),
+        format!("invalid base-url {BAD_BASE_URL_VALUE}: relative URL without a base"),
+        format!("[preset.review]\nprovider = \"ollama\"\nmodel = \"{ENV_MODEL_VALUE}\"\n"),
+        format!("model {ENV_MODEL_VALUE} selected"),
+        format!("OPENAI_API_KEY={PROVIDER_KEY_VALUE}\n{combined_env}"),
+        format!("[preset.bad]\nmodel = \"{FIXED_VALUE}\"\nprovider = \"ollama\"\n"),
+        format!("fixed identifier {FIXED_VALUE} refused; event run_start"),
+        format!(
+            "[preset.gateway]\nmodel = \"executor\"\nbase_url = \"https://gateway.example.test/v1\"\napi_key = \"{COMPATIBLE_SHORT_VALUE}\"\n"
+        ),
+        format!("value {COMPATIBLE_SHORT_VALUE} is shorter than 8 characters"),
         format!("compiling {C1}\nmid {C2}\n{C4}\nwarning: none\n"),
         format!("npm run build --token {C1} --user {C2}"),
         format!("{C1}\n"),
@@ -459,7 +499,20 @@ fn layout_scrub_matches_the_event_scrub_except_whitespace_on_issue504_inputs() {
                 collapse_whitespace(&event),
                 "{text}"
             );
-            for value in [C1, C2, C3, E1, PLAIN, "sk-live", "AIzaKey", "alice", "bob"] {
+            for value in [
+                C1,
+                C2,
+                C3,
+                E1,
+                PLAIN,
+                BAD_BASE_URL_VALUE,
+                ENV_MODEL_VALUE,
+                PROVIDER_KEY_VALUE,
+                "sk-live",
+                "AIzaKey",
+                "alice",
+                "bob",
+            ] {
                 assert!(!layout.contains(value), "{value}: {layout}");
             }
         }
@@ -475,5 +528,117 @@ fn layout_scrub_matches_the_event_scrub_except_whitespace_on_issue504_inputs() {
                 .count(),
             indented.matches('\t').count()
         );
+    }
+}
+
+const FINAL_EXCEPTION: &str = "ZeroDivisionError: division by zero";
+
+/// A traceback whose frame path contains `/`, so a second scrub that looked
+/// past a cut for a home path's closing `/` would reach it.
+fn traceback_with_slash() -> String {
+    format!(
+        "{}\nTraceback (most recent call last):\n  File \"/app/calc.py\", line 88, in total\n    return sum(values) / count\n{FINAL_EXCEPTION}",
+        "E".repeat(3_000)
+    )
+}
+
+/// A long single line with a home path at `offset`.
+fn line_with_home_path(offset: usize) -> String {
+    format!(
+        "{} /Users/alice/proj/data.csv {}",
+        "x".repeat(offset),
+        "y".repeat(6_000)
+    )
+}
+
+/// No user name, no path made from a cut, and the budget holds.
+fn assert_no_home_path_damage(stored: &str, context: &str) {
+    assert_bounded(stored);
+    assert!(!stored.contains("alice"), "{context}: {stored}");
+    assert!(!stored.contains("<user>/app"), "{context}: {stored}");
+    assert!(
+        stored.contains("File \"/app/calc.py\""),
+        "{context}: {stored}"
+    );
+    assert!(stored.ends_with(BASH_TRUNCATION_NOTICE), "{context}");
+}
+
+#[test]
+fn a_cut_inside_a_home_path_never_merges_streams_or_makes_a_path() {
+    for offset in 500..=800 {
+        let input = formatted(
+            BashOutcomeKind::CommandFailed,
+            "exit status: 1",
+            &line_with_home_path(offset),
+            &traceback_with_slash(),
+        );
+        let stored = bash_history_content(&input);
+        let context = format!("offset {offset}");
+        assert_no_home_path_damage(&stored, &context);
+        assert_eq!(stored.matches("\nstderr:\n").count(), 1, "{context}");
+        assert!(
+            stored.contains("bytes of stdout omitted in history]"),
+            "{context}"
+        );
+        let heading = stored.find("\nstderr:\n").unwrap();
+        let exception = stored.find(FINAL_EXCEPTION).unwrap();
+        assert!(heading < exception, "{context}: {stored}");
+        assert_eq!(stored.matches(FINAL_EXCEPTION).count(), 1, "{context}");
+        assert_eq!(bash_history_content(&stored), stored, "{context}");
+    }
+}
+
+#[test]
+fn a_cut_inside_a_home_path_of_an_unknown_shape_keeps_the_omission_line() {
+    for offset in 1_100..=1_500 {
+        let input = format!(
+            "combined_outcome: CommandFailed\n{}\n{}",
+            line_with_home_path(offset),
+            traceback_with_slash()
+        );
+        let stored = bash_history_content(&input);
+        let context = format!("offset {offset}");
+        assert_no_home_path_damage(&stored, &context);
+        assert!(stored.starts_with("combined_outcome: CommandFailed\n"));
+        assert!(
+            stored.contains("bytes of output omitted in history]"),
+            "{context}"
+        );
+        assert!(
+            stored.ends_with(&format!("{FINAL_EXCEPTION}\n{BASH_TRUNCATION_NOTICE}")),
+            "{context}: {stored}"
+        );
+        assert_eq!(bash_history_content(&stored), stored, "{context}");
+    }
+}
+
+#[test]
+fn a_cut_inside_a_home_path_in_long_metadata_keeps_both_stream_headings() {
+    for offset in 550..=800 {
+        let mut input = formatted(
+            BashOutcomeKind::CommandFailed,
+            "exit status: 1",
+            &numbered_lines("o", 100),
+            &traceback_with_slash(),
+        );
+        input = input.replacen(
+            "summary: command failed",
+            &format!(
+                "summary: {} /Users/alice/proj/data.csv {}",
+                "s".repeat(offset),
+                "z".repeat(1_000)
+            ),
+            1,
+        );
+        let stored = bash_history_content(&input);
+        let context = format!("offset {offset}");
+        assert_no_home_path_damage(&stored, &context);
+        assert!(stored.starts_with("outcome: CommandFailed\nstatus: exit status: 1\n"));
+        assert_eq!(stored.matches("\nstdout:\n").count(), 1, "{context}");
+        assert_eq!(stored.matches("\nstderr:\n").count(), 1, "{context}");
+        let heading = stored.find("\nstderr:\n").unwrap();
+        assert!(heading < stored.find(FINAL_EXCEPTION).unwrap(), "{context}");
+        assert!(stored.contains("o line 0000"), "{context}");
+        assert_eq!(bash_history_content(&stored), stored, "{context}");
     }
 }

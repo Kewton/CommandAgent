@@ -29,6 +29,8 @@ pub(crate) const BASH_TRUNCATION_NOTICE: &str =
 const METADATA_PREFIXES: [&str; 4] = ["outcome: ", "status: ", "elapsed_ms: ", "summary: "];
 const STDOUT_HEADING: &str = "stdout:\n";
 const STDERR_SEPARATOR: &str = "\nstderr:\n";
+/// The home-directory prefixes whose user name is redacted.
+const HOME_PREFIXES: [&str; 2] = ["/Users/", "/home/"];
 
 /// Bounded, line-preserving history content for a `Bash` result.
 ///
@@ -103,7 +105,7 @@ fn push_token(out: &mut String, token: &str, marker: &str) {
 /// redact it.
 fn redact_home_paths(value: &str) -> String {
     let mut out = value.to_string();
-    for prefix in ["/Users/", "/home/"] {
+    for prefix in HOME_PREFIXES {
         let mut search_from = 0usize;
         while let Some(relative_start) = out[search_from..].find(prefix) {
             let name_start = search_from + relative_start + prefix.len();
@@ -221,10 +223,29 @@ fn cut_head(text: &str, budget: usize) -> &str {
     if end == text.len() {
         return head;
     }
-    match head.rfind('\n') {
+    let mut head = match head.rfind('\n') {
         Some(newline) if newline >= end / 2 => &head[..newline],
         _ => head,
+    };
+    // A cut inside `/Users/<name>` would let the second scrub look for the
+    // name's closing `/` past the cut, across the omission line and stream
+    // headings, and replace all of it. Cut before such a path instead.
+    while let Some(start) = open_home_path(head) {
+        head = &head[..start];
     }
+    head
+}
+
+/// The start of a home-path prefix in `text` whose name has no closing `/`
+/// inside `text`. Only the last occurrence of each prefix can be open.
+fn open_home_path(text: &str) -> Option<usize> {
+    HOME_PREFIXES
+        .iter()
+        .filter_map(|prefix| {
+            let start = text.rfind(prefix)?;
+            (!text[start + prefix.len()..].contains('/')).then_some(start)
+        })
+        .min()
 }
 
 /// The longest suffix of `text` within `budget` bytes that starts on a char
