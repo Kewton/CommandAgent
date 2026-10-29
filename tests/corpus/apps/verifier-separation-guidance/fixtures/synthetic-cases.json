@@ -1,6 +1,6 @@
 {
   "kind": "synthetic",
-  "note": "Hand-authored. template_splits names the verifier script of each recorded mixed owner; tests/verifier_separation_guidance.rs applies the accepted owner split (role sentence + 'Original requirement context:' + the complete original instruction, original expected_result, owner checks moved unchanged to a later Verify) to the recorded original_scope. Admission accepts every split on attempt 2; after_admission is what the unchanged quality gate does next (quality_retry: the recorded check itself is weak, so the shared budget continues). cases lists the synthetic Replay cases in src/planner/recovery_step_plan_binding/issue466_tests/formation.rs.",
+  "note": "Hand-authored. template_splits names the verifier script of each recorded mixed owner; tests/verifier_separation_guidance.rs applies the accepted owner split (role sentence + 'Original requirement context:' + the complete original instruction, original expected_result, owner checks moved unchanged to a later Verify) to the recorded original_scope. Admission accepts every split on attempt 2; after_admission is what the quality gate does next (ready: no quality retry; since #908 the Python verifier script a split Implement step creates counts as strong verification, like node smoke-check.js). cases lists the synthetic Replay cases in src/planner/recovery_step_plan_binding/issue466_tests/formation.rs.",
   "template_splits": [
     {
       "recorded": "recorded-Aa-med-a-mid",
@@ -23,13 +23,13 @@
     {
       "recorded": "recorded-Aa-med-b-mid",
       "verifier_path": "smoke-check.py",
-      "after_admission": "quality_retry",
+      "after_admission": "ready",
       "admitted_step_ids": ["implement-topwords-verifier", "implement-topwords", "verify-topwords"]
     },
     {
       "recorded": "recorded-C3-c-mid",
       "verifier_path": "test_csv2jsonl.py",
-      "after_admission": "quality_retry",
+      "after_admission": "ready",
       "admitted_step_ids": ["inspect-products-csv", "implement-converter-and-contract-test-verifier", "implement-converter-and-contract-test", "verify-converter-contract"]
     }
   ],

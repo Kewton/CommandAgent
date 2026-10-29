@@ -6,6 +6,6 @@
   "fixture_sha256": {
     "recorded-admissions.jsonl": "5f6821639510e4a65afe1293decc68f08677fb1e1ad9b25c04e329ed2f8e3973",
     "recorded-attempts.jsonl": "2de92c9445d151b383948291d8ad7b57eceb11de5e4aedbb1a2a37f9907a62e6",
-    "synthetic-cases.json": "f8a16ad176049d53fcae65070783e3414a046d2b9e90587c3259ee66a758db15"
+    "synthetic-cases.json": "c0af0492eaebf8771176fafa67c4ae6cc4b889989a5f8f70137569a7ebb90fe8"
   }
 }
