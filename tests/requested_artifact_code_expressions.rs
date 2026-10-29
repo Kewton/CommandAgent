@@ -233,20 +233,15 @@ fn fixed_source_completes_without_quoted_example_obligations() {
         ],
     );
 
-    assert_eq!(
-        run.result.as_deref(),
-        Ok("required artifacts satisfied: dates.py, tests/test_dates.py")
-    );
+    // Issue #913: both requested paths existed at the start, so the run ends
+    // on the model's final answer rather than right after the Write.
+    assert_eq!(run.result.as_deref(), Ok("dates.py を直しました。"));
     let expected = vec!["dates.py".to_string(), "tests/test_dates.py".to_string()];
     assert_eq!(scope_paths(&run, "prompt_extracted_paths"), expected);
     assert_eq!(scope_paths(&run, "effective_required_paths"), expected);
     assert!(scope_paths(&run, "initially_missing_paths").is_empty());
     let stops = run.named("loop_stop");
-    assert_eq!(stops.len(), 1, "{stops:#?}");
-    assert_eq!(
-        stops[0]["reason"],
-        "required_artifacts_satisfied_after_tool"
-    );
+    assert!(stops.is_empty(), "{stops:#?}");
     assert_eq!(
         std::fs::read_to_string(run.dir.path().join("dates.py")).unwrap(),
         FIXED

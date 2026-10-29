@@ -53,6 +53,7 @@ use super::repair_progress::{
     RepairProgressVerdict, VerificationSignature, classify_repair_progress,
 };
 
+mod after_tool_completion;
 #[path = "loop_run/context.rs"]
 mod context;
 mod contract_outcome;
@@ -1052,7 +1053,7 @@ pub(crate) fn run_session_with_outcome_with_options(
             }
             if options.requires_action_tool_feedback(write_or_edit_seen, tool_call_count)
                 && (options.require_mutation_before_contract_short_circuit
-                    || looks_like_action_prompt(user_prompt))
+                    || after_tool_completion::looks_like_action_prompt(&options, user_prompt))
                 && !setup_step_policy::prompt_references_template_owned_artifacts(
                     &config.profile,
                     user_prompt,
@@ -1959,7 +1960,7 @@ pub(crate) fn run_session_with_outcome_with_options(
             });
         }
         implementation_completion.merge_changes(&config.workspace_root, &mut changed_paths);
-        if required_paths_satisfied_after_tool(
+        if after_tool_completion::required_paths_satisfied_after_tool(
             &config.workspace_root,
             &required_paths,
             &initially_missing_paths,
@@ -2089,31 +2090,21 @@ pub(crate) fn run_session_with_outcome_with_options(
                 pending_feedback = Some(feedback);
                 continue;
             }
-            eval_events::emit(
+            if let Some(stop) = after_tool_completion::stop(
                 config.eval_events_path.as_deref(),
-                json!({
-                    "event": "loop_stop",
-                    "reason": "required_artifacts_satisfied_after_tool",
-                    "required_paths": required_paths,
-                }),
-            );
-            return Ok(RunSessionOutcome {
-                final_text: format!(
-                    "required artifacts satisfied: {}",
-                    required_paths.join(", ")
-                ),
-                stop_reason: RunStopReason::RequiredArtifactsSatisfiedAfterTool,
-                changed_paths,
-                iterations: iteration + 1,
-                tool_calls: tool_call_count,
-                missing_required_paths: Vec::new(),
-                missing_capabilities: Vec::new(),
-                missing_evidence: Vec::new(),
-                missing_obligations: Vec::new(),
-                verify_attempts,
-                last_blocking_reason,
-                last_provider_error,
-            });
+                &options,
+                &required_paths,
+                &initially_missing_paths,
+            ) {
+                return Ok(stop.into_outcome(
+                    changed_paths,
+                    iteration + 1,
+                    tool_call_count,
+                    verify_attempts,
+                    last_blocking_reason,
+                    last_provider_error,
+                ));
+            }
         }
         let mut missing = missing_after_batch;
         if !missing.is_empty()
@@ -4243,21 +4234,6 @@ fn provider_error_allows_native_tool_retry(err: &anyhow::Error) -> bool {
         || lower.contains("provider parse")
 }
 
-fn required_paths_satisfied_after_tool(
-    root: &Path,
-    required_paths: &[String],
-    initially_missing_paths: &[String],
-    progress_seen: bool,
-) -> bool {
-    if required_paths.is_empty() || !missing_paths(root, required_paths).is_empty() {
-        return false;
-    }
-    progress_seen
-        || initially_missing_paths
-            .iter()
-            .any(|path| resolve_existing(root, path).is_ok())
-}
-
 fn looks_like_progress_without_tool(content: &str) -> bool {
     let lower = content.to_ascii_lowercase();
     lower.contains("i will")
@@ -4266,21 +4242,6 @@ fn looks_like_progress_without_tool(content: &str) -> bool {
         || lower.contains("実装します")
         || lower.contains("進めます")
 }
-fn looks_like_action_prompt(content: &str) -> bool {
-    let lower = content.to_ascii_lowercase();
-    lower.contains("create")
-        || lower.contains("write")
-        || lower.contains("edit")
-        || lower.contains("fix")
-        || lower.contains("implement")
-        || lower.contains("add ")
-        || lower.contains("build")
-        || lower.contains("作成")
-        || lower.contains("実装")
-        || lower.contains("修正")
-        || lower.contains("追加")
-}
-
 fn changed_path_from_call(root: &Path, arguments: &serde_json::Value) -> Option<String> {
     let normalized = normalized_tool_path_arg(root, arguments)?;
     let path = resolve_existing(root, &normalized).ok()?;
