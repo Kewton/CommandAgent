@@ -2,6 +2,8 @@ use std::path::Path;
 
 use anyhow::bail;
 
+mod anchor_salvage;
+
 pub fn run(
     root: &Path,
     path: &Path,
@@ -101,9 +103,11 @@ fn normalized_anchor_salvage(content: &str, old: &str, new: &str) -> Option<Anch
         return None;
     }
     let region = matches.into_iter().next()?;
+    let replacement =
+        anchor_salvage::indentation_preserving_replacement(&region.excerpt, old, new)?;
     let mut edited = String::new();
     edited.push_str(&content[..region.start]);
-    edited.push_str(new);
+    edited.push_str(&replacement);
     edited.push_str(&content[region.end..]);
     Some(AnchorSalvage {
         edited,

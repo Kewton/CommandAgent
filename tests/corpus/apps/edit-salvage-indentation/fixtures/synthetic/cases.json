@@ -1,0 +1,97 @@
+{
+  "schema": "edit-salvage-indentation/1",
+  "kind": "synthetic",
+  "note": "Hand-authored cases. They are not recorded runs and carry no events digest. Each names the test that pins it.",
+  "cases": [
+    {
+      "id": "class-methods-dedented-uniformly",
+      "rule": "b",
+      "expect": "salvaged; new shifted by the uniform old-to-region delta; methods stay in the class body",
+      "test": "salvage_shifts_dedented_class_methods_back_into_the_class"
+    },
+    {
+      "id": "new-mixes-dedented-and-real-levels",
+      "rule": "neither",
+      "expect": "edit_anchor_not_found with the line-numbered excerpt; file unchanged",
+      "test": "salvage_refuses_new_that_mixes_the_dedented_and_real_levels"
+    },
+    {
+      "id": "negative-shift-cannot-remove-indent",
+      "rule": "neither",
+      "expect": "edit_anchor_not_found; file unchanged",
+      "test": "salvage_refuses_new_line_above_what_a_negative_shift_can_remove"
+    },
+    {
+      "id": "shallow-new-with-matching-old",
+      "rule": "neither",
+      "expect": "edit_anchor_not_found; file unchanged",
+      "test": "salvage_refuses_shallow_new_even_when_old_indentation_matches"
+    },
+    {
+      "id": "single-line-intra-line-whitespace",
+      "rule": "a",
+      "expect": "salvaged as before",
+      "test": "edit_normalized_line_fallback_applies_change"
+    },
+    {
+      "id": "flattened-old-correct-new",
+      "rule": "a",
+      "expect": "salvaged as before",
+      "test": "edit_normalized_multiline_fallback_applies_change"
+    },
+    {
+      "id": "tabs-mixed-with-spaces",
+      "rule": "neither",
+      "expect": "edit_anchor_not_found; file unchanged",
+      "test": "salvage_refuses_mixed_tab_and_space_indentation"
+    },
+    {
+      "id": "tabs-only",
+      "rule": "b",
+      "expect": "salvaged; shift uses tabs",
+      "test": "salvage_shifts_with_tabs_when_every_indent_is_a_tab"
+    },
+    {
+      "id": "blank-lines-in-region",
+      "rule": "b",
+      "expect": "salvaged; blank lines are not indented",
+      "test": "salvage_keeps_blank_lines_inside_the_region"
+    },
+    {
+      "id": "top-level-region",
+      "rule": "a and b",
+      "expect": "salvaged for a flattened old and for a uniformly deeper old",
+      "test": "salvage_at_top_level_accepts_flattened_old_and_deeper_old"
+    },
+    {
+      "id": "added-method-after-region",
+      "rule": "b",
+      "expect": "salvaged; the added method stays in the class",
+      "test": "salvage_shift_may_add_a_method_after_the_region"
+    },
+    {
+      "id": "same-rules-for-every-file-name",
+      "rule": "a, b and neither",
+      "expect": "JS and YAML content gives the same result under any file name",
+      "test": "salvage_rules_are_the_same_for_every_file_name"
+    },
+    {
+      "id": "scripted-b-t3-shape",
+      "rule": "b",
+      "expect": "full loop; push stays in Replay (ast)",
+      "test": "scripted_b_t3_edit_keeps_push_inside_replay"
+    },
+    {
+      "id": "scripted-e-t3-shape",
+      "rule": "b",
+      "expect": "full loop; confirm and expire land in Stock (ast)",
+      "test": "scripted_e_t3_edit_keeps_confirm_and_expire_inside_stock"
+    },
+    {
+      "id": "scripted-mixed-levels-refused",
+      "rule": "neither",
+      "expect": "full loop; edit_anchor_not_found excerpt reaches the model; the exact retry keeps push in Replay (ast)",
+      "test": "scripted_mixed_level_edit_is_refused_with_the_current_excerpt"
+    }
+  ]
+}
