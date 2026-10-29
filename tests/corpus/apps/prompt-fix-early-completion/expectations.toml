@@ -1,0 +1,44 @@
+case_id = "prompt-fix-early-completion"
+source = "Issue #913: direct prompts asking to repair files that already existed (generic bench L-144 e-mid and e-edge) completed with required_artifacts_satisfied_after_tool right after a read-only Bash, a visible test run, or an Edit; the after-tool stop no longer ends such a direct prompt, plan steps and created files keep it"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["step_obligation_scope", "initially_missing_paths"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/recorded/runs.jsonl = [
+  "\"kind\": \"recorded\"",
+  "\"campaign\": \"L-144\"",
+  "\"source_code\": \"65878b06\"",
+  "\"session_scope\": \"minimal-loop\"",
+  "\"step_kind\": \"\"",
+  "\"initially_missing_paths\": []",
+  "\"stop_reason\": \"required_artifacts_satisfied_after_tool\""
+]
+fixtures/synthetic/cases.json = [
+  "\"kind\": \"synthetic\"",
+  "\"id\": \"read-only-bash-on-repair-request\"",
+  "\"id\": \"visible-test-only-on-repair-request\"",
+  "\"id\": \"edit-then-final\"",
+  "\"id\": \"repair-phrases\"",
+  "\"id\": \"read-only-requests\"",
+  "\"id\": \"create-missing-file\"",
+  "\"id\": \"after-tool-decision-table\"",
+  "\"id\": \"plan-steps-keep-the-stop\""
+]

@@ -94,7 +94,7 @@
     {
       "id": "scripted-e-mid-fixed",
       "replies": ["Read dates.py", "Write dates.py (fixed)", "final text"],
-      "expected": ["prompt_extracted_paths = [dates.py, tests/test_dates.py]", "loop_stop reason=required_artifacts_satisfied_after_tool", "no file named after a quoted example", "no request names a quoted example outside the instruction"],
+      "expected": ["prompt_extracted_paths = [dates.py, tests/test_dates.py]", "stop_reason = AssistantFinal with the model's final text (Issue #913)", "no file named after a quoted example", "no request names a quoted example outside the instruction"],
       "test": "fixed_source_completes_without_quoted_example_obligations"
     },
     {

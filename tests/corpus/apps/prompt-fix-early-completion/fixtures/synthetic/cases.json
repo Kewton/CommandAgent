@@ -1,0 +1,79 @@
+{
+  "kind": "synthetic",
+  "note": "Hand-authored scripted runs and decision tables for Issue #913. No line here was observed in a real run; the recorded rows live in fixtures/recorded/runs.jsonl.",
+  "cases": [
+    {
+      "id": "read-only-bash-on-repair-request",
+      "workspace": ["dates.py (broken)", "tests/__init__.py", "tests/test_dates.py (visible, ISO only)", "repair_notes.md"],
+      "prompt": "fixtures/recorded/instruction.e-mid.ja.txt",
+      "replies": ["Bash ls -la | cat dates.py | sed -n '1,20p' dates.py (each alone)", "non-empty final", "non-empty final"],
+      "expected": ["first final gets the completion-without-write feedback", "second final fails with: missing tool call for action prompt after feedback", "no loop_stop reason=required_artifacts_satisfied_after_tool", "sources unchanged", "initially_missing_paths = []"],
+      "test": "read_only_bash_does_not_complete_a_repair_request"
+    },
+    {
+      "id": "visible-test-only-on-repair-request",
+      "replies": ["Bash python3 -m unittest discover -s tests -t . (passes on the broken source)", "non-empty final", "non-empty final"],
+      "expected": ["the visible test runs and succeeds", "same ending as read-only-bash-on-repair-request"],
+      "test": "visible_test_success_alone_does_not_complete_a_repair_request"
+    },
+    {
+      "id": "edit-then-final",
+      "replies": ["Edit dates.py (swap day and month)", "final text"],
+      "expected": ["stop_reason = AssistantFinal with the model's final text", "the final reply is consumed", "no loop_stop event", "initially_missing_paths = []", "dates.py holds the edit"],
+      "test": "edit_of_an_existing_source_returns_the_model_final_answer"
+    },
+    {
+      "id": "repair-phrases",
+      "prompts": ["`dates.py` を直して", "`dates.py` を直してください", "`dates.py` を修正して", "`dates.py` のバグを直す", "fix `dates.py`", "repair `dates.py`"],
+      "replies": ["Bash cat dates.py", "non-empty final", "non-empty final"],
+      "expected": ["same ending as read-only-bash-on-repair-request"],
+      "test": "each_repair_phrase_is_held_to_a_change"
+    },
+    {
+      "id": "read-only-requests",
+      "prompts": ["`repair_notes.md` を読んで説明して", "Explain correctness of dates.py.", "Explain unresolved items in dates.py.", "dates.py の見直し結果を説明して", "Do not repair dates.py; only explain it.", "dates.py の中身を説明して", "dates.py は直すのではなく、問題点の説明だけして", "Please do not try to repair dates.py; only explain it."],
+      "control": "dates.py を直してから説明して",
+      "replies": ["Bash cat", "final text"],
+      "expected": ["stop_reason = AssistantFinal with the model's final text", "no feedback", "sources unchanged", "the control is held to a change"],
+      "test": "read_only_requests_complete_with_the_model_answer"
+    },
+    {
+      "id": "create-missing-file",
+      "prompts": ["Write a summary of the date helpers to `summary.md`.", "`dates.py` を読んで、`summary.md` に説明を書いて"],
+      "replies": ["Write summary.md", "final text (not consumed)"],
+      "expected": ["loop_stop reason=required_artifacts_satisfied_after_tool", "final text = required artifacts satisfied: <paths>", "initially_missing_paths = [summary.md]"],
+      "test": "creating_a_missing_file_still_ends_after_tool"
+    },
+    {
+      "id": "after-tool-decision-table",
+      "expected": ["direct prompt, all paths present at the start: no stop with or without progress", "a path missing at the start and present now, alone or mixed with present ones: stop", "no required paths or a path still missing: no stop"],
+      "test": "direct_prompt_with_only_preexisting_paths_does_not_end_after_tool"
+    },
+    {
+      "id": "plan-steps-keep-the-stop",
+      "expected": ["every plan step kind, final acceptance repair, and partial direct options keep the after-tool stop for present paths"],
+      "test": "plan_steps_keep_the_after_tool_stop_for_preexisting_paths"
+    },
+    {
+      "id": "plan-implement-full-loop",
+      "replies": ["Bash ls -la", "final text (not consumed)"],
+      "expected": ["stop_reason = RequiredArtifactsSatisfiedAfterTool"],
+      "test": "plan_implement_step_still_ends_after_a_successful_bash_on_existing_paths"
+    },
+    {
+      "id": "stop-event-unchanged",
+      "expected": ["loop_stop reason=required_artifacts_satisfied_after_tool with required_paths, only when the stop is allowed"],
+      "test": "stop_emits_the_unchanged_event_only_when_allowed"
+    },
+    {
+      "id": "direct-repair-vocabulary",
+      "expected": ["直して, 直してください, 修正して, 直す, fix, repair are actions in a direct prompt", "見直し, correctness, unresolved, paths, quotes, and prohibitions are not"],
+      "test": "direct_prompt_counts_repair_requests_as_actions"
+    },
+    {
+      "id": "plan-vocabulary-unchanged",
+      "expected": ["plan steps do not gain 直して, 直す, or repair; fix, 修正, create stay actions"],
+      "test": "plan_steps_keep_the_shared_action_vocabulary"
+    }
+  ]
+}

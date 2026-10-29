@@ -1,0 +1,13 @@
+{
+  "issue": "#913",
+  "owner": "minimal_loop after-tool completion of a direct prompt",
+  "capture": "fixtures/recorded/instruction.e-mid.ja.txt and instruction.e-edge.ja.txt are the e-mid and e-edge instructions copied byte for byte from the generic-bench run records (each SHA-256 equals the instruction_sha256 the bench records). fixtures/recorded/runs.jsonl is a hand-reduced excerpt of the twelve CommandAgent e-mid and e-edge r1 runs of the L-144 generic bench (binary built from 65878b06). Each line names its run_dir (bench root replaced by <bench>), the events.jsonl path inside it, the SHA-256 of that events file, the line numbers of the step_obligation_scope and loop_stop events, the step_obligation_scope fields (session_scope, step_kind, effective_required_paths, initially_missing_paths, completion_contract_paths), the tool calls of the batch that ended the run, the SHA-256 of every workspace source before and after the run, the changed files, and the host grader verdict. Arm ids are bench labels; no provider, model, or credential is recorded.",
+  "derived_fixture": "fixtures/synthetic/cases.json is synthetic: hand-authored scripted runs and decision tables. Each case names the test that runs it in src/minimal_loop/loop_run/after_tool_completion/tests.rs or tests/prompt_fix_early_completion.rs.",
+  "regenerate_digests": "shasum -a 256 fixtures/recorded/* fixtures/synthetic/*",
+  "fixture_sha256": {
+    "recorded/instruction.e-edge.ja.txt": "d084088c8481c82be56c3f5df2ee00a47e1a74b1b3c70f0daffe3ca55c347389",
+    "recorded/instruction.e-mid.ja.txt": "8216da92dd389ae99937ce467861eea9b640587277bf48dd2d3ab83d50d9ddba",
+    "recorded/runs.jsonl": "2ea87a0948266e0293977cf98949c3e51e1dace6eaeafdae3218aae1f59dd55c",
+    "synthetic/cases.json": "d394b7ba50225b1d0dc9feeeebaf939233227b44ae48acb1b140ac5ad2084231"
+  }
+}
