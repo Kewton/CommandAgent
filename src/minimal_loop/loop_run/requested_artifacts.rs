@@ -5,7 +5,9 @@
 //! characters included. Backticked spans in free text are only an inference,
 //! so a span that reads as code or quoted data — whitespace, quotes,
 //! brackets, shell or expression symbols, or an all-digit `03/04/2026` — is
-//! not promoted to an obligation. Both sources still pass the same
+//! not promoted to an obligation. Brackets are accepted only as a whole route
+//! segment such as `[id]`, `[...slug]`, `[[...opt]]`, or `(shop)`. Both
+//! sources still pass the same
 //! workspace-relative, metadata, escape, and symlink checks.
 
 use std::collections::BTreeSet;
@@ -88,7 +90,42 @@ fn reads_as_code_or_quoted_data(value: &str) -> bool {
         ' ', '\t', '"', '\'', '`', '(', ')', '[', ']', '{', '}', '=', '<', '>', ';', '|', '&', '$',
         '*', '?', ',',
     ];
-    value.contains(CODE_OR_DATA_CHARS) || all_segments_are_digits(value)
+    value
+        .split('/')
+        .filter(|segment| !is_route_segment(segment))
+        .any(|segment| segment.contains(CODE_OR_DATA_CHARS))
+        || all_segments_are_digits(value)
+}
+
+/// A whole path segment that names a route parameter or group:
+/// `[name]`, `[...name]`, `[[...name]]`, or `(name)`, where `name` is a
+/// non-empty run of ASCII letters, digits, `_`, or `-`. Only such a segment
+/// may carry brackets; `x[0]` or `f(a)` still reads as code.
+fn is_route_segment(segment: &str) -> bool {
+    let name = segment
+        .strip_prefix("[[...")
+        .and_then(|rest| rest.strip_suffix("]]"))
+        .or_else(|| {
+            segment
+                .strip_prefix("[...")
+                .and_then(|rest| rest.strip_suffix(']'))
+        })
+        .or_else(|| {
+            segment
+                .strip_prefix('[')
+                .and_then(|rest| rest.strip_suffix(']'))
+        })
+        .or_else(|| {
+            segment
+                .strip_prefix('(')
+                .and_then(|rest| rest.strip_suffix(')'))
+        });
+    name.is_some_and(|name| {
+        !name.is_empty()
+            && name
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
+    })
 }
 
 /// `03/04/2026` and `1/2` are dates and fractions, not paths.

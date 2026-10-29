@@ -35,6 +35,8 @@ fixtures/synthetic/cases.json = [
   "\"id\": \"e-mid-instruction\"",
   "\"id\": \"backticked-code-or-data\"",
   "\"id\": \"backticked-real-paths\"",
+  "\"id\": \"backticked-route-segments\"",
+  "\"id\": \"backticked-brackets-outside-route-segments\"",
   "\"id\": \"required-final-artifacts-block\"",
   "\"id\": \"explicit-and-contract-paths\"",
   "\"id\": \"scripted-e-mid-fixed\"",

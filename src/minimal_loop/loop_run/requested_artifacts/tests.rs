@@ -31,6 +31,37 @@ const PATH_SPANS: &[&str] = &[
     "docs/日本語.md",
 ];
 
+/// Route segments that may carry brackets as a whole path segment.
+const ROUTE_PATH_SPANS: &[&str] = &[
+    "src/app/notes/[id]/page.tsx",
+    "src/app/(shop)/cart/page.tsx",
+    "src/app/docs/[...slug]/page.tsx",
+    "src/app/shop/[[...opt]]/page.tsx",
+];
+
+/// Brackets outside a whole route segment, or a route segment with a bad
+/// name or another code-or-data character, still read as code.
+const NOT_ROUTE_SPANS: &[&str] = &[
+    "foo(bar/baz)",
+    "x[0]/y",
+    "f(a)/b.py",
+    "src/[id/page.tsx",
+    "src/id]/page.tsx",
+    "src/(a b)/page.tsx",
+    "src/[]/page.tsx",
+    "src/()/page.tsx",
+    "src/[...]/page.tsx",
+    "src/[[...]]/page.tsx",
+    "src/[[id]]/page.tsx",
+    "src/[..id]/page.tsx",
+    "src/[id.x]/page.tsx",
+    "src/[$id]/page.tsx",
+    "src/{id}/page.tsx",
+    "src/[id]/a,b.tsx",
+    "src/(shop)/cart/page.tsx?x=1",
+    "src/[id]/(a)b/page.tsx",
+];
+
 fn write(root: &Path, rel: &str, content: &str) {
     let path = root.join(rel);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -62,6 +93,39 @@ fn e_mid_instruction_extracts_only_the_named_source_and_test_files() {
 fn backticked_code_expressions_and_quoted_data_are_not_inferred() {
     let dir = tempfile::tempdir().unwrap();
     let inferred: Vec<(&str, Vec<String>)> = CODE_OR_DATA_SPANS
+        .iter()
+        .map(|span| {
+            let prompt = format!("Fix the bug shown by `{span}` in the workspace.");
+            (*span, extract_requested_artifact_paths(dir.path(), &prompt))
+        })
+        .filter(|(_, paths)| !paths.is_empty())
+        .collect();
+    assert!(inferred.is_empty(), "inferred as paths: {inferred:?}");
+}
+
+#[test]
+fn backticked_route_segments_stay_obligations() {
+    let dir = tempfile::tempdir().unwrap();
+    for span in ROUTE_PATH_SPANS {
+        let prompt = format!("Create the route `{span}` for the list.");
+        assert_eq!(
+            extract_requested_artifact_paths(dir.path(), &prompt),
+            vec![span.to_string()],
+            "{span}"
+        );
+    }
+}
+
+#[test]
+fn brackets_outside_a_whole_route_segment_are_not_inferred() {
+    let dir = tempfile::tempdir().unwrap();
+    let shaped: Vec<&str> = NOT_ROUTE_SPANS
+        .iter()
+        .copied()
+        .filter(|span| looks_like_artifact_path(span))
+        .collect();
+    assert_eq!(shaped, NOT_ROUTE_SPANS);
+    let inferred: Vec<(&str, Vec<String>)> = NOT_ROUTE_SPANS
         .iter()
         .map(|span| {
             let prompt = format!("Fix the bug shown by `{span}` in the workspace.");

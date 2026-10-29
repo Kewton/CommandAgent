@@ -41,6 +41,37 @@
       "test": "backticked_real_paths_stay_obligations_whether_or_not_they_exist"
     },
     {
+      "id": "backticked-route-segments",
+      "source_of_inference": "free_text_backticks",
+      "rule": "brackets are accepted only when a whole /-separated segment is [name], [...name], [[...name]], or (name), with name a non-empty run of ASCII letters, digits, _ or -",
+      "spans": [
+        "src/app/notes/[id]/page.tsx",
+        "src/app/(shop)/cart/page.tsx",
+        "src/app/docs/[...slug]/page.tsx",
+        "src/app/shop/[[...opt]]/page.tsx"
+      ],
+      "expected": "each span is an obligation",
+      "test": "backticked_route_segments_stay_obligations"
+    },
+    {
+      "id": "backticked-brackets-outside-route-segments",
+      "source_of_inference": "free_text_backticks",
+      "spans": [
+        "foo(bar/baz)",
+        "x[0]/y",
+        "f(a)/b.py",
+        "src/[id/page.tsx",
+        "src/(a b)/page.tsx",
+        "src/[]/page.tsx",
+        "src/()/page.tsx",
+        "src/[[id]]/page.tsx",
+        "src/{id}/page.tsx",
+        "src/[id]/a,b.tsx"
+      ],
+      "expected_paths": [],
+      "test": "brackets_outside_a_whole_route_segment_are_not_inferred"
+    },
+    {
       "id": "required-final-artifacts-block",
       "source_of_inference": "explicit_block",
       "entries": [

@@ -6,6 +6,6 @@
   "fixture_sha256": {
     "recorded/instruction.ja.txt": "8216da92dd389ae99937ce467861eea9b640587277bf48dd2d3ab83d50d9ddba",
     "recorded/runs.jsonl": "99e5918301db6f4dfc44ee90f77a01bb698c47cd11a7a8f669f067a042ceb803",
-    "synthetic/cases.json": "fb8145e2b13422d4fb3deb1350ea582b3d9fdbc2e8c4d12840af833d81fe86f7"
+    "synthetic/cases.json": "b3b087be25c500c7ec6e58fe4c4388f650d88fd8c0562313f58fc23c4eafdb13"
   }
 }
