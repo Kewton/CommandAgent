@@ -239,3 +239,66 @@ fn replacement_of_a_deleted_region_is_empty() {
         Some("")
     );
 }
+
+#[test]
+fn salvage_refuses_space_indented_edit_of_a_tab_indented_region() {
+    // Region levels are one and two tabs; `old` and `new` are one level
+    // shallow with a one-space body. Counting characters alone would shift
+    // by one tab and write a tab-plus-space body.
+    let content = "class A:\n\tdef f(self):\n\t\treturn  1\n";
+    let old = "def f(self):\n return 1";
+    let new = "def f(self):\n return 2";
+    let (dir, result) = edit_file("a.py", content, old, new);
+    assert_refused_unchanged(&dir, "a.py", content, &result);
+    let err = result.unwrap_err();
+    assert!(err.contains("a.py:2"), "{err}");
+    assert!(err.contains("   2 | \tdef f(self):"), "{err}");
+    assert_eq!(
+        indentation_preserving_replacement("\tdef f(self):\n\t\treturn  1", old, new),
+        None
+    );
+}
+
+#[test]
+fn replacement_refuses_old_whose_shift_differs_between_lines() {
+    // `old` is 4 then 0 spaces shallower than the region, and `new` does not
+    // sit at the region's levels either.
+    assert_eq!(
+        indentation_preserving_replacement(
+            "    x  = 1\n    y = 2",
+            "x = 1\n    y = 2",
+            "x = 3\ny = 2"
+        ),
+        None
+    );
+}
+
+#[test]
+fn salvage_refuses_new_line_above_the_region_shallowest_level() {
+    // One method body line as the region; `new` starts at that body level but
+    // appends a sibling method without the class indentation.
+    let content = "class A:\n    def f(self):\n        return  1\n";
+    let new = "        return 2\ndef g(self):\n    return 3";
+    let (dir, result) = edit_file("a.py", content, "return 1", new);
+    assert_refused_unchanged(&dir, "a.py", content, &result);
+    let err = result.unwrap_err();
+    assert!(err.contains("   3 |         return  1"), "{err}");
+    assert_eq!(
+        indentation_preserving_replacement("        return  1", "return 1", new),
+        None
+    );
+}
+
+#[test]
+fn replacement_refuses_new_whose_first_line_is_deeper_than_the_region() {
+    // Every other check holds for `new` as written: the last line matches the
+    // region's last line and no line is above the region's level.
+    assert_eq!(
+        indentation_preserving_replacement(
+            "    x  = 1\n    y = 2",
+            "x = 1\ny = 2",
+            "        x = 3\n    y = 2"
+        ),
+        None
+    );
+}
