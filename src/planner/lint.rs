@@ -287,6 +287,7 @@ pub(crate) fn lint_exempting(
     ) {
         report.push("verify_semantics", message);
     }
+    crate::planner::verify_command_shape::push_lint_errors(plan, work_root, skip, &mut report);
     report
 }
 
