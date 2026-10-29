@@ -182,26 +182,101 @@ fn without_quoted_spans(content: &str) -> String {
 /// `正直` is honest).
 const NOT_REPAIR_BEFORE: [char; 5] = ['見', '正', '素', '率', '垂'];
 
+/// What may follow `直して` without turning it into a refusal: `直しては`
+/// (prohibition), `直してほしくない`, `直してもらう必要はない`, `直していらない`.
+const NOT_A_REQUEST_AFTER_SHITE: [&str; 7] = [
+    "は",
+    "ほしくな",
+    "欲しくな",
+    "もらう必要はな",
+    "もらわなくて",
+    "くれなくて",
+    "いらな",
+];
+
+/// `直す` ends a request when the sentence ends, or when `こと` / `ように`
+/// follows without a prohibition; `直すのではなく`, `直す方法`, `直すべき`,
+/// and `直すな` are not requests.
+const REQUEST_END_AFTER_SU: [char; 16] = [
+    '。', '、', '．', '，', '.', ',', '！', '？', '!', '?', ' ', '　', '\n', '）', ')', '」',
+];
+const REQUEST_SUFFIX_AFTER_SU: [&str; 2] = ["こと", "よう"];
+const PROHIBITION_AFTER_SUFFIX: [&str; 8] = [
+    "はしな",
+    "はな",
+    "は不要",
+    "は禁止",
+    "は駄目",
+    "はだめ",
+    "はいけな",
+    "をしな",
+];
+
 fn japanese_repair_request(text: &str) -> bool {
     text.match_indices('直').any(|(at, matched)| {
         let before = text[..at].chars().next_back();
         let after = &text[at + matched.len()..];
         !before.is_some_and(|ch| NOT_REPAIR_BEFORE.contains(&ch))
-            && ((after.starts_with("して") && !after.starts_with("しては"))
-                || (after.starts_with('す') && !after.starts_with("すな")))
+            && (after.strip_prefix("して").is_some_and(|rest| {
+                !NOT_A_REQUEST_AFTER_SHITE
+                    .iter()
+                    .any(|refusal| rest.starts_with(refusal))
+            }) || after.strip_prefix('す').is_some_and(su_ends_a_request))
     })
 }
 
+fn su_ends_a_request(rest: &str) -> bool {
+    match rest.chars().next() {
+        None => true,
+        Some(ch) if REQUEST_END_AFTER_SU.contains(&ch) => true,
+        Some(_) => REQUEST_SUFFIX_AFTER_SU.iter().any(|suffix| {
+            rest.strip_prefix(suffix).is_some_and(|tail| {
+                !PROHIBITION_AFTER_SUFFIX
+                    .iter()
+                    .any(|prohibition| tail.starts_with(prohibition))
+            })
+        }),
+    }
+}
+
 const NEGATIONS: [&str; 7] = ["not", "never", "don't", "dont", "without", "no", "nor"];
+/// How many words before `repair` a negation of the same sentence reaches
+/// (`do not try to repair`, `never attempt to repair`).
+const NEGATION_REACH: usize = 4;
 
 fn english_repair_request(text: &str) -> bool {
     let lower = text.to_lowercase().replace('’', "'");
-    let words = lower
-        .split(|ch: char| !(ch.is_alphanumeric() || "_-./\\'".contains(ch)))
-        .map(|word| word.trim_end_matches(['.', '\'']))
-        .filter(|word| !word.is_empty())
-        .collect::<Vec<_>>();
-    words.iter().enumerate().any(|(index, word)| {
-        *word == "repair" && (index == 0 || !NEGATIONS.contains(&words[index - 1]))
+    english_sentences(&lower).into_iter().any(|sentence| {
+        let words = sentence
+            .split(|ch: char| !(ch.is_alphanumeric() || "_-./\\'".contains(ch)))
+            .map(|word| word.trim_end_matches(['.', '\'']))
+            .filter(|word| !word.is_empty())
+            .collect::<Vec<_>>();
+        words.iter().enumerate().any(|(index, word)| {
+            *word == "repair"
+                && !words[index.saturating_sub(NEGATION_REACH)..index]
+                    .iter()
+                    .any(|previous| NEGATIONS.contains(previous))
+        })
     })
+}
+
+/// Splits at `;`, `!`, `?`, a line break, or a `.` that ends a sentence (not
+/// the one inside `dates.py`).
+fn english_sentences(text: &str) -> Vec<&str> {
+    let mut bounds = vec![0];
+    let mut chars = text.char_indices().peekable();
+    while let Some((at, ch)) = chars.next() {
+        let next = chars.peek().map(|(_, next)| *next);
+        if matches!(ch, ';' | '!' | '?' | '\n')
+            || (ch == '.' && next.is_none_or(char::is_whitespace))
+        {
+            bounds.push(at + ch.len_utf8());
+        }
+    }
+    bounds.push(text.len());
+    bounds
+        .windows(2)
+        .map(|pair| &text[pair[0]..pair[1]])
+        .collect()
 }

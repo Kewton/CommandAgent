@@ -154,7 +154,7 @@ fn stop_emits_the_unchanged_event_only_when_allowed() {
     assert!(stop(None, &implement, &required, &[]).is_some());
 }
 
-const REPAIR_REQUESTS: [&str; 7] = [
+const REPAIR_REQUESTS: [&str; 14] = [
     "dates.py を直して",
     "dates.py を直してください",
     "dates.py を修正して",
@@ -162,9 +162,23 @@ const REPAIR_REQUESTS: [&str; 7] = [
     "fix dates.py",
     "repair dates.py",
     "dates.py を直してから説明して",
+    "バグを直す",
+    "dates.py を書き直して",
+    "dates.py を作り直して",
+    "dates.py の日付の順を直すこと。",
+    "Repair dates.py.",
+    "Please repair it.",
+    "repair the parser",
 ];
 
-const READ_ONLY_REQUESTS: [&str; 10] = [
+const READ_ONLY_REQUESTS: [&str; 17] = [
+    "直すのではなく、説明だけして",
+    "dates.py は直してほしくない",
+    "dates.py を直してもらう必要はない",
+    "dates.py を直す方法を教えて",
+    "dates.py の直すべき点を挙げて",
+    "Please do not try to repair dates.py; only explain it.",
+    "never attempt to repair it",
     "`repair_notes.md` を読んで説明して",
     "Explain correctness of dates.py.",
     "Explain unresolved items in dates.py.",

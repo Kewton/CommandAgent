@@ -383,6 +383,14 @@ fn read_only_requests_complete_with_the_model_answer() {
         ("dates.py の見直し結果を説明して", "cat dates.py"),
         ("Do not repair dates.py; only explain it.", "cat dates.py"),
         ("dates.py の中身を説明して", "cat dates.py"),
+        (
+            "dates.py は直すのではなく、問題点の説明だけして",
+            "cat dates.py",
+        ),
+        (
+            "Please do not try to repair dates.py; only explain it.",
+            "cat dates.py",
+        ),
     ] {
         let answer = "parse_date は月/日/年の順で読んでいます。";
         let run = run_direct(prompt, vec![bash(command), text_reply(answer)]);

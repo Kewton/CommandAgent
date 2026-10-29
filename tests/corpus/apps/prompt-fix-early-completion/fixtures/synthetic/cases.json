@@ -31,7 +31,7 @@
     },
     {
       "id": "read-only-requests",
-      "prompts": ["`repair_notes.md` を読んで説明して", "Explain correctness of dates.py.", "Explain unresolved items in dates.py.", "dates.py の見直し結果を説明して", "Do not repair dates.py; only explain it.", "dates.py の中身を説明して"],
+      "prompts": ["`repair_notes.md` を読んで説明して", "Explain correctness of dates.py.", "Explain unresolved items in dates.py.", "dates.py の見直し結果を説明して", "Do not repair dates.py; only explain it.", "dates.py の中身を説明して", "dates.py は直すのではなく、問題点の説明だけして", "Please do not try to repair dates.py; only explain it."],
       "control": "dates.py を直してから説明して",
       "replies": ["Bash cat", "final text"],
       "expected": ["stop_reason = AssistantFinal with the model's final text", "no feedback", "sources unchanged", "the control is held to a change"],
