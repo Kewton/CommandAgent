@@ -2613,33 +2613,7 @@ pub(super) fn tool_call_names(tool_calls: &[crate::state::ToolCall]) -> String {
 }
 
 pub(super) fn plan_generation_system_prompt() -> String {
-    [
-        "You are a deterministic planning component for a local coding agent.",
-        "Return only one JSON object. Do not include markdown fences, prose, comments, or XML.",
-        "The JSON object must have top-level keys: goal, steps.",
-        "Each step must include id, kind, instruction, expected_paths, verify, and expected_result.",
-        "Step id must be a quoted string. Use kebab-case such as inspect-workspace.",
-        "expected_result must be exactly \"pass\" or \"fail\". Do not put prose in expected_result.",
-        "Use 2 to 8 steps for normal implementation tasks, with a maximum of 12 steps.",
-        "Allowed step kinds: inspect, setup, implement, verify, report.",
-        "Use inspect only for reading or assessing state; it must not declare expected_paths or verify commands.",
-        "Use setup for dependency manifests or setup files; do not run build/test verification in setup.",
-        "Use implement/create/edit/work/repair semantics as implement steps, with concrete expected_paths.",
-        "Use verify only for deterministic checks. Do not request file changes in verify steps.",
-        "Use report only for explicit blockers such as dependency_missing, unavailable external service, required user input, or unfixable local blocker. Report is not success.",
-        "Normal success plans must end with a verify step or an artifact-owning setup/implement step, not a final summary report.",
-        "Expected paths must be workspace-relative, exact, and owned by one implement/setup step.",
-        "Do not put dependency/build side-effect directories such as node_modules, .next, __pycache__, .venv, venv, dist, build, target, coverage, or out in expected_paths unless the user goal explicitly asks for that artifact path.",
-        "Prefer tests, builds, smoke checks, or content assertions over file existence checks.",
-        "Use file existence checks only as a fallback when no stronger deterministic verification fits.",
-        "Implement/setup instructions should say what each expected artifact will contain.",
-        "Verify commands must not use shell control syntax such as &&, ||, |, or ;.",
-        "For multi-statement Node checks, create a smoke-check.js artifact and verify with node smoke-check.js.",
-        "Do not put dev server startup or network setup in verify.",
-        "For Next.js, create package.json and app entrypoints before npm run build.",
-        "Do not use node --check for .ts or .tsx files.",
-    ]
-    .join("\n")
+    crate::planner::plan_generation_guidance::system_prompt()
 }
 
 pub(super) fn build_step_plan_user_prompt(goal: &str, config: &Config) -> String {

@@ -33,6 +33,7 @@ pub(crate) mod lint_rejection;
 pub mod pack;
 pub(crate) mod phase_plan_synthesis;
 pub mod plan;
+pub(crate) mod plan_generation_guidance;
 pub mod profile;
 pub(crate) mod profile_admission;
 pub(crate) mod profile_behavior;
