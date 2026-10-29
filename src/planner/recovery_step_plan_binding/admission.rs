@@ -323,14 +323,23 @@ impl Admission {
             );
             return Err(error.context(reason));
         }
-        let profile_capacity_guidance = if error.to_string().contains("profile instruction") {
-            " The profile instruction must remain at most 2500 characters after deterministic notes. Preserve the complete model and host duties, use only owner splits allowed by the existing ownership rules, and never duplicate or truncate the combined instruction."
+        // Only the 2500-character capacity case asks not to duplicate the
+        // combined instruction; otherwise the template shows the accepted form.
+        let (no_duplicate, profile_capacity_guidance) = if error
+            .to_string()
+            .contains("profile instruction")
+        {
+            (
+                "; do not duplicate the combined instruction",
+                " The profile instruction must remain at most 2500 characters after deterministic notes. Preserve the complete model and host duties, use only owner splits allowed by the existing ownership rules, and never duplicate or truncate the combined instruction.",
+            )
         } else {
-            ""
+            ("", "")
         };
         let mut feedback = format!(
-            "Goal: {}\nCorrect this verifier plan admission failure (attempt {attempt}/3): {error}\nReturn a complete StepPlan. Assign verifier creation to one dedicated Implement/pass per original producer; retain application/configuration work in separate owners. Preserve every original requirement verbatim within the responsible instructions, every required output, expected result and check; do not erase mixed duties. Host augmentation targets the last implementation step, so place the application/configuration owner last when needed. Keep model and host duties on their respective executable owners; do not duplicate the combined instruction.{profile_capacity_guidance}\nHost-augmented proposal:\n{}",
+            "Goal: {}\nCorrect this verifier plan admission failure (attempt {attempt}/3): {error}\nReturn a complete StepPlan. Assign verifier creation to one dedicated Implement/pass per original producer; retain application/configuration work in separate owners. Preserve every original requirement verbatim within the responsible instructions, every required output, expected result and check; do not erase mixed duties. Host augmentation targets the last implementation step, so place the application/configuration owner last when needed. Keep model and host duties on their respective executable owners{no_duplicate}.{profile_capacity_guidance}\n{}\nHost-augmented proposal:\n{}",
             plan.goal,
+            crate::planner::plan_generation_guidance::owner_split_template(self.original.as_ref()),
             serde_json::to_string(&host)?
         );
         self.append_retry_context(&mut feedback)?;

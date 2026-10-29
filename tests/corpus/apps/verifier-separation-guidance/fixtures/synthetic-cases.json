@@ -1,0 +1,93 @@
+{
+  "kind": "synthetic",
+  "note": "Hand-authored. template_splits names the verifier script of each recorded mixed owner; tests/verifier_separation_guidance.rs applies the accepted owner split (role sentence + 'Original requirement context:' + the complete original instruction, original expected_result, owner checks moved unchanged to a later Verify) to the recorded original_scope. Admission accepts every split on attempt 2; after_admission is what the unchanged quality gate does next (quality_retry: the recorded check itself is weak, so the shared budget continues). cases lists the synthetic Replay cases in src/planner/recovery_step_plan_binding/issue466_tests/formation.rs.",
+  "template_splits": [
+    {
+      "recorded": "recorded-Aa-med-a-mid",
+      "verifier_path": "smoke-check.js",
+      "after_admission": "ready",
+      "admitted_step_ids": ["implement-memo-app-and-smoke-check-verifier", "implement-memo-app-and-smoke-check", "implement-memo-app-and-smoke-check-checks"]
+    },
+    {
+      "recorded": "recorded-Aa-high-a-mid",
+      "verifier_path": "smoke-check.js",
+      "after_admission": "ready",
+      "admitted_step_ids": ["implement-memo-app-verifier", "implement-memo-app", "smoke-test-memo-app"]
+    },
+    {
+      "recorded": "recorded-Aa-max-a-mid",
+      "verifier_path": "smoke-check.js",
+      "after_admission": "ready",
+      "admitted_step_ids": ["create-static-memo-app-verifier", "create-static-memo-app", "verify-memo-behavior"]
+    },
+    {
+      "recorded": "recorded-Aa-med-b-mid",
+      "verifier_path": "smoke-check.py",
+      "after_admission": "quality_retry",
+      "admitted_step_ids": ["implement-topwords-verifier", "implement-topwords", "verify-topwords"]
+    },
+    {
+      "recorded": "recorded-C3-c-mid",
+      "verifier_path": "test_csv2jsonl.py",
+      "after_admission": "quality_retry",
+      "admitted_step_ids": ["inspect-products-csv", "implement-converter-and-contract-test-verifier", "implement-converter-and-contract-test", "verify-converter-contract"]
+    }
+  ],
+  "cases": [
+    {
+      "id": "mixed-then-template-split",
+      "expected": "admitted on attempt 2; recovery_verifier_obligations_formed",
+      "test": "issue906_template_split_after_mixed_owner_is_admitted_on_second_attempt"
+    },
+    {
+      "id": "retry-feedback-template",
+      "expected": "feedback shows role sentence + Original requirement context + full text, outputs and checks; no anti-duplication request",
+      "test": "issue906_feedback_shows_the_accepted_template_with_outputs_and_checks"
+    },
+    {
+      "id": "profile-instruction-capacity",
+      "expected": "anti-duplication request kept only for the 2500-character profile instruction case",
+      "test": "issue906_feedback_keeps_no_duplicate_only_for_profile_instruction_capacity"
+    },
+    {
+      "id": "generic-and-nextjs-template",
+      "expected": "same template for both formation profiles",
+      "test": "issue906_generic_and_nextjs_formation_get_the_same_template"
+    },
+    {
+      "id": "first-plan-prompt",
+      "expected": "dedicated verifier script step; Node and Python scripts run as files, no inline python3 -c",
+      "test": "issue906_first_plan_prompt_separates_node_and_python_verifier_scripts"
+    },
+    {
+      "id": "paraphrase-split",
+      "expected": "rejected: lost original requirements/expected result",
+      "test": "issue906_non_preserving_splits_stay_rejected"
+    },
+    {
+      "id": "missing-output",
+      "expected": "rejected: formation dropped original required output owner",
+      "test": "issue906_non_preserving_splits_stay_rejected"
+    },
+    {
+      "id": "missing-check",
+      "expected": "rejected: formation lost original check/expected result",
+      "test": "issue906_non_preserving_splits_stay_rejected"
+    },
+    {
+      "id": "reversed-check",
+      "expected": "rejected: formation moved original check before its output owners",
+      "test": "issue906_non_preserving_splits_stay_rejected"
+    },
+    {
+      "id": "unrelated-report",
+      "expected": "rejected: lost original requirements/expected result",
+      "test": "issue906_non_preserving_splits_stay_rejected"
+    },
+    {
+      "id": "shared-budget",
+      "expected": "quality or policy, then admission, use one 3-attempt budget; no fallback to the attempt-1 plan",
+      "test": "issue906_quality_policy_and_admission_share_three_attempts_without_stale_fallback"
+    }
+  ]
+}
