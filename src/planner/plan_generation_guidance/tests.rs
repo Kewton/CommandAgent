@@ -17,7 +17,7 @@ fn system_prompt_separates_verifier_scripts_for_node_and_python() {
     let prompt = system_prompt();
     assert!(prompt.contains("give that script a dedicated implement step whose expected_paths contain only that script; keep application and configuration files in a separate implement step"));
     assert!(prompt.contains("node smoke-check.js"));
-    assert!(prompt.contains("python3 smoke_check.py <args>"));
+    assert!(prompt.contains("python3 smoke_check.py sample.txt"));
     assert!(prompt.contains("do not put multiple statements inline in python3 -c"));
     // The moved lines are unchanged.
     assert!(prompt.contains("Report is not success"));

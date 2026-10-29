@@ -30,7 +30,7 @@ pub(crate) fn system_prompt() -> String {
         "Verify commands must not use shell control syntax such as &&, ||, |, or ;.",
         "For multi-statement Node checks, create a smoke-check.js artifact and verify with node smoke-check.js.",
         "When the plan creates a verifier, smoke, or test script, give that script a dedicated implement step whose expected_paths contain only that script; keep application and configuration files in a separate implement step.",
-        "For multi-statement checks in Node or Python, create the script first and verify by running it, such as node smoke-check.js or python3 smoke_check.py <args>; do not put multiple statements inline in python3 -c.",
+        "For multi-statement checks in Node or Python, create the script first and verify by running it, such as node smoke-check.js or python3 smoke_check.py sample.txt; do not put multiple statements inline in python3 -c.",
         "Do not put dev server startup or network setup in verify.",
         "For Next.js, create package.json and app entrypoints before npm run build.",
         "Do not use node --check for .ts or .tsx files.",

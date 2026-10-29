@@ -383,7 +383,7 @@ fn issue906_first_plan_prompt_separates_node_and_python_verifier_scripts() {
         for expected in [
             "give that script a dedicated implement step whose expected_paths contain only that script; keep application and configuration files in a separate implement step",
             "node smoke-check.js",
-            "python3 smoke_check.py <args>",
+            "python3 smoke_check.py sample.txt",
             "do not put multiple statements inline in python3 -c",
         ] {
             assert!(system.content.contains(expected), "{profile}: {expected}");
