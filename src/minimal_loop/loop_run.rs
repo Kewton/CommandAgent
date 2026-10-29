@@ -20,10 +20,7 @@ use crate::providers::ChatClient;
 use crate::state::{ConversationMessage, SessionSnapshot, ToolCall};
 use crate::tools::args_recovery::recover_tool_arguments;
 use crate::tools::bash::BashOutcomeKind;
-use crate::tools::path_guard::{
-    normalize_workspace_path, resolve_existing, resolve_optional_existing,
-    validate_workspace_relative,
-};
+use crate::tools::path_guard::{normalize_workspace_path, resolve_existing};
 use crate::tools::registry::{
     ToolContext, ToolRegistry, missing_arg_name, recoverable_tool_error, tool_error_kind,
 };
@@ -68,6 +65,8 @@ mod max_length_guard;
 mod recoverable_tool_errors;
 mod repair_start_feedback;
 mod repair_turn_observation;
+mod requested_artifacts;
+pub(crate) use requested_artifacts::extract_requested_artifact_paths;
 #[path = "loop_run/runtime_bash_effects.rs"]
 mod runtime_bash_effects;
 mod runtime_bash_policy_telemetry;
@@ -4244,69 +4243,6 @@ fn provider_error_allows_native_tool_retry(err: &anyhow::Error) -> bool {
         || lower.contains("provider parse")
 }
 
-pub(crate) fn extract_requested_artifact_paths(root: &Path, prompt: &str) -> Vec<String> {
-    let mut paths = Vec::new();
-    let mut seen = BTreeSet::new();
-    let mut in_required_block = false;
-    for line in prompt.lines() {
-        let trimmed = line.trim();
-        if trimmed
-            .to_ascii_lowercase()
-            .starts_with("required final artifacts")
-        {
-            in_required_block = true;
-            continue;
-        }
-        if in_required_block {
-            if trimmed.is_empty() {
-                continue;
-            }
-            if !is_artifact_list_line(trimmed) && looks_like_section_boundary(trimmed) {
-                in_required_block = false;
-            } else if let Some(candidate) = artifact_candidate_from_line(trimmed)
-                && requested_artifact_path_allowed(root, &candidate)
-                && seen.insert(candidate.clone())
-            {
-                paths.push(candidate);
-                continue;
-            }
-        }
-        for candidate in backticked_candidates(trimmed) {
-            if looks_like_artifact_path(&candidate)
-                && requested_artifact_path_allowed(root, &candidate)
-                && seen.insert(candidate.clone())
-            {
-                paths.push(candidate);
-            }
-        }
-    }
-    paths
-}
-
-fn requested_artifact_path_allowed(root: &Path, raw: &str) -> bool {
-    if validate_workspace_relative(raw).is_err() {
-        return false;
-    }
-    let path = Path::new(raw);
-    let blocked = [
-        ".commandagent",
-        ".anvil",
-        ".git",
-        "target",
-        "node_modules",
-        ".next",
-    ];
-    if path.components().any(|component| {
-        component
-            .as_os_str()
-            .to_str()
-            .is_some_and(|part| blocked.contains(&part))
-    }) {
-        return false;
-    }
-    resolve_optional_existing(root, raw).is_ok()
-}
-
 fn required_paths_satisfied_after_tool(
     root: &Path,
     required_paths: &[String],
@@ -4320,91 +4256,6 @@ fn required_paths_satisfied_after_tool(
         || initially_missing_paths
             .iter()
             .any(|path| resolve_existing(root, path).is_ok())
-}
-
-fn is_artifact_list_line(line: &str) -> bool {
-    let line = line.trim_start();
-    line.starts_with("- ")
-        || line.starts_with("* ")
-        || line.chars().next().is_some_and(|ch| ch.is_ascii_digit())
-}
-
-fn looks_like_section_boundary(line: &str) -> bool {
-    line.ends_with(':') || line.starts_with('#')
-}
-
-fn artifact_candidate_from_line(line: &str) -> Option<String> {
-    let mut value = line.trim();
-    value = value
-        .trim_start_matches("- ")
-        .trim_start_matches("* ")
-        .trim_start();
-    if let Some((head, tail)) = value.split_once(". ")
-        && head.chars().all(|ch| ch.is_ascii_digit())
-    {
-        value = tail.trim_start();
-    }
-    let first = value.split_whitespace().next().unwrap_or_default();
-    let candidate = first
-        .trim_matches('`')
-        .trim_matches('"')
-        .trim_matches('\'')
-        .trim_end_matches([',', ';']);
-    if looks_like_artifact_path(candidate) {
-        Some(candidate.to_string())
-    } else {
-        None
-    }
-}
-
-fn backticked_candidates(line: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut rest = line;
-    while let Some(start) = rest.find('`') {
-        let after_start = &rest[start + 1..];
-        let Some(end) = after_start.find('`') else {
-            break;
-        };
-        out.push(after_start[..end].trim().to_string());
-        rest = &after_start[end + 1..];
-    }
-    out
-}
-
-fn looks_like_artifact_path(value: &str) -> bool {
-    if value.is_empty() || value.starts_with("http://") || value.starts_with("https://") {
-        return false;
-    }
-    if value.contains('/') {
-        return true;
-    }
-    matches!(
-        value,
-        "Cargo.toml"
-            | "README.md"
-            | "package.json"
-            | "tsconfig.json"
-            | "index.html"
-            | "pyproject.toml"
-    ) || Path::new(value).extension().is_some_and(|ext| {
-        matches!(
-            ext.to_str().unwrap_or_default(),
-            "js" | "jsx"
-                | "ts"
-                | "tsx"
-                | "rs"
-                | "py"
-                | "md"
-                | "txt"
-                | "csv"
-                | "json"
-                | "toml"
-                | "yaml"
-                | "yml"
-                | "html"
-                | "css"
-        )
-    })
 }
 
 fn looks_like_progress_without_tool(content: &str) -> bool {
@@ -6601,45 +6452,6 @@ export default function Page(){
         assert_eq!(result, "final");
         assert_eq!(fake.native_flags(), vec![true, true, true, false]);
         assert!(session.native_tools_disabled);
-    }
-
-    #[test]
-    fn requested_artifact_path_extraction_rejects_escape_and_metadata_paths() {
-        let dir = tempfile::tempdir().unwrap();
-        let prompt = "\
-Required final artifacts:
-- ../outside.txt
-- /tmp/out.txt
-- .anvil/session.json
-- target/debug/app
-- node_modules/pkg/index.js
-- package.json
-- src/app/page.tsx
-";
-        let paths = extract_requested_artifact_paths(dir.path(), prompt);
-        assert_eq!(paths, vec!["package.json", "src/app/page.tsx"]);
-    }
-
-    #[test]
-    fn requested_artifact_path_extraction_rejects_backticked_escape() {
-        let dir = tempfile::tempdir().unwrap();
-        let prompt = "Create `src/main.rs`, not `../main.rs` or `.anvil/log.json`.";
-        let paths = extract_requested_artifact_paths(dir.path(), prompt);
-        assert_eq!(paths, vec!["src/main.rs"]);
-    }
-
-    #[test]
-    #[cfg(unix)]
-    fn requested_artifact_path_extraction_rejects_symlink_escape() {
-        let dir = tempfile::tempdir().unwrap();
-        std::os::unix::fs::symlink("/tmp", dir.path().join("out")).unwrap();
-        let prompt = "\
-Required final artifacts:
-- out/file.txt
-- safe/file.txt
-";
-        let paths = extract_requested_artifact_paths(dir.path(), prompt);
-        assert_eq!(paths, vec!["safe/file.txt"]);
     }
 
     #[test]

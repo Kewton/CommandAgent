@@ -1,0 +1,11 @@
+{
+  "issue": "#905 (IC-46)",
+  "owner": "minimal_loop requested artifact extraction",
+  "capture": "fixtures/recorded/instruction.ja.txt is the e-mid instruction copied byte for byte from the generic-bench task (its SHA-256 equals the instruction_sha256 the bench records). fixtures/recorded/runs.jsonl is a hand-reduced excerpt of the nine CommandAgent e-mid r1 runs of the L-142 generic comparison pilot (binary built from a520c084). Each line names its run_dir (bench root replaced by <bench>), the events.jsonl path inside it, the SHA-256 of that events file, the step_obligation_scope line (prompt_extracted_paths, explicit_required_paths), the final loop_stop line (reason, non_scaffold_missing_paths), the tool_call_raw lines that asked to Write a quoted example, and the host grader verdict. Arm ids are bench labels; no provider, model, or credential is recorded.",
+  "derived_fixture": "fixtures/synthetic/cases.json is synthetic: hand-authored extraction cases and scripted runs. Each case names the test that runs it in src/minimal_loop/loop_run/requested_artifacts/tests.rs or tests/requested_artifact_code_expressions.rs.",
+  "fixture_sha256": {
+    "recorded/instruction.ja.txt": "8216da92dd389ae99937ce467861eea9b640587277bf48dd2d3ab83d50d9ddba",
+    "recorded/runs.jsonl": "99e5918301db6f4dfc44ee90f77a01bb698c47cd11a7a8f669f067a042ceb803",
+    "synthetic/cases.json": "b3b087be25c500c7ec6e58fe4c4388f650d88fd8c0562313f58fc23c4eafdb13"
+  }
+}
