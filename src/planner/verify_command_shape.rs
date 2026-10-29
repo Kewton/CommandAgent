@@ -18,7 +18,7 @@ const CATEGORY: &str = "verify_command_shape";
 
 /// Shell builtins and reserved words that may start a simple command.
 const SHELL_BUILTINS: &[&str] = &[
-    "!", "{", "}", ":", ".", "[", "[[", "alias", "bg", "break", "builtin", "cd", "command",
+    "!", "(", "{", "}", ":", ".", "[", "[[", "alias", "bg", "break", "builtin", "cd", "command",
     "continue", "declare", "echo", "eval", "exec", "exit", "export", "false", "fg", "getopts",
     "hash", "jobs", "kill", "let", "local", "printf", "pwd", "read", "readonly", "return", "set",
     "shift", "source", "test", "times", "trap", "true", "type", "ulimit", "umask", "unalias",
@@ -119,9 +119,11 @@ fn shape_defect(command: &str, context: &Resolve<'_>) -> Option<String> {
 }
 
 fn is_prose_word(word: &str, context: &Resolve<'_>) -> bool {
-    !word
-        .chars()
-        .any(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '/' | '_' | '-'))
+    // A word starting with `#` begins a shell comment, which runs as a no-op.
+    !word.starts_with('#')
+        && !word
+            .chars()
+            .any(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '/' | '_' | '-'))
         && !SHELL_BUILTINS.contains(&word)
         && !resolves_on_path(word, context.path_var)
         && !is_workspace_path(word, context)

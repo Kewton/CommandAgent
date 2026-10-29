@@ -188,3 +188,41 @@ fn host_declared_commands_are_left_to_their_own_gate() {
     );
     assert!(found.is_empty(), "{found:?}");
 }
+
+fn assert_negatives_still_rejected(root: &Path) {
+    for command in [
+        "スクリプトを指定仕様に沿って実装できたことを確認する。",
+        "確認する",
+        "[ -f ]",
+        "[ x -f ]",
+        "[ -f x",
+    ] {
+        let found = offenses(&verify_plan(&["x"], command), root, None);
+        assert_eq!(found.len(), 1, "{command}: {found:?}");
+    }
+}
+
+#[test]
+fn shell_comment_lines_before_a_command_are_not_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    for comment in ["# 出力を確認する", "# check output"] {
+        let command = format!("{comment}\npython3 csv2jsonl.py products.csv out.jsonl");
+        let plan = verify_plan(&["csv2jsonl.py"], &command);
+        let found = offenses(&plan, dir.path(), None);
+        assert!(found.is_empty(), "{command}: {found:?}");
+        let report = lint_plan_for_execution(&plan, Some(dir.path()));
+        assert!(!report.has_category(CATEGORY), "{command}: {report:?}");
+    }
+    assert_negatives_still_rejected(dir.path());
+}
+
+#[test]
+fn unquoted_subshell_is_not_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let plan = verify_plan(&["package.json"], "( npm test )");
+    let found = offenses(&plan, dir.path(), None);
+    assert!(found.is_empty(), "{found:?}");
+    let report = lint_plan_for_execution(&plan, Some(dir.path()));
+    assert!(!report.has_category(CATEGORY), "{report:?}");
+    assert_negatives_still_rejected(dir.path());
+}
