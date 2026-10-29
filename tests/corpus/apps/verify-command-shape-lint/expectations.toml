@@ -1,0 +1,51 @@
+case_id = "verify-command-shape-lint"
+source = "Issue #907 / IC-48: two generic runs declared verify commands that cannot execute as written (a prose sentence, an operand placed before the test file operator); the artifacts graded correct but the runs failed. Plan lint now rejects those shapes as lint errors."
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["verify_command_shape"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/recorded-c-mid-plan.yaml = [
+  "id: \"implement-converter\"",
+  "スクリプトを指定仕様に沿って実装できたことを確認する。"
+]
+fixtures/recorded-a-mid-plan.yaml = [
+  "id: \"verify-file-existence\"",
+  "file_index.html"
+]
+fixtures/recorded-observations.jsonl = [
+  "\"kind\":\"recorded\"",
+  "\"stop_reason\":\"deterministic_verify_command_bug\"",
+  "\"stop_reason\":\"verify_repair_progress_unchanged\"",
+  "\"verdict\":\"correct\""
+]
+fixtures/synthetic-cases.json = [
+  "\"kind\": \"synthetic\"",
+  "\"id\": \"non-ascii-path\"",
+  "\"id\": \"operand-first\""
+]
+
+[fixture_ordered]
+fixtures/recorded-observations.jsonl = [
+  "\"event\":\"planner_quality_issue\"",
+  "\"event\":\"planner_quality_retry_degraded\"",
+  "\"event\":\"ultra_phase_plan_validated\"",
+  "\"event\":\"loop_stop\""
+]
