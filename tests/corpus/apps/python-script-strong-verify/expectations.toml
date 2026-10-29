@@ -1,0 +1,48 @@
+case_id = "python-script-strong-verify"
+source = "Issue #908 / IC-50: Python plans that run a verifier script the same plan creates (python3 smoke_check.py sample.txt) were judged to lack strong verification and spent a quality retry; the quality report now counts such a script like node <script>, while inline code, scripts outside the plan, and compound commands stay weak"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["weak_code_verify", "planner_quality_retry"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/recorded-attempts.jsonl = [
+  "\"kind\": \"recorded\"",
+  "\"class\": \"policy\"",
+  "\"class\": \"quality\"",
+  "\"class\": \"admission\"",
+  "python3 smoke-check.py",
+  "python3 test_csv2jsonl.py csv2jsonl.py",
+  "verifier plan admission exhausted existing 3-attempt planner budget"
+]
+fixtures/synthetic-cases.json = [
+  "\"kind\": \"synthetic\"",
+  "\"id\": \"plan-script-with-argument\"",
+  "\"id\": \"inline-code\"",
+  "\"id\": \"script-not-in-plan\"",
+  "\"id\": \"node-script\""
+]
+
+[fixture_ordered]
+fixtures/recorded-attempts.jsonl = [
+  "\"class\": \"policy\"",
+  "verifier producer mixes application/configuration scope",
+  "verifier plan admission exhausted existing 3-attempt planner budget",
+  "\"class\": \"run_stop\""
+]

@@ -1,0 +1,10 @@
+{
+  "issue": "#908 (IC-50)",
+  "owner": "plan quality report: plan-created Python verifier scripts as strong verification",
+  "capture": "recorded-attempts.jsonl is copied by script from the events.jsonl of two generic pilot runs (L-142) whose Python plans checked inline on attempt 1 and later ran a plan-created script. run_dir is relative to the bench scratch root; event_file is relative to run_dir; event_sha256 is the SHA-256 of that events.jsonl; source_code is the commit the run binary was built from. sequence keeps, per planner attempt, the event line, class (policy from planner_error with planner_stage verify_policy, quality from planner_quality_retry, admission from recovery_verifier_plan_admission) and reason, then the ultra_phase_failed and run_stop lines. attempt1_policy keeps the attempt-1 policy event's step_id, original_command and reason unchanged; the attempt-1 plan itself is not recorded beyond a 500-character preview. first_admission keeps the first recovery_verifier_plan_admission event's original_scope unchanged: the first recorded full plan, which runs its own script with python3. Provider and model fields are not copied.",
+  "derived_fixture": "synthetic-cases.json is synthetic: the supplement 1-3 plan and verify commands, and for each recorded run the verifier path the accepted #906 owner split gives its own Implement step and the step ids after admission (tests/python_script_strong_verify.rs).",
+  "fixture_sha256": {
+    "recorded-attempts.jsonl": "36a3377344c38ac9ed9dfa0c6a33e6dbc4911742fc787495af23b411e40ebfa8",
+    "synthetic-cases.json": "bbd98a09da60d55525f4b2250da5591c9a7b807b045fe79a642d492bb0957d60"
+  }
+}

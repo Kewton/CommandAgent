@@ -308,31 +308,26 @@ fn template_split_of_each_recorded_scope_is_admitted_on_the_next_attempt() {
             .collect();
         assert_eq!(statuses, [(1.into(), "retry".into())], "{id}");
         let requests = planner.requests();
-        let after = split["after_admission"].as_str().unwrap();
-        if after == "ready" {
-            let plan = result.unwrap_or_else(|e| panic!("{id}: {e}"));
-            assert_eq!(requests.len(), 2, "{id}");
-            let ids: Vec<_> = plan.steps.iter().map(|s| s.id.as_str()).collect();
-            let expected: Vec<_> = split["admitted_step_ids"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|v| v.as_str().unwrap())
-                .collect();
-            assert_eq!(ids, expected, "{id}");
-        } else {
-            // The recorded check itself is weak; the unchanged quality gate
-            // still uses the same budget after admission accepts the split.
-            assert_eq!(after, "quality_retry", "{id}");
-            let log = std::fs::read_to_string(c.eval_events_path.as_ref().unwrap()).unwrap();
-            assert!(
-                log.lines()
-                    .map(|l| serde_json::from_str::<Value>(l).unwrap())
-                    .any(|e| e["event"] == "planner_quality_retry" && e["repair_attempt"] == 2),
-                "{id}"
-            );
-            assert_eq!(requests.len(), 3, "{id}: {result:?}");
-        }
+        // Issue #908: the Python verifier script the split creates is strong
+        // verification, so no split spends a quality retry after admission.
+        assert_eq!(split["after_admission"], "ready", "{id}");
+        let plan = result.unwrap_or_else(|e| panic!("{id}: {e}"));
+        assert_eq!(requests.len(), 2, "{id}");
+        let ids: Vec<_> = plan.steps.iter().map(|s| s.id.as_str()).collect();
+        let expected: Vec<_> = split["admitted_step_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert_eq!(ids, expected, "{id}");
+        let log = std::fs::read_to_string(c.eval_events_path.as_ref().unwrap()).unwrap();
+        assert!(
+            !log.lines()
+                .map(|l| serde_json::from_str::<Value>(l).unwrap())
+                .any(|e| e["event"] == "planner_quality_retry"),
+            "{id}"
+        );
         // The feedback that led there showed the same form with the full text.
         let mixed = original
             .steps

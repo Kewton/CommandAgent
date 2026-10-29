@@ -1,9 +1,9 @@
-use std::path::Path;
-
+mod python_script_verify;
 use crate::planner::step_plan::{ExpectedResult, StepKind, StepPlan};
 use crate::planner::{profile::resolve_profile_runtime, side_effect_paths::diagnose_expected_path};
 use crate::planner::{profiles::community_mini_app as community, ultra_plan::UltraPlan};
 use crate::tools::path_guard::validate_workspace_relative;
+use std::path::Path;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VerifyDependencyOrderViolationKind {
@@ -449,7 +449,7 @@ pub fn step_plan_quality_report(
     let lower_goal = plan.goal.to_ascii_lowercase();
     let looks_next_profile = resolve_profile_runtime(&context.profile).enforce_nextjs_plan_shape();
     let strong = |command: &str| {
-        is_strong_verify_command(command)
+        (is_strong_verify_command(command) || python_script_verify::runs_plan_script(plan, command))
             || super::profiles::nextjs::package_script_check::coupled(looks_next_profile, command)
     };
     let has_strong_verify = verify_commands.iter().any(|command| strong(command));
