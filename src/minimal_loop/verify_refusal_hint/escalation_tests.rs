@@ -372,15 +372,22 @@ fn redirect_shape_leads_with_write_on_the_second_refusal() {
     assert!(!run.bash_results[1][..200].contains("name,score"));
 }
 
-#[test]
-fn a_base_that_cannot_be_named_whole_gets_no_command_to_run() {
-    let long_base = format!(
+/// `grep -q -e token0 … -e token<count - 1> notes.txt`.
+fn grep_base(count: usize) -> String {
+    format!(
         "grep -q {} notes.txt",
-        (0..70)
+        (0..count)
             .map(|n| format!("-e token{n}"))
             .collect::<Vec<_>>()
             .join(" ")
-    );
+    )
+}
+
+#[test]
+fn a_base_that_cannot_be_named_whole_gets_no_command_to_run() {
+    let long_base = grep_base(450);
+    // Longer than the 4,000-byte Bash history budget (Issue #916).
+    assert!(long_base.len() > 4_000);
     // The long base itself is admitted; only its length keeps it unnamed.
     let root = tempfile::tempdir().unwrap();
     assert!(base_is_accepted(&long_base, root.path()));
@@ -397,6 +404,27 @@ fn a_base_that_cannot_be_named_whole_gets_no_command_to_run() {
             assert!(text.starts_with(REPEAT_LEAD), "{text}");
             assert!(!text.contains(NAMED_CALL), "{text}");
         }
+    }
+}
+
+#[test]
+fn a_base_past_500_characters_within_the_bash_budget_is_named_whole() {
+    // Issue #916: a base the old 500-character history cut is now kept whole,
+    // so the lead names it.
+    let base = grep_base(70);
+    assert!(base.len() > 500);
+    let root = tempfile::tempdir().unwrap();
+    assert!(base_is_accepted(&base, root.path()));
+    let command = format!("{base} && echo ok || echo ng");
+    let command = command.as_str();
+    let run = run(&[command, command, command]);
+    assert_stopped_after_two_results(&run);
+    assert_eq!(run.queued()[1].1, "repeat_base_call");
+    let call = serde_json::to_string(&json!({ "command": base })).unwrap();
+    let lead = format!("{REPEAT_LEAD} Next call: Bash {call}.");
+    for text in [&run.bash_results[1], &run.queued_text(1)] {
+        assert!(text.starts_with(&lead), "{text}");
+        assert!(text.len() <= 4_000, "{text}");
     }
 }
 
@@ -426,7 +454,9 @@ fn the_queued_event_holds_only_the_scrubbed_bounded_text() {
     for index in 0..2 {
         let queued = run.queued_text(index);
         assert!(!queued.contains("api_key=abc123"), "{queued}");
-        assert!(queued.chars().count() <= 500, "{queued}");
+        // The field copies what the model is sent, so it follows the Bash
+        // history budget (Issue #916).
+        assert!(queued.len() <= 4_000, "{queued}");
     }
     // A scrubbed command cannot be shown verbatim, so none is offered.
     assert_eq!(run.queued()[1].1, "repeat_verifier_alone");

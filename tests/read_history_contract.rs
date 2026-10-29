@@ -301,7 +301,8 @@ fn compact_rereads_do_not_push_out_the_first_read() {
 fn tools_other_than_read_keep_the_flattened_snippet() {
     let input = format!("first line\nsecond line {}", "w ".repeat(600));
     let expected = body_snippet_whole_tokens(&input);
-    for name in ["Bash", "Write", "Edit", "Grep", "read", "Unknown"] {
+    // `Bash` keeps line breaks under its own policy (tests/bash_history_contract.rs).
+    for name in ["Write", "Edit", "Grep", "read", "Unknown"] {
         let stored = ConversationMessage::tool_result(name, Some("c"), input.as_str());
         assert_eq!(stored.content, expected, "{name}");
         assert!(stored.content.chars().count() <= 500, "{name}");
