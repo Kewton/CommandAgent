@@ -642,3 +642,80 @@ fn a_cut_inside_a_home_path_in_long_metadata_keeps_both_stream_headings() {
         assert_eq!(bash_history_content(&stored), stored, "{context}");
     }
 }
+
+/// True when some whitespace-delimited token of `text` would be replaced by
+/// the secret-like rule.
+fn has_secret_like_token(text: &str) -> bool {
+    text.split_whitespace().any(|token| {
+        token.starts_with("sk-")
+            || token.starts_with("AIza")
+            || token.to_ascii_lowercase().contains("api_key")
+    })
+}
+
+/// A long single stdout line holding `token` with `after` bytes behind it, so
+/// that varying `after` moves the stdout tail's start across the token.
+fn stdout_with_token(token: &str, after: usize) -> String {
+    formatted(
+        BashOutcomeKind::Success,
+        "exit status: 0",
+        &format!("{} {token} {}", "x".repeat(3_000), "y".repeat(after)),
+        "",
+    )
+}
+
+#[test]
+fn a_tail_that_starts_a_new_secret_like_token_is_scrubbed_again() {
+    // The whole token starts with `z`, so the first scrub keeps it; a tail
+    // that starts at `sk-` or `AIza` makes a new secret-like token that only
+    // the scrub after the cut replaces.
+    for (token, fragment) in [
+        (
+            format!("{}sk-live0123456789abcdef", "z".repeat(40)),
+            "sk-live0123456789abcdef",
+        ),
+        (
+            format!("{}AIzaLive0123456789abcdef", "z".repeat(40)),
+            "AIzaLive0123456789abcdef",
+        ),
+    ] {
+        assert!(!has_secret_like_token(&bash_history_content(&token)));
+        let mut tail_started_at_the_fragment = false;
+        for after in 2_200..=2_800 {
+            let stored = bash_history_content(&stdout_with_token(&token, after));
+            let context = format!("{fragment} after {after}");
+            assert_bounded(&stored);
+            // The fragment may stay inside the `z…` token the first scrub
+            // kept, but never as a token of its own.
+            assert!(!has_secret_like_token(&stored), "{context}: {stored}");
+            assert_eq!(bash_history_content(&stored), stored, "{context}");
+            tail_started_at_the_fragment |= stored.contains(&format!(
+                "omitted in history]\n{}",
+                crate::sensitive_data::active_marker()
+            ));
+        }
+        // The range really moves the cut onto the fragment's first byte.
+        assert!(tail_started_at_the_fragment, "{fragment}");
+    }
+}
+
+#[test]
+fn a_tail_inside_an_api_key_token_or_home_path_never_shows_it() {
+    // A cut cannot make `api_key` or `/Users/<name>/` appear: the first scrub
+    // already replaced them, wherever the tail starts.
+    for token in [
+        format!("{}api_key=live0123456789abcdef", "z".repeat(40)),
+        format!("{}/Users/alice/proj/data.csv", "z".repeat(40)),
+        format!("{}/home/alice/proj/data.csv", "z".repeat(40)),
+    ] {
+        for after in 2_200..=2_800 {
+            let stored = bash_history_content(&stdout_with_token(&token, after));
+            let context = format!("{token} after {after}");
+            assert_bounded(&stored);
+            assert!(!has_secret_like_token(&stored), "{context}: {stored}");
+            assert!(!stored.contains("live0123456789abcdef"), "{context}");
+            assert!(!stored.contains("alice"), "{context}");
+            assert_eq!(bash_history_content(&stored), stored, "{context}");
+        }
+    }
+}
