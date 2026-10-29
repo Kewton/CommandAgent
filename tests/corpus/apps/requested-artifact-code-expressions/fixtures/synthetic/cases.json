@@ -1,0 +1,76 @@
+{
+  "kind": "synthetic",
+  "note": "Hand-authored extraction cases. Each case names the test that runs it; leaf tests live in src/minimal_loop/loop_run/requested_artifacts/tests.rs and scripted runs in tests/requested_artifact_code_expressions.rs.",
+  "cases": [
+    {
+      "id": "e-mid-instruction",
+      "input": "fixtures/recorded/instruction.ja.txt",
+      "expected_paths": ["dates.py", "tests/test_dates.py"],
+      "test": "e_mid_instruction_extracts_only_the_named_source_and_test_files"
+    },
+    {
+      "id": "backticked-code-or-data",
+      "source_of_inference": "free_text_backticks",
+      "spans": [
+        "parse_date(\"03/04/2026\")",
+        "\"31/12/2026\"",
+        "03/04/2026",
+        "a/b == c",
+        "re.compile(r\"\\d+/\\d+\")",
+        "curl http://x/y",
+        "GET /api/items",
+        "foo(bar/baz)",
+        "$HOME/x",
+        "*.py"
+      ],
+      "expected_paths": [],
+      "test": "backticked_code_expressions_and_quoted_data_are_not_inferred"
+    },
+    {
+      "id": "backticked-real-paths",
+      "source_of_inference": "free_text_backticks",
+      "spans": [
+        "dates.py",
+        "tests/test_dates.py",
+        "src/app/page.tsx",
+        "cli/main.py",
+        "docs/日本語.md",
+        "src/reports/summary_table.rs"
+      ],
+      "expected": "each span is an obligation, existing or still to be created",
+      "test": "backticked_real_paths_stay_obligations_whether_or_not_they_exist"
+    },
+    {
+      "id": "required-final-artifacts-block",
+      "source_of_inference": "explicit_block",
+      "entries": [
+        "src/app/notes/[id]/page.tsx",
+        "src/app/(shop)/cart/page.tsx",
+        "docs/日本語.md",
+        "03/04/2026"
+      ],
+      "expected": "entries keep the existing block parsing; the free-text rule does not apply",
+      "test": "required_final_artifacts_block_keeps_special_character_paths"
+    },
+    {
+      "id": "explicit-and-contract-paths",
+      "source_of_inference": "explicit_required_paths_and_completion_contract",
+      "explicit_required_paths": ["out/report (final).txt"],
+      "completion_contract_paths": ["data/[raw]/rows,v2.csv"],
+      "expected": "both pass through unchanged into effective_required_paths",
+      "test": "free_text_inference_does_not_reach_explicit_or_contract_paths"
+    },
+    {
+      "id": "scripted-e-mid-fixed",
+      "replies": ["Read dates.py", "Write dates.py (fixed)", "final text"],
+      "expected": ["prompt_extracted_paths = [dates.py, tests/test_dates.py]", "loop_stop reason=required_artifacts_satisfied_after_tool", "no file named after a quoted example", "no request names a quoted example outside the instruction"],
+      "test": "fixed_source_completes_without_quoted_example_obligations"
+    },
+    {
+      "id": "scripted-e-mid-source-missing",
+      "replies": ["Read tests/test_dates.py", "final text (repeated)"],
+      "expected": ["loop_stop reason=artifact_follow_through_exhausted", "non_scaffold_missing_paths = [dates.py]", "no request names a quoted example outside the instruction"],
+      "test": "missing_requested_source_still_fails_on_that_file_alone"
+    }
+  ]
+}
