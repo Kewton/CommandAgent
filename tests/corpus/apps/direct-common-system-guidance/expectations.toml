@@ -1,0 +1,42 @@
+case_id = "direct-common-system-guidance"
+source = "Issue #925: COMMANDAGENT_SYSTEM_GUIDANCE, read once when a direct --prompt run starts, adds one common guidance text to the system prompt of every provider request (native, XML, after tools, and the empty-response fresh retry); unset or empty leaves every request byte-identical, an adopted jev pattern keeps its block before it, and missing artifacts, refused writes, and other gates end the run exactly as before"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/cases.json = [
+  "\"kind\": \"synthetic\"",
+  "\"variable\": \"COMMANDAGENT_SYSTEM_GUIDANCE\"",
+  "\"max_bytes\": 8192",
+  "\"id\": \"unset\"",
+  "\"id\": \"empty\"",
+  "\"id\": \"whitespace-only\"",
+  "\"id\": \"ascii-at-limit\"",
+  "\"id\": \"ascii-over-limit\"",
+  "\"id\": \"multibyte-at-limit\"",
+  "\"id\": \"multibyte-over-limit\"",
+  "\"id\": \"off-multi-turn\"",
+  "\"id\": \"off-fresh-retry\"",
+  "\"id\": \"jev-adopted\"",
+  "\"id\": \"jev-fallback\"",
+  "\"id\": \"missing-artifact\"",
+  "\"id\": \"refused-write\""
+]

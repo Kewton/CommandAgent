@@ -279,6 +279,7 @@ variables also affect normal user-visible behavior:
 | `COMMANDAGENT_PACK_VERSION` | Internal handoff for the selected pack version. Configure it with `--pack` or a preset instead of setting it by hand. |
 | `COMMANDAGENT_PACK_HASH` | Internal handoff for the selected pack exact-byte hash. Configure it with `--pack` or a preset instead of setting it by hand. |
 | `COMMANDAGENT_UX_DEMO_FAST` / `ANVIL_UX_DEMO_FAST` | Speeds up the `--ux-demo` presentation waits for development and demos. The variable's presence, not its value, is tested. |
+| `COMMANDAGENT_SYSTEM_GUIDANCE` | Adds one common guidance text to the system prompt of every provider request of a direct `--prompt` run. Unset or empty changes nothing. See below. |
 
 For `COMMANDAGENT_*` entries, the current name wins. The matching `ANVIL_*`
 name is used only when the current name is absent, and emits a one-time
@@ -288,6 +289,23 @@ currently supported spellings.
 The four `COMMANDAGENT_PACK_*` names are the exception: they are read directly
 and have no `ANVIL_*` legacy name. They are an internal handoff for the selected
 pack, not a user-configured setting; use `--pack` or a preset to select a pack.
+
+`COMMANDAGENT_SYSTEM_GUIDANCE` is an opt-in for comparing a common instruction
+text. It is read once, from the process environment only, when a direct
+`--prompt` run starts; it has no `ANVIL_*` legacy name, and no config file or
+`.env` is read for it. The plan entries, the TUI, and `--model-probe` ignore it.
+When it is set, every provider request of the run (each turn, the turns after
+tool calls, the empty-response fresh retry, native and XML tool protocols)
+carries the text once in its "Request guidance" block; when
+`--request-pattern jev` adopts a pattern, the text follows that pattern's
+guidance under a "Common guidance:" line. The original request, the profile
+guidance, the session history, the `request_pattern_resolved` event, and when
+jev is called do not change. The value must be UTF-8, at most 8 KiB (8192
+bytes), and not only whitespace; otherwise the run fails with an error that
+names the variable and the reason but not the value. The text is ordinary
+guidance: it grants or removes no tool permission and changes no verification,
+completion, acceptance, or budget rule. The run's secret scrub applies to it,
+but do not put secrets in it.
 
 ## Inspect the effective configuration
 
