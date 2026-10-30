@@ -15,7 +15,9 @@
 //! The roles stay open only when every command in the text is a known one
 //! (the table commands, `cat`, `wc`, `head`, `tail`, `cd`, `rm` with plain
 //! options, `python3 <script>.py`, `node --check <file>`), named by a bare
-//! ASCII word, and no `python3`/`node` file is one the same text writes.
+//! ASCII word, and a `python3`/`node` script run never shares the text with
+//! any write (rule B': an output redirect of any form, a heredoc or other
+//! redirect, or a sed/awk write).
 //!
 //! Known limits (recorded in the corpus `note` fields): a workspace `python3`
 //! script may read the data piped or passed to it, because the script content
@@ -124,6 +126,12 @@ fn fixture() -> Fixture {
         std::fs::write(root.join(script), "import sys\n").unwrap();
     }
     std::fs::write(root.join("app.js"), "console.log(1);\n").unwrap();
+    // Rule B' fixtures: a workspace symlink and hardlink to a script the
+    // command writes, and a `.py` directory that python3 runs as a package.
+    std::fs::write(root.join("base.py"), "import sys\n").unwrap();
+    std::fs::hard_link(root.join("base.py"), root.join("hard.py")).unwrap();
+    std::os::unix::fs::symlink("generated.py", root.join("alias.py")).unwrap();
+    std::fs::create_dir_all(root.join("pkg.py")).unwrap();
     let outside = dir.path().join("outside");
     std::fs::create_dir_all(&outside).unwrap();
     std::fs::write(outside.join("secret"), format!("{CANARY}\n")).unwrap();
@@ -792,8 +800,22 @@ fn argument_roles_recorded_rows_are_pre_fix_observations() {
             .iter()
             .find(|row| row.id == case.synthetic_twin)
             .unwrap_or_else(|| panic!("{}: missing twin", case.id));
-        assert_eq!(twin.expect, "allow", "{}", case.id);
-        assert!(!rejected(root, &twin.command), "{}", case.id);
+        // Rule B' closes a twin that writes a file and runs a python3 script
+        // in the same text; the PM approved that safer change, and the twin
+        // carries the note.
+        if twin.expect == "reject" {
+            assert!(
+                twin.note
+                    .as_deref()
+                    .is_some_and(|note| note.contains("rule B'")),
+                "{}",
+                case.id
+            );
+            assert!(rejected(root, &twin.command), "{}", case.id);
+        } else {
+            assert_eq!(twin.expect, "allow", "{}", case.id);
+            assert!(!rejected(root, &twin.command), "{}", case.id);
+        }
         if case.command_excerpt != "<omitted>" {
             assert!(
                 !rejected(root, &case.command_excerpt),
@@ -859,9 +881,23 @@ fn argument_roles_review_counterexamples_stay_refused_and_never_run() {
         );
         assert!(!error.to_string().contains(CANARY), "{command:?}: {error}");
     }
-    for name in ["printf", "script.sh", "list.txt", "out.txt", "item"] {
+    for name in [
+        "printf",
+        "script.sh",
+        "list.txt",
+        "out.txt",
+        "item",
+        "SCRIPT.py",
+        "script.py",
+        "generated.py",
+        "pkg.py/__main__.py",
+    ] {
         assert!(!root.join(name).exists(), "{name} must not be created");
     }
+    assert_eq!(
+        std::fs::read_to_string(root.join("hard.py")).unwrap(),
+        "import sys\n"
+    );
     assert_eq!(fixture.outside_snapshot(), before);
     for (command, expected) in [
         (
@@ -921,7 +957,7 @@ fn argument_roles_known_readers_print_produced_data_without_reading_it() {
             "sub/link/secret",
         ),
         (
-            "printf '%s\\n' sub/link/secret > f5; python3 app.py < f5",
+            "printf '%s\\n' sub/link/secret | python3 app.py",
             "app:sub/link/secret",
         ),
     ] {
@@ -986,6 +1022,13 @@ const REVIEW_REFUSED: &[&str] = &[
     "printf '%s' 'sed -n p ' sub/link/secret > script.sh; /bin/\u{17f}h script.sh",
     "printf '%s' 'sed -n p ' sub/link/secret > script.sh; /bin/\u{17f}H script.sh",
     "printf '%s' 'sed -n p ' sub/link/secret > script.sh; \u{ff53}\u{ff48} script.sh",
+    // Fourth security recheck (rule B'): a written file reached under another
+    // name, through a workspace symlink or hardlink, or as a `.py` directory.
+    "printf '%s' 'print(open(\"' sub/link/secret '\").read())' > SCRIPT.py; python3 script.py",
+    "printf '%s' 'print(open(\"' sub/link/secret '\").read())' > generated.py; python3 alias.py",
+    "printf '%s' 'print(open(\"' sub/link/secret '\").read())' >> base.py; python3 hard.py",
+    "printf '%s' 'print(open(\"' sub/link/secret '\").read())' > pkg.py/__main__.py; python3 pkg.py",
+    "printf '%s\\n' sub/link/secret > list.txt; python3 base.py list.txt",
 ];
 
 /// The same counterexamples through the runtime Bash policy of a scripted
@@ -1135,21 +1178,139 @@ fn argument_roles_redteam_rows_hold_through_the_real_tool() {
         );
         assert!(!error.to_string().contains(CANARY), "{}: {error}", case.id);
     }
-    assert_eq!(refused, 30);
-    for id in ["redteam-open-A-py-pipe", "redteam-open-A-py-fromfile"] {
+    assert_eq!(refused, 32);
+    let note = |id: &str| {
         let case = rows.iter().find(|case| case.id == id).unwrap();
-        assert_eq!(case.expect, "allow");
-        assert!(
-            case.note
-                .as_deref()
-                .is_some_and(|note| note.contains("reach is equivalent")),
-            "{id}"
-        );
+        (case.expect.clone(), case.note.clone().unwrap_or_default())
+    };
+    let (expect, text) = note("redteam-open-A-py-pipe");
+    assert_eq!(expect, "allow");
+    assert!(text.contains("reach is equivalent"), "{text}");
+    for id in ["redteam-open-A-py-fromfile", "redteam-pos-echo-redir-py"] {
+        let (expect, text) = note(id);
+        assert_eq!(expect, "reject", "{id}");
+        assert!(text.contains("rule B'"), "{id}: {text}");
     }
     assert_eq!(
         entries(root),
         workspace_before,
         "a refused row created a file"
     );
+    assert_eq!(fixture.outside_snapshot(), before);
+}
+
+/// Every red-team row the decision allows runs through the real Bash tool with
+/// a fixture of its own, does what the shell says it does, and never prints
+/// the canary. Two allowed rows are known limits that would read the canary by
+/// construction (a script the text writes whose text was never a path
+/// candidate, and data piped to a workspace script that opens it); they are
+/// run here in their workspace-path form instead, which shows the consumer
+/// works only on what it is given.
+#[test]
+fn argument_roles_redteam_allowed_rows_run_without_the_canary() {
+    let fixture = fixture();
+    let root = &fixture.root;
+    std::fs::write(
+        root.join("in.txt"),
+        "head a\nbegin\nmiddle /item/2 </tag>\nend\ntail ax\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("reader.py"),
+        "import sys\npath = sys.stdin.read().strip()\nprint(open(path).read(), end='')\n",
+    )
+    .unwrap();
+    let context = ToolContext {
+        root: root.clone(),
+        mode: ExecutionMode::Act,
+        auto_approve: true,
+        interactive_approval: false,
+        offline: true,
+        workspace_policy: WorkspacePolicy::NormalTask,
+        eval_events_path: Some(fixture.dir.path().join("redteam-run-events.jsonl")),
+        expected_paths: Vec::new(),
+        protected_paths: Vec::new(),
+    };
+    let registry = ToolRegistry::default();
+    let before = fixture.outside_snapshot();
+    let node = std::process::Command::new("node")
+        .arg("--version")
+        .output()
+        .is_ok_and(|output| output.status.success());
+    let sed_in_place = if cfg!(target_os = "macos") {
+        // BSD sed reads the word after `-i` as the backup suffix, so the
+        // script is `in.txt` and the edit fails without touching anything.
+        "exit status: 1"
+    } else {
+        "exit status: 0"
+    };
+    let expected: &[(&str, &str)] = &[
+        ("redteam-pos-sed-range", "middle /item/2"),
+        ("redteam-pos-sed-subst", "head a"),
+        ("redteam-pos-awk-prog", "middle /item/2"),
+        ("redteam-pos-grep-pat", "3:middle /item/2 </tag>"),
+        ("redteam-pos-grep-e", "middle /item/2"),
+        ("redteam-pos-printf-json", "{\"pointer\":\"/item/2\"}"),
+        ("redteam-pos-echo-json", "{\"pointer\":\"/item\"}"),
+        ("redteam-pos-printf-pipe-py", "app:{\"p\":\"/b\"}"),
+        ("redteam-pos-cat-readback", "x"),
+        ("redteam-pos-node-check", ""),
+        ("redteam-closed-sed-inplace", sed_in_place),
+        ("redteam-closed-awk-environ", ""),
+    ];
+    let not_run = [
+        "redteam-closed-generated-script-same-text",
+        "redteam-open-A-py-pipe",
+    ];
+    let cases = cases();
+    let allowed: Vec<&SyntheticCase> = cases
+        .synthetic
+        .iter()
+        .filter(|case| case.id.starts_with("redteam-") && case.expect == "allow")
+        .collect();
+    assert_eq!(allowed.len(), expected.len() + not_run.len());
+    for case in &allowed {
+        assert!(!rejected(root, &case.command), "{}", case.id);
+        if not_run.contains(&case.id.as_str()) {
+            assert!(
+                case.note
+                    .as_deref()
+                    .is_some_and(|note| note.contains("known limit")),
+                "{}",
+                case.id
+            );
+            continue;
+        }
+        if case.id == "redteam-pos-node-check" && !node {
+            continue;
+        }
+        let (_, output_contains) = expected
+            .iter()
+            .find(|(id, _)| *id == case.id)
+            .unwrap_or_else(|| panic!("no expectation for {}", case.id));
+        let output = registry
+            .execute("Bash", &json!({ "command": case.command }), &context)
+            .unwrap_or_else(|err| panic!("{} must run: {err}", case.id));
+        assert!(output.contains(output_contains), "{}: {output}", case.id);
+        assert!(!output.contains(CANARY), "{}: {output}", case.id);
+    }
+    assert_eq!(std::fs::read_to_string(root.join("a.txt")).unwrap(), "x\n");
+    if !cfg!(target_os = "macos") {
+        assert!(
+            std::fs::read_to_string(root.join("in.txt"))
+                .unwrap()
+                .contains("tail ay")
+        );
+    }
+    // The workspace-path form of the piped-reader row: the consumer opens the
+    // workspace file it is given, and the canary form is a known limit.
+    let output = registry
+        .execute(
+            "Bash",
+            &json!({ "command": "printf '%s' in.txt | python3 reader.py" }),
+            &context,
+        )
+        .unwrap();
+    assert!(output.contains("middle /item/2"), "{output}");
     assert_eq!(fixture.outside_snapshot(), before);
 }

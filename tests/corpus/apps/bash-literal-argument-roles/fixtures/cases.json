@@ -556,8 +556,9 @@
       "id": "synthetic-printf-long-json-format-redirect",
       "origin": "synthetic",
       "command": "printf '{\"items\":[{\"op\":\"add\",\"key\":\"k0\",\"qty\":0,\"path\":\"/items/0\"},{\"op\":\"add\",\"key\":\"k1\",\"qty\":1,\"path\":\"/items/1\"},{\"op\":\"add\",\"key\":\"k2\",\"qty\":2,\"path\":\"/items/2\"},{\"op\":\"add\",\"key\":\"k3\",\"qty\":3,\"path\":\"/items/3\"},{\"op\":\"add\",\"key\":\"k4\",\"qty\":4,\"path\":\"/items/4\"},{\"op\":\"add\",\"key\":\"k5\",\"qty\":5,\"path\":\"/items/5\"}]}\\n' > local.jsonl; python3 app.py < local.jsonl",
-      "expect": "allow",
-      "secret": false
+      "expect": "reject",
+      "secret": false,
+      "note": "rule B' closes it: a write and a python3 script run in the same text (PM approved)"
     },
     {
       "id": "synthetic-cd-then-echo-symlink-name",
@@ -1264,7 +1265,16 @@
       "origin": "synthetic",
       "command": "printf '%s\\n' x > f; python3 app.py < f",
       "expect": "allow",
-      "secret": false
+      "secret": false,
+      "note": "rule B' closes the data roles here, but the data word `x` is not a path, so the existing proof allows the command"
+    },
+    {
+      "id": "synthetic-path-data-then-workspace-python-script",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' sub/link/secret > f; python3 app.py < f",
+      "expect": "reject",
+      "secret": false,
+      "note": "rule B' closes it: a write and a python3 script run in the same text (PM approved)"
     },
     {
       "id": "synthetic-program-spelling-to-cat",
@@ -1355,9 +1365,10 @@
       "id": "redteam-pos-echo-redir-py",
       "origin": "synthetic",
       "command": "echo '{\"p\":\"/b\"}' > data.json; python3 app.py data.json",
-      "expect": "allow",
+      "expect": "reject",
       "secret": false,
-      "family": "partner/python3"
+      "family": "partner/python3",
+      "note": "rule B' closes it: a write and a python3 script run in the same text; the red-team file expected allow"
     },
     {
       "id": "redteam-pos-cat-readback",
@@ -1396,10 +1407,10 @@
       "id": "redteam-open-A-py-fromfile",
       "origin": "synthetic",
       "command": "printf '%s' sub/link/secret > list.txt; python3 fromfile.py list.txt",
-      "expect": "allow",
+      "expect": "reject",
       "secret": false,
       "family": "content-as-path/python3-preexisting",
-      "note": "known limit (PM decision 2a, user approved): a workspace python3 script may read the data it receives; the script content was outside the static judgement before the fix as well, so the reach is equivalent"
+      "note": "rule B' closes it (PM approved, a safer change within decision 2a): a write and a python3 script run in the same text"
     },
     {
       "id": "redteam-closed-redir-noclobber",

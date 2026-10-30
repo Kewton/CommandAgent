@@ -2,7 +2,9 @@
 //! effects, unknown syntax, and the path candidates that must remain.
 
 use super::read_only_program::{self, Verdict};
-use super::{Roles, data_only_words, judge};
+use super::{
+    Roles, data_only_words, folded_name, is_closing_word, is_command_name, judge, runs_inline_code,
+};
 use crate::tools::bash::path_tokens::{CrMode, read_segments};
 
 fn roles(command: &str) -> (Vec<Vec<String>>, Roles) {
@@ -654,7 +656,7 @@ fn argument_roles_reevaluation_anywhere_closes_every_role() {
     for command in [
         "printf '%s\\n' '{\"p\":\"/b\"}' | python3 app.py",
         "python3 app.py && printf '%s\\n' '/a'",
-        "sed -n '/a/,/b/p' in.txt | sed '1d;$d' > out.js && node --check app.js",
+        "sed -n '/a/,/b/p' in.txt | sed '1d;$d' && node --check app.js",
         "awk '/x/{f=1;next} f' in.txt > out.txt && printf '/a\\n'",
     ] {
         assert!(!data(command).is_empty(), "{command}");
@@ -783,10 +785,9 @@ fn argument_roles_only_known_commands_keep_roles_open() {
         "printf '%s\\n' sub/link/canary > f; wc -l f",
         "printf '%s\\n' sub/link/canary > f; cat f",
         "printf '%s\\n' sub/link/canary > f && rm f",
-        "printf '%s\\n' sub/link/canary > list.txt; python3 app.py",
         "printf '%s\\n' sub/link/canary | python3 app.py",
         "cd sub && echo link",
-        "printf '%s\\n' '/a' > out.js && node --check app.js",
+        "printf '%s\\n' '/a' && node --check app.js",
     ] {
         assert!(
             data(command)
@@ -829,4 +830,157 @@ fn argument_roles_added_readers_take_only_plain_options() {
     ] {
         assert_eq!(data(command), ["sub/link/canary"], "{command}");
     }
+}
+
+/// Rule B': any write in the text together with a `python3` or `node` script
+/// run closes every data role, whatever the spellings, so a case-insensitive
+/// name, a symlink, a hardlink, or a `.py` directory cannot make a written
+/// file the script.
+#[test]
+fn argument_roles_write_with_script_run_closes_every_role() {
+    let writes = [
+        "printf '%s' sub/link/canary > w.txt",
+        "printf '%s' sub/link/canary >> w.txt",
+        "printf '%s' sub/link/canary >| w.txt",
+        "printf '%s' sub/link/canary &> w.txt",
+        "printf '%s' sub/link/canary &>> w.txt",
+        "printf '%s' sub/link/canary 2> w.txt",
+        "printf '%s' sub/link/canary 3> w.txt",
+        "printf '%s' sub/link/canary 2>w.txt",
+        "printf '%s' sub/link/canary>w.txt",
+        "printf '%s' sub/link/canary <> w.txt",
+        "printf '%s' sub/link/canary 1>&2",
+        "printf '%s' sub/link/canary; cat <<EOF > w.txt",
+        "printf '%s' sub/link/canary; cat <<< x",
+        "printf '%s' sub/link/canary; cat < in.txt",
+        "printf '%s' sub/link/canary; sed -n '1w w.txt' in.txt",
+        "printf '%s' sub/link/canary; sed -n '1W w.txt' in.txt",
+        "printf '%s' sub/link/canary; sed 's/a/b/w w.txt' in.txt",
+        "printf '%s' sub/link/canary; awk '{print > \"w.txt\"}' in.txt",
+        "printf '%s' sub/link/canary; awk '{print >> \"w.txt\"}' in.txt",
+        "printf '%s' sub/link/canary; awk '{print | \"cat\"}' in.txt",
+        "printf '%s' sub/link/canary; tee w.txt < in.txt",
+    ];
+    let runs = [
+        "python3 script.py",
+        "python3 alias.py",
+        "python3 pkg.py",
+        "node --check app.js",
+    ];
+    for write in writes {
+        for run in runs {
+            for command in [
+                format!("{write}; {run}"),
+                format!("{write} && {run}"),
+                format!("{write}\n{run}"),
+            ] {
+                assert!(data(&command).is_empty(), "{command}");
+                assert!(
+                    kept(&command)
+                        .iter()
+                        .any(|word| word.contains("sub/link/canary")),
+                    "{command}"
+                );
+            }
+        }
+    }
+    // The same producers without a script run, and a script run without a
+    // write, keep the roles open.
+    assert_eq!(
+        data("printf '%s' sub/link/canary > w.txt; cat w.txt"),
+        ["%s", "sub/link/canary"]
+    );
+    assert_eq!(
+        data("printf '%s' sub/link/canary | python3 app.py"),
+        ["%s", "sub/link/canary"]
+    );
+}
+
+/// The words of the first segment of `command`.
+fn words(command: &str) -> Vec<crate::tools::bash::path_tokens::Word> {
+    read_segments(command, CrMode::Separator)
+        .unwrap_or_else(|| panic!("readable shell text: {command:?}"))
+        .remove(0)
+        .words
+}
+
+/// Each defense layer behind rule A, checked on its own so that it stays
+/// tested while rule A closes the same texts first.
+#[test]
+fn argument_roles_inner_layers_hold_on_their_own() {
+    // `folded_name` lowercases the basename.
+    assert_eq!(folded_name("/bin/SH"), "sh");
+    assert_eq!(folded_name("./Python3"), "python3");
+    assert_eq!(folded_name("RSCRIPT"), "rscript");
+    // `is_closing_word` folds case and reads the basename.
+    for spelling in [
+        "sh",
+        "/bin/sh",
+        "/bin/SH",
+        "/bin/Sh",
+        "./SH",
+        "/usr/bin/XARGS",
+        "Eval",
+    ] {
+        assert!(is_closing_word(&words(spelling)[0]), "{spelling}");
+    }
+    for spelling in ["shell", "/bin/shx", "cat", "printf"] {
+        assert!(!is_closing_word(&words(spelling)[0]), "{spelling}");
+    }
+    // `runs_inline_code` reads past leading options and folds the name.
+    for command in [
+        "python3 -c x",
+        "python3 -B -c x",
+        "python3.12 -u -c x",
+        "Python3 -c x",
+        "PYTHON3 -B -c x",
+        "node --no-warnings -e x",
+        "perl -w -e x",
+        "ruby -w -e x",
+        "RSCRIPT -e x",
+        "python3",
+        "python3 -",
+        "python3 -m timeit x",
+        "node app.js --check",
+    ] {
+        let parsed = words(command);
+        let closes = runs_inline_code(&parsed);
+        // `python3 -m module` and a script-first `node` stay open in this
+        // layer; rule A closes `-m` on its own.
+        let expected = !matches!(command, "python3 -m timeit x" | "node app.js --check");
+        assert_eq!(closes, expected, "{command}");
+    }
+    for command in ["python3 app.py -c x", "node --check app.js", "cat -c x"] {
+        assert!(!runs_inline_code(&words(command)), "{command}");
+    }
+    // `is_command_name` (rule C) refuses a non-ASCII or quoted name.
+    for spelling in [
+        "/bin/\u{17f}h",
+        "\u{ff53}\u{ff48}",
+        "c\u{430}t",
+        "'cat'",
+        "c\\at",
+    ] {
+        assert!(!is_command_name(&words(spelling)[0]), "{spelling}");
+    }
+    for spelling in ["cat", "/bin/sh", "SED"] {
+        assert!(is_command_name(&words(spelling)[0]), "{spelling}");
+    }
+}
+
+/// The gate still applies the closing-name and inline-interpreter layers to
+/// words that rule A lets through (arguments of known commands), so removing
+/// either layer from the gate opens these texts.
+#[test]
+fn argument_roles_gate_applies_inner_layers_beyond_rule_a() {
+    for command in [
+        "printf '%s' sub/link/canary; cat /bin/SH",
+        "printf '%s' sub/link/canary; cat /usr/bin/XARGS",
+        "printf '%s' sub/link/canary; cat python3",
+        "printf '%s' sub/link/canary; cat Python3 -B -c",
+        "printf '%s' sub/link/canary; wc -l node",
+    ] {
+        assert!(data(command).is_empty(), "{command}");
+    }
+    assert!(!data("printf '%s' sub/link/canary; cat notes.txt").is_empty());
 }

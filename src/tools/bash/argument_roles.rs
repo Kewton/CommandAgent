@@ -366,49 +366,36 @@ fn plain_options(name: &str, arguments: &[&Word]) -> bool {
     true
 }
 
+/// Whether a command word is a bare static name spelled in ASCII only (rule C):
+/// a filesystem may resolve a non-ASCII spelling such as `/bin/ſh` to an ASCII
+/// command.
+fn is_command_name(word: &Word) -> bool {
+    is_bare(word) && word.text.is_ascii()
+}
+
 /// Whether every command in the text is one this leaf knows (rule A): a
 /// read-only table command, `cat`, `wc`, `head`, `tail`, `cd`, `rm`,
 /// `python3 <script>.py [arguments]`, or `node --check <file>`, each named by
-/// a bare ASCII word (rule C). A redirect that hides words after its target,
-/// a `python3`/`node` file the same text writes (an output redirect target or
-/// a sed/awk write), or such a file next to a write the text cannot spell as a
-/// clean workspace-relative path or after a `cd` (rule B) closes the roles.
+/// a bare ASCII word (rule C). A redirect that hides words after its target
+/// closes the roles. Rule B': a `python3`/`node` script run together with any
+/// write in the same text closes them, whatever the spellings, because a
+/// case-insensitive name, a symlink, a hardlink, or a `.py` directory can make
+/// a written file the script. Every redirect operator (output, append,
+/// noclobber, `&>`, `<>`, descriptor, heredoc, here-string, and input) and
+/// every sed/awk write counts as a possible write.
 fn every_command_known(
     segments: &[Segment],
     pipelines: &[Vec<Command>],
     program_writes: &[String],
 ) -> bool {
-    let mut written: Vec<String> = Vec::new();
-    let mut unknown_write = false;
-    for segment in segments {
-        if !matches!(segment.opener, Opener::Output | Opener::Duplicate) {
-            continue;
-        }
-        let Some(target) = segment.words.first() else {
-            continue;
-        };
-        let descriptor = segment.opener == Opener::Duplicate
-            && target
-                .text
-                .chars()
-                .all(|ch| ch.is_ascii_digit() || ch == '-');
-        match clean_relative(target) {
-            Some(path) => written.push(path),
-            None => unknown_write |= !descriptor,
-        }
-    }
-    for path in program_writes {
-        let word = Word {
-            text: path.clone(),
-            ..Word::default()
-        };
-        match clean_relative(&word) {
-            Some(path) => written.push(path),
-            None => unknown_write = true,
-        }
-    }
-    let mut scripts: Vec<String> = Vec::new();
-    let mut changes_directory = false;
+    let writes = !program_writes.is_empty()
+        || segments.iter().any(|segment| {
+            matches!(
+                segment.opener,
+                Opener::Input | Opener::Output | Opener::Duplicate
+            )
+        });
+    let mut runs_script = false;
     for command in pipelines.iter().flatten() {
         if command
             .redirects
@@ -421,26 +408,25 @@ fn every_command_known(
         let Some(name) = argv.first() else {
             continue;
         };
-        if !is_bare(name) || !name.text.is_ascii() {
+        if !is_command_name(name) {
             return false;
         }
         match name.text.as_str() {
-            "cd" => changes_directory = true,
             "python3" => {
-                let Some(script) = argv.get(1).filter(|script| is_python_script(script)) else {
+                if !argv.get(1).is_some_and(|script| is_python_script(script)) {
                     return false;
-                };
-                scripts.extend(clean_relative(script));
+                }
+                runs_script = true;
             }
             "node" => {
-                let file = match argv.as_slice() {
-                    [_, check, file] if check.text == "--check" => clean_relative(file),
-                    _ => None,
-                };
-                let Some(file) = file else {
+                let checks_file = matches!(
+                    argv.as_slice(),
+                    [_, check, file] if check.text == "--check" && clean_relative(file).is_some()
+                );
+                if !checks_file {
                     return false;
-                };
-                scripts.push(file);
+                }
+                runs_script = true;
             }
             "cat" | "wc" | "head" | "tail" | "rm" if !plain_options(&name.text, &argv[1..]) => {
                 return false;
@@ -449,10 +435,7 @@ fn every_command_known(
             _ => return false,
         }
     }
-    scripts.is_empty()
-        || !(unknown_write
-            || (changes_directory && !written.is_empty())
-            || scripts.iter().any(|script| written.contains(script)))
+    !(runs_script && writes)
 }
 
 /// Whether the text leaves room for data roles at all: no subshell or process
