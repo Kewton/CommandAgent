@@ -1207,6 +1207,62 @@
       "id": "synthetic-python-module-then-data",
       "origin": "synthetic",
       "command": "python3 -m unittest discover -s tests && printf '%s\\n' '/a'",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-python-timeit",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' sub/link/secret > list.txt; python3 -m timeit -n 1 -r 1 'import sys'",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-unknown-command",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' sub/link/secret > list.txt; lua x.lua",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-written-python-script",
+      "origin": "synthetic",
+      "command": "printf '%s' 'print(open(\"' sub/link/secret '\").read())' > script.py; python3 script.py",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-piped-to-written-python-script",
+      "origin": "synthetic",
+      "command": "printf '%s' 'import sys' > s.py; printf '%s\\n' sub/link/secret | python3 s.py",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-long-s-shell",
+      "origin": "synthetic",
+      "command": "printf '%s' 'sed -n p ' sub/link/secret > script.sh; /bin/ſh script.sh",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-fullwidth-shell",
+      "origin": "synthetic",
+      "command": "printf '%s' 'sed -n p ' sub/link/secret > script.sh; ｓｈ script.sh",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-then-known-reader",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' sub/link/secret > f; head -n1 f",
+      "expect": "allow",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-then-workspace-python-script",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' x > f; python3 app.py < f",
       "expect": "allow",
       "secret": false
     },

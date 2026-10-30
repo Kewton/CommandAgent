@@ -137,7 +137,9 @@ pub(super) fn judge(segments: &[Segment]) -> Roles {
         }
         members.push(judged);
     }
-    if !gate_open(segments, &read_only_runners) {
+    if !gate_open(segments, &read_only_runners)
+        || !every_command_known(segments, &pipelines, &roles.extra_writes)
+    {
         return roles;
     }
     for judged in members {
@@ -275,7 +277,7 @@ fn partner_kind(argv: &[&Word]) -> Member {
     };
     match name.text.as_str() {
         "cat" => Member::Partner,
-        "python3" if argv.get(1).is_some_and(|script| is_static_script(script)) => Member::Partner,
+        "python3" if argv.get(1).is_some_and(|script| is_python_script(script)) => Member::Partner,
         _ => Member::Other,
     }
 }
@@ -291,15 +293,121 @@ fn is_static(word: &Word) -> bool {
     !word.dynamic && !word.glob && !word.tilde
 }
 
-/// A static workspace-relative script path: not an option, not stdin, not
-/// absolute, and without a parent component.
-fn is_static_script(word: &Word) -> bool {
-    is_static(word)
-        && !word.text.is_empty()
-        && !word.text.starts_with('-')
-        && !word.text.starts_with('/')
-        && !word.text.starts_with('~')
-        && !word.text.split('/').any(|component| component == "..")
+/// A workspace-relative path spelled without an expansion, an absolute or
+/// home prefix, an option dash, or a `.`/`..`/empty component, with a leading
+/// `./` removed. Any other spelling returns `None`.
+fn clean_relative(word: &Word) -> Option<String> {
+    if !is_static(word) {
+        return None;
+    }
+    let mut text = word.text.as_str();
+    while let Some(rest) = text.strip_prefix("./") {
+        text = rest;
+    }
+    let clean = !text.is_empty()
+        && !text.starts_with(['/', '-', '~'])
+        && text
+            .split('/')
+            .all(|component| !matches!(component, "" | "." | ".."));
+    clean.then(|| text.to_string())
+}
+
+/// A `python3` script operand: a clean workspace-relative path ending in `.py`.
+fn is_python_script(word: &Word) -> bool {
+    clean_relative(word).is_some_and(|path| path.ends_with(".py"))
+}
+
+/// Commands that leave the data roles open without taking any: their
+/// arguments keep the existing path proof. `python3` and `node` are admitted
+/// only in the forms [`every_command_known`] reads.
+const KNOWN_COMMANDS: &[&str] = &[
+    "sed", "awk", "grep", "echo", "printf", "cat", "wc", "head", "tail", "cd", "rm",
+];
+
+/// Whether every command in the text is one this leaf knows (rule A): a
+/// read-only table command, `cat`, `wc`, `head`, `tail`, `cd`, `rm`,
+/// `python3 <script>.py [arguments]`, or `node --check <file>`, each named by
+/// a bare ASCII word (rule C). A redirect that hides words after its target,
+/// a `python3`/`node` file the same text writes (an output redirect target or
+/// a sed/awk write), or such a file next to a write the text cannot spell as a
+/// clean workspace-relative path or after a `cd` (rule B) closes the roles.
+fn every_command_known(
+    segments: &[Segment],
+    pipelines: &[Vec<Command>],
+    program_writes: &[String],
+) -> bool {
+    let mut written: Vec<String> = Vec::new();
+    let mut unknown_write = false;
+    for segment in segments {
+        if !matches!(segment.opener, Opener::Output | Opener::Duplicate) {
+            continue;
+        }
+        let Some(target) = segment.words.first() else {
+            continue;
+        };
+        let descriptor = segment.opener == Opener::Duplicate
+            && target
+                .text
+                .chars()
+                .all(|ch| ch.is_ascii_digit() || ch == '-');
+        match clean_relative(target) {
+            Some(path) => written.push(path),
+            None => unknown_write |= !descriptor,
+        }
+    }
+    for path in program_writes {
+        let word = Word {
+            text: path.clone(),
+            ..Word::default()
+        };
+        match clean_relative(&word) {
+            Some(path) => written.push(path),
+            None => unknown_write = true,
+        }
+    }
+    let mut scripts: Vec<String> = Vec::new();
+    let mut changes_directory = false;
+    for command in pipelines.iter().flatten() {
+        if command
+            .redirects
+            .iter()
+            .any(|&index| argv(segments, index).len() > 1)
+        {
+            return false;
+        }
+        let argv = argv(segments, command.segment);
+        let Some(name) = argv.first() else {
+            continue;
+        };
+        if !is_bare(name) || !name.text.is_ascii() {
+            return false;
+        }
+        match name.text.as_str() {
+            "cd" => changes_directory = true,
+            "python3" => {
+                let Some(script) = argv.get(1).filter(|script| is_python_script(script)) else {
+                    return false;
+                };
+                scripts.extend(clean_relative(script));
+            }
+            "node" => {
+                let file = match argv.as_slice() {
+                    [_, check, file] if check.text == "--check" => clean_relative(file),
+                    _ => None,
+                };
+                let Some(file) = file else {
+                    return false;
+                };
+                scripts.push(file);
+            }
+            other if KNOWN_COMMANDS.contains(&other) => {}
+            _ => return false,
+        }
+    }
+    scripts.is_empty()
+        || !(unknown_write
+            || (changes_directory && !written.is_empty())
+            || scripts.iter().any(|script| written.contains(script)))
 }
 
 /// Whether the text leaves room for data roles at all: no subshell or process

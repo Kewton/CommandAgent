@@ -653,8 +653,8 @@ fn argument_roles_reevaluation_anywhere_closes_every_role() {
     // A safe formatter feeding an allowed consumer stays open.
     for command in [
         "printf '%s\\n' '{\"p\":\"/b\"}' | python3 app.py",
-        "python3 -m unittest discover -s tests -t . && printf '%s\\n' '/a'",
-        "sed -n '/a/,/b/p' in.txt | sed '1d;$d' > out.js && node --check out.js",
+        "python3 app.py && printf '%s\\n' '/a'",
+        "sed -n '/a/,/b/p' in.txt | sed '1d;$d' > out.js && node --check app.js",
         "awk '/x/{f=1;next} f' in.txt > out.txt && printf '/a\\n'",
     ] {
         assert!(!data(command).is_empty(), "{command}");
@@ -727,10 +727,72 @@ fn argument_roles_interpreter_options_and_name_case_close_every_role() {
     for command in [
         "printf '%s\\n' '/a' | python3 app.py",
         "python3 app.py -c x && printf '%s\\n' '/a'",
-        "python3 -m unittest discover -s tests && printf '%s\\n' '/a'",
         "node --check app.js && printf '%s\\n' '/a'",
-        "node app.js && printf '%s\\n' '/a'",
     ] {
         assert!(!data(command).is_empty(), "{command}");
+    }
+}
+
+/// Rule A: the data roles stay open only when every command in the text is a
+/// known one; rule B: a script the text itself writes closes them; rule C: a
+/// command name must be bare ASCII.
+#[test]
+fn argument_roles_only_known_commands_keep_roles_open() {
+    for command in [
+        "printf '%s\\n' sub/link/canary > list.txt; python3 -m timeit -n 1 -r 1 'x'",
+        "printf '%s\\n' sub/link/canary > list.txt; python3 -m unittest",
+        "printf '%s\\n' sub/link/canary > list.txt; python3 -m http.server",
+        "printf '%s\\n' sub/link/canary > list.txt; python3 -m json.tool in.txt",
+        "printf '%s\\n' sub/link/canary > list.txt; python3 app.txt",
+        "printf '%s\\n' sub/link/canary > list.txt; python3 ../app.py",
+        "printf '%s\\n' sub/link/canary > list.txt; python3 /abs/app.py",
+        "printf '%s\\n' sub/link/canary > list.txt; deno run x.ts",
+        "printf '%s\\n' sub/link/canary > list.txt; lua x.lua",
+        "printf '%s\\n' sub/link/canary > list.txt; osascript -e 'x'",
+        "printf '%s\\n' sub/link/canary > list.txt; node app.js",
+        "printf '%s\\n' sub/link/canary > list.txt; node --check app.js extra",
+        "printf '%s\\n' sub/link/canary > list.txt; ls",
+        "printf '%s\\n' sub/link/canary > list.txt; true",
+        "printf '%s\\n' sub/link/canary > list.txt; X=1 cat list.txt",
+        "printf '%s\\n' sub/link/canary > list.txt; > out tee list.txt",
+        "printf '%s' 'print(open(\"' sub/link/canary '\").read())' > script.py; python3 script.py",
+        "printf '%s' 'print(open(\"' sub/link/canary '\").read())' > ./script.py; python3 script.py",
+        "printf '%s' 'x' > s.py; printf '%s\\n' sub/link/canary | python3 s.py",
+        "printf '%s' 'x' >> s.py; printf '%s\\n' sub/link/canary | python3 s.py",
+        "printf '%s' 'x' >| s.py; printf '%s\\n' sub/link/canary | python3 s.py",
+        "sed -n '1w s.py' in.txt; printf '%s\\n' sub/link/canary | python3 s.py",
+        "printf '%s' 'x' > s.js; printf '%s\\n' sub/link/canary > list.txt; node --check s.js",
+        "printf '%s' 'x' > ../s.py; printf '%s\\n' sub/link/canary | python3 s.py",
+        "cd sub && printf '%s' x > s.py && printf '%s\\n' sub/link/canary | python3 sub/s.py",
+        "printf '%s' sub/link/canary > script.sh; /bin/\u{17f}h script.sh",
+        "printf '%s' sub/link/canary > script.sh; /bin/\u{17f}H script.sh",
+        "printf '%s' sub/link/canary > script.sh; \u{ff53}\u{ff48} script.sh",
+        "printf '%s' sub/link/canary > list.txt; c\u{430}t list.txt",
+    ] {
+        assert!(data(command).is_empty(), "{command}");
+        assert!(
+            kept(command)
+                .iter()
+                .any(|word| word.contains("sub/link/canary")),
+            "{command}"
+        );
+    }
+    for command in [
+        "printf '%s\\n' sub/link/canary > f; head -n1 f",
+        "printf '%s\\n' sub/link/canary > f; tail -n1 f",
+        "printf '%s\\n' sub/link/canary > f; wc -l f",
+        "printf '%s\\n' sub/link/canary > f; cat f",
+        "printf '%s\\n' sub/link/canary > f && rm f",
+        "printf '%s\\n' sub/link/canary > list.txt; python3 app.py",
+        "printf '%s\\n' sub/link/canary | python3 app.py",
+        "cd sub && echo link",
+        "printf '%s\\n' '/a' > out.js && node --check app.js",
+    ] {
+        assert!(
+            data(command)
+                .iter()
+                .any(|word| word.contains("sub/link/canary") || word == "link" || word == "/a"),
+            "{command}"
+        );
     }
 }

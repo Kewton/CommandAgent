@@ -862,6 +862,60 @@ fn argument_roles_review_counterexamples_stay_refused_and_never_run() {
     assert!(!root.join("printf").exists());
 }
 
+/// A known reader of a file the same text wrote (`head`, `tail`, `wc`,
+/// `cat`) leaves the producer's data roles open: the produced text is data,
+/// and these readers print it rather than open it as a path list. The real
+/// tool shows the literal spelling and never the canary behind it, and the
+/// recorded twins and the working-directory positive stay allowed.
+#[test]
+fn argument_roles_known_readers_print_produced_data_without_reading_it() {
+    let fixture = fixture();
+    let root = &fixture.root;
+    let context = ToolContext {
+        root: root.clone(),
+        mode: ExecutionMode::Act,
+        auto_approve: true,
+        interactive_approval: false,
+        offline: true,
+        workspace_policy: WorkspacePolicy::NormalTask,
+        eval_events_path: Some(fixture.dir.path().join("reader-events.jsonl")),
+        expected_paths: Vec::new(),
+        protected_paths: Vec::new(),
+    };
+    let registry = ToolRegistry::default();
+    let before = fixture.outside_snapshot();
+    for (command, expected) in [
+        (
+            "printf '%s\\n' sub/link/secret > f1; head -n1 f1",
+            "sub/link/secret",
+        ),
+        (
+            "printf '%s\\n' sub/link/secret > f2; tail -n1 f2",
+            "sub/link/secret",
+        ),
+        ("printf '%s\\n' sub/link/secret > f3; wc -c f3", "16"),
+        (
+            "printf '%s\\n' sub/link/secret > f4; cat f4",
+            "sub/link/secret",
+        ),
+        (
+            "printf '%s\\n' sub/link/secret > f5; python3 app.py < f5",
+            "app:sub/link/secret",
+        ),
+    ] {
+        assert!(!rejected(root, command), "expected allow: {command:?}");
+        let output = registry
+            .execute("Bash", &json!({ "command": command }), &context)
+            .unwrap_or_else(|err| panic!("{command:?} must run: {err}"));
+        assert!(output.contains(expected), "{command:?}: {output}");
+        assert!(!output.contains(CANARY), "{command:?}: {output}");
+    }
+    assert_eq!(fixture.outside_snapshot(), before);
+    // The working-directory positive and the #871 workspace `sed w` stay.
+    assert!(!rejected(root, "cd sub && echo link"));
+    assert!(!rejected(root, "sed -n '1,5w out.txt' in.txt"));
+}
+
 /// Commands from the security review that must stay refused.
 const REVIEW_REFUSED: &[&str] = &[
     "sed -n p >| printf sub/link/secret",
@@ -896,6 +950,20 @@ const REVIEW_REFUSED: &[&str] = &[
     "printf '%s' 'sed -n p ' sub/link/secret > script.sh && env /bin/SH script.sh",
     "printf '%s' 'sed -n p ' sub/link/secret > script.sh; '/bin/SH' script.sh",
     "printf '%s' sub/link/secret > list.txt; /usr/bin/XARGS cat < list.txt",
+    // Third security recheck: an unknown command or module runner, a script
+    // the same text writes, and a non-ASCII command name.
+    "printf '%s\\n' sub/link/secret > list.txt; python3 -m timeit -n 1 -r 1 'print(open(open(\"list.txt\").read().strip()).read(),end=\"\")'",
+    "printf '%s\\n' sub/link/secret > list.txt; python3 -m unittest",
+    "printf '%s\\n' sub/link/secret > list.txt; python3 -m http.server",
+    "printf '%s\\n' sub/link/secret > list.txt; python3 -m json.tool in.txt",
+    "printf '%s\\n' sub/link/secret > list.txt; deno run x.ts",
+    "printf '%s\\n' sub/link/secret > list.txt; lua x.lua",
+    "printf '%s\\n' sub/link/secret > list.txt; osascript -e '1'",
+    "printf '%s' 'print(open(\"' sub/link/secret '\").read(),end=\"\")' > script.py; python3 script.py",
+    "printf '%s' 'import sys' > s.py; printf '%s\\n' sub/link/secret | python3 s.py",
+    "printf '%s' 'sed -n p ' sub/link/secret > script.sh; /bin/\u{17f}h script.sh",
+    "printf '%s' 'sed -n p ' sub/link/secret > script.sh; /bin/\u{17f}H script.sh",
+    "printf '%s' 'sed -n p ' sub/link/secret > script.sh; \u{ff53}\u{ff48} script.sh",
 ];
 
 /// The same counterexamples through the runtime Bash policy of a scripted
