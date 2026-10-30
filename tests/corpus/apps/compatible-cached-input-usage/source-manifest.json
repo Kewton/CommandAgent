@@ -1,0 +1,21 @@
+{
+  "issue": "#928",
+  "owner": "providers openai_chat_completions usage parse to the existing provider_turn_duration event",
+  "base_sha": "7504009b716685851368e9e639ac5f274bc7d81e",
+  "recorded_source": {
+    "record": "S-157a cache probe (workspace/tmp/1007/wave1/results/S-157a/cache.md, section 2)",
+    "probe_run": "cache-probe/S-157a-20261030T101728983968Z",
+    "endpoint": "local Ollama 0.40.13 OpenAI-compatible /v1/chat/completions, synthetic prompt unrelated to any task",
+    "excerpt": "only the usage object of each response; no choices, message content, id, model, prompt, request, header, credential, or host path is copied",
+    "responses": {
+      "06-compatible-base-1.response.json": "b1f4c616ccd467e12325611faeb1886bd2d0868124c95427cb9aeb2c0d956893",
+      "07-compatible-base-2.response.json": "2297b222853692a09ac9978a2f389aa3b57920fdb48bc528c841693085181d24",
+      "10-compatible-system-middle-change.response.json": "0bccb2e0431815be63698d13746b1d51ccb4137968cfec7865086cccd8357d53"
+    }
+  },
+  "derived_fixture": "fixtures/cases.json: cases of kind recorded hold the usage excerpts of the three responses above, keyed by their source file; cases of kind synthetic are hand-authored missing, legacy, malformed, out-of-range, and boundary usage objects. tests/compatible_cached_input_usage.rs wraps each usage in a synthetic reply envelope and serves it from a loopback OpenAI-compatible stand-in with no credentials; no case reaches a real provider. No benchmark task, grader input, expected answer, or run record is stored here.",
+  "regenerate_digests": "shasum -a 256 fixtures/cases.json",
+  "fixture_sha256": {
+    "cases.json": "42d4b2a9525a3ce1def865e18d0bff20a795927f920bb106dd6e6677a8ff5bd3"
+  }
+}
