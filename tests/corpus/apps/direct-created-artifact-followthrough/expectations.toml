@@ -1,0 +1,43 @@
+case_id = "direct-created-artifact-followthrough"
+source = "Issue #921: direct prompts that created a missing required path (generic bench L-152) ended with required_artifacts_satisfied_after_tool right after the creating Write or Bash touch, before the model could run the file; a direct prompt now continues to the next provider request, plan steps keep the stop"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["step_obligation_scope", "initially_missing_paths"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/recorded/runs.jsonl = [
+  "\"kind\": \"recorded\"",
+  "\"campaign\": \"L-152\"",
+  "\"source_code\": \"b2c3b372\"",
+  "\"session_scope\": \"minimal-loop\"",
+  "\"step_kind\": \"\"",
+  "\"shape\": \"write-only\"",
+  "\"shape\": \"ls-read-write\"",
+  "\"shape\": \"touch-only\"",
+  "\"reason\": \"required_artifacts_satisfied_after_tool\""
+]
+fixtures/synthetic/cases.json = [
+  "\"kind\": \"synthetic\"",
+  "\"id\": \"write-then-bash-then-final\"",
+  "\"id\": \"ls-read-write-then-bash-then-final\"",
+  "\"id\": \"touch-only\"",
+  "\"id\": \"gates-still-block\"",
+  "\"id\": \"no-new-execution-duty\""
+]

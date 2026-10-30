@@ -1,14 +1,14 @@
-//! Early completion of a run right after a tool batch (Issue #913).
+//! Early completion of a run right after a tool batch (Issues #913, #921).
 //!
 //! A tool batch that leaves every required path in place may end the run with
 //! `required_artifacts_satisfied_after_tool` before the model answers. For a
-//! direct prompt whose required paths all existed when the run started, the
-//! paths being present is not evidence that the request was carried out: a
-//! successful `ls`, `cat`, or visible test run, or an Edit that nobody looked
-//! at, would complete a request to repair those files. Such a run continues,
-//! and the model's final answer and the existing checks decide. Plan steps,
-//! recovery, and profile or final acceptance repair run as plan steps and keep
-//! the early completion, as does a direct prompt that created a missing path.
+//! direct prompt the paths being present is not evidence that the request was
+//! carried out, whether they existed at the start or the batch created them: a
+//! successful `ls`, `cat`, or visible test run, an Edit that nobody looked at,
+//! or a Write or `touch` that produced a file nobody ran would complete the
+//! request. Such a run continues, and the model's next reply, its final answer,
+//! and the existing checks decide. Plan steps, recovery, and profile or final
+//! acceptance repair run as plan steps and keep the early completion.
 //!
 //! The action-prompt vocabulary lives here too. A direct prompt also counts a
 //! request to repair (`直して`, `直す`, `repair`) as an action; plan steps keep
@@ -47,13 +47,10 @@ fn is_direct_prompt(options: &RunSessionOptions) -> bool {
 }
 
 /// Whether satisfied required paths may end the run after a tool batch. A
-/// direct prompt whose required paths all existed at the start may not.
-pub(super) fn after_tool_stop_allowed(
-    options: &RunSessionOptions,
-    required_paths: &[String],
-    initially_missing_paths: &[String],
-) -> bool {
-    !(is_direct_prompt(options) && !required_paths.is_empty() && initially_missing_paths.is_empty())
+/// direct prompt may not, whether its required paths existed at the start or
+/// were created since.
+pub(super) fn after_tool_stop_allowed(options: &RunSessionOptions) -> bool {
+    !is_direct_prompt(options)
 }
 
 pub(super) struct AfterToolStop {
@@ -61,14 +58,15 @@ pub(super) struct AfterToolStop {
 }
 
 /// Emits the `required_artifacts_satisfied_after_tool` stop when the run may
-/// end here; `None` keeps the loop going.
+/// end here; `None` keeps the loop going. Which required paths were missing at
+/// the start no longer decides the stop.
 pub(super) fn stop(
     eval_events_path: Option<&Path>,
     options: &RunSessionOptions,
     required_paths: &[String],
-    initially_missing_paths: &[String],
+    _initially_missing_paths: &[String],
 ) -> Option<AfterToolStop> {
-    if !after_tool_stop_allowed(options, required_paths, initially_missing_paths) {
+    if !after_tool_stop_allowed(options) {
         return None;
     }
     eval_events::emit(

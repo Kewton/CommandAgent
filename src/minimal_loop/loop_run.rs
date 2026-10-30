@@ -4550,7 +4550,7 @@ mod tests {
             &config(dir.path().to_path_buf()),
         )
         .unwrap();
-        assert_eq!(result, "required artifacts satisfied: a.txt");
+        assert_eq!(result, "done");
         assert_eq!(
             std::fs::read_to_string(dir.path().join("a.txt")).unwrap(),
             "ok"
@@ -4810,30 +4810,34 @@ mod tests {
     #[test]
     fn default_run_session_options_preserve_prompt_artifact_extraction() {
         let dir = tempfile::tempdir().unwrap();
-        let mut fake = Fake::new(vec![Ok(AssistantReply {
-            content: String::new(),
-            tool_calls: vec![ToolCall::new(
-                "Write",
-                json!({"path":"a.txt","content":"ok"}),
-            )],
-            prompt_tokens: None,
-            completion_tokens: None,
-        })]);
+        let mut cfg = config(dir.path().to_path_buf());
+        cfg.eval_events_path = Some(dir.path().join("events.jsonl"));
+        let mut fake = Fake::new(vec![
+            Ok(AssistantReply {
+                content: String::new(),
+                tool_calls: vec![ToolCall::new(
+                    "Write",
+                    json!({"path":"a.txt","content":"ok"}),
+                )],
+                prompt_tokens: None,
+                completion_tokens: None,
+            }),
+            Ok(AssistantReply::text("done")),
+        ]);
         let mut session = SessionSnapshot::new();
         let outcome = run_session_with_outcome_with_ui(
             &mut fake,
             &mut session,
             "Create the file.\n\nRequired final artifacts:\n- a.txt",
             &[],
-            &config(dir.path().to_path_buf()),
+            &cfg,
             &NOOP_UI,
         )
         .unwrap();
-        assert_eq!(
-            outcome.stop_reason,
-            RunStopReason::RequiredArtifactsSatisfiedAfterTool
-        );
+        assert_eq!(outcome.stop_reason, RunStopReason::AssistantFinal);
         assert!(dir.path().join("a.txt").is_file());
+        let events = std::fs::read_to_string(dir.path().join("events.jsonl")).unwrap();
+        assert!(events.contains(r#""effective_required_paths":["a.txt"]"#));
     }
 
     #[test]
@@ -5699,13 +5703,14 @@ export default function Page(){
             completion_tokens: None,
         })]);
         let mut session = SessionSnapshot::new();
-        let outcome = run_session_with_outcome_with_ui(
+        let outcome = run_session_with_outcome_with_options(
             &mut fake,
             &mut session,
             "create the file",
             &[],
             &cfg,
             &NOOP_UI,
+            RunSessionOptions::plan_step(RunSessionStepKind::Implement),
         )
         .unwrap();
         assert_eq!(
@@ -6127,13 +6132,14 @@ export default function Page(){
             completion_tokens: None,
         })]);
         let mut session = SessionSnapshot::new();
-        let outcome = run_session_with_outcome_with_ui(
+        let outcome = run_session_with_outcome_with_options(
             &mut fake,
             &mut session,
             "create page",
             &["src/app/page.tsx".to_string()],
             &config(dir.path().to_path_buf()),
             &NOOP_UI,
+            RunSessionOptions::plan_step(RunSessionStepKind::Implement),
         )
         .unwrap();
         assert_eq!(outcome.changed_paths, vec!["src/app/page.tsx"]);
@@ -6173,7 +6179,7 @@ export default function Page(){
             &config(dir.path().to_path_buf()),
         )
         .unwrap();
-        assert_eq!(result, "required artifacts satisfied: a.txt");
+        assert_eq!(result, "done");
         assert_eq!(
             std::fs::read_to_string(dir.path().join("a.txt")).unwrap(),
             "ok"
@@ -6200,6 +6206,7 @@ export default function Page(){
                 prompt_tokens: None,
                 completion_tokens: None,
             }),
+            Ok(AssistantReply::text("a.txt written")),
         ]);
         let mut session = SessionSnapshot::new();
         let result = run_session(
@@ -6209,7 +6216,7 @@ export default function Page(){
             &config(dir.path().to_path_buf()),
         )
         .unwrap();
-        assert_eq!(result, "required artifacts satisfied: a.txt");
+        assert_eq!(result, "a.txt written");
         assert_eq!(
             std::fs::read_to_string(dir.path().join("a.txt")).unwrap(),
             "ok"
@@ -6370,6 +6377,7 @@ export default function Page(){
                 prompt_tokens: None,
                 completion_tokens: None,
             }),
+            Ok(AssistantReply::text("done")),
         ]);
         let mut session = SessionSnapshot::new();
         let result = run_session_with_required_paths(
@@ -6381,8 +6389,8 @@ export default function Page(){
         )
         .unwrap();
 
-        assert_eq!(result, "required artifacts satisfied: a.txt");
-        assert_eq!(fake.native_flags(), vec![true, true]);
+        assert_eq!(result, "done");
+        assert_eq!(fake.native_flags(), vec![true, true, true]);
         assert!(!session.native_tools_disabled);
     }
 
@@ -6484,13 +6492,14 @@ export default function Page(){
             }),
         ]);
         let mut session = SessionSnapshot::new();
-        let outcome = run_session_with_outcome_with_ui(
+        let outcome = run_session_with_outcome_with_options(
             &mut fake,
             &mut session,
             "create a page",
             &["src/app/page.tsx".to_string()],
             &config(dir.path().to_path_buf()),
             &NOOP_UI,
+            RunSessionOptions::plan_step(RunSessionStepKind::Implement),
         )
         .unwrap();
         assert_eq!(
@@ -6662,6 +6671,7 @@ export default function Page(){
                 prompt_tokens: None,
                 completion_tokens: None,
             }),
+            Ok(AssistantReply::text("done")),
         ]);
         let mut session = SessionSnapshot::new();
         let outcome = run_session_with_outcome_with_ui(
@@ -6673,10 +6683,7 @@ export default function Page(){
             &NOOP_UI,
         )
         .unwrap();
-        assert_eq!(
-            outcome.stop_reason,
-            RunStopReason::RequiredArtifactsSatisfiedAfterTool
-        );
+        assert_eq!(outcome.stop_reason, RunStopReason::AssistantFinal);
     }
 
     #[test]

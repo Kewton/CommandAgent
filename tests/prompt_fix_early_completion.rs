@@ -1,8 +1,8 @@
 //! Issue #913: a direct prompt that asks to repair files which already exist
 //! must not complete right after a read-only Bash, a visible test run, or an
 //! Edit nobody answered for. The run continues and the model's final answer
-//! and the existing action-prompt check decide. A request that creates a
-//! missing file keeps the early completion.
+//! and the existing action-prompt check decide. Since Issue #921 a request
+//! that creates a missing file continues to the model's next reply as well.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -419,7 +419,8 @@ fn read_only_requests_complete_with_the_model_answer() {
 }
 
 #[test]
-fn creating_a_missing_file_still_ends_after_tool() {
+fn creating_a_missing_file_continues_to_the_model_final() {
+    let final_text = "summary.md に説明を書きました。";
     for (prompt, required, missing) in [
         (
             "Write a summary of the date helpers to `summary.md`.",
@@ -436,33 +437,33 @@ fn creating_a_missing_file_still_ends_after_tool() {
             prompt,
             vec![
                 tool_reply("Write", json!({"path": "summary.md", "content": NOTES})),
-                text_reply("unused final"),
+                text_reply(final_text),
             ],
         );
 
         let outcome = run.result.as_ref().unwrap();
         assert_eq!(
             outcome.stop_reason,
-            RunStopReason::RequiredArtifactsSatisfiedAfterTool,
+            RunStopReason::AssistantFinal,
             "{prompt}"
         );
-        let names = required
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|path| path.as_str().unwrap())
-            .collect::<Vec<_>>()
-            .join(", ");
+        assert_eq!(outcome.final_text, final_text, "{prompt}");
         assert_eq!(
-            outcome.final_text,
-            format!("required artifacts satisfied: {names}"),
+            outcome.changed_paths,
+            vec!["summary.md".to_string()],
             "{prompt}"
         );
         assert_eq!(
-            run.remaining_replies, 1,
-            "{prompt}: the final reply is not consumed"
+            run.requests.len(),
+            2,
+            "{prompt}: the run asked the model again"
         );
-        assert_eq!(run.after_tool_stops(), 1, "{prompt}");
+        assert_eq!(
+            run.remaining_replies, 0,
+            "{prompt}: the final reply is consumed"
+        );
+        assert_eq!(run.after_tool_stops(), 0, "{prompt}");
+        assert!(run.named("loop_stop").is_empty(), "{prompt}");
         assert_eq!(run.scope("effective_required_paths"), required, "{prompt}");
         assert_eq!(run.scope("initially_missing_paths"), missing, "{prompt}");
         assert_eq!(run.read("summary.md"), NOTES);

@@ -293,7 +293,7 @@ fn tui_integration_records_model_and_tool_boundaries() {
         &ui,
     )
     .unwrap();
-    assert_eq!(result, "required artifacts satisfied: a.txt");
+    assert_eq!(result, "done");
     let events = ui.events();
     assert!(events.iter().any(|event| event == "model:fake m"));
     assert!(events.iter().any(|event| event == "tool:Write"));

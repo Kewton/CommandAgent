@@ -1,5 +1,5 @@
 case_id = "prompt-fix-early-completion"
-source = "Issue #913: direct prompts asking to repair files that already existed (generic bench L-144 e-mid and e-edge) completed with required_artifacts_satisfied_after_tool right after a read-only Bash, a visible test run, or an Edit; the after-tool stop no longer ends such a direct prompt, plan steps and created files keep it"
+source = "Issue #913: direct prompts asking to repair files that already existed (generic bench L-144 e-mid and e-edge) completed with required_artifacts_satisfied_after_tool right after a read-only Bash, a visible test run, or an Edit; the after-tool stop no longer ends such a direct prompt, plan steps keep it; since Issue #921 a direct prompt that created a missing file continues to the model reply as well"
 required_paths = []
 verify_commands = []
 required_capabilities = []

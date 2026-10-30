@@ -40,18 +40,18 @@
     {
       "id": "create-missing-file",
       "prompts": ["Write a summary of the date helpers to `summary.md`.", "`dates.py` を読んで、`summary.md` に説明を書いて"],
-      "replies": ["Write summary.md", "final text (not consumed)"],
-      "expected": ["loop_stop reason=required_artifacts_satisfied_after_tool", "final text = required artifacts satisfied: <paths>", "initially_missing_paths = [summary.md]"],
-      "test": "creating_a_missing_file_still_ends_after_tool"
+      "replies": ["Write summary.md", "final text"],
+      "expected": ["Issue #921: no loop_stop reason=required_artifacts_satisfied_after_tool", "a second provider request is sent", "stop_reason = AssistantFinal with the model's final text", "the final reply is consumed", "initially_missing_paths = [summary.md]"],
+      "test": "creating_a_missing_file_continues_to_the_model_final"
     },
     {
       "id": "after-tool-decision-table",
-      "expected": ["direct prompt, all paths present at the start: no stop with or without progress", "a path missing at the start and present now, alone or mixed with present ones: stop", "no required paths or a path still missing: no stop"],
-      "test": "direct_prompt_with_only_preexisting_paths_does_not_end_after_tool"
+      "expected": ["direct prompt, all paths present at the start: no stop with or without progress", "Issue #921: a path missing at the start and present now, alone or mixed with present ones: paths satisfied, still no stop", "no required paths or a path still missing: not satisfied, no stop"],
+      "test": "direct_prompt_does_not_end_after_tool_for_preexisting_or_created_paths"
     },
     {
       "id": "plan-steps-keep-the-stop",
-      "expected": ["every plan step kind, final acceptance repair, and partial direct options keep the after-tool stop for present paths"],
+      "expected": ["every plan step kind, final acceptance repair, and partial direct options keep the after-tool stop for present and created paths"],
       "test": "plan_steps_keep_the_after_tool_stop_for_preexisting_paths"
     },
     {
@@ -61,8 +61,14 @@
       "test": "plan_implement_step_still_ends_after_a_successful_bash_on_existing_paths"
     },
     {
+      "id": "plan-implement-created-path",
+      "replies": ["Write summary.md", "final text (not consumed)"],
+      "expected": ["Issue #921: a plan implement step that creates a missing path keeps stop_reason = RequiredArtifactsSatisfiedAfterTool and one unchanged loop_stop event"],
+      "test": "plan_implement_step_still_ends_after_creating_a_missing_path"
+    },
+    {
       "id": "stop-event-unchanged",
-      "expected": ["loop_stop reason=required_artifacts_satisfied_after_tool with required_paths, only when the stop is allowed"],
+      "expected": ["loop_stop reason=required_artifacts_satisfied_after_tool with required_paths, only when the stop is allowed (plan scope); a direct prompt emits nothing for present or created paths"],
       "test": "stop_emits_the_unchanged_event_only_when_allowed"
     },
     {
