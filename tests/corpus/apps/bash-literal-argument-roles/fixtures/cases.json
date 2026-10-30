@@ -1134,6 +1134,83 @@
       "secret": false
     },
     {
+      "id": "synthetic-data-to-python-option-then-inline",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' sub/link/secret > list.txt; python3 -B -c 'import sys'",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-versioned-python-option-then-inline",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' sub/link/secret > list.txt; python3.12 -u -c 'import sys'",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-node-option-then-eval",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' sub/link/secret > list.txt; node --no-warnings -e '1'",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-perl-option-then-eval",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' sub/link/secret > list.txt; perl -w -e '1'",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-ruby-option-then-eval",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' sub/link/secret > list.txt; ruby -w -e '1'",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-capitalized-python-inline",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' sub/link/secret > list.txt; Python3 -c 'import sys'",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-script-uppercase-sh",
+      "origin": "synthetic",
+      "command": "printf '%s' 'sed -n p ' sub/link/secret > script.sh; /bin/SH script.sh",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-script-mixed-case-sh",
+      "origin": "synthetic",
+      "command": "printf '%s' 'sed -n p ' sub/link/secret > script.sh; /bin/Sh script.sh",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-script-wrapped-uppercase-sh",
+      "origin": "synthetic",
+      "command": "printf '%s' 'sed -n p ' sub/link/secret > script.sh && env /bin/SH script.sh",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-list-uppercase-xargs",
+      "origin": "synthetic",
+      "command": "printf '%s' sub/link/secret > list.txt; /usr/bin/XARGS cat < list.txt",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-python-module-then-data",
+      "origin": "synthetic",
+      "command": "python3 -m unittest discover -s tests && printf '%s\\n' '/a'",
+      "expect": "allow",
+      "secret": false
+    },
+    {
       "id": "synthetic-program-spelling-to-cat",
       "origin": "synthetic",
       "command": "cat '/begin/,/end/p'",

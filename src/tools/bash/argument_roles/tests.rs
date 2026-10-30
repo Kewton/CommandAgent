@@ -689,3 +689,48 @@ fn argument_roles_unquoted_tilde_is_not_data() {
     assert_eq!(data("echo \\~/x"), ["~/x"]);
     assert_eq!(data("grep -e '~' in.txt"), ["~"]);
 }
+
+/// An interpreter is read only in the forms this leaf understands; an option
+/// list before inline code, and a closing name spelled in another case, close
+/// every data role.
+#[test]
+fn argument_roles_interpreter_options_and_name_case_close_every_role() {
+    for command in [
+        "printf '%s\\n' sub/link/canary > list.txt; python3 -B -c 'x'",
+        "printf '%s\\n' sub/link/canary > list.txt; python3.12 -u -c 'x'",
+        "printf '%s\\n' sub/link/canary > list.txt; python3 -u app.py",
+        "printf '%s\\n' sub/link/canary > list.txt; node --no-warnings -e 'x'",
+        "printf '%s\\n' sub/link/canary > list.txt; node --check",
+        "printf '%s\\n' sub/link/canary > list.txt; perl -w -e 'x'",
+        "printf '%s\\n' sub/link/canary > list.txt; ruby -w -e 'x'",
+        "printf '%s\\n' sub/link/canary > list.txt; Python3 -c 'x'",
+        "printf '%s\\n' sub/link/canary > list.txt; RSCRIPT -e 'x'",
+        "printf '%s\\n' sub/link/canary > list.txt; python3 -m",
+        "printf '%s' sub/link/canary > script.sh; /bin/SH script.sh",
+        "printf '%s' sub/link/canary > script.sh; /bin/Sh script.sh",
+        "printf '%s' sub/link/canary > script.sh && env /bin/SH script.sh",
+        "printf '%s' sub/link/canary > script.sh; ./SH script.sh",
+        "printf '%s' sub/link/canary > script.sh; '/bin/SH' script.sh",
+        "printf '%s' sub/link/canary > script.sh; /bin/S\\H script.sh",
+        "printf '%s' sub/link/canary > list.txt; /usr/bin/XARGS cat < list.txt",
+        "printf '%s' sub/link/canary > list.txt; GAWK '{print}' list.txt",
+        "printf '%s' sub/link/canary > list.txt; SED -n p list.txt",
+    ] {
+        assert!(data(command).is_empty(), "{command}");
+        assert!(
+            kept(command)
+                .iter()
+                .any(|word| word.contains("sub/link/canary")),
+            "{command}"
+        );
+    }
+    for command in [
+        "printf '%s\\n' '/a' | python3 app.py",
+        "python3 app.py -c x && printf '%s\\n' '/a'",
+        "python3 -m unittest discover -s tests && printf '%s\\n' '/a'",
+        "node --check app.js && printf '%s\\n' '/a'",
+        "node app.js && printf '%s\\n' '/a'",
+    ] {
+        assert!(!data(command).is_empty(), "{command}");
+    }
+}

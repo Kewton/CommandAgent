@@ -39,6 +39,8 @@ fixtures/cases.json = [
   "\"id\": \"synthetic-data-to-script-absolute-sh\"",
   "\"id\": \"synthetic-data-to-awk-system\"",
   "\"id\": \"synthetic-unquoted-tilde-printf\"",
+  "\"id\": \"synthetic-data-to-python-option-then-inline\"",
+  "\"id\": \"synthetic-data-to-script-uppercase-sh\"",
   "\"expect\": \"allow\"",
   "\"expect\": \"reject\""
 ]

@@ -315,7 +315,7 @@ fn gate_open(segments: &[Segment], read_only_runners: &[bool]) -> bool {
             && !segment.words.iter().any(is_closing_word)
             && !runs_inline_code(&segment.words)
             && segment.words.iter().enumerate().all(|(at, word)| {
-                !PROGRAM_RUNNERS.contains(&basename(&word.text))
+                !names_in(PROGRAM_RUNNERS, &folded_name(&word.text))
                     || (at == 0 && read_only_runners[index])
             })
             && !sources_at_command_position(&segment.words)
@@ -343,36 +343,55 @@ fn basename(word: &str) -> &str {
     word.rsplit('/').next().unwrap_or(word)
 }
 
+/// The lowercase basename a closing-name table is compared with. Names are
+/// folded on both sides because a case-insensitive filesystem resolves
+/// `/bin/SH` to `/bin/sh`.
+fn folded_name(word: &str) -> String {
+    basename(word).to_lowercase()
+}
+
+/// Whether a folded name appears in a table, folding the table too.
+fn names_in(table: &[&str], name: &str) -> bool {
+    table.iter().any(|entry| entry.to_lowercase() == name)
+}
+
 /// Whether a word names a closing command or holds a closing substring.
 fn is_closing_word(word: &Word) -> bool {
-    CLOSING_WORDS.contains(&basename(&word.text))
+    names_in(CLOSING_WORDS, &folded_name(&word.text))
         || CLOSING_SUBSTRINGS
             .iter()
             .any(|needle| word.text.contains(needle))
 }
 
-/// Whether the words run an interpreter on inline code or on a program from
-/// stdin: its name followed by nothing, by `-`, or by an option word that
-/// holds an inline-code letter (`-c`, `-e`, `-E`, `-p`, `-r`, `--eval`,
-/// `--print`). `python3 -m module` and `python3 script.py` stay open.
+/// Whether a word names an interpreter that can run inline code or a program
+/// read from stdin.
+fn is_interpreter(word: &Word) -> bool {
+    let name = folded_name(&word.text);
+    names_in(INLINE_INTERPRETERS, &name)
+        || name
+            .strip_prefix("python")
+            .is_some_and(|version| version.chars().all(|ch| ch.is_ascii_digit() || ch == '.'))
+}
+
+/// Whether the words run an interpreter in a form other than the few this leaf
+/// reads: a static script file as the first argument (`python3 app.py`),
+/// `python3 -m module`, or `node --check file`. Any option list before them,
+/// `-`, inline code, or no argument at all closes the roles, because the
+/// option values and the place an inline-code option takes effect are not
+/// read here.
 fn runs_inline_code(words: &[Word]) -> bool {
     words.iter().enumerate().any(|(at, word)| {
-        let name = basename(&word.text);
-        let interpreter = INLINE_INTERPRETERS.contains(&name)
-            || name
-                .strip_prefix("python")
-                .is_some_and(|version| version.chars().all(|ch| ch.is_ascii_digit() || ch == '.'));
-        interpreter
-            && words.get(at + 1).is_none_or(|next| {
-                let long = next.text.strip_prefix("--");
-                next.text == "-"
-                    || long.is_some_and(|name| {
-                        ["eval", "print"].contains(&name.split('=').next().unwrap_or(name))
-                    })
-                    || (long.is_none()
-                        && next.text.starts_with('-')
-                        && next.text.contains(['c', 'e', 'E', 'p', 'r']))
-            })
+        if !is_interpreter(word) {
+            return false;
+        }
+        let name = folded_name(&word.text);
+        let first = words.get(at + 1).map(|next| next.text.as_str());
+        let second = words.get(at + 2).map(|next| next.text.as_str());
+        let script = |argument: Option<&str>| argument.is_some_and(|text| !text.starts_with('-'));
+        let understood = script(first)
+            || (name.starts_with("python") && first == Some("-m") && script(second))
+            || (name.starts_with("node") && first == Some("--check") && script(second));
+        !understood
     })
 }
 

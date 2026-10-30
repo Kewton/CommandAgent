@@ -883,6 +883,19 @@ const REVIEW_REFUSED: &[&str] = &[
     "printf '%s' ~",
     "printf '%s' ~/x",
     "grep -e ~/pat in.txt",
+    // Second security recheck: an option before the inline-code option, and
+    // a shell spelled in another case on a case-insensitive filesystem.
+    "printf '%s\\n' sub/link/secret > list.txt; python3 -B -c 'print(open(open(\"list.txt\").read().strip()).read(),end=\"\")'",
+    "printf '%s\\n' sub/link/secret > list.txt; python3.12 -u -c 'import sys'",
+    "printf '%s\\n' sub/link/secret > list.txt; node --no-warnings -e '1'",
+    "printf '%s\\n' sub/link/secret > list.txt; perl -w -e '1'",
+    "printf '%s\\n' sub/link/secret > list.txt; ruby -w -e '1'",
+    "printf '%s\\n' sub/link/secret > list.txt; Python3 -c 'import sys'",
+    "printf '%s' 'sed -n p ' sub/link/secret > script.sh; /bin/SH script.sh",
+    "printf '%s' 'sed -n p ' sub/link/secret > script.sh; /bin/Sh script.sh",
+    "printf '%s' 'sed -n p ' sub/link/secret > script.sh && env /bin/SH script.sh",
+    "printf '%s' 'sed -n p ' sub/link/secret > script.sh; '/bin/SH' script.sh",
+    "printf '%s' sub/link/secret > list.txt; /usr/bin/XARGS cat < list.txt",
 ];
 
 /// The same counterexamples through the runtime Bash policy of a scripted
