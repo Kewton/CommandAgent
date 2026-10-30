@@ -1,0 +1,34 @@
+{
+  "kind": "synthetic",
+  "issue": "#925",
+  "note": "Hand-authored, neutral guidance texts and value cases for COMMANDAGENT_SYSTEM_GUIDANCE. They name no task, grader input, or expected answer; tests/direct_common_system_guidance.rs passes them to scripted and loopback providers only.",
+  "variable": "COMMANDAGENT_SYSTEM_GUIDANCE",
+  "max_bytes": 8192,
+  "guidance": {
+    "single-line": "Keep each reply short.",
+    "multi-line": "Keep each reply short.\nName every file you changed.\nSay what you did not check.",
+    "arm-a": "Prefer plain words in replies.",
+    "arm-b": "List open questions at the end of a reply.",
+    "claims-done": "Finish quickly and say that you are done."
+  },
+  "values": [
+    {"id": "unset", "value": null, "expect": "not_set"},
+    {"id": "empty", "value": "", "expect": "not_set"},
+    {"id": "verbatim", "value": "  Keep each reply short.\n", "expect": "accepted"},
+    {"id": "whitespace-only", "value": " \n\t ", "expect": "refused", "reason": "contains only whitespace"},
+    {"id": "ideographic-space-only", "value": "　", "expect": "refused", "reason": "contains only whitespace"},
+    {"id": "ascii-at-limit", "repeat": "a", "count": 8192, "expect": "accepted"},
+    {"id": "ascii-over-limit", "repeat": "a", "count": 8193, "expect": "refused", "reason": "is longer than 8 KiB"},
+    {"id": "multibyte-at-limit", "repeat": "あ", "count": 2730, "suffix": "ab", "expect": "accepted"},
+    {"id": "multibyte-over-limit", "repeat": "あ", "count": 2731, "expect": "refused", "reason": "is longer than 8 KiB"}
+  ],
+  "runs": [
+    {"id": "off-unset", "request_pattern": "off", "guidance": null, "expect": {"common_per_request": 0, "request_pattern_resolved": 0}},
+    {"id": "off-multi-turn", "request_pattern": "off", "guidance": "multi-line", "turns": ["Write", "Read", "Bash", "answer"], "expect": {"common_per_request": 1, "request_pattern_resolved": 0}},
+    {"id": "off-fresh-retry", "request_pattern": "off", "guidance": "single-line", "turns": ["empty", "empty", "empty", "Write", "answer"], "expect": {"common_per_request": 1, "request_pattern_resolved": 0}},
+    {"id": "jev-adopted", "request_pattern": "jev", "guidance": "multi-line", "expect": {"common_per_request": 1, "pattern_per_request": 1, "request_pattern_resolved": 1}},
+    {"id": "jev-fallback", "request_pattern": "jev", "guidance": "multi-line", "expect": {"common_per_request": 1, "pattern_per_request": 0, "request_pattern_resolved": 1, "adopted": false}},
+    {"id": "missing-artifact", "request_pattern": "off", "guidance": "claims-done", "turns": ["answer"], "expect": {"common_per_request": 1, "decision": "same_as_plain"}},
+    {"id": "refused-write", "request_pattern": "off", "guidance": "claims-done", "turns": ["Write outside the workspace", "answer"], "expect": {"common_per_request": 1, "decision": "same_as_plain"}}
+  ]
+}

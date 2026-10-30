@@ -9,7 +9,13 @@
 //! contracts, assurance, and success evidence never read it. `off` (the
 //! default), an explicit `--intent`, the plan entries, and the TUI never call
 //! the classifier and leave the request byte-identical.
+//!
+//! Independently of the mode, a direct prompt run reads the optional common
+//! guidance `COMMANDAGENT_SYSTEM_GUIDANCE` once (Issue #925) and adds it to the
+//! same block, after an adopted pattern's guidance. It never triggers or skips
+//! classification; unset or empty, the request is byte-identical as above.
 
+pub mod common_guidance;
 mod guidance;
 mod jev;
 #[cfg(test)]
@@ -330,11 +336,12 @@ pub(crate) fn run_direct_prompt(
     config: &Config,
     ui: &dyn InteractionUi,
 ) -> anyhow::Result<RunSessionOutcome> {
+    let common = common_guidance::from_env()?;
     let settings = current();
     let classifier = routes(settings, config)
         .then(JevClassifier::from_env)
         .flatten();
-    run_direct_prompt_with(
+    run_direct_prompt_with_common(
         client,
         session,
         prompt,
@@ -344,12 +351,11 @@ pub(crate) fn run_direct_prompt(
         classifier
             .as_ref()
             .map(|classifier| classifier as &dyn PatternClassifier),
+        common.as_deref(),
     )
 }
 
-/// Runs the direct prompt. When routing applies, the decision is made once,
-/// recorded as `request_pattern_resolved`, and its guidance (if adopted) goes
-/// into the run options; otherwise the run is exactly the plain direct run.
+/// Runs the direct prompt without common guidance.
 pub fn run_direct_prompt_with(
     client: &mut dyn ChatClient,
     session: &mut SessionSnapshot,
@@ -359,15 +365,44 @@ pub fn run_direct_prompt_with(
     settings: RequestPatternSettings,
     classifier: Option<&dyn PatternClassifier>,
 ) -> anyhow::Result<RunSessionOutcome> {
+    run_direct_prompt_with_common(
+        client, session, prompt, config, ui, settings, classifier, None,
+    )
+}
+
+/// Runs the direct prompt. When routing applies, the decision is made once,
+/// recorded as `request_pattern_resolved`, and its guidance (if adopted) goes
+/// into the run options, followed by the checked `common` guidance; with
+/// neither, the run is exactly the plain direct run.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the direct entry plus its two guidance inputs"
+)]
+pub fn run_direct_prompt_with_common(
+    client: &mut dyn ChatClient,
+    session: &mut SessionSnapshot,
+    prompt: &str,
+    config: &Config,
+    ui: &dyn InteractionUi,
+    settings: RequestPatternSettings,
+    classifier: Option<&dyn PatternClassifier>,
+    common: Option<&str>,
+) -> anyhow::Result<RunSessionOutcome> {
     let mut options = RunSessionOptions::default();
-    if routes(settings, config) {
-        // jev gets the request text a provider would get: the run's secret
-        // scope (the one the loop installs) scrubs it the same way first.
+    let routed = routes(settings, config);
+    if routed || common.is_some() {
+        // jev and the provider get text the run's secret scope (the one the
+        // loop installs) has scrubbed the same way first.
         let scope = config::install_run_secret_scope(config)?;
-        let request = scope.scrub_text(prompt);
-        let resolution = resolve(settings, &request, config.offline, classifier);
-        emit(config.eval_events_path.as_deref(), &resolution);
-        options.request_guidance = resolution.guidance().map(str::to_string);
+        let mut pattern = None;
+        if routed {
+            let request = scope.scrub_text(prompt);
+            let resolution = resolve(settings, &request, config.offline, classifier);
+            emit(config.eval_events_path.as_deref(), &resolution);
+            pattern = resolution.guidance();
+        }
+        let common = common.map(|common| scope.scrub_text(common));
+        options.request_guidance = common_guidance::compose(pattern, common.as_deref());
     }
     run_session_with_outcome_with_options(client, session, prompt, &[], config, ui, options)
 }

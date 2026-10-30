@@ -1,0 +1,10 @@
+{
+  "issue": "#925",
+  "owner": "minimal_loop request_pattern common guidance of a direct prompt",
+  "base_sha": "332bb56245c5db9407c473a1ddc6d0e78c3df047",
+  "derived_fixture": "fixtures/cases.json is synthetic: hand-authored neutral guidance texts, value cases at and over the 8 KiB byte limit (ASCII and multibyte), and run sequences with the expected count of the common text per request. tests/direct_common_system_guidance.rs replays them through scripted providers and a loopback Ollama stand-in; no case reaches a real provider. No benchmark task, grader input, expected answer, or experiment guidance text is stored here.",
+  "regenerate_digests": "shasum -a 256 fixtures/cases.json",
+  "fixture_sha256": {
+    "cases.json": "3fd23710483c1391d0e7206ae7f95f7c99b79c129c59eda21e5f690cc54ace6a"
+  }
+}

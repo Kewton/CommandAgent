@@ -290,6 +290,7 @@ OpenAI キーと任意の `LM_STUDIO_API_TOKEN` はプロセス環境だけか�
 | `COMMANDAGENT_PACK_VERSION` | 選択済み pack の version を内部で受け渡します。手で設定せず、`--pack` または preset で指定してください。 |
 | `COMMANDAGENT_PACK_HASH` | 選択済み pack の exact-byte hash を内部で受け渡します。手で設定せず、`--pack` または preset で指定してください。 |
 | `COMMANDAGENT_UX_DEMO_FAST` / `ANVIL_UX_DEMO_FAST` | 開発・デモ用に `--ux-demo` の待機を短くします。値の真偽ではなく変数の存在を判定します。 |
+| `COMMANDAGENT_SYSTEM_GUIDANCE` | direct の `--prompt` の run で、provider へのすべての request の system prompt に共通の案内文を 1 つ足します。未設定・空文字なら何も変わりません。下を参照してください。 |
 
 `COMMANDAGENT_*` 項目では現在名が優先されます。現在名がない場合だけ対応する `ANVIL_*` 名を使い、
 1 回だけ非推奨警告を出します。それでも表中の旧名は、現在サポートされている正確な綴りです。
@@ -297,6 +298,17 @@ OpenAI キーと任意の `LM_STUDIO_API_TOKEN` はプロセス環境だけか�
 `COMMANDAGENT_PACK_*` の 4 変数は例外で、直接読み込まれ、`ANVIL_*` の旧名を持ちません。これらは
 選択済み pack の内部受け渡しであり、利用者向け設定ではありません。pack の選択には `--pack` または
 preset を使ってください。
+
+`COMMANDAGENT_SYSTEM_GUIDANCE` は、共通の指示文を比べるための opt-in です。direct の `--prompt` の run の
+開始時に、プロセス環境だけから 1 回読みます。`ANVIL_*` の旧名はなく、設定ファイルや `.env` からは読みません。
+plan の入口、TUI、`--model-probe` はこの変数を使いません。設定すると、その run の provider へのすべての
+request（各 turn、tool 呼び出し後の turn、空応答の fresh retry、native と XML の tool protocol）の
+「Request guidance」block に文を 1 回ずつ載せます。`--request-pattern jev` が pattern を採用したときは、
+その pattern の案内の後に「Common guidance:」の行に続けて載せます。元の依頼、profile の案内、session の履歴、
+`request_pattern_resolved` event、jev を呼ぶ条件は変わりません。値は UTF-8 で 8 KiB（8192 bytes）以下、
+空白だけでないことが必要です。満たさないときは、値を含めず変数名と理由だけを示すエラーで run が失敗します。
+この文は通常の案内であり、tool の権限を与えたり外したりせず、検証・completion・acceptance・予算の規則も
+変えません。run の secret scrub は適用されますが、値に秘密を入れないでください。
 
 ## 実効設定の確認
 
