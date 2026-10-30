@@ -1,6 +1,6 @@
 {
   "schema": "bash-literal-argument-roles/v1",
-  "note": "Issue #930. `recorded` keeps pre-fix observations from the L-162 generic comparison as measured facts and minimal command excerpts only (no task text, expected answer, hidden test, host path, or key; JSON data is omitted and measured). Recorded rows carry the pre-fix rejection only; the post-fix decision is shown by the synthetic twin. `unresolved` lists the seven first-version misreadings this Issue does not fix (B type 2, C type 5). `synthetic` rows are minimal shell forms written for this Issue from the shell/guard contract; the sed/awk I/O, getline, and pipe rows are counterexamples, never recorded. The fixture workspace has in.txt, index.html, app.py, an inside .env, a protected tests/spec.rs, and `sub/link`, a symlink to an outside directory holding secret and patterns. `{OUT}` is that outside directory as an absolute path outside the system read prefixes. `expect` is the public path-confinement decision; `secret` is whether the raw credential scan reports the command.",
+  "note": "Issue #930. `recorded` keeps pre-fix observations from the L-162 generic comparison as measured facts and minimal command excerpts only (no task text, expected answer, hidden test, host path, or key; JSON data is omitted and measured). Recorded rows carry the pre-fix rejection only; the post-fix decision is shown by the synthetic twin. `unresolved` lists the seven first-version misreadings this Issue does not fix (B type 2, C type 5). `synthetic` rows are minimal shell forms written for this Issue from the shell/guard contract; the sed/awk I/O, getline, and pipe rows are counterexamples, never recorded. The fixture workspace has in.txt, index.html, app.py, an inside .env, a protected tests/spec.rs, and `sub/link`, a symlink to an outside directory holding secret and patterns. `{OUT}` is that outside directory as an absolute path outside the system read prefixes. Rows with the `redteam-` prefix are the 46 counterexamples of an independent red-team pass, copied as synthetic commands; `before_fix` marks a row the base already allowed, and `note` records a known limit. `expect` is the public path-confinement decision; `secret` is whether the raw credential scan reports the command.",
   "base_sha": "f9103ce6ad184319f0cc17de11ce0b78d0e1a885",
   "recorded": [
     {
@@ -1286,6 +1286,382 @@
       "command": "cat 'sub/link/secret'",
       "expect": "reject",
       "secret": false
+    },
+    {
+      "id": "redteam-pos-sed-range",
+      "origin": "synthetic",
+      "command": "sed -n '/begin/,/end/p' in.txt",
+      "expect": "allow",
+      "secret": false,
+      "family": "allowed-table/sed"
+    },
+    {
+      "id": "redteam-pos-sed-subst",
+      "origin": "synthetic",
+      "command": "sed -e 's#/old#/new#g' in.txt",
+      "expect": "allow",
+      "secret": false,
+      "family": "allowed-table/sed"
+    },
+    {
+      "id": "redteam-pos-awk-prog",
+      "origin": "synthetic",
+      "command": "awk '/begin/{f=1;next} /end/{f=0} f{print}' in.txt",
+      "expect": "allow",
+      "secret": false,
+      "family": "allowed-table/awk"
+    },
+    {
+      "id": "redteam-pos-grep-pat",
+      "origin": "synthetic",
+      "command": "grep -n '</tag>' in.txt",
+      "expect": "allow",
+      "secret": false,
+      "family": "allowed-table/grep"
+    },
+    {
+      "id": "redteam-pos-grep-e",
+      "origin": "synthetic",
+      "command": "grep -e '/item' -- in.txt",
+      "expect": "allow",
+      "secret": false,
+      "family": "allowed-table/grep"
+    },
+    {
+      "id": "redteam-pos-printf-json",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' '{\"pointer\":\"/item/2\"}'",
+      "expect": "allow",
+      "secret": false,
+      "family": "allowed-table/printf"
+    },
+    {
+      "id": "redteam-pos-echo-json",
+      "origin": "synthetic",
+      "command": "echo '{\"pointer\":\"/item\"}'",
+      "expect": "allow",
+      "secret": false,
+      "family": "allowed-table/echo"
+    },
+    {
+      "id": "redteam-pos-printf-pipe-py",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' '{\"p\":\"/b\"}' | python3 app.py",
+      "expect": "allow",
+      "secret": false,
+      "family": "partner/python3"
+    },
+    {
+      "id": "redteam-pos-echo-redir-py",
+      "origin": "synthetic",
+      "command": "echo '{\"p\":\"/b\"}' > data.json; python3 app.py data.json",
+      "expect": "allow",
+      "secret": false,
+      "family": "partner/python3"
+    },
+    {
+      "id": "redteam-pos-cat-readback",
+      "origin": "synthetic",
+      "command": "printf 'x\\n' > a.txt; cat a.txt",
+      "expect": "allow",
+      "secret": false,
+      "family": "partner/cat"
+    },
+    {
+      "id": "redteam-pos-node-check",
+      "origin": "synthetic",
+      "command": "node --check app.js",
+      "expect": "allow",
+      "secret": false,
+      "family": "allowed/node"
+    },
+    {
+      "id": "redteam-open-B-wc-files0from",
+      "origin": "synthetic",
+      "command": "echo sub/link/secret > list.txt; wc --files0-from=list.txt",
+      "expect": "reject",
+      "secret": false,
+      "family": "content-as-path/wc-files0-from"
+    },
+    {
+      "id": "redteam-open-A-py-pipe",
+      "origin": "synthetic",
+      "command": "printf '%s' sub/link/secret | python3 reader.py",
+      "expect": "allow",
+      "secret": false,
+      "family": "content-as-path/python3-preexisting",
+      "note": "known limit (PM decision 2a, user approved): a workspace python3 script may read the data it receives; the script content was outside the static judgement before the fix as well, so the reach is equivalent"
+    },
+    {
+      "id": "redteam-open-A-py-fromfile",
+      "origin": "synthetic",
+      "command": "printf '%s' sub/link/secret > list.txt; python3 fromfile.py list.txt",
+      "expect": "allow",
+      "secret": false,
+      "family": "content-as-path/python3-preexisting",
+      "note": "known limit (PM decision 2a, user approved): a workspace python3 script may read the data it receives; the script content was outside the static judgement before the fix as well, so the reach is equivalent"
+    },
+    {
+      "id": "redteam-closed-redir-noclobber",
+      "origin": "synthetic",
+      "command": "sed -n p >| printf sub/link/secret",
+      "expect": "reject",
+      "secret": false,
+      "family": "shell-syntax/compound-redirect"
+    },
+    {
+      "id": "redteam-closed-redir-fd-noclobber",
+      "origin": "synthetic",
+      "command": "sed -n p 2>| printf sub/link/secret",
+      "expect": "reject",
+      "secret": false,
+      "family": "shell-syntax/compound-redirect"
+    },
+    {
+      "id": "redteam-closed-redir-hidden-operand",
+      "origin": "synthetic",
+      "command": "grep -n x in.txt > out.txt sub/link/secret",
+      "expect": "reject",
+      "secret": false,
+      "family": "shell-syntax/redirect-hidden-operand"
+    },
+    {
+      "id": "redteam-closed-input-redirect-outside",
+      "origin": "synthetic",
+      "command": "grep -e pat < sub/link/secret",
+      "expect": "reject",
+      "secret": false,
+      "family": "shell-syntax/input-redirect"
+    },
+    {
+      "id": "redteam-closed-process-substitution",
+      "origin": "synthetic",
+      "command": "cat <(sed -n p sub/link/secret)",
+      "expect": "reject",
+      "secret": false,
+      "family": "shell-syntax/process-substitution"
+    },
+    {
+      "id": "redteam-closed-subshell",
+      "origin": "synthetic",
+      "command": "( sed -n p sub/link/secret )",
+      "expect": "reject",
+      "secret": false,
+      "family": "shell-syntax/subshell"
+    },
+    {
+      "id": "redteam-closed-generated-script-same-text",
+      "origin": "synthetic",
+      "command": "printf 'print(open(\"sub/link/secret\").read())' > x.py; python3 x.py",
+      "expect": "allow",
+      "secret": false,
+      "family": "data-to-code/generated-script",
+      "before_fix": "allow",
+      "note": "known limit: allowed before the fix as well (f9103ce6 allows it); the printf format holds quotes and parentheses, so it was never a path candidate, and the written script content is outside the static judgement"
+    },
+    {
+      "id": "redteam-closed-shell-exec",
+      "origin": "synthetic",
+      "command": "printf '%s' 'sed -n p ' sub/link/secret > s.sh; /bin/sh s.sh",
+      "expect": "reject",
+      "secret": false,
+      "family": "name-normalization/evaluator"
+    },
+    {
+      "id": "redteam-closed-shell-exec-case",
+      "origin": "synthetic",
+      "command": "printf '%s' 'sed -n p ' sub/link/secret > s.sh; /bin/SH s.sh",
+      "expect": "reject",
+      "secret": false,
+      "family": "name-normalization/case-fold"
+    },
+    {
+      "id": "redteam-closed-shell-exec-unicode",
+      "origin": "synthetic",
+      "command": "printf '%s' 'sed -n p ' sub/link/secret > s.sh; /bin/ſh s.sh",
+      "expect": "reject",
+      "secret": false,
+      "family": "name-normalization/unicode"
+    },
+    {
+      "id": "redteam-closed-env-prefix-shell",
+      "origin": "synthetic",
+      "command": "printf '%s' 'sed -n p ' sub/link/secret > s.sh && env /bin/sh s.sh",
+      "expect": "reject",
+      "secret": false,
+      "family": "shell-syntax/wrapper-prefix"
+    },
+    {
+      "id": "redteam-closed-assignment-prefix",
+      "origin": "synthetic",
+      "command": "PYTHONPATH=x printf '%s' sub/link/secret | python3 app.py",
+      "expect": "reject",
+      "secret": false,
+      "family": "shell-syntax/assignment-prefix"
+    },
+    {
+      "id": "redteam-closed-absolute-known-cmd",
+      "origin": "synthetic",
+      "command": "/bin/printf '%s' sub/link/secret",
+      "expect": "reject",
+      "secret": false,
+      "family": "name-normalization/absolute"
+    },
+    {
+      "id": "redteam-closed-py-inline-opt-first",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' sub/link/secret > list.txt; python3 -B -c 'import sys'",
+      "expect": "reject",
+      "secret": false,
+      "family": "interpreter/inline-option-first"
+    },
+    {
+      "id": "redteam-closed-py-module",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' sub/link/secret > list.txt; python3 -m timeit -n 1 'print(1)'",
+      "expect": "reject",
+      "secret": false,
+      "family": "interpreter/python-m"
+    },
+    {
+      "id": "redteam-closed-py-dir",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' sub/link/secret > list.txt; python3 dir/",
+      "expect": "reject",
+      "secret": false,
+      "family": "interpreter/python-directory"
+    },
+    {
+      "id": "redteam-closed-py-pyz",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' sub/link/secret > list.txt; python3 app.pyz",
+      "expect": "reject",
+      "secret": false,
+      "family": "interpreter/python-zipapp"
+    },
+    {
+      "id": "redteam-closed-node-extra-option",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' sub/link/secret > list.txt; node --check app.js --import x",
+      "expect": "reject",
+      "secret": false,
+      "family": "interpreter/node-extra-flag"
+    },
+    {
+      "id": "redteam-closed-xargs",
+      "origin": "synthetic",
+      "command": "printf '%s' sub/link/secret > list.txt; xargs cat < list.txt",
+      "expect": "reject",
+      "secret": false,
+      "family": "data-to-code/arg-consumer"
+    },
+    {
+      "id": "redteam-closed-sed-w",
+      "origin": "synthetic",
+      "command": "sed '1w sub/link/secret' in.txt",
+      "expect": "reject",
+      "secret": false,
+      "family": "allowed-table/sed-io"
+    },
+    {
+      "id": "redteam-closed-sed-r",
+      "origin": "synthetic",
+      "command": "sed '1r sub/link/secret' in.txt",
+      "expect": "reject",
+      "secret": false,
+      "family": "allowed-table/sed-io"
+    },
+    {
+      "id": "redteam-closed-sed-subst-w",
+      "origin": "synthetic",
+      "command": "sed 's/x/y/w sub/link/secret' in.txt",
+      "expect": "reject",
+      "secret": false,
+      "family": "allowed-table/sed-io"
+    },
+    {
+      "id": "redteam-closed-sed-inplace",
+      "origin": "synthetic",
+      "command": "sed -i 's/x/y/' in.txt",
+      "expect": "allow",
+      "secret": false,
+      "family": "allowed-table/sed-option",
+      "before_fix": "allow",
+      "note": "known limit: allowed before the fix as well (f9103ce6 allows it); an in-place edit inside the workspace, which the Issue #871 contract keeps allowed"
+    },
+    {
+      "id": "redteam-closed-awk-getline-system",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' sub/link/secret > list.txt; awk 'BEGIN{getline x < \"list.txt\"; system(\"cat \" x)}'",
+      "expect": "reject",
+      "secret": false,
+      "family": "allowed-table/awk-io"
+    },
+    {
+      "id": "redteam-closed-awk-print-redirect",
+      "origin": "synthetic",
+      "command": "awk 'BEGIN{print \"x\" > \"sub/link/secret\"}'",
+      "expect": "reject",
+      "secret": false,
+      "family": "allowed-table/awk-io"
+    },
+    {
+      "id": "redteam-closed-awk-environ",
+      "origin": "synthetic",
+      "command": "awk '{print ENVIRON[\"X\"]}'",
+      "expect": "allow",
+      "secret": false,
+      "family": "allowed-table/awk-unsupported",
+      "before_fix": "allow",
+      "note": "known limit: allowed before the fix as well (f9103ce6 allows it); the program names no path"
+    },
+    {
+      "id": "redteam-closed-sed-f",
+      "origin": "synthetic",
+      "command": "sed -f sub/link/secret in.txt",
+      "expect": "reject",
+      "secret": false,
+      "family": "allowed-table/script-file"
+    },
+    {
+      "id": "redteam-closed-awk-f",
+      "origin": "synthetic",
+      "command": "awk -f sub/link/secret in.txt",
+      "expect": "reject",
+      "secret": false,
+      "family": "allowed-table/script-file"
+    },
+    {
+      "id": "redteam-closed-grep-f-joined",
+      "origin": "synthetic",
+      "command": "grep -fsub/link/secret in.txt",
+      "expect": "reject",
+      "secret": false,
+      "family": "allowed-table/pattern-file"
+    },
+    {
+      "id": "redteam-closed-tilde-operand",
+      "origin": "synthetic",
+      "command": "printf '%s' ~",
+      "expect": "reject",
+      "secret": false,
+      "family": "name-normalization/tilde"
+    },
+    {
+      "id": "redteam-closed-tilde-grep",
+      "origin": "synthetic",
+      "command": "grep -e ~/pat in.txt",
+      "expect": "reject",
+      "secret": false,
+      "family": "name-normalization/tilde"
+    },
+    {
+      "id": "redteam-closed-cd-write-after",
+      "origin": "synthetic",
+      "command": "echo sub/link/secret > list.txt; cd d; printf code > reader.py; python3 reader.py",
+      "expect": "reject",
+      "secret": false,
+      "family": "shell-syntax/cd-then-write"
     }
   ]
 }

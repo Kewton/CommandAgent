@@ -1,5 +1,5 @@
 case_id = "bash-literal-argument-roles"
-source = "Issue #930: a bare top-level sed, awk, grep, echo, or printf whose argument role is proven data (a read-only sed/awk program, a grep pattern, an awk field separator, display text, a side-effect-free printf format) leaves that word out of the read-path candidates. File operands, pattern and script files, redirect targets, following commands, credentials, and the #924/R2 heredoc conditions keep their checks; a sed/awk program whose parse finds file I/O or execution is refused. The recorded rows keep the L-162 pre-fix rejections; the synthetic rows declare the allowed and rejected forms; tests/bash_literal_argument_roles.rs drives the real decision on every row."
+source = "Issue #930: a bare top-level sed, awk, grep, echo, or printf whose argument role is proven data (a read-only sed/awk program, a grep pattern, an awk field separator, display text, a side-effect-free printf format) leaves that word out of the read-path candidates. File operands, pattern and script files, redirect targets, following commands, credentials, and the #924/R2 heredoc conditions keep their checks; a sed/awk program whose parse finds file I/O or execution is refused. The recorded rows keep the L-162 pre-fix rejections; the synthetic rows declare the allowed and rejected forms; tests/bash_literal_argument_roles.rs drives the real decision on every row. Known limits: a workspace python3 script may read the data piped or passed to it (its content was outside the static judgement before the fix as well, so the reach is equivalent); rows marked before_fix stay allowed because the base allowed them too."
 acceptance_passed = true
 primary_reason = "pass"
 
@@ -41,6 +41,9 @@ fixtures/cases.json = [
   "\"id\": \"synthetic-unquoted-tilde-printf\"",
   "\"id\": \"synthetic-data-to-python-option-then-inline\"",
   "\"id\": \"synthetic-data-to-script-uppercase-sh\"",
+  "\"id\": \"redteam-open-B-wc-files0from\"",
+  "\"id\": \"redteam-open-A-py-pipe\"",
+  "\"before_fix\": \"allow\"",
   "\"expect\": \"allow\"",
   "\"expect\": \"reject\""
 ]

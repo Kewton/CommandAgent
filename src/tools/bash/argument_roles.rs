@@ -324,6 +324,48 @@ const KNOWN_COMMANDS: &[&str] = &[
     "sed", "awk", "grep", "echo", "printf", "cat", "wc", "head", "tail", "cd", "rm",
 ];
 
+/// Whether the options of an added reader take no file and no list of files:
+/// `wc -l/-c/-w/-m`, `head`/`tail` `-n N`/`-c N` with a numeric value, and
+/// `rm -f/-r/-R`. `cat` takes none. Every option word before `--` is read
+/// wherever it stands, since GNU tools accept options after operands; any
+/// other option (`--files0-from`, an unknown flag, a non-numeric value)
+/// closes the roles.
+fn plain_options(name: &str, arguments: &[&Word]) -> bool {
+    let numeric = |value: &str| {
+        let digits = value.strip_prefix(['+', '-']).unwrap_or(value);
+        !digits.is_empty() && digits.chars().all(|ch| ch.is_ascii_digit())
+    };
+    let mut index = 0usize;
+    while index < arguments.len() {
+        let text = arguments[index].text.as_str();
+        index += 1;
+        if text == "--" {
+            return true;
+        }
+        let Some(flags) = text.strip_prefix('-').filter(|flags| !flags.is_empty()) else {
+            continue;
+        };
+        let allowed = match name {
+            "wc" => flags.chars().all(|ch| matches!(ch, 'l' | 'c' | 'w' | 'm')),
+            "rm" => flags.chars().all(|ch| matches!(ch, 'f' | 'r' | 'R')),
+            "head" | "tail" => match flags.split_at_checked(1) {
+                Some(("n" | "c", "")) => {
+                    let value = arguments.get(index).is_some_and(|word| numeric(&word.text));
+                    index += 1;
+                    value
+                }
+                Some(("n" | "c", value)) => numeric(value),
+                _ => numeric(flags),
+            },
+            _ => false,
+        };
+        if !allowed {
+            return false;
+        }
+    }
+    true
+}
+
 /// Whether every command in the text is one this leaf knows (rule A): a
 /// read-only table command, `cat`, `wc`, `head`, `tail`, `cd`, `rm`,
 /// `python3 <script>.py [arguments]`, or `node --check <file>`, each named by
@@ -399,6 +441,9 @@ fn every_command_known(
                     return false;
                 };
                 scripts.push(file);
+            }
+            "cat" | "wc" | "head" | "tail" | "rm" if !plain_options(&name.text, &argv[1..]) => {
+                return false;
             }
             other if KNOWN_COMMANDS.contains(&other) => {}
             _ => return false,

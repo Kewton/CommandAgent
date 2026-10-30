@@ -12,6 +12,17 @@
 //! shell, a list consumer, an inline interpreter, a sed/awk program that is not
 //! proven read-only, or a compound redirect the segments cannot hold anywhere
 //! in the text closes every data role, as does an unquoted tilde in the word.
+//! The roles stay open only when every command in the text is a known one
+//! (the table commands, `cat`, `wc`, `head`, `tail`, `cd`, `rm` with plain
+//! options, `python3 <script>.py`, `node --check <file>`), named by a bare
+//! ASCII word, and no `python3`/`node` file is one the same text writes.
+//!
+//! Known limits (recorded in the corpus `note` fields): a workspace `python3`
+//! script may read the data piped or passed to it, because the script content
+//! was outside the static judgement before the fix as well, so the reach is
+//! equivalent (PM decision 2a); and a few forms the base already allowed stay
+//! allowed (`before_fix`), such as a generated script whose text was never a
+//! path candidate, a workspace `sed -i`, and an awk program naming no path.
 //!
 //! The order follows the Issue: the public decision, the runtime policy of a
 //! scripted step, the real Bash tool, then the corpus rows. Shell commands run
@@ -109,6 +120,10 @@ fn fixture() -> Fixture {
     .unwrap();
     std::fs::write(root.join(".env"), "DUMMY_930=1\n").unwrap();
     std::fs::write(root.join("tests/spec.rs"), "// spec\n").unwrap();
+    for script in ["reader.py", "fromfile.py"] {
+        std::fs::write(root.join(script), "import sys\n").unwrap();
+    }
+    std::fs::write(root.join("app.js"), "console.log(1);\n").unwrap();
     let outside = dir.path().join("outside");
     std::fs::create_dir_all(&outside).unwrap();
     std::fs::write(outside.join("secret"), format!("{CANARY}\n")).unwrap();
@@ -163,6 +178,13 @@ struct SyntheticCase {
     command: String,
     expect: String,
     secret: bool,
+    /// The decision the base already made, for a row that was outside the
+    /// static judgement before the fix as well.
+    #[serde(default)]
+    before_fix: Option<String>,
+    /// A known limit the row documents.
+    #[serde(default)]
+    note: Option<String>,
 }
 
 fn cases() -> Cases {
@@ -1042,5 +1064,92 @@ fn argument_roles_runtime_policy_blocks_review_counterexamples() {
     for name in ["printf", "script.sh", "item"] {
         assert!(!root.join(name).exists(), "{name} must not be created");
     }
+    assert_eq!(fixture.outside_snapshot(), before);
+}
+
+/// The 46 red-team counterexamples (corpus rows with the `redteam-` prefix):
+/// every refused row is refused by the public decision and never runs through
+/// the real Bash tool, with no canary in the output and no file created; a row
+/// the base already allowed keeps that decision and names it as a known
+/// limit, as do the two workspace `python3` script rows.
+#[test]
+fn argument_roles_redteam_rows_hold_through_the_real_tool() {
+    let fixture = fixture();
+    let root = &fixture.root;
+    let context = ToolContext {
+        root: root.clone(),
+        mode: ExecutionMode::Act,
+        auto_approve: true,
+        interactive_approval: false,
+        offline: true,
+        workspace_policy: WorkspacePolicy::NormalTask,
+        eval_events_path: Some(fixture.dir.path().join("redteam-events.jsonl")),
+        expected_paths: Vec::new(),
+        protected_paths: vec!["tests/spec.rs".to_string()],
+    };
+    let registry = ToolRegistry::default();
+    let before = fixture.outside_snapshot();
+    let entries = |root: &Path| {
+        let mut names: Vec<String> = std::fs::read_dir(root)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().to_string())
+            .collect();
+        names.sort();
+        names
+    };
+    let workspace_before = entries(root);
+    let cases = cases();
+    let rows: Vec<&SyntheticCase> = cases
+        .synthetic
+        .iter()
+        .filter(|case| case.id.starts_with("redteam-"))
+        .collect();
+    assert_eq!(rows.len(), 46);
+    let mut refused = 0usize;
+    for case in &rows {
+        let command = fixture.command(&case.command);
+        if let Some(before_fix) = &case.before_fix {
+            assert_eq!(before_fix, &case.expect, "{}", case.id);
+            assert!(
+                case.note
+                    .as_deref()
+                    .is_some_and(|note| note.contains("allowed before the fix as well")),
+                "{}",
+                case.id
+            );
+        }
+        if case.expect == "allow" {
+            assert!(!rejected(root, &command), "{}: {command:?}", case.id);
+            continue;
+        }
+        refused += 1;
+        assert!(rejected(root, &command), "{}: {command:?}", case.id);
+        let error = registry
+            .execute("Bash", &json!({ "command": command }), &context)
+            .unwrap_err();
+        assert_eq!(
+            tool_error_kind(&error),
+            "bash_path_confinement_error",
+            "{}: {error}",
+            case.id
+        );
+        assert!(!error.to_string().contains(CANARY), "{}: {error}", case.id);
+    }
+    assert_eq!(refused, 30);
+    for id in ["redteam-open-A-py-pipe", "redteam-open-A-py-fromfile"] {
+        let case = rows.iter().find(|case| case.id == id).unwrap();
+        assert_eq!(case.expect, "allow");
+        assert!(
+            case.note
+                .as_deref()
+                .is_some_and(|note| note.contains("reach is equivalent")),
+            "{id}"
+        );
+    }
+    assert_eq!(
+        entries(root),
+        workspace_before,
+        "a refused row created a file"
+    );
     assert_eq!(fixture.outside_snapshot(), before);
 }

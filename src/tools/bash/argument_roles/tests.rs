@@ -796,3 +796,37 @@ fn argument_roles_only_known_commands_keep_roles_open() {
         );
     }
 }
+
+/// An added reader keeps the roles open only with plain options: a list-file
+/// option, an unknown flag, or a non-numeric count closes them.
+#[test]
+fn argument_roles_added_readers_take_only_plain_options() {
+    for command in [
+        "echo sub/link/canary > list.txt; wc --files0-from=list.txt",
+        "echo sub/link/canary > list.txt; wc --files0-from list.txt",
+        "echo sub/link/canary > list.txt; wc list.txt --files0-from=list.txt",
+        "echo sub/link/canary > list.txt; wc -L list.txt",
+        "echo sub/link/canary > list.txt; head -n x list.txt",
+        "echo sub/link/canary > list.txt; head -q list.txt",
+        "echo sub/link/canary > list.txt; tail -f list.txt",
+        "echo sub/link/canary > list.txt; cat -n list.txt",
+        "echo sub/link/canary > list.txt; rm -i list.txt",
+        "echo sub/link/canary > list.txt; rm --interactive list.txt",
+    ] {
+        assert!(data(command).is_empty(), "{command}");
+    }
+    for command in [
+        "echo sub/link/canary > list.txt; wc -l list.txt",
+        "echo sub/link/canary > list.txt; wc -lcw list.txt",
+        "echo sub/link/canary > list.txt; head -n 1 list.txt",
+        "echo sub/link/canary > list.txt; head -n1 list.txt",
+        "echo sub/link/canary > list.txt; tail -n +2 list.txt",
+        "echo sub/link/canary > list.txt; tail -c 5 list.txt",
+        "echo sub/link/canary > list.txt; head -5 list.txt",
+        "echo sub/link/canary > list.txt; cat list.txt",
+        "echo sub/link/canary > list.txt; rm -rf list.txt",
+        "echo sub/link/canary > list.txt; wc -- -l",
+    ] {
+        assert_eq!(data(command), ["sub/link/canary"], "{command}");
+    }
+}
