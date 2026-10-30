@@ -1,4 +1,5 @@
 pub mod adjudication;
+pub mod artifact_contract_checks;
 pub mod auto_recovery;
 pub mod capability_catalog;
 pub(crate) mod completion_contract_path;

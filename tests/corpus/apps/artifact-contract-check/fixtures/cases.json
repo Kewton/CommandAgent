@@ -1,0 +1,417 @@
+{
+  "issue": "#933",
+  "capability": "artifact_contract_check",
+  "domain_cap": "partial",
+  "cases": [
+    {
+      "id": "synthetic-two-adapters-same-host-path",
+      "kind": "synthetic",
+      "adapter": "ledger+tally",
+      "test": "two_distinct_synthetic_adapters_pass_through_the_same_host_path",
+      "stopped_at": "verified",
+      "native_passed": true,
+      "domain_verdict": "partial",
+      "asserts": "a line-count adapter with its own opaque IDs and a multi-target adapter pass through one generic host path; no host report is left in the workspace"
+    },
+    {
+      "id": "synthetic-truth-all-required-passed-capped",
+      "kind": "synthetic",
+      "adapter": "ledger",
+      "test": "truth_table_is_fixed_and_never_yields_full",
+      "stopped_at": "verified",
+      "native_passed": true,
+      "domain_verdict": "partial",
+      "asserts": "S=true E=true M=false U=false is uncapped full and capped to partial"
+    },
+    {
+      "id": "synthetic-truth-review-not-provided",
+      "kind": "synthetic",
+      "adapter": "ledger",
+      "test": "truth_table_through_the_host_path",
+      "stopped_at": "verified",
+      "native_passed": true,
+      "domain_verdict": "partial",
+      "asserts": "an intentionally unprovided optional review stays partial and is not a required failure"
+    },
+    {
+      "id": "synthetic-truth-required-unresolved",
+      "kind": "synthetic",
+      "adapter": "ledger",
+      "test": "truth_table_through_the_host_path",
+      "stopped_at": "verified",
+      "native_passed": false,
+      "domain_verdict": "partial",
+      "asserts": "a required unresolved row keeps the native failure"
+    },
+    {
+      "id": "synthetic-truth-mismatch-plus-unresolved",
+      "kind": "synthetic",
+      "adapter": "ledger",
+      "test": "truth_table_through_the_host_path",
+      "stopped_at": "verified",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "a known mismatch is none even when unresolved rows coexist"
+    },
+    {
+      "id": "synthetic-truth-static-failed-later-not-run",
+      "kind": "synthetic",
+      "adapter": "ledger",
+      "test": "truth_table_through_the_host_path",
+      "stopped_at": "verified",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "a failed first gate with later rows not_run is none, never zero-as-success"
+    },
+    {
+      "id": "synthetic-truth-required-not-run",
+      "kind": "synthetic",
+      "adapter": "ledger",
+      "test": "truth_table_through_the_host_path",
+      "stopped_at": "verified",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "a required row that did not run is none"
+    },
+    {
+      "id": "synthetic-exit0-invalid-json",
+      "kind": "synthetic",
+      "adapter": "ledger",
+      "test": "malformed_stale_and_inconsistent_results_fail",
+      "stopped_at": "envelope",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "exit 0 with a PASS line and no envelope fails"
+    },
+    {
+      "id": "synthetic-stale-nonce",
+      "kind": "synthetic",
+      "adapter": "ledger",
+      "test": "malformed_stale_and_inconsistent_results_fail",
+      "stopped_at": "envelope",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "a result bound to another run nonce fails"
+    },
+    {
+      "id": "synthetic-stale-request",
+      "kind": "synthetic",
+      "adapter": "ledger",
+      "test": "malformed_stale_and_inconsistent_results_fail",
+      "stopped_at": "envelope",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "a result bound to an older request_id fails"
+    },
+    {
+      "id": "synthetic-stale-digest",
+      "kind": "synthetic",
+      "adapter": "ledger",
+      "test": "malformed_stale_and_inconsistent_results_fail",
+      "stopped_at": "envelope",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "a result bound to other input digests fails"
+    },
+    {
+      "id": "synthetic-missing-required-target",
+      "kind": "synthetic",
+      "adapter": "ledger",
+      "test": "malformed_stale_and_inconsistent_results_fail",
+      "stopped_at": "envelope",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "an empty-suite-like missing required target fails"
+    },
+    {
+      "id": "synthetic-duplicate-row",
+      "kind": "synthetic",
+      "adapter": "ledger",
+      "test": "malformed_stale_and_inconsistent_results_fail",
+      "stopped_at": "envelope",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "a duplicated check/target row fails"
+    },
+    {
+      "id": "synthetic-count-identity-broken",
+      "kind": "synthetic",
+      "adapter": "ledger",
+      "test": "malformed_stale_and_inconsistent_results_fail",
+      "stopped_at": "envelope",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "executed != passed + failed + unresolved fails"
+    },
+    {
+      "id": "synthetic-zero-executed-as-success",
+      "kind": "synthetic",
+      "adapter": "ledger",
+      "test": "malformed_stale_and_inconsistent_results_fail",
+      "stopped_at": "envelope",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "a passed row with zero executed fails"
+    },
+    {
+      "id": "synthetic-unregistered-row",
+      "kind": "synthetic",
+      "adapter": "ledger",
+      "test": "malformed_stale_and_inconsistent_results_fail",
+      "stopped_at": "envelope",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "a row outside the operator registry fails"
+    },
+    {
+      "id": "synthetic-exit-code-disagrees",
+      "kind": "synthetic",
+      "adapter": "ledger",
+      "test": "malformed_stale_and_inconsistent_results_fail",
+      "stopped_at": "envelope",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "exit 0 with failed rows fails"
+    },
+    {
+      "id": "synthetic-unexpected-exit-code",
+      "kind": "synthetic",
+      "adapter": "ledger",
+      "test": "malformed_stale_and_inconsistent_results_fail",
+      "stopped_at": "process",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "an exit code other than 0 or 1 fails"
+    },
+    {
+      "id": "synthetic-pinned-input-mismatch",
+      "kind": "synthetic",
+      "adapter": "ledger",
+      "test": "pinned_input_mismatch_and_midrun_input_change_fail",
+      "stopped_at": "input",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "an input that differs from its operator pin fails before spawn"
+    },
+    {
+      "id": "synthetic-input-changed-midrun",
+      "kind": "synthetic",
+      "adapter": "ledger",
+      "test": "pinned_input_mismatch_and_midrun_input_change_fail",
+      "stopped_at": "binding",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "an input changed while the adapter ran fails"
+    },
+    {
+      "id": "synthetic-unsafe-request-paths",
+      "kind": "synthetic",
+      "adapter": "ledger",
+      "test": "pinned_input_mismatch_and_midrun_input_change_fail",
+      "stopped_at": "input",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "parent, credential, missing, symlink, and unregistered inputs fail"
+    },
+    {
+      "id": "synthetic-timeout-group-reaped",
+      "kind": "synthetic",
+      "adapter": "ledger",
+      "test": "timeout_overflow_and_cancel_stop_and_reap_the_process_group",
+      "stopped_at": "process",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "a timeout stops the process group, reaps the leader, and stops a grandchild"
+    },
+    {
+      "id": "synthetic-output-overflow",
+      "kind": "synthetic",
+      "adapter": "ledger",
+      "test": "timeout_overflow_and_cancel_stop_and_reap_the_process_group",
+      "stopped_at": "process",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "stdout beyond 24000 bytes is cut while reading and the group is stopped"
+    },
+    {
+      "id": "synthetic-cancel",
+      "kind": "synthetic",
+      "adapter": "ledger",
+      "test": "timeout_overflow_and_cancel_stop_and_reap_the_process_group",
+      "stopped_at": "process",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "a cancel stops and reaps the adapter"
+    },
+    {
+      "id": "synthetic-empty-child-environment",
+      "kind": "synthetic",
+      "adapter": "ledger",
+      "test": "child_starts_from_an_empty_environment",
+      "stopped_at": "verified",
+      "native_passed": true,
+      "domain_verdict": "partial",
+      "asserts": "the child sees only LANG, TZ, and the tooling root; HOME and the parent PATH are absent"
+    },
+    {
+      "id": "synthetic-dummy-credential-and-node-variables",
+      "kind": "synthetic",
+      "adapter": "env-probe",
+      "test": "dummy_credentials_and_node_variables_never_reach_the_adapter_child",
+      "stopped_at": "verified",
+      "native_passed": true,
+      "domain_verdict": "partial",
+      "asserts": "a dummy credential, NODE_OPTIONS, and NODE_PATH in the parent never reach the child"
+    },
+    {
+      "id": "synthetic-workspace-fake-node",
+      "kind": "synthetic",
+      "adapter": "ledger",
+      "test": "workspace_node_modules_and_self_approved_registry_cannot_create_a_pass",
+      "stopped_at": "trust",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "workspace node and node_modules/.bin are never used and a workspace executable is refused"
+    },
+    {
+      "id": "synthetic-workspace-dependency-link",
+      "kind": "synthetic",
+      "adapter": "ledger",
+      "test": "workspace_node_modules_and_self_approved_registry_cannot_create_a_pass",
+      "stopped_at": "pin",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "a tooling dependency link into the workspace is refused"
+    },
+    {
+      "id": "synthetic-self-approved-registry",
+      "kind": "synthetic",
+      "adapter": "ledger",
+      "test": "workspace_node_modules_and_self_approved_registry_cannot_create_a_pass",
+      "stopped_at": "trust",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "a registry inside the workspace is refused as self-approval"
+    },
+    {
+      "id": "synthetic-tooling-member-replaced",
+      "kind": "synthetic",
+      "adapter": "ledger",
+      "test": "tooling_symlink_or_replacement_cannot_create_a_pass",
+      "stopped_at": "pin",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "a replaced pinned member or executable fails"
+    },
+    {
+      "id": "synthetic-tooling-symlink",
+      "kind": "synthetic",
+      "adapter": "ledger",
+      "test": "tooling_symlink_or_replacement_cannot_create_a_pass",
+      "stopped_at": "pin",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "a pinned member swapped for a symlink fails"
+    },
+    {
+      "id": "synthetic-tooling-changed-during-run",
+      "kind": "synthetic",
+      "adapter": "ledger",
+      "test": "tooling_symlink_or_replacement_cannot_create_a_pass",
+      "stopped_at": "binding",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "tooling changed while the adapter ran fails"
+    },
+    {
+      "id": "synthetic-newer-failure-not-covered-by-old-pass",
+      "kind": "synthetic",
+      "adapter": "ledger",
+      "test": "old_results_are_never_reused_and_an_operator_selected_old_version_is_rechecked",
+      "stopped_at": "verified",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "a newer failing candidate is not covered by an earlier pass"
+    },
+    {
+      "id": "synthetic-operator-selected-old-version",
+      "kind": "synthetic",
+      "adapter": "ledger",
+      "test": "old_results_are_never_reused_and_an_operator_selected_old_version_is_rechecked",
+      "stopped_at": "verified",
+      "native_passed": true,
+      "domain_verdict": "partial",
+      "asserts": "an operator-selected old version is executed afresh under a new request and bound to its digests"
+    },
+    {
+      "id": "synthetic-registry-admission",
+      "kind": "synthetic",
+      "adapter": "ledger",
+      "test": "registry_admission_refuses_unset_unregistered_invalid_and_self_approved_descriptors",
+      "stopped_at": "registry",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "unset, relative, unregistered, invalid, argv/model-bearing, and symlinked descriptors are refused"
+    },
+    {
+      "id": "synthetic-request-self-approval",
+      "kind": "synthetic",
+      "adapter": "ledger",
+      "test": "request_cannot_carry_executable_argv_model_or_expected_hashes",
+      "stopped_at": "request",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "a request carrying an executable, argv, module, model, or expected hash is refused"
+    },
+    {
+      "id": "synthetic-unset-registry-before-provider",
+      "kind": "synthetic",
+      "adapter": "tally-lines",
+      "test": "unset_registry_refuses_the_profile_before_any_provider",
+      "stopped_at": "registry",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "the CLI refuses the profile before any provider when the registry is unset"
+    },
+    {
+      "id": "synthetic-manifest-pack-params-floor",
+      "kind": "synthetic",
+      "adapter": "tally-lines",
+      "test": "manifest_and_pack_paths_validate_capability_floor_params_and_registry",
+      "stopped_at": "registry",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "manifest and pack paths validate the capability, local-draft floor, closed params, and registry"
+    },
+    {
+      "id": "synthetic-native-failure-preserved",
+      "kind": "synthetic",
+      "adapter": "tally-lines",
+      "test": "native_failures_and_receipts_stay_separate_from_the_domain_outcome",
+      "stopped_at": "verified",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "an earlier native failure and a known mismatch stay native failures; no host report enters the workspace"
+    },
+    {
+      "id": "synthetic-runner-manifest-and-pack",
+      "kind": "synthetic",
+      "adapter": "tally-lines",
+      "test": "normal_runner_binds_manifest_and_pack_receipts_and_keeps_draft_static",
+      "stopped_at": "verified",
+      "native_passed": true,
+      "domain_verdict": "partial",
+      "asserts": "the UltraPlan runner records draft_profile and local_pack receipts and keeps the draft at static/profile_not_admitted"
+    },
+    {
+      "id": "synthetic-runner-adapter-mismatch",
+      "kind": "synthetic",
+      "adapter": "tally-lines",
+      "test": "normal_runner_keeps_an_adapter_mismatch_as_a_native_failure",
+      "stopped_at": "verified",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "a mismatch reported through the runner stays a final acceptance failure"
+    }
+  ]
+}

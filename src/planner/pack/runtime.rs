@@ -198,6 +198,23 @@ fn run_final_acceptance_checks_for_pack(
                 continue;
             }
             crate::planner::capability_catalog::ResolvedCapability::Internal(
+                crate::planner::capability_catalog::InternalCapability::ArtifactContract(check),
+            ) => {
+                check_count += 1;
+                let owner = format!("{}@{}", pack.id(), pack.identity.version);
+                let failures = crate::planner::artifact_contract_checks::run_and_record(
+                    root,
+                    &check,
+                    events_path,
+                    "local_pack",
+                    &owner,
+                );
+                if primary_reason.is_none() {
+                    primary_reason = failures.into_iter().next();
+                }
+                continue;
+            }
+            crate::planner::capability_catalog::ResolvedCapability::Internal(
                 crate::planner::capability_catalog::InternalCapability::Pack(check),
             ) => check,
             _ => continue,

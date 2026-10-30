@@ -255,6 +255,22 @@ impl ManifestDrivenProfile {
                         )),
                     }
                 }
+                ResolvedCapability::Internal(InternalCapability::ArtifactContract(adapter)) => {
+                    if check.phases.is_some() {
+                        failures.push(format!(
+                            "{} manifest check `{}` is registered only for final acceptance; omit phases",
+                            self.id, check.id
+                        ));
+                        continue;
+                    }
+                    failures.extend(crate::planner::artifact_contract_checks::run_and_record(
+                        root,
+                        &adapter,
+                        eval_events_path,
+                        "draft_profile",
+                        self.id,
+                    ));
+                }
                 ResolvedCapability::Internal(_) | ResolvedCapability::Probe(_) => {
                     failures.push(format!(
                         "{} manifest check `{}` requires a profile-specific runtime adapter",
