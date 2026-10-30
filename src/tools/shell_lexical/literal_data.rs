@@ -24,17 +24,20 @@ use super::{Arg, Heredoc};
 /// Whether a heredoc body may be dropped as literal `cat` input although its
 /// delimiter is unquoted.
 ///
-/// `argv` is the quote-removed argv of the single data-reader command that owns
-/// the body, `pending` the heredocs that command opened, `body` the raw bytes
-/// before the terminator line, and `terminated` whether that terminator line
-/// exists. Every condition must hold:
+/// `elided_command` is the elided text of the command before the body,
+/// `argv` its quote-removed argv as a single data-reader command, `pending`
+/// the heredocs that command opened, `body` the raw bytes before the terminator
+/// line, and `terminated` whether that terminator line exists. Every condition
+/// must hold:
 ///
 /// - exactly one heredoc, a plain `<<` (not `<<-`) with an unquoted delimiter
 ///   that is an ASCII identifier;
+/// - that heredoc is the command's only stdin redirection;
 /// - the terminator line exists;
 /// - the command is a literal `cat` with no argument;
 /// - the body is UTF-8 with no `$`, backtick, or backslash.
 pub(super) fn unquoted_cat_body_is_literal(
+    elided_command: &[u8],
     argv: &[Arg],
     pending: &[Heredoc],
     body: &[u8],
@@ -43,6 +46,13 @@ pub(super) fn unquoted_cat_body_is_literal(
     let [heredoc] = pending else {
         return false;
     };
+    // The heredoc's own `<<` is the only `<` allowed: a here-string (`<<<`), an
+    // input file (`<`, `0<`), `<>`, or `<&` would make `cat` read something
+    // other than the body, so any further `<` falls back (conservatively, even
+    // inside a quoted word).
+    if elided_command.iter().filter(|ch| **ch == b'<').count() != 2 {
+        return false;
+    }
     if heredoc.quoted || heredoc.dash || !terminated {
         return false;
     }

@@ -1,6 +1,6 @@
 {
   "schema": "bash-literal-heredoc-data/v1",
-  "note": "Issue #924. `recorded` keeps a pre-fix observation from an L-154 run as measured facts only (no body text, no follow-up command text, no host path). `synthetic` rows are minimal shell forms written for this Issue; their expectations come from the shell/guard contract, not from any recorded run. The fixture workspace has an escaping symlink `sub/link`, an inside `.env`, and a protected `tests/spec.rs`. `secret` is whether the credential scan reports the command; it also reports text it cannot read (fail closed), which is why the unreadable rows carry true.",
+  "note": "Issue #924. `recorded` keeps a pre-fix observation from an L-154 run as measured facts only (no body text, no follow-up command text, no host path). `synthetic` rows are minimal shell forms written for this Issue; their expectations come from the shell/guard contract, not from any recorded run. The fixture workspace has an escaping symlink `sub/link`, an inside `.env` and `in.txt`, and a protected `tests/spec.rs`. `secret` is whether the credential scan reports the command; it also reports text it cannot read (fail closed), which is why the unreadable rows carry true.",
   "recorded": [
     {
       "id": "recorded-l154-plain-cat-json-body",
@@ -209,6 +209,30 @@
       "command": "cat <<EOF > a.json\n{\"p\": \"/b\"}\nEOF\ncat .env",
       "expect": "allow",
       "secret": true
+    },
+    {
+      "id": "synthetic-heredoc-with-here-string",
+      "command": "cat <<EOF <<<x\ntee sub/link/f\nEOF",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-here-string-before-heredoc",
+      "command": "cat <<<x <<EOF\ntee sub/link/f\nEOF",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-heredoc-with-input-file",
+      "command": "cat <<EOF < in.txt\ntee sub/link/f\nEOF",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-heredoc-with-fd0-input-file",
+      "command": "cat 0<in.txt <<EOF\ntee sub/link/f\nEOF",
+      "expect": "reject",
+      "secret": false
     }
   ]
 }

@@ -26,6 +26,8 @@ fixtures/cases.json = [
   "\"id\": \"synthetic-redirect-through-escaping-symlink\"",
   "\"id\": \"synthetic-write-after-terminator\"",
   "\"id\": \"synthetic-secret-after-terminator\"",
+  "\"id\": \"synthetic-heredoc-with-here-string\"",
+  "\"id\": \"synthetic-heredoc-with-input-file\"",
   "\"expect\": \"allow\"",
   "\"expect\": \"reject\""
 ]

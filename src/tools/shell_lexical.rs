@@ -512,7 +512,13 @@ fn resolve_heredocs(
         // `locate_body` ends an unterminated body at the end of the input, and a
         // terminator line is never empty, so a terminated body ends before it.
         let literal = reader.as_deref().is_some_and(|argv| {
-            literal_data::unquoted_cat_body_is_literal(argv, pending, body, body_end < bytes.len())
+            literal_data::unquoted_cat_body_is_literal(
+                elided_command,
+                argv,
+                pending,
+                body,
+                body_end < bytes.len(),
+            )
         });
         if !drop_bodies && !literal {
             // A kept body must be readable as commands (B2).

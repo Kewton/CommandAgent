@@ -45,8 +45,8 @@ fn tempdir() -> tempfile::TempDir {
     dir
 }
 
-/// A workspace with an escaping `sub/link` symlink, an inside `.env`, a
-/// protected `tests/spec.rs`, and an outside directory holding `secret`.
+/// A workspace with an escaping `sub/link` symlink, an inside `.env`, an inside
+/// `in.txt`, a protected `tests/spec.rs`, and an outside directory holding `secret`.
 fn fixture() -> Fixture {
     let dir = tempdir();
     let root = dir.path().join("ws");
@@ -55,6 +55,7 @@ fn fixture() -> Fixture {
     }
     std::fs::write(root.join(".env"), "workspace-secret").unwrap();
     std::fs::write(root.join("tests/spec.rs"), "// spec\n").unwrap();
+    std::fs::write(root.join("in.txt"), "input\n").unwrap();
     let outside = dir.path().join("outside");
     std::fs::create_dir_all(&outside).unwrap();
     std::fs::write(outside.join("secret"), "outside-secret").unwrap();
@@ -360,6 +361,40 @@ fn literal_heredoc_keeps_target_suffix_and_secret_checks() {
             !bash_verify_command_is_auto_approvable(command, root),
             "must not be auto-approved: {command:?}"
         );
+    }
+}
+
+/// A here-string or another stdin redirection beside the plain heredoc keeps
+/// today's decision for the plain spelling: the body is re-read, so an
+/// apostrophe in it is refused, while the same redirection without the heredoc
+/// is allowed (the refusal comes from the kept body, not the redirection).
+#[test]
+fn literal_heredoc_extra_stdin_redirection_keeps_the_plain_refusal() {
+    let fixture = fixture();
+    let root = &fixture.root;
+    for (line, without_heredoc) in [
+        ("cat <<EOF <<<x", "cat <<<x"),
+        ("cat <<<x <<EOF", "cat <<<x"),
+        ("cat <<EOF < in.txt", "cat < in.txt"),
+        ("cat <<EOF 0<in.txt", "cat 0<in.txt"),
+        ("cat 0<in.txt <<EOF", "cat 0<in.txt"),
+        ("cat <<EOF > out.json < in.txt", "cat > out.json < in.txt"),
+    ] {
+        assert!(
+            !rejected(root, without_heredoc),
+            "the redirection alone must be allowed: {without_heredoc:?}"
+        );
+        let command = format!("{line}\nit's {{\"p\": \"/b\"}}\nEOF");
+        assert!(rejected(root, &command), "expected rejection: {command:?}");
+        let command = format!("{line}\ntee sub/link/f\nEOF");
+        assert!(rejected(root, &command), "expected rejection: {command:?}");
+    }
+    // The lone heredoc with stdout redirections stays allowed.
+    for command in [
+        "cat <<EOF > out.json 2> err.log\nit's {\"p\": \"/b\"}\nEOF",
+        "cat >> out.json <<EOF 2>> err.log\nit's {\"p\": \"/b\"}\nEOF",
+    ] {
+        assert!(!rejected(root, command), "expected allow: {command:?}");
     }
 }
 
