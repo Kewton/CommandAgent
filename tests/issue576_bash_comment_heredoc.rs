@@ -323,13 +323,49 @@ fn comment_heredoc_removed_readers_are_accepted_false_rejections() {
 fn comment_heredoc_rejects_unquoted_and_joined_heredocs() {
     // Fourth-revision design 10: an unquoted delimiter, or a heredoc joined to
     // another command, keeps its body, so an unreadable body now rejects.
+    // Issue #924 moved the plain `<<EOF` rows with no expansion and a real
+    // terminator to `comment_heredoc_allows_literal_plain_cat_heredocs`.
     assert_rejected(&[
-        "cat <<EOF > out.txt\nit's\nEOF",
-        "cat <<EOF\nit's ok\nEOF",
         "cat <<EOF\ndata\ntee sub/link/f",
-        "cat <<EOF\ntee /tmp/f\nEOF",
         "git add x && git commit -F - <<'EOF'\nit's\nEOF",
+        "cat <<-EOF > out.txt\n\tit's\n\tEOF",
+        "cat <<EOF\nit's",
+        "cat <<EOF\nit's $X\nEOF",
+        "cat <<EOF\nit's \\x\nEOF",
+        "true && cat <<EOF\nit's\nEOF",
+        "cat <<EOF\ntee /tmp/f\nEOF\ntee /tmp/f",
     ]);
+}
+
+/// Issue #924: a lone literal `cat` with one plain `<<` heredoc whose body holds
+/// no `$`, backtick, or backslash and whose terminator exists is decided exactly
+/// as its quoted-delimiter spelling.
+#[test]
+fn comment_heredoc_allows_literal_plain_cat_heredocs() {
+    let fixture = fixture();
+    let root = &fixture.root;
+    for (plain, quoted) in [
+        (
+            "cat <<EOF > out.txt\nit's\nEOF",
+            "cat <<'EOF' > out.txt\nit's\nEOF",
+        ),
+        ("cat <<EOF\nit's ok\nEOF", "cat <<'EOF'\nit's ok\nEOF"),
+        ("cat <<EOF\ntee /tmp/f\nEOF", "cat <<'EOF'\ntee /tmp/f\nEOF"),
+    ] {
+        assert!(
+            path_confinement_rejection(quoted, root).is_none(),
+            "expected allow: {quoted:?}"
+        );
+        assert!(
+            path_confinement_rejection(plain, root).is_none(),
+            "expected allow: {plain:?}"
+        );
+        assert_eq!(
+            command_references_secret(plain).is_some(),
+            command_references_secret(quoted).is_some(),
+            "the plain spelling must scan as the quoted one: {plain:?}"
+        );
+    }
 }
 
 #[test]

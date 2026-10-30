@@ -1,0 +1,36 @@
+case_id = "bash-literal-heredoc-data"
+source = "Issue #924: a lone literal `cat` with one plain `<<` heredoc whose unquoted ASCII-identifier delimiter terminates and whose UTF-8 body holds no `$`, backtick, or backslash passes the same bytes as the quoted spelling, so the body leaves the path-candidate view. The recorded row keeps the L-154 pre-fix rejection; the synthetic rows declare the allowed and rejected forms; tests/bash_literal_heredoc_data.rs drives the real decision on every row."
+acceptance_passed = true
+primary_reason = "pass"
+
+[compile]
+expect = "not_checked"
+
+[json_fields]
+fixtures/cases.json:schema = "bash-literal-heredoc-data/v1"
+source-manifest.json:source_sha = "332bb56245c5db9407c473a1ddc6d0e78c3df047"
+
+[fixture_contains]
+fixtures/cases.json = [
+  "\"id\": \"recorded-l154-plain-cat-json-body\"",
+  "\"decision\": \"reject\"",
+  "\"policy_error_kind\": \"bash_path_confinement_error\"",
+  "\"text\": \"<omitted>\"",
+  "\"id\": \"synthetic-json-lines-body\"",
+  "\"id\": \"synthetic-body-secret-raw-scan\"",
+  "\"id\": \"synthetic-dollar-body\"",
+  "\"id\": \"synthetic-backslash-body\"",
+  "\"id\": \"synthetic-unterminated\"",
+  "\"id\": \"synthetic-dash-heredoc\"",
+  "\"id\": \"synthetic-nested-body\"",
+  "\"id\": \"synthetic-redirect-through-escaping-symlink\"",
+  "\"id\": \"synthetic-write-after-terminator\"",
+  "\"id\": \"synthetic-secret-after-terminator\"",
+  "\"expect\": \"allow\"",
+  "\"expect\": \"reject\""
+]
+source-manifest.json = [
+  "\"sha256\": \"5ce4a1a1faf576fb36d9fa770c477028bb75ee51bd62a8d8ee60af46035a23b9\"",
+  "\"sha256\": \"52e85f57fa3f77ca08085ab26c2167b8219ef0076a1d4ca286d0f48372672649\"",
+  "<generic-bench>/runs-v6/C4off/c-t4/r1"
+]
