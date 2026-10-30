@@ -111,16 +111,20 @@ fn config_threshold(path: &Path, line_no: usize, key: &str, value: &str) -> Resu
 
 /// Checks one `request_pattern` or `request_pattern_threshold` value wherever
 /// a config file is parsed. Diagnostics name the file, line and key only.
+///
+/// This is the last arm of the config file's top-level key match, which keeps
+/// the growth-capped `config.rs` to one line: every other supported key is
+/// handled there, so any key other than these two is a bug.
 pub(crate) fn check_config_value(
     path: &Path,
     line_no: usize,
     key: &str,
     value: &str,
 ) -> Result<()> {
-    if key == MODE_KEY {
-        config_mode(path, line_no, key, value).map(drop)
-    } else {
-        config_threshold(path, line_no, key, value).map(drop)
+    match key {
+        MODE_KEY => config_mode(path, line_no, key, value).map(drop),
+        THRESHOLD_KEY => config_threshold(path, line_no, key, value).map(drop),
+        _ => unreachable!("SUPPORTED_TOP_LEVEL_KEYS contains unhandled key '{key}'"),
     }
 }
 
@@ -357,7 +361,11 @@ pub fn run_direct_prompt_with(
 ) -> anyhow::Result<RunSessionOutcome> {
     let mut options = RunSessionOptions::default();
     if routes(settings, config) {
-        let resolution = resolve(settings, prompt, config.offline, classifier);
+        // jev gets the request text a provider would get: the run's secret
+        // scope (the one the loop installs) scrubs it the same way first.
+        let scope = config::install_run_secret_scope(config)?;
+        let request = scope.scrub_text(prompt);
+        let resolution = resolve(settings, &request, config.offline, classifier);
         emit(config.eval_events_path.as_deref(), &resolution);
         options.request_guidance = resolution.guidance().map(str::to_string);
     }

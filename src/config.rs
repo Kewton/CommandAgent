@@ -1332,10 +1332,7 @@ fn parse_top_level_key(
             ));
             Ok(())
         }
-        "request_pattern" | "request_pattern_threshold" => {
-            crate::minimal_loop::request_pattern::check_config_value(path, line_no, key, value)
-        }
-        _ => unreachable!("SUPPORTED_TOP_LEVEL_KEYS contains unhandled key '{key}'"),
+        _ => crate::minimal_loop::request_pattern::check_config_value(path, line_no, key, value),
     }
 }
 
@@ -1808,7 +1805,12 @@ pub(crate) fn build_secret_sources(
     use crate::sensitive_data::{CollectionFailure, CollectionRefusal, SecretCatalog};
     let mut catalog = SecretCatalog::new();
     let mut refusals: Vec<CollectionRefusal> = Vec::new();
-    for name in ["OPENAI_API_KEY", "GEMINI_API_KEY", "LM_STUDIO_API_TOKEN"] {
+    for name in [
+        "OPENAI_API_KEY",
+        "GEMINI_API_KEY",
+        "LM_STUDIO_API_TOKEN",
+        "JEV_API_KEY",
+    ] {
         if let Ok(value) = load_api_key(root, name)
             && let Err(refusal) = catalog.register_credential(name, &value)
         {

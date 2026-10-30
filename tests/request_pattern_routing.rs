@@ -653,6 +653,91 @@ fn jev_receives_only_the_request_and_the_key_stays_in_the_header() {
     );
 }
 
+/// A secret registered in the run scope (here a workspace `.env` value) is
+/// replaced in the request text before jev sees it, exactly as it is in the
+/// request the model provider gets.
+#[test]
+fn registered_secrets_are_scrubbed_from_the_request_before_jev() {
+    const SECRET: &str = "fake-dotenv-secret-918-q7Zr4mLx9Kp2";
+    let request = format!("Create db.conf that connects with password {SECRET}.");
+    let body = r#"{"model":"jev-1.14.0","answers":{"work":{"choice":"CREATE","confidence":0.97}}}"#;
+    let mut server = MockJev::start(200, body, Duration::ZERO);
+    let classifier = server.classifier(Duration::from_secs(3));
+    let dir = workspace();
+    std::fs::write(dir.path().join(".env"), format!("DB_PASSWORD={SECRET}\n")).unwrap();
+    let mut client = RecordingClient::new(writing_script());
+    let mut session = SessionSnapshot::new();
+    run_direct_prompt_with(
+        &mut client,
+        &mut session,
+        &request,
+        &config(dir.path(), false),
+        &NOOP_UI,
+        jev(0.8),
+        Some(&classifier),
+    )
+    .unwrap();
+    let marker = commandagent::sensitive_data::active_marker();
+    let (_, sent) = server.request().expect("jev was called once");
+    let state = sent["state"].as_str().unwrap();
+    assert!(!state.contains(SECRET), "{state}");
+    assert!(state.contains(&marker), "{state}");
+    assert_eq!(state, request.replace(SECRET, &marker));
+    assert!(!sent.to_string().contains(SECRET));
+    let model_request = &client.requests.lock().unwrap()[0];
+    let model_text = model_request
+        .iter()
+        .map(|message| message.content.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(!model_text.contains(SECRET));
+}
+
+const JEV_KEY_CHILD_ENV: &str = "COMMANDAGENT_ISSUE918_JEV_KEY_CHILD";
+const JEV_KEY_CHILD_TEST: &str = "jev_api_key_is_scrubbed_like_the_provider_keys";
+const FAKE_JEV_KEY: &str = "fake-jev-key-918-Hq3Wn8Tz5Vb1Lc6R";
+const FAKE_OPENAI_KEY: &str = "fake-openai-key-918-Jx2Pd7Ys4Fm9Gk3N";
+
+/// `JEV_API_KEY` joins the run's secret catalog like the provider keys, so a
+/// tool result that prints the environment cannot carry the key onward. The
+/// fake keys live only in a child with a cleared environment, so no other test
+/// sees them.
+#[test]
+fn jev_api_key_is_scrubbed_like_the_provider_keys() {
+    if std::env::var_os(JEV_KEY_CHILD_ENV).is_none() {
+        let home = tempfile::tempdir().unwrap();
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", JEV_KEY_CHILD_TEST, "--nocapture"])
+            .env_clear()
+            .env("HOME", home.path())
+            .env(JEV_KEY_CHILD_ENV, "1")
+            .env("JEV_API_KEY", FAKE_JEV_KEY)
+            .env("OPENAI_API_KEY", FAKE_OPENAI_KEY)
+            .current_dir(home.path())
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success() && stdout.contains("1 passed"),
+            "child failed:\n{stdout}\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
+    let dir = workspace();
+    let scope = commandagent::config::install_run_secret_scope(&config(dir.path(), false)).unwrap();
+    let printed = format!("JEV_API_KEY={FAKE_JEV_KEY}\nOPENAI_API_KEY={FAKE_OPENAI_KEY}\n");
+    let scrubbed = scope.scrub_text(&printed);
+    assert!(!scrubbed.contains(FAKE_JEV_KEY), "{scrubbed}");
+    assert!(!scrubbed.contains(FAKE_OPENAI_KEY), "{scrubbed}");
+    assert_eq!(
+        scrubbed,
+        printed
+            .replace(FAKE_JEV_KEY, scope.marker())
+            .replace(FAKE_OPENAI_KEY, scope.marker())
+    );
+}
+
 fn walk(dir: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
     let Ok(entries) = std::fs::read_dir(dir) else {
