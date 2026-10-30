@@ -442,6 +442,133 @@ fn broken_operator_tooling_is_refused_before_any_provider() {
     }
 }
 
+/// B2: an operator registry inside the workspace, named directly or through a
+/// symlink outside the workspace, is refused by the CLI's pre-provider
+/// preflight: exit 2, the self-approval message, and no connection to the
+/// stand-in provider endpoint.
+#[test]
+fn registry_inside_the_workspace_is_refused_before_any_provider() {
+    let _fixture = fixture();
+    for via_symlink in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(root.path()).unwrap();
+        let tooling = root.join("tooling");
+        let extension = root.join("extension");
+        let workspace = root.join("workspace");
+        let home = root.join("home");
+        let config = workspace.join("registry");
+        for dir in [&tooling, &config.join("adapters"), &home] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+        std::fs::write(tooling.join("lines.sh"), format!("{PRELUDE}{LINES_BODY}")).unwrap();
+        let descriptor = json!({
+            "protocol": "artifact-contract.adapter/v1",
+            "adapter_id": LINES_ADAPTER,
+            "executable": {"path": shell(), "sha256": sha256_file(&shell())},
+            "tooling_root": tooling,
+            "entrypoint": "lines.sh",
+            "members": {"lines.sh": sha256_file(&tooling.join("lines.sh"))},
+            "required": [{"check_id": "lines/total", "targets": ["notes.txt#all"]}],
+            "inputs": [{"input_id": "notes"}]
+        });
+        std::fs::write(
+            config.join(format!("adapters/{LINES_ADAPTER}.json")),
+            serde_json::to_vec(&descriptor).unwrap(),
+        )
+        .unwrap();
+        let profile = extension.join(format!("profiles/{DRAFT}"));
+        std::fs::create_dir_all(&profile).unwrap();
+        std::fs::write(
+            profile.join("manifest.toml"),
+            manifest(DRAFT, LINES_ADAPTER),
+        )
+        .unwrap();
+        let named_root = if via_symlink {
+            let outside = root.join("registry-link");
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(&config, &outside).unwrap();
+            outside
+        } else {
+            config.clone()
+        };
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let host = format!("http://{}", listener.local_addr().unwrap());
+        let run = Command::new(env!("CARGO_BIN_EXE_commandagent"))
+            .arg("--extension-root")
+            .arg(&extension)
+            .args(["--profile", DRAFT, "--ollama-host", &host])
+            .args(["--prompt", "Write notes"])
+            .current_dir(&workspace)
+            .env_clear()
+            .env("HOME", &home)
+            .env("COMMANDAGENT_ADAPTER_CONFIG_ROOT", &named_root)
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&run.stderr);
+        assert_eq!(
+            run.status.code(),
+            Some(2),
+            "symlink={via_symlink}: {stderr}"
+        );
+        assert!(
+            stderr.contains(
+                "operator registry resolves inside the workspace; a self-approved registry is refused"
+            ),
+            "symlink={via_symlink}: {stderr}"
+        );
+        assert!(
+            matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock),
+            "symlink={via_symlink}: the provider endpoint was contacted"
+        );
+    }
+}
+
+/// A run that declares no `artifact_contract_check` is unchanged by the
+/// preflight: with the registry variable unset or set to an invalid value it
+/// exits the same way with the same message as before.
+#[test]
+fn a_run_without_the_check_ignores_the_registry_variable() {
+    let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let host = format!("http://{}", closed.local_addr().unwrap());
+    drop(closed);
+    let run = |value: Option<&str>| {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = root.path().join("workspace");
+        let home = root.path().join("home");
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::create_dir_all(&home).unwrap();
+        let mut command = Command::new(env!("CARGO_BIN_EXE_commandagent"));
+        command
+            .args(["--ollama-host", &host, "--prompt", "hi"])
+            .current_dir(&workspace)
+            .env_clear()
+            .env("HOME", &home);
+        if let Some(value) = value {
+            command.env("COMMANDAGENT_ADAPTER_CONFIG_ROOT", value);
+        }
+        let output = command.output().unwrap();
+        (
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr).to_string(),
+        )
+    };
+    let baseline = run(None);
+    assert_eq!(baseline.0, Some(1), "{}", baseline.1);
+    assert!(
+        baseline.1.contains("Ollama request failed"),
+        "{}",
+        baseline.1
+    );
+    for value in [
+        "relative/not-a-registry",
+        "/nonexistent/commandagent-933/registry",
+    ] {
+        assert_eq!(run(Some(value)), baseline, "{value}");
+    }
+}
+
 /// B2: the pre-provider preflight refuses a workspace that holds the operator
 /// registry (self-approval) and passes a separate workspace.
 #[test]

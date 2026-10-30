@@ -188,6 +188,10 @@ fn admitted_ids() -> &'static std::sync::Mutex<BTreeSet<String>> {
 /// Pre-provider check for every adapter admitted while profiles and packs
 /// loaded: the registry, descriptor, tooling root, and executable must lie
 /// outside `workspace`, and the tooling must match its pins and links.
+///
+/// When no loaded profile or pack declared `artifact_contract_check`, nothing
+/// was admitted and this returns at once: it reads no environment variable,
+/// registry, or file, and cannot fail.
 pub fn preflight(workspace: &Path) -> Result<(), String> {
     let ids = admitted_ids()
         .lock()

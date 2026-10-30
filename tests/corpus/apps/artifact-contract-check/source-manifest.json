@@ -8,6 +8,6 @@
   "derived_fixture": "fixtures/cases.json lists hand-authored synthetic cases only. Each names the test that builds it at run time: a POSIX shell adapter run by the operator-pinned /bin/sh in a temporary directory, with opaque IDs unrelated to any external project. No benchmark task, grader input, model output, Musubi file, host path, or credential is stored or copied here.",
   "regenerate_digests": "shasum -a 256 fixtures/cases.json",
   "fixture_sha256": {
-    "cases.json": "5aeb8f114334c21ff45d877fa6df933632bb42c87e72c229c843acca295b253f"
+    "cases.json": "6e04b20c38839427ed6aac7c5bd8b4b5228e1429719d8b1929027067a4e017d0"
   }
 }

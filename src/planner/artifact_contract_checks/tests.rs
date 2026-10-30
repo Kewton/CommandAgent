@@ -1200,3 +1200,14 @@ fn an_omitted_optional_row_is_recorded_as_unverified() {
     assert_eq!(event["domain_cap_applied"], false);
     assert_eq!(event["status"], "passed");
 }
+
+/// With no `artifact_contract_check` declared (nothing admitted in this test
+/// process, whose environment never sets the registry), the pre-provider
+/// preflight returns at once: it does not resolve even a workspace that does
+/// not exist, so it opens no file and reads no registry.
+#[test]
+fn preflight_without_a_declared_check_returns_at_once() {
+    assert!(super::admitted_ids().lock().unwrap().is_empty());
+    let absent = Path::new("/nonexistent/commandagent-933/workspace");
+    assert_eq!(super::preflight(absent), Ok(()));
+}

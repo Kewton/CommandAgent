@@ -60,11 +60,11 @@ automatically; an unknown or mismatching toolchain is unavailable.
    unregistered symlink in the tooling tree). The load path does not know the
    workspace, so the separation from the workspace is checked by
    `artifact_contract_checks::preflight(workspace)`, which re-admits every
-   adapter admitted during loading; it is meant to run before any provider is
-   built, once the workspace is known. **Not yet wired:** calling it from the
-   CLI start-up path needs `src/lib.rs`, which is outside this Issue's file
-   scope. Until it is wired, a registry inside the workspace is refused only at
-   final acceptance. At run time the descriptor is read again, and a registry,
+   adapter admitted during loading. The CLI calls it once the workspace is
+   known and before any provider is built (`src/lib.rs`); a refusal exits with
+   code 2. When no loaded profile or pack declares `artifact_contract_check`,
+   it returns at once without reading the environment, the registry, or any
+   file. The GUI runs go through the same CLI binary. At run time the descriptor is read again, and a registry,
    descriptor, tooling root, or executable that resolves inside the workspace
    is refused as self-approval.
    There is no command, tool, or file in the workspace through which the model

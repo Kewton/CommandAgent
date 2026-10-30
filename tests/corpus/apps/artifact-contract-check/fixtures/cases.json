@@ -462,6 +462,36 @@
       "native_passed": false,
       "domain_verdict": "none",
       "asserts": "the pre-provider preflight refuses a workspace that holds the operator registry"
+    },
+    {
+      "id": "synthetic-registry-inside-workspace-before-provider",
+      "kind": "synthetic",
+      "adapter": "tally-lines",
+      "test": "registry_inside_the_workspace_is_refused_before_any_provider",
+      "stopped_at": "trust",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "a registry inside the workspace, named directly or through an outside symlink, exits 2 before any provider connection"
+    },
+    {
+      "id": "synthetic-no-check-ignores-registry-variable",
+      "kind": "synthetic",
+      "adapter": "tally-lines",
+      "test": "a_run_without_the_check_ignores_the_registry_variable",
+      "stopped_at": "trust",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "a run without the check keeps its exit code and message whether the registry variable is unset or invalid"
+    },
+    {
+      "id": "synthetic-preflight-early-return",
+      "kind": "synthetic",
+      "adapter": "tally-lines",
+      "test": "preflight_without_a_declared_check_returns_at_once",
+      "stopped_at": "registry",
+      "native_passed": true,
+      "domain_verdict": "none",
+      "asserts": "with nothing declared the preflight returns at once and touches no file"
     }
   ]
 }
