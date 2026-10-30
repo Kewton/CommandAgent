@@ -6,7 +6,7 @@
 //! out entirely, so an unrelated static relative path (`sub/link/secret`) next to
 //! it was never confined, and a relative/absolute glob read was never expanded.
 //!
-//! This leaf module consumes [`super::path_tokens::read_words`] and classifies
+//! This leaf module consumes [`super::path_tokens::read_segments`] and classifies
 //! each word the shell would see:
 //!
 //! * a static word becomes a candidate the existing write-target proof confines;
@@ -23,6 +23,7 @@
 
 use std::path::{Path, PathBuf};
 
+use super::argument_roles;
 use super::path_tokens::{self, CrMode, Word};
 
 /// The reason recorded for a read word whose expanded value cannot be proven to
@@ -64,6 +65,9 @@ pub(super) struct ReadVerdict {
     /// `/`-less static words the caller re-checks against the working-directory
     /// candidates when no directory separator names them (Issue #613 design 2).
     pub relative_words: Vec<String>,
+    /// Files a `sed`/`awk` program writes (Issue #930). The caller confines
+    /// them as write targets.
+    pub program_writes: Vec<String>,
 }
 
 /// Reads the read-path judgement for a command the write guard allowed.
@@ -85,16 +89,33 @@ pub(super) fn inspect(command: &str) -> ReadVerdict {
 
 /// The read-path judgement of one carriage-return reading of the elided text.
 fn inspect_text(text: &str, cr_mode: CrMode) -> ReadVerdict {
-    let Some(segments) = path_tokens::read_words(text, cr_mode) else {
+    let Some(segments) = path_tokens::read_segments(text, cr_mode) else {
         return ReadVerdict {
             unverifiable: Some("<shell text>".to_string()),
             candidates: Vec::new(),
             relative_words: Vec::new(),
+            program_writes: Vec::new(),
         };
     };
     let glob_shell_option = uses_glob_shell_option(text);
-    let mut verdict = ReadVerdict::default();
-    for segment in &segments {
+    // Issue #930: a word whose argument role is proven data (a read-only
+    // program, a pattern, display text) is not a path. Every other word,
+    // including file operands and redirect targets, keeps the proof below.
+    let roles = argument_roles::judge(&segments);
+    let mut verdict = ReadVerdict {
+        program_writes: roles.extra_writes.clone(),
+        ..ReadVerdict::default()
+    };
+    for path in &roles.extra_reads {
+        let word = Word {
+            text: path.clone(),
+            ..Word::default()
+        };
+        push_static(&mut verdict.candidates, &word, true, true);
+        collect_relative_targets(&mut verdict.relative_words, &word, true);
+    }
+    for (segment_index, segment) in segments.iter().enumerate() {
+        let segment = &segment.words;
         let leading = segment
             .iter()
             .take_while(|word| is_assignment(&word.text))
@@ -103,6 +124,9 @@ fn inspect_text(text: &str, cr_mode: CrMode) -> ReadVerdict {
             .get(leading)
             .is_some_and(|word| word.text == "echo" && !word.dynamic && !word.glob);
         for (index, word) in segment.iter().enumerate() {
+            if roles.is_data(segment_index, index) {
+                continue;
+            }
             if word.dynamic {
                 let allowed = word.simple_variable && (index < leading || echo);
                 if !allowed && verdict.unverifiable.is_none() {
@@ -151,6 +175,7 @@ fn merge(into: &mut ReadVerdict, other: ReadVerdict) {
     if into.unverifiable.is_none() {
         into.unverifiable = other.unverifiable;
     }
+    into.program_writes.extend(other.program_writes);
     into.candidates.extend(other.candidates);
     into.relative_words.extend(other.relative_words);
 }

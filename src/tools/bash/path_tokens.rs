@@ -47,6 +47,13 @@ pub(super) struct Word {
     /// `text` drops the quoting, and the expansion proof would read a different
     /// set than the shell (Issue #582 review blocker).
     pub quoted_glob: bool,
+    /// Some part of the word was quoted or escaped (Issue #930). A command name
+    /// spelled this way is not the bare program name the argument-role table
+    /// names.
+    pub quoted: bool,
+    /// An unquoted, unescaped `~` is present, which the shell may expand to a
+    /// home directory (Issue #930).
+    pub tilde: bool,
 }
 
 impl Word {
@@ -57,16 +64,63 @@ impl Word {
             simple_variable: true,
             glob: false,
             quoted_glob: false,
+            quoted: false,
+            tilde: false,
         }
     }
 }
 
+/// The shell operator in front of a segment (Issue #930). [`read_segments`]
+/// splits at the same characters as before; this records which operator did,
+/// so the argument-role leaf can tell a command from a redirect target and a
+/// pipeline from a list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Opener {
+    /// The first segment of the text.
+    Start,
+    /// `;`, `;;`, `&&`, `||`, a newline, or a separating carriage return.
+    List,
+    /// A lone `&` that puts the previous command in the background.
+    Background,
+    /// A lone `|`, or the `&` of `|&`.
+    Pipe,
+    /// `<`: the segment starts with an input redirect target.
+    Input,
+    /// `>`: the segment starts with an output redirect target.
+    Output,
+    /// The `&` of `>&`, `<&`, or `&>`: a descriptor or combined redirect.
+    Duplicate,
+    /// `(` or `)`.
+    Group,
+}
+
+/// One segment of [`read_segments`]: the words between two shell operators.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Segment {
+    pub words: Vec<Word>,
+    /// The operator in front of the segment.
+    pub opener: Opener,
+    /// The last word ended at the closing operator with no blank in between
+    /// (`2>`), so a numeric last word names a file descriptor.
+    pub glued_close: bool,
+}
+
 /// Split a command into segments of words, tracking shell expansions without
 /// running them. Returns `None` when the quoting cannot be read (an unterminated
-/// quote), so the caller fails closed.
+/// quote), so the caller fails closed. This is the projection of
+/// [`read_segments`] the existing word tests pin.
+#[cfg(test)]
 pub(super) fn read_words(command: &str, cr_mode: CrMode) -> Option<Vec<Vec<Word>>> {
+    read_segments(command, cr_mode)
+        .map(|segments| segments.into_iter().map(|segment| segment.words).collect())
+}
+
+/// Split a command into segments of words exactly as [`read_words`] does, and
+/// record the operator in front of each segment (Issue #930).
+pub(super) fn read_segments(command: &str, cr_mode: CrMode) -> Option<Vec<Segment>> {
     let chars: Vec<char> = command.chars().collect();
-    let mut segments: Vec<Vec<Word>> = Vec::new();
+    let mut segments: Vec<Segment> = Vec::new();
+    let mut opener = Opener::Start;
     let mut words: Vec<Word> = Vec::new();
     let mut word = Word::start();
     let mut has_word = false;
@@ -136,14 +190,17 @@ pub(super) fn read_words(command: &str, cr_mode: CrMode) -> Option<Vec<Vec<Word>
             '\'' => {
                 quote = Some('\'');
                 has_word = true;
+                word.quoted = true;
                 index += 1;
             }
             '"' => {
                 quote = Some('"');
                 has_word = true;
+                word.quoted = true;
                 index += 1;
             }
             '\\' => {
+                word.quoted = true;
                 if let Some(next) = chars.get(index + 1).copied() {
                     if next != '\n' {
                         if is_glob_brace_meta(next) {
@@ -171,11 +228,19 @@ pub(super) fn read_words(command: &str, cr_mode: CrMode) -> Option<Vec<Vec<Word>
             ';' | '|' | '&' | '<' | '>' | '(' | ')' | '\n' | '\r'
                 if cr_mode == CrMode::Separator || ch != '\r' =>
             {
+                let glued_close = has_word;
                 flush(&mut words, &mut word, &mut has_word);
-                if matches!(ch, ';' | '|' | '&') && chars.get(index + 1) == Some(&ch) {
+                let doubled = matches!(ch, ';' | '|' | '&') && chars.get(index + 1) == Some(&ch);
+                let next_opener = opener_for(&chars, index, doubled);
+                if doubled {
                     index += 1;
                 }
-                segments.push(std::mem::take(&mut words));
+                segments.push(Segment {
+                    words: std::mem::take(&mut words),
+                    opener,
+                    glued_close,
+                });
+                opener = next_opener;
                 index += 1;
             }
             // Only the shell's default word separators end a word: a space and a
@@ -189,6 +254,9 @@ pub(super) fn read_words(command: &str, cr_mode: CrMode) -> Option<Vec<Vec<Word>
                 index += 1;
             }
             other => {
+                if other == '~' {
+                    word.tilde = true;
+                }
                 word.text.push(other);
                 has_word = true;
                 index += 1;
@@ -199,8 +267,30 @@ pub(super) fn read_words(command: &str, cr_mode: CrMode) -> Option<Vec<Vec<Word>
         return None;
     }
     flush(&mut words, &mut word, &mut has_word);
-    segments.push(words);
+    segments.push(Segment {
+        words,
+        opener,
+        glued_close: false,
+    });
     Some(segments)
+}
+
+/// The opener of the segment after the operator at `index` (Issue #930).
+fn opener_for(chars: &[char], index: usize, doubled: bool) -> Opener {
+    let previous = index.checked_sub(1).and_then(|at| chars.get(at)).copied();
+    match chars[index] {
+        ';' | '\n' | '\r' => Opener::List,
+        '|' | '&' if doubled => Opener::List,
+        '|' => Opener::Pipe,
+        '&' if matches!(previous, Some('<' | '>')) || chars.get(index + 1) == Some(&'>') => {
+            Opener::Duplicate
+        }
+        '&' if previous == Some('|') => Opener::Pipe,
+        '&' => Opener::Background,
+        '<' => Opener::Input,
+        '>' => Opener::Output,
+        _ => Opener::Group,
+    }
 }
 
 fn flush(words: &mut Vec<Word>, word: &mut Word, has_word: &mut bool) {

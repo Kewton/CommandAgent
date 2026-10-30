@@ -1,0 +1,56 @@
+case_id = "bash-literal-argument-roles"
+source = "Issue #930: a bare top-level sed, awk, grep, echo, or printf whose argument role is proven data (a read-only sed/awk program, a grep pattern, an awk field separator, display text, a side-effect-free printf format) leaves that word out of the read-path candidates. File operands, pattern and script files, redirect targets, following commands, credentials, and the #924/R2 heredoc conditions keep their checks; a sed/awk program whose parse finds file I/O or execution is refused. The recorded rows keep the L-162 pre-fix rejections; the synthetic rows declare the allowed and rejected forms; tests/bash_literal_argument_roles.rs drives the real decision on every row. Known limits: a workspace python3 script may read the data piped or passed to it (its content was outside the static judgement before the fix as well, so the reach is equivalent); rows marked before_fix stay allowed because the base allowed them too."
+acceptance_passed = true
+primary_reason = "pass"
+
+[compile]
+expect = "not_checked"
+
+[json_fields]
+fixtures/cases.json:schema = "bash-literal-argument-roles/v1"
+fixtures/cases.json:base_sha = "f9103ce6ad184319f0cc17de11ce0b78d0e1a885"
+source-manifest.json:source_sha = "f9103ce6ad184319f0cc17de11ce0b78d0e1a885"
+
+[fixture_contains]
+fixtures/cases.json = [
+  "\"id\": \"recorded-glmlow-a-mid-r1-29-sed-range-pipeline\"",
+  "\"id\": \"recorded-glmlow-a-t3-r2-36-grep-closing-tag\"",
+  "\"id\": \"recorded-g0-c-t4-r1-64-echo-json-pipe\"",
+  "\"id\": \"recorded-glmlow-d-t4-r1-21-printf-long-json\"",
+  "\"decision\": \"reject\"",
+  "\"policy_error_kind\": \"bash_path_confinement_error\"",
+  "\"command_excerpt\": \"<omitted>\"",
+  "\"first_version\": \"not handled\"",
+  "\"id\": \"synthetic-sed-range\"",
+  "\"id\": \"synthetic-awk-flag-range\"",
+  "\"id\": \"synthetic-grep-e-dashdash\"",
+  "\"id\": \"synthetic-printf-long-json-pipe-app\"",
+  "\"id\": \"synthetic-sed-program-escaping-operand\"",
+  "\"id\": \"synthetic-grep-f-joined-escaping\"",
+  "\"id\": \"synthetic-sed-w-tmp\"",
+  "\"id\": \"synthetic-awk-getline-escaping\"",
+  "\"id\": \"synthetic-redirect-stderr-escaping\"",
+  "\"id\": \"synthetic-suffix-tee-escaping\"",
+  "\"id\": \"synthetic-printf-pipe-xargs\"",
+  "\"id\": \"synthetic-heredoc-with-here-string\"",
+  "\"id\": \"synthetic-here-string-pointer\"",
+  "\"id\": \"synthetic-sed-in-process-substitution\"",
+  "\"id\": \"synthetic-noclobber-redirect-then-operand\"",
+  "\"id\": \"synthetic-data-to-script-absolute-sh\"",
+  "\"id\": \"synthetic-data-to-awk-system\"",
+  "\"id\": \"synthetic-unquoted-tilde-printf\"",
+  "\"id\": \"synthetic-data-to-python-option-then-inline\"",
+  "\"id\": \"synthetic-data-to-script-uppercase-sh\"",
+  "\"id\": \"redteam-open-B-wc-files0from\"",
+  "\"id\": \"redteamb-b-closed-B1b-symlink-alias\"",
+  "\"id\": \"redteamb-b-pos-broken-input-pipe\"",
+  "\"id\": \"redteam-open-A-py-pipe\"",
+  "\"before_fix\": \"allow\"",
+  "\"expect\": \"allow\"",
+  "\"expect\": \"reject\""
+]
+source-manifest.json = [
+  "\"sha256\": \"13fcc13a3f948d818bd72916545d87bef68b7dc43cdb978b8a6994727a1e467e\"",
+  "\"sha256\": \"e533a2ed3641289a7020c2af9490b18cf922864964480d361f73d3aa7c4fdd8a\"",
+  "<generic-bench>/runs-v10"
+]

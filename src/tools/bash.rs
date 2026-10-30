@@ -6,6 +6,7 @@ use anyhow::{Context, bail};
 
 use crate::bounded_process::{self, BoundedProcessOutcomeKind};
 
+pub(crate) mod argument_roles;
 pub(crate) mod path_tokens;
 mod read_guard;
 
@@ -816,6 +817,20 @@ pub fn path_confinement_rejection(
             &root,
             Some(read_guard::UNVERIFIABLE_REASON),
         ));
+    }
+    // Issue #930: a file a sed/awk program writes is confined as a write target
+    // from the workspace root and every working-directory candidate.
+    for target in &read.program_writes {
+        let variants = if target.starts_with('/') {
+            Vec::new()
+        } else {
+            inspection.relative_variants(target)
+        };
+        for path in std::iter::once(target.clone()).chain(variants) {
+            if super::path_guard::ensure_bash_write_target(&root, &path).is_err() {
+                return Some(path_reference_rejection(&path, &root, None));
+            }
+        }
     }
     for candidate in read.candidates {
         let path = candidate.path();

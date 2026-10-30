@@ -1,0 +1,1017 @@
+//! Issue #930 unit tests: argument roles, option boundaries, program side
+//! effects, unknown syntax, and the path candidates that must remain.
+
+use super::read_only_program::{self, Verdict};
+use super::{
+    Roles, data_only_words, folded_name, is_closing_word, is_command_name, judge, runs_inline_code,
+};
+use crate::tools::bash::path_tokens::{CrMode, read_segments};
+
+fn roles(command: &str) -> (Vec<Vec<String>>, Roles) {
+    let segments = read_segments(command, CrMode::Separator)
+        .unwrap_or_else(|| panic!("readable shell text: {command:?}"));
+    let words = segments
+        .iter()
+        .map(|segment| segment.words.iter().map(|word| word.text.clone()).collect())
+        .collect();
+    (words, judge(&segments))
+}
+
+/// The words of `command` whose role is proven data, in order.
+fn data(command: &str) -> Vec<String> {
+    let (words, roles) = roles(command);
+    let mut found = Vec::new();
+    for (segment, segment_words) in words.iter().enumerate() {
+        for (index, word) in segment_words.iter().enumerate() {
+            if roles.is_data(segment, index) {
+                found.push(word.clone());
+            }
+        }
+    }
+    found
+}
+
+/// The words of `command` that keep the path proof, in order.
+fn kept(command: &str) -> Vec<String> {
+    let (words, roles) = roles(command);
+    let mut found = Vec::new();
+    for (segment, segment_words) in words.iter().enumerate() {
+        for (index, word) in segment_words.iter().enumerate() {
+            if !roles.is_data(segment, index) {
+                found.push(word.clone());
+            }
+        }
+    }
+    found
+}
+
+#[test]
+fn argument_roles_sed_program_is_data_and_file_operand_is_kept() {
+    for (command, program) in [
+        ("sed -n '/begin/,/end/p' in.txt", "/begin/,/end/p"),
+        ("sed -n -e '/begin/,/end/p' in.txt", "/begin/,/end/p"),
+        (
+            "sed -n --expression '/begin/,/end/p' in.txt",
+            "/begin/,/end/p",
+        ),
+        ("sed '1d;$d' in.txt", "1d;$d"),
+        ("sed -e 's#/old#/new#g' in.txt", "s#/old#/new#g"),
+        ("sed -E 's/a|b/c/gI' in.txt", "s/a|b/c/gI"),
+        ("sed -- 's/x/y/' in.txt", "s/x/y/"),
+    ] {
+        assert_eq!(data(command), [program], "{command}");
+        assert!(kept(command).contains(&"in.txt".to_string()), "{command}");
+    }
+    // A joined expression is the whole word.
+    assert_eq!(data("sed -ne/x/p in.txt"), ["-ne/x/p"]);
+    assert_eq!(
+        data("sed --expression=/a/,/b/p in.txt"),
+        ["--expression=/a/,/b/p"]
+    );
+    // Every file operand after the program stays a candidate.
+    assert_eq!(
+        kept("sed -n p in.txt sub/link/secret /outside/x ../up"),
+        [
+            "sed",
+            "-n",
+            "in.txt",
+            "sub/link/secret",
+            "/outside/x",
+            "../up"
+        ]
+    );
+    // With `-e`, the first operand is a file, not a program.
+    assert_eq!(data("sed -e p sub/link/secret"), ["p"]);
+    assert!(kept("sed -e p sub/link/secret").contains(&"sub/link/secret".to_string()));
+}
+
+#[test]
+fn argument_roles_awk_program_and_separator_are_data() {
+    for (command, expected) in [
+        (
+            "awk '/begin/{f=1;next} /end/{f=0} f{print}' in.txt",
+            vec!["/begin/{f=1;next} /end/{f=0} f{print}"],
+        ),
+        (
+            "awk '/<script>/{f=1;next} /<\\/script>/{f=0} f' index.html",
+            vec!["/<script>/{f=1;next} /<\\/script>/{f=0} f"],
+        ),
+        ("awk -F, '{print $2}' in.txt", vec!["-F,", "{print $2}"]),
+        ("awk -F / '/x/' in.txt", vec!["/", "/x/"]),
+        ("awk -- '{print}' in.txt", vec!["{print}"]),
+    ] {
+        assert_eq!(data(command), expected, "{command}");
+        assert!(
+            kept(command)
+                .iter()
+                .any(|word| word.ends_with(".txt") || word.ends_with(".html"))
+        );
+    }
+    assert_eq!(
+        kept("awk '{print}' in.txt sub/link/secret"),
+        ["awk", "in.txt", "sub/link/secret"]
+    );
+}
+
+#[test]
+fn argument_roles_grep_pattern_is_data_and_pattern_file_is_a_read() {
+    assert_eq!(data("grep -n '</tag>' in.txt"), ["</tag>"]);
+    assert_eq!(data("grep -e '/item' -- in.txt"), ["/item"]);
+    assert_eq!(data("grep --regexp=/item in.txt"), ["--regexp=/item"]);
+    assert_eq!(data("grep -e /a -e /b in.txt"), ["/a", "/b"]);
+    assert_eq!(data("grep -E -n '/x|/y' in.txt"), ["/x|/y"]);
+    // A pattern that starts with `/` does not change the file operand.
+    assert_eq!(
+        kept("grep '/x' sub/link/secret"),
+        ["grep", "sub/link/secret"]
+    );
+    // `-e` given: every operand is a file.
+    assert_eq!(
+        kept("grep -e x sub/link/secret in.txt"),
+        ["grep", "-e", "sub/link/secret", "in.txt"]
+    );
+    // A pattern file is never a pattern.
+    for command in [
+        "grep -f sub/link/patterns in.txt",
+        "grep --file sub/link/patterns in.txt",
+        "grep --file=sub/link/patterns in.txt",
+        "grep -fsub/link/patterns in.txt",
+        "grep -nfsub/link/patterns in.txt",
+    ] {
+        assert!(data(command).is_empty(), "{command}");
+    }
+    let (_, joined) = roles("grep -fsub/link/patterns in.txt");
+    assert_eq!(joined.extra_reads, ["sub/link/patterns"]);
+    let (_, clustered) = roles("grep -nfsub/link/patterns in.txt");
+    assert_eq!(clustered.extra_reads, ["sub/link/patterns"]);
+    let (_, sed_file) = roles("sed -fsub/link/script in.txt");
+    assert_eq!(sed_file.extra_reads, ["sub/link/script"]);
+    let (_, awk_file) = roles("awk -fsub/link/script in.txt");
+    assert_eq!(awk_file.extra_reads, ["sub/link/script"]);
+}
+
+#[test]
+fn argument_roles_echo_and_printf_display_data() {
+    assert_eq!(
+        data(r#"echo '{"pointer":"/item"}'"#),
+        [r#"{"pointer":"/item"}"#]
+    );
+    assert_eq!(
+        data(r#"printf '%s\n' '{"pointer":"/item/2"}'"#),
+        [r"%s\n", r#"{"pointer":"/item/2"}"#]
+    );
+    assert_eq!(data(r"printf 'literal-data\n'"), [r"literal-data\n"]);
+    assert_eq!(data("printf -- '%s' /a"), ["--", "%s", "/a"]);
+    let long = "x".repeat(1500);
+    assert_eq!(
+        data(&format!("printf '%s' '{long}'")),
+        ["%s", long.as_str()]
+    );
+    // A format with a side effect or an unknown conversion is not data.
+    for command in [
+        "printf -v X '%s' /a",
+        "printf '%b' /a",
+        "printf '%n' /a",
+        "printf '%d' /a",
+        r"printf '\101' /a",
+        r"printf '\c' /a",
+        "printf",
+    ] {
+        assert!(data(command).is_empty(), "{command}");
+    }
+}
+
+/// A program whose parse finds file I/O or command execution is never data,
+/// so its word keeps the candidate reading it had before the fix, and the files
+/// it names are returned for the existing proof (reads and writes apart).
+#[test]
+fn argument_roles_program_io_keeps_the_word_and_returns_its_files() {
+    for (command, reads, writes) in [
+        ("sed '1w /tmp/out' in.txt", vec![], vec!["/tmp/out"]),
+        (
+            "sed '1r sub/link/secret' in.txt",
+            vec!["sub/link/secret"],
+            vec![],
+        ),
+        ("sed 's/a/b/w ../out' in.txt", vec![], vec!["../out"]),
+        ("sed -n '1,5w out.txt' in.txt", vec![], vec!["out.txt"]),
+        ("sed -n '/x/W out' in.txt", vec![], vec!["out"]),
+        (
+            "sed 'R sub/link/secret' in.txt",
+            vec!["sub/link/secret"],
+            vec![],
+        ),
+        ("sed -e p -e '1w out' in.txt", vec![], vec!["out"]),
+        ("sed -i 's/a/b/w out' in.txt", vec![], vec!["out"]),
+        ("sed 's/a/b/e' in.txt", vec![], vec![]),
+        ("sed '1e cat sub/link/secret' in.txt", vec![], vec![]),
+        ("sed e in.txt", vec![], vec![]),
+        (
+            r#"awk '{print > "/tmp/out"}' in.txt"#,
+            vec![],
+            vec!["/tmp/out"],
+        ),
+        (
+            r#"awk '{print >> "../out"}' in.txt"#,
+            vec![],
+            vec!["../out"],
+        ),
+        (
+            r#"awk '{printf("%s", $0) > "out"}' in.txt"#,
+            vec![],
+            vec!["out"],
+        ),
+        (
+            r#"awk '{getline line < "sub/link/secret"; print line}' in.txt"#,
+            vec!["sub/link/secret"],
+            vec![],
+        ),
+        (r#"awk '{print | "sh"}' in.txt"#, vec![], vec![]),
+        (
+            r#"awk '{system("cat sub/link/secret")}' in.txt"#,
+            vec![],
+            vec![],
+        ),
+        (r#"awk '{print > $2}' in.txt"#, vec![], vec![]),
+        (r#"awk '@include "x"' in.txt"#, vec![], vec![]),
+    ] {
+        let (_, judged) = roles(command);
+        assert_eq!(judged.extra_reads, reads, "{command}");
+        assert_eq!(judged.extra_writes, writes, "{command}");
+        assert!(data(command).is_empty(), "{command}");
+    }
+}
+
+#[test]
+fn argument_roles_unsupported_forms_keep_every_word() {
+    for command in [
+        // Unknown or unsupported options and missing values.
+        "sed -i 's/a/b/' in.txt",
+        "sed -s p in.txt",
+        "sed -x p in.txt",
+        "sed -e",
+        "grep -r '/x' .",
+        "grep -A 2 '/x' in.txt",
+        "grep -e",
+        "grep",
+        "awk -v x=1 '{print}' in.txt",
+        "awk -f prog.awk in.txt",
+        "awk -F",
+        // An option after an operand.
+        "sed p in.txt -i",
+        "grep x in.txt -e y",
+        "awk '{print}' in.txt -F,",
+        // Unsupported sed/awk syntax.
+        "sed '1,5{p}' in.txt",
+        "sed 'y/a/b/' in.txt",
+        "sed '1a text' in.txt",
+        "sed '/x/!d' in.txt",
+        "sed 's/[/]/x/' in.txt",
+        "awk 'BEGIN{print}' in.txt",
+        "awk '{print $1+$2}' in.txt",
+        "awk '$1 > 5' in.txt",
+        "awk 'NR==1' in.txt",
+        // A dynamic or glob word anywhere in the command.
+        r#"sed "$X" in.txt"#,
+        r#"sed "1d;$d" in.txt"#,
+        "grep -n x $FILE",
+        "grep -n x `pwd`/in.txt",
+        "grep -n x $(pwd)/in.txt",
+        "grep -n /x *.txt",
+        "echo $HOME /a",
+        // A quoted or escaped command name, a prefix, a wrapper.
+        "'sed' p in.txt",
+        r"\grep /x in.txt",
+        "s'ed' p in.txt",
+        "X=1 grep /x in.txt",
+        "env grep /x in.txt",
+        "command grep /x in.txt",
+        "timeout 5 grep /x in.txt",
+        "then grep /x in.txt",
+    ] {
+        assert!(data(command).is_empty(), "{command}");
+    }
+}
+
+#[test]
+fn argument_roles_redirects_keep_targets_and_refuse_input_forms() {
+    // An output redirect target is a kept word; the data before it is data.
+    assert_eq!(
+        data(r"printf 'literal-data\n' > local.txt"),
+        [r"literal-data\n"]
+    );
+    assert!(kept(r"printf 'literal-data\n' > local.txt").contains(&"local.txt".to_string()));
+    assert_eq!(data("grep /x in.txt 2> err.log"), ["/x"]);
+    assert!(
+        kept("grep /x in.txt 2> err.log").contains(&"2".to_string())
+            || kept("grep /x in.txt 2> err.log").contains(&"err.log".to_string())
+    );
+    assert!(kept("grep /x in.txt 2>sub/link/err").contains(&"sub/link/err".to_string()));
+    assert_eq!(data("grep /x in.txt 2>&1"), ["/x"]);
+    assert!(kept("sed p in.txt >> ../out").contains(&"../out".to_string()));
+    // An input redirect, a here-string, a heredoc, or a descriptor stdin.
+    for command in [
+        "grep /x < in.txt",
+        "grep /x <<< '/item'",
+        "grep /x 0<in.txt",
+        "grep /x <<EOF",
+        "sed p <(cat in.txt)",
+        "sed p in.txt < in.txt",
+    ] {
+        assert!(data(command).is_empty(), "{command}");
+    }
+    // A word after a redirect target is an argument the target hides.
+    assert!(data("grep x > out -f sub/link/p").is_empty());
+}
+
+#[test]
+fn argument_roles_pipeline_partners() {
+    for command in [
+        r#"echo '{"p":"/a/1"}' | python3 patchdoc.py"#,
+        r#"printf '%s\n' '{"p":"/b"}' | python3 app.py"#,
+        "sed -n '/a/,/b/p' in.txt | sed '1d;$d' > out.js",
+        "grep -n /x in.txt | cat",
+        "cat in.txt | grep /x",
+    ] {
+        assert!(!data(command).is_empty(), "{command}");
+    }
+    for command in [
+        "printf '/a' | sh",
+        "printf '/a' | bash",
+        "printf '/a' | xargs cat",
+        "printf '/a' | python3 -",
+        "printf '/a' | python3 -c 'import sys'",
+        "printf '/a' | python3",
+        "printf '/a' | node app.js",
+        "printf '/a' | python3 /outside/app.py",
+        "printf '/a' | python3 ../app.py",
+        "printf '/a' |& cat",
+        "printf '/a' 2>&1 | sh",
+        "printf '/a' | sed e",
+        "printf '/a' | tee out",
+        "grep /x in.txt | sed '1r sub/link/secret'",
+    ] {
+        assert!(data(command).is_empty(), "{command}");
+    }
+}
+
+/// Each simple command after `;`, `&&`, `||`, or a newline is judged on its
+/// own: the first safe command never admits the rest.
+#[test]
+fn argument_roles_following_commands_keep_their_words() {
+    for (command, tail) in [
+        ("sed -n p in.txt; tee sub/link/f", "sub/link/f"),
+        ("grep /x in.txt && cat /outside/x", "/outside/x"),
+        ("printf '/a'\ncat .env", ".env"),
+        ("echo /a || cat sub/link/secret", "sub/link/secret"),
+        ("echo /a & cat sub/link/secret", "sub/link/secret"),
+    ] {
+        assert!(kept(command).contains(&tail.to_string()), "{command}");
+    }
+}
+
+#[test]
+fn argument_roles_closing_words_and_groups_close_every_role() {
+    for command in [
+        "alias grep=cat; grep sub/link/secret",
+        "grep() { cat \"$@\"; }; grep sub/link/secret",
+        "function grep { cat; }; grep /x in.txt",
+        "hash -p /bin/cat grep; grep sub/link/secret",
+        "PATH=bin; grep sub/link/secret in.txt",
+        "export PATH=bin; grep sub/link/secret in.txt",
+        "BASH_CMDS[grep]=x; grep sub/link/secret in.txt",
+        "enable -n echo; echo /a",
+        ". ./defs.sh; grep /x in.txt",
+        "source defs.sh; grep /x in.txt",
+        "eval x; grep /x in.txt",
+        "(grep /x in.txt)",
+        "{ grep /x in.txt; }",
+        "printf '/a' > list; xargs cat < list",
+        "printf 'cat /a' > x.sh; sh x.sh",
+    ] {
+        assert!(data(command).is_empty(), "{command}");
+    }
+}
+
+#[test]
+fn argument_roles_data_only_words_exclude_any_other_occurrence() {
+    let only = data_only_words("echo link && cat link", CrMode::Separator);
+    assert!(!only.contains("link"));
+    let only = data_only_words("echo link && cat in.txt", CrMode::Separator);
+    assert!(only.contains("link"));
+    assert!(!only.contains("in.txt"));
+    let only = data_only_words("echo out > out", CrMode::Separator);
+    assert!(!only.contains("out"));
+    assert!(data_only_words("echo 'unterminated", CrMode::Separator).is_empty());
+}
+
+#[test]
+fn argument_roles_sed_grammar_table() {
+    for script in [
+        "p",
+        "d",
+        "1d;$d",
+        "/begin/,/end/p",
+        "/<script>/,/<\\/script>/p",
+        "s#/old#/new#g",
+        "s/a/b/",
+        "s/a\\/b/c/p",
+        "s/[ab]/c/I",
+        "s/[]a]/c/",
+        "1,3p",
+        "$p",
+        " 1 d ; 2 p ",
+        "1p\n2d",
+    ] {
+        assert_eq!(
+            read_only_program::sed(script).0,
+            Verdict::ReadOnly,
+            "{script:?}"
+        );
+    }
+    for script in [
+        "1w /tmp/out",
+        "w out",
+        "1r sub/link/secret",
+        "R x",
+        "W x",
+        "e",
+        "1e date",
+        "s/a/b/w out",
+        "s/a/b/gw out",
+        "s/a/b/e",
+        "p;w out",
+        "1,5{w out\n}",
+        "s#a#b#w out",
+    ] {
+        assert_eq!(
+            read_only_program::sed(script).0,
+            Verdict::Effect,
+            "{script:?}"
+        );
+    }
+    for script in [
+        "",
+        ";",
+        "1",
+        "q",
+        "1,5{p}",
+        "y/a/b/",
+        "1a w /tmp/out",
+        "/x/!d",
+        "/x/Ip",
+        "\\%x%p",
+        "0~2p",
+        "1,+2p",
+        "s/[/]/x/",
+        "s/[\\/]/x/",
+        "s/[[:alpha:]]/x/",
+        "s/a/b/2",
+        "s/a/b",
+        "s/a/b/x",
+        "s a b ",
+        "/unterminated",
+        "pp",
+        "# comment\np",
+    ] {
+        assert_eq!(
+            read_only_program::sed(script).0,
+            Verdict::Unsupported,
+            "{script:?}"
+        );
+    }
+}
+
+#[test]
+fn argument_roles_awk_grammar_table() {
+    for program in [
+        "/begin/{f=1;next} /end/{f=0} f{print}",
+        "/<script>/{f=1;next} /<\\/script>/{f=0} f",
+        "f{print} /<script>$/{f=1} /<\\/script>/{f=0}",
+        "{print}",
+        "{print $1, $NF, \"x\", 2, f}",
+        "/x/",
+        "f",
+        "/a/\n/b/{print}",
+        "{ f = 1 }",
+    ] {
+        assert_eq!(
+            read_only_program::awk(program).0,
+            Verdict::ReadOnly,
+            "{program:?}"
+        );
+    }
+    for program in [
+        "{print > \"/tmp/out\"}",
+        "{print >> \"out\"}",
+        "{print $1 > $2}",
+        "{printf \"%s\", $0 > \"out\"}",
+        "{getline < \"sub/link/secret\"}",
+        "{\"cat x\" | getline}",
+        "{print | \"sh\"}",
+        "{print |& \"sh\"}",
+        "{system(\"cat x\")}",
+        "@include \"x\"",
+        "BEGIN{system(\"x\")}",
+    ] {
+        assert_eq!(
+            read_only_program::awk(program).0,
+            Verdict::Effect,
+            "{program:?}"
+        );
+    }
+    for program in [
+        "",
+        "BEGIN{print}",
+        "END{print NR}",
+        "{print $1+$2}",
+        "{print (\"x\")}",
+        "{f=g}",
+        "{f=1.5}",
+        "{print \"a\\n\"}",
+        "$1 > 5",
+        "NR==1",
+        "f /x/",
+        "/[/]/",
+        "{print",
+        "\"unterminated",
+        "/unterminated",
+        "{print a b}",
+        "{x()}",
+        "function f(){}",
+        "{print}`",
+    ] {
+        assert_eq!(
+            read_only_program::awk(program).0,
+            Verdict::Unsupported,
+            "{program:?}"
+        );
+    }
+}
+
+/// A word that was quoted, escaped, or carries an expansion is told apart by
+/// the scanner, and the opener of each segment is recorded.
+#[test]
+fn argument_roles_scanner_records_openers_and_quoting() {
+    use crate::tools::bash::path_tokens::Opener;
+    let segments = read_segments(
+        "a 'b' c\\d | e && f; g & h 2>&1 >> i < j (k) |& l",
+        CrMode::Separator,
+    )
+    .unwrap();
+    let openers: Vec<Opener> = segments.iter().map(|segment| segment.opener).collect();
+    assert_eq!(
+        openers,
+        [
+            Opener::Start,
+            Opener::Pipe,
+            Opener::List,
+            Opener::List,
+            Opener::Background,
+            Opener::Output,
+            Opener::Duplicate,
+            Opener::Output,
+            Opener::Output,
+            Opener::Input,
+            Opener::Group,
+            Opener::Group,
+            Opener::Pipe,
+            Opener::Pipe,
+        ]
+    );
+    let first = &segments[0].words;
+    assert!(!first[0].quoted && first[1].quoted && first[2].quoted);
+    assert!(segments[4].glued_close, "`2>` glues the descriptor");
+    assert!(!segments[0].glued_close);
+}
+
+/// A compound redirect the segments split apart (`>|`) closes every data
+/// role, so a real operand after the redirect target is never read as another
+/// command's data. Redirect chains the segments hold stay open.
+#[test]
+fn argument_roles_compound_redirects_keep_real_operands() {
+    for command in [
+        "sed -n p >| printf sub/link/canary",
+        "cat >| printf sub/link/canary",
+        "sed -n p 2>| printf sub/link/canary",
+        "sed -n p in.txt >|printf sub/link/canary",
+        "grep /x in.txt > out sub/link/canary",
+        "echo /a >",
+        "echo /a > ; cat sub/link/canary",
+    ] {
+        assert!(data(command).is_empty(), "{command}");
+        if command.contains("canary") {
+            assert!(
+                kept(command).contains(&"sub/link/canary".to_string()),
+                "{command}"
+            );
+        }
+    }
+    for command in [
+        "sed -n p in.txt >> out.txt",
+        "grep /x in.txt 2>&1",
+        "grep /x in.txt &> out.txt",
+        "grep /x in.txt &>> out.txt",
+        "grep /x in.txt >&2",
+    ] {
+        assert!(!data(command).is_empty(), "{command}");
+    }
+}
+
+/// A shell, a list consumer, an inline interpreter, or a sed/awk whose
+/// program is not proven read-only anywhere in the text closes every data
+/// role, whatever its spelling: bare, absolute, or behind a wrapper.
+#[test]
+fn argument_roles_reevaluation_anywhere_closes_every_role() {
+    for command in [
+        "printf '%s' 'sed -n p ' sub/link/canary > script.sh; sh script.sh",
+        "printf '%s' 'sed -n p ' sub/link/canary > script.sh; /bin/sh script.sh",
+        "printf '%s' 'sed -n p ' sub/link/canary > script.sh && env /bin/bash script.sh",
+        "printf '%s' 'sed -n p ' sub/link/canary > script.sh\nnice -n 5 /usr/bin/dash script.sh",
+        "printf '%s' sub/link/canary > list.txt; xargs cat < list.txt",
+        "printf '%s' sub/link/canary > list.txt; /usr/bin/xargs cat < list.txt",
+        "printf '%s' sub/link/canary > list.txt; timeout 5 xargs cat < list.txt",
+        "printf '%s' sub/link/canary > list.txt; tar -cf a.tar -T list.txt",
+        "printf '%s\\n' sub/link/canary > list.txt; awk 'BEGIN{getline item < \"list.txt\"; system(\"sed -n p \" item)}'",
+        "printf '%s\\n' sub/link/canary > list.txt && awk '{system(\"cat \" $0)}' list.txt",
+        "printf '%s\\n' sub/link/canary > list.txt\nsed 's/^/cat /e' list.txt",
+        "printf '%s\\n' sub/link/canary > list.txt; env gawk '{print}' list.txt",
+        "printf '%s\\n' sub/link/canary > list.txt; sed -f prog.sed list.txt",
+        "printf '%s\\n' sub/link/canary > list.txt; python3 -c 'print(open(open(\"list.txt\").read().strip()).read())'",
+        "printf '%s\\n' sub/link/canary > list.txt; /usr/bin/python3.12 -c 'x'",
+        "printf '%s\\n' sub/link/canary > list.txt; node -e 'x'",
+        "printf '%s\\n' sub/link/canary > list.txt; perl -ne 'x' list.txt",
+        "printf '%s\\n' sub/link/canary | python3",
+        "printf '%s\\n' sub/link/canary > list.txt; deno eval 'x'",
+    ] {
+        assert!(data(command).is_empty(), "{command}");
+        assert!(
+            kept(command)
+                .iter()
+                .any(|word| word.contains("sub/link/canary")),
+            "{command}"
+        );
+    }
+    // A safe formatter feeding an allowed consumer stays open.
+    for command in [
+        "printf '%s\\n' '{\"p\":\"/b\"}' | python3 app.py",
+        "python3 app.py && printf '%s\\n' '/a'",
+        "sed -n '/a/,/b/p' in.txt | sed '1d;$d' && node --check app.js",
+        "awk '/x/{f=1;next} f' in.txt > out.txt && printf '/a\\n'",
+    ] {
+        assert!(!data(command).is_empty(), "{command}");
+    }
+}
+
+/// An unquoted tilde may expand to a home directory, so a word carrying one is
+/// never data; the quoted spelling is a literal and stays data.
+#[test]
+fn argument_roles_unquoted_tilde_is_not_data() {
+    for command in [
+        "printf '%s' ~",
+        "printf '%s' ~/x",
+        "printf '%s' ~user",
+        "printf '%s' x=~/y",
+        "echo ~",
+        "grep -e ~ in.txt",
+        "grep ~/pat in.txt",
+        "sed -n p ~/in.txt",
+    ] {
+        assert!(
+            data(command).iter().all(|word| !word.contains('~')),
+            "{command}: {:?}",
+            data(command)
+        );
+        assert!(
+            kept(command).iter().any(|word| word.contains('~')),
+            "{command}"
+        );
+    }
+    assert_eq!(data("printf '%s' '~'"), ["%s", "~"]);
+    assert_eq!(data("echo \\~/x"), ["~/x"]);
+    assert_eq!(data("grep -e '~' in.txt"), ["~"]);
+}
+
+/// An interpreter is read only in the forms this leaf understands; an option
+/// list before inline code, and a closing name spelled in another case, close
+/// every data role.
+#[test]
+fn argument_roles_interpreter_options_and_name_case_close_every_role() {
+    for command in [
+        "printf '%s\\n' sub/link/canary > list.txt; python3 -B -c 'x'",
+        "printf '%s\\n' sub/link/canary > list.txt; python3.12 -u -c 'x'",
+        "printf '%s\\n' sub/link/canary > list.txt; python3 -u app.py",
+        "printf '%s\\n' sub/link/canary > list.txt; node --no-warnings -e 'x'",
+        "printf '%s\\n' sub/link/canary > list.txt; node --check",
+        "printf '%s\\n' sub/link/canary > list.txt; perl -w -e 'x'",
+        "printf '%s\\n' sub/link/canary > list.txt; ruby -w -e 'x'",
+        "printf '%s\\n' sub/link/canary > list.txt; Python3 -c 'x'",
+        "printf '%s\\n' sub/link/canary > list.txt; RSCRIPT -e 'x'",
+        "printf '%s\\n' sub/link/canary > list.txt; python3 -m",
+        "printf '%s' sub/link/canary > script.sh; /bin/SH script.sh",
+        "printf '%s' sub/link/canary > script.sh; /bin/Sh script.sh",
+        "printf '%s' sub/link/canary > script.sh && env /bin/SH script.sh",
+        "printf '%s' sub/link/canary > script.sh; ./SH script.sh",
+        "printf '%s' sub/link/canary > script.sh; '/bin/SH' script.sh",
+        "printf '%s' sub/link/canary > script.sh; /bin/S\\H script.sh",
+        "printf '%s' sub/link/canary > list.txt; /usr/bin/XARGS cat < list.txt",
+        "printf '%s' sub/link/canary > list.txt; GAWK '{print}' list.txt",
+        "printf '%s' sub/link/canary > list.txt; SED -n p list.txt",
+    ] {
+        assert!(data(command).is_empty(), "{command}");
+        assert!(
+            kept(command)
+                .iter()
+                .any(|word| word.contains("sub/link/canary")),
+            "{command}"
+        );
+    }
+    for command in [
+        "printf '%s\\n' '/a' | python3 app.py",
+        "python3 app.py -c x && printf '%s\\n' '/a'",
+        "node --check app.js && printf '%s\\n' '/a'",
+    ] {
+        assert!(!data(command).is_empty(), "{command}");
+    }
+}
+
+/// Rule A: the data roles stay open only when every command in the text is a
+/// known one; rule B: a script the text itself writes closes them; rule C: a
+/// command name must be bare ASCII.
+#[test]
+fn argument_roles_only_known_commands_keep_roles_open() {
+    for command in [
+        "printf '%s\\n' sub/link/canary > list.txt; python3 -m timeit -n 1 -r 1 'x'",
+        "printf '%s\\n' sub/link/canary > list.txt; python3 -m unittest",
+        "printf '%s\\n' sub/link/canary > list.txt; python3 -m http.server",
+        "printf '%s\\n' sub/link/canary > list.txt; python3 -m json.tool in.txt",
+        "printf '%s\\n' sub/link/canary > list.txt; python3 app.txt",
+        "printf '%s\\n' sub/link/canary > list.txt; python3 ../app.py",
+        "printf '%s\\n' sub/link/canary > list.txt; python3 /abs/app.py",
+        "printf '%s\\n' sub/link/canary > list.txt; deno run x.ts",
+        "printf '%s\\n' sub/link/canary > list.txt; lua x.lua",
+        "printf '%s\\n' sub/link/canary > list.txt; osascript -e 'x'",
+        "printf '%s\\n' sub/link/canary > list.txt; node app.js",
+        "printf '%s\\n' sub/link/canary > list.txt; node --check app.js extra",
+        "printf '%s\\n' sub/link/canary > list.txt; ls",
+        "printf '%s\\n' sub/link/canary > list.txt; true",
+        "printf '%s\\n' sub/link/canary > list.txt; X=1 cat list.txt",
+        "printf '%s\\n' sub/link/canary > list.txt; > out tee list.txt",
+        "printf '%s' 'print(open(\"' sub/link/canary '\").read())' > script.py; python3 script.py",
+        "printf '%s' 'print(open(\"' sub/link/canary '\").read())' > ./script.py; python3 script.py",
+        "printf '%s' 'x' > s.py; printf '%s\\n' sub/link/canary | python3 s.py",
+        "printf '%s' 'x' >> s.py; printf '%s\\n' sub/link/canary | python3 s.py",
+        "printf '%s' 'x' >| s.py; printf '%s\\n' sub/link/canary | python3 s.py",
+        "sed -n '1w s.py' in.txt; printf '%s\\n' sub/link/canary | python3 s.py",
+        "printf '%s' 'x' > s.js; printf '%s\\n' sub/link/canary > list.txt; node --check s.js",
+        "printf '%s' 'x' > ../s.py; printf '%s\\n' sub/link/canary | python3 s.py",
+        "cd sub && printf '%s' x > s.py && printf '%s\\n' sub/link/canary | python3 sub/s.py",
+        "printf '%s' sub/link/canary > script.sh; /bin/\u{17f}h script.sh",
+        "printf '%s' sub/link/canary > script.sh; /bin/\u{17f}H script.sh",
+        "printf '%s' sub/link/canary > script.sh; \u{ff53}\u{ff48} script.sh",
+        "printf '%s' sub/link/canary > list.txt; c\u{430}t list.txt",
+    ] {
+        assert!(data(command).is_empty(), "{command}");
+        assert!(
+            kept(command)
+                .iter()
+                .any(|word| word.contains("sub/link/canary")),
+            "{command}"
+        );
+    }
+    for command in [
+        "printf '%s\\n' sub/link/canary > f; head -n1 f",
+        "printf '%s\\n' sub/link/canary > f; tail -n1 f",
+        "printf '%s\\n' sub/link/canary > f; wc -l f",
+        "printf '%s\\n' sub/link/canary > f; cat f",
+        "printf '%s\\n' sub/link/canary > f && rm f",
+        "printf '%s\\n' sub/link/canary | python3 app.py",
+        "cd sub && echo link",
+        "printf '%s\\n' '/a' && node --check app.js",
+    ] {
+        assert!(
+            data(command)
+                .iter()
+                .any(|word| word.contains("sub/link/canary") || word == "link" || word == "/a"),
+            "{command}"
+        );
+    }
+}
+
+/// An added reader keeps the roles open only with plain options: a list-file
+/// option, an unknown flag, or a non-numeric count closes them.
+#[test]
+fn argument_roles_added_readers_take_only_plain_options() {
+    for command in [
+        "echo sub/link/canary > list.txt; wc --files0-from=list.txt",
+        "echo sub/link/canary > list.txt; wc --files0-from list.txt",
+        "echo sub/link/canary > list.txt; wc list.txt --files0-from=list.txt",
+        "echo sub/link/canary > list.txt; wc -L list.txt",
+        "echo sub/link/canary > list.txt; head -n x list.txt",
+        "echo sub/link/canary > list.txt; head -q list.txt",
+        "echo sub/link/canary > list.txt; tail -f list.txt",
+        "echo sub/link/canary > list.txt; cat -n list.txt",
+        "echo sub/link/canary > list.txt; rm -i list.txt",
+        "echo sub/link/canary > list.txt; rm --interactive list.txt",
+    ] {
+        assert!(data(command).is_empty(), "{command}");
+    }
+    for command in [
+        "echo sub/link/canary > list.txt; wc -l list.txt",
+        "echo sub/link/canary > list.txt; wc -lcw list.txt",
+        "echo sub/link/canary > list.txt; head -n 1 list.txt",
+        "echo sub/link/canary > list.txt; head -n1 list.txt",
+        "echo sub/link/canary > list.txt; tail -n +2 list.txt",
+        "echo sub/link/canary > list.txt; tail -c 5 list.txt",
+        "echo sub/link/canary > list.txt; head -5 list.txt",
+        "echo sub/link/canary > list.txt; cat list.txt",
+        "echo sub/link/canary > list.txt; rm -rf list.txt",
+        "echo sub/link/canary > list.txt; wc -- -l",
+    ] {
+        assert_eq!(data(command), ["sub/link/canary"], "{command}");
+    }
+}
+
+/// Rule B': any write in the text together with a `python3` or `node` script
+/// run closes every data role, whatever the spellings, so a case-insensitive
+/// name, a symlink, a hardlink, or a `.py` directory cannot make a written
+/// file the script.
+#[test]
+fn argument_roles_write_with_script_run_closes_every_role() {
+    let writes = [
+        "printf '%s' sub/link/canary > w.txt",
+        "printf '%s' sub/link/canary >> w.txt",
+        "printf '%s' sub/link/canary >| w.txt",
+        "printf '%s' sub/link/canary &> w.txt",
+        "printf '%s' sub/link/canary &>> w.txt",
+        "printf '%s' sub/link/canary 2> w.txt",
+        "printf '%s' sub/link/canary 3> w.txt",
+        "printf '%s' sub/link/canary 2>w.txt",
+        "printf '%s' sub/link/canary>w.txt",
+        "printf '%s' sub/link/canary <> w.txt",
+        "printf '%s' sub/link/canary 1>&2",
+        "printf '%s' sub/link/canary; cat <<EOF > w.txt",
+        "printf '%s' sub/link/canary; cat <<< x",
+        "printf '%s' sub/link/canary; sed -n '1w w.txt' in.txt",
+        "printf '%s' sub/link/canary; sed -n '1W w.txt' in.txt",
+        "printf '%s' sub/link/canary; sed 's/a/b/w w.txt' in.txt",
+        "printf '%s' sub/link/canary; awk '{print > \"w.txt\"}' in.txt",
+        "printf '%s' sub/link/canary; awk '{print >> \"w.txt\"}' in.txt",
+        "printf '%s' sub/link/canary; awk '{print | \"cat\"}' in.txt",
+        "printf '%s' sub/link/canary; tee w.txt < in.txt",
+    ];
+    let runs = [
+        "python3 script.py",
+        "python3 alias.py",
+        "python3 pkg.py",
+        "node --check app.js",
+    ];
+    for write in writes {
+        for run in runs {
+            for command in [
+                format!("{write}; {run}"),
+                format!("{write} && {run}"),
+                format!("{write}\n{run}"),
+            ] {
+                assert!(data(&command).is_empty(), "{command}");
+                assert!(
+                    kept(&command)
+                        .iter()
+                        .any(|word| word.contains("sub/link/canary")),
+                    "{command}"
+                );
+            }
+        }
+    }
+    // The same producers without a script run, and a script run without a
+    // write, keep the roles open.
+    assert_eq!(
+        data("printf '%s' sub/link/canary > w.txt; cat w.txt"),
+        ["%s", "sub/link/canary"]
+    );
+    assert_eq!(
+        data("printf '%s' sub/link/canary | python3 app.py"),
+        ["%s", "sub/link/canary"]
+    );
+    // A plain input redirect writes nothing, so it leaves the roles open; its
+    // target keeps the path proof. Heredoc, here-string, and `<>` still count.
+    // (A table command with its own input redirect still takes no data role.)
+    assert_eq!(
+        data("printf '%s' /a; python3 app.py < in.txt"),
+        ["%s", "/a"]
+    );
+    assert!(data("grep -e /x < in.txt | python3 app.py").is_empty());
+    assert!(
+        kept("grep -e /x < sub/link/canary | python3 app.py")
+            .contains(&"sub/link/canary".to_string())
+    );
+    assert!(data("printf '%s' /a; cat <<< y; python3 app.py").is_empty());
+    assert!(data("printf '%s' /a; cat <<EOF; python3 app.py").is_empty());
+    assert!(data("printf '%s' /a; cat <> f; python3 app.py").is_empty());
+}
+
+/// The words of the first segment of `command`.
+fn words(command: &str) -> Vec<crate::tools::bash::path_tokens::Word> {
+    read_segments(command, CrMode::Separator)
+        .unwrap_or_else(|| panic!("readable shell text: {command:?}"))
+        .remove(0)
+        .words
+}
+
+/// Each defense layer behind rule A, checked on its own so that it stays
+/// tested while rule A closes the same texts first.
+#[test]
+fn argument_roles_inner_layers_hold_on_their_own() {
+    // `folded_name` lowercases the basename.
+    assert_eq!(folded_name("/bin/SH"), "sh");
+    assert_eq!(folded_name("./Python3"), "python3");
+    assert_eq!(folded_name("RSCRIPT"), "rscript");
+    // `is_closing_word` folds case and reads the basename.
+    for spelling in [
+        "sh",
+        "/bin/sh",
+        "/bin/SH",
+        "/bin/Sh",
+        "./SH",
+        "/usr/bin/XARGS",
+        "Eval",
+    ] {
+        assert!(is_closing_word(&words(spelling)[0]), "{spelling}");
+    }
+    for spelling in ["shell", "/bin/shx", "cat", "printf"] {
+        assert!(!is_closing_word(&words(spelling)[0]), "{spelling}");
+    }
+    // `runs_inline_code` reads past leading options and folds the name.
+    for command in [
+        "python3 -c x",
+        "python3 -B -c x",
+        "python3.12 -u -c x",
+        "Python3 -c x",
+        "PYTHON3 -B -c x",
+        "node --no-warnings -e x",
+        "perl -w -e x",
+        "ruby -w -e x",
+        "RSCRIPT -e x",
+        "python3",
+        "python3 -",
+        "python3 -m timeit x",
+        "node app.js --check",
+    ] {
+        let parsed = words(command);
+        let closes = runs_inline_code(&parsed);
+        // `python3 -m module` and a script-first `node` stay open in this
+        // layer; rule A closes `-m` on its own.
+        let expected = !matches!(command, "python3 -m timeit x" | "node app.js --check");
+        assert_eq!(closes, expected, "{command}");
+    }
+    for command in ["python3 app.py -c x", "node --check app.js", "cat -c x"] {
+        assert!(!runs_inline_code(&words(command)), "{command}");
+    }
+    // `is_command_name` (rule C) refuses a non-ASCII or quoted name.
+    for spelling in [
+        "/bin/\u{17f}h",
+        "\u{ff53}\u{ff48}",
+        "c\u{430}t",
+        "'cat'",
+        "c\\at",
+    ] {
+        assert!(!is_command_name(&words(spelling)[0]), "{spelling}");
+    }
+    for spelling in ["cat", "/bin/sh", "SED"] {
+        assert!(is_command_name(&words(spelling)[0]), "{spelling}");
+    }
+}
+
+/// The gate still applies the closing-name and inline-interpreter layers to
+/// words that rule A lets through (arguments of known commands), so removing
+/// either layer from the gate opens these texts.
+#[test]
+fn argument_roles_gate_applies_inner_layers_beyond_rule_a() {
+    for command in [
+        "printf '%s' sub/link/canary; cat /bin/SH",
+        "printf '%s' sub/link/canary; cat /usr/bin/XARGS",
+        "printf '%s' sub/link/canary; cat python3",
+        "printf '%s' sub/link/canary; cat Python3 -B -c",
+        "printf '%s' sub/link/canary; wc -l node",
+    ] {
+        assert!(data(command).is_empty(), "{command}");
+    }
+    assert!(!data("printf '%s' sub/link/canary; cat notes.txt").is_empty());
+}
+
+/// The `cases-b` rows whose written text is not a path: rule B' closes their
+/// data roles, and the public decision stays the base's allow.
+#[test]
+fn argument_roles_cases_b_closed_rows_close_the_roles() {
+    for command in [
+        "printf '%s' 'print(1)' > x.py; python3 ./x.py",
+        "printf '%s' 'print(1)' >> x.py; python3 x.py",
+        "printf '%s' 'print(1)' > x.py\npython3 x.py",
+        "cd d; printf '%s' 'print(1)' > x.py; python3 x.py",
+        "printf '%s' 'print(1)' > s.py; python3 < s.py",
+        "PYTHONPATH=evil printf '%s' 'print(1)' > s.py; python3 s.py",
+        "printf '%s' 'print(1)' | tee x.py; python3 x.py",
+    ] {
+        assert!(data(command).is_empty(), "{command}");
+    }
+}
