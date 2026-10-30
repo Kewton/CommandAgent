@@ -852,7 +852,6 @@ fn argument_roles_write_with_script_run_closes_every_role() {
         "printf '%s' sub/link/canary 1>&2",
         "printf '%s' sub/link/canary; cat <<EOF > w.txt",
         "printf '%s' sub/link/canary; cat <<< x",
-        "printf '%s' sub/link/canary; cat < in.txt",
         "printf '%s' sub/link/canary; sed -n '1w w.txt' in.txt",
         "printf '%s' sub/link/canary; sed -n '1W w.txt' in.txt",
         "printf '%s' sub/link/canary; sed 's/a/b/w w.txt' in.txt",
@@ -894,6 +893,21 @@ fn argument_roles_write_with_script_run_closes_every_role() {
         data("printf '%s' sub/link/canary | python3 app.py"),
         ["%s", "sub/link/canary"]
     );
+    // A plain input redirect writes nothing, so it leaves the roles open; its
+    // target keeps the path proof. Heredoc, here-string, and `<>` still count.
+    // (A table command with its own input redirect still takes no data role.)
+    assert_eq!(
+        data("printf '%s' /a; python3 app.py < in.txt"),
+        ["%s", "/a"]
+    );
+    assert!(data("grep -e /x < in.txt | python3 app.py").is_empty());
+    assert!(
+        kept("grep -e /x < sub/link/canary | python3 app.py")
+            .contains(&"sub/link/canary".to_string())
+    );
+    assert!(data("printf '%s' /a; cat <<< y; python3 app.py").is_empty());
+    assert!(data("printf '%s' /a; cat <<EOF; python3 app.py").is_empty());
+    assert!(data("printf '%s' /a; cat <> f; python3 app.py").is_empty());
 }
 
 /// The words of the first segment of `command`.
@@ -983,4 +997,21 @@ fn argument_roles_gate_applies_inner_layers_beyond_rule_a() {
         assert!(data(command).is_empty(), "{command}");
     }
     assert!(!data("printf '%s' sub/link/canary; cat notes.txt").is_empty());
+}
+
+/// The `cases-b` rows whose written text is not a path: rule B' closes their
+/// data roles, and the public decision stays the base's allow.
+#[test]
+fn argument_roles_cases_b_closed_rows_close_the_roles() {
+    for command in [
+        "printf '%s' 'print(1)' > x.py; python3 ./x.py",
+        "printf '%s' 'print(1)' >> x.py; python3 x.py",
+        "printf '%s' 'print(1)' > x.py\npython3 x.py",
+        "cd d; printf '%s' 'print(1)' > x.py; python3 x.py",
+        "printf '%s' 'print(1)' > s.py; python3 < s.py",
+        "PYTHONPATH=evil printf '%s' 'print(1)' > s.py; python3 s.py",
+        "printf '%s' 'print(1)' | tee x.py; python3 x.py",
+    ] {
+        assert!(data(command).is_empty(), "{command}");
+    }
 }

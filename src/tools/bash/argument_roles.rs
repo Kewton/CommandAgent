@@ -381,19 +381,20 @@ fn is_command_name(word: &Word) -> bool {
 /// write in the same text closes them, whatever the spellings, because a
 /// case-insensitive name, a symlink, a hardlink, or a `.py` directory can make
 /// a written file the script. Every redirect operator (output, append,
-/// noclobber, `&>`, `<>`, descriptor, heredoc, here-string, and input) and
-/// every sed/awk write counts as a possible write.
+/// noclobber, `&>`, `<>`, descriptor, heredoc, and here-string) and every
+/// sed/awk write counts as a possible write; a plain input redirect does not.
 fn every_command_known(
     segments: &[Segment],
     pipelines: &[Vec<Command>],
     program_writes: &[String],
 ) -> bool {
+    // A plain `< file` writes nothing. An empty input segment is the first
+    // half of `<<`, `<<<`, or `<>`, which counts.
     let writes = !program_writes.is_empty()
-        || segments.iter().any(|segment| {
-            matches!(
-                segment.opener,
-                Opener::Input | Opener::Output | Opener::Duplicate
-            )
+        || segments.iter().any(|segment| match segment.opener {
+            Opener::Output | Opener::Duplicate => true,
+            Opener::Input => segment.words.is_empty(),
+            _ => false,
         });
     let mut runs_script = false;
     for command in pipelines.iter().flatten() {
