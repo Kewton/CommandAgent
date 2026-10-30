@@ -50,6 +50,8 @@ case $mode in
   env) export -p > "$observe/env.txt" ;;
   mutate) printf 'drift\n' >> "$workspace/$last_path" ;;
   tamper) printf 'tampered\n' >> "$rows_file" ;;
+  fifo) /bin/rm -f "$workspace/$last_path"; /usr/bin/mkfifo "$workspace/$last_path" ;;
+  relink) /bin/rm -f "$workspace/$last_path"; /bin/ln -s "$workspace/input/spec.txt" "$workspace/$last_path" ;;
   sleep) /bin/sleep 30 ;;
   grandchild) ( while :; do printf x >> "$observe/beat"; /bin/sleep 0.05; done ) & /bin/sleep 30 ;;
   flood) while :; do printf '%s' 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'; done ;;
@@ -129,6 +131,10 @@ impl Harness {
             ("count-mismatch", COUNT_MISMATCH),
             ("zero-as-success", ZERO_AS_SUCCESS),
             ("unknown-row", UNKNOWN_ROW),
+            ("optional-omitted", REQUIRED_NOT_RUN.replace(
+                r#"{"check_id":"k2","target_id":null,"status":"not_run","counts":{"expected":null,"executed":0,"passed":0,"failed":0,"unresolved":0}}"#,
+                r#"{"check_id":"k2","target_id":null,"status":"passed","counts":{"expected":3,"executed":3,"passed":3,"failed":0,"unresolved":0}}"#,
+            ).as_str()),
         ] {
             fs::create_dir_all(tooling.join("rows")).unwrap();
             fs::write(tooling.join(format!("rows/{name}.json")), rows).unwrap();
@@ -568,65 +574,83 @@ fn registry_admission_refuses_unset_unregistered_invalid_and_self_approved_descr
     assert!(admit(Some(&harness.config), "Bad Id").is_err());
 
     let base = harness.descriptor("ok-adapter");
+    let linked_shell = harness.observe.join("sh-link");
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(shell(), &linked_shell).unwrap();
     let invalid: Vec<(&str, Mutation)> = vec![
         (
-            "argv",
+            "unknown field `argv`",
             Box::new(|value| value["argv"] = json!(["/bin/sh", "-c", "true"])),
         ),
         (
-            "model",
+            "unknown field `model`",
             Box::new(|value| value["model"] = json!("any-model")),
         ),
         (
-            "protocol",
+            "protocol must be `artifact-contract.adapter/v1`",
             Box::new(|value| value["protocol"] = json!("artifact-contract.adapter/v0")),
         ),
         (
-            "adapter_id",
+            "adapter_id differs from its registry file name",
             Box::new(|value| value["adapter_id"] = json!("other")),
         ),
         (
-            "realpath",
-            Box::new(|value| {
-                value["executable"]["path"] = json!(format!("{}/../sh", shell().display()))
-            }),
+            "executable.path must be the operator-resolved realpath",
+            Box::new(move |value| value["executable"]["path"] = json!(linked_shell)),
         ),
         (
-            "sha256",
+            "executable.sha256 must be 64 lowercase hex digits",
             Box::new(|value| value["executable"]["sha256"] = json!("ABC")),
         ),
         (
-            "pinned member",
+            "entrypoint must be a pinned member",
             Box::new(|value| value["entrypoint"] = json!("other.sh")),
         ),
         (
-            "at least one",
+            "required must name at least one check",
             Box::new(|value| value["required"] = json!([])),
         ),
         (
-            "limits",
+            "limits must stay within 1..30 seconds and 1..24000 stream bytes",
             Box::new(|value| value["limits"]["timeout_seconds"] = json!(31)),
         ),
         (
-            "limits",
+            "limits must stay within 1..30 seconds and 1..24000 stream bytes",
             Box::new(|value| value["limits"]["max_stream_bytes"] = json!(24_001)),
         ),
         (
-            "registered twice",
+            "row `k2` is registered twice",
             Box::new(|value| value["optional"] = json!([{"check_id": "k2"}])),
         ),
         (
-            "plain path",
+            "member `./x` must use plain path components",
             Box::new(|value| value["members"]["./x"] = json!("a".repeat(64))),
         ),
     ];
+    // Every case but the ID-mismatch one keeps the descriptor ID equal to its
+    // file name, so each reaches the condition it names.
     for (reason, mutate) in invalid {
         let mut descriptor = base.clone();
+        descriptor["adapter_id"] = json!("bad-adapter");
         mutate(&mut descriptor);
         harness.register("bad-adapter", &descriptor);
         let error = admit(Some(&harness.config), "bad-adapter").unwrap_err();
-        assert!(error.contains("invalid"), "{reason}: {error}");
+        assert!(error.contains(reason), "expected {reason:?}, got {error}");
     }
+
+    // A repeated member key is refused instead of keeping the last value.
+    let mut descriptor = base.clone();
+    descriptor["adapter_id"] = json!("dup-adapter");
+    let compact = String::from_utf8(serde_json::to_vec(&descriptor).unwrap()).unwrap();
+    let repeated = compact.replacen(
+        "\"members\":{",
+        &format!("\"members\":{{\"ledger.sh\":\"{}\",", "a".repeat(64)),
+        1,
+    );
+    assert_ne!(repeated, compact);
+    fs::write(harness.config.join("adapters/dup-adapter.json"), repeated).unwrap();
+    let error = admit(Some(&harness.config), "dup-adapter").unwrap_err();
+    assert!(error.contains("repeated key `ledger.sh`"), "{error}");
 
     // A descriptor that is a symlink (for example into a model-written place)
     // is refused even when its target is a valid descriptor.
@@ -1127,4 +1151,52 @@ fn catalog_error_display_matches_the_pre_thiserror_strings() {
     for error in &errors {
         assert_eq!(error.to_string(), pre_change_display(error), "{error:?}");
     }
+}
+
+/// B1: an input swapped for a FIFO or a symlink after the adapter read it must
+/// fail promptly; the host never waits on the special file.
+#[test]
+fn input_swapped_for_a_fifo_or_symlink_fails_within_a_bound() {
+    for mode in ["fifo", "relink"] {
+        let harness = Harness::new();
+        let check = harness.ledger(&format!("swap-{mode}"), mode, "pass-all", 0);
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let workspace = harness.workspace.clone();
+        let config = harness.config.clone();
+        std::thread::spawn(move || {
+            let _ = sender.send(run_check(&workspace, &check, Some(&config), || false));
+        });
+        let receipt = receiver
+            .recv_timeout(Duration::from_secs(10))
+            .unwrap_or_else(|_| panic!("{mode}: the host did not return within 10 s"));
+        assert_failed_at(&receipt, "binding", "changed while the adapter ran");
+        assert!(
+            receipt.failures()[0].contains("failed at binding"),
+            "{receipt:#?}"
+        );
+    }
+}
+
+/// B3: an optional row the adapter leaves out is unverified, like an explicit
+/// `not_provided`; the uncapped verdict is partial, not full.
+#[test]
+fn an_omitted_optional_row_is_recorded_as_unverified() {
+    let harness = Harness::new();
+    let check = harness.ledger("omitted", "normal", "optional-omitted", 0);
+    let receipt = harness.run(&check);
+    assert_verified(&receipt, true, DomainVerdict::Partial);
+    let facts = receipt.facts.unwrap();
+    assert!(facts.optional_unverified);
+    assert_eq!(facts.optional_missing, 1);
+    assert_eq!(receipt.uncapped, DomainVerdict::Partial);
+
+    let events = harness.observe.join("run/events.jsonl");
+    super::record(&receipt, Some(&events), "draft_profile", "omitted");
+    let event: Value =
+        serde_json::from_str(fs::read_to_string(&events).unwrap().lines().next().unwrap()).unwrap();
+    assert_eq!(event["optional_unverified"], true);
+    assert_eq!(event["optional_missing"], 1);
+    assert_eq!(event["domain_verdict"], "partial");
+    assert_eq!(event["domain_cap_applied"], false);
+    assert_eq!(event["status"], "passed");
 }

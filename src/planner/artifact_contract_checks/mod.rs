@@ -63,8 +63,9 @@ pub(crate) struct Descriptor {
     pub(crate) entrypoint: String,
     #[serde(default)]
     pub(crate) args: Vec<String>,
+    #[serde(deserialize_with = "unique_map")]
     pub(crate) members: BTreeMap<String, String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "unique_map")]
     pub(crate) links: BTreeMap<String, String>,
     pub(crate) required: Vec<RowSet>,
     #[serde(default)]
@@ -113,6 +114,38 @@ impl Default for Limits {
     }
 }
 
+/// A string map that refuses a repeated key instead of keeping the last value.
+fn unique_map<'de, D>(deserializer: D) -> Result<BTreeMap<String, String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct UniqueMap;
+
+    impl<'de> serde::de::Visitor<'de> for UniqueMap {
+        type Value = BTreeMap<String, String>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("a map of strings without repeated keys")
+        }
+
+        fn visit_map<A>(self, mut access: A) -> Result<Self::Value, A::Error>
+        where
+            A: serde::de::MapAccess<'de>,
+        {
+            let mut map = BTreeMap::new();
+            while let Some((key, value)) = access.next_entry::<String, String>()? {
+                if map.contains_key(&key) {
+                    return Err(serde::de::Error::custom(format!("repeated key `{key}`")));
+                }
+                map.insert(key, value);
+            }
+            Ok(map)
+        }
+    }
+
+    deserializer.deserialize_map(UniqueMap)
+}
+
 /// A descriptor admitted from the operator registry.
 #[derive(Debug, Clone)]
 pub(crate) struct Admitted {
@@ -131,10 +164,47 @@ pub(crate) fn config_root_from_environment() -> Option<PathBuf> {
 }
 
 /// Load-time admission used by the capability catalog, so an unset, unknown,
-/// or invalid registry entry is refused while the manifest or pack loads,
-/// before any provider is built.
+/// or invalid registry entry, and operator tooling that is missing or does not
+/// match its pins and links, is refused while the manifest or pack loads,
+/// before any provider is built. The admitted ID is remembered for
+/// [`preflight`], which adds the workspace separation once the workspace is
+/// known.
 pub(crate) fn admit_from_environment(adapter_id: &str) -> Result<(), String> {
-    admit(config_root_from_environment().as_deref(), adapter_id).map(|_| ())
+    let admitted = admit(config_root_from_environment().as_deref(), adapter_id)?;
+    verify_tooling(&admitted.descriptor)?;
+    admitted_ids()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert(adapter_id.to_string());
+    Ok(())
+}
+
+fn admitted_ids() -> &'static std::sync::Mutex<BTreeSet<String>> {
+    static IDS: std::sync::OnceLock<std::sync::Mutex<BTreeSet<String>>> =
+        std::sync::OnceLock::new();
+    IDS.get_or_init(Default::default)
+}
+
+/// Pre-provider check for every adapter admitted while profiles and packs
+/// loaded: the registry, descriptor, tooling root, and executable must lie
+/// outside `workspace`, and the tooling must match its pins and links.
+pub fn preflight(workspace: &Path) -> Result<(), String> {
+    let ids = admitted_ids()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone();
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let workspace = fs::canonicalize(workspace)
+        .map_err(|error| format!("workspace cannot be resolved: {error}"))?;
+    for adapter_id in ids {
+        let admitted = admit(config_root_from_environment().as_deref(), &adapter_id)?;
+        separate_from_workspace(&admitted, &workspace)
+            .and_then(|()| verify_tooling(&admitted.descriptor).map(|_| ()))
+            .map_err(|reason| format!("artifact contract adapter `{adapter_id}`: {reason}"))?;
+    }
+    Ok(())
 }
 
 pub(crate) fn admit(config_root: Option<&Path>, adapter_id: &str) -> Result<Admitted, String> {
@@ -499,7 +569,11 @@ where
 
     let mut after = Vec::new();
     for input in &inputs {
-        match digest_file(&input.path, MAX_INPUT_BYTES) {
+        // Re-resolve without following symlinks and open without blocking, so
+        // an input swapped for a FIFO, device, or symlink fails promptly.
+        match workspace_file(&workspace, &input.relative)
+            .and_then(|path| digest_file(&path, MAX_INPUT_BYTES))
+        {
             Ok(digest) if digest == input.sha256 => {}
             _ => after.push(format!(
                 "input `{}` changed while the adapter ran",
@@ -710,7 +784,6 @@ fn read_request(workspace: &Path, relative: &str) -> Result<protocol::Request, S
 struct BoundInput {
     input_id: String,
     relative: String,
-    path: PathBuf,
     sha256: String,
 }
 
@@ -755,7 +828,6 @@ fn bind_inputs(
         bound.push(BoundInput {
             input_id: input.input_id.clone(),
             relative: input.path.clone(),
-            path,
             sha256,
         });
     }
@@ -810,8 +882,32 @@ fn plain_directory(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_dir())
 }
 
+/// Open a regular file for reading without following a final symlink and
+/// without blocking on a FIFO or device, then confirm the opened descriptor is
+/// a regular file. A component swapped between the caller's checks and this
+/// open is still possible; the open itself never waits on a special file.
+fn open_regular(path: &Path) -> Result<File, String> {
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    let file = options
+        .open(path)
+        .map_err(|error| format!("cannot be opened as a plain file: {error}"))?;
+    let metadata = file
+        .metadata()
+        .map_err(|error| format!("cannot be inspected: {error}"))?;
+    if !metadata.file_type().is_file() {
+        return Err("is not a regular file".to_string());
+    }
+    Ok(file)
+}
+
 fn read_bounded(path: &Path, limit: u64) -> Result<Vec<u8>, String> {
-    let file = File::open(path).map_err(|error| format!("cannot be read: {error}"))?;
+    let file = open_regular(path)?;
     let mut bytes = Vec::new();
     file.take(limit + 1)
         .read_to_end(&mut bytes)
@@ -823,7 +919,7 @@ fn read_bounded(path: &Path, limit: u64) -> Result<Vec<u8>, String> {
 }
 
 fn digest_file(path: &Path, limit: u64) -> Result<String, String> {
-    let mut file = File::open(path).map_err(|error| format!("cannot hash a file: {error}"))?;
+    let mut file = open_regular(path).map_err(|reason| format!("a hashed file {reason}"))?;
     let mut hasher = Sha256::new();
     let mut chunk = vec![0u8; 64 * 1024];
     let mut total = 0u64;
@@ -885,6 +981,7 @@ fn record(receipt: &Receipt, events_path: Option<&Path>, source: &str, owner_id:
             "required_unresolved": facts.required_unresolved,
             "required_not_run": facts.required_not_run,
             "optional_unverified": facts.optional_unverified,
+            "optional_missing": facts.optional_missing,
             "domain_verdict": receipt.domain.as_str(),
             "domain_cap": protocol::DOMAIN_CAP.as_str(),
             "domain_cap_applied": receipt.domain != receipt.uncapped,

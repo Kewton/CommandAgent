@@ -51,12 +51,22 @@ automatically; an unknown or mismatching toolchain is unavailable.
 
 ## Trust boundary
 
-1. **Registry.** The root is resolved with `realpath`. An unset or relative
-   root, a missing or symlinked `adapters/` directory or descriptor, an
-   unregistered ID, an unknown descriptor field, or an invalid value is refused
-   while the manifest or pack loads, before any provider is built. At run time
-   the descriptor is read again, and a registry, descriptor, tooling root, or
-   executable that resolves inside the workspace is refused as self-approval.
+1. **Registry.** The root is resolved with `realpath`. While the manifest or
+   pack loads, before any provider is built, the host refuses an unset or
+   relative root, a missing or symlinked `adapters/` directory or descriptor,
+   an unregistered ID, an unknown descriptor field, a repeated `members` or
+   `links` key, an invalid value, and operator tooling that is missing or does
+   not match its executable pin, member pins, or links (including any
+   unregistered symlink in the tooling tree). The load path does not know the
+   workspace, so the separation from the workspace is checked by
+   `artifact_contract_checks::preflight(workspace)`, which re-admits every
+   adapter admitted during loading; it is meant to run before any provider is
+   built, once the workspace is known. **Not yet wired:** calling it from the
+   CLI start-up path needs `src/lib.rs`, which is outside this Issue's file
+   scope. Until it is wired, a registry inside the workspace is refused only at
+   final acceptance. At run time the descriptor is read again, and a registry,
+   descriptor, tooling root, or executable that resolves inside the workspace
+   is refused as self-approval.
    There is no command, tool, or file in the workspace through which the model
    can add or update a descriptor, pin, or expected input hash.
 2. **Executable.** The descriptor names an absolute realpath and its SHA-256.
@@ -82,7 +92,14 @@ automatically; an unknown or mismatching toolchain is unavailable.
    refused, and the request must name exactly the registered input IDs. The
    request cannot carry an expected hash: initial-input pins come only from the
    descriptor. The host hashes every input before the spawn and again after it,
-   and a change fails the run. A hash first taken after generation proves which
+   and a change fails the run. Each file the host hashes or reads (inputs, the
+   request, the descriptor, the executable, and tooling members) is opened with
+   `O_NOFOLLOW | O_NONBLOCK` and must be a regular file by the opened
+   descriptor's own metadata, and inputs are re-resolved component by component
+   after the run. An input swapped for a FIFO, device, or symlink therefore
+   fails promptly instead of blocking the host. A path component swapped
+   between those checks and the open is still possible; this narrows the window
+   but is not a complete seal. A hash first taken after generation proves which
    bytes were checked, not that they were sealed before generation.
 6. **Limits.** Request and stdin envelope 16 KiB; each stream 24,000 bytes,
    enforced while reading; 30 seconds; at most 512 rows, 64 diagnostics (16 per
@@ -121,8 +138,8 @@ Stdout must be exactly one `artifact-contract.result/v1` document:
 }
 ```
 
-Unknown or duplicate fields are refused, so an adapter cannot report its own
-domain verdict. The host requires:
+Unknown or duplicate result fields are refused, so an adapter cannot report
+its own domain verdict. The host requires:
 
 - the same protocol, request ID, and run nonce (a replayed or stale report
   fails), and input digests equal to the host-observed digests;
@@ -144,6 +161,8 @@ passes on its own.
 Rows give generic facts: M (a row `failed`), a required row `unresolved`, a
 required row `not_run`, and an optional row unverified (`unresolved`,
 `not_run`, or `not_provided`, for example an intentionally unprovided review).
+A registered optional row the adapter leaves out entirely counts as unverified
+too, and the receipt records how many were left out (`optional_missing`).
 
 | Condition (first match wins) | Domain | Native final acceptance |
 | --- | --- | --- |
@@ -183,6 +202,14 @@ uses a new nonce; an earlier receipt is never reused for a newer candidate. An
 operator who deliberately selects an older version issues a new request, which
 runs afresh and is bound to the selected bytes.
 
+## Where the check runs
+
+With the current runners, a manifest `artifact_contract_check` runs in the
+profile final acceptance of the UltraPlan runner, and a local pack
+`artifact_contract_check` runs in the final acceptance of the step-plan
+runner. These are the paths the tests exercise. Other entry points (for
+example a plain `--prompt` run) are not verified to run either check.
+
 ## Unverified meaning and first-version limits
 
 - `partial` means the adapter's required deterministic checks ran and passed
@@ -196,3 +223,6 @@ runs afresh and is bound to the selected bytes.
 - `full` is not unlocked. Unlocking it, phase gates and seals, independent
   review, shared model budgets, and structured generation are follow-up work.
 - The final-acceptance entry has no cancel source today; the 30 s bound applies.
+- The stdin writer is never waited on: a descendant that left the group and
+  holds a full stdin pipe cannot hold the host; its writer thread ends when the
+  pipe closes.

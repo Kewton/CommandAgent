@@ -360,6 +360,103 @@ fn unset_registry_refuses_the_profile_before_any_provider() {
     );
 }
 
+/// B2: broken operator tooling (a missing pinned member, an executable that
+/// does not match its pin, an unregistered tooling link) is refused while the
+/// profile loads, before any provider is built: the stand-in provider
+/// endpoint receives no connection.
+#[test]
+fn broken_operator_tooling_is_refused_before_any_provider() {
+    let _fixture = fixture();
+    for case in ["missing-member", "executable-pin", "unregistered-link"] {
+        let root = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(root.path()).unwrap();
+        let tooling = root.join("tooling");
+        let config = root.join("config");
+        let extension = root.join("extension");
+        let workspace = root.join("workspace");
+        let home = root.join("home");
+        for dir in [&tooling, &config.join("adapters"), &workspace, &home] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+        std::fs::write(tooling.join("lines.sh"), format!("{PRELUDE}{LINES_BODY}")).unwrap();
+        let mut members = json!({"lines.sh": sha256_file(&tooling.join("lines.sh"))});
+        let mut executable_sha = sha256_file(&shell());
+        match case {
+            "missing-member" => members["absent.js"] = json!("a".repeat(64)),
+            "executable-pin" => executable_sha = "0".repeat(64),
+            _ => {
+                #[cfg(unix)]
+                std::os::unix::fs::symlink(&workspace, tooling.join("node_modules")).unwrap();
+            }
+        }
+        let descriptor = json!({
+            "protocol": "artifact-contract.adapter/v1",
+            "adapter_id": LINES_ADAPTER,
+            "executable": {"path": shell(), "sha256": executable_sha},
+            "tooling_root": tooling,
+            "entrypoint": "lines.sh",
+            "members": members,
+            "required": [{"check_id": "lines/total", "targets": ["notes.txt#all"]}],
+            "inputs": [{"input_id": "notes"}]
+        });
+        std::fs::write(
+            config.join(format!("adapters/{LINES_ADAPTER}.json")),
+            serde_json::to_vec(&descriptor).unwrap(),
+        )
+        .unwrap();
+        let profile = extension.join(format!("profiles/{DRAFT}"));
+        std::fs::create_dir_all(&profile).unwrap();
+        std::fs::write(
+            profile.join("manifest.toml"),
+            manifest(DRAFT, LINES_ADAPTER),
+        )
+        .unwrap();
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let host = format!("http://{}", listener.local_addr().unwrap());
+        let run = Command::new(env!("CARGO_BIN_EXE_commandagent"))
+            .arg("--extension-root")
+            .arg(&extension)
+            .args(["--profile", DRAFT, "--ollama-host", &host])
+            .args(["--prompt", "Write notes"])
+            .current_dir(&workspace)
+            .env_clear()
+            .env("HOME", &home)
+            .env("COMMANDAGENT_ADAPTER_CONFIG_ROOT", &config)
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&run.stderr);
+        assert!(!run.status.success(), "{case}: {stderr}");
+        let expected = match case {
+            "missing-member" => "pinned member `absent.js` is missing",
+            "executable-pin" => "executable does not match its operator pin",
+            _ => "tooling tree holds an unregistered symlink `node_modules`",
+        };
+        assert!(stderr.contains(expected), "{case}: {stderr}");
+        assert!(
+            matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock),
+            "{case}: the provider endpoint was contacted"
+        );
+        assert_eq!(std::fs::read_dir(&workspace).unwrap().count(), 0, "{case}");
+    }
+}
+
+/// B2: the pre-provider preflight refuses a workspace that holds the operator
+/// registry (self-approval) and passes a separate workspace.
+#[test]
+fn preflight_refuses_a_workspace_that_holds_the_operator_registry() {
+    let fixture = fixture();
+    let workspace = tempfile::tempdir().unwrap();
+    commandagent::planner::artifact_contract_checks::preflight(workspace.path()).unwrap();
+    let error =
+        commandagent::planner::artifact_contract_checks::preflight(&fixture.root).unwrap_err();
+    assert!(
+        error.contains("self-approved registry is refused"),
+        "{error}"
+    );
+}
+
 #[test]
 fn dummy_credentials_and_node_variables_never_reach_the_adapter_child() {
     let fixture = fixture();

@@ -160,6 +160,9 @@ pub(crate) struct RowFacts {
     pub(crate) required_unresolved: bool,
     pub(crate) required_not_run: bool,
     pub(crate) optional_unverified: bool,
+    /// Registered optional rows the adapter did not report at all. They count
+    /// as unverified, exactly like an explicit `not_provided`.
+    pub(crate) optional_missing: usize,
 }
 
 impl RowFacts {
@@ -378,6 +381,10 @@ fn validate_rows(
     }
     for missing in expectation.required.difference(&seen) {
         violations.push(format!("required row {} is missing", row_label(missing)));
+    }
+    facts.optional_missing = expectation.optional.difference(&seen).count();
+    if facts.optional_missing > 0 {
+        facts.optional_unverified = true;
     }
     facts
 }

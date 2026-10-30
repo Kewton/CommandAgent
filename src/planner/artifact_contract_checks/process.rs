@@ -184,7 +184,11 @@ where
     }
     let (stdout, stdout_over) = join_reader(stdout);
     let (stderr, stderr_over) = join_reader(stderr);
-    if let Some(writer) = writer {
+    // The stdin writer is joined only once it has finished; a descendant that
+    // left the group and holds a full stdin pipe cannot hold the host here.
+    if let Some(writer) = writer
+        && writer.is_finished()
+    {
         let _ = writer.join();
     }
     if matches!(ended, Ended::Exited(_)) && (stdout_over || stderr_over) {

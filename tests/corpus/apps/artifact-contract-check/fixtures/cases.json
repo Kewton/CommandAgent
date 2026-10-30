@@ -412,6 +412,56 @@
       "native_passed": false,
       "domain_verdict": "none",
       "asserts": "a mismatch reported through the runner stays a final acceptance failure"
+    },
+    {
+      "id": "synthetic-input-swapped-for-fifo",
+      "kind": "synthetic",
+      "adapter": "ledger",
+      "test": "input_swapped_for_a_fifo_or_symlink_fails_within_a_bound",
+      "stopped_at": "binding",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "an input replaced by a FIFO after hashing fails within an outer 10 s bound instead of blocking the host"
+    },
+    {
+      "id": "synthetic-input-swapped-for-symlink",
+      "kind": "synthetic",
+      "adapter": "ledger",
+      "test": "input_swapped_for_a_fifo_or_symlink_fails_within_a_bound",
+      "stopped_at": "binding",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "an input replaced by a symlink after hashing fails at the re-resolved, non-following open"
+    },
+    {
+      "id": "synthetic-optional-row-omitted",
+      "kind": "synthetic",
+      "adapter": "ledger",
+      "test": "an_omitted_optional_row_is_recorded_as_unverified",
+      "stopped_at": "verified",
+      "native_passed": true,
+      "domain_verdict": "partial",
+      "asserts": "a registered optional row left out is unverified: uncapped partial, optional_missing recorded, no cap applied"
+    },
+    {
+      "id": "synthetic-broken-tooling-before-provider",
+      "kind": "synthetic",
+      "adapter": "tally-lines",
+      "test": "broken_operator_tooling_is_refused_before_any_provider",
+      "stopped_at": "registry",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "a missing member, an executable pin mismatch, or an unregistered tooling link is refused at load with no provider connection"
+    },
+    {
+      "id": "synthetic-preflight-self-approved-registry",
+      "kind": "synthetic",
+      "adapter": "tally-lines",
+      "test": "preflight_refuses_a_workspace_that_holds_the_operator_registry",
+      "stopped_at": "trust",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "the pre-provider preflight refuses a workspace that holds the operator registry"
     }
   ]
 }

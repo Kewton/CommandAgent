@@ -49,7 +49,10 @@ fixtures/cases.json = [
   "\"id\": \"synthetic-tooling-symlink\"",
   "\"id\": \"synthetic-operator-selected-old-version\"",
   "\"id\": \"synthetic-runner-manifest-and-pack\"",
-  "\"id\": \"synthetic-native-failure-preserved\""
+  "\"id\": \"synthetic-native-failure-preserved\"",
+  "\"id\": \"synthetic-input-swapped-for-fifo\"",
+  "\"id\": \"synthetic-optional-row-omitted\"",
+  "\"id\": \"synthetic-broken-tooling-before-provider\""
 ]
 
 [fixture_ordered]
