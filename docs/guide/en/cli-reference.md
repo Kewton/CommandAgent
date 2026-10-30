@@ -23,7 +23,7 @@ before parsing finishes or in the resolved configuration after parsing; see
 [Conflicts and combinations](#conflicts-and-combinations).
 
 Clap also generates `-h`/`--help` and `-V`/`--version`. They are not part of the
-67 application flags below. The hidden `--completion-contract-json <PATH>` is an
+68 application flags below. The hidden `--completion-contract-json <PATH>` is an
 internal integration surface and is intentionally not a public user flag.
 
 ## Flag reference
@@ -50,6 +50,7 @@ internal integration surface and is intentionally not a public user flag.
 | `--prompt-layout` | `<stable\|legacy>` | `legacy` | Choose prompt section order for A/B measurement. | [Precedence](configuration.md#resolution-precedence) |
 | `--plan-preset` | `<profile\|none>` | normally `none`; `profile` is selected for explicit `data` fix/investigate cases | Override planner-tier UltraPlan preset selection. `data/fix` can synthesize F1–F3 steps; `nextjs/fix` remains none-equivalent. | [Precedence](configuration.md#resolution-precedence) |
 | `--intent` | `<create\|fix\|investigate>` | inferred from the goal | Force intent instead of goal-based resolution. | [Examples](#examples) |
+| `--request-pattern` | `<off\|jev>` | off | Classify a direct `--prompt` request with TypeSafe jev (key from JEV_API_KEY) to add request guidance. Default off. | [Configuration](configuration.md#top-level-keys) |
 | `--workflow` | `<PATH>` | none | Run a declarative workflow-circle definition. Mutually exclusive with `--intent`. | [Examples](#examples) |
 | `--origin` | `<PATH>` | none | Supply the existing failed origin run workspace for `--workflow`. | [Examples](#examples) |
 | `--planner-model` | `<PLANNER_MODEL>` | executor model when providers match | Set the planner model ID. Required when planner and executor providers differ. | [Provider roles](providers.md#provider-matrix) |

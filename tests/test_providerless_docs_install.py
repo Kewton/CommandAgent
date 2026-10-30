@@ -308,7 +308,7 @@ def test_rewritten_cases_are_registered_with_the_current_specification() -> None
         case = CASES_BY_ID[case_id]
         assert not case.xfail
         assert "Old expectation" in case.note, case_id
-    assert CASES_BY_ID["BB-DOCS-001"].expected.stdout_contains == ("COUNT=67",)
+    assert CASES_BY_ID["BB-DOCS-001"].expected.stdout_contains == ("COUNT=68",)
     assert "for f in --workflow --prompt " in CASES_BY_ID["BB-DOCS-004"].command
     doctor = CASES_BY_ID["BB-DOCS-012"].expected
     assert "<redacted> (source=preset" in doctor.stdout_contains

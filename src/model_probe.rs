@@ -579,6 +579,7 @@ fn probe_run_options(step_kind: RunSessionStepKind) -> RunSessionOptions {
         require_mutation_before_contract_short_circuit: false,
         escalation_carryover: None,
         recovery_obligation: None,
+        request_guidance: None,
     }
 }
 

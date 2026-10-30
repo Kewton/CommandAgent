@@ -132,8 +132,14 @@ pub fn run_with_provider_options(
     let pack_cli = cli.clone();
     let summary_json = cli.summary_json;
     let sandbox_mode = cli.sandbox;
+    let request_pattern = cli.request_pattern;
     let config = Config::from_cli_with_provider_options(cli, provider_options)
         .map_err(cli_argument_error)?;
+    let _request_pattern = minimal_loop::request_pattern::install(
+        &config.action,
+        minimal_loop::request_pattern::settings(request_pattern, &config.workspace_root)
+            .map_err(cli_argument_error)?,
+    );
     // Only actions that can run model/verifier Bash need the OS write sandbox and
     // its per-run temp directory; read-only actions must not create one. The
     // guard removes the run temp directory on every exit path.

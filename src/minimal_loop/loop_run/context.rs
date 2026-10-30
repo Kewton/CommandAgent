@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "context/step_kind.rs"]
+mod step_kind;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PromptArtifactExtraction {
     Enabled,
@@ -65,6 +68,7 @@ pub(crate) struct RunSessionOptions {
     pub require_mutation_before_contract_short_circuit: bool,
     pub escalation_carryover: Option<EscalationCarryoverHandle>,
     pub recovery_obligation: crate::planner::recovery_repair_obligation::RepairObligation,
+    pub request_guidance: Option<String>,
 }
 
 impl Default for RunSessionOptions {
@@ -87,6 +91,7 @@ impl Default for RunSessionOptions {
             require_mutation_before_contract_short_circuit: false,
             escalation_carryover: None,
             recovery_obligation: None,
+            request_guidance: None,
         }
     }
 }
@@ -212,38 +217,6 @@ impl RunSessionScope {
             RunSessionScope::MinimalLoop => "minimal-loop",
             RunSessionScope::PlanRunStep => "plan-run-step",
         }
-    }
-}
-
-impl RunSessionStepKind {
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            RunSessionStepKind::Inspect => "inspect",
-            RunSessionStepKind::Setup => "setup",
-            RunSessionStepKind::Implement => "implement",
-            RunSessionStepKind::Verify => "verify",
-            RunSessionStepKind::Report => "report",
-            RunSessionStepKind::Unknown => "unknown",
-        }
-    }
-
-    pub(super) fn bash_policy_purpose(self) -> &'static str {
-        match self {
-            RunSessionStepKind::Inspect => "runtime_inspection",
-            RunSessionStepKind::Setup => "runtime_setup",
-            RunSessionStepKind::Implement => "runtime_implementation",
-            RunSessionStepKind::Verify | RunSessionStepKind::Report => {
-                "deterministic_verifier_evidence"
-            }
-            RunSessionStepKind::Unknown => "runtime_unknown",
-        }
-    }
-
-    pub(super) fn requires_verifier_bash_policy(self) -> bool {
-        matches!(
-            self,
-            RunSessionStepKind::Verify | RunSessionStepKind::Report
-        )
     }
 }
 

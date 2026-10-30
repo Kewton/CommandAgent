@@ -194,7 +194,7 @@ preset のマージは、`model`、`provider`、`planner_model`、`planner_provi
 
 ## トップレベルキー
 
-`config.toml` のトップレベルで有効なキーは次の 6 個だけです。
+`config.toml` のトップレベルで有効なキーは次の 8 個だけです。
 
 | キー | 受け付ける値 | 対応する CLI 上書き |
 | --- | --- | --- |
@@ -204,6 +204,8 @@ preset のマージは、`model`、`provider`、`planner_model`、`planner_provi
 | `stream` | `"on"` または `"off"` | `--stream` |
 | `prompt_layout` | `"stable"` または `"legacy"` | `--prompt-layout` |
 | `plan_preset` | `"none"` または `"profile"` | `--plan-preset` |
+| `request_pattern` | `"off"` または `"jev"`。jev は direct の `--prompt` の依頼を判定して案内を足します | `--request-pattern` |
+| `request_pattern_threshold` | `0` から `1` の数（既定 `0.8`）。jev の確信度がこれ未満なら案内を足しません | なし |
 
 ```toml
 extension_root = "extensions"
