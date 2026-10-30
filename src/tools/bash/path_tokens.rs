@@ -51,6 +51,9 @@ pub(super) struct Word {
     /// spelled this way is not the bare program name the argument-role table
     /// names.
     pub quoted: bool,
+    /// An unquoted, unescaped `~` is present, which the shell may expand to a
+    /// home directory (Issue #930).
+    pub tilde: bool,
 }
 
 impl Word {
@@ -62,6 +65,7 @@ impl Word {
             glob: false,
             quoted_glob: false,
             quoted: false,
+            tilde: false,
         }
     }
 }
@@ -250,6 +254,9 @@ pub(super) fn read_segments(command: &str, cr_mode: CrMode) -> Option<Vec<Segmen
                 index += 1;
             }
             other => {
+                if other == '~' {
+                    word.tilde = true;
+                }
                 word.text.push(other);
                 has_word = true;
                 index += 1;

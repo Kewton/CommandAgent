@@ -1001,6 +1001,139 @@
       "secret": false
     },
     {
+      "id": "synthetic-noclobber-redirect-then-operand",
+      "origin": "synthetic",
+      "command": "sed -n p >| printf sub/link/secret",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-cat-noclobber-redirect-then-operand",
+      "origin": "synthetic",
+      "command": "cat >| printf sub/link/secret",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-fd-noclobber-redirect-then-operand",
+      "origin": "synthetic",
+      "command": "sed -n p 2>| printf sub/link/secret",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-redirect-target-then-operand",
+      "origin": "synthetic",
+      "command": "grep -n x in.txt > out.txt sub/link/secret",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-noclobber-escaping-target",
+      "origin": "synthetic",
+      "command": "sed -n p in.txt >| sub/link/printf",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-noclobber-inside-target",
+      "origin": "synthetic",
+      "command": "sed -n p in.txt >| printed.txt",
+      "expect": "allow",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-script-bare-sh",
+      "origin": "synthetic",
+      "command": "printf '%s' 'sed -n p ' sub/link/secret > script.sh; sh script.sh",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-script-absolute-sh",
+      "origin": "synthetic",
+      "command": "printf '%s' 'sed -n p ' sub/link/secret > script.sh; /bin/sh script.sh",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-script-wrapped-sh",
+      "origin": "synthetic",
+      "command": "printf '%s' 'sed -n p ' sub/link/secret > script.sh && env /bin/sh script.sh",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-list-bare-xargs",
+      "origin": "synthetic",
+      "command": "printf '%s' sub/link/secret > list.txt; xargs cat < list.txt",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-list-absolute-xargs",
+      "origin": "synthetic",
+      "command": "printf '%s' sub/link/secret > list.txt; /usr/bin/xargs cat < list.txt",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-list-wrapped-xargs",
+      "origin": "synthetic",
+      "command": "printf '%s' sub/link/secret > list.txt\ntimeout 5 xargs cat < list.txt",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-awk-system",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' sub/link/secret > list.txt; awk 'BEGIN{getline item < \"list.txt\"; system(\"sed -n p \" item)}'",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-sed-e-flag",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' sub/link/secret > list.txt && sed 's/^/cat /e' list.txt",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-inline-python",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' sub/link/secret > list.txt; python3 -c 'import sys'",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-data-to-workspace-copy",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' x > list.txt; cat list.txt > copy.txt",
+      "expect": "allow",
+      "secret": false
+    },
+    {
+      "id": "synthetic-unquoted-tilde-printf",
+      "origin": "synthetic",
+      "command": "printf '%s' ~",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-unquoted-tilde-grep-e",
+      "origin": "synthetic",
+      "command": "grep -e ~/pat in.txt",
+      "expect": "reject",
+      "secret": false
+    },
+    {
+      "id": "synthetic-quoted-tilde-printf",
+      "origin": "synthetic",
+      "command": "printf '%s\\n' '~'",
+      "expect": "allow",
+      "secret": false
+    },
+    {
       "id": "synthetic-program-spelling-to-cat",
       "origin": "synthetic",
       "command": "cat '/begin/,/end/p'",

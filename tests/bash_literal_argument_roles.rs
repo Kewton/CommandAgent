@@ -5,8 +5,13 @@
 //! display were refused as outside paths. A bare top-level `sed`, `awk`,
 //! `grep`, `echo`, or `printf` whose argument role is proven data now leaves
 //! that word out of the path candidates, while every file operand, pattern or
-//! script file, redirect target, and following command keeps the proof, and a
-//! program whose parse finds file I/O or execution is refused.
+//! script file, redirect target, and following command keeps the proof. A
+//! program whose parse finds file I/O or execution is never data: its word
+//! keeps the candidate reading it had before the fix, and the files it reads
+//! or writes are added to the existing proof as reads and write targets. A
+//! shell, a list consumer, an inline interpreter, a sed/awk program that is not
+//! proven read-only, or a compound redirect the segments cannot hold anywhere
+//! in the text closes every data role, as does an unquoted tilde in the word.
 //!
 //! The order follows the Issue: the public decision, the runtime policy of a
 //! scripted step, the real Bash tool, then the corpus rows. Shell commands run
@@ -794,4 +799,167 @@ fn argument_roles_recorded_rows_are_pre_fix_observations() {
             .iter()
             .all(|case| case.first_version == "not handled")
     );
+}
+
+/// The security-review counterexamples of Issue #930: a compound redirect
+/// (`>|`) that once let a real operand read as another command's data, a
+/// shell, list consumer, or I/O program elsewhere in the text that once let
+/// produced data reach a real read, and an unquoted tilde. Each stays refused
+/// by the public decision and never runs through the real Bash tool: no
+/// canary reaches the output and no file is created. Each refusal has an
+/// allowed twin without the outside path.
+#[test]
+fn argument_roles_review_counterexamples_stay_refused_and_never_run() {
+    let fixture = fixture();
+    let root = &fixture.root;
+    let context = ToolContext {
+        root: root.clone(),
+        mode: ExecutionMode::Act,
+        auto_approve: true,
+        interactive_approval: false,
+        offline: true,
+        workspace_policy: WorkspacePolicy::NormalTask,
+        eval_events_path: Some(fixture.dir.path().join("review-events.jsonl")),
+        expected_paths: Vec::new(),
+        protected_paths: vec!["tests/spec.rs".to_string()],
+    };
+    let registry = ToolRegistry::default();
+    let before = fixture.outside_snapshot();
+    for command in REVIEW_REFUSED {
+        assert!(rejected(root, command), "expected rejection: {command:?}");
+        let error = registry
+            .execute("Bash", &json!({ "command": command }), &context)
+            .unwrap_err();
+        assert_eq!(
+            tool_error_kind(&error),
+            "bash_path_confinement_error",
+            "{command:?}: {error}"
+        );
+        assert!(!error.to_string().contains(CANARY), "{command:?}: {error}");
+    }
+    for name in ["printf", "script.sh", "list.txt", "out.txt", "item"] {
+        assert!(!root.join(name).exists(), "{name} must not be created");
+    }
+    assert_eq!(fixture.outside_snapshot(), before);
+    for (command, expected) in [
+        (
+            "sed -n p in.txt >| printed.txt && cat printed.txt",
+            "middle /item/2",
+        ),
+        ("printf '%s\\n' '~'", "~"),
+        ("grep -e '~' in.txt || echo none", "none"),
+        (
+            "printf '%s\\n' '{\"p\":\"/b\"}' | python3 app.py",
+            "app:{\"p\":\"/b\"}",
+        ),
+    ] {
+        let output = registry
+            .execute("Bash", &json!({ "command": command }), &context)
+            .unwrap_or_else(|err| panic!("{command:?} must run: {err}"));
+        assert!(output.contains(expected), "{command:?}: {output}");
+    }
+    assert!(root.join("printed.txt").exists());
+    assert!(!root.join("printf").exists());
+}
+
+/// Commands from the security review that must stay refused.
+const REVIEW_REFUSED: &[&str] = &[
+    "sed -n p >| printf sub/link/secret",
+    "cat >| printf sub/link/secret",
+    "sed -n p 2>| printf sub/link/secret",
+    "sed -n p in.txt >|printf sub/link/secret",
+    "grep -n x in.txt > out.txt sub/link/secret",
+    "sed -n p in.txt >| sub/link/printf",
+    "printf '%s' 'sed -n p ' sub/link/secret > script.sh; sh script.sh",
+    "printf '%s' 'sed -n p ' sub/link/secret > script.sh; /bin/sh script.sh",
+    "printf '%s' 'sed -n p ' sub/link/secret > script.sh && env /bin/sh script.sh",
+    "printf '%s' 'sed -n p ' sub/link/secret > script.sh\nnice -n 5 /bin/sh script.sh",
+    "printf '%s' sub/link/secret > list.txt; xargs cat < list.txt",
+    "printf '%s' sub/link/secret > list.txt; /usr/bin/xargs cat < list.txt",
+    "printf '%s' sub/link/secret > list.txt\ntimeout 5 xargs cat < list.txt",
+    "printf '%s\\n' sub/link/secret > list.txt; awk 'BEGIN{getline item < \"list.txt\"; system(\"sed -n p \" item)}'",
+    "printf '%s\\n' sub/link/secret > list.txt && sed 's/^/cat /e' list.txt",
+    "printf '%s\\n' sub/link/secret > list.txt; python3 -c 'import sys'",
+    "printf '%s' ~",
+    "printf '%s' ~/x",
+    "grep -e ~/pat in.txt",
+];
+
+/// The same counterexamples through the runtime Bash policy of a scripted
+/// implement step: each is blocked before it runs, and its allowed twin runs.
+#[test]
+fn argument_roles_runtime_policy_blocks_review_counterexamples() {
+    let fixture = fixture();
+    let root = &fixture.root;
+    let before = fixture.outside_snapshot();
+    let allowed = [
+        "sed -n p in.txt >| printed.txt",
+        "printf '%s\\n' '~' > tilde.txt",
+        "printf '%s\\n' x > list.txt; cat list.txt > copy.txt",
+    ];
+    let blocked = [
+        "sed -n p >| printf sub/link/secret",
+        "printf '%s' 'sed -n p ' sub/link/secret > script.sh; /bin/sh script.sh",
+        "printf '%s\\n' sub/link/secret > item; awk 'BEGIN{getline item < \"item\"; system(\"sed -n p \" item)}'",
+    ];
+    let mut calls: Vec<ToolCall> = allowed
+        .iter()
+        .zip(blocked.iter())
+        .flat_map(|(allow, block)| [allow, block])
+        .map(|command| ToolCall::new("Bash", json!({ "command": command })))
+        .collect();
+    calls.push(ToolCall::new(
+        "Write",
+        json!({ "path": "done.txt", "content": "done" }),
+    ));
+    let mut client = ScriptedClient {
+        calls: Arc::new(Mutex::new(calls)),
+    };
+    let plan = StepPlan {
+        goal: "Copy the input lines into workspace files".to_string(),
+        steps: vec![PlanStep {
+            id: "copy-lines".to_string(),
+            kind: "implement".to_string(),
+            expected_result: "pass".to_string(),
+            instruction: "Copy the input lines, then write done.txt".to_string(),
+            expected_paths: vec!["done.txt".to_string()],
+            verify: vec!["test -f done.txt".to_string()],
+        }],
+    };
+    let events_path = fixture.dir.path().join("review-runtime.jsonl");
+    let _ = run_step_plan(&mut client, &plan, &config(root, &events_path));
+    let events: Vec<Value> = std::fs::read_to_string(&events_path)
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .collect();
+    let decision = |command: &str| {
+        events
+            .iter()
+            .find(|event| {
+                event["event"] == "runtime_bash_policy" && event["command_summary"] == command
+            })
+            .unwrap_or_else(|| panic!("no policy event for {command:?}"))
+            .clone()
+    };
+    for command in allowed {
+        assert_eq!(decision(command)["blocked"], false, "{command:?}");
+    }
+    for command in blocked {
+        let event = decision(command);
+        assert_eq!(event["blocked"], true, "{command:?}: {event}");
+        assert_eq!(event["policy_error_kind"], "bash_path_confinement_error");
+    }
+    assert_eq!(
+        std::fs::read_to_string(root.join("printed.txt")).unwrap(),
+        std::fs::read_to_string(root.join("in.txt")).unwrap()
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("tilde.txt")).unwrap(),
+        "~\n"
+    );
+    for name in ["printf", "script.sh", "item"] {
+        assert!(!root.join(name).exists(), "{name} must not be created");
+    }
+    assert_eq!(fixture.outside_snapshot(), before);
 }

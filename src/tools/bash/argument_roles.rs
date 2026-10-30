@@ -62,14 +62,44 @@ impl Roles {
     }
 }
 
-/// Words that name a shell evaluator, a definition that can change what a
-/// command name runs, or a re-reader of data as arguments. Any of them in the
-/// text closes the data roles for the whole text.
+/// Command names that evaluate text as shell code, change what a command name
+/// runs, or turn data into file arguments or file lists. A word whose basename
+/// is one of them, anywhere in the text (after a wrapper, as an absolute path),
+/// closes the data roles for the whole text.
 const CLOSING_WORDS: &[&str] = &[
     "alias", "function", "eval", "source", "enable", "hash", "shopt", "declare", "typeset",
-    "export", "readonly", "local", "builtin", "command", "exec", "trap", "coproc", "xargs", "sh",
-    "bash", "zsh", "dash", "ksh",
+    "export", "readonly", "local", "builtin", "command", "exec", "trap", "coproc", "xargs",
+    "parallel", "sh", "bash", "zsh", "dash", "ksh", "mksh", "fish", "csh", "tcsh", "busybox",
+    "tar", "rsync", "cpio", "zip",
 ];
+
+/// Interpreters that run inline code (`-c`, `-e`, `-`) or a program read from
+/// stdin. A word whose basename is one of them, followed by an option or by
+/// nothing, closes the data roles for the whole text.
+const INLINE_INTERPRETERS: &[&str] = &[
+    "python",
+    "python2",
+    "python3",
+    "node",
+    "nodejs",
+    "perl",
+    "ruby",
+    "php",
+    "lua",
+    "deno",
+    "bun",
+    "Rscript",
+    "tclsh",
+    "osascript",
+    "pwsh",
+];
+
+/// Command names whose program the read-only grammar judges. A word whose
+/// basename is one of them closes the data roles for the whole text unless it
+/// is a bare `sed`/`awk` whose every program was proven read-only, so a program
+/// with file I/O or command execution elsewhere in the text cannot consume the
+/// data another command produced.
+const PROGRAM_RUNNERS: &[&str] = &["sed", "gsed", "awk", "gawk", "mawk", "nawk"];
 
 /// Substrings of a word that touch the command lookup or shell start-up
 /// (`PATH`, `BASH_CMDS`, `BASH_ALIASES`, `BASH_ENV`, `ENV`).
@@ -86,6 +116,7 @@ pub(super) fn judge(segments: &[Segment]) -> Roles {
         extra_writes: Vec::new(),
     };
     let pipelines = pipelines(segments);
+    let mut read_only_runners = vec![false; segments.len()];
     let mut members: Vec<Vec<(usize, Member)>> = Vec::new();
     for pipeline in &pipelines {
         let mut judged = Vec::new();
@@ -94,6 +125,10 @@ pub(super) fn judge(segments: &[Segment]) -> Roles {
             let analysis = analyze(&argv);
             roles.extra_reads.extend(analysis.extra_reads);
             roles.extra_writes.extend(analysis.extra_writes);
+            read_only_runners[command.segment] = analysis.data.is_some()
+                && argv
+                    .first()
+                    .is_some_and(|name| matches!(name.text.as_str(), "sed" | "awk"));
             let member = match analysis.data {
                 Some(data) if redirects_allow_data(segments, command) => Member::Table(data),
                 _ => partner_kind(&argv),
@@ -102,7 +137,7 @@ pub(super) fn judge(segments: &[Segment]) -> Roles {
         }
         members.push(judged);
     }
-    if !gate_open(segments) {
+    if !gate_open(segments, &read_only_runners) {
         return roles;
     }
     for judged in members {
@@ -161,20 +196,22 @@ fn pipelines(segments: &[Segment]) -> Vec<Vec<Command>> {
     for (index, segment) in segments.iter().enumerate() {
         match segment.opener {
             Opener::Input | Opener::Output | Opener::Duplicate => {
-                if let Some(command) = pipelines
+                let Some(command) = pipelines
                     .last_mut()
                     .and_then(|pipeline| pipeline.last_mut())
-                {
-                    command.redirects.push(index);
-                }
+                else {
+                    continue;
+                };
+                command.redirects.push(index);
             }
             Opener::Pipe if !pipelines.is_empty() => {
-                if let Some(pipeline) = pipelines.last_mut() {
-                    pipeline.push(Command {
-                        segment: index,
-                        redirects: Vec::new(),
-                    });
-                }
+                let Some(pipeline) = pipelines.last_mut() else {
+                    continue;
+                };
+                pipeline.push(Command {
+                    segment: index,
+                    redirects: Vec::new(),
+                });
             }
             _ => pipelines.push(vec![Command {
                 segment: index,
@@ -248,8 +285,10 @@ fn is_bare(word: &Word) -> bool {
     !word.quoted && is_static(word)
 }
 
+/// A word with no executed expansion: no `$`/backtick, no unquoted glob or
+/// brace, and no unquoted tilde.
 fn is_static(word: &Word) -> bool {
-    !word.dynamic && !word.glob
+    !word.dynamic && !word.glob && !word.tilde
 }
 
 /// A static workspace-relative script path: not an option, not stdin, not
@@ -264,21 +303,77 @@ fn is_static_script(word: &Word) -> bool {
 }
 
 /// Whether the text leaves room for data roles at all: no subshell or process
-/// substitution, no evaluator or definition word, and no lookup variable.
-fn gate_open(segments: &[Segment]) -> bool {
-    segments.iter().all(|segment| {
+/// substitution, no compound redirect the segments cannot hold (`>|`), no
+/// evaluator, definition, list consumer, or inline interpreter, no `sed`/`awk`
+/// whose program is not proven read-only, and no lookup variable.
+/// `read_only_runners[i]` marks a command segment that is a bare `sed`/`awk`
+/// whose programs were all proven read-only.
+fn gate_open(segments: &[Segment], read_only_runners: &[bool]) -> bool {
+    segments.iter().enumerate().all(|(index, segment)| {
         segment.opener != Opener::Group
+            && !unreadable_redirect(segments, index)
             && !segment.words.iter().any(is_closing_word)
+            && !runs_inline_code(&segment.words)
+            && segment.words.iter().enumerate().all(|(at, word)| {
+                !PROGRAM_RUNNERS.contains(&basename(&word.text))
+                    || (at == 0 && read_only_runners[index])
+            })
             && !sources_at_command_position(&segment.words)
     })
 }
 
-/// Whether a word names a closing word or holds a closing substring.
+/// Whether a redirect operator at segment `index` holds no target and is not
+/// continued by another redirect operator (`>>`, `>&`, `&>`, `<>`, `<<<`).
+/// Such an operator is a compound the segments split apart, such as the `|`
+/// of `>|`, after which a real argument would read as another command.
+fn unreadable_redirect(segments: &[Segment], index: usize) -> bool {
+    let is_redirect = |segment: &Segment| {
+        matches!(
+            segment.opener,
+            Opener::Input | Opener::Output | Opener::Duplicate
+        )
+    };
+    is_redirect(&segments[index])
+        && segments[index].words.is_empty()
+        && !segments.get(index + 1).is_some_and(is_redirect)
+}
+
+/// The final `/`-separated component of a word.
+fn basename(word: &str) -> &str {
+    word.rsplit('/').next().unwrap_or(word)
+}
+
+/// Whether a word names a closing command or holds a closing substring.
 fn is_closing_word(word: &Word) -> bool {
-    CLOSING_WORDS.contains(&word.text.as_str())
+    CLOSING_WORDS.contains(&basename(&word.text))
         || CLOSING_SUBSTRINGS
             .iter()
             .any(|needle| word.text.contains(needle))
+}
+
+/// Whether the words run an interpreter on inline code or on a program from
+/// stdin: its name followed by nothing, by `-`, or by an option word that
+/// holds an inline-code letter (`-c`, `-e`, `-E`, `-p`, `-r`, `--eval`,
+/// `--print`). `python3 -m module` and `python3 script.py` stay open.
+fn runs_inline_code(words: &[Word]) -> bool {
+    words.iter().enumerate().any(|(at, word)| {
+        let name = basename(&word.text);
+        let interpreter = INLINE_INTERPRETERS.contains(&name)
+            || name
+                .strip_prefix("python")
+                .is_some_and(|version| version.chars().all(|ch| ch.is_ascii_digit() || ch == '.'));
+        interpreter
+            && words.get(at + 1).is_none_or(|next| {
+                let long = next.text.strip_prefix("--");
+                next.text == "-"
+                    || long.is_some_and(|name| {
+                        ["eval", "print"].contains(&name.split('=').next().unwrap_or(name))
+                    })
+                    || (long.is_none()
+                        && next.text.starts_with('-')
+                        && next.text.contains(['c', 'e', 'E', 'p', 'r']))
+            })
+    })
 }
 
 /// Whether `.` runs a file as shell text: it stands at the command position,
@@ -676,15 +771,9 @@ fn is_plain_format(format: &str) -> bool {
     let mut chars = format.chars();
     while let Some(ch) = chars.next() {
         match ch {
-            '%' => {
-                if !matches!(chars.next(), Some('s' | '%')) {
-                    return false;
-                }
-            }
-            '\\' => {
-                if !matches!(chars.next(), Some('n' | 't' | 'r' | '\\' | '"' | '\'')) {
-                    return false;
-                }
+            '%' if !matches!(chars.next(), Some('s' | '%')) => return false,
+            '\\' if !matches!(chars.next(), Some('n' | 't' | 'r' | '\\' | '"' | '\'')) => {
+                return false;
             }
             _ => {}
         }

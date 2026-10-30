@@ -35,6 +35,10 @@ fixtures/cases.json = [
   "\"id\": \"synthetic-heredoc-with-here-string\"",
   "\"id\": \"synthetic-here-string-pointer\"",
   "\"id\": \"synthetic-sed-in-process-substitution\"",
+  "\"id\": \"synthetic-noclobber-redirect-then-operand\"",
+  "\"id\": \"synthetic-data-to-script-absolute-sh\"",
+  "\"id\": \"synthetic-data-to-awk-system\"",
+  "\"id\": \"synthetic-unquoted-tilde-printf\"",
   "\"expect\": \"allow\"",
   "\"expect\": \"reject\""
 ]

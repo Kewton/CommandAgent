@@ -582,3 +582,110 @@ fn argument_roles_scanner_records_openers_and_quoting() {
     assert!(segments[4].glued_close, "`2>` glues the descriptor");
     assert!(!segments[0].glued_close);
 }
+
+/// A compound redirect the segments split apart (`>|`) closes every data
+/// role, so a real operand after the redirect target is never read as another
+/// command's data. Redirect chains the segments hold stay open.
+#[test]
+fn argument_roles_compound_redirects_keep_real_operands() {
+    for command in [
+        "sed -n p >| printf sub/link/canary",
+        "cat >| printf sub/link/canary",
+        "sed -n p 2>| printf sub/link/canary",
+        "sed -n p in.txt >|printf sub/link/canary",
+        "grep /x in.txt > out sub/link/canary",
+        "echo /a >",
+        "echo /a > ; cat sub/link/canary",
+    ] {
+        assert!(data(command).is_empty(), "{command}");
+        if command.contains("canary") {
+            assert!(
+                kept(command).contains(&"sub/link/canary".to_string()),
+                "{command}"
+            );
+        }
+    }
+    for command in [
+        "sed -n p in.txt >> out.txt",
+        "grep /x in.txt 2>&1",
+        "grep /x in.txt &> out.txt",
+        "grep /x in.txt &>> out.txt",
+        "grep /x in.txt >&2",
+    ] {
+        assert!(!data(command).is_empty(), "{command}");
+    }
+}
+
+/// A shell, a list consumer, an inline interpreter, or a sed/awk whose
+/// program is not proven read-only anywhere in the text closes every data
+/// role, whatever its spelling: bare, absolute, or behind a wrapper.
+#[test]
+fn argument_roles_reevaluation_anywhere_closes_every_role() {
+    for command in [
+        "printf '%s' 'sed -n p ' sub/link/canary > script.sh; sh script.sh",
+        "printf '%s' 'sed -n p ' sub/link/canary > script.sh; /bin/sh script.sh",
+        "printf '%s' 'sed -n p ' sub/link/canary > script.sh && env /bin/bash script.sh",
+        "printf '%s' 'sed -n p ' sub/link/canary > script.sh\nnice -n 5 /usr/bin/dash script.sh",
+        "printf '%s' sub/link/canary > list.txt; xargs cat < list.txt",
+        "printf '%s' sub/link/canary > list.txt; /usr/bin/xargs cat < list.txt",
+        "printf '%s' sub/link/canary > list.txt; timeout 5 xargs cat < list.txt",
+        "printf '%s' sub/link/canary > list.txt; tar -cf a.tar -T list.txt",
+        "printf '%s\\n' sub/link/canary > list.txt; awk 'BEGIN{getline item < \"list.txt\"; system(\"sed -n p \" item)}'",
+        "printf '%s\\n' sub/link/canary > list.txt && awk '{system(\"cat \" $0)}' list.txt",
+        "printf '%s\\n' sub/link/canary > list.txt\nsed 's/^/cat /e' list.txt",
+        "printf '%s\\n' sub/link/canary > list.txt; env gawk '{print}' list.txt",
+        "printf '%s\\n' sub/link/canary > list.txt; sed -f prog.sed list.txt",
+        "printf '%s\\n' sub/link/canary > list.txt; python3 -c 'print(open(open(\"list.txt\").read().strip()).read())'",
+        "printf '%s\\n' sub/link/canary > list.txt; /usr/bin/python3.12 -c 'x'",
+        "printf '%s\\n' sub/link/canary > list.txt; node -e 'x'",
+        "printf '%s\\n' sub/link/canary > list.txt; perl -ne 'x' list.txt",
+        "printf '%s\\n' sub/link/canary | python3",
+        "printf '%s\\n' sub/link/canary > list.txt; deno eval 'x'",
+    ] {
+        assert!(data(command).is_empty(), "{command}");
+        assert!(
+            kept(command)
+                .iter()
+                .any(|word| word.contains("sub/link/canary")),
+            "{command}"
+        );
+    }
+    // A safe formatter feeding an allowed consumer stays open.
+    for command in [
+        "printf '%s\\n' '{\"p\":\"/b\"}' | python3 app.py",
+        "python3 -m unittest discover -s tests -t . && printf '%s\\n' '/a'",
+        "sed -n '/a/,/b/p' in.txt | sed '1d;$d' > out.js && node --check out.js",
+        "awk '/x/{f=1;next} f' in.txt > out.txt && printf '/a\\n'",
+    ] {
+        assert!(!data(command).is_empty(), "{command}");
+    }
+}
+
+/// An unquoted tilde may expand to a home directory, so a word carrying one is
+/// never data; the quoted spelling is a literal and stays data.
+#[test]
+fn argument_roles_unquoted_tilde_is_not_data() {
+    for command in [
+        "printf '%s' ~",
+        "printf '%s' ~/x",
+        "printf '%s' ~user",
+        "printf '%s' x=~/y",
+        "echo ~",
+        "grep -e ~ in.txt",
+        "grep ~/pat in.txt",
+        "sed -n p ~/in.txt",
+    ] {
+        assert!(
+            data(command).iter().all(|word| !word.contains('~')),
+            "{command}: {:?}",
+            data(command)
+        );
+        assert!(
+            kept(command).iter().any(|word| word.contains('~')),
+            "{command}"
+        );
+    }
+    assert_eq!(data("printf '%s' '~'"), ["%s", "~"]);
+    assert_eq!(data("echo \\~/x"), ["~/x"]);
+    assert_eq!(data("grep -e '~' in.txt"), ["~"]);
+}
