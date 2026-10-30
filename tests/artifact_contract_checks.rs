@@ -569,28 +569,55 @@ fn a_run_without_the_check_ignores_the_registry_variable() {
     }
 }
 
-/// R2: the preflight checks only the adapters the run's own profile and
-/// selected pack declare. A workspace that holds the operator registry is
-/// refused for the declaring draft profile or pack, and ignored for a run
-/// whose profile does not declare the check, even though the declaring draft
-/// is loaded from the same extension root.
+/// R2/B2/B3: the preflight checks only the adapters the run's own profile and
+/// effective pack declare, taken from the same verified declarations final
+/// acceptance runs. A workspace that holds the operator registry is refused
+/// for the declaring draft profile or pack, and ignored for a run whose
+/// profile does not declare the check. A pack whose eval was removed or
+/// replaced after selection no longer verifies and is refused as a change.
 #[test]
 fn preflight_is_bound_to_the_selected_profile_and_pack() {
     use commandagent::planner::artifact_contract_checks::preflight;
     let fixture = fixture();
+    let _lock = runner_lock();
     let workspace = tempfile::tempdir().unwrap();
-    preflight(workspace.path(), DRAFT, None).unwrap();
-    preflight(&fixture.root, "generic", None).unwrap();
-    let error = preflight(&fixture.root, DRAFT, None).unwrap_err();
+    preflight(workspace.path(), DRAFT).unwrap();
+    preflight(&fixture.root, "generic").unwrap();
+    let error = preflight(&fixture.root, DRAFT).unwrap_err();
     assert!(
         error.contains("self-approved registry is refused"),
         "{error}"
     );
-    let error = preflight(&fixture.root, "generic", Some(&fixture.pack)).unwrap_err();
+
+    // The effective pack selection (here inherited through the environment,
+    // with no CLI choice) declares the adapter.
+    let copy = tempfile::tempdir().unwrap();
+    for file in ["eval.yaml", "pack.sha256"] {
+        std::fs::copy(fixture.pack.join(file), copy.path().join(file)).unwrap();
+    }
+    let selection = PackSelection::install_at(copy.path(), &fixture.pack_hash);
+    let error = preflight(&fixture.root, "generic").unwrap_err();
     assert!(
         error.contains("self-approved registry is refused"),
         "{error}"
     );
+    preflight(workspace.path(), "generic").unwrap();
+
+    // Removed or replaced after selection: the selection no longer verifies.
+    std::fs::remove_file(copy.path().join("eval.yaml")).unwrap();
+    let error = preflight(workspace.path(), "generic").unwrap_err();
+    assert!(
+        error.contains("selected pack cannot be verified"),
+        "{error}"
+    );
+    std::fs::write(
+        copy.path().join("eval.yaml"),
+        pack_eval(DRAFT, ENV_ADAPTER, "final_acceptance", ""),
+    )
+    .unwrap();
+    let error = preflight(workspace.path(), "generic").unwrap_err();
+    assert!(error.contains("identity/hash mismatch"), "{error}");
+    drop(selection);
 }
 
 /// R2 (real binary): an extension root holding an unselected draft whose
@@ -643,6 +670,72 @@ fn an_unselected_draft_registry_does_not_change_a_generic_run() {
         baseline.1
     );
     assert_eq!(run(true), baseline);
+}
+
+/// B3 (real binary): with no `--pack`, a pack inherited through the
+/// `COMMANDAGENT_PACK_*` environment is the one final acceptance would run.
+/// Its adapter's registry inside the workspace is refused before any
+/// provider: exit 2, the self-approval reason, and no provider connection.
+#[test]
+fn an_inherited_pack_selection_is_preflighted_before_any_provider() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let workspace = root.join("workspace");
+    let home = root.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&workspace).unwrap();
+    let (extension, config) = draft_with_registry_in(&root, &workspace.join("registry"));
+    // A draft with no artifact check of its own; only the pack declares it.
+    let plain = extension.join("profiles/plain-draft");
+    std::fs::create_dir_all(&plain).unwrap();
+    std::fs::write(
+        plain.join("manifest.toml"),
+        format!(
+            "{}[[checks.final]]\nid = \"scaffold_files_present\"\nparams = {{ files = [\"notes.txt\"] }}\n",
+            manifest("plain-draft", LINES_ADAPTER)
+                .split("[[checks.final]]")
+                .next()
+                .unwrap()
+        ),
+    )
+    .unwrap();
+    let pack = root.join("pack");
+    std::fs::create_dir_all(&pack).unwrap();
+    let eval = pack_eval("plain-draft", LINES_ADAPTER, "final_acceptance", "");
+    std::fs::write(pack.join("eval.yaml"), &eval).unwrap();
+    let hash = exact_byte_hash(None, Some(eval.as_bytes()));
+    std::fs::write(pack.join("pack.sha256"), format!("{hash}\n")).unwrap();
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let host = format!("http://{}", listener.local_addr().unwrap());
+    let run = Command::new(env!("CARGO_BIN_EXE_commandagent"))
+        .arg("--extension-root")
+        .arg(&extension)
+        .args(["--profile", "plain-draft", "--ollama-host", &host])
+        .args(["--prompt", "Write notes"])
+        .current_dir(&workspace)
+        .env_clear()
+        .env("HOME", &home)
+        .env("COMMANDAGENT_ADAPTER_CONFIG_ROOT", &config)
+        .env("COMMANDAGENT_PACK_DIRECTORY", &pack)
+        .env("COMMANDAGENT_PACK_ID", PACK_ID)
+        .env("COMMANDAGENT_PACK_VERSION", "1.0.0")
+        .env("COMMANDAGENT_PACK_HASH", &hash)
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    assert_eq!(run.status.code(), Some(2), "{stderr}");
+    assert!(
+        stderr.contains(
+            "operator registry resolves inside the workspace; a self-approved registry is refused"
+        ),
+        "{stderr}"
+    );
+    assert!(
+        matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock),
+        "the provider endpoint was contacted"
+    );
 }
 
 /// A valid tally-lines draft profile in `root/extension` whose operator
@@ -1053,15 +1146,19 @@ struct PackSelection;
 
 impl PackSelection {
     fn install(fixture: &Fixture) -> Self {
-        // SAFETY: callers hold `runner_lock`, and only the runner cases in this
-        // binary read the pack selection keys.
+        assert!(fixture.config.is_dir());
+        Self::install_at(&fixture.pack, &fixture.pack_hash)
+    }
+
+    fn install_at(directory: &Path, hash: &str) -> Self {
+        // SAFETY: callers hold `runner_lock`, and only the cases holding it in
+        // this binary read the pack selection keys.
         unsafe {
-            std::env::set_var("COMMANDAGENT_PACK_DIRECTORY", &fixture.pack);
+            std::env::set_var("COMMANDAGENT_PACK_DIRECTORY", directory);
             std::env::set_var("COMMANDAGENT_PACK_ID", PACK_ID);
             std::env::set_var("COMMANDAGENT_PACK_VERSION", "1.0.0");
-            std::env::set_var("COMMANDAGENT_PACK_HASH", &fixture.pack_hash);
+            std::env::set_var("COMMANDAGENT_PACK_HASH", hash);
         }
-        assert!(fixture.config.is_dir());
         Self
     }
 }

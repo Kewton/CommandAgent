@@ -166,12 +166,8 @@ pub fn run_with_provider_options(
     }
     let pack = cli_pack::resolve(&pack_cli, &config)?;
     let _pack_environment = cli_pack::RuntimeEnvironmentGuard::install(pack.as_ref())?;
-    planner::artifact_contract_checks::preflight(
-        &config.workspace_root,
-        &config.profile,
-        pack.as_ref().map(|pack| pack.directory.as_path()),
-    )
-    .map_err(|reason| cli_argument_error(anyhow::anyhow!(reason)))?;
+    planner::artifact_contract_checks::preflight(&config.workspace_root, &config.profile)
+        .map_err(|reason| cli_argument_error(anyhow::anyhow!(reason)))?;
     let summary_source = (summary_json && action_may_project_summary(&config.action))
         .then(|| headless_summary::Source::from_config(&config, pack.as_ref()));
     let result = run_resolved_config_with_summary(config, summary_source.clone());

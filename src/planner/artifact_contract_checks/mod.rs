@@ -173,21 +173,26 @@ pub(crate) fn admit_from_environment(adapter_id: &str) -> Result<(), String> {
     verify_tooling(&admitted.descriptor).map(|_| ())
 }
 
-/// Pre-provider check for the adapters that this run's profile and selected
+/// Pre-provider check for the adapters that this run's profile and effective
 /// pack declare: the registry, descriptor, tooling root, and executable must
 /// lie outside `workspace`, and the tooling must match its pins and links.
 ///
-/// Only the effective `profile` (a registered external profile whose loaded
-/// checks include `artifact_contract_check`) and the selected pack are
-/// consulted; other loaded or previously registered profiles are not. When
-/// neither declares the check, this returns without reading the environment
-/// or the registry, and without opening a file unless a pack is selected.
-pub fn preflight(
-    workspace: &Path,
-    profile: &str,
-    pack_directory: Option<&Path>,
-) -> Result<(), String> {
-    let adapter_ids = declared_adapter_ids(profile, pack_directory)?;
+/// The adapter IDs come from the same declarations final acceptance runs:
+/// the effective profile's registered manifest (re-read without following a
+/// symlink or waiting on a FIFO, bounded, and required to match the hash
+/// recorded when it was loaded) and the effective pack selection (the CLI's
+/// choice or an inherited one, verified for identity, hash, and pin as final
+/// acceptance verifies it). Other loaded or previously registered profiles
+/// are not consulted. When neither declares `artifact_contract_check`, this
+/// returns without reading the registry; it reads the pack selection
+/// variables and, for a registered external profile that declares the check,
+/// its manifest.
+pub fn preflight(workspace: &Path, profile: &str) -> Result<(), String> {
+    let mut adapter_ids = profile_adapter_ids(profile)?;
+    adapter_ids.extend(
+        crate::planner::pack::runtime::selected_artifact_adapter_ids()
+            .map_err(|error| format!("selected pack cannot be verified: {error:#}"))?,
+    );
     if adapter_ids.is_empty() {
         return Ok(());
     }
@@ -203,71 +208,81 @@ pub fn preflight(
 }
 
 /// [`preflight`] for a workflow child node, whose workspace is its origin. The
-/// pack, if any, is the one the outer run installed for the whole process.
+/// pack selection is the one the outer run installed for the whole process.
 pub fn preflight_for_workflow_node(workspace: &Path, profile: &str) -> Result<(), String> {
-    let pack = crate::planner::pack::runtime::selected_directory_from_environment();
-    preflight(workspace, profile, pack.as_deref())
+    preflight(workspace, profile)
 }
 
-fn declared_adapter_ids(
-    profile: &str,
-    pack_directory: Option<&Path>,
+fn profile_adapter_ids(profile: &str) -> Result<BTreeSet<String>, String> {
+    let check_id = crate::planner::capability_catalog::artifact::ID;
+    match crate::planner::extension_profiles::find(profile) {
+        Some(extension) if extension.contract_checks.iter().any(|id| id == check_id) => {
+            registered_manifest_adapter_ids(
+                Path::new(extension.manifest_path),
+                extension.manifest_hash,
+            )
+            .map_err(|reason| format!("profile `{profile}` manifest {reason}"))
+        }
+        _ => Ok(BTreeSet::new()),
+    }
+}
+
+/// Re-read a registered manifest only as the exact bytes that were loaded:
+/// a safe regular-file open, the loader's byte bound, and the registration
+/// hash. A manifest changed since loading is refused, so the IDs equal the
+/// loaded declaration that final acceptance runs.
+pub(crate) fn registered_manifest_adapter_ids(
+    path: &Path,
+    expected_hash: &str,
+) -> Result<BTreeSet<String>, String> {
+    let bytes = read_bounded(
+        path,
+        crate::planner::profile_manifest::source::MAX_MANIFEST_BYTES,
+    )?;
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default();
+    if crate::planner::profile_manifest::source::exact_byte_hash(name, &bytes) != expected_hash {
+        return Err("changed since it was loaded; restart the run".to_string());
+    }
+    let text = std::str::from_utf8(&bytes).map_err(|_| "is not UTF-8".to_string())?;
+    let manifest: toml::Value =
+        toml::from_str(text).map_err(|error| format!("is invalid: {error}"))?;
+    check_binding_adapter_ids(&manifest)
+}
+
+/// The `adapter_id` of every `artifact_contract_check` entry declared under
+/// the top-level `checks` bindings. Objects of the same shape elsewhere are
+/// not declarations and are ignored; a malformed declaration is an error.
+pub(crate) fn check_binding_adapter_ids(
+    manifest: &toml::Value,
 ) -> Result<BTreeSet<String>, String> {
     let check_id = crate::planner::capability_catalog::artifact::ID;
     let mut ids = BTreeSet::new();
-    if let Some(extension) = crate::planner::extension_profiles::find(profile)
-        && extension.contract_checks.iter().any(|id| id == check_id)
-    {
-        let source = fs::read_to_string(extension.manifest_path)
-            .map_err(|error| format!("profile `{profile}` manifest cannot be read: {error}"))?;
-        let manifest: toml::Value = toml::from_str(&source)
-            .map_err(|error| format!("profile `{profile}` manifest is invalid: {error}"))?;
-        collect_adapter_ids(
-            &serde_json::to_value(manifest).unwrap_or_default(),
-            &mut ids,
-        );
-    }
-    if let Some(directory) = pack_directory {
-        let eval = directory.join(crate::planner::pack::EVAL_FILE);
-        if eval.is_file() {
-            let bytes = read_bounded(&eval, MAX_DESCRIPTOR_BYTES)
-                .map_err(|reason| format!("selected pack eval {reason}"))?;
-            let document: serde_yaml::Value = serde_yaml::from_slice(&bytes)
-                .map_err(|error| format!("selected pack eval is invalid: {error}"))?;
-            collect_adapter_ids(
-                &serde_json::to_value(document).unwrap_or_default(),
-                &mut ids,
-            );
+    let Some(bindings) = manifest.get("checks") else {
+        return Ok(ids);
+    };
+    let bindings = bindings
+        .as_table()
+        .ok_or_else(|| "`checks` is not a table".to_string())?;
+    for (binding, entries) in bindings {
+        let entries = entries
+            .as_array()
+            .ok_or_else(|| format!("`checks.{binding}` is not an array"))?;
+        for entry in entries {
+            if entry.get("id").and_then(toml::Value::as_str) != Some(check_id) {
+                continue;
+            }
+            let adapter = entry
+                .get("params")
+                .and_then(|params| params.get("adapter_id"))
+                .and_then(toml::Value::as_str)
+                .ok_or_else(|| format!("`checks.{binding}` {check_id} has no string adapter_id"))?;
+            ids.insert(adapter.to_string());
         }
     }
     Ok(ids)
-}
-
-/// Collect `params.adapter_id` from every `{id: artifact_contract_check}`
-/// binding in a parsed manifest or pack eval document.
-fn collect_adapter_ids(value: &serde_json::Value, ids: &mut BTreeSet<String>) {
-    match value {
-        serde_json::Value::Object(object) => {
-            let is_check = object.get("id").and_then(serde_json::Value::as_str)
-                == Some(crate::planner::capability_catalog::artifact::ID);
-            let adapter = object
-                .get("params")
-                .and_then(|params| params.get("adapter_id"))
-                .and_then(serde_json::Value::as_str);
-            if let (true, Some(adapter)) = (is_check, adapter) {
-                ids.insert(adapter.to_string());
-            }
-            object
-                .values()
-                .for_each(|child| collect_adapter_ids(child, ids));
-        }
-        serde_json::Value::Array(items) => {
-            items
-                .iter()
-                .for_each(|child| collect_adapter_ids(child, ids));
-        }
-        _ => {}
-    }
 }
 
 pub(crate) fn admit(config_root: Option<&Path>, adapter_id: &str) -> Result<Admitted, String> {
@@ -975,6 +990,12 @@ fn open_regular(path: &Path) -> Result<File, String> {
         return Err("is not a regular file".to_string());
     }
     Ok(file)
+}
+
+/// [`read_bounded`] for other host modules that must read a regular file
+/// before any provider is built.
+pub(crate) fn read_regular_file(path: &Path, limit: u64) -> Result<Vec<u8>, String> {
+    read_bounded(path, limit)
 }
 
 fn read_bounded(path: &Path, limit: u64) -> Result<Vec<u8>, String> {

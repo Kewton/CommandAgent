@@ -1204,25 +1204,32 @@ fn an_omitted_optional_row_is_recorded_as_unverified() {
 }
 
 /// R2: a profile that is not a registered external profile declaring
-/// `artifact_contract_check`, with no pack selected, returns at once: even a
-/// workspace that does not exist is not resolved, so no file is opened and no
-/// registry is read.
+/// `artifact_contract_check` contributes no adapter and reads no manifest.
+/// (The pack side reads the process's pack selection; it is covered by the
+/// integration tests that own that environment.)
 #[test]
-fn preflight_without_a_declared_check_returns_at_once() {
-    let absent = Path::new("/nonexistent/commandagent-933/workspace");
+fn an_undeclared_profile_contributes_no_adapter() {
     for profile in ["generic", "not-a-registered-profile"] {
-        assert_eq!(super::preflight(absent, profile, None), Ok(()), "{profile}");
+        assert_eq!(
+            super::profile_adapter_ids(profile),
+            Ok(BTreeSet::new()),
+            "{profile}"
+        );
     }
 }
 
-/// The declared adapter IDs come only from `artifact_contract_check`
-/// bindings of the parsed manifest or pack eval document.
+/// B2: only `artifact_contract_check` entries under the top-level `checks`
+/// bindings are declarations; a same-shaped object elsewhere is ignored, and
+/// a malformed declaration is an error instead of an empty set.
 #[test]
 fn declared_adapter_ids_are_read_only_from_check_bindings() {
     let manifest: toml::Value = toml::from_str(
         r#"
 [metadata]
 id = "x"
+[notes.example]
+id = "artifact_contract_check"
+params = { adapter_id = "in-notes", request = "r.json" }
 [[checks.final]]
 id = "artifact_contract_check"
 params = { adapter_id = "first", request = "r.json" }
@@ -1232,17 +1239,106 @@ params = { adapter_id = "not-this-one" }
 "#,
     )
     .unwrap();
-    let mut ids = BTreeSet::new();
-    super::collect_adapter_ids(&serde_json::to_value(manifest).unwrap(), &mut ids);
-    let eval: serde_yaml::Value = serde_yaml::from_str(
-        "checks:\n  - id: artifact_contract_check\n    params: {adapter_id: second, request: r.json}\n",
-    )
-    .unwrap();
-    super::collect_adapter_ids(&serde_json::to_value(eval).unwrap(), &mut ids);
     assert_eq!(
-        ids,
-        BTreeSet::from(["first".to_string(), "second".to_string()])
+        super::check_binding_adapter_ids(&manifest),
+        Ok(BTreeSet::from(["first".to_string()]))
     );
+    for broken in [
+        "checks = \"x\"\n",
+        "[checks]\nfinal = \"x\"\n",
+        "[[checks.final]]\nid = \"artifact_contract_check\"\nparams = { adapter_id = 3 }\n",
+    ] {
+        let manifest: toml::Value = toml::from_str(broken).unwrap();
+        assert!(
+            super::check_binding_adapter_ids(&manifest).is_err(),
+            "{broken}"
+        );
+    }
+}
+
+/// B1/B2: the registered manifest is re-read only as the exact bytes that
+/// were loaded. A check removed or replaced after loading, a FIFO, a trailing
+/// symlink, and an oversized file are all refused, and a FIFO never blocks.
+#[cfg(unix)]
+#[test]
+fn a_registered_manifest_is_re_read_only_as_its_loaded_bytes() {
+    use crate::planner::profile_manifest::source::{EXTENSION_MANIFEST_FILE, exact_byte_hash};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(EXTENSION_MANIFEST_FILE);
+    let loaded = "[[checks.final]]\nid = \"artifact_contract_check\"\nparams = { adapter_id = \"a\", request = \"r.json\" }\n";
+    fs::write(&path, loaded).unwrap();
+    let hash = exact_byte_hash(EXTENSION_MANIFEST_FILE, loaded.as_bytes());
+    assert_eq!(
+        super::registered_manifest_adapter_ids(&path, &hash),
+        Ok(BTreeSet::from(["a".to_string()]))
+    );
+    for changed in ["", &loaded.replace("\"a\"", "\"b\"")] {
+        fs::write(&path, changed).unwrap();
+        let error = super::registered_manifest_adapter_ids(&path, &hash).unwrap_err();
+        assert!(error.contains("changed since it was loaded"), "{error}");
+    }
+    fs::write(&path, vec![b'#'; 256 * 1024 + 1]).unwrap();
+    assert!(super::registered_manifest_adapter_ids(&path, &hash).is_err());
+
+    fs::remove_file(&path).unwrap();
+    let elsewhere = dir.path().join("elsewhere.toml");
+    fs::write(&elsewhere, loaded).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, &path).unwrap();
+    assert!(super::registered_manifest_adapter_ids(&path, &hash).is_err());
+
+    fs::remove_file(&path).unwrap();
+    make_fifo(&path);
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let fifo = path.clone();
+    let expected = hash.clone();
+    std::thread::spawn(move || {
+        let _ = sender.send(super::registered_manifest_adapter_ids(&fifo, &expected));
+    });
+    let result = receiver
+        .recv_timeout(Duration::from_secs(5))
+        .expect("reading a FIFO manifest did not block");
+    assert!(result.unwrap_err().contains("not a regular file"));
+}
+
+/// The safe open itself: a FIFO with no writer, a trailing symlink, and a
+/// device are refused without blocking; a regular file opens.
+#[cfg(unix)]
+#[test]
+fn open_regular_refuses_fifo_symlink_and_device_without_blocking() {
+    let dir = tempfile::tempdir().unwrap();
+    let regular = dir.path().join("regular");
+    fs::write(&regular, b"x").unwrap();
+    assert!(super::open_regular(&regular).is_ok());
+
+    let link = dir.path().join("link");
+    std::os::unix::fs::symlink(&regular, &link).unwrap();
+    assert!(super::open_regular(&link).is_err());
+
+    let fifo = dir.path().join("fifo");
+    make_fifo(&fifo);
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let target = fifo.clone();
+    std::thread::spawn(move || {
+        let _ = sender.send(super::open_regular(&target).map(|_| ()));
+    });
+    let result = receiver
+        .recv_timeout(Duration::from_secs(5))
+        .expect("opening a FIFO without a writer did not block");
+    assert_eq!(result, Err("is not a regular file".to_string()));
+
+    assert_eq!(
+        super::open_regular(Path::new("/dev/null")).map(|_| ()),
+        Err("is not a regular file".to_string())
+    );
+}
+
+#[cfg(unix)]
+fn make_fifo(path: &Path) {
+    use std::os::unix::ffi::OsStrExt;
+    let name = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+    // SAFETY: `name` is a valid NUL-terminated path in a test-owned tempdir.
+    let status = unsafe { libc::mkfifo(name.as_ptr(), 0o600) };
+    assert_eq!(status, 0, "mkfifo failed");
 }
 
 /// R3: a descendant that leaves the process group and keeps stdin open
@@ -1277,6 +1373,9 @@ exit 0
         timeout: Duration::from_secs(5),
         max_stream_bytes: 24_000,
     };
+    // Stops the escaped descendant's own process group (its setsid made its
+    // pid the group id) on every exit, including a failed assertion.
+    let _cleanup = EscapedGroup(pid_file.clone());
     let (sender, receiver) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let _ = sender.send(super::process::run(&launch, || false));
@@ -1296,7 +1395,6 @@ exit 0
         .expect("the escaped descendant reached end-of-file, so the host closed stdin");
     let read: usize = read.trim().parse().unwrap();
     assert!(read < payload.len(), "{read}");
-    // The descendant exits on its own once it has read to end-of-file.
 }
 
 /// B1 (direct path refusal): after the run an input replaced by a symlink to
@@ -1321,5 +1419,20 @@ fn identical_bytes_behind_a_symlink_or_linked_directory_are_refused() {
             sha256_bytes(DECL.as_bytes()),
             "{mode}: the bytes behind the link are unchanged"
         );
+    }
+}
+
+#[cfg(unix)]
+struct EscapedGroup(PathBuf);
+
+#[cfg(unix)]
+impl Drop for EscapedGroup {
+    fn drop(&mut self) {
+        if let Some(pid) = fs::read_to_string(&self.0)
+            .ok()
+            .and_then(|pid| pid.trim().parse::<u32>().ok())
+        {
+            let _ = crate::bounded_process::terminate_process_group_by_pid(pid);
+        }
     }
 }

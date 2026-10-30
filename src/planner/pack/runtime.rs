@@ -87,11 +87,29 @@ fn os_string(value: OsString, name: &str) -> anyhow::Result<String> {
         .map_err(|_| anyhow::anyhow!("{name} must contain valid UTF-8"))
 }
 
-/// The selected pack directory the CLI installed for this process, if any.
-pub(crate) fn selected_directory_from_environment() -> Option<PathBuf> {
-    std::env::var_os(PACK_DIRECTORY_ENV)
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
+/// The `adapter_id` of every `artifact_contract_check` binding in the pack
+/// that final acceptance would run: the same effective selection (the CLI's
+/// choice or an inherited one), verified for retirement, identity, exact-byte
+/// hash, and pin exactly as final acceptance verifies it. No selection yields
+/// an empty set; a selection that does not verify is an error.
+pub(crate) fn selected_artifact_adapter_ids() -> anyhow::Result<BTreeSet<String>> {
+    let Some(selection) = RuntimeSelection::from_environment()? else {
+        return Ok(BTreeSet::new());
+    };
+    let pack = load_verified(&selection)?;
+    let mut ids = BTreeSet::new();
+    for binding in pack.eval.iter().flat_map(|eval| eval.checks.iter()) {
+        if binding.id.as_str() != crate::planner::capability_catalog::artifact::ID {
+            continue;
+        }
+        let adapter = binding
+            .params
+            .get("adapter_id")
+            .and_then(YamlValue::as_str)
+            .context("selected pack artifact_contract_check has no string adapter_id")?;
+        ids.insert(adapter.to_string());
+    }
+    Ok(ids)
 }
 
 pub(crate) fn append_phase_material_from_environment(
@@ -346,6 +364,26 @@ fn load_selected(
     profile: &str,
     intent: &str,
 ) -> anyhow::Result<LoadedPack> {
+    let pack = load_verified(selection)?;
+    let expected_profile = pack_profile(profile)
+        .ok_or_else(|| anyhow::anyhow!("profile `{profile}` cannot activate an assist pack"))?;
+    let expected_intent = PackIntent::parse(intent)
+        .ok_or_else(|| anyhow::anyhow!("intent `{intent}` cannot activate an assist pack"))?;
+    if pack.identity.profile != expected_profile || pack.identity.intent != expected_intent {
+        bail!(
+            "selected pack is for {} × {}, not {} × {}",
+            pack.identity.profile,
+            pack.identity.intent,
+            expected_profile,
+            expected_intent
+        );
+    }
+    conform(&pack).context("selected pack conformance")?;
+    Ok(pack)
+}
+
+/// Retirement, identity, exact-byte hash, and pin checks of a selection.
+fn load_verified(selection: &RuntimeSelection) -> anyhow::Result<LoadedPack> {
     if super::catalog::is_retired(&selection.directory) {
         bail!(
             "selected pack {}@{} is retired and cannot run",
@@ -368,25 +406,17 @@ fn load_selected(
             pack.hash
         );
     }
-    let pin = std::fs::read_to_string(selection.directory.join(PACK_PIN_FILE))
-        .context("read selected pack hash pin")?;
+    // The pin is opened without following a symlink or waiting on a FIFO,
+    // because this check also runs before any provider is built.
+    let pin = crate::planner::artifact_contract_checks::read_regular_file(
+        &selection.directory.join(PACK_PIN_FILE),
+        4096,
+    )
+    .map_err(|reason| anyhow::anyhow!("read selected pack hash pin: {reason}"))?;
+    let pin = String::from_utf8_lossy(&pin);
     if pin.trim() != selection.hash {
         bail!("selected pack hash does not match pack.sha256");
     }
-    let expected_profile = pack_profile(profile)
-        .ok_or_else(|| anyhow::anyhow!("profile `{profile}` cannot activate an assist pack"))?;
-    let expected_intent = PackIntent::parse(intent)
-        .ok_or_else(|| anyhow::anyhow!("intent `{intent}` cannot activate an assist pack"))?;
-    if pack.identity.profile != expected_profile || pack.identity.intent != expected_intent {
-        bail!(
-            "selected pack is for {} × {}, not {} × {}",
-            pack.identity.profile,
-            pack.identity.intent,
-            expected_profile,
-            expected_intent
-        );
-    }
-    conform(&pack).context("selected pack conformance")?;
     Ok(pack)
 }
 

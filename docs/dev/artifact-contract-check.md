@@ -59,17 +59,25 @@ automatically; an unknown or mismatching toolchain is unavailable.
    not match its executable pin, member pins, or links (including any
    unregistered symlink in the tooling tree). The load path does not know the
    workspace, so the separation from the workspace is checked by
-   `artifact_contract_checks::preflight(workspace, profile, pack)` for the
-   adapters that the run's own profile and selected pack declare; other
-   loaded or previously registered profiles are not consulted. The CLI calls
-   it once the workspace, profile, and pack are known and before any provider
-   is built (`src/lib.rs`), and a workflow child node calls it again for its
-   own origin workspace and profile before its provider is built; a refusal
-   exits with code 2 (a workflow child node fails). When neither the profile
-   nor a selected pack declares `artifact_contract_check`, it returns without
-   reading the environment or the registry, and opens no file unless a pack
-   is selected (then the pack's `eval.yaml` is read). At run time the
-   descriptor is read again, and a registry,
+   `artifact_contract_checks::preflight(workspace, profile)` for the adapters
+   that the run's own profile and effective pack declare, taken from the same
+   declarations final acceptance runs: the effective profile's registered
+   manifest, re-read only as the exact bytes that were loaded (no symlink, no
+   FIFO wait, the loader's 256 KiB bound, and the registration hash; a
+   manifest changed since loading is refused), and the effective pack
+   selection (the CLI's `--pack` or one inherited through
+   `COMMANDAGENT_PACK_*`), verified for identity, exact-byte hash, and pin as
+   final acceptance verifies it. Only `artifact_contract_check` entries under
+   the top-level `checks` bindings count, and a malformed declaration is an
+   error. Other loaded or previously registered profiles are not consulted.
+   The CLI calls it once the workspace, profile, and pack selection are known
+   and before any provider is built (`src/lib.rs`), and a workflow child node
+   calls it again for its own origin workspace and profile before its
+   provider is built; a refusal exits with code 2 (a workflow child node
+   fails). When neither the profile nor the pack selection declares
+   `artifact_contract_check`, it reads only the pack selection variables and
+   never the registry. At run time the descriptor is read again, and a
+   registry,
    descriptor, tooling root, or executable that resolves inside the workspace
    is refused as self-approval.
    There is no command, tool, or file in the workspace through which the model

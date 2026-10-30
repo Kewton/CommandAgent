@@ -487,11 +487,11 @@
       "id": "synthetic-preflight-early-return",
       "kind": "synthetic",
       "adapter": "tally-lines",
-      "test": "preflight_without_a_declared_check_returns_at_once",
+      "test": "an_undeclared_profile_contributes_no_adapter",
       "stopped_at": "registry",
       "native_passed": true,
       "domain_verdict": "none",
-      "asserts": "with nothing declared the preflight returns at once and touches no file"
+      "asserts": "a profile that does not declare the check contributes no adapter and reads no manifest"
     },
     {
       "id": "synthetic-unselected-draft-leaves-generic-run-unchanged",
@@ -542,6 +542,36 @@
       "native_passed": true,
       "domain_verdict": "none",
       "asserts": "declared adapter IDs come only from artifact_contract_check bindings"
+    },
+    {
+      "id": "synthetic-manifest-changed-after-load",
+      "kind": "synthetic",
+      "adapter": "tally-lines",
+      "test": "a_registered_manifest_is_re_read_only_as_its_loaded_bytes",
+      "stopped_at": "registry",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "a manifest whose check was removed or replaced after loading, a FIFO, a symlink, or an oversized manifest is refused without blocking"
+    },
+    {
+      "id": "synthetic-open-regular-special-files",
+      "kind": "synthetic",
+      "adapter": "none",
+      "test": "open_regular_refuses_fifo_symlink_and_device_without_blocking",
+      "stopped_at": "input",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "the safe open refuses a writerless FIFO, a trailing symlink, and a device without blocking"
+    },
+    {
+      "id": "synthetic-inherited-pack-selection",
+      "kind": "synthetic",
+      "adapter": "tally-lines",
+      "test": "an_inherited_pack_selection_is_preflighted_before_any_provider",
+      "stopped_at": "trust",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "a pack inherited through COMMANDAGENT_PACK_* is preflighted; its registry inside the workspace exits 2 with no provider connection"
     }
   ]
 }
