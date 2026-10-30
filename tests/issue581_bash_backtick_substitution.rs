@@ -121,8 +121,14 @@ fn backtick_substitution_rejects_existing_rejections() {
         r"tee `echo /tmp/f`",
         r"printf x > `echo /tmp/f`",
         r"cp a `echo /tmp/f`",
-        // An unquoted-delimiter heredoc.
-        "cat <<EOF\ntee /tmp/f\nEOF",
+        // An unquoted-delimiter heredoc the literal-data subset does not cover
+        // (Issue #924): `<<-`, an expansion or a backslash in the body, or no
+        // terminator keeps the body as shell text.
+        "cat <<-EOF\n\ttee /tmp/f\n\tEOF",
+        "cat <<EOF\n$X\ntee /tmp/f\nEOF",
+        "cat <<EOF\na\\b\ntee /tmp/f\nEOF",
+        "cat <<EOF\ntee /tmp/f",
+        "cat <<EOF\n`x`\ntee /tmp/f\nEOF",
         // A protected path named through the substitution.
         r"tee `echo tests/spec.ts`",
     ];
@@ -132,6 +138,26 @@ fn backtick_substitution_rejects_existing_rejections() {
             "expected rejection: {command:?}"
         );
     }
+}
+
+/// Issue #924: a plain `<<` body of a lone `cat` with no `$`, backtick, or
+/// backslash and a real terminator is the bytes the quoted spelling passes, so
+/// it is decided exactly as the quoted spelling (moved from the rejection list).
+#[test]
+fn backtick_substitution_plain_literal_heredoc_matches_the_quoted_spelling() {
+    let fixture = fixture();
+    let root = &fixture.root;
+    let plain = "cat <<EOF\ntee /tmp/f\nEOF";
+    let quoted = "cat <<'EOF'\ntee /tmp/f\nEOF";
+    assert!(
+        path_confinement_rejection(quoted, root).is_none(),
+        "expected allow: {quoted:?}"
+    );
+    assert_eq!(
+        path_confinement_rejection(plain, root).is_none(),
+        path_confinement_rejection(quoted, root).is_none(),
+        "the plain spelling must decide as the quoted one: {plain:?}"
+    );
 }
 
 /// The allowed forms from the issue body must not change.

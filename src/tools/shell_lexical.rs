@@ -19,12 +19,15 @@
 //! heredoc, and its quote-removed argv exactly matches one of the data-reader
 //! forms (see [`data_reader_argv`]). Because that command cannot hold a second
 //! command, a function definition, or an alias, there is no room for a program
-//! that would execute the body. Every other body is kept, read both with and
+//! that would execute the body. A plain `<<` body of a lone `cat` is dropped as
+//! well when [`literal_data`] proves the shell passes it unchanged, i.e. the
+//! bytes the quoted spelling passes (Issue #924). Every other body is kept, read both with and
 //! without comment elision, so a shell, an interpreter, a quote, or a pipeline
 //! that executes it is still inspected. Text that cannot be read statically is
 //! reported as `None` rather than guessed at, and the callers fail closed.
 
 pub(crate) mod backticks;
+mod literal_data;
 mod quoted_expansion;
 
 /// Operation recorded for a command whose text the lexical guard cannot read
@@ -485,6 +488,11 @@ fn resolve_heredocs(
     // A body inside a kept body is never dropped: the outer command may export a
     // function or rewrite PATH and execute it (H-06 blocker 1).
     let drop_bodies = !nested && should_drop_heredoc_bodies(elided_command, pending);
+    // An unquoted body is dropped only when the leaf proves it is the bytes the
+    // quoted spelling passes (Issue #924).
+    let reader = (!nested && !drop_bodies)
+        .then(|| single_data_reader_argv(elided_command))
+        .flatten();
     let mut position = body_start;
     let mut kept: Vec<u8> = Vec::new();
     let mut nested_backtick = false;
@@ -501,7 +509,18 @@ fn resolve_heredocs(
         if !heredoc.quoted && body_contains_execution(body) {
             return None;
         }
-        if !drop_bodies {
+        // `locate_body` ends an unterminated body at the end of the input, and a
+        // terminator line is never empty, so a terminated body ends before it.
+        let literal = reader.as_deref().is_some_and(|argv| {
+            literal_data::unquoted_cat_body_is_literal(
+                elided_command,
+                argv,
+                pending,
+                body,
+                body_end < bytes.len(),
+            )
+        });
+        if !drop_bodies && !literal {
             // A kept body must be readable as commands (B2).
             if !body_is_readable(body) {
                 return None;
@@ -585,6 +604,12 @@ fn should_drop_heredoc_bodies(elided_command: &[u8], pending: &[Heredoc]) -> boo
     if pending.len() != 1 || !pending[0].quoted {
         return false;
     }
+    single_data_reader_argv(elided_command).is_some()
+}
+
+/// The quote-removed argv of the command before a body when it is a single
+/// data-reader command, or `None`.
+fn single_data_reader_argv(elided_command: &[u8]) -> Option<Vec<Arg>> {
     // A single command: no newline before the body and no separator, group, or
     // substitution. That leaves no room for a second command, a function
     // definition, or an alias that could execute the body.
@@ -593,20 +618,16 @@ fn should_drop_heredoc_bodies(elided_command: &[u8], pending: &[Heredoc]) -> boo
             .iter()
             .any(|ch| matches!(ch, b';' | b'|' | b'&' | b'(' | b')' | b'{' | b'}' | b'`'))
     {
-        return false;
+        return None;
     }
-    let Some(argv) = line_argv(elided_command) else {
-        return false;
-    };
-    let Some(name) = argv.first() else {
-        return false;
-    };
+    let argv = line_argv(elided_command)?;
+    let name = argv.first()?;
     // A literal, unqualified command name: a quote or backslash in the name, or
     // a slash, disqualifies it.
     if name.quoted || name.bytes.contains(&b'/') {
-        return false;
+        return None;
     }
-    data_reader_argv(&argv)
+    data_reader_argv(&argv).then_some(argv)
 }
 
 /// Whether a quote-removed argv exactly matches one of the data-reader forms.
@@ -972,12 +993,23 @@ mod tests {
         for (command, expected) in cases {
             assert_eq!(strip(command), *expected, "command: {command}");
         }
-        // An unquoted delimiter keeps the body, so an unreadable body rejects
-        // (H-05 §B1 design 2 / 10).
+        // A plain `<<` body with no `$`, backtick, or backslash and a real
+        // terminator is the bytes the quoted spelling passes, so it is dropped
+        // the same way (Issue #924).
+        for (command, expected) in [
+            ("cat <<EOF\nit's\nEOF", "cat <<EOF\n"),
+            ("cat << EOF\nit's\nEOF", "cat << EOF\n"),
+        ] {
+            assert_eq!(strip(command), expected, "command: {command:?}");
+        }
+        // Any other unquoted delimiter keeps the body, so an unreadable body
+        // rejects (H-05 §B1 design 2 / 10).
         for command in [
-            "cat <<EOF\nit's\nEOF",
             "cat <<-EOF\n\tit's\n\tEOF",
-            "cat << EOF\nit's\nEOF",
+            "cat <<EOF\nit's",
+            "cat <<EOF\nit's $X\nEOF",
+            "cat <<EOF\nit's \\x\nEOF",
+            "true && cat <<EOF\nit's\nEOF",
         ] {
             assert_eq!(
                 strip_comments_and_heredocs(command),
