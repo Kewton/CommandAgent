@@ -42,39 +42,49 @@ fn ends_after_tool(
     progress_seen: bool,
 ) -> bool {
     required_paths_satisfied_after_tool(root, required, initially_missing, progress_seen)
-        && after_tool_stop_allowed(options, required, initially_missing)
+        && after_tool_stop_allowed(options)
 }
 
 #[test]
-fn direct_prompt_with_only_preexisting_paths_does_not_end_after_tool() {
+fn direct_prompt_does_not_end_after_tool_for_preexisting_or_created_paths() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("dates.py"), "broken\n").unwrap();
     std::fs::write(dir.path().join("created.md"), "new\n").unwrap();
     let direct = RunSessionOptions::default();
     assert_eq!(direct.scope, RunSessionScope::MinimalLoop);
     assert_eq!(direct.step_kind, None);
-    // (required, initially missing, progress seen, ends after tool)
+    assert!(!after_tool_stop_allowed(&direct));
+    // (required, initially missing, progress seen, paths satisfied)
     let table: [(&[&str], &[&str], bool, bool); 8] = [
-        // Every required path existed at the start: a Bash or Edit success
-        // no longer ends a direct prompt.
-        (&["dates.py"], &[], true, false),
+        // Every required path existed at the start (Issue #913).
+        (&["dates.py"], &[], true, true),
         (&["dates.py"], &[], false, false),
-        // A path missing at the start and present now keeps the stop, with or
-        // without progress, alone or next to a path that already existed.
+        // A path missing at the start and present now, alone or next to a
+        // path that already existed, with or without progress (Issue #921):
+        // the paths are satisfied, but a direct prompt does not stop on that.
         (&["created.md"], &["created.md"], false, true),
         (&["created.md"], &["created.md"], true, true),
         (&["dates.py", "created.md"], &["created.md"], false, true),
         (&["dates.py", "created.md"], &["created.md"], true, true),
-        // No required paths, or a path still missing: never a stop.
+        // No required paths, or a path still missing: never satisfied.
         (&[], &[], true, false),
         (&["dates.py", "absent.py"], &["absent.py"], true, false),
     ];
-    for (required, initially_missing, progress, expected) in table {
+    for (required, initially_missing, progress, satisfied) in table {
         let required = paths(required);
         let initially_missing = paths(initially_missing);
         assert_eq!(
-            ends_after_tool(dir.path(), &direct, &required, &initially_missing, progress),
-            expected,
+            required_paths_satisfied_after_tool(
+                dir.path(),
+                &required,
+                &initially_missing,
+                progress
+            ),
+            satisfied,
+            "{required:?} {initially_missing:?} progress={progress}"
+        );
+        assert!(
+            !ends_after_tool(dir.path(), &direct, &required, &initially_missing, progress),
             "{required:?} {initially_missing:?} progress={progress}"
         );
     }
@@ -84,7 +94,9 @@ fn direct_prompt_with_only_preexisting_paths_does_not_end_after_tool() {
 fn plan_steps_keep_the_after_tool_stop_for_preexisting_paths() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("dates.py"), "broken\n").unwrap();
+    std::fs::write(dir.path().join("created.md"), "new\n").unwrap();
     let required = paths(&["dates.py"]);
+    let created = paths(&["dates.py", "created.md"]);
     for kind in STEP_KINDS {
         for options in [
             RunSessionOptions::plan_step(kind),
@@ -99,6 +111,19 @@ fn plan_steps_keep_the_after_tool_stop_for_preexisting_paths() {
         ] {
             assert!(
                 ends_after_tool(dir.path(), &options, &required, &[], true),
+                "{kind:?} {:?} {:?}",
+                options.scope,
+                options.step_kind
+            );
+            // A plan step that created a missing path keeps the stop too.
+            assert!(
+                ends_after_tool(
+                    dir.path(),
+                    &options,
+                    &created,
+                    &paths(&["created.md"]),
+                    false
+                ),
                 "{kind:?} {:?} {:?}",
                 options.scope,
                 options.step_kind
@@ -121,10 +146,13 @@ fn stop_emits_the_unchanged_event_only_when_allowed() {
     let events = dir.path().join("events.jsonl");
     let required = paths(&["dates.py", "tests/test_dates.py"]);
     let direct = RunSessionOptions::default();
+    // A direct prompt emits nothing, whether the paths existed or were created.
     assert!(stop(Some(&events), &direct, &required, &[]).is_none());
+    assert!(stop(Some(&events), &direct, &required, &paths(&["dates.py"])).is_none());
     assert!(!events.exists());
 
-    let outcome = stop(Some(&events), &direct, &required, &paths(&["dates.py"]))
+    let implement = RunSessionOptions::plan_step(RunSessionStepKind::Implement);
+    let outcome = stop(Some(&events), &implement, &required, &paths(&["dates.py"]))
         .unwrap()
         .into_outcome(paths(&["dates.py"]), 3, 2, 0, None, None);
     assert_eq!(
@@ -150,7 +178,6 @@ fn stop_emits_the_unchanged_event_only_when_allowed() {
     );
     assert_eq!(values[0]["required_paths"], json!(required));
 
-    let implement = RunSessionOptions::plan_step(RunSessionStepKind::Implement);
     assert!(stop(None, &implement, &required, &[]).is_some());
 }
 
@@ -352,4 +379,50 @@ fn plan_implement_step_still_ends_after_a_successful_bash_on_existing_paths() {
     );
     assert_eq!(outcome.final_text, "required artifacts satisfied: dates.py");
     assert_eq!(client.remaining(), 1, "the final reply is not consumed");
+}
+
+#[test]
+fn plan_implement_step_still_ends_after_creating_a_missing_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut client = Scripted::new(vec![
+        tool_reply(
+            "Write",
+            json!({"path": "summary.md", "content": "# Summary\n"}),
+        ),
+        AssistantReply::text("unused final"),
+    ]);
+    let mut session = SessionSnapshot::new();
+    let outcome = run_session_with_outcome_with_options(
+        &mut client,
+        &mut session,
+        "create summary.md",
+        &paths(&["summary.md"]),
+        &config(dir.path()),
+        &NOOP_UI,
+        RunSessionOptions::plan_step(RunSessionStepKind::Implement),
+    )
+    .unwrap();
+
+    assert_eq!(
+        outcome.stop_reason,
+        RunStopReason::RequiredArtifactsSatisfiedAfterTool
+    );
+    assert_eq!(
+        outcome.final_text,
+        "required artifacts satisfied: summary.md"
+    );
+    assert_eq!(outcome.changed_paths, paths(&["summary.md"]));
+    assert_eq!(client.remaining(), 1, "the final reply is not consumed");
+    let events = std::fs::read_to_string(dir.path().join("events.jsonl")).unwrap();
+    let stops = events
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .filter(|event| event["event"] == "loop_stop")
+        .collect::<Vec<_>>();
+    assert_eq!(stops.len(), 1, "{stops:#?}");
+    assert_eq!(
+        stops[0]["reason"],
+        "required_artifacts_satisfied_after_tool"
+    );
+    assert_eq!(stops[0]["required_paths"], json!(["summary.md"]));
 }

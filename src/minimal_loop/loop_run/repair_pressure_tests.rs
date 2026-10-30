@@ -36,7 +36,7 @@ mod moved {
         )
         .unwrap();
 
-        assert_eq!(result, "required artifacts satisfied: a.txt");
+        assert_eq!(result, "done");
         assert_eq!(
             std::fs::read_to_string(dir.path().join("a.txt")).unwrap(),
             "ok"
@@ -74,13 +74,14 @@ mod moved {
             }),
         ]);
         let mut session = SessionSnapshot::new();
-        let outcome = run_session_with_outcome_with_ui(
+        let outcome = run_session_with_outcome_with_options(
             &mut fake,
             &mut session,
             "create a page",
             &["src/app/page.tsx".to_string()],
             &config(dir.path().to_path_buf()),
             &NOOP_UI,
+            RunSessionOptions::plan_step(RunSessionStepKind::Implement),
         )
         .unwrap();
 
@@ -400,6 +401,7 @@ mod moved {
                 prompt_tokens: None,
                 completion_tokens: None,
             }),
+            Ok(AssistantReply::text("done")),
         ]);
         let mut session = SessionSnapshot::new();
         let outcome = run_session_with_outcome_with_ui(
@@ -411,10 +413,7 @@ mod moved {
             &NOOP_UI,
         )
         .unwrap();
-        assert_eq!(
-            outcome.stop_reason,
-            RunStopReason::RequiredArtifactsSatisfiedAfterTool
-        );
+        assert_eq!(outcome.stop_reason, RunStopReason::AssistantFinal);
         assert!(dir.path().join("date-helper.js").is_file());
     }
 
