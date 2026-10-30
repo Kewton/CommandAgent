@@ -74,7 +74,14 @@ automatically; an unknown or mismatching toolchain is unavailable.
    and before any provider is built (`src/lib.rs`), and a workflow child node
    calls it again for its own origin workspace and profile before its
    provider is built; a refusal exits with code 2 (a workflow child node
-   fails). When neither the profile nor the pack selection declares
+   fails). The pack side of the preflight does not check the pack's
+   profile/intent fit or run conformance; those are checked when final
+   acceptance loads the pack, which refuses a mismatched pack, so the
+   preflight may verify a superset of the adapters final acceptance runs.
+   The pack loader itself (`src/planner/pack/mod.rs`) checks each member's
+   type and size with `lstat` before reading it; that leaves a narrow
+   check-then-read window that this Issue's file scope does not change.
+   When neither the profile nor the pack selection declares
    `artifact_contract_check`, it reads only the pack selection variables and
    never the registry. At run time the descriptor is read again, and a
    registry,

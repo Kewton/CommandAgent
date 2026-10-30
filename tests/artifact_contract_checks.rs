@@ -29,6 +29,7 @@ use sha2::Digest;
 const CORPUS: &str = "tests/corpus/apps/artifact-contract-check";
 const DRAFT: &str = "contract-draft";
 const ENV_DRAFT: &str = "contract-env";
+const PHASED_DRAFT: &str = "contract-phased";
 const LINES_ADAPTER: &str = "tally-lines";
 const ENV_ADAPTER: &str = "env-probe";
 const PACK_ID: &str = "contract-pack";
@@ -122,6 +123,16 @@ fn fixture() -> &'static Fixture {
             std::fs::create_dir_all(&directory).unwrap();
             std::fs::write(directory.join("manifest.toml"), manifest(profile, adapter)).unwrap();
         }
+        // A draft whose artifact check carries `phases`: preflight still checks
+        // its adapter, and final acceptance refuses to run it.
+        let phased = extension.join(format!("profiles/{PHASED_DRAFT}"));
+        std::fs::create_dir_all(&phased).unwrap();
+        std::fs::write(
+            phased.join("manifest.toml"),
+            manifest(PHASED_DRAFT, LINES_ADAPTER)
+                .replace("params = {", "phases = [\"implementation\"]\nparams = {"),
+        )
+        .unwrap();
         let pack = extension.join(format!("packs/{PACK_ID}/1.0.0"));
         std::fs::create_dir_all(&pack).unwrap();
         let eval = pack_eval(DRAFT, LINES_ADAPTER, "final_acceptance", "");
@@ -686,19 +697,7 @@ fn an_inherited_pack_selection_is_preflighted_before_any_provider() {
     std::fs::create_dir_all(&workspace).unwrap();
     let (extension, config) = draft_with_registry_in(&root, &workspace.join("registry"));
     // A draft with no artifact check of its own; only the pack declares it.
-    let plain = extension.join("profiles/plain-draft");
-    std::fs::create_dir_all(&plain).unwrap();
-    std::fs::write(
-        plain.join("manifest.toml"),
-        format!(
-            "{}[[checks.final]]\nid = \"scaffold_files_present\"\nparams = {{ files = [\"notes.txt\"] }}\n",
-            manifest("plain-draft", LINES_ADAPTER)
-                .split("[[checks.final]]")
-                .next()
-                .unwrap()
-        ),
-    )
-    .unwrap();
+    plain_draft(&extension);
     let pack = root.join("pack");
     std::fs::create_dir_all(&pack).unwrap();
     let eval = pack_eval("plain-draft", LINES_ADAPTER, "final_acceptance", "");
@@ -736,6 +735,218 @@ fn an_inherited_pack_selection_is_preflighted_before_any_provider() {
         matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock),
         "the provider endpoint was contacted"
     );
+}
+
+/// Red team `sel-pack-env-complete-or-none`: a partial inherited pack
+/// selection (only the directory) is refused before any provider.
+#[test]
+fn a_partial_inherited_pack_selection_is_refused_before_any_provider() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let workspace = root.join("workspace");
+    let home = root.join("home");
+    std::fs::create_dir_all(&workspace).unwrap();
+    std::fs::create_dir_all(&home).unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let host = format!("http://{}", listener.local_addr().unwrap());
+    let run = Command::new(env!("CARGO_BIN_EXE_commandagent"))
+        .args([
+            "--profile",
+            "generic",
+            "--ollama-host",
+            &host,
+            "--prompt",
+            "hi",
+        ])
+        .current_dir(&workspace)
+        .env_clear()
+        .env("HOME", &home)
+        .env("COMMANDAGENT_PACK_DIRECTORY", root.join("pack"))
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    assert_eq!(run.status.code(), Some(2), "{stderr}");
+    assert!(
+        stderr.contains("pack runtime selection is incomplete"),
+        "{stderr}"
+    );
+    assert!(
+        matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock),
+        "the provider endpoint was contacted"
+    );
+}
+
+/// Red team `file-pack-member-static-fifo`, `file-pack-member-oversize`,
+/// `file-pack-pin-symlink`: an inherited pack whose eval is a FIFO or
+/// oversized, or whose pin is a symlink or FIFO, is refused by the preflight
+/// without blocking.
+#[cfg(unix)]
+#[test]
+fn inherited_pack_members_that_are_special_or_oversized_are_refused() {
+    use commandagent::planner::artifact_contract_checks::preflight;
+    let fixture = fixture();
+    let _lock = runner_lock();
+    let workspace = tempfile::tempdir().unwrap();
+    for case in ["eval-fifo", "eval-oversize", "pin-symlink", "pin-fifo"] {
+        let copy = tempfile::tempdir().unwrap();
+        for file in ["eval.yaml", "pack.sha256"] {
+            std::fs::copy(fixture.pack.join(file), copy.path().join(file)).unwrap();
+        }
+        let target = copy.path().join(if case.starts_with("eval") {
+            "eval.yaml"
+        } else {
+            "pack.sha256"
+        });
+        match case {
+            "eval-oversize" => std::fs::write(&target, vec![b'#'; 256 * 1024 + 1]).unwrap(),
+            "pin-symlink" => {
+                let elsewhere = copy.path().join("..").join(format!(
+                    "{}-pin",
+                    copy.path().file_name().unwrap().to_string_lossy()
+                ));
+                std::fs::copy(&target, &elsewhere).unwrap();
+                std::fs::remove_file(&target).unwrap();
+                std::os::unix::fs::symlink(&elsewhere, &target).unwrap();
+            }
+            _ => {
+                std::fs::remove_file(&target).unwrap();
+                let status = Command::new("/usr/bin/mkfifo")
+                    .arg(&target)
+                    .status()
+                    .unwrap();
+                assert!(status.success());
+            }
+        }
+        let selection = PackSelection::install_at(copy.path(), &fixture.pack_hash);
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let path = workspace.path().to_path_buf();
+        std::thread::spawn(move || {
+            let _ = sender.send(preflight(&path, "generic"));
+        });
+        let result = receiver
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .unwrap_or_else(|_| panic!("{case}: the preflight blocked"));
+        drop(selection);
+        let error = result.unwrap_err();
+        assert!(
+            error.contains("selected pack cannot be verified"),
+            "{case}: {error}"
+        );
+    }
+}
+
+/// Red team `pos-pack-command-check-only`: a `--pack` that declares only a
+/// command check leaves the run unchanged: it reaches the provider.
+#[test]
+fn a_command_check_only_pack_leaves_the_run_unchanged() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let workspace = root.join("workspace");
+    let home = root.join("home");
+    let extension = root.join("extension");
+    std::fs::create_dir_all(&workspace).unwrap();
+    std::fs::create_dir_all(&home).unwrap();
+    plain_draft(&extension);
+    let pack = extension.join("packs/command-only/1.0.0");
+    std::fs::create_dir_all(&pack).unwrap();
+    let eval = "schema_version: commandagent.pack.eval/v0\npack:\n  id: command-only\n  version: 1.0.0\n  profile: plain-draft\n  intent: create\nchecks:\n  - id: command_check\n    at:\n      kind: final_acceptance\n    params:\n      argv: [test, -f, notes.txt]\n      cwd: workspace\n      expect:\n        exit_code: 0\n        max_bytes: 1024\n";
+    std::fs::write(pack.join("eval.yaml"), eval).unwrap();
+    let hash = exact_byte_hash(None, Some(eval.as_bytes()));
+    std::fs::write(pack.join("pack.sha256"), format!("{hash}\n")).unwrap();
+    let (code, stderr) = closed_provider_run(&workspace, &home, |command| {
+        command.arg("--extension-root").arg(&extension).args([
+            "--profile",
+            "plain-draft",
+            "--pack",
+            "command-only@1.0.0",
+        ]);
+    });
+    assert_eq!(code, Some(1), "{stderr}");
+    assert!(stderr.contains("Ollama request failed"), "{stderr}");
+}
+
+/// Red team `pos-manifest-unchanged-runs`: an unchanged declaring manifest
+/// with a registry outside the workspace passes the preflight and the run
+/// reaches the provider.
+#[test]
+fn an_unchanged_declaring_manifest_passes_preflight_and_reaches_the_provider() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let workspace = root.join("workspace");
+    let home = root.join("home");
+    std::fs::create_dir_all(&workspace).unwrap();
+    std::fs::create_dir_all(&home).unwrap();
+    let (extension, config) = draft_with_registry_in(&root, &root.join("registry"));
+    let (code, stderr) = closed_provider_run(&workspace, &home, |command| {
+        command
+            .arg("--extension-root")
+            .arg(&extension)
+            .args(["--profile", DRAFT])
+            .env("COMMANDAGENT_ADAPTER_CONFIG_ROOT", &config);
+    });
+    assert_eq!(code, Some(1), "{stderr}");
+    assert!(stderr.contains("Ollama request failed"), "{stderr}");
+}
+
+/// Red team `parse-manifest-phases-on-artifact`: final acceptance refuses an
+/// artifact check that carries `phases` (the preflight side is a unit test).
+#[test]
+fn an_artifact_check_with_phases_is_a_native_failure() {
+    let _fixture = fixture();
+    let workspace = tempfile::tempdir().unwrap();
+    write_notes(workspace.path(), "a\nb\nc\n");
+    let runtime = ProfileRuntimeRegistry::resolve(&ProfileId::parse(PHASED_DRAFT));
+    let report = runtime.verify_final_with_events(workspace.path(), "Write notes", None);
+    assert!(!report.is_pass());
+    assert!(
+        report
+            .primary_reason()
+            .contains("registered only for final acceptance; omit phases"),
+        "{}",
+        report.primary_reason()
+    );
+}
+
+/// Run the binary against a closed provider port; the run reaches the
+/// provider exactly when the error is the provider connection failure.
+fn closed_provider_run(
+    workspace: &Path,
+    home: &Path,
+    configure: impl FnOnce(&mut Command),
+) -> (Option<i32>, String) {
+    let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let host = format!("http://{}", closed.local_addr().unwrap());
+    drop(closed);
+    let mut command = Command::new(env!("CARGO_BIN_EXE_commandagent"));
+    command
+        .args(["--ollama-host", &host, "--prompt", "hi"])
+        .current_dir(workspace)
+        .env_clear()
+        .env("HOME", home);
+    configure(&mut command);
+    let output = command.output().unwrap();
+    (
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr).to_string(),
+    )
+}
+
+/// A draft profile with no artifact check of its own.
+fn plain_draft(extension: &Path) {
+    let plain = extension.join("profiles/plain-draft");
+    std::fs::create_dir_all(&plain).unwrap();
+    std::fs::write(
+        plain.join("manifest.toml"),
+        format!(
+            "{}[[checks.final]]\nid = \"scaffold_files_present\"\nparams = {{ files = [\"notes.txt\"] }}\n",
+            manifest("plain-draft", LINES_ADAPTER)
+                .split("[[checks.final]]")
+                .next()
+                .unwrap()
+        ),
+    )
+    .unwrap();
 }
 
 /// A valid tally-lines draft profile in `root/extension` whose operator

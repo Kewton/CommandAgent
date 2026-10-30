@@ -1300,6 +1300,45 @@ fn a_registered_manifest_is_re_read_only_as_its_loaded_bytes() {
     assert!(result.unwrap_err().contains("not a regular file"));
 }
 
+/// Red team `parse-overlay-checks-match`, `parse-v2-manifest-match`,
+/// `parse-manifest-phases-on-artifact` (preflight side): an overlay file
+/// hashed under its own name, a v2 manifest, and a binding that carries
+/// `phases` all yield their declared adapter, the same set final acceptance
+/// binds (it then refuses the phased binding natively).
+#[test]
+fn overlay_v2_and_phased_declarations_are_collected() {
+    use crate::planner::profile_manifest::source::{
+        EXTENSION_MANIFEST_FILE, EXTENSION_OVERLAY_FILE, exact_byte_hash,
+    };
+    let dir = tempfile::tempdir().unwrap();
+    for (file, text, expected) in [
+        (
+            EXTENSION_OVERLAY_FILE,
+            "[overlay]\nbase_profile = \"nextjs\"\nmode = \"additive\"\n[[checks.extra]]\nid = \"artifact_contract_check\"\nparams = { adapter_id = \"overlay-a\", request = \"r.json\" }\n",
+            "overlay-a",
+        ),
+        (
+            EXTENSION_MANIFEST_FILE,
+            "[metadata]\nid = \"v2\"\nschema_version = \"v2\"\n[[checks.final]]\nid = \"artifact_contract_check\"\nparams = { adapter_id = \"v2-a\", request = \"r.json\" }\n",
+            "v2-a",
+        ),
+        (
+            EXTENSION_MANIFEST_FILE,
+            "[[checks.final]]\nid = \"artifact_contract_check\"\nphases = [\"build\"]\nparams = { adapter_id = \"phased-a\", request = \"r.json\" }\n",
+            "phased-a",
+        ),
+    ] {
+        let path = dir.path().join(file);
+        fs::write(&path, text).unwrap();
+        let hash = exact_byte_hash(file, text.as_bytes());
+        assert_eq!(
+            super::registered_manifest_adapter_ids(&path, &hash),
+            Ok(BTreeSet::from([expected.to_string()])),
+            "{expected}"
+        );
+    }
+}
+
 /// The safe open itself: a FIFO with no writer, a trailing symlink, and a
 /// device are refused without blocking; a regular file opens.
 #[cfg(unix)]
