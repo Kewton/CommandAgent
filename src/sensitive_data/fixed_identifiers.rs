@@ -52,6 +52,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "Write",
     "aborted",
     "anchor_stagnation_interlock",
+    "artifact_contract_check_result",
     "artifact_stagnation_feedback",
     "bash_path_confinement_rejected",
     "bash_sandbox_status",

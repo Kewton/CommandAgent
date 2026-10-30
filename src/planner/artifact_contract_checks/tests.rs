@@ -1064,3 +1064,67 @@ fn make_executable(path: &Path) {
         let _ = path;
     }
 }
+
+/// `CatalogError` Display moved from a hand-written `impl Display` to
+/// `thiserror` attributes. The expected strings are literals produced by the
+/// pre-change implementation (be989685) for these representative values, not
+/// derived from the current one. The match has no wildcard, so a new variant
+/// fails to compile until it is listed here.
+#[test]
+fn catalog_error_display_matches_the_pre_thiserror_strings() {
+    use crate::planner::capability_catalog::CatalogError;
+
+    fn pre_change_display(error: &CatalogError) -> &'static str {
+        match error {
+            CatalogError::UnknownId(_) => "unknown capability id `cap-x`",
+            CatalogError::UnknownParameter { .. } => {
+                "unknown parameter `param-y` for capability `cap-x`"
+            }
+            CatalogError::MissingParameter { .. } => {
+                "missing parameter `param-y` for capability `cap-x`"
+            }
+            CatalogError::TypeMismatch { .. } => {
+                "parameter `param-y` for capability `cap-x` must be [path]"
+            }
+            CatalogError::InvalidParameter { .. } => {
+                "invalid parameter `param-y` for capability `cap-x`: path may not contain .."
+            }
+            CatalogError::ProbeBindingUnimplemented { .. } => {
+                "probe capability `cap-x` is registered but not bindable yet"
+            }
+        }
+    }
+
+    let id = || "cap-x".to_string();
+    let parameter = || "param-y".to_string();
+    let errors = [
+        CatalogError::UnknownId(id()),
+        CatalogError::UnknownParameter {
+            id: id(),
+            parameter: parameter(),
+        },
+        CatalogError::MissingParameter {
+            id: id(),
+            parameter: parameter(),
+        },
+        CatalogError::TypeMismatch {
+            id: id(),
+            parameter: parameter(),
+            expected: "[path]".to_string(),
+        },
+        CatalogError::InvalidParameter {
+            id: id(),
+            parameter: parameter(),
+            reason: "path may not contain ..".to_string(),
+        },
+        CatalogError::ProbeBindingUnimplemented { id: id() },
+    ];
+    let variants = errors
+        .iter()
+        .map(std::mem::discriminant)
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(variants.len(), errors.len(), "every variant exactly once");
+    for error in &errors {
+        assert_eq!(error.to_string(), pre_change_display(error), "{error:?}");
+    }
+}
