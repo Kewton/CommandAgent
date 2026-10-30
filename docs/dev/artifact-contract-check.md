@@ -88,11 +88,18 @@ automatically; an unknown or mismatching toolchain is unavailable.
      declaration can only be known by loading the verified pack. Every member
      is read through the shared safe read: opened with
      `O_NOFOLLOW | O_NONBLOCK`, required to be a regular file by the opened
-     descriptor's metadata, and read with the loader's existing byte limits
-     (`MAX_FILE_BYTES`, the material limits, 4 KiB for the pin). A member
-     swapped for a FIFO or a symlink after the loader's `lstat` check, or
-     grown past its limit after the size check, fails at once with the
-     loader's existing error kinds instead of blocking.
+     descriptor's metadata, and read with the loader's existing byte limits:
+     `MAX_FILE_BYTES` for `assist.yaml` and `eval.yaml`, 4 KiB for the pin,
+     and for materials both the 65,536-byte per-file limit and the
+     262,144-byte aggregate limit. Every one of these limits is enforced on
+     the bytes actually read, not only on the earlier `lstat` size: each
+     material is read with at most the smaller of its own limit and the
+     aggregate budget left by the materials read before it. A member swapped
+     for a FIFO or a symlink after the loader's `lstat` check fails at once
+     (`NotRegularFile`); a member that grew past its own limit after the size
+     check fails as `TooLarge` or `MaterialTooLarge`, and materials that grew
+     within their own limits but together past the aggregate fail as
+     `MaterialsTooLarge`, before any of those bytes are kept.
    - The effective profile's registered manifest, only when that profile
      declares the check, through the same safe read and hash check.
    At run time the descriptor is read again, and a

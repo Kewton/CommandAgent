@@ -879,6 +879,16 @@
       "native_passed": false,
       "domain_verdict": "none",
       "asserts": "a pack member swapped for a FIFO or symlink, or grown past its limit, after the loader's lstat check fails without blocking with the loader's error kinds"
+    },
+    {
+      "id": "synthetic-materials-grow-past-aggregate",
+      "kind": "synthetic",
+      "adapter": "none",
+      "test": "material_reads_share_one_budget_on_the_bytes_actually_read",
+      "stopped_at": "registry",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "materials that grow within their own limit after lstat but together past the aggregate limit fail as MaterialsTooLarge on the bytes actually read"
     }
   ]
 }

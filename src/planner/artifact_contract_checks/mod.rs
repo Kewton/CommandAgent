@@ -975,12 +975,16 @@ fn plain_directory(path: &Path) -> bool {
 pub(crate) enum SafeReadError {
     /// The open failed, including `ELOOP` for a final symlink.
     Open(std::io::Error),
+    /// The opened descriptor's metadata could not be read.
+    Inspect(std::io::Error),
     /// The opened descriptor is not a regular file (FIFO, device, ...).
     NotRegular,
     /// Reading failed after a successful open.
     Read(std::io::Error),
     /// More than the limit could be read.
     TooLarge(u64),
+    /// The file fits its own limit but not the remaining shared budget.
+    BudgetExceeded,
 }
 
 impl SafeReadError {
@@ -1001,9 +1005,11 @@ impl std::fmt::Display for SafeReadError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Open(error) => write!(formatter, "cannot be opened as a plain file: {error}"),
+            Self::Inspect(error) => write!(formatter, "cannot be inspected: {error}"),
             Self::NotRegular => formatter.write_str("is not a regular file"),
             Self::Read(error) => write!(formatter, "cannot be read: {error}"),
             Self::TooLarge(limit) => write!(formatter, "exceeds {limit} bytes"),
+            Self::BudgetExceeded => formatter.write_str("exceeds the remaining shared byte budget"),
         }
     }
 }
@@ -1021,7 +1027,7 @@ fn open_regular_file(path: &Path) -> Result<File, SafeReadError> {
         options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
     }
     let file = options.open(path).map_err(SafeReadError::Open)?;
-    let metadata = file.metadata().map_err(SafeReadError::Read)?;
+    let metadata = file.metadata().map_err(SafeReadError::Inspect)?;
     if !metadata.file_type().is_file() {
         return Err(SafeReadError::NotRegular);
     }
@@ -1043,6 +1049,32 @@ pub(crate) fn read_regular_bounded(path: &Path, limit: u64) -> Result<Vec<u8>, S
     if bytes.len() as u64 > limit {
         return Err(SafeReadError::TooLarge(limit));
     }
+    Ok(bytes)
+}
+
+/// Read one of several files that share a byte `budget`: at most
+/// `min(file_limit, budget)` bytes, measured on the bytes actually read. A file
+/// over `file_limit` is `TooLarge`; a file within `file_limit` that does not
+/// fit the remaining budget is `BudgetExceeded`. On success the bytes read are
+/// taken from the budget.
+pub(crate) fn read_regular_within_budget(
+    path: &Path,
+    file_limit: u64,
+    budget: &mut u64,
+) -> Result<Vec<u8>, SafeReadError> {
+    let limit = file_limit.min(*budget);
+    let bytes = match read_regular_bounded(path, limit) {
+        Err(SafeReadError::TooLarge(_)) if limit < file_limit => {
+            // Over the budget; it is over the file's own limit only if it
+            // also yields more than `file_limit` bytes.
+            return Err(match read_regular_bounded(path, file_limit) {
+                Err(SafeReadError::TooLarge(limit)) => SafeReadError::TooLarge(limit),
+                _ => SafeReadError::BudgetExceeded,
+            });
+        }
+        other => other?,
+    };
+    *budget -= bytes.len() as u64;
     Ok(bytes)
 }
 

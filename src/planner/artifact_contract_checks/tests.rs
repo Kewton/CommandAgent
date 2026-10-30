@@ -1424,6 +1424,68 @@ fn shared_safe_read_refuses_swapped_or_grown_members_without_blocking() {
     }
 }
 
+/// Recheck 4: the materials' aggregate limit holds on the bytes actually
+/// read. Five materials that were 1 byte when listed and then grew to the
+/// per-file limit cannot all be kept under the shared 262,144-byte budget:
+/// the fifth is `BudgetExceeded` (the loader's `MaterialsTooLarge`), and a
+/// member over its own limit stays `TooLarge` (`MaterialTooLarge`).
+#[test]
+fn material_reads_share_one_budget_on_the_bytes_actually_read() {
+    use super::SafeReadError;
+    const PER_FILE: u64 = 65_536;
+    const TOTAL: u64 = 262_144;
+    let dir = tempfile::tempdir().unwrap();
+    let paths = (0..5)
+        .map(|index| dir.path().join(format!("m{index}.md")))
+        .collect::<Vec<_>>();
+    for path in &paths {
+        fs::write(path, b"x").unwrap();
+    }
+    // Every material grows to its own limit after the size checks.
+    for path in &paths {
+        fs::write(path, vec![b'x'; PER_FILE as usize]).unwrap();
+    }
+    let mut budget = TOTAL;
+    for path in &paths[..4] {
+        let bytes = super::read_regular_within_budget(path, PER_FILE, &mut budget).unwrap();
+        assert_eq!(bytes.len() as u64, PER_FILE);
+    }
+    assert_eq!(budget, 0);
+    assert!(matches!(
+        super::read_regular_within_budget(&paths[4], PER_FILE, &mut budget),
+        Err(SafeReadError::BudgetExceeded)
+    ));
+
+    // A member over its own limit is reported as such, budget or not.
+    fs::write(&paths[0], vec![b'x'; PER_FILE as usize + 1]).unwrap();
+    for start in [TOTAL, 10] {
+        let mut budget = start;
+        assert!(matches!(
+            super::read_regular_within_budget(&paths[0], PER_FILE, &mut budget),
+            Err(SafeReadError::TooLarge(PER_FILE))
+        ));
+        assert_eq!(
+            budget, start,
+            "a refused read takes nothing from the budget"
+        );
+    }
+
+    // Ordinary members within both limits read unchanged.
+    let mut budget = TOTAL;
+    fs::write(&paths[1], b"# guide\n").unwrap();
+    assert_eq!(
+        super::read_regular_within_budget(&paths[1], PER_FILE, &mut budget).unwrap(),
+        b"# guide\n"
+    );
+    assert_eq!(budget, TOTAL - 8);
+
+    // An inspection failure keeps its own wording.
+    assert_eq!(
+        SafeReadError::Inspect(std::io::Error::other("denied")).to_string(),
+        "cannot be inspected: denied"
+    );
+}
+
 #[cfg(unix)]
 fn make_fifo(path: &Path) {
     use std::os::unix::ffi::OsStrExt;

@@ -212,7 +212,10 @@ fn pack_read_error(
     match error {
         SafeReadError::NotRegular => PackError::NotRegularFile { path },
         SafeReadError::TooLarge(_) => too_large(path),
-        SafeReadError::Open(cause) | SafeReadError::Read(cause) => PackError::Io { path, cause },
+        SafeReadError::BudgetExceeded => PackError::MaterialsTooLarge,
+        SafeReadError::Open(cause) | SafeReadError::Inspect(cause) | SafeReadError::Read(cause) => {
+            PackError::Io { path, cause }
+        }
     }
 }
 
@@ -282,6 +285,7 @@ fn read_materials(path: &Path) -> Result<BTreeMap<String, Vec<u8>>, PackError> {
     }
     let mut materials = BTreeMap::new();
     let mut total = 0_u64;
+    let mut remaining = MAX_TOTAL_MATERIAL_BYTES;
     for entry in std::fs::read_dir(&directory).map_err(|cause| PackError::Io {
         path: directory.clone(),
         cause,
@@ -317,9 +321,12 @@ fn read_materials(path: &Path) -> Result<BTreeMap<String, Vec<u8>>, PackError> {
         if total > MAX_TOTAL_MATERIAL_BYTES {
             return Err(PackError::MaterialsTooLarge);
         }
-        let bytes = crate::planner::artifact_contract_checks::read_regular_bounded(
+        // Both limits are enforced on the bytes actually read, so a member
+        // that grew after the checks above cannot exceed either one.
+        let bytes = crate::planner::artifact_contract_checks::read_regular_within_budget(
             &member,
             MAX_MATERIAL_BYTES,
+            &mut remaining,
         )
         .map_err(|error| {
             pack_read_error(member.clone(), error, |path| PackError::MaterialTooLarge {
