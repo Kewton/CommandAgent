@@ -50,7 +50,7 @@
     {
       "id": "BB-DOCS-001",
       "area": "docs",
-      "purpose": "--help has exactly the 67 application flags claimed by the reference",
+      "purpose": "--help has exactly the 68 application flags claimed by the reference",
       "source": "docs/guide/ja/cli-reference.md#呼び出し方",
       "setup": [],
       "command": "\"$BIN\" --help </dev/null | grep -oE '^ +(-[a-zA-Z], )?--[a-z0-9-]+' | grep -oE -- '--[a-z0-9-]+' | grep -vxE -- '--help|--version' | sort -u | wc -l | tr -d ' ' | sed 's/^/COUNT=/'",
@@ -58,7 +58,7 @@
       "expected": {
         "exit_code": 0,
         "stdout_contains": [
-          "COUNT=67"
+          "COUNT=68"
         ],
         "stderr_contains": [],
         "must_not_contain": [
@@ -67,7 +67,7 @@
         "files_exist": [],
         "files_absent": []
       },
-      "note": "Old expectation: COUNT=66. Fixed: docs/guide/ja/cli-reference.md:25 and docs/guide/en/cli-reference.md:26 claim 67 flags, pinned by tests/doc_drift.rs public_cli_flags_match_bilingual_references_and_advertised_counts; PM ruling 2026-10-19 fixes the count at 67."
+      "note": "Old expectation: COUNT=67. Fixed: #918 added --request-pattern, so --help has 68 application flags; docs/guide/ja/cli-reference.md:25 and docs/guide/en/cli-reference.md:26 claim 68 flags, pinned by tests/doc_drift.rs public_cli_flags_match_bilingual_references_and_advertised_counts."
     },
     {
       "id": "BB-DOCS-002",
