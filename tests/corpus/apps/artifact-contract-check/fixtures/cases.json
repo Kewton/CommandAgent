@@ -869,6 +869,16 @@
       "domain_verdict": "none",
       "expect": "allow",
       "asserts": "red team S-165c case `pos-manifest-unchanged-runs` (positive/unchanged-run)"
+    },
+    {
+      "id": "synthetic-pack-member-swapped-after-lstat",
+      "kind": "synthetic",
+      "adapter": "none",
+      "test": "shared_safe_read_refuses_swapped_or_grown_members_without_blocking",
+      "stopped_at": "registry",
+      "native_passed": false,
+      "domain_verdict": "none",
+      "asserts": "a pack member swapped for a FIFO or symlink, or grown past its limit, after the loader's lstat check fails without blocking with the loader's error kinds"
     }
   ]
 }

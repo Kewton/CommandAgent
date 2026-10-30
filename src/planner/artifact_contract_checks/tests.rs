@@ -1371,6 +1371,59 @@ fn open_regular_refuses_fifo_symlink_and_device_without_blocking() {
     );
 }
 
+/// R2 (recheck 3): the shared safe read that the pack loader now uses after
+/// its own `lstat` check. A member swapped for a writerless FIFO or a symlink
+/// after that check, or grown past the limit after the size check, fails
+/// without blocking with the kinds the loader maps onto `NotRegularFile`,
+/// `NotRegularFile`, and `TooLarge`/`MaterialTooLarge`; a regular file within
+/// the limit reads unchanged.
+#[cfg(unix)]
+#[test]
+fn shared_safe_read_refuses_swapped_or_grown_members_without_blocking() {
+    use super::SafeReadError;
+    let dir = tempfile::tempdir().unwrap();
+    for member in ["eval.yaml", "assist.yaml", "guide.md"] {
+        let path = dir.path().join(member);
+        fs::write(&path, b"ok: true\n").unwrap();
+        assert_eq!(
+            super::read_regular_bounded(&path, 64).unwrap(),
+            b"ok: true\n"
+        );
+
+        // Grown past the limit after a size check.
+        fs::write(&path, vec![b'#'; 65]).unwrap();
+        assert!(matches!(
+            super::read_regular_bounded(&path, 64),
+            Err(SafeReadError::TooLarge(64))
+        ));
+
+        // Swapped for a symlink to an acceptable file.
+        let elsewhere = dir.path().join(format!("{member}.real"));
+        fs::write(&elsewhere, b"ok: true\n").unwrap();
+        fs::remove_file(&path).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, &path).unwrap();
+        let error = super::read_regular_bounded(&path, 64).unwrap_err();
+        assert!(error.is_symlink_refusal(), "{member}: {error}");
+
+        // Swapped for a writerless FIFO: refused without blocking.
+        fs::remove_file(&path).unwrap();
+        make_fifo(&path);
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let target = path.clone();
+        std::thread::spawn(move || {
+            let _ = sender.send(super::read_regular_bounded(&target, 64).map(|_| ()));
+        });
+        let result = receiver
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap_or_else(|_| panic!("{member}: reading a FIFO blocked"));
+        assert!(
+            matches!(result, Err(SafeReadError::NotRegular)),
+            "{member}: {result:?}"
+        );
+        fs::remove_file(&path).unwrap();
+    }
+}
+
 #[cfg(unix)]
 fn make_fifo(path: &Path) {
     use std::os::unix::ffi::OsStrExt;

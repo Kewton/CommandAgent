@@ -78,12 +78,24 @@ automatically; an unknown or mismatching toolchain is unavailable.
    profile/intent fit or run conformance; those are checked when final
    acceptance loads the pack, which refuses a mismatched pack, so the
    preflight may verify a superset of the adapters final acceptance runs.
-   The pack loader itself (`src/planner/pack/mod.rs`) checks each member's
-   type and size with `lstat` before reading it; that leaves a narrow
-   check-then-read window that this Issue's file scope does not change.
-   When neither the profile nor the pack selection declares
-   `artifact_contract_check`, it reads only the pack selection variables and
-   never the registry. At run time the descriptor is read again, and a
+   What the preflight reads, separately:
+   - The operator registry (and adapter descriptors and tooling) only for the
+     adapters that the profile or the pack selection declares. With no such
+     declaration it never touches the registry.
+   - The pack selection variables, always; and, when a pack is selected, that
+     pack's members (`assist.yaml`, `eval.yaml`, `materials/*.md`, and
+     `pack.sha256`) whether or not they declare the check, because the
+     declaration can only be known by loading the verified pack. Every member
+     is read through the shared safe read: opened with
+     `O_NOFOLLOW | O_NONBLOCK`, required to be a regular file by the opened
+     descriptor's metadata, and read with the loader's existing byte limits
+     (`MAX_FILE_BYTES`, the material limits, 4 KiB for the pin). A member
+     swapped for a FIFO or a symlink after the loader's `lstat` check, or
+     grown past its limit after the size check, fails at once with the
+     loader's existing error kinds instead of blocking.
+   - The effective profile's registered manifest, only when that profile
+     declares the check, through the same safe read and hash check.
+   At run time the descriptor is read again, and a
    registry,
    descriptor, tooling root, or executable that resolves inside the workspace
    is refused as self-approval.
@@ -117,9 +129,11 @@ automatically; an unknown or mismatching toolchain is unavailable.
    `O_NOFOLLOW | O_NONBLOCK` and must be a regular file by the opened
    descriptor's own metadata, and inputs are re-resolved component by component
    after the run. An input swapped for a FIFO, device, or symlink therefore
-   fails promptly instead of blocking the host. A path component swapped
-   between those checks and the open is still possible; this narrows the window
-   but is not a complete seal. A hash first taken after generation proves which
+   fails promptly instead of blocking the host. A directory component above
+   the file can still be swapped in the time between the component checks and
+   the open: the checks shorten that interval but do not close it, and this
+   is a statement about which bytes are read, not a wait bound (no read here
+   waits on a special file either way). A hash first taken after generation proves which
    bytes were checked, not that they were sealed before generation.
 6. **Limits.** Request and stdin envelope 16 KiB; each stream 24,000 bytes,
    enforced while reading; 30 seconds; at most 512 rows, 64 diagnostics (16 per

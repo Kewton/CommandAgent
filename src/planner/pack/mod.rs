@@ -189,9 +189,31 @@ fn read_optional(path: PathBuf) -> Result<Option<Vec<u8>>, PackError> {
     if metadata.len() > MAX_FILE_BYTES {
         return Err(PackError::TooLarge { path });
     }
-    std::fs::read(&path)
-        .map(Some)
-        .map_err(|cause| PackError::Io { path, cause })
+    // Opened without following a symlink or waiting on a FIFO, and read with
+    // the same bound, so a member swapped after the check above fails.
+    match crate::planner::artifact_contract_checks::read_regular_bounded(&path, MAX_FILE_BYTES) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(error) => Err(pack_read_error(path, error, |path| PackError::TooLarge {
+            path,
+        })),
+    }
+}
+
+/// Map a safe-read failure onto the loader's existing error kinds.
+fn pack_read_error(
+    path: PathBuf,
+    error: crate::planner::artifact_contract_checks::SafeReadError,
+    too_large: fn(PathBuf) -> PackError,
+) -> PackError {
+    use crate::planner::artifact_contract_checks::SafeReadError;
+    if error.is_symlink_refusal() {
+        return PackError::NotRegularFile { path };
+    }
+    match error {
+        SafeReadError::NotRegular => PackError::NotRegularFile { path },
+        SafeReadError::TooLarge(_) => too_large(path),
+        SafeReadError::Open(cause) | SafeReadError::Read(cause) => PackError::Io { path, cause },
+    }
 }
 
 fn validate_pack_directory(path: &Path) -> Result<(), PackError> {
@@ -295,9 +317,14 @@ fn read_materials(path: &Path) -> Result<BTreeMap<String, Vec<u8>>, PackError> {
         if total > MAX_TOTAL_MATERIAL_BYTES {
             return Err(PackError::MaterialsTooLarge);
         }
-        let bytes = std::fs::read(&member).map_err(|cause| PackError::Io {
-            path: member.clone(),
-            cause,
+        let bytes = crate::planner::artifact_contract_checks::read_regular_bounded(
+            &member,
+            MAX_MATERIAL_BYTES,
+        )
+        .map_err(|error| {
+            pack_read_error(member.clone(), error, |path| PackError::MaterialTooLarge {
+                path,
+            })
         })?;
         std::str::from_utf8(&bytes).map_err(|_| PackError::MaterialNotUtf8 { path: member })?;
         materials.insert(name, bytes);

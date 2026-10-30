@@ -8,7 +8,7 @@
   "derived_fixture": "fixtures/cases.json lists hand-authored synthetic cases only. Each names the test that builds it at run time: a POSIX shell adapter run by the operator-pinned /bin/sh in a temporary directory, with opaque IDs unrelated to any external project. No benchmark task, grader input, model output, Musubi file, host path, or credential is stored or copied here.",
   "regenerate_digests": "shasum -a 256 fixtures/cases.json",
   "fixture_sha256": {
-    "cases.json": "57d1aa0768367675668060555081727c991dfde0e448ee26765f831f72e96627"
+    "cases.json": "6a5d5024369e4e1464685052c87d2ea76f1ca5edff1f16bece12a5f620e5dff0"
   },
   "redteam_cases": "the 27 red-team cases of S-165c (L-165) are listed with the prefix redteam-, each mapped to the test that asserts its expectation; only the case IDs and families are copied"
 }

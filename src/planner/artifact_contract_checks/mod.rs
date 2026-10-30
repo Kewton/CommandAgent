@@ -968,11 +968,51 @@ fn plain_directory(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_dir())
 }
 
+/// Why a safe regular-file read failed. Shared by the adapter host, the
+/// manifest and pin re-reads, and the pack loader, so every pre-provider
+/// file read uses one implementation.
+#[derive(Debug)]
+pub(crate) enum SafeReadError {
+    /// The open failed, including `ELOOP` for a final symlink.
+    Open(std::io::Error),
+    /// The opened descriptor is not a regular file (FIFO, device, ...).
+    NotRegular,
+    /// Reading failed after a successful open.
+    Read(std::io::Error),
+    /// More than the limit could be read.
+    TooLarge(u64),
+}
+
+impl SafeReadError {
+    /// Whether the open was refused because the final component is a symlink.
+    pub(crate) fn is_symlink_refusal(&self) -> bool {
+        #[cfg(unix)]
+        {
+            matches!(self, Self::Open(error) if error.raw_os_error() == Some(libc::ELOOP))
+        }
+        #[cfg(not(unix))]
+        {
+            false
+        }
+    }
+}
+
+impl std::fmt::Display for SafeReadError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Open(error) => write!(formatter, "cannot be opened as a plain file: {error}"),
+            Self::NotRegular => formatter.write_str("is not a regular file"),
+            Self::Read(error) => write!(formatter, "cannot be read: {error}"),
+            Self::TooLarge(limit) => write!(formatter, "exceeds {limit} bytes"),
+        }
+    }
+}
+
 /// Open a regular file for reading without following a final symlink and
 /// without blocking on a FIFO or device, then confirm the opened descriptor is
 /// a regular file. A component swapped between the caller's checks and this
 /// open is still possible; the open itself never waits on a special file.
-fn open_regular(path: &Path) -> Result<File, String> {
+fn open_regular_file(path: &Path) -> Result<File, SafeReadError> {
     let mut options = fs::OpenOptions::new();
     options.read(true);
     #[cfg(unix)]
@@ -980,34 +1020,40 @@ fn open_regular(path: &Path) -> Result<File, String> {
         use std::os::unix::fs::OpenOptionsExt;
         options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
     }
-    let file = options
-        .open(path)
-        .map_err(|error| format!("cannot be opened as a plain file: {error}"))?;
-    let metadata = file
-        .metadata()
-        .map_err(|error| format!("cannot be inspected: {error}"))?;
+    let file = options.open(path).map_err(SafeReadError::Open)?;
+    let metadata = file.metadata().map_err(SafeReadError::Read)?;
     if !metadata.file_type().is_file() {
-        return Err("is not a regular file".to_string());
+        return Err(SafeReadError::NotRegular);
     }
     Ok(file)
 }
 
-/// [`read_bounded`] for other host modules that must read a regular file
-/// before any provider is built.
+fn open_regular(path: &Path) -> Result<File, String> {
+    open_regular_file(path).map_err(|error| error.to_string())
+}
+
+/// Read at most `limit` bytes of a regular file through [`open_regular_file`];
+/// a file that yields more than `limit` bytes is refused, never truncated.
+pub(crate) fn read_regular_bounded(path: &Path, limit: u64) -> Result<Vec<u8>, SafeReadError> {
+    let file = open_regular_file(path)?;
+    let mut bytes = Vec::new();
+    file.take(limit.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .map_err(SafeReadError::Read)?;
+    if bytes.len() as u64 > limit {
+        return Err(SafeReadError::TooLarge(limit));
+    }
+    Ok(bytes)
+}
+
+/// [`read_regular_bounded`] with a message, for host modules that must read a
+/// regular file before any provider is built.
 pub(crate) fn read_regular_file(path: &Path, limit: u64) -> Result<Vec<u8>, String> {
     read_bounded(path, limit)
 }
 
 fn read_bounded(path: &Path, limit: u64) -> Result<Vec<u8>, String> {
-    let file = open_regular(path)?;
-    let mut bytes = Vec::new();
-    file.take(limit + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|error| format!("cannot be read: {error}"))?;
-    if bytes.len() as u64 > limit {
-        return Err(format!("exceeds {limit} bytes"));
-    }
-    Ok(bytes)
+    read_regular_bounded(path, limit).map_err(|error| error.to_string())
 }
 
 fn digest_file(path: &Path, limit: u64) -> Result<String, String> {
