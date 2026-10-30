@@ -164,11 +164,25 @@ pub(crate) fn parse_response(
         system_fingerprint: optional_string(&value, "system_fingerprint"),
         created_epoch: value.get("created").and_then(Value::as_i64),
         service_tier: optional_string(&value, "service_tier"),
-        cached_input_tokens: None,
+        cached_input_tokens: cached_input_tokens(usage, reply.prompt_tokens),
         reasoning_tokens: None,
         total_tokens: None,
     };
     Ok((reply, metadata))
+}
+
+/// The provider-reported cached share of the prompt, already included in
+/// `prompt_tokens`. A missing or malformed count, or one above a known prompt
+/// total, is unreported (`None`); an explicit zero stays `Some(0)`.
+fn cached_input_tokens(usage: Option<&Value>, prompt_tokens: Option<u64>) -> Option<u64> {
+    let cached = usage?
+        .get("prompt_tokens_details")?
+        .get("cached_tokens")?
+        .as_u64()?;
+    match prompt_tokens {
+        Some(total) if cached > total => None,
+        _ => Some(cached),
+    }
 }
 
 fn optional_string(value: &Value, key: &str) -> Option<String> {
@@ -204,6 +218,9 @@ fn parse_tool_call(value: &Value) -> anyhow::Result<ToolCall> {
         arguments: recover_tool_arguments(&name, arguments).arguments,
     })
 }
+
+#[cfg(test)]
+mod cache_usage_tests;
 
 #[cfg(test)]
 mod tests {

@@ -1,0 +1,56 @@
+case_id = "compatible-cached-input-usage"
+source = "Issue #928: the shared OpenAI-compatible Chat Completions parser keeps a valid usage.prompt_tokens_details.cached_tokens as ProviderResponseMetadata.cached_input_tokens, which the existing provider_turn_duration event writes as provider_cached_input_tokens; an explicit zero is the number 0, a missing, null, negative, fractional, string, out-of-range, or above-prompt-total count leaves the field absent, the reply, prompt and output counts, and the request bytes stay as before, and no turn carries a previous turn's count"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[json_fields]
+fixtures/cases.json:field = "usage.prompt_tokens_details.cached_tokens"
+fixtures/cases.json:event = "provider_turn_duration"
+fixtures/cases.json:event_field = "provider_cached_input_tokens"
+source-manifest.json:base_sha = "7504009b716685851368e9e639ac5f274bc7d81e"
+
+[fixture_contains]
+fixtures/cases.json = [
+  "\"kind\": \"recorded\"",
+  "\"kind\": \"synthetic\"",
+  "\"id\": \"recorded-compatible-base-1\"",
+  "\"id\": \"recorded-compatible-base-2\"",
+  "\"id\": \"recorded-compatible-system-middle-change\"",
+  "\"id\": \"synthetic-legacy-usage\"",
+  "\"id\": \"synthetic-no-usage\"",
+  "\"id\": \"synthetic-cached-null\"",
+  "\"id\": \"synthetic-cached-negative\"",
+  "\"id\": \"synthetic-cached-fraction\"",
+  "\"id\": \"synthetic-cached-string\"",
+  "\"id\": \"synthetic-cached-above-u64\"",
+  "\"id\": \"synthetic-cached-above-prompt-total\"",
+  "\"id\": \"synthetic-cached-equals-prompt-total\"",
+  "\"id\": \"synthetic-cached-without-prompt-total\""
+]
+
+[fixture_ordered]
+fixtures/cases.json = [
+  "\"sequence\"",
+  "\"recorded-compatible-base-2\"",
+  "\"synthetic-legacy-usage\"",
+  "\"recorded-compatible-base-1\"",
+  "\"recorded-compatible-system-middle-change\""
+]
