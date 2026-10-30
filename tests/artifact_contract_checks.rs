@@ -569,19 +569,216 @@ fn a_run_without_the_check_ignores_the_registry_variable() {
     }
 }
 
-/// B2: the pre-provider preflight refuses a workspace that holds the operator
-/// registry (self-approval) and passes a separate workspace.
+/// R2: the preflight checks only the adapters the run's own profile and
+/// selected pack declare. A workspace that holds the operator registry is
+/// refused for the declaring draft profile or pack, and ignored for a run
+/// whose profile does not declare the check, even though the declaring draft
+/// is loaded from the same extension root.
 #[test]
-fn preflight_refuses_a_workspace_that_holds_the_operator_registry() {
+fn preflight_is_bound_to_the_selected_profile_and_pack() {
+    use commandagent::planner::artifact_contract_checks::preflight;
     let fixture = fixture();
     let workspace = tempfile::tempdir().unwrap();
-    commandagent::planner::artifact_contract_checks::preflight(workspace.path()).unwrap();
-    let error =
-        commandagent::planner::artifact_contract_checks::preflight(&fixture.root).unwrap_err();
+    preflight(workspace.path(), DRAFT, None).unwrap();
+    preflight(&fixture.root, "generic", None).unwrap();
+    let error = preflight(&fixture.root, DRAFT, None).unwrap_err();
     assert!(
         error.contains("self-approved registry is refused"),
         "{error}"
     );
+    let error = preflight(&fixture.root, "generic", Some(&fixture.pack)).unwrap_err();
+    assert!(
+        error.contains("self-approved registry is refused"),
+        "{error}"
+    );
+}
+
+/// R2 (real binary): an extension root holding an unselected draft whose
+/// operator registry lies inside the workspace does not change a
+/// `--profile generic --prompt` run that uses no adapter: exit code and the
+/// whole stderr equal a run without that extension root and registry.
+#[test]
+fn an_unselected_draft_registry_does_not_change_a_generic_run() {
+    let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let host = format!("http://{}", closed.local_addr().unwrap());
+    drop(closed);
+    let run = |with_draft: bool| {
+        let root = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(root.path()).unwrap();
+        let workspace = root.join("workspace");
+        let home = root.join("home");
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::create_dir_all(&home).unwrap();
+        let mut command = Command::new(env!("CARGO_BIN_EXE_commandagent"));
+        command
+            .args([
+                "--profile",
+                "generic",
+                "--ollama-host",
+                &host,
+                "--prompt",
+                "hi",
+            ])
+            .current_dir(&workspace)
+            .env_clear()
+            .env("HOME", &home);
+        if with_draft {
+            let (extension, config) = draft_with_registry_in(&root, &workspace.join("registry"));
+            command
+                .arg("--extension-root")
+                .arg(&extension)
+                .env("COMMANDAGENT_ADAPTER_CONFIG_ROOT", &config);
+        }
+        let output = command.output().unwrap();
+        (
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr).to_string(),
+        )
+    };
+    let baseline = run(false);
+    assert_eq!(baseline.0, Some(1), "{}", baseline.1);
+    assert!(
+        baseline.1.contains("Ollama request failed"),
+        "{}",
+        baseline.1
+    );
+    assert_eq!(run(true), baseline);
+}
+
+/// A valid tally-lines draft profile in `root/extension` whose operator
+/// registry is `config` (tooling outside the workspace). Returns the extension
+/// root and the registry root.
+fn draft_with_registry_in(root: &Path, config: &Path) -> (PathBuf, PathBuf) {
+    let tooling = root.join("tooling");
+    let extension = root.join("extension");
+    std::fs::create_dir_all(&tooling).unwrap();
+    std::fs::create_dir_all(config.join("adapters")).unwrap();
+    std::fs::write(tooling.join("lines.sh"), format!("{PRELUDE}{LINES_BODY}")).unwrap();
+    let descriptor = json!({
+        "protocol": "artifact-contract.adapter/v1",
+        "adapter_id": LINES_ADAPTER,
+        "executable": {"path": shell(), "sha256": sha256_file(&shell())},
+        "tooling_root": tooling,
+        "entrypoint": "lines.sh",
+        "members": {"lines.sh": sha256_file(&tooling.join("lines.sh"))},
+        "required": [{"check_id": "lines/total", "targets": ["notes.txt#all"]}],
+        "inputs": [{"input_id": "notes"}]
+    });
+    std::fs::write(
+        config.join(format!("adapters/{LINES_ADAPTER}.json")),
+        serde_json::to_vec(&descriptor).unwrap(),
+    )
+    .unwrap();
+    let profile = extension.join(format!("profiles/{DRAFT}"));
+    std::fs::create_dir_all(&profile).unwrap();
+    std::fs::write(
+        profile.join("manifest.toml"),
+        manifest(DRAFT, LINES_ADAPTER),
+    )
+    .unwrap();
+    (extension, config.to_path_buf())
+}
+
+/// R1 (real binary): a workflow child node runs in its origin workspace. The
+/// outer workspace passes the preflight, but the child's origin holds the
+/// operator registry, so the child node is refused before any provider: the
+/// stand-in provider endpoint receives no connection and the node fails with
+/// the self-approval reason.
+#[test]
+fn a_workflow_child_whose_origin_holds_the_registry_is_refused_before_any_provider() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let outer = root.join("outer");
+    let origin = root.join("origin");
+    let home = root.join("home");
+    for dir in [&outer, &home] {
+        std::fs::create_dir_all(dir).unwrap();
+    }
+    let run_dir = origin.join(".anvil/runs/origin-run");
+    std::fs::create_dir_all(&run_dir).unwrap();
+    std::fs::create_dir_all(origin.join(".anvil/plans")).unwrap();
+    std::fs::write(
+        run_dir.join("events.jsonl"),
+        concat!(
+            r#"{"event":"run_start","action":"Prompt(\"origin goal\")"}"#,
+            "\n",
+            r#"{"event":"verify_default_bound","bound_checks":["test -f marker"]}"#,
+            "\n",
+            r#"{"event":"run_stop","status":"failed"}"#,
+            "\n"
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        origin.join(".anvil/plans/recovery-origin.yaml"),
+        "version: 1\n",
+    )
+    .unwrap();
+    let (extension, config) = draft_with_registry_in(&root, &origin.join("registry"));
+    let workflow = root.join("workflow.yaml");
+    std::fs::write(
+        &workflow,
+        format!(
+            "workflow: artifact-contract-child\nversion: 0.2\nentry: create\nnodes:\n  create: {{ intent: create, profile: generic }}\n  rebuild: {{ intent: create, profile: {DRAFT} }}\nroutes:\n  - {{ from: create, on: failed, when: recovery_yaml_present, to: rebuild, carry: [workspace, recovery_yaml] }}\nterminal: {{}}\n"
+        ),
+    )
+    .unwrap();
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let host = format!("http://{}", listener.local_addr().unwrap());
+    let run = Command::new(env!("CARGO_BIN_EXE_commandagent"))
+        .arg("--extension-root")
+        .arg(&extension)
+        .args(["--ollama-host", &host, "--model", "m"])
+        .arg("--workflow")
+        .arg(&workflow)
+        .arg("--origin")
+        .arg(&origin)
+        .current_dir(&outer)
+        .env_clear()
+        .env("HOME", &home)
+        .env("COMMANDAGENT_ADAPTER_CONFIG_ROOT", &config)
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&run.stderr).to_string();
+    let evidence = collect_text(&origin);
+    assert!(
+        evidence.contains(
+            "operator registry resolves inside the workspace; a self-approved registry is refused"
+        ),
+        "status={:?}\nstderr={stderr}\nevidence={evidence}",
+        run.status
+    );
+    assert!(
+        evidence.contains("node_failed:rebuild"),
+        "stderr={stderr}\nevidence={evidence}"
+    );
+    assert!(
+        matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock),
+        "the provider endpoint was contacted"
+    );
+    // The outer run passed its own preflight (the registry lies outside the
+    // outer workspace): only then does the workflow write origin evidence.
+    assert!(evidence.contains("workflow_node_started"), "{evidence}");
+}
+
+/// All text below `root`, for asserting on workflow evidence.
+fn collect_text(root: &Path) -> String {
+    let mut text = String::new();
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(dir) = pending.pop() {
+        for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                pending.push(path);
+            } else if let Ok(content) = std::fs::read_to_string(&path) {
+                text.push_str(&content);
+                text.push('\n');
+            }
+        }
+    }
+    text
 }
 
 #[test]

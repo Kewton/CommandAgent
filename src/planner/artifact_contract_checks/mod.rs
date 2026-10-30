@@ -166,49 +166,108 @@ pub(crate) fn config_root_from_environment() -> Option<PathBuf> {
 /// Load-time admission used by the capability catalog, so an unset, unknown,
 /// or invalid registry entry, and operator tooling that is missing or does not
 /// match its pins and links, is refused while the manifest or pack loads,
-/// before any provider is built. The admitted ID is remembered for
-/// [`preflight`], which adds the workspace separation once the workspace is
-/// known.
+/// before any provider is built. The workspace separation is added by
+/// [`preflight`] once the run's workspace, profile, and pack are known.
 pub(crate) fn admit_from_environment(adapter_id: &str) -> Result<(), String> {
     let admitted = admit(config_root_from_environment().as_deref(), adapter_id)?;
-    verify_tooling(&admitted.descriptor)?;
-    admitted_ids()
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .insert(adapter_id.to_string());
-    Ok(())
+    verify_tooling(&admitted.descriptor).map(|_| ())
 }
 
-fn admitted_ids() -> &'static std::sync::Mutex<BTreeSet<String>> {
-    static IDS: std::sync::OnceLock<std::sync::Mutex<BTreeSet<String>>> =
-        std::sync::OnceLock::new();
-    IDS.get_or_init(Default::default)
-}
-
-/// Pre-provider check for every adapter admitted while profiles and packs
-/// loaded: the registry, descriptor, tooling root, and executable must lie
-/// outside `workspace`, and the tooling must match its pins and links.
+/// Pre-provider check for the adapters that this run's profile and selected
+/// pack declare: the registry, descriptor, tooling root, and executable must
+/// lie outside `workspace`, and the tooling must match its pins and links.
 ///
-/// When no loaded profile or pack declared `artifact_contract_check`, nothing
-/// was admitted and this returns at once: it reads no environment variable,
-/// registry, or file, and cannot fail.
-pub fn preflight(workspace: &Path) -> Result<(), String> {
-    let ids = admitted_ids()
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .clone();
-    if ids.is_empty() {
+/// Only the effective `profile` (a registered external profile whose loaded
+/// checks include `artifact_contract_check`) and the selected pack are
+/// consulted; other loaded or previously registered profiles are not. When
+/// neither declares the check, this returns without reading the environment
+/// or the registry, and without opening a file unless a pack is selected.
+pub fn preflight(
+    workspace: &Path,
+    profile: &str,
+    pack_directory: Option<&Path>,
+) -> Result<(), String> {
+    let adapter_ids = declared_adapter_ids(profile, pack_directory)?;
+    if adapter_ids.is_empty() {
         return Ok(());
     }
     let workspace = fs::canonicalize(workspace)
         .map_err(|error| format!("workspace cannot be resolved: {error}"))?;
-    for adapter_id in ids {
+    for adapter_id in adapter_ids {
         let admitted = admit(config_root_from_environment().as_deref(), &adapter_id)?;
         separate_from_workspace(&admitted, &workspace)
             .and_then(|()| verify_tooling(&admitted.descriptor).map(|_| ()))
             .map_err(|reason| format!("artifact contract adapter `{adapter_id}`: {reason}"))?;
     }
     Ok(())
+}
+
+/// [`preflight`] for a workflow child node, whose workspace is its origin. The
+/// pack, if any, is the one the outer run installed for the whole process.
+pub fn preflight_for_workflow_node(workspace: &Path, profile: &str) -> Result<(), String> {
+    let pack = crate::planner::pack::runtime::selected_directory_from_environment();
+    preflight(workspace, profile, pack.as_deref())
+}
+
+fn declared_adapter_ids(
+    profile: &str,
+    pack_directory: Option<&Path>,
+) -> Result<BTreeSet<String>, String> {
+    let check_id = crate::planner::capability_catalog::artifact::ID;
+    let mut ids = BTreeSet::new();
+    if let Some(extension) = crate::planner::extension_profiles::find(profile)
+        && extension.contract_checks.iter().any(|id| id == check_id)
+    {
+        let source = fs::read_to_string(extension.manifest_path)
+            .map_err(|error| format!("profile `{profile}` manifest cannot be read: {error}"))?;
+        let manifest: toml::Value = toml::from_str(&source)
+            .map_err(|error| format!("profile `{profile}` manifest is invalid: {error}"))?;
+        collect_adapter_ids(
+            &serde_json::to_value(manifest).unwrap_or_default(),
+            &mut ids,
+        );
+    }
+    if let Some(directory) = pack_directory {
+        let eval = directory.join(crate::planner::pack::EVAL_FILE);
+        if eval.is_file() {
+            let bytes = read_bounded(&eval, MAX_DESCRIPTOR_BYTES)
+                .map_err(|reason| format!("selected pack eval {reason}"))?;
+            let document: serde_yaml::Value = serde_yaml::from_slice(&bytes)
+                .map_err(|error| format!("selected pack eval is invalid: {error}"))?;
+            collect_adapter_ids(
+                &serde_json::to_value(document).unwrap_or_default(),
+                &mut ids,
+            );
+        }
+    }
+    Ok(ids)
+}
+
+/// Collect `params.adapter_id` from every `{id: artifact_contract_check}`
+/// binding in a parsed manifest or pack eval document.
+fn collect_adapter_ids(value: &serde_json::Value, ids: &mut BTreeSet<String>) {
+    match value {
+        serde_json::Value::Object(object) => {
+            let is_check = object.get("id").and_then(serde_json::Value::as_str)
+                == Some(crate::planner::capability_catalog::artifact::ID);
+            let adapter = object
+                .get("params")
+                .and_then(|params| params.get("adapter_id"))
+                .and_then(serde_json::Value::as_str);
+            if let (true, Some(adapter)) = (is_check, adapter) {
+                ids.insert(adapter.to_string());
+            }
+            object
+                .values()
+                .for_each(|child| collect_adapter_ids(child, ids));
+        }
+        serde_json::Value::Array(items) => {
+            items
+                .iter()
+                .for_each(|child| collect_adapter_ids(child, ids));
+        }
+        _ => {}
+    }
 }
 
 pub(crate) fn admit(config_root: Option<&Path>, adapter_id: &str) -> Result<Admitted, String> {
@@ -394,6 +453,7 @@ pub(crate) struct ProcessReceipt {
     pub(crate) elapsed_ms: u128,
     pub(crate) reaped: bool,
     pub(crate) group_stopped: bool,
+    pub(crate) stdin_complete: bool,
     pub(crate) stdout_bytes: usize,
     pub(crate) stderr_bytes: usize,
 }
@@ -567,6 +627,7 @@ where
         elapsed_ms: observation.elapsed.as_millis(),
         reaped: observation.reaped,
         group_stopped: observation.group_stopped,
+        stdin_complete: observation.stdin_complete,
         stdout_bytes: observation.stdout.len(),
         stderr_bytes: observation.stderr.len(),
     });
@@ -605,6 +666,12 @@ where
             );
         }
     };
+    if !observation.stdin_complete {
+        return receipt.fail(
+            "process",
+            vec!["adapter did not take its whole request on stdin".to_string()],
+        );
+    }
     let result = match protocol::parse_result(&observation.stdout) {
         Ok(result) => result,
         Err(reason) => return receipt.fail("envelope", vec![reason]),
@@ -956,6 +1023,7 @@ fn record(receipt: &Receipt, events_path: Option<&Path>, source: &str, owner_id:
             "elapsed_ms": process.elapsed_ms,
             "reaped": process.reaped,
             "group_stopped": process.group_stopped,
+            "stdin_complete": process.stdin_complete,
             "stdout_bytes": process.stdout_bytes,
             "stderr_bytes": process.stderr_bytes,
         })

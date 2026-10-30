@@ -87,6 +87,13 @@ fn os_string(value: OsString, name: &str) -> anyhow::Result<String> {
         .map_err(|_| anyhow::anyhow!("{name} must contain valid UTF-8"))
 }
 
+/// The selected pack directory the CLI installed for this process, if any.
+pub(crate) fn selected_directory_from_environment() -> Option<PathBuf> {
+    std::env::var_os(PACK_DIRECTORY_ENV)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+}
+
 pub(crate) fn append_phase_material_from_environment(
     prompt: String,
     root: &Path,

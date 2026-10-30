@@ -79,6 +79,9 @@ pub(crate) struct Observation {
     pub(crate) elapsed: Duration,
     pub(crate) reaped: bool,
     pub(crate) group_stopped: bool,
+    /// Whether the whole request reached the child before the host closed
+    /// stdin. The host always closes its stdin end before `run` returns.
+    pub(crate) stdin_complete: bool,
 }
 
 /// The complete child environment: `LANG`, `TZ`, and the tooling root.
@@ -118,12 +121,14 @@ where
     let started = Instant::now();
     let mut child = command(launch).spawn()?;
     let pid = child.id();
-    let writer = child.stdin.take().map(|mut pipe| {
-        let bytes = launch.stdin.clone();
-        thread::spawn(move || {
-            let _ = pipe.write_all(&bytes);
-        })
-    });
+    // The request is written by this loop without blocking, under the same
+    // deadline, so a child or descendant that holds a full stdin pipe never
+    // holds the host; the host closes its end on every path.
+    let mut stdin = child
+        .stdin
+        .take()
+        .filter(|pipe| set_nonblocking(pipe).is_ok());
+    let mut written = 0usize;
     let overflow = Arc::new(AtomicBool::new(false));
     let stdout = child
         .stdout
@@ -138,6 +143,10 @@ where
     let mut stop = None;
     let mut exited = None;
     while stop.is_none() && exited.is_none() {
+        written += feed_stdin(&mut stdin, &launch.stdin[written..]);
+        if written == launch.stdin.len() {
+            stdin = None;
+        }
         if is_cancelled() {
             stop = Some(Ended::Cancelled);
         } else if overflow.load(Ordering::SeqCst) {
@@ -157,6 +166,8 @@ where
         }
     }
 
+    let stdin_complete = written == launch.stdin.len();
+    drop(stdin.take());
     let (mut ended, reaped) = match (stop, exited) {
         (Some(stopped), _) => {
             crate::bounded_process::terminate_process_group(&mut child);
@@ -180,17 +191,11 @@ where
             elapsed: started.elapsed(),
             reaped,
             group_stopped,
+            stdin_complete,
         });
     }
     let (stdout, stdout_over) = join_reader(stdout);
     let (stderr, stderr_over) = join_reader(stderr);
-    // The stdin writer is joined only once it has finished; a descendant that
-    // left the group and holds a full stdin pipe cannot hold the host here.
-    if let Some(writer) = writer
-        && writer.is_finished()
-    {
-        let _ = writer.join();
-    }
     if matches!(ended, Ended::Exited(_)) && (stdout_over || stderr_over) {
         ended = Ended::OutputExceeded;
     }
@@ -201,7 +206,51 @@ where
         elapsed: started.elapsed(),
         reaped,
         group_stopped,
+        stdin_complete,
     })
+}
+
+/// Write what the pipe accepts now. A closed or failed pipe is dropped, so the
+/// child's own close ends the feeding instead of an error.
+fn feed_stdin(stdin: &mut Option<std::process::ChildStdin>, pending: &[u8]) -> usize {
+    let Some(pipe) = stdin.as_mut() else {
+        return 0;
+    };
+    if pending.is_empty() {
+        return 0;
+    }
+    match pipe.write(pending) {
+        Ok(written) => written,
+        Err(error) if error.kind() == io::ErrorKind::WouldBlock => 0,
+        Err(_) => {
+            *stdin = None;
+            0
+        }
+    }
+}
+
+#[cfg(unix)]
+fn set_nonblocking(pipe: &std::process::ChildStdin) -> io::Result<()> {
+    use std::os::fd::AsRawFd;
+    let fd = pipe.as_raw_fd();
+    // SAFETY: `fd` is the open stdin pipe owned by `pipe` for this call;
+    // F_GETFL only reads that descriptor's status flags.
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    if flags < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: the same owned descriptor; F_SETFL only adds O_NONBLOCK.
+    if unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn set_nonblocking(_pipe: &std::process::ChildStdin) -> io::Result<()> {
+    Err(io::Error::other(
+        "non-blocking stdin is only supported on Unix",
+    ))
 }
 
 type Reader = Option<JoinHandle<(Vec<u8>, bool)>>;

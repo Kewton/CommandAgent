@@ -52,6 +52,8 @@ case $mode in
   tamper) printf 'tampered\n' >> "$rows_file" ;;
   fifo) /bin/rm -f "$workspace/$last_path"; /usr/bin/mkfifo "$workspace/$last_path" ;;
   relink) /bin/rm -f "$workspace/$last_path"; /bin/ln -s "$workspace/input/spec.txt" "$workspace/$last_path" ;;
+  relink_same) /bin/rm -f "$workspace/$last_path"; /bin/ln -s "$observe/same-decl.txt" "$workspace/$last_path" ;;
+  relink_dir) /bin/mv "$workspace/input" "$observe/moved-input"; /bin/ln -s "$observe/moved-input" "$workspace/input" ;;
   sleep) /bin/sleep 30 ;;
   grandchild) ( while :; do printf x >> "$observe/beat"; /bin/sleep 0.05; done ) & /bin/sleep 30 ;;
   flood) while :; do printf '%s' 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'; done ;;
@@ -1201,13 +1203,123 @@ fn an_omitted_optional_row_is_recorded_as_unverified() {
     assert_eq!(event["status"], "passed");
 }
 
-/// With no `artifact_contract_check` declared (nothing admitted in this test
-/// process, whose environment never sets the registry), the pre-provider
-/// preflight returns at once: it does not resolve even a workspace that does
-/// not exist, so it opens no file and reads no registry.
+/// R2: a profile that is not a registered external profile declaring
+/// `artifact_contract_check`, with no pack selected, returns at once: even a
+/// workspace that does not exist is not resolved, so no file is opened and no
+/// registry is read.
 #[test]
 fn preflight_without_a_declared_check_returns_at_once() {
-    assert!(super::admitted_ids().lock().unwrap().is_empty());
     let absent = Path::new("/nonexistent/commandagent-933/workspace");
-    assert_eq!(super::preflight(absent), Ok(()));
+    for profile in ["generic", "not-a-registered-profile"] {
+        assert_eq!(super::preflight(absent, profile, None), Ok(()), "{profile}");
+    }
+}
+
+/// The declared adapter IDs come only from `artifact_contract_check`
+/// bindings of the parsed manifest or pack eval document.
+#[test]
+fn declared_adapter_ids_are_read_only_from_check_bindings() {
+    let manifest: toml::Value = toml::from_str(
+        r#"
+[metadata]
+id = "x"
+[[checks.final]]
+id = "artifact_contract_check"
+params = { adapter_id = "first", request = "r.json" }
+[[checks.other]]
+id = "command_check"
+params = { adapter_id = "not-this-one" }
+"#,
+    )
+    .unwrap();
+    let mut ids = BTreeSet::new();
+    super::collect_adapter_ids(&serde_json::to_value(manifest).unwrap(), &mut ids);
+    let eval: serde_yaml::Value = serde_yaml::from_str(
+        "checks:\n  - id: artifact_contract_check\n    params: {adapter_id: second, request: r.json}\n",
+    )
+    .unwrap();
+    super::collect_adapter_ids(&serde_json::to_value(eval).unwrap(), &mut ids);
+    assert_eq!(
+        ids,
+        BTreeSet::from(["first".to_string(), "second".to_string()])
+    );
+}
+
+/// R3: a descendant that leaves the process group and keeps stdin open
+/// without reading it cannot hold the host. The run returns within its bound,
+/// reports the request as incomplete, and the host has closed its stdin end:
+/// the descendant later reads to end-of-file.
+#[cfg(unix)]
+#[test]
+fn a_descendant_holding_stdin_cannot_hold_the_host() {
+    let perl = Path::new("/usr/bin/perl");
+    assert!(perl.is_file(), "/usr/bin/perl is required for this test");
+    let observe = tempfile::tempdir().unwrap();
+    let pid_file = observe.path().join("escaped.pid");
+    let eof_file = observe.path().join("escaped.eof");
+    let script = r#"/usr/bin/perl -e 'use POSIX; POSIX::setsid(); open(my $p, ">", $ARGV[0]); print $p $$; close $p; sleep 2; my $n = 0; while (my $r = sysread(STDIN, my $b, 65536)) { $n += $r } open(my $m, ">", $ARGV[1]); print $m $n; close $m;' "$1" "$2" <&0 >/dev/null 2>&1 &
+while [ ! -s "$1" ]; do /bin/sleep 0.05; done
+exit 0
+"#;
+    let payload = vec![b'x'; 1 << 20];
+    let launch = super::process::Launch {
+        executable: shell(),
+        args: vec![
+            "-c".into(),
+            script.into(),
+            "adapter".into(),
+            pid_file.clone().into(),
+            eof_file.clone().into(),
+        ],
+        cwd: observe.path().to_path_buf(),
+        tool_root: observe.path().to_path_buf(),
+        stdin: payload.clone(),
+        timeout: Duration::from_secs(5),
+        max_stream_bytes: 24_000,
+    };
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = sender.send(super::process::run(&launch, || false));
+    });
+    let observation = receiver
+        .recv_timeout(Duration::from_secs(10))
+        .expect("the host returned within 10 s")
+        .unwrap();
+    assert!(!observation.stdin_complete, "{observation:?}");
+    assert!(observation.reaped, "{observation:?}");
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !eof_file.exists() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let read = fs::read_to_string(&eof_file)
+        .expect("the escaped descendant reached end-of-file, so the host closed stdin");
+    let read: usize = read.trim().parse().unwrap();
+    assert!(read < payload.len(), "{read}");
+    // The descendant exits on its own once it has read to end-of-file.
+}
+
+/// B1 (direct path refusal): after the run an input replaced by a symlink to
+/// identical bytes, or reached through a directory replaced by a link, is
+/// refused by the path checks themselves; the digest alone would still match.
+#[cfg(unix)]
+#[test]
+fn identical_bytes_behind_a_symlink_or_linked_directory_are_refused() {
+    for mode in ["relink_same", "relink_dir"] {
+        let harness = Harness::new();
+        fs::write(harness.observe.join("same-decl.txt"), DECL).unwrap();
+        let check = harness.ledger(
+            &format!("swap-{}", mode.replace('_', "-")),
+            mode,
+            "pass-all",
+            0,
+        );
+        let receipt = harness.run(&check);
+        assert_failed_at(&receipt, "binding", "changed while the adapter ran");
+        assert_eq!(
+            sha256_file(&harness.observe.join("same-decl.txt")),
+            sha256_bytes(DECL.as_bytes()),
+            "{mode}: the bytes behind the link are unchanged"
+        );
+    }
 }
