@@ -1029,6 +1029,9 @@ const REVIEW_REFUSED: &[&str] = &[
     "printf '%s' 'print(open(\"' sub/link/secret '\").read())' >> base.py; python3 hard.py",
     "printf '%s' 'print(open(\"' sub/link/secret '\").read())' > pkg.py/__main__.py; python3 pkg.py",
     "printf '%s\\n' sub/link/secret > list.txt; python3 base.py list.txt",
+    // A plain input redirect is not a write, but its target keeps the proof.
+    "python3 app.py < sub/link/secret",
+    "grep -e x < sub/link/secret | python3 app.py",
 ];
 
 /// The same counterexamples through the runtime Bash policy of a scripted
@@ -1313,4 +1316,120 @@ fn argument_roles_redteam_allowed_rows_run_without_the_canary() {
         .unwrap();
     assert!(output.contains("middle /item/2"), "{output}");
     assert_eq!(fixture.outside_snapshot(), before);
+}
+
+/// The 28 rule B' red-team rows (corpus prefix `redteamb-`): every refused
+/// row is refused by the public decision and never runs, with no canary and no
+/// new file; every allowed row except the known-limit piped reader runs in a
+/// fresh workspace of its own and does what the shell says it does.
+#[test]
+fn argument_roles_rule_b_prime_rows_hold_through_the_real_tool() {
+    let cases = cases();
+    let rows: Vec<&SyntheticCase> = cases
+        .synthetic
+        .iter()
+        .filter(|case| case.id.starts_with("redteamb-"))
+        .collect();
+    assert_eq!(rows.len(), 28);
+    let expected: &[(&str, &str)] = &[
+        ("redteamb-b-pos-pipe-py", "app:{\"p\":\"/b\"}"),
+        ("redteamb-b-pos-sed-grep-pipe", "2:/x here"),
+        ("redteamb-b-pos-write-then-cat", "x"),
+        ("redteamb-b-pos-write-then-wc", "1 a.txt"),
+        ("redteamb-b-closed-dotslash-script", "1"),
+        ("redteamb-b-closed-append-script", "1"),
+        ("redteamb-b-closed-newline-form", "1"),
+        ("redteamb-b-closed-cd-write-script", "1"),
+        ("redteamb-b-closed-py-stdin-redirect", "1"),
+        ("redteamb-b-closed-env-pythonpath", "1"),
+        ("redteamb-b-closed-tee-write", "1"),
+    ];
+    let mut refused = 0usize;
+    for case in &rows {
+        let fixture = fixture();
+        let root = &fixture.root;
+        std::fs::write(root.join("in.txt"), "a\n/x here\nb\n").unwrap();
+        std::fs::create_dir_all(root.join("d")).unwrap();
+        let context = ToolContext {
+            root: root.clone(),
+            mode: ExecutionMode::Act,
+            auto_approve: true,
+            interactive_approval: false,
+            offline: true,
+            workspace_policy: WorkspacePolicy::NormalTask,
+            eval_events_path: Some(fixture.dir.path().join("b-prime-events.jsonl")),
+            expected_paths: Vec::new(),
+            protected_paths: Vec::new(),
+        };
+        let registry = ToolRegistry::default();
+        let before = fixture.outside_snapshot();
+        let entries = || {
+            let mut names: Vec<String> = std::fs::read_dir(root)
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name().to_string_lossy().to_string())
+                .collect();
+            names.sort();
+            names
+        };
+        let workspace_before = entries();
+        let command = case.command.as_str();
+        if let Some(before_fix) = &case.before_fix {
+            assert_eq!(before_fix, &case.expect, "{}", case.id);
+            assert!(
+                case.note
+                    .as_deref()
+                    .is_some_and(|note| note.contains("allowed before the fix as well")),
+                "{}",
+                case.id
+            );
+        }
+        if case.expect == "reject" {
+            refused += 1;
+            assert!(rejected(root, command), "{}: {command:?}", case.id);
+            let error = registry
+                .execute("Bash", &json!({ "command": command }), &context)
+                .unwrap_err();
+            assert_eq!(
+                tool_error_kind(&error),
+                "bash_path_confinement_error",
+                "{}: {error}",
+                case.id
+            );
+            assert!(!error.to_string().contains(CANARY), "{}: {error}", case.id);
+            assert_eq!(entries(), workspace_before, "{}: created a file", case.id);
+        } else {
+            assert!(!rejected(root, command), "{}: {command:?}", case.id);
+            if case.id == "redteamb-b-oos-pipe-reader" {
+                assert!(
+                    case.note
+                        .as_deref()
+                        .is_some_and(|note| note.contains("reach is equivalent")),
+                    "{}",
+                    case.id
+                );
+                continue;
+            }
+            let (_, output_contains) = expected
+                .iter()
+                .find(|(id, _)| *id == case.id)
+                .unwrap_or_else(|| panic!("no expectation for {}", case.id));
+            let output = registry
+                .execute("Bash", &json!({ "command": command }), &context)
+                .unwrap_or_else(|err| panic!("{} must run: {err}", case.id));
+            assert!(output.contains("exit status: 0"), "{}: {output}", case.id);
+            assert!(output.contains(output_contains), "{}: {output}", case.id);
+            assert!(!output.contains(CANARY), "{}: {output}", case.id);
+        }
+        assert_eq!(fixture.outside_snapshot(), before, "{}", case.id);
+    }
+    assert_eq!(refused, 16);
+    for id in [
+        "redteamb-b-pos-broken-2a-file",
+        "redteamb-b-pos-broken-pipe-output",
+        "redteamb-b-pos-broken-input-pipe",
+    ] {
+        let case = rows.iter().find(|case| case.id == id).unwrap();
+        assert_eq!(case.expect, "reject", "{id}");
+        assert!(case.note.is_some(), "{id}");
+    }
 }

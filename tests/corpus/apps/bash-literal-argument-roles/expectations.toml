@@ -42,6 +42,8 @@ fixtures/cases.json = [
   "\"id\": \"synthetic-data-to-python-option-then-inline\"",
   "\"id\": \"synthetic-data-to-script-uppercase-sh\"",
   "\"id\": \"redteam-open-B-wc-files0from\"",
+  "\"id\": \"redteamb-b-closed-B1b-symlink-alias\"",
+  "\"id\": \"redteamb-b-pos-broken-input-pipe\"",
   "\"id\": \"redteam-open-A-py-pipe\"",
   "\"before_fix\": \"allow\"",
   "\"expect\": \"allow\"",
