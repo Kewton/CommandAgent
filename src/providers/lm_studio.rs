@@ -13,6 +13,7 @@ use crate::eval_events;
 use crate::state::ConversationMessage;
 use crate::tools::registry::ToolSpec;
 
+use super::compatible_effort::{self, CompatibleEffortSetting};
 use super::streaming::{CancelToken, HttpCall};
 use super::{
     AssistantReply, ChatClient, ProviderResponseMetadata, openai_chat_completions, openai_responses,
@@ -56,6 +57,10 @@ pub struct LmStudioClient {
     eval_events_path: Option<PathBuf>,
     response_metadata: Option<ProviderResponseMetadata>,
     responses_state: Arc<Mutex<openai_responses::ConversationState>>,
+    /// Snapshot of `COMMANDAGENT_COMPATIBLE_REASONING_EFFORT` taken by the
+    /// `from_*env` constructors; every clone, worker, and retry sends it.
+    reasoning_effort: Option<&'static str>,
+    provider_role: ProviderRole,
 }
 
 impl fmt::Debug for LmStudioClient {
@@ -70,12 +75,19 @@ impl fmt::Debug for LmStudioClient {
             .field("retries", &self.retries)
             .field("api", &self.api)
             .field("eval_events_path", &self.eval_events_path)
+            .field("reasoning_effort", &self.reasoning_effort)
+            .field("provider_role", &self.provider_role)
             .finish_non_exhaustive()
     }
 }
 
 impl LmStudioClient {
     pub fn from_env(config: &Config) -> anyhow::Result<Self> {
+        Self::from_env_for_role(config, ProviderRole::Executor)
+    }
+
+    pub(crate) fn from_env_for_role(config: &Config, role: ProviderRole) -> anyhow::Result<Self> {
+        let reasoning_effort = CompatibleEffortSetting::from_process_env().for_client()?;
         let api_token = crate::env_compat::var(LM_STUDIO_API_TOKEN_ENV)
             .ok()
             .map(|value| value.trim().to_string())
@@ -89,6 +101,7 @@ impl LmStudioClient {
             config.openai_api,
             config.eval_events_path.clone(),
         )
+        .map(|client| client.with_reasoning_effort(reasoning_effort, role))
     }
 
     pub(crate) fn from_openai_compatible_env(
@@ -100,6 +113,7 @@ impl LmStudioClient {
             .as_ref()
             .filter(|compatible| compatible.applies_to(role))
             .ok_or_else(|| anyhow::anyhow!("openai-compatible role configuration is missing"))?;
+        let reasoning_effort = CompatibleEffortSetting::from_process_env().for_client()?;
         let api_token = compatible
             .api_key_env
             .as_deref()
@@ -115,6 +129,17 @@ impl LmStudioClient {
             config.openai_api,
             config.eval_events_path.clone(),
         )
+        .map(|client| client.with_reasoning_effort(reasoning_effort, role))
+    }
+
+    fn with_reasoning_effort(
+        mut self,
+        reasoning_effort: Option<&'static str>,
+        role: ProviderRole,
+    ) -> Self {
+        self.reasoning_effort = reasoning_effort;
+        self.provider_role = role;
+        self
     }
 
     pub(crate) fn new(
@@ -189,6 +214,8 @@ impl LmStudioClient {
             eval_events_path,
             response_metadata: None,
             responses_state: Arc::new(Mutex::new(openai_responses::ConversationState::default())),
+            reasoning_effort: None,
+            provider_role: ProviderRole::Executor,
         })
     }
 
@@ -213,13 +240,23 @@ impl LmStudioClient {
         tools: &[ToolSpec],
         native_tools_enabled: bool,
     ) -> anyhow::Result<AssistantReply> {
-        let body = openai_chat_completions::build_lm_studio_request(
-            model,
-            messages,
-            tools,
-            native_tools_enabled,
-            self.max_predict,
-        );
+        let body = match self.reasoning_effort {
+            Some(effort) => openai_chat_completions::build_lm_studio_request_with_effort(
+                model,
+                messages,
+                tools,
+                native_tools_enabled,
+                self.max_predict,
+                effort,
+            ),
+            None => openai_chat_completions::build_lm_studio_request(
+                model,
+                messages,
+                tools,
+                native_tools_enabled,
+                self.max_predict,
+            ),
+        };
         self.emit_request(model, "chat_completions", tools, native_tools_enabled);
         let (body, attempt) =
             self.post_json("/v1/chat/completions", model, "chat_completions", &body)?;
@@ -245,14 +282,25 @@ impl LmStudioClient {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone();
-        let body = openai_responses::build_lm_studio_request(
-            model,
-            messages,
-            tools,
-            native_tools_enabled,
-            self.max_predict,
-            &state,
-        );
+        let body = match self.reasoning_effort {
+            Some(effort) => openai_responses::build_lm_studio_request_with_effort(
+                model,
+                messages,
+                tools,
+                native_tools_enabled,
+                self.max_predict,
+                effort,
+                &state,
+            ),
+            None => openai_responses::build_lm_studio_request(
+                model,
+                messages,
+                tools,
+                native_tools_enabled,
+                self.max_predict,
+                &state,
+            ),
+        };
         self.emit_request(model, "responses", tools, native_tools_enabled);
         let (body, attempt) = self.post_json("/v1/responses", model, "responses", &body)?;
         match openai_responses::parse_response(&body) {
@@ -277,16 +325,21 @@ impl LmStudioClient {
     }
 
     fn emit_request(&self, model: &str, api: &str, tools: &[ToolSpec], native_tools_enabled: bool) {
-        eval_events::emit(
-            self.eval_events_path.as_deref(),
-            json!({
-                "event": "provider_request",
-                "provider": self.kind.label(),
-                "model": model,
-                "api": api,
-                "tools": if native_tools_enabled { tools.len() } else { 0 },
-            }),
-        );
+        let mut event = json!({
+            "event": "provider_request",
+            "provider": self.kind.label(),
+            "model": model,
+            "api": api,
+            "tools": if native_tools_enabled { tools.len() } else { 0 },
+        });
+        // Additive and only when declared: an omitted effort keeps the event
+        // byte-identical to the one before Issue #931.
+        if let Some(effort) = self.reasoning_effort {
+            event["requested_reasoning_effort"] = json!(effort);
+            event["reasoning_effort_source"] = json!(compatible_effort::SOURCE_ENV);
+            event["provider_role"] = json!(compatible_effort::role_name(self.provider_role));
+        }
+        eval_events::emit(self.eval_events_path.as_deref(), event);
     }
 
     fn emit_response(
@@ -673,6 +726,36 @@ mod tests {
             "{evidence}"
         );
         assert!(!evidence.contains("gateway-secret"), "{evidence}");
+    }
+
+    #[test]
+    fn legacy_constructors_keep_the_reasoning_effort_unset() {
+        let lm_studio = LmStudioClient::new(
+            "http://127.0.0.1:9".to_string(),
+            None,
+            2,
+            128,
+            0,
+            OpenAiApi::Responses,
+            None,
+        )
+        .unwrap();
+        let generic = LmStudioClient::new_openai_compatible(
+            "http://127.0.0.1:9/v1".to_string(),
+            None,
+            None,
+            2,
+            128,
+            0,
+            OpenAiApi::ChatCompletions,
+            None,
+        )
+        .unwrap();
+
+        for client in [lm_studio, generic] {
+            assert_eq!(client.reasoning_effort, None);
+            assert_eq!(client.clone().reasoning_effort, None);
+        }
     }
 
     #[test]

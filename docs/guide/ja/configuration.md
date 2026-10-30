@@ -291,6 +291,7 @@ OpenAI キーと任意の `LM_STUDIO_API_TOKEN` はプロセス環境だけか�
 | `COMMANDAGENT_PACK_HASH` | 選択済み pack の exact-byte hash を内部で受け渡します。手で設定せず、`--pack` または preset で指定してください。 |
 | `COMMANDAGENT_UX_DEMO_FAST` / `ANVIL_UX_DEMO_FAST` | 開発・デモ用に `--ux-demo` の待機を短くします。値の真偽ではなく変数の存在を判定します。 |
 | `COMMANDAGENT_SYSTEM_GUIDANCE` | direct の `--prompt` の run で、provider へのすべての request の system prompt に共通の案内文を 1 つ足します。未設定・空文字なら何も変わりません。下を参照してください。 |
+| `COMMANDAGENT_COMPATIBLE_REASONING_EFFORT` | OpenAI 互換の transport（`openai-compatible` と `lm-studio`）を使う role に推論の強さを宣言します。未設定・空文字なら何も送りません。下を参照してください。 |
 
 `COMMANDAGENT_*` 項目では現在名が優先されます。現在名がない場合だけ対応する `ANVIL_*` 名を使い、
 1 回だけ非推奨警告を出します。それでも表中の旧名は、現在サポートされている正確な綴りです。
@@ -309,6 +310,48 @@ request（各 turn、tool 呼び出し後の turn、空応答の fresh retry、n
 空白だけでないことが必要です。満たさないときは、値を含めず変数名と理由だけを示すエラーで run が失敗します。
 この文は通常の案内であり、tool の権限を与えたり外したりせず、検証・completion・acceptance・予算の規則も
 変えません。run の secret scrub は適用されますが、値に秘密を入れないでください。
+
+`COMMANDAGENT_COMPATIBLE_REASONING_EFFORT` は、OpenAI 互換 server に推論の強さを指定する宣言です。
+provider の client を作るときにプロセス環境だけから読みます（`ANVIL_*` の旧名はなく、設定ファイルや
+`.env` からは読みません）。その client の clone・worker・通信の再試行は同じ値を送ります。CLI flag はありません。
+
+- 適用範囲：provider が OpenAI 互換の transport に解決される role、つまり汎用の `openai-compatible` と
+  `lm-studio` のすべてで、executor・planner・classifier を区別しません。Ollama native・OpenAI・Gemini の
+  role には送らず、この値がそれらの role の起動を止めることもありません。
+- 値：前後の空白を除いた上で `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max` のいずれか
+  （小文字）。大文字小文字や別名は変換しません。未設定・空文字・空白だけなら field を送らず、変数がない
+  ときと同じ request になります。それ以外の値（`LOW`、`true`、未知の語、UTF-8 でない byte 列）は、最初の
+  request の前に、変数名と許容語を示し値は示さないエラーで失敗します。
+- wire：Chat Completions（`--api chat-completions`）は最上位に `"reasoning_effort": "<値>"` を、
+  Responses（`--api responses`）は `"reasoning": {"effort": "<値>"}` を足します。request のほかの部分は
+  変わりません。`max_tokens` と `max_output_tokens` はそのままで、OpenAI 専用の field や Ollama の
+  `think` は足しません。
+- 対応しない値：CommandAgent が確かめるのは自分の語彙だけです。model がどの値に対応するかを server に
+  問い合わせず、model 名や host 名で特別扱いもしません。server が値を拒んだとき（たとえば model が
+  持たない語への HTTP 400）は、通常の再試行しない provider エラーとして turn が失敗します。field を
+  外したり、別の強さ・別の API・`think` に置き換えたりして送り直すことはしません。
+- ほかの設定との関係：`--think` は今までどおり Ollama native の role だけに効き、
+  `COMMANDAGENT_OPENAI_REASONING_EFFORT` は `openai` provider だけに効きます。どちらもこの変数へ
+  fallback せず、この変数もそれらへ fallback しません。
+- 証跡：`--doctor` は `config.compatible_reasoning_effort` に role ごとの `declared`・`omitted`・
+  `not_applicable`・`invalid` を示し（互換 role が使う値が不正ならこの check は失敗します）、headless
+  summary は同じ宣言を `model_metadata.compatible_reasoning_effort` に記録します。どちらも CommandAgent が
+  送る内容であり、server が適用したことではありません（`server_support_verified` は `false` のまま）。
+  値を送ったときは `provider_request` event に `requested_reasoning_effort`・`reasoning_effort_source`
+  （`env`）・`provider_role` が加わります。
+
+たとえば executor が OpenAI 互換、planner が Ollama native の場合：
+
+```bash
+COMMANDAGENT_COMPATIBLE_REASONING_EFFORT=low commandagent \
+  --provider openai-compatible --base-url http://127.0.0.1:11434/v1 \
+  --model glm-5.3-flash:cloud \
+  --planner-provider ollama --planner-model <planner-model> \
+  --prompt '<依頼>'
+```
+
+executor は `reasoning_effort: "low"` を送ります。Ollama の planner は自分の `--think` の設定のままで、
+effort の field を受け取りません。planner も `--planner-provider openai-compatible` なら、同じ `low` を送ります。
 
 ## 実効設定の確認
 

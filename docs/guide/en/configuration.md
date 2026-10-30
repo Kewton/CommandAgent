@@ -280,6 +280,7 @@ variables also affect normal user-visible behavior:
 | `COMMANDAGENT_PACK_HASH` | Internal handoff for the selected pack exact-byte hash. Configure it with `--pack` or a preset instead of setting it by hand. |
 | `COMMANDAGENT_UX_DEMO_FAST` / `ANVIL_UX_DEMO_FAST` | Speeds up the `--ux-demo` presentation waits for development and demos. The variable's presence, not its value, is tested. |
 | `COMMANDAGENT_SYSTEM_GUIDANCE` | Adds one common guidance text to the system prompt of every provider request of a direct `--prompt` run. Unset or empty changes nothing. See below. |
+| `COMMANDAGENT_COMPATIBLE_REASONING_EFFORT` | Declares a reasoning effort for the roles that use the OpenAI-compatible transport (`openai-compatible` and `lm-studio`). Unset or empty sends nothing. See below. |
 
 For `COMMANDAGENT_*` entries, the current name wins. The matching `ANVIL_*`
 name is used only when the current name is absent, and emits a one-time
@@ -306,6 +307,61 @@ names the variable and the reason but not the value. The text is ordinary
 guidance: it grants or removes no tool permission and changes no verification,
 completion, acceptance, or budget rule. The run's secret scrub applies to it,
 but do not put secrets in it.
+
+`COMMANDAGENT_COMPATIBLE_REASONING_EFFORT` declares how hard an
+OpenAI-compatible server should reason. It is read from the process environment
+only (no `ANVIL_*` legacy name, no config file, no `.env`) when a provider
+client is built, and every clone, worker, and transport retry of that client
+sends the same value. It has no CLI flag.
+
+- Scope: every role whose provider resolves to the OpenAI-compatible transport,
+  that is the generic `openai-compatible` provider and `lm-studio`, for the
+  executor, the planner, and the classifier alike. Ollama native, OpenAI, and
+  Gemini roles never send it, and its value never stops them from starting.
+- Values: one of `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`,
+  in lowercase, after surrounding whitespace is trimmed. Case and aliases are
+  not converted. Unset, empty, or whitespace-only sends no field, so the
+  request is exactly the one sent without the variable. Any other value
+  (`LOW`, `true`, an unknown word, non-UTF-8 bytes) fails before the first
+  request with an error that names the variable and the accepted words but
+  not the value.
+- Wire: Chat Completions (`--api chat-completions`) adds a top-level
+  `"reasoning_effort": "<value>"`; Responses (`--api responses`) adds
+  `"reasoning": {"effort": "<value>"}`. Nothing else in the request changes:
+  `max_tokens` and `max_output_tokens` stay, and no OpenAI-only field or
+  Ollama `think` field is added.
+- Unsupported values: CommandAgent checks its own vocabulary only. It does not
+  ask the server which values the model supports and does not special-case
+  model or host names. When the server rejects the value (for example HTTP 400
+  for a word the model does not offer), the turn fails as an ordinary
+  non-retryable provider error; CommandAgent does not resend without the field,
+  with a different effort, through another API, or as `think`.
+- Other settings: `--think` still controls only Ollama native roles, and
+  `COMMANDAGENT_OPENAI_REASONING_EFFORT` still applies only to the `openai`
+  provider; neither falls back to this variable, and this variable does not
+  fall back to them.
+- Evidence: `--doctor` reports `config.compatible_reasoning_effort` per role as
+  `declared`, `omitted`, `not_applicable`, or `invalid` (an invalid value used
+  by a compatible role fails the check), and the headless summary records the
+  same declaration under `model_metadata.compatible_reasoning_effort`. Both
+  describe what CommandAgent sends, not what the server applied
+  (`server_support_verified` stays `false`). When a value is sent, the
+  `provider_request` event adds `requested_reasoning_effort`,
+  `reasoning_effort_source` (`env`), and `provider_role`.
+
+For example, with an OpenAI-compatible executor and a native Ollama planner:
+
+```bash
+COMMANDAGENT_COMPATIBLE_REASONING_EFFORT=low commandagent \
+  --provider openai-compatible --base-url http://127.0.0.1:11434/v1 \
+  --model glm-5.3-flash:cloud \
+  --planner-provider ollama --planner-model <planner-model> \
+  --prompt '<request>'
+```
+
+The executor sends `reasoning_effort: "low"`; the Ollama planner keeps its own
+`--think` setting and receives no effort field. If the planner also used
+`--planner-provider openai-compatible`, it would send the same `low`.
 
 ## Inspect the effective configuration
 
