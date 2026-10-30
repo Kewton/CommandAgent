@@ -1,3 +1,4 @@
+pub(crate) mod compatible_effort;
 pub mod gemini;
 pub mod gemini_function_calling;
 pub(crate) mod guidance;
@@ -152,7 +153,9 @@ pub(crate) fn client_from_config_for_role(
                 config.ollama_think
             }),
         )),
-        Provider::LmStudio => Ok(Box::new(lm_studio::LmStudioClient::from_env(config)?)),
+        Provider::LmStudio => Ok(Box::new(lm_studio::LmStudioClient::from_env_for_role(
+            config, role,
+        )?)),
         Provider::Openai => Ok(Box::new(openai::OpenAiClient::from_env(config)?)),
         Provider::Gemini => Ok(Box::new(gemini::GeminiClient::from_env(config)?)),
     }

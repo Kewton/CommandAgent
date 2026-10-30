@@ -47,6 +47,27 @@ pub(crate) fn build_lm_studio_request(
     )
 }
 
+/// The compatible request with an explicitly declared reasoning effort as the
+/// top-level `reasoning_effort`; the token field stays `max_tokens`.
+pub(crate) fn build_lm_studio_request_with_effort(
+    model: &str,
+    messages: &[ConversationMessage],
+    tools: &[ToolSpec],
+    native_tools_enabled: bool,
+    max_predict: usize,
+    reasoning_effort: &str,
+) -> Value {
+    build_request_with_token_field(
+        model,
+        messages,
+        tools,
+        native_tools_enabled,
+        max_predict,
+        Some(reasoning_effort),
+        "max_tokens",
+    )
+}
+
 fn build_request_with_token_field(
     model: &str,
     messages: &[ConversationMessage],

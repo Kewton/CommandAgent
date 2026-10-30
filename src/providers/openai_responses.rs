@@ -86,6 +86,28 @@ pub(crate) fn build_lm_studio_request(
     )
 }
 
+/// The compatible request with an explicitly declared reasoning effort as
+/// `reasoning: {effort}`; OpenAI-only `store`/`include` stay absent.
+pub(crate) fn build_lm_studio_request_with_effort(
+    model: &str,
+    messages: &[ConversationMessage],
+    tools: &[ToolSpec],
+    native_tools_enabled: bool,
+    max_predict: usize,
+    reasoning_effort: &str,
+    state: &ConversationState,
+) -> Value {
+    build_base_request(
+        model,
+        messages,
+        tools,
+        native_tools_enabled,
+        max_predict,
+        Some(reasoning_effort),
+        state,
+    )
+}
+
 fn build_base_request(
     model: &str,
     messages: &[ConversationMessage],

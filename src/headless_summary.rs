@@ -5,6 +5,7 @@ use serde_json::Value;
 
 use crate::config::Config;
 use crate::eval_events::terminal_report;
+use crate::providers::compatible_effort::CompatibleEffortSetting;
 
 pub(crate) use crate::eval_events::terminal_report::TerminalStatus;
 
@@ -25,6 +26,18 @@ impl Source {
         config: &Config,
         pack: Option<&crate::cli_pack::ResolvedPack>,
     ) -> Self {
+        Self::from_config_with_compatible_effort(
+            config,
+            pack,
+            CompatibleEffortSetting::from_process_env(),
+        )
+    }
+
+    fn from_config_with_compatible_effort(
+        config: &Config,
+        pack: Option<&crate::cli_pack::ResolvedPack>,
+        compatible_effort: CompatibleEffortSetting,
+    ) -> Self {
         Self {
             events_path: config.eval_events_path.clone(),
             workspace_root: Some(config.workspace_root.clone()),
@@ -41,6 +54,10 @@ impl Source {
                 planner_model: config.planner_model.clone(),
                 ollama_think: config.ollama_think.map(crate::config::OllamaThink::as_str),
                 ollama_think_request_field_present: config.ollama_think.is_some(),
+                compatible_reasoning_effort: crate::providers::compatible_effort::declaration(
+                    config,
+                    compatible_effort,
+                ),
             }),
             pack: pack.cloned(),
         }
@@ -92,6 +109,10 @@ struct ModelMetadata {
     planner_model: String,
     ollama_think: Option<&'static str>,
     ollama_think_request_field_present: bool,
+    /// Issue #931: the per-role declaration of the OpenAI-compatible reasoning
+    /// effort. It records what was configured to be sent, not what the server
+    /// applied; the `provider_request` event is the evidence of a send.
+    compatible_reasoning_effort: Value,
 }
 
 #[derive(Debug, Serialize)]
@@ -480,6 +501,7 @@ mod tests {
                 planner_model: "qwen3.8:27b-mlx".to_string(),
                 ollama_think: Some("medium"),
                 ollama_think_request_field_present: true,
+                compatible_reasoning_effort: Value::Null,
             }),
             pack: None,
         };
@@ -491,6 +513,80 @@ mod tests {
             true
         );
         assert_eq!(value["model_metadata"]["planner_model"], "qwen3.8:27b-mlx");
+    }
+
+    fn compatible_effort_metadata(
+        extra: &[&str],
+        setting: CompatibleEffortSetting,
+    ) -> (Value, String) {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_string_lossy().into_owned();
+        let state = dir.path().join("state").to_string_lossy().into_owned();
+        let mut arguments = vec!["commandagent", "--cwd", &root, "--state-dir", &state];
+        arguments.extend_from_slice(extra);
+        let parsed = crate::provider_cli::parse_from(arguments).unwrap();
+        let config =
+            Config::from_cli_with_provider_options(parsed.cli, parsed.provider_options).unwrap();
+        let source = Source::from_config_with_compatible_effort(&config, None, setting);
+        let rendered = render(&source);
+        let value: Value = serde_json::from_str(&rendered).unwrap();
+        (value["model_metadata"].clone(), rendered)
+    }
+
+    #[test]
+    fn compatible_reasoning_effort_is_declared_per_role_without_touching_ollama_think() {
+        let mixed = [
+            "--provider",
+            "openai-compatible",
+            "--base-url",
+            "http://127.0.0.1:9/v1",
+            "--model",
+            "served",
+            "--planner-provider",
+            "ollama",
+            "--planner-model",
+            "planner",
+            "--think=high",
+        ];
+        let (metadata, _) = compatible_effort_metadata(
+            &mixed,
+            CompatibleEffortSetting::parse(Some(std::ffi::OsStr::new(" low "))),
+        );
+        let effort = &metadata["compatible_reasoning_effort"];
+        assert_eq!(effort["status"], "declared");
+        assert_eq!(effort["requested_value"], "low");
+        assert_eq!(effort["source"], "env");
+        assert_eq!(effort["server_support_verified"], false);
+        assert_eq!(effort["roles"][0]["role"], "executor");
+        assert_eq!(effort["roles"][0]["status"], "declared");
+        assert_eq!(effort["roles"][1]["role"], "planner");
+        assert_eq!(effort["roles"][1]["status"], "not_applicable");
+        assert!(effort["roles"][1]["requested_value"].is_null());
+        assert_eq!(metadata["ollama_think"], "high");
+        assert_eq!(metadata["ollama_think_request_field_present"], true);
+
+        let (metadata, _) = compatible_effort_metadata(&mixed, CompatibleEffortSetting::Omitted);
+        assert_eq!(metadata["compatible_reasoning_effort"]["status"], "omitted");
+        assert!(metadata["compatible_reasoning_effort"]["requested_value"].is_null());
+
+        let (metadata, rendered) =
+            compatible_effort_metadata(&mixed, CompatibleEffortSetting::Invalid);
+        assert_eq!(metadata["compatible_reasoning_effort"]["status"], "invalid");
+        assert!(metadata["compatible_reasoning_effort"]["requested_value"].is_null());
+        assert!(
+            !rendered.contains("\"requested_value\":\"low\""),
+            "{rendered}"
+        );
+
+        let (metadata, _) = compatible_effort_metadata(
+            &["--provider", "ollama", "--model", "m"],
+            CompatibleEffortSetting::parse(Some(std::ffi::OsStr::new("low"))),
+        );
+        assert_eq!(
+            metadata["compatible_reasoning_effort"]["status"],
+            "not_applicable"
+        );
+        assert!(metadata["compatible_reasoning_effort"]["requested_value"].is_null());
     }
 
     #[test]
@@ -551,6 +647,7 @@ mod tests {
                 planner_model: canary.to_string(),
                 ollama_think: None,
                 ollama_think_request_field_present: false,
+                compatible_reasoning_effort: Value::Null,
             }),
             pack: None,
         };
