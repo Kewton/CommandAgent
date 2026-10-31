@@ -65,7 +65,7 @@ copying forward existing state.
 
 ## Presets
 
-Select a preset with `--preset <name>`. A preset section accepts all 21 current
+Select a preset with `--preset <name>`. A preset section accepts all 22 current
 keys below. String/enumeration values must be double-quoted; numeric values are
 unquoted integers.
 
@@ -169,7 +169,7 @@ higher-priority preset already has the 11 completeness fields but omits
 `prompt_layout`, CommandAgent stops searching and does not inherit that preset's
 `prompt_layout` from a lower-priority file. Put `prompt_layout` in the same
 higher-priority preset, or omit enough completeness fields for the intended
-lower layer to be visited. Do not assume the 21 accepted keys are the same as
+lower layer to be visited. Do not assume the 22 accepted keys are the same as
 the 11-key early-stop condition.
 
 ## Top-level keys

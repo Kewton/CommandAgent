@@ -63,7 +63,7 @@ platform の `commandagent` state directory に書き込み、既存 state の l
 
 ## Preset
 
-`--preset <name>` で preset を選択します。preset セクションでは、現在の 21 キーすべてを
+`--preset <name>` で preset を選択します。preset セクションでは、現在の 22 キーすべてを
 受け付けます。文字列／列挙値はダブルクォートで囲み、数値はクォートなしの整数で指定します。
 
 | Preset キー | 受け付ける値 | どの層にもない場合の実効 fallback |
@@ -191,7 +191,7 @@ preset のマージは、`model`、`provider`、`planner_model`、`planner_provi
 11 個の完全性フィールドをすでに持ちながら `prompt_layout` を省略している場合、探索が停止し、
 優先度の低いファイルにある同じ preset の `prompt_layout` は継承されません。`prompt_layout` を
 優先度の高い同じ preset に置くか、意図した下位層まで探索されるように完全性フィールドを残してください。
-受け付ける 21 キーと、早期停止条件の 11 キーを同じものと仮定しないでください。
+受け付ける 22 キーと、早期停止条件の 11 キーを同じものと仮定しないでください。
 
 ## トップレベルキー
 
