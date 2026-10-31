@@ -1507,3 +1507,73 @@ fn a_client_that_parses_xml_itself_is_skipped_exactly_like_off() {
         assert_eq!(trace.plan_phases()[1][0], "captured", "{id}");
     }
 }
+
+#[test]
+fn a_closing_tag_inside_a_json_string_never_ends_the_note_region() {
+    for (id, valid, native) in [
+        ("once-xml-string-close-valid", true, false),
+        ("once-xml-string-escapes-valid", true, false),
+        ("once-xml-string-close-unclosed", false, false),
+        ("once-xml-string-close-nested", false, false),
+        ("once-xml-unterminated-string", false, false),
+        ("once-native-string-close-unclosed", false, true),
+    ] {
+        let trace = run_fixture_row(id);
+        assert!(!trace.file_exists("leak.txt"), "{id}");
+        assert!(trace.file_exists("greeting.txt"), "{id}");
+        let raw_calls = trace
+            .events
+            .iter()
+            .filter(|event| event["event"] == "tool_call_raw")
+            .collect::<Vec<_>>();
+        assert_eq!(raw_calls.len(), 1, "{id}: only the legitimate Write");
+        let outcome = trace.result.as_ref().unwrap();
+        assert_eq!(
+            outcome.changed_paths,
+            vec!["greeting.txt".to_string()],
+            "{id}"
+        );
+        if native {
+            // The independent native call of the first reply still ran.
+            assert_eq!(trace.requests.len(), 2, "{id}");
+        }
+        for message in &trace.session.messages {
+            for forbidden in [
+                "<requirement_plan>",
+                "</requirement_plan>",
+                "leak.txt",
+                "function=Write",
+                "stated_requirement",
+            ] {
+                assert!(!message.content.contains(forbidden), "{id}: {forbidden}");
+            }
+            assert!(
+                message
+                    .tool_calls
+                    .iter()
+                    .all(|call| call.arguments["path"] != "leak.txt")
+            );
+        }
+        for (index, messages) in trace.requests.iter().enumerate().skip(1) {
+            for message in messages {
+                let is_note =
+                    message.role == "assistant" && message.content.starts_with(NOTE_MARKER);
+                if valid && is_note {
+                    // The captured note carries the tag-like text as data only.
+                    assert!(message.content.contains("function=Write"), "{id}");
+                    continue;
+                }
+                for forbidden in ["leak.txt", "function=Write", "<requirement_plan>"] {
+                    assert!(
+                        !message.content.contains(forbidden),
+                        "{id} {index}: {forbidden}"
+                    );
+                }
+            }
+        }
+        if valid {
+            assert_eq!(trace.plan_events()[1]["obligation_count"], 1, "{id}");
+            assert_note_once_after_capture(&trace, &edit_prompt());
+        }
+    }
+}

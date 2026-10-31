@@ -44,6 +44,14 @@ public minimal loop with a mock `ChatClient`, and compares the keys the row's
   no region text (and nothing after an unclosed one) reaches the tool parser,
   `leak.txt` is never written, and the legitimate Write outside every region
   (or the independent native call) still runs.
+- `once-xml-string-close-valid`, `once-xml-string-escapes-valid`: a closing
+  tag and a tool-like tag inside a JSON string (with escaped quotes and
+  backslashes) are data: the block is one valid note and only the Write
+  outside it runs. `once-xml-string-close-unclosed`,
+  `once-xml-string-close-nested`, `once-xml-unterminated-string`,
+  `once-native-string-close-unclosed`: when the boundary cannot be settled the
+  region runs to the end of the reply, the note is invalid, and nothing inside
+  reaches the tool parser.
 - `once-max-length-plan-turn`: the output-length guard counts a planning turn
   that hit the output limit, so `max_length_no_tool_call_repeated` stops at the
   same reply as with the plan off.
