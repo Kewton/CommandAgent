@@ -63,7 +63,7 @@ platform の `commandagent` state directory に書き込み、既存 state の l
 
 ## Preset
 
-`--preset <name>` で preset を選択します。preset セクションでは、現在の 21 キーすべてを
+`--preset <name>` で preset を選択します。preset セクションでは、現在の 22 キーすべてを
 受け付けます。文字列／列挙値はダブルクォートで囲み、数値はクォートなしの整数で指定します。
 
 | Preset キー | 受け付ける値 | どの層にもない場合の実効 fallback |
@@ -89,6 +89,7 @@ platform の `commandagent` state directory に書き込み、既存 state の l
 | `stream` | `"on"` または `"off"` | REPL ではオン、それ以外はオフ |
 | `prompt_layout` | `"stable"` または `"legacy"` | トップレベル値、その後 `"legacy"` |
 | `plan_preset` | `"none"` または `"profile"` | トップレベル／計算された planner 値 |
+| `openrouter_provider` | `only`・`order`（provider slug の配列）と `allow_fallbacks`（boolean）だけを持つ 1 行の inline table。`openai-compatible` の役割が `provider` object として送る。例：`api = "chat_completions"` と `{ only = ["open-inference/fp4"], allow_fallbacks = false }`。`{}` は継承した table を解除（[プロバイダ](providers.md) を参照） | routing なし |
 
 `extends` は単一継承です。子が定義したフィールドを優先し、不足フィールドを親から継承します。
 親も 1 個の親を継承できますが、親が見つからない場合や `a -> b -> a` のような循環はエラーです。
@@ -190,7 +191,7 @@ preset のマージは、`model`、`provider`、`planner_model`、`planner_provi
 11 個の完全性フィールドをすでに持ちながら `prompt_layout` を省略している場合、探索が停止し、
 優先度の低いファイルにある同じ preset の `prompt_layout` は継承されません。`prompt_layout` を
 優先度の高い同じ preset に置くか、意図した下位層まで探索されるように完全性フィールドを残してください。
-受け付ける 21 キーと、早期停止条件の 11 キーを同じものと仮定しないでください。
+受け付ける 22 キーと、早期停止条件の 11 キーを同じものと仮定しないでください。
 
 ## トップレベルキー
 

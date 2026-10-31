@@ -173,6 +173,53 @@ LM Studio は同じ transport を既存の `lm-studio`、`--lm-studio-host`、
 executor、planner、classifier のいずれかが `openai-compatible` に解決される場合、その base URL が
 必要です。
 
+### OpenRouter の provider routing
+
+preset の `openrouter_provider` で OpenRouter の provider routing を宣言できます。1 行の inline
+table で、受け付ける key は `only`、`order`、`allow_fallbacks` の 3 つだけです。CommandAgent は
+宣言した key だけを Chat Completions / Responses の request のトップレベル `provider` object として
+送るため、中継は不要です。鍵の値はプロセス環境に置き、preset には変数名だけを書きます。
+
+```toml
+[preset.glm_openrouter]
+provider = "openai-compatible"
+model = "z-ai/glm-5.3-flash"
+base_url = "https://openrouter.ai/api/v1"
+api_key_env = "OPENROUTER_API_KEY"
+api = "chat_completions"
+tool_protocol = "native"
+openrouter_provider = { only = ["open-inference/fp4"], allow_fallbacks = false }
+```
+
+- `only` は許可する provider の範囲、`order` は優先順です。互いに書き換えず、配列の順序と値も
+  書いたとおりに送ります。どちらも重複のない 1〜32 件の slug の配列で、slug は英数字・`-`・`_`・`.`
+  の非空 segment を `/` で連結した 128 bytes 以下の文字列です。実在 provider の一覧は持ちません。
+- `allow_fallbacks` は書いたときだけ送り、省略時に補完しません。
+- base slug と variant slug は別の指定です。`open-inference` は OpenInference の全 variant を許し、
+  `open-inference/fp4` は fp4 variant だけを指します。`only = ["open-inference"], allow_fallbacks = false`
+  が、同じ object を足す中継と同値です。
+- routing の値では `${ENV}` を展開しません。未知 key、型違い、空配列、不正・重複 slug、制御文字は
+  設定エラーになり、file・line・key は示しますが値は表示しません。
+- routing を送るのは `openai-compatible` に解決された executor・planner・classifier の役割だけで、
+  LM Studio、Ollama native、OpenAI、Gemini の役割には送りません。`openai-compatible` の役割が
+  1 つも無い preset で routing を宣言すると、request の前に失敗します。routing は client 構築時に
+  固定し、clone・retry・native / text の tool turn でも同じ object を送ります。HTTP 400 / 404 などの
+  拒否は失敗のままで、routing を外して再送しません。
+- 子 preset や優先順位の高い config file は table 全体を置き換え、継承元の table と key 単位では
+  merge しません。`openrouter_provider = {}` は継承した routing を解除し、`provider` key を送りません。
+- reasoning effort は変わらず、`COMMANDAGENT_COMPATIBLE_REASONING_EFFORT=low` などと併用できます。
+
+`commandagent --doctor` の `config.openrouter_provider_routing` は、要求した object、宣言元の
+preset、送信する役割を `server_support_verified: false` とともに表示し、この check は request を
+送りません。routing を宣言すると `provider_request` に `requested_provider`、
+`provider_routing_source`、`provider_role` が加わり、成功 (2xx) した応答 body ごとに
+`openrouter_provider_observed` event を記録します。`response_provider` は応答のトップレベル
+`provider` field を upstream の申告のまま記録したもの（`response_provider_status: "reported"`）で、
+記録できない場合は null と `missing`・`invalid`・`unparseable` のいずれかになります。この field は
+upstream 自身の申告で独立した証明ではなく、公開 schema では任意項目です。要求した routing や
+transport 名から補完することはなく、provider 名だけで fp4 などの variant が使われたことは証明
+できません。routing を指定しなければ、request と event は従来のままです。
+
 ## Ollama のホストとモデル
 
 Ollama には実行中の HTTP サーバーとローカルで利用可能なモデルが必要です。既定アドレスへの

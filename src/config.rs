@@ -13,6 +13,7 @@ use crate::planner::intent::detect_intent;
 use crate::planner::profile::{ProfileInference, infer_profile, resolve_profile_runtime};
 
 mod env_deferral;
+pub mod openrouter_routing;
 mod resolution;
 mod validation;
 use resolution::{
@@ -46,6 +47,7 @@ pub const SUPPORTED_PRESET_KEYS: &[&str] = &[
     "stream",
     "prompt_layout",
     "plan_preset",
+    "openrouter_provider",
 ];
 pub const SUPPORTED_TOP_LEVEL_KEYS: &[&str] = &[
     "extension_root",
@@ -89,6 +91,7 @@ pub struct OpenAiCompatibleConfig {
     executor: bool,
     planner: bool,
     classifier: bool,
+    openrouter_provider: Option<openrouter_routing::ResolvedOpenRouterRouting>,
 }
 
 impl OpenAiCompatibleConfig {
@@ -537,6 +540,7 @@ struct PresetConfig {
     narration: Option<Sourced<NarrationMode>>,
     footer: Option<Sourced<FooterMode>>,
     stream: Option<Sourced<bool>>,
+    openrouter_provider: Option<Sourced<openrouter_routing::OpenRouterProviderRouting>>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -1212,6 +1216,7 @@ fn parse_config_file(
             .strip_prefix('[')
             .and_then(|line| line.strip_suffix(']'))
         {
+            openrouter_routing::reject_unsupported_section(path, line_no, section_name)?;
             section = if let Some(name) = section_name.trim().strip_prefix("preset.") {
                 let name = name.trim();
                 if name.is_empty() {
@@ -1275,65 +1280,54 @@ fn parse_top_level_key(
         "extension_root" => {
             file.extension_root = Some(sourced(
                 parse_string_value(path, line_no, key, value)?,
-                format!(
-                    "config:{}",
-                    path.file_name().unwrap_or_default().to_string_lossy()
-                ),
+                config_file_source(path),
             ));
             Ok(())
         }
         "narration" => {
             file.narration = Some(sourced(
                 parse_narration_value(path, line_no, key, value)?,
-                format!(
-                    "config:{}",
-                    path.file_name().unwrap_or_default().to_string_lossy()
-                ),
+                config_file_source(path),
             ));
             Ok(())
         }
         "footer" => {
             file.footer = Some(sourced(
                 parse_footer_value(path, line_no, key, value)?,
-                format!(
-                    "config:{}",
-                    path.file_name().unwrap_or_default().to_string_lossy()
-                ),
+                config_file_source(path),
             ));
             Ok(())
         }
         "stream" => {
             file.stream = Some(sourced(
                 parse_stream_value(path, line_no, key, value)?,
-                format!(
-                    "config:{}",
-                    path.file_name().unwrap_or_default().to_string_lossy()
-                ),
+                config_file_source(path),
             ));
             Ok(())
         }
         "prompt_layout" => {
             file.prompt_layout = Some(sourced(
                 parse_prompt_layout_value(path, line_no, key, value)?,
-                format!(
-                    "config:{}",
-                    path.file_name().unwrap_or_default().to_string_lossy()
-                ),
+                config_file_source(path),
             ));
             Ok(())
         }
         "plan_preset" => {
             file.plan_preset = Some(sourced(
                 parse_plan_preset_value(path, line_no, key, value)?,
-                format!(
-                    "config:{}",
-                    path.file_name().unwrap_or_default().to_string_lossy()
-                ),
+                config_file_source(path),
             ));
             Ok(())
         }
         _ => crate::minimal_loop::request_pattern::check_config_value(path, line_no, key, value),
     }
+}
+
+fn config_file_source(path: &Path) -> String {
+    format!(
+        "config:{}",
+        path.file_name().unwrap_or_default().to_string_lossy()
+    )
 }
 
 pub(crate) fn selected_preset_pack(
