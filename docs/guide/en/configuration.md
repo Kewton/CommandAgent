@@ -283,6 +283,7 @@ variables also affect normal user-visible behavior:
 | `COMMANDAGENT_SYSTEM_GUIDANCE` | Adds one common guidance text to the system prompt of every provider request of a direct `--prompt` run. Unset or empty changes nothing. See below. |
 | `COMMANDAGENT_COMPATIBLE_REASONING_EFFORT` | Declares a reasoning effort for the roles that use the OpenAI-compatible transport (`openai-compatible` and `lm-studio`). Unset or empty sends nothing. See below. |
 | `COMMANDAGENT_COMPLETION_OBLIGATION_REVIEW` | Experimental. `once` asks a generic edit run to review the request's obligations once before its first normal final answer. Unset, empty, or `off` (the default) changes nothing. See below. |
+| `COMMANDAGENT_REQUIREMENT_PLAN` | Experimental. `once` asks a new generic run to write a short requirement plan note before its first implementation step. Unset, empty, or `off` (the default) changes nothing. See below. |
 
 For `COMMANDAGENT_*` entries, the current name wins. The matching `ANVIL_*`
 name is used only when the current name is absent, and emits a one-time
@@ -361,6 +362,85 @@ no CLI flag), and a change during the run has no effect.
 - Cost: the review normally adds one to three provider calls, but this is not
   guaranteed; the model may use more of the remaining iterations, up to the
   existing limit. Whether the review improves correctness is unmeasured.
+
+`COMMANDAGENT_REQUIREMENT_PLAN` is an experimental opt-in that asks the model
+to state the request's obligations and the expected results of a few small
+checks before it implements anything. It is off by default. The note is the
+model's own unverified memo: the host checks only its shape and size, never
+whether it is correct or complete, and it is not a coverage, verification, or
+acceptance gate. It is read once, from the process environment only, when a
+minimal-loop run starts (no `ANVIL_*` legacy name, no config file, no `.env`,
+no CLI flag), and a change during the run has no effect.
+
+- Values: unset, empty, whitespace-only, or `off` disables it, and the run is
+  exactly the run without the variable: the same provider requests in the same
+  order, the same events, stop reason, and assurance, and no new event. `once`
+  (surrounding whitespace trimmed, lowercase) enables it. Any other value,
+  including `ONCE` or non-UTF-8 bytes, fails the run before the first request
+  with a fixed error that names the variable but not the value.
+- Not combinable: `once` together with
+  `COMMANDAGENT_COMPLETION_OBLIGATION_REVIEW=once` fails the run before the
+  first request with an error that names only the two variables. With this
+  variable off, the completion obligation review works exactly as before.
+- Scope: a new minimal-loop run (not a plan step) whose effective profile is
+  `generic`, that has no completion contract, that does not continue an earlier
+  conversation, and in which at least four loop iterations remain after the
+  first request. Plan steps (`PlanRunStep`), other profiles, runs with a
+  completion contract, resumed or follow-up turns, runs on a provider client
+  that parses XML tool calls before the host (Ollama), and runs with less budget are
+  skipped. It is never enabled in the middle of a run.
+- Request: the first request alone carries one fixed guidance message. It asks
+  for a `<requirement_plan>` JSON block at the start of the first reply with up
+  to five obligations the request states (`id`, `stated_requirement`,
+  `expected_behavior`, `assumption`) and up to two check examples
+  (`obligation_id`, `input_outline`, `expected_outcome`,
+  `reason_from_request`), with the expected results decided from the request
+  before any implementation and ambiguities written as assumptions. The reply
+  may continue with normal work and tool calls.
+- Limits: the block may hold at most 8 KiB (UTF-8) and the normalized note at
+  most 2048 characters, with one to five obligations and zero to two examples.
+  Only those fields are accepted, ids must be unique, and every example must
+  name an existing obligation. A missing block, a block that does not open the
+  reply, malformed or truncated JSON, an unknown field, a duplicate id, a
+  dangling reference, or an oversize block discards the whole note (it is never
+  cut down to fit); the run continues without a note and the note is never
+  asked for again.
+- Handling: the host takes the block out of the first reply before any XML tool
+  call is extracted or any tool runs. Nothing inside the block, and nothing
+  after an unclosed block, is read as a tool call; a second, nested, or
+  unclosed block in the first reply also makes the note invalid. A provider
+  client that parses XML tool calls out of the reply itself before the host
+  sees it (today only the Ollama client) never starts the plan: the run is
+  skipped with `reason` `provider_unsupported`, no guidance is sent, and the
+  run is exactly the run with the variable off. This is a limitation: every
+  Ollama run is excluded, including runs that use native tool calls. LM Studio,
+  OpenAI-compatible endpoints such as OpenRouter, OpenAI, and Gemini are not
+  excluded. The kept note passes the
+  run's secret scrub, lives only in memory for that run, and is never written to
+  the session, a file, or the runtime namespace; a resumed or follow-up turn does
+  not get it back. Each later request of the run carries it exactly once, right
+  after the original request, as assistant-side context with a fixed header
+  saying it is the model's own unverified memo and that the original request and
+  later user corrections take precedence. It is never joined to the system
+  prompt and never replaces the request, a tool result, or pending feedback;
+  history compaction and the empty-response fresh retry keep it, and it adds no
+  retry. A later user message makes the note stale and it is no longer sent; the
+  run does not plan again.
+- Planning turn: when the first reply is only a valid block (no tool call and no
+  other text), that reply counts as one existing iteration and provider call and
+  the run moves on. No iteration is added or returned, and no existing counter
+  is reset. Failures, timeouts, cancellation, and budget exhaustion stay what
+  they are.
+- Events: the run records `requirement_plan` with `phase` `requested`,
+  `captured`, `skipped`, or `released`, a fixed `reason`, `prompt_version`,
+  `iteration`, `remaining_iterations`, `obligation_count`, `example_count`,
+  `note_chars`, and `plan_only_turn`. `captured` means the shape was valid, not
+  that the note is right. The event never copies the note, the request, example
+  values, tool output, a secret, an unknown key name, or a parser message.
+  Existing events, stop reasons, assurance, and acceptance and release gates do
+  not change; a successful self-written example or the model saying everything
+  was checked raises nothing. Whether the note improves correctness is
+  unmeasured.
 
 `COMMANDAGENT_COMPATIBLE_REASONING_EFFORT` declares how hard an
 OpenAI-compatible server should reason. It is read from the process environment

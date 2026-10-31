@@ -1,0 +1,48 @@
+case_id = "requirement-plan"
+source = "Issue #945: synthetic scripted runs of the experimental COMMANDAGENT_REQUIREMENT_PLAN opt-in; default-off rows were recorded from source c9f88d35 before the requirement plan existed; once rows state the designed behavior"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/plan.json = [
+  "\"kind\": \"synthetic\"",
+  "\"off_golden_source\": \"c9f88d35\"",
+  "\"id\": \"default-off-unset\"",
+  "\"id\": \"default-off-empty\"",
+  "\"id\": \"default-off-explicit\"",
+  "\"source\": \"c9f88d35\"",
+  "\"id\": \"once-captured-native\"",
+  "\"id\": \"once-plan-only-turn\"",
+  "\"id\": \"once-xml-unclosed-tool-tag\"",
+  "\"id\": \"once-budget-after-plan-only-turn\"",
+  "[\"captured\", \"valid_block\"]",
+  "[\"released\", \"missing\"]",
+  "[\"released\", \"invalid\"]",
+  "[\"released\", \"oversize\"]",
+  "[\"skipped\", \"insufficient_remaining_iterations\"]",
+  "\"id\": \"once-xml-invalid-then-unclosed-block\"",
+  "\"id\": \"once-max-length-plan-turn\"",
+  "\"id\": \"once-last-provider-failure\"",
+  "[\"released\", \"run_failed\"]",
+  "[\"skipped\", \"provider_unsupported\"]",
+  "\"id\": \"once-xml-string-close-valid\"",
+  "\"id\": \"once-xml-unterminated-string\""
+]
