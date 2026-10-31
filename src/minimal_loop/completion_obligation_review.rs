@@ -548,6 +548,118 @@ mod tests {
         assert!(read_events(&dir.path().join("e.jsonl")).is_empty());
     }
 
+    /// Every phase, reason, and field the review emits beyond the shared
+    /// `event`/`schema_version`/`phase`/`reason` keys and the `"1"` version.
+    const EMITTED_FIXED_WORDS: [&str; 21] = [
+        "triggered",
+        "closed",
+        "skipped",
+        "normal_final_after_successful_edit",
+        "next_final",
+        "scope_exit_before_next_final",
+        "plan_run_step",
+        "profile_not_generic",
+        "completion_contract",
+        "no_successful_edit",
+        "insufficient_remaining_iterations",
+        "prompt_version",
+        "iteration",
+        "remaining_iterations",
+        "min_remaining_iterations",
+        "triggered_iteration",
+        "edits_after_prompt",
+        "bash_results_after_prompt",
+        "successful_bash_after_prompt",
+        "unsuccessful_bash_after_prompt",
+        "successful_bash_since_latest_edit",
+    ];
+
+    #[test]
+    fn every_emitted_phase_reason_and_field_is_a_fixed_identifier() {
+        let mut events = Vec::new();
+        // Triggered, then closed at the next final.
+        let (dir, mut review) = new_review(ReviewMode::Once, ELIGIBLE);
+        review.note_successful_edit();
+        assert!(review.before_normal_final(2, 7).is_some());
+        assert!(review.before_normal_final(3, 6).is_none());
+        drop(review);
+        events.extend(read_events(&dir.path().join("e.jsonl")));
+        // Triggered, then closed by the scope guard.
+        let (dir, mut review) = new_review(ReviewMode::Once, ELIGIBLE);
+        review.note_successful_edit();
+        assert!(review.before_normal_final(2, 7).is_some());
+        drop(review);
+        events.extend(read_events(&dir.path().join("e.jsonl")));
+        // Every skip reason.
+        let skips = [
+            (ELIGIBLE, true, MIN_REMAINING_ITERATIONS - 1),
+            (ELIGIBLE, false, 9),
+            (
+                RunScope {
+                    minimal_loop: false,
+                    ..ELIGIBLE
+                },
+                true,
+                9,
+            ),
+            (
+                RunScope {
+                    generic_profile: false,
+                    ..ELIGIBLE
+                },
+                true,
+                9,
+            ),
+            (
+                RunScope {
+                    completion_contract: true,
+                    ..ELIGIBLE
+                },
+                true,
+                9,
+            ),
+        ];
+        for (scope, edited, remaining) in skips {
+            let (dir, mut review) = new_review(ReviewMode::Once, scope);
+            if edited {
+                review.note_successful_edit();
+            }
+            assert!(review.before_normal_final(2, remaining).is_none());
+            drop(review);
+            events.extend(read_events(&dir.path().join("e.jsonl")));
+        }
+
+        let mut words = std::collections::BTreeSet::new();
+        for event in &events {
+            assert_eq!(event["event"], "completion_obligation_review");
+            for (key, value) in event.as_object().unwrap() {
+                if !matches!(
+                    key.as_str(),
+                    "event" | "schema_version" | "phase" | "reason"
+                ) {
+                    words.insert(key.clone());
+                }
+                if let Some(text) = value.as_str()
+                    && !matches!(key.as_str(), "event" | "schema_version")
+                {
+                    words.insert(text.to_string());
+                }
+            }
+        }
+        let expected = EMITTED_FIXED_WORDS
+            .iter()
+            .map(|word| word.to_string())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(words, expected);
+        for word in EMITTED_FIXED_WORDS {
+            assert!(
+                crate::sensitive_data::is_fixed_identifier(word),
+                "{word} is not reserved in fixed_identifiers"
+            );
+            assert!(crate::sensitive_data::collides_with_fixed_identifier(word));
+        }
+    }
+
     #[derive(Clone)]
     struct Scripted {
         replies: Arc<Mutex<Vec<AssistantReply>>>,

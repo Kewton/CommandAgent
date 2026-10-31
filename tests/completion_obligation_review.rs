@@ -806,3 +806,148 @@ fn corpus_rows_are_synthetic_and_cover_every_declared_case() {
     let readme = std::fs::read_to_string(corpus_path("README.md")).unwrap();
     assert!(readme.contains("synthetic"));
 }
+
+/// A synthetic credential name the dotenv collector treats as a credential.
+const SYNTHETIC_CREDENTIAL: &str = "SYNTHETIC_940_API_KEY";
+
+/// The phase, reason, and field words the review emits, all reserved as fixed
+/// identifiers so the shared secret scrub can never rewrite them.
+const REVIEW_FIXED_WORDS: &[&str] = &[
+    "triggered",
+    "closed",
+    "skipped",
+    "normal_final_after_successful_edit",
+    "next_final",
+    "scope_exit_before_next_final",
+    "plan_run_step",
+    "profile_not_generic",
+    "completion_contract",
+    "no_successful_edit",
+    "insufficient_remaining_iterations",
+    "prompt_version",
+    "iteration",
+    "remaining_iterations",
+    "min_remaining_iterations",
+    "triggered_iteration",
+    "edits_after_prompt",
+    "bash_results_after_prompt",
+    "successful_bash_after_prompt",
+    "unsuccessful_bash_after_prompt",
+    "successful_bash_since_latest_edit",
+];
+
+fn with_credential(scenario: &Scenario, value: &str) -> Scenario {
+    let mut copy = scenario.clone();
+    copy.seed.push((
+        ".env".to_string(),
+        format!("{SYNTHETIC_CREDENTIAL}={value}\n"),
+    ));
+    copy
+}
+
+#[test]
+fn credentials_equal_to_or_inside_a_review_word_are_refused_without_the_value() {
+    use commandagent::sensitive_data::{RegistrationRefusal, ReservedKind, SecretCatalog};
+
+    // Fragments of the reserved words (at least the minimum secret length).
+    let fragments = [
+        "_after_prompt",
+        "remaining_iter",
+        "after_successful",
+        "ope_exit",
+    ];
+    for value in REVIEW_FIXED_WORDS.iter().chain(fragments.iter()) {
+        let refusal = SecretCatalog::new()
+            .register_credential(SYNTHETIC_CREDENTIAL, value)
+            .expect_err(value);
+        if value.chars().count() >= commandagent::sensitive_data::MIN_GENERIC_SECRET_LEN {
+            assert_eq!(
+                refusal,
+                RegistrationRefusal::Reserved {
+                    name: SYNTHETIC_CREDENTIAL.to_string(),
+                    kind: ReservedKind::FixedIdentifier,
+                },
+                "{value}"
+            );
+        }
+        assert!(!refusal.to_string().contains(value), "{value}: {refusal}");
+    }
+
+    // Through the public minimal-loop entry: the run refuses before any
+    // request and the error never names the value.
+    let base = scenario("once-triggered-executed-final");
+    for value in [
+        "triggered",
+        "next_final",
+        "bash_results_after_prompt",
+        "triggered_iteration",
+        "_after_prompt",
+    ] {
+        let trace = with_credential(&base, value).run();
+        let error = trace.result.as_ref().unwrap_err();
+        assert!(error.contains(SYNTHETIC_CREDENTIAL), "{value}: {error}");
+        assert!(!error.contains(value), "{value}: {error}");
+        assert!(trace.requests.is_empty(), "{value}");
+        assert!(trace.review_events().is_empty(), "{value}");
+    }
+}
+
+#[test]
+fn a_registered_credential_keeps_every_review_phase_reason_and_field() {
+    const SECRET: &str = "sk-test-940-NOT-A-REAL-KEY-c0ffee";
+    let mut base = scenario("once-reedit-invalidates");
+    base.script = vec![
+        json!({"write": ["greeting.txt", "hello\n"]}),
+        json!({"final": "Wrote the greeting."}),
+        json!({"bash": format!("echo {SECRET}")}),
+        json!({"edit": ["greeting.txt", "hello", "hello world"]}),
+        json!({"final": "Checked; covered everything."}),
+    ];
+    let plain = base.run();
+    let scrubbed = with_credential(&base, SECRET).run();
+    assert!(scrubbed.result.is_ok(), "{:?}", scrubbed.result);
+
+    // The credential is registered for the run's event log: the same emit
+    // path scrubs it there and keeps it in the run without the credential.
+    let probe = |trace: &Trace| {
+        let path = trace.root.join("events.jsonl");
+        commandagent::eval_events::emit(Some(&path), json!({"event": EVENT, "probe": SECRET}));
+        std::fs::read_to_string(path).unwrap().contains(SECRET)
+    };
+    assert!(probe(&plain));
+    assert!(!probe(&scrubbed));
+
+    let review = scrubbed.review_events();
+    assert_eq!(review, plain.review_events());
+    assert_eq!(review.len(), 2, "{review:?}");
+    assert_eq!(review[0]["phase"], "triggered");
+    assert_eq!(review[0]["reason"], "normal_final_after_successful_edit");
+    assert_eq!(review[1]["phase"], "closed");
+    assert_eq!(review[1]["reason"], "next_final");
+    for event in &review {
+        assert_fixed_shape(event);
+        assert!(!event.to_string().contains("<redacted>"), "{event}");
+    }
+    for key in [
+        "prompt_version",
+        "iteration",
+        "remaining_iterations",
+        "min_remaining_iterations",
+    ] {
+        assert!(review[0].get(key).is_some(), "{key}: {}", review[0]);
+    }
+    for key in [
+        "prompt_version",
+        "triggered_iteration",
+        "iteration",
+        "remaining_iterations",
+        "edits_after_prompt",
+        "bash_results_after_prompt",
+        "successful_bash_after_prompt",
+        "unsuccessful_bash_after_prompt",
+        "successful_bash_since_latest_edit",
+    ] {
+        assert!(review[1].get(key).is_some(), "{key}: {}", review[1]);
+    }
+    assert_eq!(review[1]["bash_results_after_prompt"], 1);
+}
