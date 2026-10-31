@@ -293,6 +293,7 @@ OpenAI キーと任意の `LM_STUDIO_API_TOKEN` はプロセス環境だけか�
 | `COMMANDAGENT_UX_DEMO_FAST` / `ANVIL_UX_DEMO_FAST` | 開発・デモ用に `--ux-demo` の待機を短くします。値の真偽ではなく変数の存在を判定します。 |
 | `COMMANDAGENT_SYSTEM_GUIDANCE` | direct の `--prompt` の run で、provider へのすべての request の system prompt に共通の案内文を 1 つ足します。未設定・空文字なら何も変わりません。下を参照してください。 |
 | `COMMANDAGENT_COMPATIBLE_REASONING_EFFORT` | OpenAI 互換の transport（`openai-compatible` と `lm-studio`）を使う role に推論の強さを宣言します。未設定・空文字なら何も送りません。下を参照してください。 |
+| `COMMANDAGENT_COMPLETION_OBLIGATION_REVIEW` | 実験用です。`once` で、generic の編集 run が最初の通常の最終回答の前に依頼の義務を一度だけ見直します。未設定・空文字・`off`（既定）なら何も変わりません。下を参照してください。 |
 
 `COMMANDAGENT_*` 項目では現在名が優先されます。現在名がない場合だけ対応する `ANVIL_*` 名を使い、
 1 回だけ非推奨警告を出します。それでも表中の旧名は、現在サポートされている正確な綴りです。
@@ -311,6 +312,38 @@ request（各 turn、tool 呼び出し後の turn、空応答の fresh retry、n
 空白だけでないことが必要です。満たさないときは、値を含めず変数名と理由だけを示すエラーで run が失敗します。
 この文は通常の案内であり、tool の権限を与えたり外したりせず、検証・completion・acceptance・予算の規則も
 変えません。run の secret scrub は適用されますが、値に秘密を入れないでください。
+
+`COMMANDAGENT_COMPLETION_OBLIGATION_REVIEW` は、完了前の一度の見直しを測るための実験用 opt-in です。
+既定は off で、網羅性や検証の gate ではありません。minimal loop の run の開始時に、プロセス環境だけから
+1 回読みます（`ANVIL_*` の旧名・設定ファイル・`.env`・CLI flag はありません）。run の途中で変えても効きません。
+
+- 値：未設定・空文字・空白だけ・`off` なら無効で、変数がないときとまったく同じ run になります。provider への
+  request とその順序、event、停止理由、assurance は変わらず、新しい event も出ません。`once`（前後の空白を除き、
+  小文字）で有効になります。それ以外の値（`ONCE` や UTF-8 でない byte 列を含む）は、最初の request の前に、
+  変数名は示し値は示さない固定のエラーで run が失敗します。
+- 対象：effective profile が `generic` で、completion contract がなく、Write か Edit が成功した、plan の step ではない
+  minimal loop の run です。既存のチェック（必要な path、action prompt の確認、相対 import）をすべて通った
+  最初の通常の assistant final だけを、残りの loop iteration が 3 以上のときに対象にします。plan の step
+  （`PlanRunStep`）、completion contract 付きの run、read-only の run、自動の post-write read 完了、自動の
+  required-artifact 完了、予算切れは延期しません。wall-clock の上限、cancel、既存の失敗が優先されます。
+- 動作：その final を一度だけ延期し、固定の依頼を 1 回渡します。元の依頼に明記された義務を最大 5 項目で整理し、
+  確認済みのものと対応づけ、未確認の重要な境界・異常系・出力形式を 1〜2 件選び、実装ではなく依頼から期待結果を
+  導いて、許可済みの tool で実行し、矛盾を観測した場合だけ直すよう求めます。次の通常の final は既存のチェックを
+  もう一度通り、その新しい回答で run が終わります。延期した回答は返しません。model が見直しについて何を言っても
+  （「網羅した」など）、解除の条件にも阻止の条件にもなりません。二回目の依頼、iteration の追加、既存 counter の
+  reset はしません。
+- host の観測：依頼の後に成功した Write/Edit と、代替されていない Bash の結果を、tool の status ではなく既存の
+  実行進捗の分類で数え、最後に成功した編集より古い Bash の成功は失効させます。非 zero の終了、tool error、
+  policy の拒否は成功に数えず、新しい blocker にもしません。成功したコマンドは実行されたことしか示しません。
+  `echo` や無関係なコマンド、誤った自作の確認のこともあり、負例の試験は非 zero が正しいこともあります。model の
+  自己申告も証拠ではありません。
+- event：run は `completion_obligation_review` を記録します。`phase` は `triggered`、`closed`（`reason` は
+  `next_final`、別の経路で run が終わったときは `scope_exit_before_next_final`）、`skipped`（固定の理由）で、
+  `iteration`、`remaining_iterations`、`prompt_version`、`successful_bash_since_latest_edit` などの数値を
+  持ちます。prompt、コマンド、model の文、tool の出力、秘密値は写さず、網羅や検証の合格を示す field もありません。
+  既存の event、停止理由、summary の `assurance_level=reduced`、acceptance と release の gate は変わりません。
+- 費用：見直しで provider の呼び出しは通常 1〜3 回増えますが、保証はありません。model が残りの iteration を
+  既存の上限まで使うこともあります。見直しで正答率が上がるかは測定されていません。
 
 `COMMANDAGENT_COMPATIBLE_REASONING_EFFORT` は、OpenAI 互換 server に推論の強さを指定する宣言です。
 provider の client を作るときにプロセス環境だけから読みます（`ANVIL_*` の旧名はなく、設定ファイルや

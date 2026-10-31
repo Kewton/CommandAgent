@@ -90,6 +90,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "completed",
     "completion_contract_bound",
     "completion_contract_command_observation",
+    "completion_obligation_review",
     "completion_verify",
     "context_truncation_suspected",
     "contract_attribute_repair_guidance",
