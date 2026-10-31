@@ -1275,65 +1275,54 @@ fn parse_top_level_key(
         "extension_root" => {
             file.extension_root = Some(sourced(
                 parse_string_value(path, line_no, key, value)?,
-                format!(
-                    "config:{}",
-                    path.file_name().unwrap_or_default().to_string_lossy()
-                ),
+                config_file_source(path),
             ));
             Ok(())
         }
         "narration" => {
             file.narration = Some(sourced(
                 parse_narration_value(path, line_no, key, value)?,
-                format!(
-                    "config:{}",
-                    path.file_name().unwrap_or_default().to_string_lossy()
-                ),
+                config_file_source(path),
             ));
             Ok(())
         }
         "footer" => {
             file.footer = Some(sourced(
                 parse_footer_value(path, line_no, key, value)?,
-                format!(
-                    "config:{}",
-                    path.file_name().unwrap_or_default().to_string_lossy()
-                ),
+                config_file_source(path),
             ));
             Ok(())
         }
         "stream" => {
             file.stream = Some(sourced(
                 parse_stream_value(path, line_no, key, value)?,
-                format!(
-                    "config:{}",
-                    path.file_name().unwrap_or_default().to_string_lossy()
-                ),
+                config_file_source(path),
             ));
             Ok(())
         }
         "prompt_layout" => {
             file.prompt_layout = Some(sourced(
                 parse_prompt_layout_value(path, line_no, key, value)?,
-                format!(
-                    "config:{}",
-                    path.file_name().unwrap_or_default().to_string_lossy()
-                ),
+                config_file_source(path),
             ));
             Ok(())
         }
         "plan_preset" => {
             file.plan_preset = Some(sourced(
                 parse_plan_preset_value(path, line_no, key, value)?,
-                format!(
-                    "config:{}",
-                    path.file_name().unwrap_or_default().to_string_lossy()
-                ),
+                config_file_source(path),
             ));
             Ok(())
         }
         _ => crate::minimal_loop::request_pattern::check_config_value(path, line_no, key, value),
     }
+}
+
+fn config_file_source(path: &Path) -> String {
+    format!(
+        "config:{}",
+        path.file_name().unwrap_or_default().to_string_lossy()
+    )
 }
 
 pub(crate) fn selected_preset_pack(
