@@ -426,13 +426,9 @@ struct RunScope {
     generic_profile: bool,
     completion_contract: bool,
     new_conversation: bool,
-    /// The provider client parses XML tool calls itself, before the host can
-    /// take the note out of the reply. Today only the Ollama transport does
-    /// (`providers/ollama.rs`), and the existing capability that marks exactly
-    /// that transport is `ChatClient::supports_ollama_think`.
-    /// `allows_xml_fallback` is not used: it is also true for LM Studio, the
-    /// OpenAI-compatible transport (OpenRouter), and OpenAI, none of which
-    /// parse XML before returning the reply.
+    /// The provider client parses XML tool calls out of the reply itself,
+    /// before the host can take the note out of it
+    /// (`ChatClient::parses_xml_tool_calls_before_host`; today Ollama).
     provider_parses_xml: bool,
 }
 
@@ -512,7 +508,7 @@ impl RequirementPlan {
             generic_profile: config.profile == GENERIC_PROFILE_ID,
             completion_contract,
             new_conversation: history.is_empty(),
-            provider_parses_xml: client.supports_ollama_think(),
+            provider_parses_xml: client.parses_xml_tool_calls_before_host(),
         };
         *self = Self::with_mode(mode, config.eval_events_path.as_deref(), scope);
         Ok(())
@@ -1411,6 +1407,80 @@ mod tests {
             with_env(&values, || assert!(start(&config).is_ok(), "{values:?}"));
         }
         assert!(read_events(&dir.path().join("events.jsonl")).is_empty());
+    }
+
+    #[test]
+    fn only_a_client_that_parses_xml_before_the_host_is_unsupported() {
+        use crate::config::OpenAiApi;
+        use crate::providers::gemini::GeminiClient;
+        use crate::providers::lm_studio::LmStudioClient;
+        use crate::providers::ollama::OllamaClient;
+        use crate::providers::openai::OpenAiClient;
+        use crate::providers::openai_compatible::OpenAiCompatibleClient;
+
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join(".env"),
+            "GEMINI_API_KEY=gemini-test-not-a-key\n",
+        )
+        .unwrap();
+        let config = config(dir.path());
+        // Construction only: no client below sends a request.
+        let ollama = OllamaClient::new("http://127.0.0.1:9".to_string(), 5, 10, 0).unwrap();
+        let lm_studio = LmStudioClient::new(
+            "http://127.0.0.1:1234".to_string(),
+            None,
+            5,
+            10,
+            0,
+            OpenAiApi::ChatCompletions,
+            None,
+        )
+        .unwrap();
+        let compatible: OpenAiCompatibleClient = LmStudioClient::new_openai_compatible(
+            "https://openrouter.ai/api/v1".to_string(),
+            None,
+            None,
+            5,
+            10,
+            0,
+            OpenAiApi::ChatCompletions,
+            None,
+        )
+        .unwrap();
+        let openai = OpenAiClient::for_test("openai-test-not-a-key", "http://127.0.0.1:9", None);
+        let gemini = GeminiClient::from_env(&config).unwrap();
+        let clients: [(&str, &dyn ChatClient, bool); 5] = [
+            ("ollama", &ollama, true),
+            ("lm_studio", &lm_studio, false),
+            ("openai_compatible", &compatible, false),
+            ("openai", &openai, false),
+            ("gemini", &gemini, false),
+        ];
+        for (name, client, parses) in clients {
+            assert_eq!(client.parses_xml_tool_calls_before_host(), parses, "{name}");
+            let events = dir.path().join("events.jsonl");
+            let _ = std::fs::remove_file(&events);
+            let mut plan = RequirementPlan::default();
+            with_env(&[(ENV_NAME, "once")], || {
+                plan.start(&config, &RunSessionOptions::default(), false, &[], client)
+                    .unwrap()
+            });
+            let skipped = read_events(&events);
+            if parses {
+                assert_eq!(skipped.len(), 1, "{name}");
+                assert_eq!(skipped[0]["phase"], "skipped", "{name}");
+                assert_eq!(skipped[0]["reason"], "provider_unsupported", "{name}");
+                let mut messages = base_request();
+                plan.prepare_request(&mut messages, &[], 8);
+                assert_eq!(messages, base_request(), "{name}: no guidance");
+            } else {
+                assert!(skipped.is_empty(), "{name}: {skipped:?}");
+                let mut messages = base_request();
+                plan.prepare_request(&mut messages, &[], 8);
+                assert_eq!(messages.last().unwrap().content, GUIDANCE, "{name}");
+            }
+        }
     }
 
     /// Every phase, reason, and field the plan emits beyond the shared

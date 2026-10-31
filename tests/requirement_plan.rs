@@ -73,11 +73,12 @@ struct ScriptedClient {
     requests: Arc<Mutex<Vec<Vec<ConversationMessage>>>>,
     native_flags: Arc<Mutex<Vec<bool>>>,
     native: bool,
-    /// A client on the transport that parses XML tool calls itself before the
-    /// loop sees the reply (reported through `supports_ollama_think`).
+    /// What `parses_xml_tool_calls_before_host` reports.
     parses_xml: bool,
     /// What `allows_xml_fallback` reports.
     allows_fallback: bool,
+    /// What `supports_ollama_think` reports.
+    think: bool,
     /// Sets the requirement plan variable to this value during the first call.
     env_change_on_first_call: Option<&'static str>,
 }
@@ -91,12 +92,16 @@ impl ChatClient for ScriptedClient {
         self.native
     }
 
-    fn supports_ollama_think(&self) -> bool {
+    fn parses_xml_tool_calls_before_host(&self) -> bool {
         self.parses_xml
     }
 
     fn allows_xml_fallback(&self) -> bool {
         self.allows_fallback
+    }
+
+    fn supports_ollama_think(&self) -> bool {
+        self.think
     }
 
     fn boxed_clone(&self) -> Box<dyn ChatClient> {
@@ -389,6 +394,7 @@ impl Scenario {
             native: !self.xml,
             parses_xml: self.client_parses_xml,
             allows_fallback: false,
+            think: false,
             env_change_on_first_call: None,
         });
         let mut session = earlier.unwrap_or_default();
@@ -1486,13 +1492,15 @@ fn a_client_that_parses_xml_itself_is_skipped_exactly_like_off() {
         assert!(trace.request_indexes(GUIDANCE_MARKER).is_empty(), "{id}");
     }
     // The same scripts with a client that does not parse XML still plan, and
-    // `allows_xml_fallback` alone (LM Studio, OpenAI-compatible, OpenAI)
-    // does not skip it.
+    // Neither `allows_xml_fallback` (true for LM Studio, OpenAI-compatible,
+    // and OpenAI, which do not parse XML before the host) nor
+    // `supports_ollama_think` skips it: only the dedicated capability does.
     for id in ["once-captured-native", "once-captured-xml"] {
         let row = scenario(id);
         assert!(!row.client_parses_xml);
         let trace = row.run_with(|mut client| {
             client.allows_fallback = true;
+            client.think = true;
             client
         });
         assert_eq!(trace.request_indexes(GUIDANCE_MARKER), vec![0], "{id}");

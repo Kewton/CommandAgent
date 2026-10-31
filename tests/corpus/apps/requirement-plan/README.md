@@ -54,10 +54,13 @@ public minimal loop with a mock `ChatClient`, and compares the keys the row's
 - `once-cancel-after-capture`: cancellation stays a failure.
 - `once-self-claimed-verified` / `once-wrong-expectation`: a model claim or a
   wrong expectation changes no existing outcome or event.
-- `once-client-parses-xml`, `once-client-parses-xml-text-mode`: a client on
-  the transport that parses XML tool calls itself (the mock reports
-  `supports_ollama_think`) is skipped with `provider_unsupported` and equals
-  the same script with the plan unset.
+- `once-client-parses-xml`, `once-client-parses-xml-text-mode`: a client that
+  parses XML tool calls before the host (the mock reports
+  `parses_xml_tool_calls_before_host`, as the Ollama client does) is skipped
+  with `provider_unsupported` and equals the same script with the plan unset.
+  Every Ollama run is excluded, native ones included; LM Studio,
+  OpenAI-compatible (OpenRouter), OpenAI, and Gemini clients report false and
+  still plan.
 
 Observation limits: the rows prove the host mechanism only. `captured` means
 the block had the right shape, not that the obligations or expected results

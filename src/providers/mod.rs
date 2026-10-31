@@ -73,6 +73,11 @@ pub trait ChatClient: Send {
     fn allows_xml_fallback(&self) -> bool {
         false
     }
+    /// True when this client parses XML tool calls out of the reply text
+    /// itself, before the host sees the reply.
+    fn parses_xml_tool_calls_before_host(&self) -> bool {
+        false
+    }
     fn supports_ollama_think(&self) -> bool {
         false
     }

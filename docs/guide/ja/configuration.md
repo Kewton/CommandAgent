@@ -359,8 +359,8 @@ request（各 turn、tool 呼び出し後の turn、空応答の fresh retry、n
   2 つの変数名だけを示すエラーで run が失敗します。この変数が off なら、完了前の見直しは従来どおり動きます。
 - 対象：effective profile が `generic` で、completion contract がなく、以前の会話の続きではない、plan の step
   ではない新しい minimal loop の run のうち、最初の request の後に loop iteration が 4 以上残るものです。plan の
-  step（`PlanRunStep`）、他の profile、completion contract 付きの run、resume や後続の turn、自分で XML の tool call を
-  読む provider の transport（Ollama）の run、予算の足りない run は skip します。run の途中から有効になることはありません。
+  step（`PlanRunStep`）、他の profile、completion contract 付きの run、resume や後続の turn、host より前に XML の
+  tool call を解析する provider の client（Ollama）の run、予算の足りない run は skip します。run の途中から有効になることはありません。
 - request：最初の request にだけ固定の案内を 1 つ付けます。最初の返答の冒頭に `<requirement_plan>` の JSON block を
   書き、依頼に明記された義務を最大 5 件（`id`・`stated_requirement`・`expected_behavior`・`assumption`）、確認例を
   最大 2 件（`obligation_id`・`input_outline`・`expected_outcome`・`reason_from_request`）挙げ、期待結果は実装より
@@ -371,9 +371,10 @@ request（各 turn、tool 呼び出し後の turn、空応答の fresh retry、n
   捨てます（切り詰めて残しません）。run はノートなしで続き、ノートを求め直すことはありません。
 - 扱い：host は XML の tool call を取り出す前、tool を実行する前に、最初の返答から block を取り除きます。block の
   中と、閉じていない block より後ろは tool call として読みません。最初の返答に 2 つ目・入れ子・閉じていない block が
-  あってもノートは不正になります。host が返答を見る前に provider の transport が自分で XML の tool call を読む経路
-  （現在は Ollama の client。native でも `tool_protocol = "text"` でも同じ）では発火せず、`reason` が
-  `provider_unsupported` の `skipped` になり、案内も送らず変数が off のときとまったく同じ run になります。残したノートは run の secret scrub を通り、その
+  あってもノートは不正になります。host が返答を見る前に provider の client が自分で返答の XML tool call を解析する
+  場合（現状は Ollama の client だけ）は発火せず、`reason` が `provider_unsupported` の `skipped` になり、案内も
+  送らず変数が off のときとまったく同じ run になります。これは制限で、Ollama は native の tool call を使う run も
+  含めて全体が対象外です。LM Studio、OpenRouter などの OpenAI 互換 endpoint、OpenAI、Gemini は対象外になりません。残したノートは run の secret scrub を通り、その
   run のメモリにだけあり、session・ファイル・runtime namespace には書きません。resume や後続の turn で戻ることも
   ありません。run の後続の request には毎回ちょうど 1 つ、元の依頼の直後に、model 自身の未検証のメモであり元の
   依頼と後続のユーザー訂正が優先するという固定の見出しを付けた assistant 側の文脈として入れます。system prompt に

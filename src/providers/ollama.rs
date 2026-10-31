@@ -89,6 +89,10 @@ impl ChatClient for OllamaClient {
         true
     }
 
+    fn parses_xml_tool_calls_before_host(&self) -> bool {
+        true
+    }
+
     fn supports_ollama_think(&self) -> bool {
         true
     }
