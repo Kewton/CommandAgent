@@ -321,7 +321,11 @@ impl CheckBinding {
         )?;
         if matches!(
             self.id.as_str(),
-            "path_layout_conforms" | "design_tokens_only" | "lint_config_present" | "command_check"
+            "path_layout_conforms"
+                | "design_tokens_only"
+                | "lint_config_present"
+                | "command_check"
+                | "artifact_contract_check"
         ) && self.at != CheckAt::FinalAcceptance
         {
             return Err(format!(

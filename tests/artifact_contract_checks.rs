@@ -1,0 +1,1552 @@
+//! Issue #933 — `artifact_contract_check` through the normal manifest, pack,
+//! and UltraPlan runner paths.
+//!
+//! This test binary owns its process environment: it sets the operator
+//! registry root, a dummy API credential, `NODE_OPTIONS`, `NODE_PATH`, and the
+//! local pack selection once, and serializes the runner cases with a lock. Every
+//! adapter is a synthetic POSIX shell script run by the operator-pinned
+//! `/bin/sh`; every root lives in a temporary directory. No case reaches a real
+//! provider, the network, a model, Jev, or a factory. The synthetic cases are
+//! also listed in `tests/corpus/apps/artifact-contract-check/`.
+
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+
+use commandagent::config::{Action, Config, Provider};
+use commandagent::planner::pack::{conform, conform_directory, exact_byte_hash, parse_bytes};
+use commandagent::planner::profile::{ProfileId, ProfileRuntimeRegistry};
+use commandagent::planner::step_plan::{PlanStep, StepPlan};
+use commandagent::planner::ultra_plan::{UltraPhase, UltraPlan, render_ultra_plan};
+use commandagent::providers::{AssistantReply, ChatClient};
+use commandagent::state::{ConversationMessage, ToolCall};
+use commandagent::tools::registry::ToolSpec;
+use commandagent::tui::status::UiStatus;
+use commandagent::tui::{InteractionUi, UiGuard};
+use serde_json::{Value, json};
+use sha2::Digest;
+
+const CORPUS: &str = "tests/corpus/apps/artifact-contract-check";
+const DRAFT: &str = "contract-draft";
+const ENV_DRAFT: &str = "contract-env";
+const PHASED_DRAFT: &str = "contract-phased";
+const LINES_ADAPTER: &str = "tally-lines";
+const ENV_ADAPTER: &str = "env-probe";
+const PACK_ID: &str = "contract-pack";
+const DUMMY_CREDENTIAL_KEY: &str = "CA933_DUMMY_API_TOKEN";
+const DUMMY_CREDENTIAL: &str = "ca933-dummy-credential-not-real";
+const DUMMY_OPENAI: &str = "ca933-dummy-openai-value";
+const DUMMY_NODE_OPTIONS: &str = "--require=/ca933/never-loaded.js";
+const DUMMY_NODE_PATH: &str = "/ca933/never-resolved";
+const REQUEST: &str = r#"{"protocol":"artifact-contract.request/v1","request_id":"notes-1","inputs":[{"input_id":"notes","path":"notes.txt"}]}"#;
+
+const PRELUDE: &str = r#"IFS= read -r envelope || :
+field() { value=${envelope#*\"$1\":\"}; printf '%s' "${value%%\"*}"; }
+request_id=$(field request_id)
+nonce=$(field nonce)
+workspace=$(field workspace)
+path=$(field path)
+sha=$(field sha256)
+"#;
+const LINES_BODY: &str = r#"count=0
+while IFS= read -r line || [ -n "$line" ]; do count=$((count + 1)); done < "$workspace/$path"
+if [ "$count" -eq 3 ]; then status=passed; ok=1; bad=0; code=0; else status=failed; ok=0; bad=1; code=1; fi
+printf '{"protocol":"artifact-contract.result/v1","request_id":"%s","nonce":"%s","input_digests":[{"input_id":"notes","sha256":"%s"}],"checks":[{"check_id":"lines/total","target_id":"notes.txt#all","status":"%s","counts":{"expected":1,"executed":1,"passed":%s,"failed":%s,"unresolved":0}}]}\n' "$request_id" "$nonce" "$sha" "$status" "$ok" "$bad"
+exit "$code"
+"#;
+const ENV_BODY: &str = r#"export -p > "$1/env.txt"
+printf '{"protocol":"artifact-contract.result/v1","request_id":"%s","nonce":"%s","input_digests":[{"input_id":"notes","sha256":"%s"}],"checks":[{"check_id":"env/probe","target_id":null,"status":"passed","counts":{"expected":null,"executed":1,"passed":1,"failed":0,"unresolved":0}}]}\n' "$request_id" "$nonce" "$sha"
+exit 0
+"#;
+
+struct Fixture {
+    root: PathBuf,
+    config: PathBuf,
+    extension: PathBuf,
+    pack: PathBuf,
+    pack_hash: String,
+    observe: PathBuf,
+}
+
+/// Build every root once, set the process environment once, and register the
+/// extension root before any case runs.
+fn fixture() -> &'static Fixture {
+    static FIXTURE: OnceLock<Fixture> = OnceLock::new();
+    FIXTURE.get_or_init(|| {
+        let root = std::fs::canonicalize(tempfile::tempdir().unwrap().keep()).unwrap();
+        let tooling = root.join("tooling");
+        let config = root.join("config");
+        let extension = root.join("extension");
+        let observe = root.join("observe");
+        for dir in [&tooling, &config.join("adapters"), &observe] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+        std::fs::write(tooling.join("lines.sh"), format!("{PRELUDE}{LINES_BODY}")).unwrap();
+        std::fs::write(tooling.join("env.sh"), format!("{PRELUDE}{ENV_BODY}")).unwrap();
+        let members = json!({
+            "lines.sh": sha256_file(&tooling.join("lines.sh")),
+            "env.sh": sha256_file(&tooling.join("env.sh")),
+        });
+        for (id, entry, args, check) in [
+            (LINES_ADAPTER, "lines.sh", json!([]), "lines/total"),
+            (
+                ENV_ADAPTER,
+                "env.sh",
+                json!([observe.to_string_lossy()]),
+                "env/probe",
+            ),
+        ] {
+            let targets = if id == LINES_ADAPTER {
+                json!(["notes.txt#all"])
+            } else {
+                json!([])
+            };
+            let descriptor = json!({
+                "protocol": "artifact-contract.adapter/v1",
+                "adapter_id": id,
+                "executable": {"path": shell(), "sha256": sha256_file(&shell())},
+                "tooling_root": tooling,
+                "entrypoint": entry,
+                "args": args,
+                "members": members,
+                "required": [{"check_id": check, "targets": targets}],
+                "inputs": [{"input_id": "notes"}]
+            });
+            std::fs::write(
+                config.join(format!("adapters/{id}.json")),
+                serde_json::to_vec_pretty(&descriptor).unwrap(),
+            )
+            .unwrap();
+        }
+        for (profile, adapter) in [(DRAFT, LINES_ADAPTER), (ENV_DRAFT, ENV_ADAPTER)] {
+            let directory = extension.join(format!("profiles/{profile}"));
+            std::fs::create_dir_all(&directory).unwrap();
+            std::fs::write(directory.join("manifest.toml"), manifest(profile, adapter)).unwrap();
+        }
+        // A draft whose artifact check carries `phases`: preflight still checks
+        // its adapter, and final acceptance refuses to run it.
+        let phased = extension.join(format!("profiles/{PHASED_DRAFT}"));
+        std::fs::create_dir_all(&phased).unwrap();
+        std::fs::write(
+            phased.join("manifest.toml"),
+            manifest(PHASED_DRAFT, LINES_ADAPTER)
+                .replace("params = {", "phases = [\"implementation\"]\nparams = {"),
+        )
+        .unwrap();
+        let pack = extension.join(format!("packs/{PACK_ID}/1.0.0"));
+        std::fs::create_dir_all(&pack).unwrap();
+        let eval = pack_eval(DRAFT, LINES_ADAPTER, "final_acceptance", "");
+        std::fs::write(pack.join("eval.yaml"), &eval).unwrap();
+        let pack_hash = exact_byte_hash(None, Some(eval.as_bytes()));
+        std::fs::write(pack.join("pack.sha256"), format!("{pack_hash}\n")).unwrap();
+
+        // SAFETY: set once under the OnceLock before any case reads them; this
+        // test binary owns its environment and no other test reads these keys
+        // concurrently with this initialization.
+        unsafe {
+            std::env::set_var("COMMANDAGENT_ADAPTER_CONFIG_ROOT", &config);
+            std::env::set_var(DUMMY_CREDENTIAL_KEY, DUMMY_CREDENTIAL);
+            std::env::set_var("OPENAI_API_KEY", DUMMY_OPENAI);
+            std::env::set_var("NODE_OPTIONS", DUMMY_NODE_OPTIONS);
+            std::env::set_var("NODE_PATH", DUMMY_NODE_PATH);
+        }
+        commandagent::planner::extension_profiles::register(&extension).unwrap();
+        Fixture {
+            root,
+            config,
+            extension,
+            pack,
+            pack_hash,
+            observe,
+        }
+    })
+}
+
+/// Validate a manifest through the same file entry `--validate-manifest` uses.
+fn validate_manifest(source: &str) -> Result<(), String> {
+    let root = tempfile::tempdir().unwrap();
+    let directory = root.path().join(format!("profiles/{DRAFT}"));
+    std::fs::create_dir_all(&directory).unwrap();
+    std::fs::write(directory.join("manifest.toml"), source).unwrap();
+    commandagent::planner::profile_manifest::commands::validate_file(
+        &directory.join("manifest.toml"),
+    )
+    .map_err(|error| format!("{error:#}"))
+}
+
+fn manifest(profile: &str, adapter: &str) -> String {
+    format!(
+        r#"[metadata]
+id = "{profile}"
+display_name = "Artifact contract {profile}"
+schema_version = "v2"
+task_family = "generic"
+[plan]
+intent = "create"
+phases = [
+  {{ id = "implementation", prompt = "Write the requested notes for {{goal}}." }},
+  {{ id = "verification", prompt = "Recheck the notes for {{goal}}." }},
+]
+[artifacts]
+required = ["notes.txt"]
+[guidance.variants.contract]
+triggers = [{{ condition = "always" }}]
+messages = {{ instruction = "Write notes.txt and check/request.json." }}
+[[checks.final]]
+id = "artifact_contract_check"
+params = {{ adapter_id = "{adapter}", request = "check/request.json" }}
+"#
+    )
+}
+
+fn pack_eval(profile: &str, adapter: &str, at: &str, extra: &str) -> String {
+    format!(
+        "schema_version: commandagent.pack.eval/v0\npack:\n  id: {PACK_ID}\n  version: 1.0.0\n  profile: {profile}\n  intent: create\nchecks:\n  - id: artifact_contract_check\n    at:\n      kind: {at}\n    params:\n      adapter_id: {adapter}\n      request: check/request.json\n{extra}"
+    )
+}
+
+fn shell() -> PathBuf {
+    std::fs::canonicalize("/bin/sh").unwrap()
+}
+
+fn sha256_file(path: &Path) -> String {
+    format!("{:x}", sha2::Sha256::digest(std::fs::read(path).unwrap()))
+}
+
+/// Serializes the cases that install the pack selection.
+fn runner_lock() -> MutexGuard<'static, ()> {
+    static LOCK: Mutex<()> = Mutex::new(());
+    LOCK.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+fn events_named<'a>(events: &'a [Value], name: &str) -> Vec<&'a Value> {
+    events
+        .iter()
+        .filter(|event| event["event"] == name)
+        .collect()
+}
+
+fn read_events(path: &Path) -> Vec<Value> {
+    std::fs::read_to_string(path)
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .collect()
+}
+
+#[test]
+fn manifest_and_pack_paths_validate_capability_floor_params_and_registry() {
+    let fixture = fixture();
+    let valid = manifest(DRAFT, LINES_ADAPTER);
+    assert!(validate_manifest(&valid).is_ok());
+    for (label, source, reason) in [
+        (
+            "unknown adapter",
+            valid.replace(LINES_ADAPTER, "not-registered"),
+            "not registered",
+        ),
+        (
+            "model-chosen executable",
+            valid.replace("request = ", "executable = \"/bin/sh\", request = "),
+            "unknown parameter `executable`",
+        ),
+        (
+            "model-chosen argv",
+            valid.replace("request = ", "argv = [\"node\", \"x.mjs\"], request = "),
+            "unknown parameter `argv`",
+        ),
+        (
+            "missing request",
+            valid.replace(", request = \"check/request.json\"", ""),
+            "missing parameter `request`",
+        ),
+        (
+            "absolute request",
+            valid.replace("check/request.json", "/etc/request.json"),
+            "invalid parameter `request`",
+        ),
+        (
+            "parent request",
+            valid.replace("check/request.json", "../request.json"),
+            "invalid parameter `request`",
+        ),
+        (
+            "non-slug adapter",
+            valid.replace(LINES_ADAPTER, "Tally Lines"),
+            "invalid parameter `adapter_id`",
+        ),
+    ] {
+        let error = validate_manifest(&source).unwrap_err();
+        assert!(error.contains(reason), "{label}: {error}");
+    }
+
+    let report = conform_directory(&fixture.pack).unwrap();
+    assert_eq!(report.status, "conformant");
+    assert_eq!(report.effective_check_count, 1);
+    assert_eq!(report.exact_byte_hash, fixture.pack_hash);
+
+    for (label, eval, reason) in [
+        (
+            "phase binding",
+            pack_eval(
+                DRAFT,
+                LINES_ADAPTER,
+                "phase\n      id: build-verification",
+                "",
+            ),
+            "only at final_acceptance",
+        ),
+        (
+            "extra param",
+            pack_eval(
+                DRAFT,
+                LINES_ADAPTER,
+                "final_acceptance",
+                "      argv: [node]\n",
+            ),
+            "unknown parameter `argv`",
+        ),
+        (
+            "unknown adapter",
+            pack_eval(DRAFT, "not-registered", "final_acceptance", ""),
+            "not registered",
+        ),
+    ] {
+        let error = parse_bytes(None, Some(eval.as_bytes()))
+            .map(|_| ())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains(reason), "{label}: {error}");
+    }
+    // The additive floor admits the capability only for an opt-in local draft.
+    let compiled = pack_eval("nextjs", LINES_ADAPTER, "final_acceptance", "");
+    let pack = parse_bytes(None, Some(compiled.as_bytes())).unwrap();
+    let error = conform(&pack).unwrap_err().to_string();
+    assert!(error.contains("additive pack check"), "{error}");
+}
+
+#[test]
+fn unset_registry_refuses_the_profile_before_any_provider() {
+    let fixture = fixture();
+    let home = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let manifest_path = fixture
+        .extension
+        .join(format!("profiles/{DRAFT}/manifest.toml"));
+    let validate = Command::new(env!("CARGO_BIN_EXE_commandagent"))
+        .arg("--validate-manifest")
+        .arg(&manifest_path)
+        .current_dir(workspace.path())
+        .env_clear()
+        .env("HOME", home.path())
+        .output()
+        .unwrap();
+    assert!(!validate.status.success());
+    assert!(
+        String::from_utf8_lossy(&validate.stderr).contains("COMMANDAGENT_ADAPTER_CONFIG_ROOT"),
+        "{}",
+        String::from_utf8_lossy(&validate.stderr)
+    );
+    let run = Command::new(env!("CARGO_BIN_EXE_commandagent"))
+        .arg("--extension-root")
+        .arg(&fixture.extension)
+        .args(["--profile", DRAFT, "--prompt", "Write notes"])
+        .current_dir(workspace.path())
+        .env_clear()
+        .env("HOME", home.path())
+        .output()
+        .unwrap();
+    assert!(!run.status.success());
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    assert!(
+        stderr.contains("COMMANDAGENT_ADAPTER_CONFIG_ROOT"),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("provider"), "{stderr}");
+    assert_eq!(
+        std::fs::read_dir(workspace.path()).unwrap().count(),
+        0,
+        "the refused run left files in the workspace"
+    );
+}
+
+/// B2: broken operator tooling (a missing pinned member, an executable that
+/// does not match its pin, an unregistered tooling link) is refused while the
+/// profile loads, before any provider is built: the stand-in provider
+/// endpoint receives no connection.
+#[test]
+fn broken_operator_tooling_is_refused_before_any_provider() {
+    let _fixture = fixture();
+    for case in ["missing-member", "executable-pin", "unregistered-link"] {
+        let root = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(root.path()).unwrap();
+        let tooling = root.join("tooling");
+        let config = root.join("config");
+        let extension = root.join("extension");
+        let workspace = root.join("workspace");
+        let home = root.join("home");
+        for dir in [&tooling, &config.join("adapters"), &workspace, &home] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+        std::fs::write(tooling.join("lines.sh"), format!("{PRELUDE}{LINES_BODY}")).unwrap();
+        let mut members = json!({"lines.sh": sha256_file(&tooling.join("lines.sh"))});
+        let mut executable_sha = sha256_file(&shell());
+        match case {
+            "missing-member" => members["absent.js"] = json!("a".repeat(64)),
+            "executable-pin" => executable_sha = "0".repeat(64),
+            _ => {
+                #[cfg(unix)]
+                std::os::unix::fs::symlink(&workspace, tooling.join("node_modules")).unwrap();
+            }
+        }
+        let descriptor = json!({
+            "protocol": "artifact-contract.adapter/v1",
+            "adapter_id": LINES_ADAPTER,
+            "executable": {"path": shell(), "sha256": executable_sha},
+            "tooling_root": tooling,
+            "entrypoint": "lines.sh",
+            "members": members,
+            "required": [{"check_id": "lines/total", "targets": ["notes.txt#all"]}],
+            "inputs": [{"input_id": "notes"}]
+        });
+        std::fs::write(
+            config.join(format!("adapters/{LINES_ADAPTER}.json")),
+            serde_json::to_vec(&descriptor).unwrap(),
+        )
+        .unwrap();
+        let profile = extension.join(format!("profiles/{DRAFT}"));
+        std::fs::create_dir_all(&profile).unwrap();
+        std::fs::write(
+            profile.join("manifest.toml"),
+            manifest(DRAFT, LINES_ADAPTER),
+        )
+        .unwrap();
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let host = format!("http://{}", listener.local_addr().unwrap());
+        let run = Command::new(env!("CARGO_BIN_EXE_commandagent"))
+            .arg("--extension-root")
+            .arg(&extension)
+            .args(["--profile", DRAFT, "--ollama-host", &host])
+            .args(["--prompt", "Write notes"])
+            .current_dir(&workspace)
+            .env_clear()
+            .env("HOME", &home)
+            .env("COMMANDAGENT_ADAPTER_CONFIG_ROOT", &config)
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&run.stderr);
+        assert!(!run.status.success(), "{case}: {stderr}");
+        let expected = match case {
+            "missing-member" => "pinned member `absent.js` is missing",
+            "executable-pin" => "executable does not match its operator pin",
+            _ => "tooling tree holds an unregistered symlink `node_modules`",
+        };
+        assert!(stderr.contains(expected), "{case}: {stderr}");
+        assert!(
+            matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock),
+            "{case}: the provider endpoint was contacted"
+        );
+        assert_eq!(std::fs::read_dir(&workspace).unwrap().count(), 0, "{case}");
+    }
+}
+
+/// B2: an operator registry inside the workspace, named directly or through a
+/// symlink outside the workspace, is refused by the CLI's pre-provider
+/// preflight: exit 2, the self-approval message, and no connection to the
+/// stand-in provider endpoint.
+#[test]
+fn registry_inside_the_workspace_is_refused_before_any_provider() {
+    let _fixture = fixture();
+    for via_symlink in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(root.path()).unwrap();
+        let tooling = root.join("tooling");
+        let extension = root.join("extension");
+        let workspace = root.join("workspace");
+        let home = root.join("home");
+        let config = workspace.join("registry");
+        for dir in [&tooling, &config.join("adapters"), &home] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+        std::fs::write(tooling.join("lines.sh"), format!("{PRELUDE}{LINES_BODY}")).unwrap();
+        let descriptor = json!({
+            "protocol": "artifact-contract.adapter/v1",
+            "adapter_id": LINES_ADAPTER,
+            "executable": {"path": shell(), "sha256": sha256_file(&shell())},
+            "tooling_root": tooling,
+            "entrypoint": "lines.sh",
+            "members": {"lines.sh": sha256_file(&tooling.join("lines.sh"))},
+            "required": [{"check_id": "lines/total", "targets": ["notes.txt#all"]}],
+            "inputs": [{"input_id": "notes"}]
+        });
+        std::fs::write(
+            config.join(format!("adapters/{LINES_ADAPTER}.json")),
+            serde_json::to_vec(&descriptor).unwrap(),
+        )
+        .unwrap();
+        let profile = extension.join(format!("profiles/{DRAFT}"));
+        std::fs::create_dir_all(&profile).unwrap();
+        std::fs::write(
+            profile.join("manifest.toml"),
+            manifest(DRAFT, LINES_ADAPTER),
+        )
+        .unwrap();
+        let named_root = if via_symlink {
+            let outside = root.join("registry-link");
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(&config, &outside).unwrap();
+            outside
+        } else {
+            config.clone()
+        };
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let host = format!("http://{}", listener.local_addr().unwrap());
+        let run = Command::new(env!("CARGO_BIN_EXE_commandagent"))
+            .arg("--extension-root")
+            .arg(&extension)
+            .args(["--profile", DRAFT, "--ollama-host", &host])
+            .args(["--prompt", "Write notes"])
+            .current_dir(&workspace)
+            .env_clear()
+            .env("HOME", &home)
+            .env("COMMANDAGENT_ADAPTER_CONFIG_ROOT", &named_root)
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&run.stderr);
+        assert_eq!(
+            run.status.code(),
+            Some(2),
+            "symlink={via_symlink}: {stderr}"
+        );
+        assert!(
+            stderr.contains(
+                "operator registry resolves inside the workspace; a self-approved registry is refused"
+            ),
+            "symlink={via_symlink}: {stderr}"
+        );
+        assert!(
+            matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock),
+            "symlink={via_symlink}: the provider endpoint was contacted"
+        );
+    }
+}
+
+/// A run that declares no `artifact_contract_check` is unchanged by the
+/// preflight: with the registry variable unset or set to an invalid value it
+/// exits the same way with the same message as before.
+#[test]
+fn a_run_without_the_check_ignores_the_registry_variable() {
+    let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let host = format!("http://{}", closed.local_addr().unwrap());
+    drop(closed);
+    let run = |value: Option<&str>| {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = root.path().join("workspace");
+        let home = root.path().join("home");
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::create_dir_all(&home).unwrap();
+        let mut command = Command::new(env!("CARGO_BIN_EXE_commandagent"));
+        command
+            .args(["--ollama-host", &host, "--prompt", "hi"])
+            .current_dir(&workspace)
+            .env_clear()
+            .env("HOME", &home);
+        if let Some(value) = value {
+            command.env("COMMANDAGENT_ADAPTER_CONFIG_ROOT", value);
+        }
+        let output = command.output().unwrap();
+        (
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr).to_string(),
+        )
+    };
+    let baseline = run(None);
+    assert_eq!(baseline.0, Some(1), "{}", baseline.1);
+    assert!(
+        baseline.1.contains("Ollama request failed"),
+        "{}",
+        baseline.1
+    );
+    for value in [
+        "relative/not-a-registry",
+        "/nonexistent/commandagent-933/registry",
+    ] {
+        assert_eq!(run(Some(value)), baseline, "{value}");
+    }
+}
+
+/// R2/B2/B3: the preflight checks only the adapters the run's own profile and
+/// effective pack declare, taken from the same verified declarations final
+/// acceptance runs. A workspace that holds the operator registry is refused
+/// for the declaring draft profile or pack, and ignored for a run whose
+/// profile does not declare the check. A pack whose eval was removed or
+/// replaced after selection no longer verifies and is refused as a change.
+#[test]
+fn preflight_is_bound_to_the_selected_profile_and_pack() {
+    use commandagent::planner::artifact_contract_checks::preflight;
+    let fixture = fixture();
+    let _lock = runner_lock();
+    let workspace = tempfile::tempdir().unwrap();
+    preflight(workspace.path(), DRAFT).unwrap();
+    preflight(&fixture.root, "generic").unwrap();
+    let error = preflight(&fixture.root, DRAFT).unwrap_err();
+    assert!(
+        error.contains("self-approved registry is refused"),
+        "{error}"
+    );
+
+    // The effective pack selection (here inherited through the environment,
+    // with no CLI choice) declares the adapter.
+    let copy = tempfile::tempdir().unwrap();
+    for file in ["eval.yaml", "pack.sha256"] {
+        std::fs::copy(fixture.pack.join(file), copy.path().join(file)).unwrap();
+    }
+    let selection = PackSelection::install_at(copy.path(), &fixture.pack_hash);
+    let error = preflight(&fixture.root, "generic").unwrap_err();
+    assert!(
+        error.contains("self-approved registry is refused"),
+        "{error}"
+    );
+    preflight(workspace.path(), "generic").unwrap();
+
+    // Removed or replaced after selection: the selection no longer verifies.
+    std::fs::remove_file(copy.path().join("eval.yaml")).unwrap();
+    let error = preflight(workspace.path(), "generic").unwrap_err();
+    assert!(
+        error.contains("selected pack cannot be verified"),
+        "{error}"
+    );
+    std::fs::write(
+        copy.path().join("eval.yaml"),
+        pack_eval(DRAFT, ENV_ADAPTER, "final_acceptance", ""),
+    )
+    .unwrap();
+    let error = preflight(workspace.path(), "generic").unwrap_err();
+    assert!(error.contains("identity/hash mismatch"), "{error}");
+    drop(selection);
+}
+
+/// R2 (real binary): an extension root holding an unselected draft whose
+/// operator registry lies inside the workspace does not change a
+/// `--profile generic --prompt` run that uses no adapter: exit code and the
+/// whole stderr equal a run without that extension root and registry.
+#[test]
+fn an_unselected_draft_registry_does_not_change_a_generic_run() {
+    let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let host = format!("http://{}", closed.local_addr().unwrap());
+    drop(closed);
+    let run = |with_draft: bool| {
+        let root = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(root.path()).unwrap();
+        let workspace = root.join("workspace");
+        let home = root.join("home");
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::create_dir_all(&home).unwrap();
+        let mut command = Command::new(env!("CARGO_BIN_EXE_commandagent"));
+        command
+            .args([
+                "--profile",
+                "generic",
+                "--ollama-host",
+                &host,
+                "--prompt",
+                "hi",
+            ])
+            .current_dir(&workspace)
+            .env_clear()
+            .env("HOME", &home);
+        if with_draft {
+            let (extension, config) = draft_with_registry_in(&root, &workspace.join("registry"));
+            command
+                .arg("--extension-root")
+                .arg(&extension)
+                .env("COMMANDAGENT_ADAPTER_CONFIG_ROOT", &config);
+        }
+        let output = command.output().unwrap();
+        (
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr).to_string(),
+        )
+    };
+    let baseline = run(false);
+    assert_eq!(baseline.0, Some(1), "{}", baseline.1);
+    assert!(
+        baseline.1.contains("Ollama request failed"),
+        "{}",
+        baseline.1
+    );
+    assert_eq!(run(true), baseline);
+}
+
+/// B3 (real binary): with no `--pack`, a pack inherited through the
+/// `COMMANDAGENT_PACK_*` environment is the one final acceptance would run.
+/// Its adapter's registry inside the workspace is refused before any
+/// provider: exit 2, the self-approval reason, and no provider connection.
+#[test]
+fn an_inherited_pack_selection_is_preflighted_before_any_provider() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let workspace = root.join("workspace");
+    let home = root.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&workspace).unwrap();
+    let (extension, config) = draft_with_registry_in(&root, &workspace.join("registry"));
+    // A draft with no artifact check of its own; only the pack declares it.
+    plain_draft(&extension);
+    let pack = root.join("pack");
+    std::fs::create_dir_all(&pack).unwrap();
+    let eval = pack_eval("plain-draft", LINES_ADAPTER, "final_acceptance", "");
+    std::fs::write(pack.join("eval.yaml"), &eval).unwrap();
+    let hash = exact_byte_hash(None, Some(eval.as_bytes()));
+    std::fs::write(pack.join("pack.sha256"), format!("{hash}\n")).unwrap();
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let host = format!("http://{}", listener.local_addr().unwrap());
+    let run = Command::new(env!("CARGO_BIN_EXE_commandagent"))
+        .arg("--extension-root")
+        .arg(&extension)
+        .args(["--profile", "plain-draft", "--ollama-host", &host])
+        .args(["--prompt", "Write notes"])
+        .current_dir(&workspace)
+        .env_clear()
+        .env("HOME", &home)
+        .env("COMMANDAGENT_ADAPTER_CONFIG_ROOT", &config)
+        .env("COMMANDAGENT_PACK_DIRECTORY", &pack)
+        .env("COMMANDAGENT_PACK_ID", PACK_ID)
+        .env("COMMANDAGENT_PACK_VERSION", "1.0.0")
+        .env("COMMANDAGENT_PACK_HASH", &hash)
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    assert_eq!(run.status.code(), Some(2), "{stderr}");
+    assert!(
+        stderr.contains(
+            "operator registry resolves inside the workspace; a self-approved registry is refused"
+        ),
+        "{stderr}"
+    );
+    assert!(
+        matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock),
+        "the provider endpoint was contacted"
+    );
+}
+
+/// Red team `sel-pack-env-complete-or-none`: a partial inherited pack
+/// selection (only the directory) is refused before any provider.
+#[test]
+fn a_partial_inherited_pack_selection_is_refused_before_any_provider() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let workspace = root.join("workspace");
+    let home = root.join("home");
+    std::fs::create_dir_all(&workspace).unwrap();
+    std::fs::create_dir_all(&home).unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let host = format!("http://{}", listener.local_addr().unwrap());
+    let run = Command::new(env!("CARGO_BIN_EXE_commandagent"))
+        .args([
+            "--profile",
+            "generic",
+            "--ollama-host",
+            &host,
+            "--prompt",
+            "hi",
+        ])
+        .current_dir(&workspace)
+        .env_clear()
+        .env("HOME", &home)
+        .env("COMMANDAGENT_PACK_DIRECTORY", root.join("pack"))
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    assert_eq!(run.status.code(), Some(2), "{stderr}");
+    assert!(
+        stderr.contains("pack runtime selection is incomplete"),
+        "{stderr}"
+    );
+    assert!(
+        matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock),
+        "the provider endpoint was contacted"
+    );
+}
+
+/// Red team `file-pack-member-static-fifo`, `file-pack-member-oversize`,
+/// `file-pack-pin-symlink`: an inherited pack whose eval is a FIFO or
+/// oversized, or whose pin is a symlink or FIFO, is refused by the preflight
+/// without blocking.
+#[cfg(unix)]
+#[test]
+fn inherited_pack_members_that_are_special_or_oversized_are_refused() {
+    use commandagent::planner::artifact_contract_checks::preflight;
+    let fixture = fixture();
+    let _lock = runner_lock();
+    let workspace = tempfile::tempdir().unwrap();
+    for case in ["eval-fifo", "eval-oversize", "pin-symlink", "pin-fifo"] {
+        let copy = tempfile::tempdir().unwrap();
+        for file in ["eval.yaml", "pack.sha256"] {
+            std::fs::copy(fixture.pack.join(file), copy.path().join(file)).unwrap();
+        }
+        let target = copy.path().join(if case.starts_with("eval") {
+            "eval.yaml"
+        } else {
+            "pack.sha256"
+        });
+        match case {
+            "eval-oversize" => std::fs::write(&target, vec![b'#'; 256 * 1024 + 1]).unwrap(),
+            "pin-symlink" => {
+                let elsewhere = copy.path().join("..").join(format!(
+                    "{}-pin",
+                    copy.path().file_name().unwrap().to_string_lossy()
+                ));
+                std::fs::copy(&target, &elsewhere).unwrap();
+                std::fs::remove_file(&target).unwrap();
+                std::os::unix::fs::symlink(&elsewhere, &target).unwrap();
+            }
+            _ => {
+                std::fs::remove_file(&target).unwrap();
+                let status = Command::new("/usr/bin/mkfifo")
+                    .arg(&target)
+                    .status()
+                    .unwrap();
+                assert!(status.success());
+            }
+        }
+        let selection = PackSelection::install_at(copy.path(), &fixture.pack_hash);
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let path = workspace.path().to_path_buf();
+        std::thread::spawn(move || {
+            let _ = sender.send(preflight(&path, "generic"));
+        });
+        let result = receiver
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .unwrap_or_else(|_| panic!("{case}: the preflight blocked"));
+        drop(selection);
+        let error = result.unwrap_err();
+        assert!(
+            error.contains("selected pack cannot be verified"),
+            "{case}: {error}"
+        );
+    }
+}
+
+/// Red team `pos-pack-command-check-only`: a `--pack` that declares only a
+/// command check leaves the run unchanged: it reaches the provider.
+#[test]
+fn a_command_check_only_pack_leaves_the_run_unchanged() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let workspace = root.join("workspace");
+    let home = root.join("home");
+    let extension = root.join("extension");
+    std::fs::create_dir_all(&workspace).unwrap();
+    std::fs::create_dir_all(&home).unwrap();
+    plain_draft(&extension);
+    let pack = extension.join("packs/command-only/1.0.0");
+    std::fs::create_dir_all(&pack).unwrap();
+    let eval = "schema_version: commandagent.pack.eval/v0\npack:\n  id: command-only\n  version: 1.0.0\n  profile: plain-draft\n  intent: create\nchecks:\n  - id: command_check\n    at:\n      kind: final_acceptance\n    params:\n      argv: [test, -f, notes.txt]\n      cwd: workspace\n      expect:\n        exit_code: 0\n        max_bytes: 1024\n";
+    std::fs::write(pack.join("eval.yaml"), eval).unwrap();
+    let hash = exact_byte_hash(None, Some(eval.as_bytes()));
+    std::fs::write(pack.join("pack.sha256"), format!("{hash}\n")).unwrap();
+    let (code, stderr) = closed_provider_run(&workspace, &home, |command| {
+        command.arg("--extension-root").arg(&extension).args([
+            "--profile",
+            "plain-draft",
+            "--pack",
+            "command-only@1.0.0",
+        ]);
+    });
+    assert_eq!(code, Some(1), "{stderr}");
+    assert!(stderr.contains("Ollama request failed"), "{stderr}");
+}
+
+/// Red team `pos-manifest-unchanged-runs`: an unchanged declaring manifest
+/// with a registry outside the workspace passes the preflight and the run
+/// reaches the provider.
+#[test]
+fn an_unchanged_declaring_manifest_passes_preflight_and_reaches_the_provider() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let workspace = root.join("workspace");
+    let home = root.join("home");
+    std::fs::create_dir_all(&workspace).unwrap();
+    std::fs::create_dir_all(&home).unwrap();
+    let (extension, config) = draft_with_registry_in(&root, &root.join("registry"));
+    let (code, stderr) = closed_provider_run(&workspace, &home, |command| {
+        command
+            .arg("--extension-root")
+            .arg(&extension)
+            .args(["--profile", DRAFT])
+            .env("COMMANDAGENT_ADAPTER_CONFIG_ROOT", &config);
+    });
+    assert_eq!(code, Some(1), "{stderr}");
+    assert!(stderr.contains("Ollama request failed"), "{stderr}");
+}
+
+/// Red team `parse-manifest-phases-on-artifact`: final acceptance refuses an
+/// artifact check that carries `phases` (the preflight side is a unit test).
+#[test]
+fn an_artifact_check_with_phases_is_a_native_failure() {
+    let _fixture = fixture();
+    let workspace = tempfile::tempdir().unwrap();
+    write_notes(workspace.path(), "a\nb\nc\n");
+    let runtime = ProfileRuntimeRegistry::resolve(&ProfileId::parse(PHASED_DRAFT));
+    let report = runtime.verify_final_with_events(workspace.path(), "Write notes", None);
+    assert!(!report.is_pass());
+    assert!(
+        report
+            .primary_reason()
+            .contains("registered only for final acceptance; omit phases"),
+        "{}",
+        report.primary_reason()
+    );
+}
+
+/// Run the binary against a closed provider port; the run reaches the
+/// provider exactly when the error is the provider connection failure.
+fn closed_provider_run(
+    workspace: &Path,
+    home: &Path,
+    configure: impl FnOnce(&mut Command),
+) -> (Option<i32>, String) {
+    let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let host = format!("http://{}", closed.local_addr().unwrap());
+    drop(closed);
+    let mut command = Command::new(env!("CARGO_BIN_EXE_commandagent"));
+    command
+        .args(["--ollama-host", &host, "--prompt", "hi"])
+        .current_dir(workspace)
+        .env_clear()
+        .env("HOME", home);
+    configure(&mut command);
+    let output = command.output().unwrap();
+    (
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr).to_string(),
+    )
+}
+
+/// A draft profile with no artifact check of its own.
+fn plain_draft(extension: &Path) {
+    let plain = extension.join("profiles/plain-draft");
+    std::fs::create_dir_all(&plain).unwrap();
+    std::fs::write(
+        plain.join("manifest.toml"),
+        format!(
+            "{}[[checks.final]]\nid = \"scaffold_files_present\"\nparams = {{ files = [\"notes.txt\"] }}\n",
+            manifest("plain-draft", LINES_ADAPTER)
+                .split("[[checks.final]]")
+                .next()
+                .unwrap()
+        ),
+    )
+    .unwrap();
+}
+
+/// A valid tally-lines draft profile in `root/extension` whose operator
+/// registry is `config` (tooling outside the workspace). Returns the extension
+/// root and the registry root.
+fn draft_with_registry_in(root: &Path, config: &Path) -> (PathBuf, PathBuf) {
+    let tooling = root.join("tooling");
+    let extension = root.join("extension");
+    std::fs::create_dir_all(&tooling).unwrap();
+    std::fs::create_dir_all(config.join("adapters")).unwrap();
+    std::fs::write(tooling.join("lines.sh"), format!("{PRELUDE}{LINES_BODY}")).unwrap();
+    let descriptor = json!({
+        "protocol": "artifact-contract.adapter/v1",
+        "adapter_id": LINES_ADAPTER,
+        "executable": {"path": shell(), "sha256": sha256_file(&shell())},
+        "tooling_root": tooling,
+        "entrypoint": "lines.sh",
+        "members": {"lines.sh": sha256_file(&tooling.join("lines.sh"))},
+        "required": [{"check_id": "lines/total", "targets": ["notes.txt#all"]}],
+        "inputs": [{"input_id": "notes"}]
+    });
+    std::fs::write(
+        config.join(format!("adapters/{LINES_ADAPTER}.json")),
+        serde_json::to_vec(&descriptor).unwrap(),
+    )
+    .unwrap();
+    let profile = extension.join(format!("profiles/{DRAFT}"));
+    std::fs::create_dir_all(&profile).unwrap();
+    std::fs::write(
+        profile.join("manifest.toml"),
+        manifest(DRAFT, LINES_ADAPTER),
+    )
+    .unwrap();
+    (extension, config.to_path_buf())
+}
+
+/// R1 (real binary): a workflow child node runs in its origin workspace. The
+/// outer workspace passes the preflight, but the child's origin holds the
+/// operator registry, so the child node is refused before any provider: the
+/// stand-in provider endpoint receives no connection and the node fails with
+/// the self-approval reason.
+#[test]
+fn a_workflow_child_whose_origin_holds_the_registry_is_refused_before_any_provider() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let outer = root.join("outer");
+    let origin = root.join("origin");
+    let home = root.join("home");
+    for dir in [&outer, &home] {
+        std::fs::create_dir_all(dir).unwrap();
+    }
+    let run_dir = origin.join(".anvil/runs/origin-run");
+    std::fs::create_dir_all(&run_dir).unwrap();
+    std::fs::create_dir_all(origin.join(".anvil/plans")).unwrap();
+    std::fs::write(
+        run_dir.join("events.jsonl"),
+        concat!(
+            r#"{"event":"run_start","action":"Prompt(\"origin goal\")"}"#,
+            "\n",
+            r#"{"event":"verify_default_bound","bound_checks":["test -f marker"]}"#,
+            "\n",
+            r#"{"event":"run_stop","status":"failed"}"#,
+            "\n"
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        origin.join(".anvil/plans/recovery-origin.yaml"),
+        "version: 1\n",
+    )
+    .unwrap();
+    let (extension, config) = draft_with_registry_in(&root, &origin.join("registry"));
+    let workflow = root.join("workflow.yaml");
+    std::fs::write(
+        &workflow,
+        format!(
+            "workflow: artifact-contract-child\nversion: 0.2\nentry: create\nnodes:\n  create: {{ intent: create, profile: generic }}\n  rebuild: {{ intent: create, profile: {DRAFT} }}\nroutes:\n  - {{ from: create, on: failed, when: recovery_yaml_present, to: rebuild, carry: [workspace, recovery_yaml] }}\nterminal: {{}}\n"
+        ),
+    )
+    .unwrap();
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let host = format!("http://{}", listener.local_addr().unwrap());
+    let run = Command::new(env!("CARGO_BIN_EXE_commandagent"))
+        .arg("--extension-root")
+        .arg(&extension)
+        .args(["--ollama-host", &host, "--model", "m"])
+        .arg("--workflow")
+        .arg(&workflow)
+        .arg("--origin")
+        .arg(&origin)
+        .current_dir(&outer)
+        .env_clear()
+        .env("HOME", &home)
+        .env("COMMANDAGENT_ADAPTER_CONFIG_ROOT", &config)
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&run.stderr).to_string();
+    let evidence = collect_text(&origin);
+    assert!(
+        evidence.contains(
+            "operator registry resolves inside the workspace; a self-approved registry is refused"
+        ),
+        "status={:?}\nstderr={stderr}\nevidence={evidence}",
+        run.status
+    );
+    assert!(
+        evidence.contains("node_failed:rebuild"),
+        "stderr={stderr}\nevidence={evidence}"
+    );
+    assert!(
+        matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock),
+        "the provider endpoint was contacted"
+    );
+    // The outer run passed its own preflight (the registry lies outside the
+    // outer workspace): only then does the workflow write origin evidence.
+    assert!(evidence.contains("workflow_node_started"), "{evidence}");
+}
+
+/// All text below `root`, for asserting on workflow evidence.
+fn collect_text(root: &Path) -> String {
+    let mut text = String::new();
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(dir) = pending.pop() {
+        for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                pending.push(path);
+            } else if let Ok(content) = std::fs::read_to_string(&path) {
+                text.push_str(&content);
+                text.push('\n');
+            }
+        }
+    }
+    text
+}
+
+#[test]
+fn dummy_credentials_and_node_variables_never_reach_the_adapter_child() {
+    let fixture = fixture();
+    let workspace = tempfile::tempdir().unwrap();
+    write_notes(workspace.path(), "a\nb\nc\n");
+    let events = workspace.path().join("run/events.jsonl");
+    let runtime = ProfileRuntimeRegistry::resolve(&ProfileId::parse(ENV_DRAFT));
+    let report = runtime.verify_final_with_events(workspace.path(), "Write notes", Some(&events));
+    assert!(report.is_pass(), "{}", report.primary_reason());
+    let dump = std::fs::read_to_string(fixture.observe.join("env.txt")).unwrap();
+    for leaked in [
+        DUMMY_CREDENTIAL_KEY,
+        DUMMY_CREDENTIAL,
+        "OPENAI_API_KEY",
+        DUMMY_OPENAI,
+        "NODE_OPTIONS",
+        DUMMY_NODE_OPTIONS,
+        "NODE_PATH",
+        DUMMY_NODE_PATH,
+        "COMMANDAGENT_ADAPTER_CONFIG_ROOT",
+        "HOME",
+    ] {
+        assert!(
+            !dump.contains(leaked),
+            "{leaked} reached the child:\n{dump}"
+        );
+    }
+    assert!(dump.contains("LANG") && dump.contains("TZ"), "{dump}");
+    let recorded = read_events(&events);
+    let receipt = events_named(&recorded, "artifact_contract_check_result")[0];
+    assert_eq!(receipt["status"], "passed");
+    assert_eq!(receipt["network_isolation"], "not_provided");
+    assert_eq!(
+        receipt["child_env_keys"],
+        json!(["LANG", "TZ", "COMMANDAGENT_ADAPTER_TOOL_ROOT"])
+    );
+    assert!(
+        !receipt
+            .to_string()
+            .contains(&*fixture.root.to_string_lossy())
+    );
+}
+
+#[test]
+fn native_failures_and_receipts_stay_separate_from_the_domain_outcome() {
+    let _fixture = fixture();
+    let workspace = tempfile::tempdir().unwrap();
+    let runtime = ProfileRuntimeRegistry::resolve(&ProfileId::parse(DRAFT));
+
+    // A passing adapter does not hide an earlier native failure: the required
+    // artifact is missing, so the adapter has nothing to read and both fail.
+    std::fs::create_dir_all(workspace.path().join("check")).unwrap();
+    std::fs::write(workspace.path().join("check/request.json"), REQUEST).unwrap();
+    let report = runtime.verify_final_with_events(workspace.path(), "Write notes", None);
+    assert!(!report.is_pass());
+    assert!(
+        report
+            .primary_reason()
+            .contains("required artifact missing: notes.txt"),
+        "{}",
+        report.primary_reason()
+    );
+
+    // A known mismatch stays a native failure with domain none.
+    write_notes(workspace.path(), "a\nb\n");
+    let events = workspace.path().join("run/events.jsonl");
+    let report = runtime.verify_final_with_events(workspace.path(), "Write notes", Some(&events));
+    assert!(!report.is_pass());
+    assert!(
+        report
+            .primary_reason()
+            .contains("artifact contract check `tally-lines`")
+    );
+    let recorded = read_events(&events);
+    let receipt = events_named(&recorded, "artifact_contract_check_result")[0];
+    assert_eq!(receipt["status"], "failed");
+    assert_eq!(receipt["domain_verdict"], "none");
+    assert_eq!(receipt["known_mismatch"], true);
+
+    // A pass adds nothing beyond the receipt: no report file is written into
+    // the workspace, so no required artifact can depend on the host output.
+    write_notes(workspace.path(), "a\nb\nc\n");
+    let report = runtime.verify_final_with_events(workspace.path(), "Write notes", Some(&events));
+    assert!(report.is_pass(), "{}", report.primary_reason());
+    let mut entries = std::fs::read_dir(workspace.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().to_string())
+        .collect::<Vec<_>>();
+    entries.sort();
+    assert_eq!(entries, ["check", "notes.txt", "run"]);
+    let summary = std::fs::read_to_string(workspace.path().join("run/summary.md")).unwrap();
+    assert!(summary.contains("adapter `tally-lines` passed; domain partial (cap partial)"));
+}
+
+fn write_notes(root: &Path, notes: &str) {
+    std::fs::create_dir_all(root.join("check")).unwrap();
+    std::fs::write(root.join("notes.txt"), notes).unwrap();
+    std::fs::write(root.join("check/request.json"), REQUEST).unwrap();
+}
+
+#[test]
+fn normal_runner_binds_manifest_and_pack_receipts_and_keeps_draft_static() {
+    let fixture = fixture();
+    let _lock = runner_lock();
+
+    // UltraPlan runner: the manifest check runs in profile final acceptance.
+    let (events, output) = run_ultra("first\nsecond\nthird\n");
+    let output = output.unwrap_or_else(|error| panic!("{error}\n{}", render(&events)));
+    assert!(output.contains("ultra-plan-run complete"), "{output}");
+    assert_receipts(&events, &["draft_profile"], "passed", "partial");
+    let stop = events_named(&events, "tui_command_stop")[0];
+    assert_eq!(stop["effective_profile"], DRAFT);
+    assert_eq!(stop["assurance_level"], "static");
+    assert_eq!(stop["assurance_reason"], "profile_not_admitted");
+
+    // Step-plan runner with the local pack selected: the pack's final
+    // acceptance check runs and binds its receipt.
+    let (events, output) = run_step_plan(fixture, "first\nsecond\nthird\n");
+    output.unwrap_or_else(|error| panic!("{error}\n{}", render(&events)));
+    assert_receipts(&events, &["local_pack"], "passed", "partial");
+    for receipt in events_named(&events, "artifact_contract_check_result") {
+        assert_eq!(receipt["stopped_at"], "verified", "{receipt}");
+        // Every required row passed: uncapped full, capped to partial.
+        assert_eq!(receipt["domain_cap_applied"], true, "{receipt}");
+    }
+}
+
+#[test]
+fn normal_runner_keeps_an_adapter_mismatch_as_a_native_failure() {
+    let fixture = fixture();
+    let _lock = runner_lock();
+    let (events, output) = run_step_plan(fixture, "first\nsecond\n");
+    assert!(output.is_err(), "{}", render(&events));
+    assert_receipts(&events, &["local_pack"], "failed", "none");
+
+    let (events, _output) = run_ultra("first\nsecond\n");
+    assert_receipts(&events, &["draft_profile"], "failed", "none");
+    let final_acceptance = events_named(&events, "ultra_final_acceptance");
+    assert!(!final_acceptance.is_empty(), "{}", render(&events));
+    for event in final_acceptance {
+        assert_ne!(event["final_acceptance_status"], "full_success", "{event}");
+    }
+    for stop in events_named(&events, "tui_command_stop") {
+        assert_eq!(stop["ok"], false, "{stop}");
+        assert_ne!(stop["assurance_level"], "full", "{stop}");
+        assert_ne!(stop["assurance_level"], "partial", "{stop}");
+    }
+}
+
+fn assert_receipts(events: &[Value], sources: &[&str], status: &str, domain: &str) {
+    let receipts = events_named(events, "artifact_contract_check_result");
+    let mut observed = receipts
+        .iter()
+        .map(|receipt| receipt["source"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    observed.sort();
+    observed.dedup();
+    assert_eq!(observed, sources, "{}", render(events));
+    for receipt in receipts {
+        assert_eq!(receipt["status"], status, "{receipt}");
+        assert_eq!(receipt["domain_verdict"], domain, "{receipt}");
+        assert_eq!(receipt["native_effect"], "failure_only", "{receipt}");
+    }
+}
+
+fn render(events: &[Value]) -> String {
+    events
+        .iter()
+        .map(Value::to_string)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn note_writes(notes: &str) -> AssistantReply {
+    AssistantReply {
+        content: String::new(),
+        tool_calls: vec![
+            ToolCall::new("Write", json!({"path": "notes.txt", "content": notes})),
+            ToolCall::new(
+                "Write",
+                json!({"path": "check/request.json", "content": REQUEST}),
+            ),
+        ],
+        prompt_tokens: None,
+        completion_tokens: None,
+    }
+}
+
+fn note_plan() -> StepPlan {
+    StepPlan {
+        goal: "Write the release notes and the adapter request".to_string(),
+        steps: vec![PlanStep {
+            id: "step-1".to_string(),
+            kind: "implement".to_string(),
+            expected_result: "pass".to_string(),
+            instruction: "Write the release notes and the adapter request".to_string(),
+            expected_paths: vec!["notes.txt".to_string(), "check/request.json".to_string()],
+            verify: Vec::new(),
+        }],
+    }
+}
+
+fn run_step_plan(fixture: &Fixture, notes: &str) -> (Vec<Value>, anyhow::Result<String>) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let events_path = root.join(".anvil/runs/artifact-contract-plan/events.jsonl");
+    std::fs::write(
+        root.join("plan.yaml"),
+        commandagent::planner::step_plan::render_step_plan(&note_plan()),
+    )
+    .unwrap();
+    let mut cfg = config(root.to_path_buf());
+    cfg.eval_events_path = Some(events_path.clone());
+    cfg.profile = DRAFT.to_string();
+    cfg.profile_explicit = true;
+    let mut execution = FakeClient::new("execution", vec![note_writes(notes)]);
+    let selection = PackSelection::install(fixture);
+    let output =
+        commandagent::planner::run_plan_file(&mut execution, &root.join("plan.yaml"), &cfg);
+    drop(selection);
+    (read_events(&events_path), output)
+}
+
+fn run_ultra(notes: &str) -> (Vec<Value>, anyhow::Result<String>) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let events_path = root.join(".anvil/runs/artifact-contract/events.jsonl");
+    let plan = UltraPlan {
+        goal: "Write three short release notes".to_string(),
+        profile: DRAFT.to_string(),
+        style: "default".to_string(),
+        intent: "create".to_string(),
+        phases: vec![
+            UltraPhase {
+                id: "implementation".to_string(),
+                prompt: "Write the notes and the adapter request.".to_string(),
+            },
+            UltraPhase {
+                id: "verification".to_string(),
+                prompt: "Rewrite the notes and the adapter request unchanged.".to_string(),
+            },
+        ],
+    };
+    std::fs::write(root.join("ultra.yaml"), render_ultra_plan(&plan)).unwrap();
+    let mut cfg = config(root.to_path_buf());
+    cfg.eval_events_path = Some(events_path.clone());
+    cfg.profile = DRAFT.to_string();
+    cfg.profile_explicit = true;
+    let step_plan = serde_json::to_string(&note_plan()).unwrap();
+    let mut planner = FakeClient::new(
+        "planner",
+        vec![
+            AssistantReply::text(step_plan.clone()),
+            AssistantReply::text(step_plan),
+        ],
+    );
+    let mut execution = FakeClient::new("execution", vec![note_writes(notes), note_writes(notes)]);
+    let output = commandagent::tui::slash::handle_command(
+        "/run-ultra-plan ultra.yaml",
+        &cfg,
+        &mut planner,
+        &mut execution,
+        &FakeUi,
+    );
+    (read_events(&events_path), output)
+}
+
+/// Install the local pack selection for one runner case, as the CLI does.
+struct PackSelection;
+
+impl PackSelection {
+    fn install(fixture: &Fixture) -> Self {
+        assert!(fixture.config.is_dir());
+        Self::install_at(&fixture.pack, &fixture.pack_hash)
+    }
+
+    fn install_at(directory: &Path, hash: &str) -> Self {
+        // SAFETY: callers hold `runner_lock`, and only the cases holding it in
+        // this binary read the pack selection keys.
+        unsafe {
+            std::env::set_var("COMMANDAGENT_PACK_DIRECTORY", directory);
+            std::env::set_var("COMMANDAGENT_PACK_ID", PACK_ID);
+            std::env::set_var("COMMANDAGENT_PACK_VERSION", "1.0.0");
+            std::env::set_var("COMMANDAGENT_PACK_HASH", hash);
+        }
+        Self
+    }
+}
+
+impl Drop for PackSelection {
+    fn drop(&mut self) {
+        // SAFETY: the same `runner_lock` holder removes the keys it set.
+        unsafe {
+            for key in [
+                "COMMANDAGENT_PACK_DIRECTORY",
+                "COMMANDAGENT_PACK_ID",
+                "COMMANDAGENT_PACK_VERSION",
+                "COMMANDAGENT_PACK_HASH",
+            ] {
+                std::env::remove_var(key);
+            }
+        }
+    }
+}
+
+#[test]
+fn corpus_lists_the_synthetic_cases_these_tests_run() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join(CORPUS);
+    let cases: Value =
+        serde_json::from_str(&std::fs::read_to_string(root.join("fixtures/cases.json")).unwrap())
+            .unwrap();
+    let manifest: Value =
+        serde_json::from_str(&std::fs::read_to_string(root.join("source-manifest.json")).unwrap())
+            .unwrap();
+    let digest = format!(
+        "{:x}",
+        sha2::Sha256::digest(std::fs::read(root.join("fixtures/cases.json")).unwrap())
+    );
+    assert_eq!(manifest["fixture_sha256"]["cases.json"], digest);
+    assert_eq!(manifest["kind"], "synthetic");
+    let ids = cases["cases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|case| {
+            assert_eq!(case["kind"], "synthetic", "{case}");
+            assert_ne!(case["domain_verdict"], "full", "false full in {case}");
+            case["id"].as_str().unwrap().to_string()
+        })
+        .collect::<Vec<_>>();
+    let tests = [
+        include_str!("artifact_contract_checks.rs"),
+        include_str!("../src/planner/artifact_contract_checks/tests.rs"),
+    ]
+    .concat();
+    for case in cases["cases"].as_array().unwrap() {
+        let test = case["test"].as_str().unwrap();
+        assert!(
+            tests.contains(&format!("fn {test}(")),
+            "{test} is not a test"
+        );
+    }
+    assert!(ids.len() >= 20, "{ids:?}");
+    let text = std::fs::read_to_string(root.join("fixtures/cases.json")).unwrap()
+        + &std::fs::read_to_string(root.join("source-manifest.json")).unwrap();
+    for forbidden in [
+        "/Users/",
+        "/home/",
+        "/private/",
+        "/Volumes/",
+        "sk-",
+        "API_KEY=",
+    ] {
+        assert!(
+            !text.contains(forbidden),
+            "corpus must not hold {forbidden}"
+        );
+    }
+}
+
+fn config(root: PathBuf) -> Config {
+    Config {
+        workspace_root: root.clone(),
+        state_dir: root.join("state"),
+        eval_events_path: None,
+        completion_contract_path: None,
+        yes: true,
+        offline: false,
+        context_budget: 1000,
+        model: "m".to_string(),
+        provider: Provider::Ollama,
+        tool_protocol: None,
+        openai_api: commandagent::config::OpenAiApi::ChatCompletions,
+        prompt_layout: commandagent::config::PromptLayout::Stable,
+        plan_preset: commandagent::config::PlanPreset::None,
+        intent_override: None,
+        planner_model: "pm".to_string(),
+        planner_provider: Provider::Gemini,
+        planner_think: Some(commandagent::config::OllamaThink::False),
+        classifier_model: "pm".to_string(),
+        classifier_provider: Provider::Gemini,
+        openai_compatible: None,
+        ollama_host: "http://localhost:11434".to_string(),
+        ollama_think: None,
+        lm_studio_host: "http://localhost:1234".to_string(),
+        num_predict: 100,
+        max_iterations: 6,
+        recovery_plan_auto_runs: 0,
+        chat_timeout_secs: 1,
+        chat_timeout_source: "override:test".to_string(),
+        field_sources: commandagent::config::ConfigFieldSources::default(),
+        chat_retries: 1,
+        stream: false,
+        resume: None,
+        fresh_session: false,
+        no_footer: false,
+        narration: commandagent::config::NarrationMode::Normal,
+        profile: "generic".to_string(),
+        profile_explicit: false,
+        profile_inference: None,
+        style: "default".to_string(),
+        action: Action::Repl,
+    }
+}
+
+#[derive(Clone)]
+struct FakeClient {
+    label: &'static str,
+    replies: Arc<Mutex<Vec<AssistantReply>>>,
+}
+
+impl FakeClient {
+    fn new(label: &'static str, replies: Vec<AssistantReply>) -> Self {
+        Self {
+            label,
+            replies: Arc::new(Mutex::new(replies)),
+        }
+    }
+}
+
+impl ChatClient for FakeClient {
+    fn label(&self) -> &str {
+        self.label
+    }
+
+    fn supports_native_tools(&self, _model: &str) -> bool {
+        true
+    }
+
+    fn boxed_clone(&self) -> Box<dyn ChatClient> {
+        Box::new(self.clone())
+    }
+
+    fn chat(
+        &mut self,
+        _model: &str,
+        _messages: &[ConversationMessage],
+        _tools: &[ToolSpec],
+        _native_tools_enabled: bool,
+    ) -> anyhow::Result<AssistantReply> {
+        let mut replies = self.replies.lock().unwrap();
+        if replies.is_empty() {
+            anyhow::bail!("{} fake replies exhausted", self.label);
+        }
+        Ok(replies.remove(0))
+    }
+}
+
+struct FakeUi;
+
+impl InteractionUi for FakeUi {
+    fn before_model_call(&self, _label: &str) -> UiGuard {
+        UiGuard::noop()
+    }
+
+    fn before_tool_call(&self, _name: &str) -> UiGuard {
+        UiGuard::noop()
+    }
+
+    fn publish_status(&self, _status: UiStatus) {}
+
+    fn interrupted(&self) -> bool {
+        false
+    }
+}

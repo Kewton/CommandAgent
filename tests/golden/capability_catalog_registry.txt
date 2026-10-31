@@ -58,3 +58,6 @@ command_check | CommandCheck
   - argv: [string] required default=-
   - cwd: enum[workspace] required default=-
   - expect: command_expectation required default=-
+artifact_contract_check | AdapterCheck
+  - adapter_id: string required default=-
+  - request: path required default=-

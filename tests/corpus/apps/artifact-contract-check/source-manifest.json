@@ -1,0 +1,14 @@
+{
+  "issue": "#933",
+  "kind": "synthetic",
+  "owner": "src/planner/artifact_contract_checks (generic envelope and operator registry)",
+  "base_sha": "be989685e756da430ed0b652d14846cfa079c578",
+  "base_note": "develop be989685 is the Issue body base f9103ce6ad184319f0cc17de11ce0b78d0e1a885 plus #931; no file of #930 or #931 is read or changed here",
+  "recorded_source": null,
+  "derived_fixture": "fixtures/cases.json lists hand-authored synthetic cases only. Each names the test that builds it at run time: a POSIX shell adapter run by the operator-pinned /bin/sh in a temporary directory, with opaque IDs unrelated to any external project. No benchmark task, grader input, model output, Musubi file, host path, or credential is stored or copied here.",
+  "regenerate_digests": "shasum -a 256 fixtures/cases.json",
+  "fixture_sha256": {
+    "cases.json": "c0e4260a2c80f599f01202d9d8cefb5a950fb507cc8a49be96389d074a1c8925"
+  },
+  "redteam_cases": "the 27 red-team cases of S-165c (L-165) are listed with the prefix redteam-, each mapped to the test that asserts its expectation; only the case IDs and families are copied"
+}

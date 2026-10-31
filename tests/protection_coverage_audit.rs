@@ -45,6 +45,7 @@ const PROTECTION_RULES: &[ProtectionRule] = &[
             "src/provider_call.rs",
             "src/bounded_process.rs",
             "src/bin/gui_server/delegate.rs",
+            "src/planner/artifact_contract_checks/process.rs",
         ],
         audit: audit_bounded_execution_chokepoints,
     },
@@ -54,6 +55,17 @@ const PROTECTION_RULES: &[ProtectionRule] = &[
         required_wrapper: "verify policy / normalized env / bounded process",
         allowlist: &["src/planner/declarative_command_checks.rs"],
         audit: audit_declarative_command_check_boundary,
+    },
+    ProtectionRule {
+        category: "artifact_contract_process_boundary",
+        site_predicate: "operator-registered artifact contract adapter launch and acceptance",
+        required_wrapper: "env_clear / pinned realpath executable / process group / bounded streams / partial cap",
+        allowlist: &[
+            "src/planner/artifact_contract_checks/process.rs",
+            "src/planner/artifact_contract_checks/mod.rs",
+            "src/planner/artifact_contract_checks/protocol.rs",
+        ],
+        audit: audit_artifact_contract_process_boundary,
     },
     ProtectionRule {
         category: "fetch_network_boundary",
@@ -172,6 +184,7 @@ fn protection_coverage_table_rejects_unregistered_mock_sites() {
         "verify_normalization_boundary",
         "bounded_execution_chokepoints",
         "declarative_command_check_boundary",
+        "artifact_contract_process_boundary",
         "fetch_network_boundary",
         "provider_timeout_enforcement",
         "workspace_policy_tool_paths",
@@ -193,6 +206,59 @@ fn protection_coverage_table_rejects_unregistered_mock_sites() {
             && violations.contains("direct child-process invocation"),
         "old GUI process location did not trip the moved delegate guard: {violations}"
     );
+}
+
+#[test]
+fn artifact_contract_process_boundary_rejects_inheriting_or_uncapped_variants() {
+    let real = AuditCorpus::from_manifest_dir();
+    let rule = PROTECTION_RULES
+        .iter()
+        .find(|rule| rule.category == "artifact_contract_process_boundary")
+        .unwrap();
+    assert!((rule.audit)(&real, rule).is_empty());
+    let [process, host, protocol] = [0, 1, 2].map(|index| real.file(rule.allowlist[index]));
+    for (label, mutated) in [
+        (
+            "inherits the parent environment",
+            [
+                process.replace(".env_clear()", ".env_remove(\"NODE_OPTIONS\")"),
+                host.to_string(),
+                protocol.to_string(),
+            ],
+        ),
+        (
+            "launches through verifier_env",
+            [
+                process.replace(
+                    "let mut command = Command::new(&launch.executable);",
+                    "let mut command = crate::minimal_loop::verifier_env::normalized_command_at_root(\"node\", &launch.cwd);",
+                ),
+                host.to_string(),
+                protocol.to_string(),
+            ],
+        ),
+        (
+            "drops the partial cap",
+            [
+                process.to_string(),
+                host.to_string(),
+                protocol.replace(
+                    "DOMAIN_CAP: DomainVerdict = DomainVerdict::Partial;",
+                    "DOMAIN_CAP: DomainVerdict = DomainVerdict::Full;",
+                ),
+            ],
+        ),
+    ] {
+        let corpus = AuditCorpus::from_pairs([
+            (rule.allowlist[0], mutated[0].as_str()),
+            (rule.allowlist[1], mutated[1].as_str()),
+            (rule.allowlist[2], mutated[2].as_str()),
+        ]);
+        assert!(
+            !(rule.audit)(&corpus, rule).is_empty(),
+            "{label} was not rejected"
+        );
+    }
 }
 
 fn audit_protection_coverage(corpus: &AuditCorpus) -> Vec<String> {
@@ -351,6 +417,75 @@ fn audit_declarative_command_check_boundary(
     ] {
         if !source.contains(required) {
             violations.push(format!("{path} is missing `{required}`"));
+        }
+    }
+    violations
+}
+
+fn audit_artifact_contract_process_boundary(
+    corpus: &AuditCorpus,
+    rule: &ProtectionRule,
+) -> Vec<String> {
+    let [process, host, protocol] = [0, 1, 2].map(|index| rule.allowlist[index]);
+    let mut violations = Vec::new();
+    for (path, required) in [
+        (process, ".env_clear()"),
+        (process, ".envs(child_env(&launch.tool_root))"),
+        (process, ".process_group(0)"),
+        (process, "terminate_process_group(&mut child)"),
+        (process, "terminate_process_group_by_pid(pid)"),
+        (
+            process,
+            "const FIXED_TIMEOUT: Duration = Duration::from_secs(30);",
+        ),
+        (process, "overflow.store(true, Ordering::SeqCst)"),
+        (host, "fn separate_from_workspace("),
+        (host, "operator tooling changed while the adapter ran"),
+        (host, "changed while the adapter ran"),
+        (host, "does not match its operator pin"),
+        (host, "protocol::cap_domain(receipt.uncapped)"),
+        (host, "\"native_effect\": \"failure_only\""),
+        (
+            protocol,
+            "pub(crate) const DOMAIN_CAP: DomainVerdict = DomainVerdict::Partial;",
+        ),
+        (
+            protocol,
+            "pub(crate) const MAX_REQUEST_BYTES: usize = 16_384;",
+        ),
+        (
+            protocol,
+            "pub(crate) const MAX_STREAM_BYTES: usize = 24_000;",
+        ),
+        (
+            protocol,
+            "executed does not equal passed + failed + unresolved",
+        ),
+    ] {
+        if !corpus.file(path).contains(required) {
+            violations.push(format!("{path} is missing `{required}`"));
+        }
+    }
+    // The adapter child must never pass through a helper that restores the
+    // parent environment or PATH lookup.
+    for (line_index, line) in corpus.file(process).lines().enumerate() {
+        let code = line.trim_start();
+        if code.starts_with("//") {
+            continue;
+        }
+        for forbidden in [
+            "verifier_env::",
+            "spawn_child(",
+            "run_with_timeout",
+            "std::env::var",
+            "Command::new(\"",
+        ] {
+            if code.contains(forbidden) {
+                violations.push(format!(
+                    "{process}:{} uses `{forbidden}` in the adapter launch",
+                    line_index + 1
+                ));
+            }
         }
     }
     violations
