@@ -1,0 +1,36 @@
+case_id = "completion-obligation-review"
+source = "Issue #940: synthetic scripted runs of the experimental COMMANDAGENT_COMPLETION_OBLIGATION_REVIEW opt-in; default-off rows were recorded from source a49e55c9 before the review existed"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/review.jsonl = [
+  "\"kind\": \"synthetic\"",
+  "\"id\": \"default-off-unset\"",
+  "\"source\": \"a49e55c9\"",
+  "\"id\": \"once-triggered-executed-final\"",
+  "\"id\": \"once-self-report-final\"",
+  "\"id\": \"once-cancel-after-request\"",
+  "\"phase\": \"triggered\"",
+  "\"reason\": \"next_final\"",
+  "\"reason\": \"scope_exit_before_next_final\"",
+  "\"reason\": \"insufficient_remaining_iterations\""
+]

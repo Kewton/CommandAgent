@@ -282,6 +282,7 @@ variables also affect normal user-visible behavior:
 | `COMMANDAGENT_UX_DEMO_FAST` / `ANVIL_UX_DEMO_FAST` | Speeds up the `--ux-demo` presentation waits for development and demos. The variable's presence, not its value, is tested. |
 | `COMMANDAGENT_SYSTEM_GUIDANCE` | Adds one common guidance text to the system prompt of every provider request of a direct `--prompt` run. Unset or empty changes nothing. See below. |
 | `COMMANDAGENT_COMPATIBLE_REASONING_EFFORT` | Declares a reasoning effort for the roles that use the OpenAI-compatible transport (`openai-compatible` and `lm-studio`). Unset or empty sends nothing. See below. |
+| `COMMANDAGENT_COMPLETION_OBLIGATION_REVIEW` | Experimental. `once` asks a generic edit run to review the request's obligations once before its first normal final answer. Unset, empty, or `off` (the default) changes nothing. See below. |
 
 For `COMMANDAGENT_*` entries, the current name wins. The matching `ANVIL_*`
 name is used only when the current name is absent, and emits a one-time
@@ -308,6 +309,58 @@ names the variable and the reason but not the value. The text is ordinary
 guidance: it grants or removes no tool permission and changes no verification,
 completion, acceptance, or budget rule. The run's secret scrub applies to it,
 but do not put secrets in it.
+
+`COMMANDAGENT_COMPLETION_OBLIGATION_REVIEW` is an experimental opt-in for
+measuring one completion review; it is off by default and is not a coverage or
+verification gate. It is read once, from the process environment only, when a
+minimal-loop run starts (no `ANVIL_*` legacy name, no config file, no `.env`,
+no CLI flag), and a change during the run has no effect.
+
+- Values: unset, empty, whitespace-only, or `off` disables it, and the run is
+  exactly the run without the variable: the same provider requests in the same
+  order, the same events, stop reason, and assurance, and no new event. `once`
+  (surrounding whitespace trimmed, lowercase) enables it. Any other value,
+  including `ONCE` or non-UTF-8 bytes, fails the run before the first request
+  with a fixed error that names the variable but not the value.
+- Scope: a minimal-loop run (not a plan step) whose effective profile is `generic`, that
+  has no completion contract, and in which a Write or Edit succeeded. Only the
+  first normal assistant final is considered, after it passed every existing
+  check (required paths, the action-prompt check, relative imports), and only
+  when at least three loop iterations remain. Plan steps (`PlanRunStep`),
+  runs with a completion contract, read-only runs, the automatic post-write
+  read completion, the automatic required-artifact completion, and budget
+  exhaustion are never deferred; the wall-clock cap, cancellation, and every
+  existing failure keep priority.
+- Behavior: that final is deferred once and the model receives one fixed
+  request: list up to five obligations the original request states, map what
+  was already confirmed, choose one or two important unconfirmed boundary,
+  error, or output-format inputs, derive the expected result from the request
+  rather than the implementation, run them with the already allowed tools, and
+  fix only an observed contradiction. The next normal final passes the
+  existing checks again and ends the run with that new answer; the deferred
+  answer is never returned. What the model says about the review (for example
+  that it covered everything) neither releases nor blocks it. There is no
+  second request, no extra iteration, and no reset of an existing counter.
+- Host observation: after the request the host counts successful Write/Edit
+  calls and non-substituted Bash results, using the existing execution-progress
+  classification, not the tool status, and drops successful Bash observations
+  older than the latest successful edit. A non-zero exit, a tool error, or a
+  policy rejection is not counted as successful, and none of them becomes a new
+  blocker. A successful command proves only that it ran: it may be an `echo`,
+  unrelated, or a wrong self-written check, and a negative test may correctly
+  exit non-zero. The model's self-report is not evidence either.
+- Events: the run records `completion_obligation_review` with `phase`
+  `triggered`, `closed` (`reason` `next_final`, or
+  `scope_exit_before_next_final` when the run ended another way), or `skipped`
+  (a fixed reason), plus numbers such as `iteration`, `remaining_iterations`,
+  `prompt_version`, and `successful_bash_since_latest_edit`. It never copies
+  the prompt, a command, model text, tool output, or a secret, and has no
+  coverage or verification-passed field. Existing events, stop reasons, the
+  summary's `assurance_level=reduced`, and acceptance and release gates do not
+  change.
+- Cost: the review normally adds one to three provider calls, but this is not
+  guaranteed; the model may use more of the remaining iterations, up to the
+  existing limit. Whether the review improves correctness is unmeasured.
 
 `COMMANDAGENT_COMPATIBLE_REASONING_EFFORT` declares how hard an
 OpenAI-compatible server should reason. It is read from the process environment

@@ -32,6 +32,7 @@ use super::compact::compact_if_needed;
 use super::completion::{
     CompletionContract, format_verify_feedback_with_contract, target_implementation_files,
 };
+use super::completion_obligation_review::CompletionObligationReview;
 use super::dependency_setup::{self, NodeDependencySetupAuthority, NodeDependencySetupStatus};
 use super::edit_anchor_recovery::{
     EDIT_ANCHOR_FULL_FILE_WRITE_THRESHOLD, EditAnchorRecoveryState, emit_recovery_event,
@@ -443,6 +444,11 @@ pub(crate) fn run_session_with_outcome_with_options(
         } else {
             None
         };
+    let mut obligation_review = CompletionObligationReview::start(
+        config,
+        options.scope == RunSessionScope::MinimalLoop,
+        completion_contract.is_some(),
+    )?;
     let implementation_completion =
         ImplementationCompletion::capture(config, &options, required_paths);
     let explicit_required_paths = !required_paths.is_empty();
@@ -1205,6 +1211,13 @@ pub(crate) fn run_session_with_outcome_with_options(
                     }
                 }
             }
+            if let Some(review) =
+                obligation_review.before_normal_final(iterations_used, remaining_iterations)
+            {
+                session.messages.pop();
+                pending_feedback = Some(review.to_string());
+                continue;
+            }
             return Ok(RunSessionOutcome {
                 final_text: reply.content,
                 stop_reason: RunStopReason::AssistantFinal,
@@ -1544,6 +1557,7 @@ pub(crate) fn run_session_with_outcome_with_options(
                     );
                     if matches!(call.name.as_str(), "Write" | "Edit") {
                         write_or_edit_seen = true;
+                        obligation_review.note_successful_edit();
                         max_length_guard.write_or_edit_succeeded();
                         turn_events.write_or_edit_succeeded();
                         pressure_inputs.read_only_streak = 0;
@@ -1734,6 +1748,8 @@ pub(crate) fn run_session_with_outcome_with_options(
                 )
             });
             if let Some(execution_progress) = execution_progress {
+                obligation_review
+                    .note_bash_result(execution_progress != ExecutionProgress::NotSuccessful);
                 post_write_completion_tracker.note_bash_result(
                     execution_progress != ExecutionProgress::NotSuccessful,
                     crate::tools::bash::formatted_environment_failure_kind(&result),
