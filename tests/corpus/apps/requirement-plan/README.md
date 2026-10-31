@@ -13,7 +13,9 @@ public minimal loop with a mock `ChatClient`, and compares the keys the row's
 - `default-off-*` rows (unset, empty, `off`) pin the behavior of source
   `c9f88d35`, recorded before the requirement plan existed: the provider
   request digests (serialized messages plus the native-tool flag, with the
-  workspace path and `elapsed_ms` normalized), the event-name sequence, the
+  workspace path and `elapsed_ms` normalized; the workspace runs at the
+  canonical temp path, and the spaces BSD `wc` puts before a count are
+  dropped), the event-name sequence, the
   provider call count, and the outcome. No `requirement_plan` event appears.
 - `once-captured-native` / `once-captured-xml`: the first request alone
   carries the fixed guidance; the block is taken out of the first reply before

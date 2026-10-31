@@ -375,15 +375,18 @@ impl Scenario {
         earlier: Option<SessionSnapshot>,
     ) -> Trace {
         let dir = tempfile::tempdir().unwrap();
+        // macOS hands out temp dirs below a symlinked /var; use the canonical
+        // path so the workspace root is the same kind of path as on Linux.
+        let root = dir.path().canonicalize().unwrap();
         for (path, content) in &self.seed {
-            let target = dir.path().join(path);
+            let target = root.join(path);
             if let Some(parent) = target.parent() {
                 std::fs::create_dir_all(parent).unwrap();
             }
             std::fs::write(target, content).unwrap();
         }
         let contract = self.contract.as_ref().map(|contract| {
-            let path = dir.path().join("completion-contract.json");
+            let path = root.join("completion-contract.json");
             std::fs::write(&path, serde_json::to_vec_pretty(contract).unwrap()).unwrap();
             path
         });
@@ -405,7 +408,7 @@ impl Scenario {
                 other => panic!("unknown history role {other}"),
             });
         }
-        let config = config(dir.path(), self, contract);
+        let config = config(&root, self, contract);
         let ui = CancelAtModelCall {
             calls: Cell::new(0),
             cancel_at: self.cancel_at_request.unwrap_or(usize::MAX),
@@ -422,14 +425,14 @@ impl Scenario {
         let requests = client.requests.lock().unwrap().clone();
         let native_flags = client.native_flags.lock().unwrap().clone();
         let remaining_replies = client.replies.lock().unwrap().len();
-        let events = std::fs::read_to_string(dir.path().join("events.jsonl"))
+        let events = std::fs::read_to_string(root.join("events.jsonl"))
             .unwrap_or_default()
             .lines()
             .map(|line| serde_json::from_str::<Value>(line).unwrap())
             .collect();
         Trace {
             id: self.id.clone(),
-            root: dir.path().to_path_buf(),
+            root,
             _dir: dir,
             result,
             requests,
@@ -476,6 +479,12 @@ impl Trace {
                 // XML tool calls get a random UUID id; replace every id by
                 // its order of first appearance.
                 let mut text = self.normalize(&serde_json::to_string(messages).unwrap());
+                // BSD `wc` pads a count with spaces and GNU `wc` does not; drop the
+                // padding before a count that starts a line.
+                text = regex::Regex::new(r"\\n +([0-9]+ )")
+                    .unwrap()
+                    .replace_all(&text, "\\n$1")
+                    .into_owned();
                 let ids = regex::Regex::new(
                     r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
                 )
