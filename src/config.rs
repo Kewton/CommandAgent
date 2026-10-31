@@ -15,6 +15,7 @@ use crate::planner::profile::{ProfileInference, infer_profile, resolve_profile_r
 mod env_deferral;
 pub mod openrouter_routing;
 mod resolution;
+mod toml_comment;
 mod validation;
 use resolution::{
     ProviderResolution, load_named_preset, merge_preset, preset_missing_keys, resolve_named_preset,
@@ -669,6 +670,7 @@ impl Config {
             .unwrap_or(std::env::current_dir().context("failed to read current directory")?)
             .canonicalize()
             .context("failed to canonicalize workspace root")?;
+        toml_comment::validate_config_files(&workspace_root)?;
         validation::validate_config_files(&workspace_root)?;
         let preset = load_named_preset(&workspace_root, cli.preset.as_deref())?;
         let extension_root = cli
@@ -1255,6 +1257,7 @@ fn parse_config_file(
             }
             ConfigSection::Other => {}
         }
+        toml_comment::reject_uninterpretable(path, line_no, raw_line)?;
     }
     Ok(file)
 }
@@ -1370,23 +1373,7 @@ pub(crate) fn configured_extension_root(root: &Path) -> anyhow::Result<Option<Pa
     Ok(None)
 }
 
-pub(crate) fn strip_toml_comment(line: &str) -> &str {
-    let mut quoted = false;
-    let mut escaped = false;
-    for (index, ch) in line.char_indices() {
-        if escaped {
-            escaped = false;
-            continue;
-        }
-        match ch {
-            '\\' if quoted => escaped = true,
-            '"' => quoted = !quoted,
-            '#' if !quoted => return &line[..index],
-            _ => {}
-        }
-    }
-    line
-}
+pub(crate) use toml_comment::strip_toml_comment;
 
 pub(crate) fn parse_string_value(
     path: &Path,
