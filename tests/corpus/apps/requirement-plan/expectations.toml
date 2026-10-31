@@ -37,5 +37,9 @@ fixtures/plan.json = [
   "[\"released\", \"missing\"]",
   "[\"released\", \"invalid\"]",
   "[\"released\", \"oversize\"]",
-  "[\"skipped\", \"insufficient_remaining_iterations\"]"
+  "[\"skipped\", \"insufficient_remaining_iterations\"]",
+  "\"id\": \"once-xml-invalid-then-unclosed-block\"",
+  "\"id\": \"once-max-length-plan-turn\"",
+  "\"id\": \"once-last-provider-failure\"",
+  "[\"released\", \"run_failed\"]"
 ]

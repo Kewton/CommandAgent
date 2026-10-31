@@ -291,7 +291,7 @@ impl Scenario {
             .enumerate()
             .map(|(index, step)| {
                 let preamble = step["preamble"].as_str().unwrap_or_default();
-                if let Some(write) = step.get("write") {
+                let mut reply = if let Some(write) = step.get("write") {
                     let call = (
                         "Write".to_string(),
                         json!({"path": write[0], "content": write[1]}),
@@ -318,7 +318,9 @@ impl Scenario {
                     AssistantReply::text(content.as_str().unwrap())
                 } else {
                     panic!("unknown script step {step}");
-                }
+                };
+                reply.completion_tokens = step["completion_tokens"].as_u64();
+                reply
             })
             .collect()
     }
@@ -1352,4 +1354,104 @@ fn corpus_rows_are_synthetic_and_cover_every_declared_case() {
     assert!(readme.contains("synthetic"));
     let raw = std::fs::read_to_string(corpus_path("fixtures/plan.json")).unwrap();
     assert!(!raw.contains("dev-28"));
+}
+
+#[test]
+fn later_duplicate_and_nested_note_regions_never_reach_the_tool_parser() {
+    for (id, greeting_from_first_reply) in [
+        ("once-xml-valid-then-closed-block", true),
+        ("once-xml-valid-then-unclosed-block", false),
+        ("once-xml-invalid-then-closed-block", true),
+        ("once-xml-invalid-then-unclosed-block", false),
+        ("once-xml-nested-block", true),
+        ("once-native-valid-then-unclosed-block", true),
+    ] {
+        let trace = run_fixture_row(id);
+        assert!(!trace.file_exists("leak.txt"), "{id}");
+        assert!(trace.file_exists("greeting.txt"), "{id}");
+        let raw_paths = trace
+            .events
+            .iter()
+            .filter(|event| event["event"] == "tool_call_raw")
+            .count();
+        assert_eq!(raw_paths, 1, "{id}: only the legitimate Write");
+        let outcome = trace.result.as_ref().unwrap();
+        assert_eq!(
+            outcome.changed_paths,
+            vec!["greeting.txt".to_string()],
+            "{id}"
+        );
+        // The legitimate tool outside every region ran in the first reply:
+        // the second reply is already the final.
+        if greeting_from_first_reply {
+            assert_eq!(trace.requests.len(), 2, "{id}");
+        }
+        // Neither the note nor the region text stays in the history.
+        for message in &trace.session.messages {
+            for forbidden in [
+                "<requirement_plan>",
+                "</requirement_plan>",
+                "leak.txt",
+                "stated_requirement",
+            ] {
+                assert!(!message.content.contains(forbidden), "{id}: {forbidden}");
+            }
+        }
+        for messages in &trace.requests[1..] {
+            let text = serde_json::to_string(messages).unwrap();
+            assert!(!text.contains("leak.txt"), "{id}");
+            assert!(!text.contains("stated_requirement"), "{id}");
+        }
+    }
+}
+
+#[test]
+fn the_output_length_guard_still_counts_a_planning_turn() {
+    let row = scenario("once-max-length-plan-turn");
+    let trace = run_fixture_row("once-max-length-plan-turn");
+    assert_eq!(trace.plan_events()[1]["plan_only_turn"], true);
+    let error = trace.result.as_ref().unwrap_err();
+    assert!(
+        error.contains("max_length_no_tool_call_repeated"),
+        "{error}"
+    );
+    // The same threshold as the same script with the plan off.
+    let off = row.with_setting(None).run();
+    let first_line = |trace: &Trace| {
+        trace
+            .result
+            .as_ref()
+            .unwrap_err()
+            .lines()
+            .next()
+            .unwrap()
+            .to_string()
+    };
+    assert_eq!(first_line(&trace), first_line(&off));
+    assert_eq!(trace.requests.len(), off.requests.len());
+    assert!(!trace.file_exists("greeting.txt"));
+}
+
+#[test]
+fn the_last_iteration_failure_kind_decides_the_release_reason() {
+    for (id, error_part) in [
+        ("once-last-provider-failure", "scripted client exhausted"),
+        ("once-last-normalization-failure", "malformed"),
+        ("once-last-fatal-tool", "blocked"),
+        ("once-last-cancel", "interrupted"),
+    ] {
+        let trace = run_fixture_row(id);
+        let error = trace.result.as_ref().unwrap_err();
+        assert!(error.contains(error_part), "{id}: {error}");
+        assert_eq!(trace.plan_events()[2]["remaining_iterations"], Value::Null);
+        // Every case reached the last iteration.
+        let provider_turns = trace
+            .events
+            .iter()
+            .filter(|event| event["event"] == "provider_turn_duration")
+            .count();
+        assert!(provider_turns >= 4, "{id}");
+    }
+    let trace = run_fixture_row("once-budget-after-plan-only-turn");
+    assert_eq!(trace.plan_phases()[2], ["released", "budget_exhausted"]);
 }

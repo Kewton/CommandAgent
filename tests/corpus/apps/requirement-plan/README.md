@@ -37,6 +37,20 @@ public minimal loop with a mock `ChatClient`, and compares the keys the row's
   `once-completion-contract`, `once-resumed-conversation`: excluded runs equal
   the same script with the plan unset; `once-remaining-four-applies` is the
   boundary that still applies.
+- `once-xml-valid-then-closed-block`, `once-xml-valid-then-unclosed-block`,
+  `once-xml-invalid-then-closed-block`, `once-xml-invalid-then-unclosed-block`,
+  `once-xml-nested-block`, `once-native-valid-then-unclosed-block`: a second,
+  nested, or unclosed note region in the first reply makes the note invalid;
+  no region text (and nothing after an unclosed one) reaches the tool parser,
+  `leak.txt` is never written, and the legitimate Write outside every region
+  (or the independent native call) still runs.
+- `once-max-length-plan-turn`: the output-length guard counts a planning turn
+  that hit the output limit, so `max_length_no_tool_call_repeated` stops at the
+  same reply as with the plan off.
+- `once-last-provider-failure`, `once-last-normalization-failure`,
+  `once-last-fatal-tool`, `once-last-cancel`: a failure or cancellation in the
+  last iteration is released as `run_failed` or `run_interrupted`; only the
+  loop's own budget-exhaustion path is `budget_exhausted`.
 - `once-cancel-after-capture`: cancellation stays a failure.
 - `once-self-claimed-verified` / `once-wrong-expectation`: a model claim or a
   wrong expectation changes no existing outcome or event.

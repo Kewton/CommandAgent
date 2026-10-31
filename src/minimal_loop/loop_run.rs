@@ -883,12 +883,12 @@ fn run_session_planned(
         if ui.interrupted() {
             bail!("interrupted by user");
         }
-        if plan_only_turn {
-            continue;
-        }
         if max_length_guard.observe(&reply, config.num_predict, provider_turn_elapsed) {
             drop(turn_events);
             return Err(max_length_guard.stop(config, &options, user_prompt, &changed_paths));
+        }
+        if plan_only_turn {
+            continue;
         }
         let mut tool_calls = Vec::new();
         for mut call in reply.tool_calls.clone() {
@@ -2235,6 +2235,7 @@ fn run_session_planned(
             continue;
         }
     }
+    plan.note_budget_exhausted();
     let mut missing = missing_paths(&config.workspace_root, &required_paths);
     if last_blocking_reason.is_none() {
         last_blocking_reason = post_write_completion_tracker.environment_failure_reason();

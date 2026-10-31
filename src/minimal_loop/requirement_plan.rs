@@ -216,50 +216,113 @@ pub(crate) enum BlockRejection {
     Oversize,
 }
 
-/// The first reply after the block was taken out.
+/// The first reply after the note regions were taken out.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Extraction {
     pub note: Result<Note, BlockRejection>,
-    /// The reply content without the block (and without the unterminated
-    /// rest of an unclosed block).
+    /// The reply content without any note region.
     pub content: String,
 }
 
-/// Takes the `<requirement_plan>` block out of `content` and validates it.
+/// One note-shaped region of a reply: an opening tag through the closing tag
+/// that balances it, or through the end of the reply when it never closes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct NoteRegion {
+    start: usize,
+    end: usize,
+    closed: bool,
+    nested: bool,
+}
+
+/// Every note region of `content`, in order. Nested opening tags extend a
+/// region until it balances; an unclosed region runs to the end.
+fn note_regions(content: &str) -> Vec<NoteRegion> {
+    let mut regions = Vec::new();
+    let mut pos = 0;
+    while let Some(rel) = content[pos..].find(OPEN_TAG) {
+        let start = pos + rel;
+        let mut cursor = start + OPEN_TAG.len();
+        let mut depth = 1usize;
+        let mut nested = false;
+        let end = loop {
+            let open = content[cursor..].find(OPEN_TAG).map(|at| cursor + at);
+            let close = content[cursor..].find(CLOSE_TAG).map(|at| cursor + at);
+            match (open, close) {
+                (Some(open), Some(close)) if open < close => {
+                    depth += 1;
+                    nested = true;
+                    cursor = open + OPEN_TAG.len();
+                }
+                (_, Some(close)) => {
+                    depth -= 1;
+                    cursor = close + CLOSE_TAG.len();
+                    if depth == 0 {
+                        break Some(cursor);
+                    }
+                }
+                (_, None) => break None,
+            }
+        };
+        let closed = end.is_some();
+        let end = end.unwrap_or(content.len());
+        regions.push(NoteRegion {
+            start,
+            end,
+            closed,
+            nested,
+        });
+        pos = end;
+    }
+    regions
+}
+
+/// Splits `content` into its note regions and the text outside them, both in
+/// order. Text inside a region must never reach a tool parser.
+pub(crate) fn split_note_regions(content: &str) -> (String, String) {
+    let mut regions_text = String::new();
+    let mut outside = String::new();
+    let mut pos = 0;
+    for region in note_regions(content) {
+        outside.push_str(&content[pos..region.start]);
+        regions_text.push_str(&content[region.start..region.end]);
+        pos = region.end;
+    }
+    outside.push_str(&content[pos..]);
+    (regions_text, outside)
+}
+
+/// Takes every `<requirement_plan>` region out of `content` and validates the
+/// note.
 ///
-/// A block must open the reply (after leading whitespace). A tag anywhere else
-/// makes the block invalid, and an unclosed block drops the rest of the reply
-/// so nothing inside it ever reaches the XML tool parser.
+/// Only one closed, unnested block that opens the reply (after leading
+/// whitespace) can become a note. A second, nested, misplaced, or unclosed
+/// region makes the note invalid; it is never merged or picked. Every region,
+/// including the rest of the reply after an unclosed one, is removed so
+/// nothing inside it ever reaches the XML tool parser.
 pub(crate) fn extract_block(content: &str, scrub: impl Fn(&str) -> String) -> Extraction {
-    let Some(open) = content.find(OPEN_TAG) else {
+    let regions = note_regions(content);
+    let Some(first) = regions.first().copied() else {
         return Extraction {
             note: Err(BlockRejection::Missing),
             content: content.to_string(),
         };
     };
-    let leading = content[..open].trim().is_empty();
-    let body_start = open + OPEN_TAG.len();
-    let Some(close_rel) = content[body_start..].find(CLOSE_TAG) else {
-        return Extraction {
-            note: Err(BlockRejection::Invalid),
-            content: content[..open].trim_end().to_string(),
-        };
-    };
-    let body_end = body_start + close_rel;
-    let after = &content[body_end + CLOSE_TAG.len()..];
-    let rest = if leading {
-        after.trim_start().to_string()
+    let (_, outside) = split_note_regions(content);
+    let single = regions.len() == 1
+        && first.closed
+        && !first.nested
+        && content[..first.start].trim().is_empty();
+    let note = if single {
+        validate_body(
+            &content[first.start + OPEN_TAG.len()..first.end - CLOSE_TAG.len()],
+            scrub,
+        )
     } else {
-        format!("{}{}", &content[..open], after)
-    };
-    let note = if !leading {
         Err(BlockRejection::Invalid)
-    } else {
-        validate_body(&content[body_start..body_end], scrub)
     };
     Extraction {
         note,
-        content: rest,
+        content: outside.trim().to_string(),
     }
 }
 
@@ -396,9 +459,11 @@ pub(crate) struct RequirementPlan {
     events_path: Option<PathBuf>,
     /// Loop iterations that reached a request (1-based, as the loop counts).
     iteration: usize,
-    /// Remaining iterations at the latest request, to tell a budget end
-    /// from another failure when the run returns an error.
+    /// Remaining iterations at the latest request (event context only).
     last_remaining: Option<usize>,
+    /// Set by the loop when it used every iteration and left through the
+    /// existing budget-exhaustion path.
+    budget_exhausted: bool,
 }
 
 impl Default for RequirementPlan {
@@ -408,6 +473,7 @@ impl Default for RequirementPlan {
             events_path: None,
             iteration: 0,
             last_remaining: None,
+            budget_exhausted: false,
         }
     }
 }
@@ -447,6 +513,7 @@ impl RequirementPlan {
             events_path: events_path.map(Path::to_path_buf),
             iteration: 0,
             last_remaining: None,
+            budget_exhausted: false,
         };
         if plan.state == State::Armed
             && let Some(reason) = scope.skip_reason()
@@ -531,6 +598,12 @@ impl RequirementPlan {
         }
     }
 
+    /// The loop used every iteration and is leaving through its existing
+    /// budget-exhaustion path; that path still decides the run's result.
+    pub(crate) fn note_budget_exhausted(&mut self) {
+        self.budget_exhausted = true;
+    }
+
     /// Records how the run ended and drops the note.
     pub(crate) fn finish(&mut self, completed: bool, interrupted: bool) {
         let reason = match self.state {
@@ -541,7 +614,7 @@ impl RequirementPlan {
             }
             State::Requested | State::Holding(_) if completed => Reason::RunCompleted,
             State::Requested | State::Holding(_) if interrupted => Reason::RunInterrupted,
-            State::Requested | State::Holding(_) if self.last_remaining == Some(0) => {
+            State::Requested | State::Holding(_) if self.budget_exhausted => {
                 Reason::BudgetExhausted
             }
             State::Requested | State::Holding(_) => Reason::RunFailed,
@@ -608,7 +681,7 @@ mod tests {
         BlockRejection, CONTINUE_AFTER_NOTE, ENV_NAME, GUIDANCE, MAX_BLOCK_BYTES, MAX_EXAMPLES,
         MAX_NOTE_CHARS, MAX_OBLIGATIONS, MIN_REMAINING_ITERATIONS, NOTE_HEADER, PlanMode,
         REVIEW_ENV_NAME, RequirementPlan, RunScope, TEST_ENV, extract_block, insert_note,
-        parse_mode,
+        parse_mode, split_note_regions,
     };
     use crate::config::Config;
     use crate::minimal_loop::loop_run::{
@@ -834,6 +907,47 @@ mod tests {
         // Text before an unclosed misplaced block stays; the block does not.
         let misplaced = extract_block(&format!("intro <requirement_plan>{tag}"), plain);
         assert_eq!(misplaced.content, "intro");
+    }
+
+    #[test]
+    fn every_note_region_leaves_the_reply_and_only_one_can_be_a_note() {
+        let tag = r#"<anvil_tool_call name="Write">{"path":"leak.txt"}</anvil_tool_call>"#;
+        let ok = r#"<anvil_tool_call name="Read">{"path":"a"}</anvil_tool_call>"#;
+        let valid = block(&valid_body());
+        let empty = "<requirement_plan>{}</requirement_plan>";
+        for content in [
+            format!("{valid}\n<requirement_plan>{tag}</requirement_plan>\n{ok}"),
+            format!("{valid}\n<requirement_plan>{tag}"),
+            format!("{empty}\n<requirement_plan>{tag}</requirement_plan>\n{ok}"),
+            format!("{empty}\n<requirement_plan>{tag}"),
+            format!("<requirement_plan>{valid}{tag}</requirement_plan>\n{ok}"),
+            format!("{valid}{valid}\n{ok}"),
+            format!("{valid}\n{ok}\n{valid}"),
+        ] {
+            let extraction = extract_block(&content, plain);
+            assert_eq!(extraction.note, Err(BlockRejection::Invalid), "{content}");
+            assert!(!extraction.content.contains("leak.txt"), "{content}");
+            assert!(
+                !extraction.content.contains("requirement_plan>"),
+                "{content}"
+            );
+            assert!(
+                !extraction.content.contains("stated_requirement"),
+                "{content}"
+            );
+            if content.ends_with(ok) || content.contains(&format!("{ok}\n")) {
+                assert!(extraction.content.contains(ok), "{content}");
+            }
+        }
+        let (regions, outside) =
+            split_note_regions(&format!("a{valid}b<requirement_plan>c</requirement_plan>d"));
+        assert_eq!(outside, "abd");
+        assert_eq!(
+            regions,
+            format!("{valid}<requirement_plan>c</requirement_plan>")
+        );
+        let (regions, outside) = split_note_regions("plain text");
+        assert_eq!((regions.as_str(), outside.as_str()), ("", "plain text"));
     }
 
     #[test]
@@ -1199,15 +1313,24 @@ mod tests {
     #[test]
     fn run_end_reasons_are_distinct_and_terminal_once() {
         let history = vec![ConversationMessage::user("the original request")];
-        for (completed, interrupted, remaining, reason) in [
-            (true, false, 5, "run_completed"),
-            (false, true, 5, "run_interrupted"),
-            (false, false, 0, "budget_exhausted"),
-            (false, false, 3, "run_failed"),
+        // The budget reason comes from the loop's exhaustion path, never
+        // from the remaining count: a failure in the last iteration is a
+        // failure.
+        for (completed, interrupted, exhausted, remaining, reason) in [
+            (true, false, false, 5, "run_completed"),
+            (false, true, false, 5, "run_interrupted"),
+            (false, false, true, 0, "budget_exhausted"),
+            (false, false, false, 0, "run_failed"),
+            (false, false, false, 3, "run_failed"),
+            (false, true, true, 0, "run_interrupted"),
+            (true, false, true, 0, "run_completed"),
         ] {
             let (dir, mut plan) = new_plan(PlanMode::Once, ELIGIBLE);
             plan.prepare_request(&mut base_request(), &history, 8);
             plan.prepare_request(&mut base_request(), &history, remaining);
+            if exhausted {
+                plan.note_budget_exhausted();
+            }
             plan.finish(completed, interrupted);
             plan.finish(true, false);
             assert_eq!(
@@ -1353,6 +1476,9 @@ mod tests {
             plan.prepare_request(&mut base_request(), &history, 8);
             plan.capture_reply(&mut AssistantReply::text(block(&valid_body())));
             plan.prepare_request(&mut base_request(), &history, remaining);
+            if remaining == 0 {
+                plan.note_budget_exhausted();
+            }
             plan.finish(completed, interrupted);
             collect(dir);
         }
