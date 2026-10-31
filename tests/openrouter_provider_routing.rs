@@ -391,11 +391,62 @@ fn doctor_never_shows_an_unknown_routing_key_in_any_form() {
             format!("[preset.{PRESET}.openrouter_provider.{marker}]\nonly = [\"b\"]\n"),
         ),
     ];
+    let escaped_key = format!("\"openrouter\\u005fprovider\".{marker} = [\"b\"]\n");
+    let long_escape = format!("\"openrouter\\U0000005Fprovider\".{marker} = [\"b\"]\n");
+    let escaped_section =
+        format!("[preset.{PRESET}.\"openrouter\\u005fprovider\"]\n{marker} = [\"b\"]\n");
+    let escaped_array =
+        format!("[[preset.{PRESET}.\"openrouter\\u005fprovider\"]]\n{marker} = [\"b\"]\n");
+    let escaped_root =
+        format!("[\"pre\\u0073et\".{PRESET}.openrouter_provider]\nonly = [\"{marker}\"]\n");
+    let inherited = format!("extends = \"base\"\n[preset.base]\n{escaped_key}");
+    let forms = forms
+        .into_iter()
+        .chain([
+            (None, escaped_key.clone()),
+            (None, long_escape),
+            (None, escaped_section),
+            (None, escaped_array),
+            (None, escaped_root),
+            (None, inherited),
+        ])
+        .collect::<Vec<_>>();
+    let home_layer = doctor_with_layers(&base_url, &generic, None, "", &escaped_key);
+    assert!(
+        !home_layer.success,
+        "{}\n{}",
+        home_layer.stdout, home_layer.stderr
+    );
+    assert!(!home_layer.stdout.contains(marker), "{}", home_layer.stdout);
+    assert!(!home_layer.stderr.contains(marker), "{}", home_layer.stderr);
+    let unrelated = doctor_with_tail(
+        &base_url,
+        &generic,
+        None,
+        "\"openrouter_provider.not_a_child\" = 1\n",
+    );
+    assert!(!unrelated.success);
+    assert!(
+        format!("{}{}", unrelated.stdout, unrelated.stderr).contains("not_a_child"),
+        "an unrelated quoted key keeps the general diagnostic: {}\n{}",
+        unrelated.stdout,
+        unrelated.stderr
+    );
     for (routing, tail) in &forms {
         let output = doctor_with_tail(&base_url, &generic, *routing, tail);
         assert!(!output.success, "{}\n{}", output.stdout, output.stderr);
         assert!(!output.stdout.contains(marker), "{}", output.stdout);
         assert!(!output.stderr.contains(marker), "{}", output.stderr);
+        // The inline-table error names its own key path; every other form
+        // gets the fixed text without the preset name.
+        assert!(
+            routing.is_some()
+                || (!output.stdout.contains("preset.routed.")
+                    && !output.stderr.contains("preset.routed.")),
+            "the preset name stays out of the diagnostic: {}\n{}",
+            output.stdout,
+            output.stderr
+        );
         assert!(
             output.stdout.contains("openrouter_provider")
                 || output.stderr.contains("openrouter_provider"),
@@ -423,10 +474,30 @@ fn doctor_with_tail(
     routing: Option<&str>,
     tail: &str,
 ) -> DoctorOutput {
+    doctor_with_layers(base_url, providers, routing, tail, "")
+}
+
+/// `home_text` (when non-empty) is the body of `[preset.routed]` in the home
+/// layer's config file.
+fn doctor_with_layers(
+    base_url: &str,
+    providers: &[(&str, &str)],
+    routing: Option<&str>,
+    tail: &str,
+    home_text: &str,
+) -> DoctorOutput {
     let workspace = tempfile::tempdir().unwrap();
     let home = workspace.path().join("home");
     let state = workspace.path().join("state");
     std::fs::create_dir_all(&home).unwrap();
+    if !home_text.is_empty() {
+        std::fs::create_dir_all(home.join(".commandagent")).unwrap();
+        std::fs::write(
+            home.join(".commandagent/config.toml"),
+            format!("[preset.{PRESET}]\n{home_text}"),
+        )
+        .unwrap();
+    }
     std::fs::create_dir_all(&state).unwrap();
     let mut preset = format!(
         "[preset.{PRESET}]\nmodel = \"{}\"\nplanner_model = \"{}\"\nclassifier_model = \"{}\"\nbase_url = \"{base_url}\"\n",
@@ -543,13 +614,16 @@ fn build_config(
             "[preset.base]\nopenrouter_provider = {parent}\n\n"
         ));
     }
+    if let Some(parent_tail) = case["parent_tail"].as_str() {
+        text.push_str(&format!("[preset.base]\n{parent_tail}\n"));
+    }
     if let Some(other) = case["unselected_routing"].as_str() {
         text.push_str(&format!(
             "[preset.other]\nopenrouter_provider = {other}\n\n"
         ));
     }
     text.push_str(&format!("[preset.{PRESET}]\n"));
-    if case["parent_routing"].is_string() {
+    if case["parent_routing"].is_string() || case["parent_tail"].is_string() {
         text.push_str("extends = \"base\"\n");
     }
     for (index, key) in ["", "planner_", "classifier_"].iter().enumerate() {
@@ -578,13 +652,18 @@ fn build_config(
     let config_dir = root.join(".commandagent");
     std::fs::create_dir_all(&config_dir).unwrap();
     std::fs::write(config_dir.join("config.toml"), text).unwrap();
-    if let Some(home_routing) = case["home_routing"].as_str() {
+    let home_text = match (case["home_routing"].as_str(), case["home_tail"].as_str()) {
+        (Some(routing), _) => Some(format!("openrouter_provider = {routing}\n")),
+        (None, Some(tail)) => Some(tail.to_string()),
+        (None, None) => None,
+    };
+    if let Some(home_text) = home_text {
         let home = PathBuf::from(std::env::var_os("HOME").expect("child HOME"));
         let home_dir = home.join(".commandagent");
         std::fs::create_dir_all(&home_dir).unwrap();
         std::fs::write(
             home_dir.join("config.toml"),
-            format!("[preset.{PRESET}]\nopenrouter_provider = {home_routing}\n"),
+            format!("[preset.{PRESET}]\n{home_text}"),
         )
         .unwrap();
     } else if let Some(home) = std::env::var_os("HOME") {
@@ -643,6 +722,10 @@ fn run_config_error_case(case: &Value) {
     }
     if let Some(secret) = case["secret"].as_str() {
         assert!(!error.contains(secret), "rejected value leaked: {error}");
+    }
+    for secret in case["secrets"].as_array().into_iter().flatten() {
+        let secret = secret.as_str().unwrap();
+        assert!(!error.contains(secret), "{secret} leaked: {error}");
     }
     assert!(servers.generic.finish().is_empty());
     assert!(servers.lm_studio.finish().is_empty());

@@ -2195,6 +2195,200 @@
       "expect_response_provider": null,
       "expect_reply": "ok",
       "response_provider": "Open [hidden]"
+    },
+    {
+      "kind": "synthetic",
+      "id": "form-escaped-key-u",
+      "group": "config-form",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": null,
+      "expect_error": [
+        "config.toml:10 openrouter_provider must be a one-line inline table"
+      ],
+      "secret": "PRIVATE_MARKER_939",
+      "raw_tail": "\"openrouter\\u005fprovider\".PRIVATE_MARKER_939 = [\"a\"]\n",
+      "secrets": [
+        "preset.routed."
+      ]
+    },
+    {
+      "kind": "synthetic",
+      "id": "form-escaped-key-long-u",
+      "group": "config-form",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": null,
+      "expect_error": [
+        "config.toml:10 openrouter_provider must be a one-line inline table"
+      ],
+      "secret": "PRIVATE_MARKER_939",
+      "raw_tail": "\"openrouter\\U0000005Fprovider\".PRIVATE_MARKER_939 = [\"a\"]\n",
+      "secrets": [
+        "preset.routed."
+      ]
+    },
+    {
+      "kind": "synthetic",
+      "id": "form-literal-quoted-key",
+      "group": "config-form",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": null,
+      "expect_error": [
+        "config.toml:10 openrouter_provider must be a one-line inline table"
+      ],
+      "secret": "PRIVATE_MARKER_939",
+      "raw_tail": "'openrouter_provider'.PRIVATE_MARKER_939 = [\"a\"]\n",
+      "secrets": [
+        "preset.routed."
+      ]
+    },
+    {
+      "kind": "synthetic",
+      "id": "form-escaped-section",
+      "group": "config-form",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": null,
+      "expect_error": [
+        "config.toml:10 openrouter_provider must be a one-line inline table"
+      ],
+      "secret": "PRIVATE_MARKER_939",
+      "raw_tail": "[preset.routed.\"openrouter\\u005fprovider\"]\nPRIVATE_MARKER_939 = [\"a\"]\n",
+      "secrets": [
+        "preset.routed."
+      ]
+    },
+    {
+      "kind": "synthetic",
+      "id": "form-escaped-array-section",
+      "group": "config-form",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": null,
+      "expect_error": [
+        "config.toml:10 openrouter_provider must be a one-line inline table"
+      ],
+      "secret": "PRIVATE_MARKER_939",
+      "raw_tail": "[[preset.routed.\"openrouter\\u005fprovider\"]]\nPRIVATE_MARKER_939 = [\"a\"]\n",
+      "secrets": [
+        "preset.routed."
+      ]
+    },
+    {
+      "kind": "synthetic",
+      "id": "form-escaped-section-root",
+      "group": "config-form",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": null,
+      "expect_error": [
+        "config.toml:10 openrouter_provider must be a one-line inline table"
+      ],
+      "secret": "PRIVATE_MARKER_939",
+      "raw_tail": "[\"pre\\u0073et\".routed.openrouter_provider]\nonly = [\"PRIVATE_MARKER_939\"]\n",
+      "secrets": [
+        "preset.routed."
+      ]
+    },
+    {
+      "kind": "synthetic",
+      "id": "form-escaped-key-in-home-layer",
+      "group": "config-form",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": null,
+      "expect_error": [
+        "config.toml:2 openrouter_provider must be a one-line inline table"
+      ],
+      "secret": "PRIVATE_MARKER_939",
+      "home_tail": "\"openrouter\\u005fprovider\".PRIVATE_MARKER_939 = [\"a\"]\n",
+      "secrets": [
+        "preset.routed."
+      ]
+    },
+    {
+      "kind": "synthetic",
+      "id": "form-escaped-key-in-parent-preset",
+      "group": "config-form",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": null,
+      "expect_error": [
+        "config.toml:2 openrouter_provider must be a one-line inline table"
+      ],
+      "secret": "PRIVATE_MARKER_939",
+      "parent_tail": "\"openrouter\\u005fprovider\".PRIVATE_MARKER_939 = [\"a\"]\n",
+      "secrets": [
+        "preset.base."
+      ]
+    },
+    {
+      "kind": "synthetic",
+      "id": "form-unrelated-quoted-dot-key-still-named",
+      "group": "config-form",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": null,
+      "expect_error": [
+        "unknown config key 'preset.routed.\"openrouter_provider.not_a_child\"'"
+      ],
+      "secret": null,
+      "raw_tail": "\"openrouter_provider.not_a_child\" = 1\n"
+    },
+    {
+      "kind": "synthetic",
+      "id": "form-unrelated-suffix-key-still-named",
+      "group": "config-form",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": null,
+      "expect_error": [
+        "unknown config key 'preset.routed.openrouter_provider_x'"
+      ],
+      "secret": null,
+      "raw_tail": "openrouter_provider_x = 1\n"
     }
   ]
 }

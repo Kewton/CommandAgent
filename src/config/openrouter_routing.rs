@@ -115,39 +115,77 @@ pub(super) fn resolve(
 }
 
 /// Refuses `openrouter_provider` written as a dotted or quoted preset key
-/// (`openrouter_provider.x = ...`). The unknown suffix is never shown, so it
-/// cannot leak through the general unknown-key diagnostic.
+/// (`openrouter_provider.x = ...`, `"openrouter\u005fprovider" = ...`). The
+/// key is decoded with the TOML rules, and the unknown suffix is never shown,
+/// so it cannot leak through the general unknown-key diagnostic.
 pub(super) fn reject_unsupported_key(path: &Path, line_no: usize, key: &str) -> anyhow::Result<()> {
-    let segments = dotted_segments(key);
-    if key != OPENROUTER_PROVIDER_KEY && segments.first() == Some(&OPENROUTER_PROVIDER_KEY) {
-        bail!("{}", unsupported_form(path, line_no));
-    }
-    Ok(())
-}
-
-/// Refuses a `[preset.<name>.openrouter_provider...]` table or array-of-tables
-/// section header, naming only the fixed key.
-pub(super) fn reject_unsupported_section(
-    path: &Path,
-    line_no: usize,
-    section: &str,
-) -> anyhow::Result<()> {
-    let segments = dotted_segments(section.trim_matches(|c: char| c == '[' || c == ']'));
-    if segments.first() == Some(&"preset")
-        && segments
-            .iter()
-            .skip(2)
-            .any(|segment| *segment == OPENROUTER_PROVIDER_KEY)
+    let segments = decoded_key(key);
+    if key != OPENROUTER_PROVIDER_KEY
+        && segments.first().map(String::as_str) == Some(OPENROUTER_PROVIDER_KEY)
     {
         bail!("{}", unsupported_form(path, line_no));
     }
     Ok(())
 }
 
-fn dotted_segments(key: &str) -> Vec<&str> {
-    key.split('.')
-        .map(|segment| segment.trim().trim_matches(|c: char| c == '"' || c == '\''))
-        .collect()
+/// Refuses a `[preset.<name>.openrouter_provider...]` table or array-of-tables
+/// section header, decoded with the TOML rules, naming only the fixed key.
+pub(super) fn reject_unsupported_section(
+    path: &Path,
+    line_no: usize,
+    section: &str,
+) -> anyhow::Result<()> {
+    let segments = decoded_header(section);
+    if segments.first().map(String::as_str) == Some("preset")
+        && segments
+            .iter()
+            .skip(2)
+            .any(|segment| segment == OPENROUTER_PROVIDER_KEY)
+    {
+        bail!("{}", unsupported_form(path, line_no));
+    }
+    Ok(())
+}
+
+/// The decoded segments of a TOML key (quotes, escapes, and dotted
+/// boundaries resolved as TOML does). A key the TOML parser rejects decodes to
+/// no segments; the parser's own message is dropped, never shown.
+fn decoded_key(key: &str) -> Vec<String> {
+    format!("{key} = 0")
+        .parse::<toml::Table>()
+        .map(|table| key_path(&table))
+        .unwrap_or_default()
+}
+
+/// The decoded segments of a section header's inner text; `section` is what
+/// lies between the outer `[` and `]`, so an array-of-tables header still
+/// carries its inner brackets.
+fn decoded_header(section: &str) -> Vec<String> {
+    format!("[{section}]")
+        .parse::<toml::Table>()
+        .map(|table| key_path(&table))
+        .unwrap_or_default()
+}
+
+/// Follows the single-entry chain a one-key document or one header builds.
+fn key_path(table: &toml::Table) -> Vec<String> {
+    let mut segments = Vec::new();
+    let mut current = table;
+    while current.len() == 1 {
+        let Some((name, value)) = current.iter().next() else {
+            break;
+        };
+        segments.push(name.clone());
+        match value {
+            toml::Value::Table(next) => current = next,
+            toml::Value::Array(items) => match items.first() {
+                Some(toml::Value::Table(next)) if items.len() == 1 => current = next,
+                _ => break,
+            },
+            _ => break,
+        }
+    }
+    segments
 }
 
 fn unsupported_form(path: &Path, line_no: usize) -> String {
@@ -517,6 +555,9 @@ mod tests {
             "openrouter_provider . only",
             "\"openrouter_provider\".PRIVATE_MARKER_939",
             "\"openrouter_provider\"",
+            "\"openrouter\\u005fprovider\".PRIVATE_MARKER_939",
+            "\"openrouter\\U0000005Fprovider\".PRIVATE_MARKER_939",
+            "'openrouter_provider'.PRIVATE_MARKER_939",
         ] {
             let error = format!("{:#}", reject_unsupported_key(path, 4, key).unwrap_err());
             assert!(
@@ -534,6 +575,9 @@ mod tests {
             "preset.routed.openrouter_provider.PRIVATE_MARKER_939",
             "[preset.routed.openrouter_provider]",
             "preset.\"routed\".\"openrouter_provider\"",
+            "preset.routed.\"openrouter\\u005fprovider\"",
+            "[preset.routed.\"openrouter\\u005fprovider\"]",
+            "\"pre\\u0073et\".routed.openrouter_provider",
         ] {
             let error = format!(
                 "{:#}",
@@ -550,6 +594,8 @@ mod tests {
             "model",
             "openrouter_provider_x",
             "provider",
+            "\"openrouter_provider.not_a_child\"",
+            "'openrouter_provider.x'",
         ] {
             assert!(reject_unsupported_key(path, 1, key).is_ok(), "{key}");
         }
@@ -557,6 +603,7 @@ mod tests {
             "preset.routed",
             "preset.openrouter_provider",
             "other.openrouter_provider",
+            "preset.routed.\"openrouter_provider.x\"",
         ] {
             assert!(
                 reject_unsupported_section(path, 1, section).is_ok(),

@@ -7,6 +7,6 @@
   "derived_fixture": "tests/openrouter_provider_routing.rs runs each case in a child process with a cleared environment, a temporary HOME and workspace, and loopback stand-ins bound to 127.0.0.1:0; wire cases compare the received body and events against a companion run of the same case without the routing line, and no case reaches a real provider.",
   "regenerate_digests": "shasum -a 256 fixtures/cases.json",
   "fixture_sha256": {
-    "cases.json": "7771c6729fb0c31ee20a8f955d3d61c95eae9ba8561c61bc8ba474f07d6225ab"
+    "cases.json": "8a6795bd29c4b71d6e6d908fd1fae0673be5062d86175b9d68bee9342afb5370"
   }
 }
