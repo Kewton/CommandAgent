@@ -294,6 +294,7 @@ OpenAI キーと任意の `LM_STUDIO_API_TOKEN` はプロセス環境だけか�
 | `COMMANDAGENT_SYSTEM_GUIDANCE` | direct の `--prompt` の run で、provider へのすべての request の system prompt に共通の案内文を 1 つ足します。未設定・空文字なら何も変わりません。下を参照してください。 |
 | `COMMANDAGENT_COMPATIBLE_REASONING_EFFORT` | OpenAI 互換の transport（`openai-compatible` と `lm-studio`）を使う role に推論の強さを宣言します。未設定・空文字なら何も送りません。下を参照してください。 |
 | `COMMANDAGENT_COMPLETION_OBLIGATION_REVIEW` | 実験用です。`once` で、generic の編集 run が最初の通常の最終回答の前に依頼の義務を一度だけ見直します。未設定・空文字・`off`（既定）なら何も変わりません。下を参照してください。 |
+| `COMMANDAGENT_REQUIREMENT_PLAN` | 実験用です。`once` で、新しい generic の run が最初の実装の前に短い要求計画ノートを書きます。未設定・空文字・`off`（既定）なら何も変わりません。下を参照してください。 |
 
 `COMMANDAGENT_*` 項目では現在名が優先されます。現在名がない場合だけ対応する `ANVIL_*` 名を使い、
 1 回だけ非推奨警告を出します。それでも表中の旧名は、現在サポートされている正確な綴りです。
@@ -344,6 +345,49 @@ request（各 turn、tool 呼び出し後の turn、空応答の fresh retry、n
   既存の event、停止理由、summary の `assurance_level=reduced`、acceptance と release の gate は変わりません。
 - 費用：見直しで provider の呼び出しは通常 1〜3 回増えますが、保証はありません。model が残りの iteration を
   既存の上限まで使うこともあります。見直しで正答率が上がるかは測定されていません。
+
+`COMMANDAGENT_REQUIREMENT_PLAN` は、実装の前に依頼の義務と小さい確認例の期待結果を model に書かせる実験用 opt-in です。
+既定は off です。ノートは model 自身の未検証のメモで、host は形と大きさだけを確かめ、正しさや網羅性は保証しません。
+網羅性・検証・受入の gate でもありません。minimal loop の run の開始時に、プロセス環境だけから 1 回読みます
+（`ANVIL_*` の旧名・設定ファイル・`.env`・CLI flag はありません）。run の途中で変えても効きません。
+
+- 値：未設定・空文字・空白だけ・`off` なら無効で、変数がないときとまったく同じ run になります。provider への
+  request とその順序、event、停止理由、assurance は変わらず、新しい event も出ません。`once`（前後の空白を除き、
+  小文字）で有効になります。それ以外の値（`ONCE` や UTF-8 でない byte 列を含む）は、最初の request の前に、
+  変数名は示し値は示さない固定のエラーで run が失敗します。
+- 併用不可：`COMMANDAGENT_COMPLETION_OBLIGATION_REVIEW=once` と同時に `once` にすると、最初の request の前に、
+  2 つの変数名だけを示すエラーで run が失敗します。この変数が off なら、完了前の見直しは従来どおり動きます。
+- 対象：effective profile が `generic` で、completion contract がなく、以前の会話の続きではない、plan の step
+  ではない新しい minimal loop の run のうち、最初の request の後に loop iteration が 4 以上残るものです。plan の
+  step（`PlanRunStep`）、他の profile、completion contract 付きの run、resume や後続の turn、予算の足りない run は
+  skip します。run の途中から有効になることはありません。
+- request：最初の request にだけ固定の案内を 1 つ付けます。最初の返答の冒頭に `<requirement_plan>` の JSON block を
+  書き、依頼に明記された義務を最大 5 件（`id`・`stated_requirement`・`expected_behavior`・`assumption`）、確認例を
+  最大 2 件（`obligation_id`・`input_outline`・`expected_outcome`・`reason_from_request`）挙げ、期待結果は実装より
+  先に依頼から決め、曖昧な点は仮定として書くよう求めます。返答はそのまま通常の作業や tool 呼び出しに進めます。
+- 上限：block は UTF-8 で 8 KiB まで、正規化後のノートは 2048 文字まで、義務は 1〜5 件、例は 0〜2 件です。受け付ける
+  field はこれだけで、id は重複できず、例は存在する義務を指す必要があります。block がない、返答の冒頭にない、
+  JSON が壊れている・途中で切れている、未知の field、重複した id、存在しない参照、上限超過のどれでもノート全体を
+  捨てます（切り詰めて残しません）。run はノートなしで続き、ノートを求め直すことはありません。
+- 扱い：host は XML の tool call を取り出す前、tool を実行する前に、最初の返答から block を取り除きます。block の
+  中と、閉じていない block より後ろは、loop では tool call として読みません（native の tool call と明示の text mode、
+  `tool_protocol = "text"`）。provider の client が返答を返す前に自分で XML の tool call を読む経路（client 自身の
+  XML fallback）は、host が block を見る前に読まれるため対象外です。残したノートは run の secret scrub を通り、その
+  run のメモリにだけあり、session・ファイル・runtime namespace には書きません。resume や後続の turn で戻ることも
+  ありません。run の後続の request には毎回ちょうど 1 つ、元の依頼の直後に、model 自身の未検証のメモであり元の
+  依頼と後続のユーザー訂正が優先するという固定の見出しを付けた assistant 側の文脈として入れます。system prompt に
+  つなげることはなく、依頼・tool の結果・pending feedback を置き換えません。履歴の compaction と空応答の fresh
+  retry でも残り、retry は増えません。後続のユーザー入力があるとノートは古いものとして送らなくなり、計画し直しも
+  しません。
+- 計画だけの turn：最初の返答が正しい block だけ（tool call も他の文もない）なら、その返答は既存の iteration と
+  provider 呼び出しの 1 回として数え、run は先へ進みます。iteration を足したり戻したりせず、既存の counter も
+  リセットしません。失敗・timeout・cancel・予算切れはそのままです。
+- event：run は `requirement_plan` を記録します。`phase` は `requested`・`captured`・`skipped`・`released`、`reason`
+  は固定の語で、`prompt_version`・`iteration`・`remaining_iterations`・`obligation_count`・`example_count`・
+  `note_chars`・`plan_only_turn` を持ちます。`captured` は形が正しかったという意味で、内容が正しいという意味では
+  ありません。ノート・依頼・例の値・tool の出力・秘密・未知の key 名・parser のメッセージは写しません。既存の
+  event、停止理由、assurance、受入と release の gate は変わらず、自作の例の成功や model の「全部確認した」で何も
+  上がりません。ノートが正答を増やすかどうかは未測定です。
 
 `COMMANDAGENT_COMPATIBLE_REASONING_EFFORT` は、OpenAI 互換 server に推論の強さを指定する宣言です。
 provider の client を作るときにプロセス環境だけから読みます（`ANVIL_*` の旧名はなく、設定ファイルや

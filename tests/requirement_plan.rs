@@ -31,6 +31,12 @@ const REVIEW_ENV: &str = "COMMANDAGENT_COMPLETION_OBLIGATION_REVIEW";
 const EVENT: &str = "requirement_plan";
 const CORPUS: &str = "tests/corpus/apps/requirement-plan";
 const OFF_GOLDEN_SOURCE: &str = "c9f88d35";
+/// The opening sentence of the fixed guidance; it marks the request that
+/// carries the guidance without the test copying the whole text.
+const GUIDANCE_MARKER: &str = "作業を始める前に一度だけ、この返答の冒頭に要求計画ブロック";
+/// The fixed header of the retained note.
+const NOTE_MARKER: &str = "[requirement plan note v1:";
+const CONTINUE_MARKER: &str = "Continue the original request.";
 
 /// Every env mutation in this binary happens while this lock is held.
 static ENV_LOCK: Mutex<()> = Mutex::new(());
@@ -49,6 +55,15 @@ fn set_env(name: &str, setting: Option<&str>) {
             Some(value) => std::env::set_var(name, value),
             None => std::env::remove_var(name),
         }
+    }
+}
+
+#[cfg(unix)]
+fn set_env_bytes(name: &str, bytes: &[u8]) {
+    use std::os::unix::ffi::OsStrExt;
+    // SAFETY: as in `set_env`.
+    unsafe {
+        std::env::set_var(name, std::ffi::OsStr::from_bytes(bytes));
     }
 }
 
@@ -233,6 +248,12 @@ impl Scenario {
 
     /// One scripted tool call: a native call, or an XML tag in the content
     /// when the scenario runs in explicit text (XML) mode.
+    fn with_setting(&self, setting: Option<&str>) -> Self {
+        let mut copy = self.clone();
+        copy.setting = setting.map(str::to_string);
+        copy
+    }
+
     fn call_reply(
         &self,
         index: usize,
@@ -311,13 +332,26 @@ impl Scenario {
         set_env(LEGACY_ENV, None);
         set_env(ENV, self.setting.as_deref());
         set_env(REVIEW_ENV, self.review_setting.as_deref());
-        let trace = self.run_locked(adjust);
+        let trace = self.run_locked(adjust, None);
         set_env(ENV, None);
         set_env(REVIEW_ENV, None);
         trace
     }
 
-    fn run_locked(&self, adjust: impl FnOnce(ScriptedClient) -> ScriptedClient) -> Trace {
+    /// Runs the script on a session that already holds an earlier run.
+    fn run_after(&self, session: SessionSnapshot) -> Trace {
+        let _lock = env_lock();
+        set_env(ENV, self.setting.as_deref());
+        let trace = self.run_locked(|client| client, Some(session));
+        set_env(ENV, None);
+        trace
+    }
+
+    fn run_locked(
+        &self,
+        adjust: impl FnOnce(ScriptedClient) -> ScriptedClient,
+        earlier: Option<SessionSnapshot>,
+    ) -> Trace {
         let dir = tempfile::tempdir().unwrap();
         for (path, content) in &self.seed {
             let target = dir.path().join(path);
@@ -338,7 +372,7 @@ impl Scenario {
             native: !self.xml,
             env_change_on_first_call: None,
         });
-        let mut session = SessionSnapshot::new();
+        let mut session = earlier.unwrap_or_default();
         for (role, content) in &self.history {
             session.messages.push(match role.as_str() {
                 "user" => ConversationMessage::user(content.clone()),
@@ -377,6 +411,7 @@ impl Scenario {
             native_flags,
             remaining_replies,
             events,
+            session,
         }
     }
 }
@@ -390,6 +425,7 @@ struct Trace {
     native_flags: Vec<bool>,
     remaining_replies: usize,
     events: Vec<Value>,
+    session: SessionSnapshot,
 }
 
 impl Trace {
@@ -477,8 +513,44 @@ impl Trace {
             .collect()
     }
 
+    fn plan_phases(&self) -> Vec<[String; 2]> {
+        self.plan_events()
+            .iter()
+            .map(|event| {
+                [
+                    event["phase"].as_str().unwrap().to_string(),
+                    event["reason"].as_str().unwrap().to_string(),
+                ]
+            })
+            .collect()
+    }
+
+    /// Indexes of the requests whose messages contain `marker`.
+    fn request_indexes(&self, marker: &str) -> Vec<usize> {
+        self.requests
+            .iter()
+            .enumerate()
+            .filter(|(_, messages)| {
+                messages
+                    .iter()
+                    .any(|message| message.content.contains(marker))
+            })
+            .map(|(index, _)| index)
+            .collect()
+    }
+
+    fn count(&self, index: usize, marker: &str) -> usize {
+        self.requests[index]
+            .iter()
+            .map(|message| message.content.matches(marker).count())
+            .sum()
+    }
+
     fn summary(&self) -> Value {
         json!({
+            "plan_phases": self.plan_phases(),
+            "guidance_request_indexes": self.request_indexes(GUIDANCE_MARKER),
+            "note_request_indexes": self.request_indexes(NOTE_MARKER),
             "outcome": self.outcome(),
             "requests": self.requests.len(),
             "remaining_replies": self.remaining_replies,
@@ -492,7 +564,10 @@ impl Trace {
     fn assert_expectations(&self, expect: &Value) {
         let summary = self.summary();
         for (key, expected) in expect.as_object().unwrap() {
-            if matches!(key.as_str(), "equivalent_to_off" | "note" | "source") {
+            if matches!(
+                key.as_str(),
+                "equivalent_to_off" | "note" | "source" | "same_outcome_as"
+            ) {
                 continue;
             }
             assert_eq!(
@@ -552,4 +627,729 @@ fn default_off_rows_match_the_golden_recorded_before_the_feature() {
         trace.assert_expectations(&scenario.expect);
         assert!(trace.plan_events().is_empty(), "{}", scenario.id);
     }
+}
+
+fn scenario(id: &str) -> Scenario {
+    scenarios()
+        .into_iter()
+        .find(|scenario| scenario.id == id)
+        .unwrap_or_else(|| panic!("fixture row {id} missing"))
+}
+
+const FIXED_KEYS: &[&str] = &[
+    "event",
+    "schema_version",
+    "phase",
+    "reason",
+    "prompt_version",
+    "iteration",
+    "remaining_iterations",
+    "obligation_count",
+    "example_count",
+    "note_chars",
+    "plan_only_turn",
+];
+
+const FIXED_STRINGS: &[&str] = &[
+    EVENT,
+    "1",
+    "requested",
+    "captured",
+    "skipped",
+    "released",
+    "plan_run_step",
+    "profile_not_generic",
+    "completion_contract",
+    "resumed_conversation",
+    "insufficient_remaining_iterations",
+    "no_provider_request",
+    "first_request",
+    "valid_block",
+    "missing",
+    "invalid",
+    "oversize",
+    "user_update",
+    "run_completed",
+    "run_interrupted",
+    "budget_exhausted",
+    "run_failed",
+];
+
+/// A plan event carries only known keys, numbers, nulls, one boolean, and
+/// fixed words.
+fn assert_fixed_shape(event: &Value) {
+    for (key, value) in event.as_object().unwrap() {
+        assert!(
+            FIXED_KEYS.contains(&key.as_str()),
+            "unexpected key {key}: {event}"
+        );
+        match value {
+            Value::Null | Value::Number(_) => {}
+            Value::Bool(_) => assert_eq!(key, "plan_only_turn", "{event}"),
+            Value::String(text) => assert!(
+                FIXED_STRINGS.contains(&text.as_str()),
+                "free text {text:?} in {event}"
+            ),
+            other => panic!("unexpected value {other} under {key}: {event}"),
+        }
+    }
+    assert_eq!(event["schema_version"], "1", "{event}");
+    assert_eq!(event["prompt_version"], 1, "{event}");
+}
+
+/// Exactly one terminal phase, and it is the last plan event.
+fn assert_terminal_once(trace: &Trace) {
+    let phases = trace.plan_phases();
+    let terminal = phases
+        .iter()
+        .filter(|[phase, _]| phase == "skipped" || phase == "released")
+        .count();
+    assert_eq!(terminal, 1, "{}: {phases:?}", trace.id);
+    let [last, _] = phases.last().unwrap();
+    assert!(last == "skipped" || last == "released", "{}", trace.id);
+}
+
+impl Trace {
+    /// Requests, outcome, and every non-plan event equal the same script run
+    /// with the plan unset.
+    fn assert_equivalent_to(&self, off: &Trace) {
+        assert_eq!(self.request_digests(), off.request_digests(), "{}", self.id);
+        assert_eq!(self.outcome(), off.outcome(), "{}", self.id);
+        assert_eq!(
+            self.event_names(false),
+            off.event_names(true),
+            "{}",
+            self.id
+        );
+        assert!(off.plan_events().is_empty(), "{}", self.id);
+        assert!(
+            self.request_indexes(GUIDANCE_MARKER).is_empty(),
+            "{}",
+            self.id
+        );
+        assert!(self.request_indexes(NOTE_MARKER).is_empty(), "{}", self.id);
+    }
+
+    fn first_index(&self, predicate: impl Fn(&Value) -> bool) -> Option<usize> {
+        self.events.iter().position(predicate)
+    }
+
+    fn file_exists(&self, path: &str) -> bool {
+        self.root.join(path).exists()
+    }
+}
+
+fn run_fixture_row(id: &str) -> Trace {
+    let row = scenario(id);
+    let trace = row.run();
+    trace.assert_expectations(&row.expect);
+    if row.expect["equivalent_to_off"] == true {
+        trace.assert_equivalent_to(&row.with_setting(None).run());
+    }
+    if let Some(off_id) = row.expect["same_outcome_as"].as_str() {
+        // Compared with the golden recorded at c9f88d35, not with a rerun.
+        let golden = scenario(off_id).expect;
+        assert_eq!(golden["source"], OFF_GOLDEN_SOURCE);
+        assert_eq!(trace.outcome(), golden["outcome"], "{id}");
+        assert_eq!(
+            json!(trace.event_names(false)),
+            golden["event_names"],
+            "{id}"
+        );
+    }
+    for event in trace.plan_events() {
+        assert_fixed_shape(&event);
+    }
+    assert_terminal_once(&trace);
+    trace
+}
+
+/// Every request after the capture carries the note once, as assistant-side
+/// context after the unchanged original request, never in a system message.
+fn assert_note_once_after_capture(trace: &Trace, prompt: &str) {
+    let captured_at = trace.plan_events()[1]["iteration"].as_u64().unwrap() as usize;
+    assert_eq!(trace.plan_phases()[1][0], "captured", "{}", trace.id);
+    for index in captured_at..trace.requests.len() {
+        let messages = &trace.requests[index];
+        assert_eq!(
+            trace.count(index, NOTE_MARKER),
+            1,
+            "{} request {index}",
+            trace.id
+        );
+        assert_eq!(trace.count(index, GUIDANCE_MARKER), 0, "{}", trace.id);
+        let prompt_at = messages
+            .iter()
+            .position(|message| message.role == "user")
+            .unwrap();
+        assert_eq!(messages[prompt_at].content, prompt, "{}", trace.id);
+        let note = messages
+            .iter()
+            .find(|message| message.content.contains(NOTE_MARKER))
+            .unwrap();
+        assert_eq!(note.role, "assistant", "{}", trace.id);
+        assert!(note.content.starts_with(NOTE_MARKER), "{}", trace.id);
+        assert!(
+            messages[..prompt_at + 2]
+                .iter()
+                .any(|message| message.content.contains(NOTE_MARKER)),
+            "{}: right after the request",
+            trace.id
+        );
+        assert!(
+            messages
+                .iter()
+                .filter(|message| message.role == "system")
+                .all(|message| !message.content.contains(NOTE_MARKER)),
+            "{}",
+            trace.id
+        );
+        assert_eq!(trace.count(index, "<requirement_plan>"), 0, "{}", trace.id);
+    }
+    // The block never reaches the stored conversation.
+    for message in &trace.session.messages {
+        assert!(
+            !message.content.contains("<requirement_plan>"),
+            "{}",
+            trace.id
+        );
+        assert!(!message.content.contains(NOTE_MARKER), "{}", trace.id);
+    }
+}
+
+fn edit_prompt() -> String {
+    corpus()["prompts"]["edit"].as_str().unwrap().to_string()
+}
+
+#[test]
+fn the_first_request_alone_asks_for_expectations_first_and_assumptions() {
+    let trace = run_fixture_row("once-captured-native");
+    assert_eq!(trace.request_indexes(GUIDANCE_MARKER), vec![0]);
+    assert_eq!(trace.count(0, GUIDANCE_MARKER), 1);
+    let guidance = trace.requests[0].last().unwrap();
+    assert_eq!(guidance.role, "user");
+    for phrase in [
+        "期待結果は実装やライブラリの既定動作に合わせず先に決め",
+        "仮定・未確定",
+        "最大5件",
+        "最大2件",
+        "確認できない例は発明しないで",
+        "確認済みの証拠ではありません",
+    ] {
+        assert!(guidance.content.contains(phrase), "{phrase}");
+    }
+    // The original request is unchanged and stays a separate message.
+    assert_eq!(trace.requests[0][1].content, edit_prompt());
+    assert!(
+        trace.requests[0]
+            .iter()
+            .filter(|message| message.role == "system")
+            .all(|message| !message.content.contains(GUIDANCE_MARKER))
+    );
+}
+
+#[test]
+fn the_note_is_captured_before_the_first_tool_runs_in_native_and_xml_mode() {
+    for id in ["once-captured-native", "once-captured-xml"] {
+        let trace = run_fixture_row(id);
+        let captured = trace
+            .first_index(|event| event["event"] == EVENT && event["phase"] == "captured")
+            .unwrap();
+        let first_tool = trace
+            .first_index(|event| event["event"] == "tool_execute")
+            .unwrap();
+        assert!(captured < first_tool, "{id}: {captured} < {first_tool}");
+        let event = &trace.plan_events()[1];
+        assert_eq!(event["iteration"], 1, "{id}");
+        assert_eq!(event["obligation_count"], 1, "{id}");
+        assert_eq!(event["example_count"], 1, "{id}");
+        assert_eq!(event["plan_only_turn"], false, "{id}");
+        assert_note_once_after_capture(&trace, &edit_prompt());
+    }
+}
+
+#[test]
+fn the_note_survives_the_preamble_sanitizer_once() {
+    let trace = run_fixture_row("once-captured-native");
+    let assistant = trace.requests[1]
+        .iter()
+        .find(|message| message.role == "assistant")
+        .unwrap();
+    assert!(assistant.content.starts_with(NOTE_MARKER));
+    assert!(!assistant.content.contains("Writing the greeting."));
+    assert_eq!(assistant.tool_calls.len(), 1);
+}
+
+#[test]
+fn compaction_fresh_retry_and_pending_feedback_keep_one_note() {
+    let trace = run_fixture_row("once-compaction");
+    assert_note_once_after_capture(&trace, &edit_prompt());
+    // The history really was compacted.
+    let tools = trace.requests[3]
+        .iter()
+        .filter(|message| message.role == "tool")
+        .count();
+    assert!(tools < 3, "{:#?}", trace.requests[3]);
+
+    let trace = run_fixture_row("once-fresh-retry");
+    assert_note_once_after_capture(&trace, &edit_prompt());
+    assert!(
+        trace
+            .events
+            .iter()
+            .any(|event| event["stage"] == "fresh_session_retry")
+    );
+    let fresh = trace
+        .requests
+        .iter()
+        .position(|messages| {
+            messages.len() == 4 && messages[3].content.starts_with(CONTINUE_MARKER)
+        })
+        .expect("a fresh retry request with the note");
+    assert_eq!(trace.requests[fresh][1].content, edit_prompt());
+    assert_eq!(trace.requests[fresh][2].role, "assistant");
+    let off = scenario("default-off-unset-fresh-retry").expect;
+    let retries = |names: &[String]| {
+        names
+            .iter()
+            .filter(|name| *name == "empty_response_escalation")
+            .count()
+    };
+    let off_names = serde_json::from_value::<Vec<String>>(off["event_names"].clone()).unwrap();
+    assert_eq!(retries(&trace.event_names(false)), retries(&off_names));
+
+    let trace = run_fixture_row("once-pending-feedback");
+    assert_note_once_after_capture(&trace, &edit_prompt());
+    let feedback_request = &trace.requests[2];
+    let last = feedback_request.last().unwrap();
+    assert_eq!(last.role, "user");
+    assert!(!last.content.contains(NOTE_MARKER));
+    assert!(!last.content.starts_with(CONTINUE_MARKER));
+    assert_ne!(last.content, edit_prompt());
+    assert_eq!(
+        trace.result.as_ref().unwrap().stop_reason_text(),
+        "AssistantFinal"
+    );
+}
+
+trait StopText {
+    fn stop_reason_text(&self) -> String;
+}
+
+impl StopText for RunSessionOutcome {
+    fn stop_reason_text(&self) -> String {
+        format!("{:?}", self.stop_reason)
+    }
+}
+
+#[test]
+fn a_block_only_first_reply_is_one_planning_turn_inside_the_budget() {
+    for id in ["once-plan-only-turn", "once-plan-only-turn-xml"] {
+        let trace = run_fixture_row(id);
+        assert_eq!(trace.plan_events()[1]["plan_only_turn"], true, "{id}");
+        let outcome = trace.result.as_ref().unwrap();
+        assert_eq!(outcome.iterations, 3, "{id}: the planning turn counts");
+        assert_eq!(outcome.tool_calls, 1, "{id}");
+        assert_eq!(outcome.final_text, "greeting.txt を作成しました。", "{id}");
+        assert_note_once_after_capture(&trace, &edit_prompt());
+        // The planning reply is not stored and gets no empty-reply nudge.
+        assert!(
+            !trace
+                .event_names(false)
+                .contains(&"empty_response_escalation".to_string())
+        );
+        assert_eq!(trace.requests[1].len(), 4, "{id}: {:#?}", trace.requests[1]);
+    }
+    // At the budget the planning turn is one of the five existing calls.
+    let trace = run_fixture_row("once-budget-after-plan-only-turn");
+    let golden = scenario("default-off-unset-budget").expect;
+    assert_eq!(json!(trace.requests.len()), golden["requests"]);
+    assert!(trace.result.is_err(), "a budget end stays a failure");
+    assert_eq!(trace.plan_events()[1]["plan_only_turn"], true);
+}
+
+#[test]
+fn missing_invalid_and_oversize_notes_are_never_requested_again() {
+    for id in [
+        "once-missing-block",
+        "once-invalid-unknown-field",
+        "once-oversize-block",
+        "once-question-without-block",
+    ] {
+        let trace = run_fixture_row(id);
+        let total: usize = (0..trace.requests.len())
+            .map(|index| trace.count(index, GUIDANCE_MARKER))
+            .sum();
+        assert_eq!(total, 1, "{id}");
+        assert!(trace.request_indexes(NOTE_MARKER).is_empty(), "{id}");
+        for messages in &trace.requests {
+            assert_eq!(
+                messages
+                    .iter()
+                    .filter(|message| message.role == "user")
+                    .count(),
+                1 + usize::from(messages == &trace.requests[0]),
+                "{id}: no extra request turn"
+            );
+        }
+    }
+}
+
+#[test]
+fn tool_like_tags_in_a_broken_note_never_run() {
+    let golden = scenario("default-off-explicit-xml-unclosed-block").expect;
+    // Off executes the tag (recorded at c9f88d35); once does not.
+    assert!(
+        golden["outcome"]["changed_paths"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("leak.txt"))
+    );
+    for id in [
+        "once-xml-unclosed-tool-tag",
+        "once-xml-closed-invalid-tool-tag",
+    ] {
+        let trace = run_fixture_row(id);
+        assert!(!trace.file_exists("leak.txt"), "{id}");
+        let outcome = trace.result.as_ref().unwrap();
+        assert_eq!(
+            outcome.changed_paths,
+            vec!["greeting.txt".to_string()],
+            "{id}"
+        );
+        let raw_calls = trace
+            .events
+            .iter()
+            .filter(|event| event["event"] == "tool_call_raw")
+            .count();
+        assert_eq!(raw_calls, 1, "{id}");
+        assert!(trace.session.messages.iter().all(|message| {
+            !message.content.contains("leak.txt")
+                && message
+                    .tool_calls
+                    .iter()
+                    .all(|call| call.arguments["path"] != "leak.txt")
+        }));
+    }
+}
+
+#[test]
+fn excluded_runs_behave_exactly_as_with_the_plan_off() {
+    for id in [
+        "once-remaining-three-skips",
+        "once-profile-not-generic",
+        "once-completion-contract",
+        "once-resumed-conversation",
+    ] {
+        run_fixture_row(id);
+    }
+    let trace = run_fixture_row("once-remaining-four-applies");
+    assert_eq!(trace.plan_events()[0]["remaining_iterations"], 4);
+}
+
+#[test]
+fn cancel_and_budget_end_keep_their_failure() {
+    let trace = run_fixture_row("once-cancel-after-capture");
+    assert!(trace.result.as_ref().unwrap_err().contains("interrupted"));
+    let trace = run_fixture_row("once-budget-after-plan-only-turn");
+    assert!(trace.result.is_err());
+}
+
+#[test]
+fn a_later_user_correction_never_sees_the_old_note() {
+    let first = scenario("once-captured-native").run();
+    assert_eq!(first.plan_phases()[1][0], "captured");
+    let mut correction = scenario("once-captured-native");
+    correction.id = "once-correction".to_string();
+    correction.prompt = corpus()["prompts"]["correction"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    correction.script = vec![
+        json!({"write": ["greeting.txt", "good morning\n"]}),
+        json!({"final": "greeting.txt now says good morning."}),
+    ];
+    let session = first.session.clone();
+    let trace = correction.run_after(session);
+    assert!(trace.result.is_ok(), "{:?}", trace.result);
+    assert_eq!(
+        trace.plan_phases(),
+        vec![["skipped".to_string(), "resumed_conversation".to_string()]]
+    );
+    assert!(trace.request_indexes(NOTE_MARKER).is_empty());
+    assert!(trace.request_indexes(GUIDANCE_MARKER).is_empty());
+    assert!(
+        trace
+            .request_indexes("write a short greeting file")
+            .is_empty()
+    );
+}
+
+#[test]
+fn invalid_values_fail_before_any_request_without_echoing_the_value() {
+    let base = scenario("default-off-unset");
+    for value in [
+        "ONCE",
+        "on",
+        "true",
+        "1",
+        "once,once",
+        "sk-test-945-NOT-A-REAL-KEY",
+    ] {
+        let trace = base.with_setting(Some(value)).run();
+        let error = trace.result.as_ref().unwrap_err();
+        assert_eq!(
+            error,
+            &format!("invalid {ENV}: expected unset, empty, `off`, or `once`"),
+            "{value}"
+        );
+        assert!(trace.requests.is_empty(), "{value}");
+        assert!(trace.events.is_empty(), "{value}: {:?}", trace.events);
+    }
+    #[cfg(unix)]
+    {
+        let _lock = env_lock();
+        set_env_bytes(ENV, &[0x6f, 0x6e, 0x63, 0x65, 0xff]);
+        let trace = base.run_locked(|client| client, None);
+        set_env(ENV, None);
+        assert_eq!(
+            trace.result.as_ref().unwrap_err(),
+            &format!("invalid {ENV}: expected unset, empty, `off`, or `once`")
+        );
+        assert!(trace.requests.is_empty());
+    }
+    // The legacy name is not an alias.
+    let _lock = env_lock();
+    set_env(LEGACY_ENV, Some("once"));
+    let trace = base.run_locked(|client| client, None);
+    set_env(LEGACY_ENV, None);
+    trace.assert_expectations(&base.expect);
+}
+
+#[test]
+fn once_with_the_completion_obligation_review_is_refused_before_any_request() {
+    let mut base = scenario("once-captured-native");
+    base.review_setting = Some("once".to_string());
+    let trace = base.run();
+    assert_eq!(
+        trace.result.as_ref().unwrap_err(),
+        &format!("{ENV} and {REVIEW_ENV} cannot both be enabled")
+    );
+    assert!(trace.requests.is_empty());
+    assert!(trace.events.is_empty(), "{:?}", trace.events);
+
+    // With the plan off the review runs as before, untouched.
+    let mut off = scenario("default-off-unset");
+    off.review_setting = Some("once".to_string());
+    // The review defers the first final once; the script answers it.
+    off.script.push(json!({"final": "Checked greeting.txt."}));
+    let trace = off.run();
+    assert!(trace.result.is_ok(), "{:?}", trace.result);
+    assert!(trace.plan_events().is_empty());
+    assert!(
+        trace
+            .events
+            .iter()
+            .any(|event| event["event"] == "completion_obligation_review")
+    );
+}
+
+#[test]
+fn the_variable_is_read_once_at_run_start() {
+    let base = scenario("once-captured-native");
+    for change in ["off", "not-a-mode"] {
+        let mut client_change = Some(change);
+        let trace = base.run_with(|mut client| {
+            client.env_change_on_first_call = client_change.take();
+            client
+        });
+        trace.assert_expectations(&base.expect);
+    }
+    let off = scenario("default-off-unset");
+    let trace = off.run_with(|mut client| {
+        client.env_change_on_first_call = Some("once");
+        client
+    });
+    trace.assert_expectations(&off.expect);
+}
+
+#[test]
+fn model_claims_and_wrong_expectations_change_no_existing_judgement() {
+    for id in ["once-self-claimed-verified", "once-wrong-expectation"] {
+        let trace = run_fixture_row(id);
+        let off = scenario(id).with_setting(None).run();
+        assert_eq!(trace.outcome(), off.outcome(), "{id}");
+        assert_eq!(trace.event_names(false), off.event_names(true), "{id}");
+        let claims = |trace: &Trace| {
+            trace
+                .events
+                .iter()
+                .filter(|event| {
+                    event.get("assurance_level").is_some()
+                        || event.get("acceptance_passed").is_some()
+                        || event.get("verification") == Some(&json!("passed"))
+                })
+                .count()
+        };
+        assert_eq!(claims(&trace), claims(&off), "{id}");
+        for event in trace.plan_events() {
+            for key in [
+                "verified",
+                "coverage_passed",
+                "assurance_level",
+                "verification",
+            ] {
+                assert!(event.get(key).is_none(), "{id}: {key}");
+            }
+        }
+    }
+}
+
+/// A synthetic credential name the dotenv collector treats as a credential.
+const SYNTHETIC_CREDENTIAL: &str = "SYNTHETIC_945_API_KEY";
+
+fn with_credential(scenario: &Scenario, value: &str) -> Scenario {
+    let mut copy = scenario.clone();
+    copy.seed.push((
+        ".env".to_string(),
+        format!("{SYNTHETIC_CREDENTIAL}={value}\n"),
+    ));
+    copy
+}
+
+#[test]
+fn events_and_requests_carry_no_note_text_prompt_or_secret() {
+    const SECRET: &str = "sk-test-945-NOT-A-REAL-KEY-7f3a";
+    let mut base = scenario("once-captured-native");
+    let note = json!({
+        "obligations": [{
+            "id": "O1",
+            "stated_requirement": format!("use the key {SECRET}"),
+            "expected_behavior": "greeting.txt holds one greeting line",
+            "assumption": "",
+        }],
+        "examples": [],
+    });
+    base.script = vec![
+        json!({"write": ["greeting.txt", "hello\n"],
+               "preamble": format!("<requirement_plan>{note}</requirement_plan>")}),
+        json!({"final": format!("Done with {SECRET}.")}),
+    ];
+    let trace = with_credential(&base, SECRET).run();
+    assert!(trace.result.is_ok(), "{:?}", trace.result);
+    assert_eq!(trace.plan_phases()[1][0], "captured");
+    // The kept note was scrubbed and is never restored to plain text.
+    assert_eq!(trace.count(1, NOTE_MARKER), 1);
+    for messages in &trace.requests {
+        let text = serde_json::to_string(messages).unwrap();
+        assert!(!text.contains(SECRET), "{text}");
+    }
+    assert!(trace.count(1, "use the key ") == 1);
+    for event in trace.plan_events() {
+        assert_fixed_shape(&event);
+        let text = event.to_string();
+        for forbidden in [
+            SECRET,
+            "greeting",
+            "use the key",
+            "O1",
+            "obligations",
+            "<requirement_plan>",
+            "Write a short",
+        ] {
+            assert!(!text.contains(forbidden), "{forbidden} in {text}");
+        }
+    }
+
+    // Invalid blocks: no unknown key name and no parser excerpt anywhere.
+    for id in ["once-invalid-unknown-field", "once-oversize-block"] {
+        let trace = scenario(id).run();
+        for event in trace.plan_events() {
+            let text = event.to_string();
+            for forbidden in ["verified", "unknown field", "line", "column", "expected"] {
+                assert!(!text.contains(forbidden), "{id}: {forbidden} in {text}");
+            }
+        }
+    }
+}
+
+#[test]
+fn credentials_equal_to_or_inside_a_plan_word_are_refused_without_the_value() {
+    use commandagent::sensitive_data::{RegistrationRefusal, ReservedKind, SecretCatalog};
+    let words = FIXED_KEYS[4..]
+        .iter()
+        .chain(FIXED_STRINGS[2..].iter())
+        .chain([EVENT, ENV].iter())
+        .copied()
+        .collect::<Vec<_>>();
+    for value in words
+        .iter()
+        .chain(["_only_turn", "_request", "ENT_PLAN"].iter())
+    {
+        let refusal = SecretCatalog::new()
+            .register_credential(SYNTHETIC_CREDENTIAL, value)
+            .expect_err(value);
+        if value.chars().count() >= commandagent::sensitive_data::MIN_GENERIC_SECRET_LEN {
+            assert_eq!(
+                refusal,
+                RegistrationRefusal::Reserved {
+                    name: SYNTHETIC_CREDENTIAL.to_string(),
+                    kind: ReservedKind::FixedIdentifier,
+                },
+                "{value}"
+            );
+        }
+        assert!(!refusal.to_string().contains(value), "{value}: {refusal}");
+    }
+    let base = scenario("once-captured-native");
+    for value in [
+        "captured",
+        "valid_block",
+        "plan_only_turn",
+        "requirement_plan",
+    ] {
+        let trace = with_credential(&base, value).run();
+        let error = trace.result.as_ref().unwrap_err();
+        assert!(error.contains(SYNTHETIC_CREDENTIAL), "{value}: {error}");
+        assert!(!error.contains(value), "{value}: {error}");
+        assert!(trace.requests.is_empty(), "{value}");
+        assert!(trace.plan_events().is_empty(), "{value}");
+    }
+    // A registered credential leaves every plan word intact.
+    let plain = base.run();
+    let scrubbed = with_credential(&base, "sk-test-945-NOT-A-REAL-KEY-c0ffee").run();
+    assert_eq!(scrubbed.plan_events(), plain.plan_events());
+}
+
+#[test]
+fn corpus_rows_are_synthetic_and_cover_every_declared_case() {
+    let corpus = corpus();
+    assert_eq!(corpus["kind"], "synthetic");
+    assert_eq!(corpus["off_golden_source"], OFF_GOLDEN_SOURCE);
+    let ids = scenarios()
+        .into_iter()
+        .map(|scenario| scenario.id)
+        .collect::<Vec<_>>();
+    for required in [
+        "default-off-unset",
+        "default-off-empty",
+        "default-off-explicit",
+        "once-captured-native",
+        "once-captured-xml",
+        "once-plan-only-turn",
+        "once-missing-block",
+        "once-invalid-unknown-field",
+        "once-oversize-block",
+        "once-xml-unclosed-tool-tag",
+        "once-fresh-retry",
+        "once-compaction",
+        "once-cancel-after-capture",
+        "once-budget-after-plan-only-turn",
+    ] {
+        assert!(ids.iter().any(|id| id == required), "{required}");
+    }
+    let readme = std::fs::read_to_string(corpus_path("README.md")).unwrap();
+    assert!(readme.contains("synthetic"));
+    let raw = std::fs::read_to_string(corpus_path("fixtures/plan.json")).unwrap();
+    assert!(!raw.contains("dev-28"));
 }

@@ -31,6 +31,7 @@ pub mod repair_pressure;
 pub mod repair_progress;
 pub mod repair_target;
 pub mod request_pattern;
+pub(crate) mod requirement_plan;
 pub(crate) mod rerun_consistency;
 pub mod route_unbound_recovery;
 pub mod stagnation_carryover;

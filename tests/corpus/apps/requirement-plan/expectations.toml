@@ -1,5 +1,5 @@
 case_id = "requirement-plan"
-source = "Issue #945: synthetic scripted runs of the experimental COMMANDAGENT_REQUIREMENT_PLAN opt-in; default-off rows were recorded from source c9f88d35 before the requirement plan existed"
+source = "Issue #945: synthetic scripted runs of the experimental COMMANDAGENT_REQUIREMENT_PLAN opt-in; default-off rows were recorded from source c9f88d35 before the requirement plan existed; once rows state the designed behavior"
 required_paths = []
 verify_commands = []
 required_capabilities = []
@@ -28,5 +28,14 @@ fixtures/plan.json = [
   "\"id\": \"default-off-unset\"",
   "\"id\": \"default-off-empty\"",
   "\"id\": \"default-off-explicit\"",
-  "\"source\": \"c9f88d35\""
+  "\"source\": \"c9f88d35\"",
+  "\"id\": \"once-captured-native\"",
+  "\"id\": \"once-plan-only-turn\"",
+  "\"id\": \"once-xml-unclosed-tool-tag\"",
+  "\"id\": \"once-budget-after-plan-only-turn\"",
+  "[\"captured\", \"valid_block\"]",
+  "[\"released\", \"missing\"]",
+  "[\"released\", \"invalid\"]",
+  "[\"released\", \"oversize\"]",
+  "[\"skipped\", \"insufficient_remaining_iterations\"]"
 ]

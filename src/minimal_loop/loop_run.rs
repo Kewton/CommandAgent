@@ -53,6 +53,7 @@ use super::repair_pressure::{
 use super::repair_progress::{
     RepairProgressVerdict, VerificationSignature, classify_repair_progress,
 };
+use super::requirement_plan::RequirementPlan;
 
 mod after_tool_completion;
 #[path = "loop_run/context.rs"]
@@ -428,6 +429,28 @@ pub(crate) fn run_session_with_outcome_with_options(
     ui: &dyn InteractionUi,
     options: RunSessionOptions,
 ) -> anyhow::Result<RunSessionOutcome> {
+    let mut plan = RequirementPlan::default();
+    let run = (client, session, user_prompt, required_paths, config, ui);
+    let result = run_session_planned(run, options, &mut plan);
+    plan.finish(result.is_ok(), ui.interrupted());
+    result
+}
+
+type RunArgs<'a, 'c> = (
+    &'a mut (dyn ChatClient + 'c),
+    &'a mut SessionSnapshot,
+    &'a str,
+    &'a [String],
+    &'a Config,
+    &'a dyn InteractionUi,
+);
+
+fn run_session_planned(
+    run: RunArgs<'_, '_>,
+    options: RunSessionOptions,
+    plan: &mut RequirementPlan,
+) -> anyhow::Result<RunSessionOutcome> {
+    let (client, session, user_prompt, required_paths, config, ui) = run;
     // Install the run's exact-value secret scope. The CLI installs the same
     // scope during config resolution; direct minimal-loop callers get it here.
     // A source refusal is propagated so the run refuses honestly.
@@ -448,6 +471,12 @@ pub(crate) fn run_session_with_outcome_with_options(
         config,
         options.scope == RunSessionScope::MinimalLoop,
         completion_contract.is_some(),
+    )?;
+    plan.start(
+        config,
+        &options,
+        completion_contract.is_some(),
+        &session.messages,
     )?;
     let implementation_completion =
         ImplementationCompletion::capture(config, &options, required_paths);
@@ -639,7 +668,7 @@ pub(crate) fn run_session_with_outcome_with_options(
         };
         let empty_fresh_retry_active = empty_fresh_retry_pending;
         let fresh_retry_messages;
-        let request_messages = if empty_fresh_retry_active {
+        let mut request_messages = if empty_fresh_retry_active {
             empty_fresh_retry_pending = false;
             eval_events::emit(
                 config.eval_events_path.as_deref(),
@@ -679,6 +708,11 @@ pub(crate) fn run_session_with_outcome_with_options(
                 },
             )
         };
+        plan.prepare_request(
+            &mut request_messages,
+            &session.messages,
+            remaining_iterations,
+        );
         let label = format!("{} {}", client.label(), config.model);
         let call_scope = provider_call_scope_for_options(&options, pending_feedback.as_deref());
         let mut turn_events =
@@ -812,6 +846,7 @@ pub(crate) fn run_session_with_outcome_with_options(
                 return Err(err);
             }
         };
+        let plan_only_turn = plan.capture_reply(&mut reply);
         if config.tool_protocol == Some(crate::config::ToolProtocol::Text) {
             match super::tool_protocol::normalize_text_reply(&mut reply, &specs) {
                 Ok(repairs) => {
@@ -847,6 +882,9 @@ pub(crate) fn run_session_with_outcome_with_options(
         ));
         if ui.interrupted() {
             bail!("interrupted by user");
+        }
+        if plan_only_turn {
+            continue;
         }
         if max_length_guard.observe(&reply, config.num_predict, provider_turn_elapsed) {
             drop(turn_events);
