@@ -187,7 +187,7 @@ pub(super) fn reject_unsupported_section(
 /// A refused routing or key form. It carries only the fixed text, and
 /// [`extends_context`] adds no preset name to it.
 #[derive(Debug)]
-pub(super) struct UnsupportedForm(String);
+pub(super) struct UnsupportedForm(pub(super) String);
 
 impl std::fmt::Display for UnsupportedForm {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

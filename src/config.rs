@@ -1210,6 +1210,7 @@ fn parse_config_file(
     let mut section = ConfigSection::Top;
     for (index, raw_line) in text.lines().enumerate() {
         let line_no = index + 1;
+        toml_comment::reject_uninterpretable(path, line_no, raw_line)?;
         let line = strip_toml_comment(raw_line).trim();
         if line.is_empty() {
             continue;
@@ -1257,7 +1258,6 @@ fn parse_config_file(
             }
             ConfigSection::Other => {}
         }
-        toml_comment::reject_uninterpretable(path, line_no, raw_line)?;
     }
     Ok(file)
 }

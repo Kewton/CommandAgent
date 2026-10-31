@@ -8,11 +8,12 @@
 //! (`"""` or `'''`) or leaves a string unclosed, is never cut: comment removal
 //! returns it unchanged, and [`reject_uninterpretable`] and
 //! [`validate_config_files`] refuse it with [`UNINTERPRETABLE_LINE`], which
-//! names the file and line only, never the key, the value, or the line.
+//! names the file and line only, never the key, the value, or the line. The
+//! line parser refuses it before it reads the key or the value.
 
 use std::path::Path;
 
-use anyhow::bail;
+use super::openrouter_routing::UnsupportedForm;
 
 /// The fixed diagnostic for a line the line-based reader cannot interpret.
 pub(super) const UNINTERPRETABLE_LINE: &str = "has a multi-line or unclosed string that the config reader does not support (the key and value are not shown)";
@@ -61,14 +62,21 @@ pub(crate) fn strip_toml_comment(line: &str) -> &str {
     }
 }
 
-/// Refuses a line the line-based reader cannot interpret.
+/// Refuses a line the line-based reader cannot interpret. The refusal is an
+/// [`UnsupportedForm`], so a parent preset's `extends` context adds no preset
+/// name to it either.
 pub(super) fn reject_uninterpretable(
     path: &Path,
     line_no: usize,
     line: &str,
 ) -> anyhow::Result<()> {
     if scan(line) == Scan::Uninterpretable {
-        bail!("{}:{} {UNINTERPRETABLE_LINE}", path.display(), line_no);
+        return Err(UnsupportedForm(format!(
+            "{}:{} {UNINTERPRETABLE_LINE}",
+            path.display(),
+            line_no
+        ))
+        .into());
     }
     Ok(())
 }
@@ -95,6 +103,7 @@ pub(super) fn validate_config_files(root: &Path) -> anyhow::Result<()> {
 mod tests {
     use std::path::Path;
 
+    use super::super::openrouter_routing::{UnsupportedForm, extends_context};
     use super::{UNINTERPRETABLE_LINE, reject_uninterpretable, strip_toml_comment};
 
     /// The comment removal before Issue #941, which tracked basic strings only.
@@ -241,5 +250,18 @@ mod tests {
     fn the_fixed_diagnostic_carries_no_placeholder() {
         assert!(!UNINTERPRETABLE_LINE.contains('{'));
         assert!(UNINTERPRETABLE_LINE.contains("not shown"));
+    }
+
+    #[test]
+    fn the_refusal_gets_no_preset_names_from_the_extends_context() {
+        let path = Path::new("cfg/config.toml");
+        let error =
+            reject_uninterpretable(path, 2, "model = \"\"\"m941\"\"\"").expect_err("refused");
+        assert!(error.downcast_ref::<UnsupportedForm>().is_some());
+        let error = extends_context(error, "CHILD_941", "PARENT_941");
+        assert_eq!(
+            format!("{error:#}"),
+            format!("cfg/config.toml:2 {UNINTERPRETABLE_LINE}")
+        );
     }
 }

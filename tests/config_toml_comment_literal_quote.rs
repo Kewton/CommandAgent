@@ -27,6 +27,7 @@ const PRESET: &str = "routed";
 const PARENT: &str = "PRIVATE_PARENT_941";
 const MARKER: &str = "PRIVATE_MARKER_941";
 const VALUE: &str = "PRIVATE_VALUE_941";
+const KEY_MARKER: &str = "PRIVATE_KEY_941";
 const KEY_ENV: &str = "COMMANDAGENT_ISSUE941_FAKE_KEY";
 const FAKE_SECRET: &str = "fake-secret-941-not-a-real-key";
 const BASE_URL: &str = "http://127.0.0.1:9/v1";
@@ -273,7 +274,110 @@ fn uninterpretable_cases() -> Vec<(&'static str, String)> {
             "home/.commandagent/config.toml",
             format!("[preset.{PARENT}]\nmodel = \"\"\"\n{VALUE} ${{{KEY_ENV}}}\n\"\"\"\n"),
         ),
+        // Security review A: an unknown key with a one-line triple quote is
+        // refused before the unknown-key diagnostic could name it.
+        (
+            "work/.commandagent/config.toml",
+            format!("[preset.{PRESET}]\n{KEY_MARKER} = \"\"\"{VALUE}\"\"\"\n"),
+        ),
+        // Security review B: refused before the `${ENV}` syntax check could
+        // quote the reference.
+        (
+            "work/.commandagent/config.toml",
+            format!("[preset.{PRESET}]\nmodel = \"\"\"${{{VALUE}!}}\"\"\"\n"),
+        ),
+        // A one-line literal triple quote, refused before the value shape
+        // check could name the key and the preset.
+        (
+            "work/.commandagent/config.toml",
+            format!("[preset.{PRESET}]\nmodel = '''{VALUE}'''\n"),
+        ),
+        // Security review B2: a one-line triple quote in a parent preset of
+        // another layer, which only the recursive resolution reaches.
+        (
+            "work/.anvil/config.toml",
+            format!("[preset.{PARENT}]\nmodel = \"\"\"m941\"\"\"\n"),
+        ),
+        (
+            "home/.commandagent/config.toml",
+            format!("[preset.{PARENT}]\nmodel = \"\"\"m941\"\"\"\n"),
+        ),
     ]
+}
+
+/// Text that must not appear in any output for an uninterpretable line: the
+/// markers, the parent preset, the `extends` context, an `${...}` reference,
+/// and every diagnostic that would quote a key, a value, or a preset name.
+const UNINTERPRETABLE_HIDDEN: [&str; 13] = [
+    VALUE,
+    MARKER,
+    KEY_MARKER,
+    FAKE_SECRET,
+    PARENT,
+    "extends '",
+    "${",
+    "preset.routed.",
+    "preset.PRIVATE",
+    "unknown config key",
+    "expects a quoted string",
+    "invalid environment reference",
+    "invalid config line",
+];
+
+/// The location and fixed text an uninterpretable case must report.
+fn uninterpretable_location(path: &str, text: &str) -> String {
+    let line = 1 + text
+        .lines()
+        .position(|line| line.contains("\"\"\"") || line.contains("'''"))
+        .unwrap();
+    let suffix = path.split_once('/').unwrap().1;
+    format!("{suffix}:{line} {UNINTERPRETABLE}")
+}
+
+/// Control: an interpretable unknown preset key keeps the usual diagnostic
+/// naming the key, through both entries.
+#[test]
+fn an_interpretable_unknown_key_keeps_its_diagnostic() {
+    let files = [(
+        "work/.commandagent/config.toml",
+        format!("[preset.{PRESET}]\nprivate_typo_941 = \"x\" # it's\n"),
+    )];
+    run_child("control-unknown", &files);
+    let output = run_doctor(&files);
+    assert!(!output.success, "{}", output.text);
+    assert!(
+        output
+            .text
+            .contains("config.toml:2 unknown config key 'preset.routed.private_typo_941'"),
+        "{}",
+        output.text
+    );
+    assert!(!output.text.contains(UNINTERPRETABLE), "{}", output.text);
+}
+
+/// Control: any other parent error in another layer keeps the usual
+/// `extends` context, through both entries.
+#[test]
+fn an_ordinary_parent_error_keeps_the_extends_context() {
+    for layer in ["anvil", "home"] {
+        let files = [
+            ("work/.commandagent/config.toml", complete_child()),
+            (
+                parent_path(layer),
+                format!("[preset.{PARENT}]\nprivate_typo_941 = 1\n"),
+            ),
+        ];
+        run_child("control-parent", &files);
+        let output = run_doctor(&files);
+        assert!(!output.success, "{}", output.text);
+        assert!(
+            output
+                .text
+                .contains(&format!("preset '{PRESET}' extends '{PARENT}'")),
+            "{layer}: {}",
+            output.text
+        );
+    }
 }
 
 /// Acceptance: an uninterpretable line fails startup with the fixed text,
@@ -294,14 +398,19 @@ fn an_uninterpretable_line_fails_startup_with_only_its_location() {
 #[test]
 fn doctor_reports_an_uninterpretable_line_without_the_value() {
     for (path, text) in uninterpretable_cases() {
+        let location = uninterpretable_location(path, &text);
         let mut files = vec![(path, text)];
         if path != "work/.commandagent/config.toml" {
             files.push(("work/.commandagent/config.toml", complete_child()));
         }
         let output = run_doctor(&files);
         assert!(!output.success, "{}", output.text);
-        assert_hidden(&output.text, &[VALUE, MARKER, FAKE_SECRET]);
-        assert!(output.text.contains(UNINTERPRETABLE), "{}", output.text);
+        assert_hidden(&output.text, &UNINTERPRETABLE_HIDDEN);
+        assert!(
+            output.text.contains(&location),
+            "{location}: {}",
+            output.text
+        );
     }
 }
 
@@ -364,33 +473,39 @@ fn child_case() {
         "uninterpretable" => {
             let index: usize = index.parse().unwrap();
             let (path, text) = &uninterpretable_cases()[index];
-            let line = 1 + text
-                .lines()
-                .position(|line| line.contains("\"\"\"") || line.contains("'''"))
-                .unwrap();
             let error = format!(
                 "{:#}",
                 load(&root, Some(PRESET))
                     .map(drop)
                     .expect_err("uninterpretable")
             );
-            let suffix = path.split_once('/').unwrap().1;
             assert!(
-                error.ends_with(&format!("{suffix}:{line} {UNINTERPRETABLE}")),
+                error.ends_with(&uninterpretable_location(path, text)),
                 "{error}"
             );
-            assert_hidden(
-                &error,
-                &[
-                    PARENT,
-                    MARKER,
-                    VALUE,
-                    FAKE_SECRET,
-                    "extends '",
-                    "model",
-                    "extension_root",
-                ],
+            assert_hidden(&error, &UNINTERPRETABLE_HIDDEN);
+            assert_hidden(&error, &["model", "extension_root"]);
+        }
+        "control-unknown" => {
+            let error = format!(
+                "{:#}",
+                load(&root, Some(PRESET)).map(drop).expect_err("typo")
             );
+            assert!(
+                error.contains("config.toml:2 unknown config key 'preset.routed.private_typo_941'"),
+                "{error}"
+            );
+        }
+        "control-parent" => {
+            let error = format!(
+                "{:#}",
+                load(&root, Some(PRESET)).map(drop).expect_err("typo")
+            );
+            assert!(
+                error.contains(&format!("preset '{PRESET}' extends '{PARENT}'")),
+                "{error}"
+            );
+            assert!(error.contains("unknown config key"), "{error}");
         }
         other => panic!("unknown child case {other}"),
     }
