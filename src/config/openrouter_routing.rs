@@ -118,53 +118,132 @@ pub(super) fn resolve(
 /// (`openrouter_provider.x = ...`, `"openrouter\u005fprovider" = ...`). The
 /// key is decoded with the TOML rules, and the unknown suffix is never shown,
 /// so it cannot leak through the general unknown-key diagnostic.
-pub(super) fn reject_unsupported_key(path: &Path, line_no: usize, key: &str) -> anyhow::Result<()> {
-    let segments = decoded_key(key);
+///
+/// The line parser splits at the first `=`, which may sit inside a quoted key
+/// segment. When the key it passed cannot be decoded, the real key is
+/// recovered with a quote-aware split of the whole line; a line whose key
+/// still cannot be decoded is refused without showing the key (fail closed).
+pub(super) fn reject_unsupported_key(
+    path: &Path,
+    line_no: usize,
+    key: &str,
+    value: &str,
+) -> anyhow::Result<()> {
+    let segments = match decoded_key(key) {
+        Some(segments) => segments,
+        None => {
+            let line = format!("{key}={value}");
+            let recovered = key_boundary(&line).and_then(|end| decoded_key(&line[..end]));
+            return Err(match recovered {
+                Some(segments)
+                    if segments.first().map(String::as_str) == Some(OPENROUTER_PROVIDER_KEY) =>
+                {
+                    unsupported_form(path, line_no)
+                }
+                _ => UnsupportedForm(format!(
+                    "{}:{} unsupported key form (the key and value are not shown)",
+                    path.display(),
+                    line_no
+                )),
+            }
+            .into());
+        }
+    };
     if key != OPENROUTER_PROVIDER_KEY
         && segments.first().map(String::as_str) == Some(OPENROUTER_PROVIDER_KEY)
     {
-        bail!("{}", unsupported_form(path, line_no));
+        return Err(unsupported_form(path, line_no).into());
     }
     Ok(())
 }
 
 /// Refuses a `[preset.<name>.openrouter_provider...]` table or array-of-tables
-/// section header, decoded with the TOML rules, naming only the fixed key.
+/// section header, decoded with the TOML rules, naming only the fixed key. A
+/// header that cannot be decoded on its own is refused without showing it.
 pub(super) fn reject_unsupported_section(
     path: &Path,
     line_no: usize,
     section: &str,
 ) -> anyhow::Result<()> {
-    let segments = decoded_header(section);
+    let Some(segments) = decoded_header(section) else {
+        return Err(UnsupportedForm(format!(
+            "{}:{} unsupported section header form (the header is not shown)",
+            path.display(),
+            line_no
+        ))
+        .into());
+    };
     if segments.first().map(String::as_str) == Some("preset")
         && segments
             .iter()
             .skip(2)
             .any(|segment| segment == OPENROUTER_PROVIDER_KEY)
     {
-        bail!("{}", unsupported_form(path, line_no));
+        return Err(unsupported_form(path, line_no).into());
     }
     Ok(())
 }
 
+/// A refused routing or key form. It carries only the fixed text, and
+/// [`extends_context`] adds no preset name to it.
+#[derive(Debug)]
+pub(super) struct UnsupportedForm(String);
+
+impl std::fmt::Display for UnsupportedForm {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for UnsupportedForm {}
+
+/// The `extends` context for a parent preset's resolution error. A refused
+/// form keeps its fixed text without the child and parent names; every other
+/// error gets the usual `preset '<name>' extends '<parent>'` context.
+pub(super) fn extends_context(error: anyhow::Error, name: &str, parent: &str) -> anyhow::Error {
+    if error.downcast_ref::<UnsupportedForm>().is_some() {
+        error
+    } else {
+        error.context(format!("preset '{name}' extends '{parent}'"))
+    }
+}
+
+/// The byte offset of the first `=` outside TOML basic and literal quotes.
+fn key_boundary(line: &str) -> Option<usize> {
+    let mut quote = None;
+    let mut escaped = false;
+    for (index, character) in line.char_indices() {
+        match quote {
+            Some('"') if escaped => escaped = false,
+            Some('"') if character == '\\' => escaped = true,
+            Some(open) if character == open => quote = None,
+            Some(_) => {}
+            None if character == '"' || character == '\'' => quote = Some(character),
+            None if character == '=' => return Some(index),
+            None => {}
+        }
+    }
+    None
+}
+
 /// The decoded segments of a TOML key (quotes, escapes, and dotted
-/// boundaries resolved as TOML does). A key the TOML parser rejects decodes to
-/// no segments; the parser's own message is dropped, never shown.
-fn decoded_key(key: &str) -> Vec<String> {
+/// boundaries resolved as TOML does), or `None` when the TOML parser rejects
+/// it; the parser's own message is dropped, never shown.
+fn decoded_key(key: &str) -> Option<Vec<String>> {
     format!("{key} = 0")
         .parse::<toml::Table>()
+        .ok()
         .map(|table| key_path(&table))
-        .unwrap_or_default()
 }
 
 /// The decoded segments of a section header's inner text; `section` is what
 /// lies between the outer `[` and `]`, so an array-of-tables header still
 /// carries its inner brackets.
-fn decoded_header(section: &str) -> Vec<String> {
+fn decoded_header(section: &str) -> Option<Vec<String>> {
     format!("[{section}]")
         .parse::<toml::Table>()
+        .ok()
         .map(|table| key_path(&table))
-        .unwrap_or_default()
 }
 
 /// Follows the single-entry chain a one-key document or one header builds.
@@ -188,12 +267,12 @@ fn key_path(table: &toml::Table) -> Vec<String> {
     segments
 }
 
-fn unsupported_form(path: &Path, line_no: usize) -> String {
-    format!(
+fn unsupported_form(path: &Path, line_no: usize) -> UnsupportedForm {
+    UnsupportedForm(format!(
         "{}:{} {OPENROUTER_PROVIDER_KEY} must be a one-line inline table in a [preset.<name>] section; dotted keys, quoted keys, and table sections are not supported (the key and value are not shown)",
         path.display(),
         line_no
-    )
+    ))
 }
 
 /// Parses `openrouter_provider` into `preset`, recording its source.
@@ -311,8 +390,8 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        MAX_SLUGS, OpenRouterProviderRouting, parse_value, reject_unsupported_key,
-        reject_unsupported_section, resolve,
+        MAX_SLUGS, OpenRouterProviderRouting, UnsupportedForm, extends_context, key_boundary,
+        parse_value, reject_unsupported_key, reject_unsupported_section, resolve,
     };
     use crate::config::PresetConfig;
     use crate::config::resolution::merge_inherited_preset;
@@ -559,7 +638,10 @@ mod tests {
             "\"openrouter\\U0000005Fprovider\".PRIVATE_MARKER_939",
             "'openrouter_provider'.PRIVATE_MARKER_939",
         ] {
-            let error = format!("{:#}", reject_unsupported_key(path, 4, key).unwrap_err());
+            let error = format!(
+                "{:#}",
+                reject_unsupported_key(path, 4, key, "[\"a\"]").unwrap_err()
+            );
             assert!(
                 error.starts_with("config.toml:4 openrouter_provider must be"),
                 "{error}"
@@ -597,7 +679,7 @@ mod tests {
             "\"openrouter_provider.not_a_child\"",
             "'openrouter_provider.x'",
         ] {
-            assert!(reject_unsupported_key(path, 1, key).is_ok(), "{key}");
+            assert!(reject_unsupported_key(path, 1, key, "1").is_ok(), "{key}");
         }
         for section in [
             "preset.routed",
@@ -610,5 +692,58 @@ mod tests {
                 "{section}"
             );
         }
+    }
+
+    #[test]
+    fn an_equals_sign_inside_a_quoted_key_is_recovered_or_refused_closed() {
+        let path = Path::new("config.toml");
+        // The line parser split `key = value` at an `=` inside the quotes.
+        for (key, value) in [
+            ("openrouter_provider.\"PRIVATE_MARKER_939", "0\" = [\"a\"]"),
+            ("openrouter_provider.'PRIVATE_MARKER_939", "0' = [\"a\"]"),
+            (
+                "\"openrouter\\u005fprovider\".\"PRIVATE_MARKER_939",
+                "0\" = [\"a\"]",
+            ),
+        ] {
+            let error = format!(
+                "{:#}",
+                reject_unsupported_key(path, 4, key, value).unwrap_err()
+            );
+            assert!(
+                error.starts_with("config.toml:4 openrouter_provider must be"),
+                "{error}"
+            );
+            assert!(!error.contains("PRIVATE_MARKER_939"), "{error}");
+        }
+        let error = format!(
+            "{:#}",
+            reject_unsupported_key(path, 5, "\"PRIVATE_MARKER_939", "0\" = 1").unwrap_err()
+        );
+        assert_eq!(
+            error,
+            "config.toml:5 unsupported key form (the key and value are not shown)"
+        );
+        assert_eq!(key_boundary(r#""a=b" = 1"#), Some(6));
+        assert_eq!(key_boundary(r#"'a\'=b' = 1"#), Some(4));
+        assert_eq!(key_boundary(r#""a\"=b" = 1"#), Some(8));
+        assert_eq!(key_boundary(r#""a=b""#), None);
+    }
+
+    #[test]
+    fn a_refused_form_gets_no_extends_context_and_other_errors_keep_it() {
+        let refused: anyhow::Error = UnsupportedForm("fixed text".to_string()).into();
+        assert_eq!(
+            format!(
+                "{:#}",
+                extends_context(refused, "child", "PRIVATE_PARENT_939")
+            ),
+            "fixed text"
+        );
+        let other = anyhow::anyhow!("unknown config key 'preset.p.x'");
+        assert_eq!(
+            format!("{:#}", extends_context(other, "child", "p")),
+            "preset 'child' extends 'p': unknown config key 'preset.p.x'"
+        );
     }
 }

@@ -2389,6 +2389,308 @@
       ],
       "secret": null,
       "raw_tail": "openrouter_provider_x = 1\n"
+    },
+    {
+      "kind": "synthetic",
+      "id": "form-equals-in-basic-quote",
+      "group": "config-form",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": null,
+      "expect_error": [
+        "config.toml:10 openrouter_provider must be a one-line inline table"
+      ],
+      "secret": "PRIVATE_MARKER_939",
+      "raw_tail": "openrouter_provider.\"PRIVATE_MARKER_939=0\" = [\"a\"]\n",
+      "secrets": [
+        "preset.routed."
+      ]
+    },
+    {
+      "kind": "synthetic",
+      "id": "form-equals-in-literal-quote",
+      "group": "config-form",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": null,
+      "expect_error": [
+        "config.toml:10 openrouter_provider must be a one-line inline table"
+      ],
+      "secret": "PRIVATE_MARKER_939",
+      "raw_tail": "openrouter_provider.'PRIVATE_MARKER_939=0' = [\"a\"]\n",
+      "secrets": [
+        "preset.routed."
+      ]
+    },
+    {
+      "kind": "synthetic",
+      "id": "form-equals-with-escape",
+      "group": "config-form",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": null,
+      "expect_error": [
+        "config.toml:10 openrouter_provider must be a one-line inline table"
+      ],
+      "secret": "PRIVATE_MARKER_939",
+      "raw_tail": "\"openrouter\\u005fprovider\".\"PRIVATE_MARKER_939=0\" = [\"a\"]\n",
+      "secrets": [
+        "preset.routed."
+      ]
+    },
+    {
+      "kind": "synthetic",
+      "id": "form-equals-in-unrelated-quoted-key",
+      "group": "config-form",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": null,
+      "expect_error": [
+        "config.toml:10 unsupported key form (the key and value are not shown)"
+      ],
+      "secret": "PRIVATE_MARKER_939",
+      "raw_tail": "\"PRIVATE_MARKER_939=0\" = 1\n",
+      "secrets": [
+        "preset.routed."
+      ]
+    },
+    {
+      "kind": "synthetic",
+      "id": "inherit-anvil-escaped-key",
+      "group": "inherit-layer",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": null,
+      "expect_error": [
+        "config.toml:2 openrouter_provider must be a one-line inline table"
+      ],
+      "secret": "PRIVATE_MARKER_939",
+      "parent_form": "\"openrouter\\u005fprovider\".PRIVATE_MARKER_939 = [\"a\"]\n",
+      "parent_layer": "anvil",
+      "secrets": [
+        "PRIVATE_PARENT_939",
+        "extends '",
+        "preset.PRIVATE_PARENT_939."
+      ]
+    },
+    {
+      "kind": "synthetic",
+      "id": "inherit-anvil-equals-in-quote",
+      "group": "inherit-layer",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": null,
+      "expect_error": [
+        "config.toml:2 openrouter_provider must be a one-line inline table"
+      ],
+      "secret": "PRIVATE_MARKER_939",
+      "parent_form": "openrouter_provider.\"PRIVATE_MARKER_939=0\" = [\"a\"]\n",
+      "parent_layer": "anvil",
+      "secrets": [
+        "PRIVATE_PARENT_939",
+        "extends '",
+        "preset.PRIVATE_PARENT_939."
+      ]
+    },
+    {
+      "kind": "synthetic",
+      "id": "inherit-anvil-equals-with-escape",
+      "group": "inherit-layer",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": null,
+      "expect_error": [
+        "config.toml:2 openrouter_provider must be a one-line inline table"
+      ],
+      "secret": "PRIVATE_MARKER_939",
+      "parent_form": "\"openrouter\\u005fprovider\".\"PRIVATE_MARKER_939=0\" = [\"a\"]\n",
+      "parent_layer": "anvil",
+      "secrets": [
+        "PRIVATE_PARENT_939",
+        "extends '",
+        "preset.PRIVATE_PARENT_939."
+      ]
+    },
+    {
+      "kind": "synthetic",
+      "id": "inherit-anvil-equals-in-unrelated-key",
+      "group": "inherit-layer",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": null,
+      "expect_error": [
+        "config.toml:2 unsupported key form (the key and value are not shown)"
+      ],
+      "secret": "PRIVATE_MARKER_939",
+      "parent_form": "\"PRIVATE_MARKER_939=0\" = 1\n",
+      "parent_layer": "anvil",
+      "secrets": [
+        "PRIVATE_PARENT_939",
+        "extends '",
+        "preset.PRIVATE_PARENT_939."
+      ]
+    },
+    {
+      "kind": "synthetic",
+      "id": "inherit-anvil-general-error-keeps-context",
+      "group": "inherit-layer",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": null,
+      "expect_error": [
+        "preset 'routed' extends 'PRIVATE_PARENT_939'",
+        "unknown config key"
+      ],
+      "secret": null,
+      "parent_form": "private_typo_939 = 1\n",
+      "parent_layer": "anvil"
+    },
+    {
+      "kind": "synthetic",
+      "id": "inherit-home-escaped-key",
+      "group": "inherit-layer",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": null,
+      "expect_error": [
+        "config.toml:2 openrouter_provider must be a one-line inline table"
+      ],
+      "secret": "PRIVATE_MARKER_939",
+      "parent_form": "\"openrouter\\u005fprovider\".PRIVATE_MARKER_939 = [\"a\"]\n",
+      "parent_layer": "home",
+      "secrets": [
+        "PRIVATE_PARENT_939",
+        "extends '",
+        "preset.PRIVATE_PARENT_939."
+      ]
+    },
+    {
+      "kind": "synthetic",
+      "id": "inherit-home-equals-in-quote",
+      "group": "inherit-layer",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": null,
+      "expect_error": [
+        "config.toml:2 openrouter_provider must be a one-line inline table"
+      ],
+      "secret": "PRIVATE_MARKER_939",
+      "parent_form": "openrouter_provider.\"PRIVATE_MARKER_939=0\" = [\"a\"]\n",
+      "parent_layer": "home",
+      "secrets": [
+        "PRIVATE_PARENT_939",
+        "extends '",
+        "preset.PRIVATE_PARENT_939."
+      ]
+    },
+    {
+      "kind": "synthetic",
+      "id": "inherit-home-equals-with-escape",
+      "group": "inherit-layer",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": null,
+      "expect_error": [
+        "config.toml:2 openrouter_provider must be a one-line inline table"
+      ],
+      "secret": "PRIVATE_MARKER_939",
+      "parent_form": "\"openrouter\\u005fprovider\".\"PRIVATE_MARKER_939=0\" = [\"a\"]\n",
+      "parent_layer": "home",
+      "secrets": [
+        "PRIVATE_PARENT_939",
+        "extends '",
+        "preset.PRIVATE_PARENT_939."
+      ]
+    },
+    {
+      "kind": "synthetic",
+      "id": "inherit-home-equals-in-unrelated-key",
+      "group": "inherit-layer",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": null,
+      "expect_error": [
+        "config.toml:2 unsupported key form (the key and value are not shown)"
+      ],
+      "secret": "PRIVATE_MARKER_939",
+      "parent_form": "\"PRIVATE_MARKER_939=0\" = 1\n",
+      "parent_layer": "home",
+      "secrets": [
+        "PRIVATE_PARENT_939",
+        "extends '",
+        "preset.PRIVATE_PARENT_939."
+      ]
+    },
+    {
+      "kind": "synthetic",
+      "id": "inherit-home-general-error-keeps-context",
+      "group": "inherit-layer",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": null,
+      "expect_error": [
+        "preset 'routed' extends 'PRIVATE_PARENT_939'",
+        "unknown config key"
+      ],
+      "secret": null,
+      "parent_form": "private_typo_939 = 1\n",
+      "parent_layer": "home"
     }
   ]
 }

@@ -45,6 +45,10 @@ const NUM_PREDICT: u64 = 64;
 const DUMMY_KEY_ENV: &str = "COMMANDAGENT_ISSUE939_DUMMY_KEY";
 const DUMMY_KEY: &str = "dummy-key-939-not-a-real-secret";
 const OBSERVED: &str = "openrouter_provider_observed";
+/// A parent preset name that must never reach a refused-form diagnostic.
+const LAYER_PARENT: &str = "PRIVATE_PARENT_939";
+/// The completeness keys `model`/`provider` and their planner forms aside.
+const COMPLETE_KEYS: &str = "context_budget = 4096\nchat_timeout_secs = 10\nplan_preset = \"none\"\nprofile = \"generic\"\nnarration = \"quiet\"\nfooter = \"off\"\nstream = \"off\"\n";
 
 // ---------------------------------------------------------------- parent side
 
@@ -118,6 +122,14 @@ fn config_errors_name_the_location_and_never_the_value() {
 #[test]
 fn unsupported_routing_forms_never_show_the_unknown_key() {
     run_group("config-form");
+}
+
+/// Security recheck 2: a refused form in a parent preset that only the
+/// recursive `extends` resolution reaches, in another layer, never names the
+/// parent; any other parent error keeps the usual `extends` context.
+#[test]
+fn refused_forms_in_a_parent_layer_never_name_the_parent() {
+    run_group("inherit-layer");
 }
 
 /// Security review B3: an observation status value cannot be registered as a
@@ -202,6 +214,7 @@ fn corpus_cases_match_the_wire_contract() {
         "key",
         "config-form",
         "reserved",
+        "inherit-layer",
     ];
     let mut ids = BTreeSet::new();
     for case in corpus["cases"].as_array().unwrap() {
@@ -409,6 +422,19 @@ fn doctor_never_shows_an_unknown_routing_key_in_any_form() {
             (None, escaped_array),
             (None, escaped_root),
             (None, inherited),
+            (
+                None,
+                format!("openrouter_provider.\"{marker}=0\" = [\"b\"]\n"),
+            ),
+            (
+                None,
+                format!("openrouter_provider.'{marker}=0' = [\"b\"]\n"),
+            ),
+            (
+                None,
+                format!("\"openrouter\\u005fprovider\".\"{marker}=0\" = [\"b\"]\n"),
+            ),
+            (None, format!("\"{marker}=0\" = 1\n")),
         ])
         .collect::<Vec<_>>();
     let home_layer = doctor_with_layers(&base_url, &generic, None, "", &escaped_key);
@@ -448,14 +474,90 @@ fn doctor_never_shows_an_unknown_routing_key_in_any_form() {
             output.stderr
         );
         assert!(
-            output.stdout.contains("openrouter_provider")
-                || output.stderr.contains("openrouter_provider"),
-            "the diagnostic names the fixed key: {}\n{}",
+            output.stdout.contains("not shown") || output.stderr.contains("not shown"),
+            "the diagnostic is the fixed text: {}\n{}",
             output.stdout,
             output.stderr
         );
     }
     server.finish();
+}
+
+/// Security recheck 2: doctor never names the parent preset of a refused
+/// routing form that only the recursive `extends` resolution reaches, in a
+/// lower workspace layer or in HOME.
+#[test]
+fn doctor_never_names_the_parent_of_a_refused_routing_form() {
+    let server = Server::spawn(Script::default());
+    let base_url = format!("http://{}/v1", server.address);
+    let marker = "PRIVATE_MARKER_939";
+    let forms = [
+        format!("\"openrouter\\u005fprovider\".{marker} = [\"a\"]\n"),
+        format!("openrouter_provider.\"{marker}=0\" = [\"a\"]\n"),
+        format!("openrouter_provider.'{marker}=0' = [\"a\"]\n"),
+        format!("\"openrouter\\u005fprovider\".\"{marker}=0\" = [\"a\"]\n"),
+        format!("\"{marker}=0\" = 1\n"),
+    ];
+    for layer in ["anvil", "home"] {
+        for form in &forms {
+            let output = doctor_with_parent(&base_url, layer, form);
+            let all = format!("{}\n{}", output.stdout, output.stderr);
+            assert!(!output.success, "{all}");
+            for hidden in [LAYER_PARENT, marker, "extends '"] {
+                assert!(!all.contains(hidden), "{hidden} leaked ({layer}): {all}");
+            }
+            assert!(all.contains("not shown"), "{all}");
+        }
+        // Any other parent error keeps the usual inheritance context.
+        let output = doctor_with_parent(&base_url, layer, "private_typo_939 = 1\n");
+        let all = format!("{}\n{}", output.stdout, output.stderr);
+        assert!(!output.success, "{all}");
+        assert!(
+            all.contains(&format!("preset '{PRESET}' extends '{LAYER_PARENT}'")),
+            "{all}"
+        );
+    }
+    server.finish();
+}
+
+fn doctor_with_parent(base_url: &str, layer: &str, parent_form: &str) -> DoctorOutput {
+    let workspace = tempfile::tempdir().unwrap();
+    let home = workspace.path().join("home");
+    let state = workspace.path().join("state");
+    std::fs::create_dir_all(&state).unwrap();
+    let child = format!(
+        "[preset.{PRESET}]\nextends = \"{LAYER_PARENT}\"\nmodel = \"{}\"\nprovider = \"openai-compatible\"\nplanner_model = \"{}\"\nplanner_provider = \"openai-compatible\"\nbase_url = \"{base_url}\"\n{COMPLETE_KEYS}",
+        MODELS[0], MODELS[1]
+    );
+    std::fs::create_dir_all(workspace.path().join(".commandagent")).unwrap();
+    std::fs::write(workspace.path().join(".commandagent/config.toml"), child).unwrap();
+    let parent_dir = if layer == "home" {
+        home.join(".commandagent")
+    } else {
+        workspace.path().join(".anvil")
+    };
+    std::fs::create_dir_all(&parent_dir).unwrap();
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::write(
+        parent_dir.join("config.toml"),
+        format!("[preset.{LAYER_PARENT}]\n{parent_form}"),
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_commandagent"))
+        .args(["--doctor", "--json", "--preset", PRESET])
+        .args(["--ollama-host", "http://127.0.0.1:9"])
+        .args(["--cwd", workspace.path().to_str().unwrap()])
+        .args(["--state-dir", state.to_str().unwrap()])
+        .env_clear()
+        .env("HOME", &home)
+        .current_dir(workspace.path())
+        .output()
+        .unwrap();
+    DoctorOutput {
+        success: output.status.success(),
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    }
 }
 
 struct DoctorOutput {
@@ -626,6 +728,19 @@ fn build_config(
     if case["parent_routing"].is_string() || case["parent_tail"].is_string() {
         text.push_str("extends = \"base\"\n");
     }
+    if let Some(parent_form) = case["parent_form"].as_str() {
+        // A complete child stops the layer search in this file, so the parent
+        // is only reached through the recursive `extends` resolution.
+        text.push_str(&format!("extends = \"{LAYER_PARENT}\"\n{COMPLETE_KEYS}"));
+        let parent = format!("[preset.{LAYER_PARENT}]\n{parent_form}");
+        let layer = if case["parent_layer"] == "home" {
+            PathBuf::from(std::env::var_os("HOME").expect("child HOME")).join(".commandagent")
+        } else {
+            root.join(".anvil")
+        };
+        std::fs::create_dir_all(&layer).unwrap();
+        std::fs::write(layer.join("config.toml"), parent).unwrap();
+    }
     for (index, key) in ["", "planner_", "classifier_"].iter().enumerate() {
         text.push_str(&format!("{key}model = \"{}\"\n", MODELS[index]));
         text.push_str(&format!(
@@ -666,7 +781,9 @@ fn build_config(
             format!("[preset.{PRESET}]\n{home_text}"),
         )
         .unwrap();
-    } else if let Some(home) = std::env::var_os("HOME") {
+    } else if let Some(home) = std::env::var_os("HOME")
+        && case["parent_layer"] != "home"
+    {
         // The companion run shares the child HOME; it must not see the layer.
         let _ = std::fs::remove_file(PathBuf::from(home).join(".commandagent/config.toml"));
     }

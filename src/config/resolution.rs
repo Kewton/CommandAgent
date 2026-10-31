@@ -253,7 +253,7 @@ pub(super) fn resolve_named_preset(
     }
     if let Some(parent) = merged.extends.as_ref().map(|value| value.value.clone()) {
         let inherited = resolve_named_preset(root, &parent, chain)
-            .with_context(|| format!("preset '{name}' extends '{parent}'"))?;
+            .map_err(|error| super::openrouter_routing::extends_context(error, name, &parent))?;
         merge_inherited_preset(&mut merged, &inherited);
     }
     chain.pop();
@@ -331,7 +331,7 @@ pub(super) fn parse_preset_key(
     preset: &mut PresetConfig,
 ) -> anyhow::Result<()> {
     let full_key = format!("preset.{name}.{key}");
-    super::openrouter_routing::reject_unsupported_key(path, line_no, key)?;
+    super::openrouter_routing::reject_unsupported_key(path, line_no, key, value)?;
     if !SUPPORTED_PRESET_KEYS.contains(&key) {
         bail!(
             "{}:{} unknown config key '{full_key}'",
