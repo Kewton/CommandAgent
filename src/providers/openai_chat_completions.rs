@@ -1,6 +1,6 @@
 use serde_json::{Value, json};
 
-use crate::providers::{AssistantReply, ProviderResponseMetadata};
+use crate::providers::{AssistantReply, BilledCostUsd, ProviderResponseMetadata};
 use crate::state::{ConversationMessage, ToolCall};
 use crate::tools::args_recovery::recover_tool_arguments;
 use crate::tools::registry::ToolSpec;
@@ -188,8 +188,17 @@ pub(crate) fn parse_response(
         cached_input_tokens: cached_input_tokens(usage, reply.prompt_tokens),
         reasoning_tokens: None,
         total_tokens: None,
+        billed_cost_usd: billed_cost_usd(usage),
     };
     Ok((reply, metadata))
+}
+
+/// The provider-reported billed amount in `usage.cost` (Issue #947), kept as
+/// optional provider metadata only; no amount is derived from token counts,
+/// model, or provider. Anything but a finite, non-negative, in-range number is
+/// unreported (`None`); an explicit zero stays a value.
+fn billed_cost_usd(usage: Option<&Value>) -> Option<BilledCostUsd> {
+    BilledCostUsd::from_json(usage?.get("cost")?)
 }
 
 /// The provider-reported cached share of the prompt, already included in
@@ -242,6 +251,177 @@ fn parse_tool_call(value: &Value) -> anyhow::Result<ToolCall> {
 
 #[cfg(test)]
 mod cache_usage_tests;
+
+/// Issue #947: `usage.cost` reaches `ProviderResponseMetadata.billed_cost_usd`
+/// as the JSON number the provider sent. An explicit zero is a value; a
+/// missing, null, non-number, negative, or out-of-range amount is unreported.
+#[cfg(test)]
+mod billed_cost_tests {
+    use serde_json::{Value, json};
+
+    use super::parse_response;
+    use crate::providers::{AssistantReply, BilledCostUsd, ProviderResponseMetadata};
+
+    fn body(usage: Option<Value>) -> String {
+        let mut value = json!({
+            "id": "chatcmpl-947",
+            "model": "compatible-model",
+            "created": 1_790_000_000,
+            "system_fingerprint": "fp_947",
+            "service_tier": "default",
+            "choices": [{"message": {
+                "content": "reading",
+                "tool_calls": [{
+                    "id": "call-947",
+                    "type": "function",
+                    "function": {"name": "Read", "arguments": "{\"path\":\"README.md\"}"}
+                }]
+            }}]
+        });
+        if let Some(usage) = usage {
+            value["usage"] = usage;
+        }
+        value.to_string()
+    }
+
+    fn usage_with_cost(cost: Value) -> Value {
+        json!({
+            "prompt_tokens": 5361,
+            "completion_tokens": 2,
+            "total_tokens": 5363,
+            "prompt_tokens_details": {"cached_tokens": 5344},
+            "cost": cost
+        })
+    }
+
+    fn parse(usage: Option<Value>) -> (AssistantReply, ProviderResponseMetadata) {
+        parse_response(&body(usage)).expect("a malformed amount must not fail the parse")
+    }
+
+    fn cost(usage: Option<Value>) -> Option<BilledCostUsd> {
+        parse(usage).1.billed_cost_usd
+    }
+
+    fn cost_text(cost_json: &str) -> Option<String> {
+        let value: Value = serde_json::from_str(cost_json).unwrap();
+        cost(Some(usage_with_cost(value))).map(|cost| cost.as_decimal_str().to_string())
+    }
+
+    #[test]
+    fn positive_amounts_are_kept_as_sent_without_rounding() {
+        for (sent, kept) in [
+            ("0.012345", "0.012345"),
+            ("0.000123", "0.000123"),
+            ("1.5e-7", "1.5e-7"),
+            ("12.5", "12.5"),
+            ("2", "2"),
+            ("9007199254740991", "9007199254740991"),
+        ] {
+            assert_eq!(cost_text(sent).as_deref(), Some(kept), "{sent}");
+        }
+        let kept = cost(Some(usage_with_cost(json!(0.012345)))).unwrap();
+        assert_eq!(kept.as_decimal_str(), "0.012345");
+        assert_eq!(kept.to_json(), Some(json!(0.012345)));
+        assert_eq!(kept.to_json().unwrap().to_string(), "0.012345");
+        assert_eq!(kept.to_json().unwrap().as_f64(), Some(0.012345));
+    }
+
+    #[test]
+    fn explicit_zero_is_a_value_not_unknown() {
+        assert_eq!(cost_text("0").as_deref(), Some("0"));
+        assert_eq!(cost_text("0.0").as_deref(), Some("0.0"));
+        let zero = cost(Some(usage_with_cost(json!(0)))).unwrap();
+        assert_eq!(zero.to_json(), Some(json!(0)));
+    }
+
+    #[test]
+    fn missing_amounts_stay_unreported() {
+        let without_cost = json!({"prompt_tokens": 5361, "completion_tokens": 2});
+        for (label, usage) in [
+            ("no usage", None),
+            ("usage without cost", Some(without_cost)),
+            ("usage is null", Some(Value::Null)),
+            ("usage is a number", Some(json!(1))),
+        ] {
+            assert_eq!(cost(usage), None, "{label}");
+        }
+        assert_eq!(cost(Some(usage_with_cost(Value::Null))), None, "cost null");
+    }
+
+    #[test]
+    fn non_number_amounts_stay_unreported() {
+        for (label, value) in [
+            ("string", json!("0.012345")),
+            ("empty string", json!("")),
+            ("boolean", json!(true)),
+            ("array", json!([0.012345])),
+            ("object", json!({"usd": 0.012345})),
+        ] {
+            assert_eq!(cost(Some(usage_with_cost(value))), None, "{label}");
+        }
+    }
+
+    #[test]
+    fn negative_amounts_stay_unreported() {
+        for sent in ["-0.012345", "-1", "-0.0"] {
+            assert_eq!(cost_text(sent), None, "{sent}");
+        }
+    }
+
+    #[test]
+    fn out_of_range_amounts_stay_unreported() {
+        for sent in [
+            "9007199254740992",
+            "18446744073709551615",
+            "18446744073709551616",
+            "1e300",
+            "1.7976931348623157e308",
+        ] {
+            assert_eq!(cost_text(sent), None, "{sent}");
+        }
+    }
+
+    #[test]
+    fn reply_tokens_and_cached_count_are_unchanged_by_the_amount() {
+        let legacy = json!({
+            "prompt_tokens": 5361,
+            "completion_tokens": 2,
+            "total_tokens": 5363,
+            "prompt_tokens_details": {"cached_tokens": 5344}
+        });
+        let (legacy_reply, legacy_metadata) = parse(Some(legacy));
+        assert_eq!(legacy_metadata.billed_cost_usd, None);
+        assert_eq!(legacy_metadata.cached_input_tokens, Some(5344));
+        assert_eq!(legacy_metadata.total_tokens, None);
+        assert_eq!(legacy_metadata.reasoning_tokens, None);
+        assert_eq!(legacy_reply.prompt_tokens, Some(5361));
+        assert_eq!(legacy_reply.completion_tokens, Some(2));
+        for (sent, reported) in [
+            (json!(0.012345), true),
+            (json!(0), true),
+            (Value::Null, false),
+            (json!("0.012345"), false),
+            (json!(-1), false),
+            (json!(1e300), false),
+        ] {
+            let (reply, metadata) = parse(Some(usage_with_cost(sent.clone())));
+            assert_eq!(reply, legacy_reply, "cost {sent}");
+            assert_eq!(metadata.billed_cost_usd.is_some(), reported, "cost {sent}");
+            let mut without_cost = metadata.clone();
+            without_cost.billed_cost_usd = None;
+            assert_eq!(without_cost, legacy_metadata, "cost {sent}");
+        }
+    }
+
+    #[test]
+    fn metadata_equality_compares_the_amount() {
+        let first = parse(Some(usage_with_cost(json!(0.012345)))).1;
+        let same = parse(Some(usage_with_cost(json!(0.012345)))).1;
+        let other = parse(Some(usage_with_cost(json!(0.012346)))).1;
+        assert_eq!(first, same);
+        assert_ne!(first, other);
+    }
+}
 
 #[cfg(test)]
 mod tests {

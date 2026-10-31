@@ -1,0 +1,61 @@
+case_id = "compatible-billed-cost"
+source = "Issue #947: the shared OpenAI-compatible Chat Completions parser keeps a finite, non-negative, in-range usage.cost as the optional ProviderResponseMetadata.billed_cost_usd, a provider-reported USD amount never computed from token counts or a price table; the provider_response and provider_turn_duration events of the same turn both carry it as the JSON number provider_billed_cost_usd only when it is reported, so an aggregator counts it once per turn and never adds the two events; an explicit zero is the number 0, a missing, null, string, negative, or out-of-range amount leaves the field absent and every other byte of both events as at the base commit, and no turn carries a previous turn's amount, on the planner and the executor paths"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[json_fields]
+fixtures/events.json:kind = "synthetic"
+fixtures/events.json:event_field = "provider_billed_cost_usd"
+fixtures/events.json:response_field = "usage.cost"
+fixtures/events.json:base_events.captured_at = "4edfc5a726feb5fa468b4a24bc9de29f41c6b1bc"
+source-manifest.json:base_sha = "4edfc5a726feb5fa468b4a24bc9de29f41c6b1bc"
+source-manifest.json:aggregation = "count provider_billed_cost_usd once per turn; provider_response and provider_turn_duration of one turn carry the same amount and are never added together"
+
+[fixture_contains]
+fixtures/events.json = [
+  "\"id\": \"synthetic-cost-positive\"",
+  "\"id\": \"synthetic-cost-explicit-zero\"",
+  "\"id\": \"synthetic-cost-absent\"",
+  "\"id\": \"synthetic-cost-null\"",
+  "\"id\": \"synthetic-cost-negative\"",
+  "\"id\": \"synthetic-cost-string\"",
+  "\"id\": \"synthetic-cost-too-large\"",
+  "\"id\": \"synthetic-cost-with-cached-tokens\"",
+  "\"id\": \"synthetic-no-usage\"",
+  "\"cost\": 0.012345}, \"expected_provider_billed_cost_usd\": 0.012345}",
+  "\"cost\": 0}, \"expected_provider_billed_cost_usd\": 0}",
+  "\"cost\": null}, \"expected_provider_billed_cost_usd\": null}",
+  "\"executor\": {",
+  "\"planner\": {"
+]
+
+[fixture_ordered]
+fixtures/events.json = [
+  "\"cases\"",
+  "\"synthetic-cost-positive\"",
+  "\"synthetic-cost-explicit-zero\"",
+  "\"synthetic-cost-absent\"",
+  "\"base_events\"",
+  "\"executor\"",
+  "\\\"caller_scope\\\":\\\"executor\\\"",
+  "\"planner\"",
+  "\\\"caller_scope\\\":\\\"planner_step\\\""
+]

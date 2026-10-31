@@ -40,6 +40,49 @@ pub struct ProviderResponseMetadata {
     pub cached_input_tokens: Option<u64>,
     pub reasoning_tokens: Option<u64>,
     pub total_tokens: Option<u64>,
+    /// The amount the provider itself reports it billed for this response
+    /// (Issue #947), never a price computed from token counts. `None` means
+    /// unreported; an explicit zero is `Some`. The `provider_response` and
+    /// `provider_turn_duration` events of one turn carry the same amount, so an
+    /// aggregator counts it once per turn, never the two events added together.
+    pub billed_cost_usd: Option<BilledCostUsd>,
+}
+
+/// A provider-reported USD amount, kept as the decimal text of the JSON number
+/// the provider sent so the metadata stays `Eq` and nothing is rounded.
+///
+/// Only a finite, non-negative JSON number up to [`Self::MAX`] is accepted; it
+/// is written back to events as the same JSON number.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BilledCostUsd(String);
+
+impl BilledCostUsd {
+    /// The largest accepted amount: 2^53 - 1, beyond which an `f64` (and a
+    /// JSON consumer reading it as one) no longer holds whole dollars exactly.
+    pub const MAX: f64 = 9_007_199_254_740_991.0;
+
+    /// The amount in a JSON value, or `None` for anything but a finite,
+    /// non-negative number no larger than [`Self::MAX`]: null, strings,
+    /// booleans, arrays, objects, negative numbers (including `-0`), and
+    /// out-of-range numbers are unreported, never zero.
+    pub fn from_json(value: &serde_json::Value) -> Option<Self> {
+        let number = value.as_number()?;
+        let amount = number.as_f64()?;
+        let valid = amount.is_finite() && !amount.is_sign_negative() && amount <= Self::MAX;
+        valid.then(|| Self(number.to_string()))
+    }
+
+    /// The decimal text of the accepted JSON number, e.g. `0.012345`.
+    pub fn as_decimal_str(&self) -> &str {
+        &self.0
+    }
+
+    /// The amount as the JSON number it was received as.
+    pub fn to_json(&self) -> Option<serde_json::Value> {
+        serde_json::from_str::<serde_json::Number>(&self.0)
+            .ok()
+            .map(serde_json::Value::Number)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

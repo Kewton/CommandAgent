@@ -386,6 +386,15 @@ impl LmStudioClient {
             event["response_id"] = json!(metadata.response_id);
             event["reasoning_tokens"] = json!(metadata.reasoning_tokens);
         }
+        // Issue #947: additive and only when reported. The turn's
+        // provider_turn_duration carries the same amount; count it once.
+        if let Some(cost) = metadata
+            .billed_cost_usd
+            .as_ref()
+            .and_then(super::BilledCostUsd::to_json)
+        {
+            event["provider_billed_cost_usd"] = cost;
+        }
         eval_events::emit(self.eval_events_path.as_deref(), event);
     }
 
@@ -929,5 +938,448 @@ mod cancel_tests {
                 false,
             )
         });
+    }
+}
+
+/// Issue #947: an OpenAI-compatible Chat Completions `usage.cost` reaches the
+/// `provider_response` and `provider_turn_duration` events of the same turn as
+/// `provider_billed_cost_usd`, on the planner and the executor paths. A
+/// loopback stand-in without credentials replays the synthetic corpus
+/// `tests/corpus/apps/compatible-billed-cost/`; no case reaches a real
+/// provider.
+#[cfg(test)]
+mod billed_cost_telemetry_tests {
+    use std::io::{Read, Write};
+    use std::net::{SocketAddr, TcpListener, TcpStream};
+    use std::path::Path;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::thread::JoinHandle;
+    use std::time::Duration;
+
+    use serde_json::{Value, json};
+
+    use crate::config::Config;
+    use crate::provider_call::{self, ProviderCallScope, ProviderChatRequest};
+    use crate::providers::{ChatClient, client_from_config};
+    use crate::state::ConversationMessage;
+
+    const FIXTURE: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/corpus/apps/compatible-billed-cost/fixtures/events.json"
+    );
+    const MODEL: &str = "compatible-model-947";
+
+    fn corpus() -> Value {
+        serde_json::from_str(&std::fs::read_to_string(FIXTURE).unwrap()).unwrap()
+    }
+
+    fn response_body(usage: &Value) -> String {
+        let mut body = json!({
+            "id": "chatcmpl-947",
+            "object": "chat.completion",
+            "model": MODEL,
+            "created": 1_790_000_000,
+            "choices": [{"index": 0, "message": {"content": "done"}, "finish_reason": "stop"}]
+        });
+        if !usage.is_null() {
+            body["usage"] = usage.clone();
+        }
+        body.to_string()
+    }
+
+    fn read_request(stream: &mut TcpStream) -> String {
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .expect("read timeout");
+        let mut data = Vec::new();
+        let mut buffer = [0_u8; 8192];
+        loop {
+            let read = stream.read(&mut buffer).expect("request");
+            assert!(read > 0, "client closed before sending the request");
+            data.extend_from_slice(&buffer[..read]);
+            let Some(end) = data.windows(4).position(|window| window == b"\r\n\r\n") else {
+                continue;
+            };
+            let head = String::from_utf8_lossy(&data[..end]).to_ascii_lowercase();
+            let length = head
+                .lines()
+                .find_map(|line| line.strip_prefix("content-length:"))
+                .and_then(|value| value.trim().parse::<usize>().ok())
+                .unwrap_or(0);
+            if data.len() >= end + 4 + length {
+                return head;
+            }
+        }
+    }
+
+    struct Server {
+        address: SocketAddr,
+        stop: Arc<AtomicBool>,
+        handle: JoinHandle<Vec<String>>,
+    }
+
+    impl Server {
+        /// Serves `bodies` in order, one per connection, and records the head
+        /// of every request it receives.
+        fn spawn(bodies: Vec<String>) -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+            let address = listener.local_addr().expect("address");
+            listener.set_nonblocking(true).expect("nonblocking");
+            let stop = Arc::new(AtomicBool::new(false));
+            let thread_stop = Arc::clone(&stop);
+            let handle = std::thread::spawn(move || {
+                let mut bodies = bodies.into_iter();
+                let mut heads = Vec::new();
+                while !thread_stop.load(Ordering::SeqCst) {
+                    let mut stream = match listener.accept() {
+                        Ok((stream, _)) => stream,
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            std::thread::sleep(Duration::from_millis(10));
+                            continue;
+                        }
+                        Err(error) => panic!("accept: {error}"),
+                    };
+                    stream.set_nonblocking(false).expect("blocking stream");
+                    heads.push(read_request(&mut stream));
+                    let (status, body) = match bodies.next() {
+                        Some(body) => ("200 OK", body),
+                        None => (
+                            "400 Bad Request",
+                            r#"{"error":"script exhausted"}"#.to_string(),
+                        ),
+                    };
+                    write!(
+                        stream,
+                        "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                    .expect("response");
+                    stream.flush().expect("flush");
+                }
+                heads
+            });
+            Self {
+                address,
+                stop,
+                handle,
+            }
+        }
+
+        fn finish(self) -> Vec<String> {
+            self.stop.store(true, Ordering::SeqCst);
+            self.handle.join().expect("server thread")
+        }
+    }
+
+    fn config_for(address: SocketAddr, root: &Path, model: &str) -> Config {
+        let parsed = crate::provider_cli::parse_from([
+            "commandagent",
+            "--cwd",
+            &root.to_string_lossy(),
+            "--state-dir",
+            &root.join("state").to_string_lossy(),
+            "--model",
+            model,
+            "--provider",
+            "openai-compatible",
+            "--base-url",
+            &format!("http://{address}/v1"),
+            "--chat-timeout-secs",
+            "30",
+        ])
+        .expect("arguments");
+        let mut config =
+            Config::from_cli_with_provider_options(parsed.cli, parsed.provider_options)
+                .expect("config");
+        config.eval_events_path = Some(root.join("events.jsonl"));
+        config
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    enum Path947 {
+        Planner,
+        Executor,
+    }
+
+    impl Path947 {
+        const fn key(self) -> &'static str {
+            match self {
+                Self::Planner => "planner",
+                Self::Executor => "executor",
+            }
+        }
+    }
+
+    /// Replace the wall-clock values of a raw event line with `0` and keep
+    /// every other byte.
+    fn normalize(line: &str) -> String {
+        let mut out = line.to_string();
+        for key in ["\"duration_ms\":", "\"occurred_at_epoch_ms\":"] {
+            if let Some(start) = out.find(key) {
+                let digits = start + key.len();
+                let end = out[digits..]
+                    .find(|ch: char| !ch.is_ascii_digit())
+                    .map_or(out.len(), |offset| digits + offset);
+                out.replace_range(digits..end, "0");
+            }
+        }
+        out
+    }
+
+    /// One provider turn per body through the same entry the planner or the
+    /// executor uses, returning the raw `provider_response` and
+    /// `provider_turn_duration` lines of each turn and the request heads.
+    ///
+    /// `model` keys the process-wide stable-prefix estimate, so each test
+    /// passes its own model and the golden lines do not depend on test order.
+    fn run_turns(
+        path: Path947,
+        model: &str,
+        bodies: Vec<String>,
+    ) -> (Vec<[String; 2]>, Vec<String>) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let turns = bodies.len();
+        let server = Server::spawn(bodies);
+        let config = config_for(server.address, dir.path(), model);
+        let events_path = config.eval_events_path.clone().expect("events path");
+        let planner = matches!(path, Path947::Planner);
+        let mut client: Box<dyn ChatClient> = client_from_config(&config, planner).expect("client");
+        let (scope, native_tools_enabled) = match path {
+            Path947::Planner => (ProviderCallScope::PlannerStep, false),
+            Path947::Executor => (ProviderCallScope::Executor, true),
+        };
+        let messages = [ConversationMessage::user("Summarize notes.md.")];
+        for turn in 0..turns {
+            let outcome = provider_call::chat_with_cancel_and_stream(
+                client.as_mut(),
+                &config,
+                ProviderChatRequest {
+                    scope,
+                    model,
+                    messages: &messages,
+                    tools: &[],
+                    native_tools_enabled,
+                },
+                || false,
+                &mut |_chunk| Ok(()),
+            );
+            let reply = outcome
+                .result
+                .unwrap_or_else(|error| panic!("{path:?} turn {turn} failed: {error:#}"));
+            assert_eq!(reply.content, "done");
+        }
+        let heads = server.finish();
+        let text = std::fs::read_to_string(&events_path).unwrap_or_default();
+        let mut response = None;
+        let mut pairs = Vec::new();
+        for line in text.lines() {
+            let event: Value = serde_json::from_str(line).expect("event json");
+            match event["event"].as_str() {
+                Some("provider_response") => {
+                    assert!(response.is_none(), "two responses in one turn: {text}");
+                    response = Some(line.to_string());
+                }
+                Some("provider_turn_duration") => {
+                    let response = response.take().expect("response before turn event");
+                    pairs.push([response, line.to_string()]);
+                }
+                _ => {}
+            }
+        }
+        assert!(response.is_none(), "response without a turn event: {text}");
+        assert_eq!(pairs.len(), turns, "{text}");
+        (pairs, heads)
+    }
+
+    const FIELD: &str = "provider_billed_cost_usd";
+
+    /// `line` without the `"<FIELD>":<value>` member, or `None` when the line
+    /// does not carry exactly that member.
+    fn without_field(line: &str, value: &str) -> Option<String> {
+        let member = format!("\"{FIELD}\":{value}");
+        if line.matches(&member).count() != 1 {
+            return None;
+        }
+        let leading = format!("{member},");
+        let trailing = format!(",{member}");
+        if line.contains(&leading) {
+            Some(line.replacen(&leading, "", 1))
+        } else if line.contains(&trailing) {
+            Some(line.replacen(&trailing, "", 1))
+        } else {
+            None
+        }
+    }
+
+    fn assert_no_credential_sent(heads: &[String], turns: usize) {
+        assert_eq!(heads.len(), turns, "one request per turn: {heads:?}");
+        for head in heads {
+            assert!(head.starts_with("post /v1/chat/completions "), "{head}");
+            assert!(!head.contains("authorization:"), "{head}");
+        }
+    }
+
+    #[test]
+    fn every_case_reaches_both_events_of_the_turn_on_planner_and_executor_paths() {
+        let corpus = corpus();
+        assert_eq!(corpus["event_field"], FIELD);
+        let cases = corpus["cases"].as_array().unwrap();
+        let bodies = cases
+            .iter()
+            .map(|case| response_body(&case["usage"]))
+            .collect::<Vec<_>>();
+        let mut reported = 0;
+        for path in [Path947::Executor, Path947::Planner] {
+            let (pairs, heads) = run_turns(path, MODEL, bodies.clone());
+            assert_no_credential_sent(&heads, cases.len());
+            let base = &corpus["base_events"][path.key()];
+            for (case, pair) in cases.iter().zip(&pairs) {
+                let id = case["id"].as_str().unwrap();
+                let expected = &case["expected_provider_billed_cost_usd"];
+                for (index, line) in pair.iter().enumerate() {
+                    let label = format!("{path:?} {id} event {index}");
+                    let line = normalize(line);
+                    let base_line = base[id][index]
+                        .as_str()
+                        .unwrap_or_else(|| panic!("{label}: no base line"));
+                    let event: Value = serde_json::from_str(&line).unwrap();
+                    if expected.is_null() {
+                        assert!(event.get(FIELD).is_none(), "{label}: {line}");
+                        assert_eq!(
+                            line, base_line,
+                            "{label}: an unreported amount changes no byte"
+                        );
+                    } else {
+                        assert_eq!(&event[FIELD], expected, "{label}: {line}");
+                        let sent = case["usage"]["cost"].to_string();
+                        assert_eq!(
+                            without_field(&line, &sent).as_deref(),
+                            Some(base_line),
+                            "{label}: the amount is the only addition: {line}"
+                        );
+                    }
+                }
+                let response: Value = serde_json::from_str(&pair[0]).unwrap();
+                let turn: Value = serde_json::from_str(&pair[1]).unwrap();
+                assert_eq!(response.get(FIELD), turn.get(FIELD), "{path:?} {id}");
+                if turn.get(FIELD).is_some() {
+                    reported += 1;
+                }
+            }
+        }
+        assert_eq!(reported, 6, "three reported cases on each of two paths");
+    }
+
+    #[test]
+    fn one_turn_keeps_the_reported_amount_once_without_rounding() {
+        let usage = json!({"prompt_tokens": 12, "completion_tokens": 3, "cost": 0.012345});
+        for path in [Path947::Executor, Path947::Planner] {
+            let (pairs, heads) = run_turns(
+                path,
+                "compatible-model-947-once",
+                vec![response_body(&usage)],
+            );
+            assert_no_credential_sent(&heads, 1);
+            let [response, turn] = &pairs[0];
+            for line in [response, turn] {
+                assert_eq!(
+                    line.matches(&format!("\"{FIELD}\":0.012345")).count(),
+                    1,
+                    "{path:?}: {line}"
+                );
+                assert_eq!(line.matches(FIELD).count(), 1, "{path:?}: {line}");
+            }
+            let turn: Value = serde_json::from_str(turn).unwrap();
+            assert_eq!(turn[FIELD].as_f64(), Some(0.012345), "{path:?}");
+            assert_eq!(turn["prompt_eval_count"], 12, "{path:?}");
+            assert_eq!(turn["eval_count"], 3, "{path:?}");
+            let expected_scope = match path {
+                Path947::Planner => "planner_step",
+                Path947::Executor => "executor",
+            };
+            assert_eq!(turn["caller_scope"], expected_scope);
+        }
+    }
+
+    #[test]
+    fn a_reported_turn_does_not_carry_its_amount_into_the_next_turn() {
+        let reported = json!({"prompt_tokens": 12, "completion_tokens": 3, "cost": 0.012345});
+        let unreported = json!({"prompt_tokens": 12, "completion_tokens": 3});
+        for path in [Path947::Executor, Path947::Planner] {
+            let (pairs, _) = run_turns(
+                path,
+                "compatible-model-947-carry",
+                vec![
+                    response_body(&reported),
+                    response_body(&unreported),
+                    response_body(&Value::Null),
+                ],
+            );
+            let fields = pairs
+                .iter()
+                .flatten()
+                .map(|line| serde_json::from_str::<Value>(line).unwrap()[FIELD].clone())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                fields,
+                vec![
+                    json!(0.012345),
+                    json!(0.012345),
+                    Value::Null,
+                    Value::Null,
+                    Value::Null,
+                    Value::Null
+                ],
+                "{path:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn corpus_is_synthetic_and_pinned_to_its_base() {
+        use sha2::{Digest, Sha256};
+
+        let root =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/corpus/apps/compatible-billed-cost");
+        let manifest: Value = serde_json::from_str(
+            &std::fs::read_to_string(root.join("source-manifest.json")).unwrap(),
+        )
+        .unwrap();
+        let bytes = std::fs::read(FIXTURE).unwrap();
+        assert_eq!(
+            manifest["fixture_sha256"]["events.json"],
+            format!("{:x}", Sha256::digest(&bytes))
+        );
+        let text = String::from_utf8(bytes).unwrap();
+        for forbidden in [
+            "/Users/",
+            "/Volumes/",
+            "/home/",
+            "/tmp/",
+            "Bearer",
+            "authorization",
+            "sk-",
+            "api_key",
+        ] {
+            assert!(!text.contains(forbidden), "fixture contains {forbidden}");
+        }
+        let corpus = corpus();
+        assert_eq!(corpus["kind"], "synthetic");
+        assert_eq!(
+            corpus["base_events"]["captured_at"], manifest["base_sha"],
+            "the golden events come from the base commit"
+        );
+        for case in corpus["cases"].as_array().unwrap() {
+            let id = case["id"].as_str().unwrap();
+            assert!(id.starts_with("synthetic-"), "{id}");
+            for path in ["executor", "planner"] {
+                assert_eq!(
+                    corpus["base_events"][path][id].as_array().map(Vec::len),
+                    Some(2),
+                    "{path} {id}"
+                );
+            }
+        }
     }
 }
