@@ -8,6 +8,7 @@ pub mod openai;
 mod openai_chat_completions;
 pub mod openai_compatible;
 mod openai_responses;
+pub(crate) mod openrouter_routing;
 pub mod parsing;
 pub(crate) mod startup;
 pub mod streaming;

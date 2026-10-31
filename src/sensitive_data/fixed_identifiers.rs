@@ -169,6 +169,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "not_run",
     "observed",
     "ok",
+    "openrouter_provider_observed",
     "other_path",
     "pack_check_result",
     "pack_injected",

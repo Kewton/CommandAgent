@@ -15,6 +15,7 @@ use crate::minimal_loop::interaction_probe::{
 };
 
 mod compatible_effort;
+mod openrouter_routing;
 
 const SCHEMA_VERSION: &str = "1";
 const OLLAMA_TIMEOUT: Duration = Duration::from_secs(2);
@@ -417,6 +418,7 @@ fn add_resolved_configuration_checks(checks: &mut Vec<DoctorCheck>, config: &Con
         config.ollama_think,
     ));
     checks.push(compatible_effort::compatible_reasoning_effort_check(config));
+    checks.push(openrouter_routing::routing_check(config));
 }
 
 fn offline_mode_check(enabled: bool) -> DoctorCheck {

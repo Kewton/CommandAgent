@@ -173,6 +173,7 @@ pub(super) fn resolve_providers(
             .and_then(|preset| preset.api_key_env.as_ref())
             .map(|value| value.value.clone())
     });
+    let routing = super::openrouter_routing::resolve(preset.as_ref(), any_openai_compatible)?;
     let openai_compatible = if any_openai_compatible {
         let base_url = configured_base_url
             .context("openai-compatible requires --base-url or preset key base_url")?;
@@ -185,6 +186,7 @@ pub(super) fn resolve_providers(
             executor: openai_compatible_roles.0,
             planner: openai_compatible_roles.1,
             classifier: openai_compatible_roles.2,
+            openrouter_provider: routing,
         })
     } else {
         None
@@ -307,6 +309,7 @@ pub(super) fn merge_inherited_preset(target: &mut PresetConfig, source: &PresetC
     merge_preset_field(&mut target.narration, &source.narration);
     merge_preset_field(&mut target.footer, &source.footer);
     merge_preset_field(&mut target.stream, &source.stream);
+    merge_preset_field(&mut target.openrouter_provider, &source.openrouter_provider);
 }
 
 pub(super) fn merge_preset_field<T: Clone>(
@@ -461,6 +464,9 @@ pub(super) fn parse_preset_key(
                 parse_plan_preset_value(path, line_no, &full_key, value)?,
                 source,
             ))
+        }
+        "openrouter_provider" => {
+            super::openrouter_routing::parse_into(preset, path, line_no, &full_key, value, source)?
         }
         _ => unreachable!("SUPPORTED_PRESET_KEYS contains unhandled key '{key}'"),
     }

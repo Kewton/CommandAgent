@@ -1,0 +1,1823 @@
+{
+  "issue": "#939",
+  "legacy": {
+    "note": "request and provider_request bytes the generic transport produced at base SHA 06dc565d for one user turn without tools, with {model} for the request model",
+    "request": {
+      "chat_completions": "{\"max_tokens\":64,\"messages\":[{\"content\":\"hello\",\"role\":\"user\"}],\"model\":\"{model}\"}",
+      "responses": "{\"input\":[{\"content\":[{\"text\":\"hello\",\"type\":\"input_text\"}],\"role\":\"user\"}],\"max_output_tokens\":64,\"model\":\"{model}\"}"
+    },
+    "provider_request": {
+      "chat_completions": "{\"api\":\"chat_completions\",\"event\":\"provider_request\",\"model\":\"{model}\",\"provider\":\"openai-compatible\",\"schema_version\":\"1\",\"tools\":0}",
+      "responses": "{\"api\":\"responses\",\"event\":\"provider_request\",\"model\":\"{model}\",\"provider\":\"openai-compatible\",\"schema_version\":\"1\",\"tools\":0}"
+    }
+  },
+  "cases": [
+    {
+      "kind": "synthetic",
+      "id": "config-unknown-key",
+      "group": "config-error",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": "{ only = [\"open-inference\"], extra_body = \"secret-939-extra\" }",
+      "expect_error": [
+        "config.toml:10 preset.routed.openrouter_provider",
+        "unsupported key"
+      ],
+      "secret": "secret-939-extra"
+    },
+    {
+      "kind": "synthetic",
+      "id": "config-model-key",
+      "group": "config-error",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": "{ model = \"secret-939-model\" }",
+      "expect_error": [
+        "config.toml:10 preset.routed.openrouter_provider",
+        "unsupported key"
+      ],
+      "secret": "secret-939-model"
+    },
+    {
+      "kind": "synthetic",
+      "id": "config-provider-nested",
+      "group": "config-error",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": "{ provider = { only = [\"secret-939-nested\"] } }",
+      "expect_error": [
+        "config.toml:10 preset.routed.openrouter_provider",
+        "unsupported key"
+      ],
+      "secret": "secret-939-nested"
+    },
+    {
+      "kind": "synthetic",
+      "id": "config-only-not-array",
+      "group": "config-error",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": "{ only = \"secret-939-only\" }",
+      "expect_error": [
+        "config.toml:10 preset.routed.openrouter_provider",
+        "expects an array"
+      ],
+      "secret": "secret-939-only"
+    },
+    {
+      "kind": "synthetic",
+      "id": "config-order-entry-not-string",
+      "group": "config-error",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": "{ order = [939939] }",
+      "expect_error": [
+        "config.toml:10 preset.routed.openrouter_provider",
+        "expects a string"
+      ],
+      "secret": "939939"
+    },
+    {
+      "kind": "synthetic",
+      "id": "config-fallbacks-not-bool",
+      "group": "config-error",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": "{ allow_fallbacks = \"secret-939-bool\" }",
+      "expect_error": [
+        "config.toml:10 preset.routed.openrouter_provider",
+        "expects a boolean"
+      ],
+      "secret": "secret-939-bool"
+    },
+    {
+      "kind": "synthetic",
+      "id": "config-empty-only",
+      "group": "config-error",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": "{ only = [] }",
+      "expect_error": [
+        "config.toml:10 preset.routed.openrouter_provider",
+        "must not be empty"
+      ],
+      "secret": "only = []"
+    },
+    {
+      "kind": "synthetic",
+      "id": "config-empty-slug",
+      "group": "config-error",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": "{ order = [\"\"] }",
+      "expect_error": [
+        "config.toml:10 preset.routed.openrouter_provider",
+        "entry 1 must not be empty"
+      ],
+      "secret": "order = [\"\"]"
+    },
+    {
+      "kind": "synthetic",
+      "id": "config-malformed-slug",
+      "group": "config-error",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": "{ only = [\"secret 939\"] }",
+      "expect_error": [
+        "config.toml:10 preset.routed.openrouter_provider",
+        "not a provider slug"
+      ],
+      "secret": "secret 939"
+    },
+    {
+      "kind": "synthetic",
+      "id": "config-empty-segment",
+      "group": "config-error",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": "{ only = [\"secret-939//fp4\"] }",
+      "expect_error": [
+        "config.toml:10 preset.routed.openrouter_provider",
+        "not a provider slug"
+      ],
+      "secret": "secret-939"
+    },
+    {
+      "kind": "synthetic",
+      "id": "config-duplicate-slug",
+      "group": "config-error",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": "{ only = [\"secret-939\", \"secret-939\"] }",
+      "expect_error": [
+        "config.toml:10 preset.routed.openrouter_provider",
+        "entry 2 repeats"
+      ],
+      "secret": "secret-939"
+    },
+    {
+      "kind": "synthetic",
+      "id": "config-slug-too-long",
+      "group": "config-error",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": "{ only = [\"sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss\"] }",
+      "expect_error": [
+        "config.toml:10 preset.routed.openrouter_provider",
+        "longer than 128 bytes"
+      ],
+      "secret": "sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss"
+    },
+    {
+      "kind": "synthetic",
+      "id": "config-too-many-slugs",
+      "group": "config-error",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": "{ order = [\"p0\", \"p1\", \"p2\", \"p3\", \"p4\", \"p5\", \"p6\", \"p7\", \"p8\", \"p9\", \"p10\", \"p11\", \"p12\", \"p13\", \"p14\", \"p15\", \"p16\", \"p17\", \"p18\", \"p19\", \"p20\", \"p21\", \"p22\", \"p23\", \"p24\", \"p25\", \"p26\", \"p27\", \"p28\", \"p29\", \"p30\", \"p31\", \"p32\"] }",
+      "expect_error": [
+        "config.toml:10 preset.routed.openrouter_provider",
+        "at most 32"
+      ],
+      "secret": "\"p32\""
+    },
+    {
+      "kind": "synthetic",
+      "id": "config-control-character",
+      "group": "config-error",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": "{ only = [\"secret-939\\u0007\"] }",
+      "expect_error": [
+        "config.toml:10 preset.routed.openrouter_provider",
+        "control characters"
+      ],
+      "secret": "secret-939"
+    },
+    {
+      "kind": "synthetic",
+      "id": "config-env-reference",
+      "group": "config-error",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": "{ only = [\"${SECRET_939}\"] }",
+      "expect_error": [
+        "config.toml:10 preset.routed.openrouter_provider",
+        "${ENV}"
+      ],
+      "secret": "SECRET_939"
+    },
+    {
+      "kind": "synthetic",
+      "id": "config-not-a-table",
+      "group": "config-error",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": "\"secret-939-string\"",
+      "expect_error": [
+        "config.toml:10 preset.routed.openrouter_provider",
+        "inline table"
+      ],
+      "secret": "secret-939-string"
+    },
+    {
+      "kind": "synthetic",
+      "id": "config-unselected-preset",
+      "group": "config-error",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": null,
+      "expect_error": [
+        "config.toml:2 preset.other.openrouter_provider",
+        "not a provider slug"
+      ],
+      "secret": "secret 939",
+      "unselected_routing": "{ order = [\"secret 939\"] }"
+    },
+    {
+      "kind": "synthetic",
+      "id": "config-declared-without-generic-role",
+      "group": "config-error",
+      "scenario": "config-error",
+      "layout": [
+        "lm-studio",
+        "ollama",
+        "ollama"
+      ],
+      "routing": "{ only = [\"open-inference\"], allow_fallbacks = false }",
+      "expect_error": [
+        "openrouter_provider (from preset:routed) requires at least one openai-compatible role"
+      ],
+      "secret": "open-inference"
+    },
+    {
+      "kind": "synthetic",
+      "id": "unset-chat",
+      "group": "unset",
+      "scenario": "wire",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": null,
+      "effort": null,
+      "server": "ok",
+      "tools": "none",
+      "generic_roles": [
+        "executor",
+        "planner",
+        "classifier"
+      ],
+      "expect_provider": null,
+      "expect_source": null,
+      "legacy_bytes": "chat_completions"
+    },
+    {
+      "kind": "synthetic",
+      "id": "cleared-chat",
+      "group": "unset",
+      "scenario": "wire",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": "{}",
+      "effort": null,
+      "server": "ok",
+      "tools": "none",
+      "generic_roles": [
+        "executor",
+        "planner",
+        "classifier"
+      ],
+      "expect_provider": null,
+      "expect_source": null,
+      "legacy_bytes": "chat_completions"
+    },
+    {
+      "kind": "synthetic",
+      "id": "unset-effort-low-chat",
+      "group": "unset",
+      "scenario": "wire",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": null,
+      "effort": "low",
+      "server": "ok",
+      "tools": "none",
+      "generic_roles": [
+        "executor",
+        "planner",
+        "classifier"
+      ],
+      "expect_provider": null,
+      "expect_source": null
+    },
+    {
+      "kind": "synthetic",
+      "id": "unset-responses",
+      "group": "unset",
+      "scenario": "wire",
+      "api": "responses",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": null,
+      "effort": null,
+      "server": "ok",
+      "tools": "none",
+      "generic_roles": [
+        "executor",
+        "planner",
+        "classifier"
+      ],
+      "expect_provider": null,
+      "expect_source": null,
+      "legacy_bytes": "responses"
+    },
+    {
+      "kind": "synthetic",
+      "id": "cleared-responses",
+      "group": "unset",
+      "scenario": "wire",
+      "api": "responses",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": "{}",
+      "effort": null,
+      "server": "ok",
+      "tools": "none",
+      "generic_roles": [
+        "executor",
+        "planner",
+        "classifier"
+      ],
+      "expect_provider": null,
+      "expect_source": null,
+      "legacy_bytes": "responses"
+    },
+    {
+      "kind": "synthetic",
+      "id": "unset-effort-low-responses",
+      "group": "unset",
+      "scenario": "wire",
+      "api": "responses",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": null,
+      "effort": "low",
+      "server": "ok",
+      "tools": "none",
+      "generic_roles": [
+        "executor",
+        "planner",
+        "classifier"
+      ],
+      "expect_provider": null,
+      "expect_source": null
+    },
+    {
+      "kind": "synthetic",
+      "id": "cleared-inherited-routing",
+      "group": "unset",
+      "scenario": "wire",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": "{}",
+      "effort": "low",
+      "server": "ok",
+      "tools": "none",
+      "generic_roles": [
+        "executor",
+        "planner",
+        "classifier"
+      ],
+      "expect_provider": null,
+      "expect_source": null,
+      "parent_routing": "{ only = [\"open-inference\"], allow_fallbacks = false }"
+    },
+    {
+      "kind": "synthetic",
+      "id": "cleared-without-generic-role",
+      "group": "unset",
+      "scenario": "wire",
+      "api": "chat_completions",
+      "layout": [
+        "lm-studio",
+        "ollama",
+        "lm-studio"
+      ],
+      "routing": "{}",
+      "effort": "low",
+      "server": "ok",
+      "tools": "none",
+      "generic_roles": [],
+      "expect_provider": null,
+      "expect_source": null
+    },
+    {
+      "kind": "synthetic",
+      "id": "declared-relay-equivalent-chat",
+      "group": "declared",
+      "scenario": "wire",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": "{ only = [\"open-inference\"], allow_fallbacks = false }",
+      "effort": "low",
+      "server": "ok",
+      "tools": "none",
+      "generic_roles": [
+        "executor",
+        "planner",
+        "classifier"
+      ],
+      "expect_provider": {
+        "only": [
+          "open-inference"
+        ],
+        "allow_fallbacks": false
+      },
+      "expect_source": "preset:routed"
+    },
+    {
+      "kind": "synthetic",
+      "id": "declared-fp4-variant-chat",
+      "group": "declared",
+      "scenario": "wire",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": "{ only = [\"open-inference/fp4\"], allow_fallbacks = false }",
+      "effort": "low",
+      "server": "ok",
+      "tools": "none",
+      "generic_roles": [
+        "executor",
+        "planner",
+        "classifier"
+      ],
+      "expect_provider": {
+        "only": [
+          "open-inference/fp4"
+        ],
+        "allow_fallbacks": false
+      },
+      "expect_source": "preset:routed"
+    },
+    {
+      "kind": "synthetic",
+      "id": "declared-order-chat",
+      "group": "declared",
+      "scenario": "wire",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": "{ order = [\"z-provider\", \"open-inference/fp4\", \"a.provider_1\"] }",
+      "effort": "low",
+      "server": "ok",
+      "tools": "none",
+      "generic_roles": [
+        "executor",
+        "planner",
+        "classifier"
+      ],
+      "expect_provider": {
+        "order": [
+          "z-provider",
+          "open-inference/fp4",
+          "a.provider_1"
+        ]
+      },
+      "expect_source": "preset:routed"
+    },
+    {
+      "kind": "synthetic",
+      "id": "declared-fallbacks-omitted-chat",
+      "group": "declared",
+      "scenario": "wire",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": "{ only = [\"open-inference\"] }",
+      "effort": "low",
+      "server": "ok",
+      "tools": "none",
+      "generic_roles": [
+        "executor",
+        "planner",
+        "classifier"
+      ],
+      "expect_provider": {
+        "only": [
+          "open-inference"
+        ]
+      },
+      "expect_source": "preset:routed"
+    },
+    {
+      "kind": "synthetic",
+      "id": "declared-fallbacks-true-chat",
+      "group": "declared",
+      "scenario": "wire",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": "{ only = [\"b-provider\", \"a-provider\"], allow_fallbacks = true }",
+      "effort": "low",
+      "server": "ok",
+      "tools": "none",
+      "generic_roles": [
+        "executor",
+        "planner",
+        "classifier"
+      ],
+      "expect_provider": {
+        "only": [
+          "b-provider",
+          "a-provider"
+        ],
+        "allow_fallbacks": true
+      },
+      "expect_source": "preset:routed"
+    },
+    {
+      "kind": "synthetic",
+      "id": "declared-only-and-order-chat",
+      "group": "declared",
+      "scenario": "wire",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": "{ order = [\"a-provider\"], only = [\"a-provider\", \"b-provider\"], allow_fallbacks = false }",
+      "effort": "low",
+      "server": "ok",
+      "tools": "none",
+      "generic_roles": [
+        "executor",
+        "planner",
+        "classifier"
+      ],
+      "expect_provider": {
+        "only": [
+          "a-provider",
+          "b-provider"
+        ],
+        "order": [
+          "a-provider"
+        ],
+        "allow_fallbacks": false
+      },
+      "expect_source": "preset:routed"
+    },
+    {
+      "kind": "synthetic",
+      "id": "declared-without-effort-chat",
+      "group": "declared",
+      "scenario": "wire",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": "{ only = [\"open-inference\"], allow_fallbacks = false }",
+      "effort": null,
+      "server": "ok",
+      "tools": "none",
+      "generic_roles": [
+        "executor",
+        "planner",
+        "classifier"
+      ],
+      "expect_provider": {
+        "only": [
+          "open-inference"
+        ],
+        "allow_fallbacks": false
+      },
+      "expect_source": "preset:routed"
+    },
+    {
+      "kind": "synthetic",
+      "id": "roles-generic-executor-chat",
+      "group": "roles",
+      "scenario": "wire",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "lm-studio",
+        "ollama"
+      ],
+      "routing": "{ only = [\"open-inference\"], allow_fallbacks = false }",
+      "effort": "low",
+      "server": "ok",
+      "tools": "none",
+      "generic_roles": [
+        "executor"
+      ],
+      "expect_provider": {
+        "only": [
+          "open-inference"
+        ],
+        "allow_fallbacks": false
+      },
+      "expect_source": "preset:routed"
+    },
+    {
+      "kind": "synthetic",
+      "id": "roles-generic-planner-chat",
+      "group": "roles",
+      "scenario": "wire",
+      "api": "chat_completions",
+      "layout": [
+        "ollama",
+        "generic",
+        "lm-studio"
+      ],
+      "routing": "{ only = [\"open-inference/fp4\"], allow_fallbacks = false }",
+      "effort": "low",
+      "server": "ok",
+      "tools": "none",
+      "generic_roles": [
+        "planner"
+      ],
+      "expect_provider": {
+        "only": [
+          "open-inference/fp4"
+        ],
+        "allow_fallbacks": false
+      },
+      "expect_source": "preset:routed"
+    },
+    {
+      "kind": "synthetic",
+      "id": "roles-generic-classifier-chat",
+      "group": "roles",
+      "scenario": "wire",
+      "api": "chat_completions",
+      "layout": [
+        "lm-studio",
+        "ollama",
+        "generic"
+      ],
+      "routing": "{ only = [\"open-inference\"], allow_fallbacks = false }",
+      "effort": "low",
+      "server": "ok",
+      "tools": "none",
+      "generic_roles": [
+        "classifier"
+      ],
+      "expect_provider": {
+        "only": [
+          "open-inference"
+        ],
+        "allow_fallbacks": false
+      },
+      "expect_source": "preset:routed"
+    },
+    {
+      "kind": "synthetic",
+      "id": "tools-native-chat",
+      "group": "tools",
+      "scenario": "wire",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "ollama",
+        "ollama"
+      ],
+      "routing": "{ only = [\"open-inference\"], allow_fallbacks = false }",
+      "effort": "low",
+      "server": "ok",
+      "tools": "native",
+      "generic_roles": [
+        "executor"
+      ],
+      "expect_provider": {
+        "only": [
+          "open-inference"
+        ],
+        "allow_fallbacks": false
+      },
+      "expect_source": "preset:routed"
+    },
+    {
+      "kind": "synthetic",
+      "id": "tools-text-chat",
+      "group": "tools",
+      "scenario": "wire",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "ollama",
+        "ollama"
+      ],
+      "routing": "{ only = [\"open-inference\"], allow_fallbacks = false }",
+      "effort": "low",
+      "server": "ok",
+      "tools": "text",
+      "generic_roles": [
+        "executor"
+      ],
+      "expect_provider": {
+        "only": [
+          "open-inference"
+        ],
+        "allow_fallbacks": false
+      },
+      "expect_source": "preset:routed"
+    },
+    {
+      "kind": "synthetic",
+      "id": "transport-reject-400-chat",
+      "group": "transport",
+      "scenario": "wire",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "generic",
+        "ollama"
+      ],
+      "routing": "{ only = [\"open-inference/fp4\"], allow_fallbacks = false }",
+      "effort": "low",
+      "server": "reject-400",
+      "tools": "none",
+      "generic_roles": [
+        "executor",
+        "planner"
+      ],
+      "expect_provider": {
+        "only": [
+          "open-inference/fp4"
+        ],
+        "allow_fallbacks": false
+      },
+      "expect_source": "preset:routed"
+    },
+    {
+      "kind": "synthetic",
+      "id": "transport-reject-404-chat",
+      "group": "transport",
+      "scenario": "wire",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "generic",
+        "ollama"
+      ],
+      "routing": "{ only = [\"open-inference\"], allow_fallbacks = false }",
+      "effort": "low",
+      "server": "reject-404",
+      "tools": "none",
+      "generic_roles": [
+        "executor",
+        "planner"
+      ],
+      "expect_provider": {
+        "only": [
+          "open-inference"
+        ],
+        "allow_fallbacks": false
+      },
+      "expect_source": "preset:routed"
+    },
+    {
+      "kind": "synthetic",
+      "id": "transport-retry-503-chat",
+      "group": "transport",
+      "scenario": "wire",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "ollama",
+        "generic"
+      ],
+      "routing": "{ only = [\"open-inference\"], allow_fallbacks = false }",
+      "effort": "low",
+      "server": "retry-503",
+      "tools": "none",
+      "generic_roles": [
+        "executor",
+        "classifier"
+      ],
+      "expect_provider": {
+        "only": [
+          "open-inference"
+        ],
+        "allow_fallbacks": false
+      },
+      "expect_source": "preset:routed"
+    },
+    {
+      "kind": "synthetic",
+      "id": "declared-relay-equivalent-responses",
+      "group": "declared",
+      "scenario": "wire",
+      "api": "responses",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": "{ only = [\"open-inference\"], allow_fallbacks = false }",
+      "effort": "low",
+      "server": "ok",
+      "tools": "none",
+      "generic_roles": [
+        "executor",
+        "planner",
+        "classifier"
+      ],
+      "expect_provider": {
+        "only": [
+          "open-inference"
+        ],
+        "allow_fallbacks": false
+      },
+      "expect_source": "preset:routed"
+    },
+    {
+      "kind": "synthetic",
+      "id": "declared-fp4-variant-responses",
+      "group": "declared",
+      "scenario": "wire",
+      "api": "responses",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": "{ only = [\"open-inference/fp4\"], allow_fallbacks = false }",
+      "effort": "low",
+      "server": "ok",
+      "tools": "none",
+      "generic_roles": [
+        "executor",
+        "planner",
+        "classifier"
+      ],
+      "expect_provider": {
+        "only": [
+          "open-inference/fp4"
+        ],
+        "allow_fallbacks": false
+      },
+      "expect_source": "preset:routed"
+    },
+    {
+      "kind": "synthetic",
+      "id": "declared-order-responses",
+      "group": "declared",
+      "scenario": "wire",
+      "api": "responses",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": "{ order = [\"z-provider\", \"open-inference/fp4\", \"a.provider_1\"] }",
+      "effort": "low",
+      "server": "ok",
+      "tools": "none",
+      "generic_roles": [
+        "executor",
+        "planner",
+        "classifier"
+      ],
+      "expect_provider": {
+        "order": [
+          "z-provider",
+          "open-inference/fp4",
+          "a.provider_1"
+        ]
+      },
+      "expect_source": "preset:routed"
+    },
+    {
+      "kind": "synthetic",
+      "id": "declared-fallbacks-omitted-responses",
+      "group": "declared",
+      "scenario": "wire",
+      "api": "responses",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": "{ only = [\"open-inference\"] }",
+      "effort": "low",
+      "server": "ok",
+      "tools": "none",
+      "generic_roles": [
+        "executor",
+        "planner",
+        "classifier"
+      ],
+      "expect_provider": {
+        "only": [
+          "open-inference"
+        ]
+      },
+      "expect_source": "preset:routed"
+    },
+    {
+      "kind": "synthetic",
+      "id": "declared-fallbacks-true-responses",
+      "group": "declared",
+      "scenario": "wire",
+      "api": "responses",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": "{ only = [\"b-provider\", \"a-provider\"], allow_fallbacks = true }",
+      "effort": "low",
+      "server": "ok",
+      "tools": "none",
+      "generic_roles": [
+        "executor",
+        "planner",
+        "classifier"
+      ],
+      "expect_provider": {
+        "only": [
+          "b-provider",
+          "a-provider"
+        ],
+        "allow_fallbacks": true
+      },
+      "expect_source": "preset:routed"
+    },
+    {
+      "kind": "synthetic",
+      "id": "declared-only-and-order-responses",
+      "group": "declared",
+      "scenario": "wire",
+      "api": "responses",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": "{ order = [\"a-provider\"], only = [\"a-provider\", \"b-provider\"], allow_fallbacks = false }",
+      "effort": "low",
+      "server": "ok",
+      "tools": "none",
+      "generic_roles": [
+        "executor",
+        "planner",
+        "classifier"
+      ],
+      "expect_provider": {
+        "only": [
+          "a-provider",
+          "b-provider"
+        ],
+        "order": [
+          "a-provider"
+        ],
+        "allow_fallbacks": false
+      },
+      "expect_source": "preset:routed"
+    },
+    {
+      "kind": "synthetic",
+      "id": "declared-without-effort-responses",
+      "group": "declared",
+      "scenario": "wire",
+      "api": "responses",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": "{ only = [\"open-inference\"], allow_fallbacks = false }",
+      "effort": null,
+      "server": "ok",
+      "tools": "none",
+      "generic_roles": [
+        "executor",
+        "planner",
+        "classifier"
+      ],
+      "expect_provider": {
+        "only": [
+          "open-inference"
+        ],
+        "allow_fallbacks": false
+      },
+      "expect_source": "preset:routed"
+    },
+    {
+      "kind": "synthetic",
+      "id": "roles-generic-executor-responses",
+      "group": "roles",
+      "scenario": "wire",
+      "api": "responses",
+      "layout": [
+        "generic",
+        "lm-studio",
+        "ollama"
+      ],
+      "routing": "{ only = [\"open-inference\"], allow_fallbacks = false }",
+      "effort": "low",
+      "server": "ok",
+      "tools": "none",
+      "generic_roles": [
+        "executor"
+      ],
+      "expect_provider": {
+        "only": [
+          "open-inference"
+        ],
+        "allow_fallbacks": false
+      },
+      "expect_source": "preset:routed"
+    },
+    {
+      "kind": "synthetic",
+      "id": "roles-generic-planner-responses",
+      "group": "roles",
+      "scenario": "wire",
+      "api": "responses",
+      "layout": [
+        "ollama",
+        "generic",
+        "lm-studio"
+      ],
+      "routing": "{ only = [\"open-inference/fp4\"], allow_fallbacks = false }",
+      "effort": "low",
+      "server": "ok",
+      "tools": "none",
+      "generic_roles": [
+        "planner"
+      ],
+      "expect_provider": {
+        "only": [
+          "open-inference/fp4"
+        ],
+        "allow_fallbacks": false
+      },
+      "expect_source": "preset:routed"
+    },
+    {
+      "kind": "synthetic",
+      "id": "roles-generic-classifier-responses",
+      "group": "roles",
+      "scenario": "wire",
+      "api": "responses",
+      "layout": [
+        "lm-studio",
+        "ollama",
+        "generic"
+      ],
+      "routing": "{ only = [\"open-inference\"], allow_fallbacks = false }",
+      "effort": "low",
+      "server": "ok",
+      "tools": "none",
+      "generic_roles": [
+        "classifier"
+      ],
+      "expect_provider": {
+        "only": [
+          "open-inference"
+        ],
+        "allow_fallbacks": false
+      },
+      "expect_source": "preset:routed"
+    },
+    {
+      "kind": "synthetic",
+      "id": "tools-native-responses",
+      "group": "tools",
+      "scenario": "wire",
+      "api": "responses",
+      "layout": [
+        "generic",
+        "ollama",
+        "ollama"
+      ],
+      "routing": "{ only = [\"open-inference\"], allow_fallbacks = false }",
+      "effort": "low",
+      "server": "ok",
+      "tools": "native",
+      "generic_roles": [
+        "executor"
+      ],
+      "expect_provider": {
+        "only": [
+          "open-inference"
+        ],
+        "allow_fallbacks": false
+      },
+      "expect_source": "preset:routed"
+    },
+    {
+      "kind": "synthetic",
+      "id": "tools-text-responses",
+      "group": "tools",
+      "scenario": "wire",
+      "api": "responses",
+      "layout": [
+        "generic",
+        "ollama",
+        "ollama"
+      ],
+      "routing": "{ only = [\"open-inference\"], allow_fallbacks = false }",
+      "effort": "low",
+      "server": "ok",
+      "tools": "text",
+      "generic_roles": [
+        "executor"
+      ],
+      "expect_provider": {
+        "only": [
+          "open-inference"
+        ],
+        "allow_fallbacks": false
+      },
+      "expect_source": "preset:routed"
+    },
+    {
+      "kind": "synthetic",
+      "id": "transport-reject-400-responses",
+      "group": "transport",
+      "scenario": "wire",
+      "api": "responses",
+      "layout": [
+        "generic",
+        "generic",
+        "ollama"
+      ],
+      "routing": "{ only = [\"open-inference/fp4\"], allow_fallbacks = false }",
+      "effort": "low",
+      "server": "reject-400",
+      "tools": "none",
+      "generic_roles": [
+        "executor",
+        "planner"
+      ],
+      "expect_provider": {
+        "only": [
+          "open-inference/fp4"
+        ],
+        "allow_fallbacks": false
+      },
+      "expect_source": "preset:routed"
+    },
+    {
+      "kind": "synthetic",
+      "id": "transport-reject-404-responses",
+      "group": "transport",
+      "scenario": "wire",
+      "api": "responses",
+      "layout": [
+        "generic",
+        "generic",
+        "ollama"
+      ],
+      "routing": "{ only = [\"open-inference\"], allow_fallbacks = false }",
+      "effort": "low",
+      "server": "reject-404",
+      "tools": "none",
+      "generic_roles": [
+        "executor",
+        "planner"
+      ],
+      "expect_provider": {
+        "only": [
+          "open-inference"
+        ],
+        "allow_fallbacks": false
+      },
+      "expect_source": "preset:routed"
+    },
+    {
+      "kind": "synthetic",
+      "id": "transport-retry-503-responses",
+      "group": "transport",
+      "scenario": "wire",
+      "api": "responses",
+      "layout": [
+        "generic",
+        "ollama",
+        "generic"
+      ],
+      "routing": "{ only = [\"open-inference\"], allow_fallbacks = false }",
+      "effort": "low",
+      "server": "retry-503",
+      "tools": "none",
+      "generic_roles": [
+        "executor",
+        "classifier"
+      ],
+      "expect_provider": {
+        "only": [
+          "open-inference"
+        ],
+        "allow_fallbacks": false
+      },
+      "expect_source": "preset:routed"
+    },
+    {
+      "kind": "synthetic",
+      "id": "transport-unset-reject-400",
+      "group": "transport",
+      "scenario": "wire",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "ollama",
+        "ollama"
+      ],
+      "routing": null,
+      "effort": null,
+      "server": "reject-400",
+      "tools": "none",
+      "generic_roles": [
+        "executor"
+      ],
+      "expect_provider": null,
+      "expect_source": null
+    },
+    {
+      "kind": "synthetic",
+      "id": "layers-home-table-replaced",
+      "group": "layers",
+      "scenario": "wire",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": "{ order = [\"b-provider\"] }",
+      "effort": "low",
+      "server": "ok",
+      "tools": "none",
+      "generic_roles": [
+        "executor",
+        "planner",
+        "classifier"
+      ],
+      "expect_provider": {
+        "order": [
+          "b-provider"
+        ]
+      },
+      "expect_source": "preset:routed",
+      "home_routing": "{ only = [\"a-provider\"], allow_fallbacks = false }"
+    },
+    {
+      "kind": "synthetic",
+      "id": "layers-home-table-inherited",
+      "group": "layers",
+      "scenario": "wire",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": null,
+      "effort": "low",
+      "server": "ok",
+      "tools": "none",
+      "generic_roles": [
+        "executor",
+        "planner",
+        "classifier"
+      ],
+      "expect_provider": {
+        "only": [
+          "a-provider"
+        ],
+        "allow_fallbacks": false
+      },
+      "expect_source": "preset:routed",
+      "home_routing": "{ only = [\"a-provider\"], allow_fallbacks = false }"
+    },
+    {
+      "kind": "synthetic",
+      "id": "layers-extends-inherited",
+      "group": "layers",
+      "scenario": "wire",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": null,
+      "effort": "low",
+      "server": "ok",
+      "tools": "none",
+      "generic_roles": [
+        "executor",
+        "planner",
+        "classifier"
+      ],
+      "expect_provider": {
+        "only": [
+          "a-provider"
+        ]
+      },
+      "expect_source": "preset:base",
+      "parent_routing": "{ only = [\"a-provider\"] }"
+    },
+    {
+      "kind": "synthetic",
+      "id": "layers-extends-replaced",
+      "group": "layers",
+      "scenario": "wire",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": "{ order = [\"c-provider\"] }",
+      "effort": "low",
+      "server": "ok",
+      "tools": "none",
+      "generic_roles": [
+        "executor",
+        "planner",
+        "classifier"
+      ],
+      "expect_provider": {
+        "order": [
+          "c-provider"
+        ]
+      },
+      "expect_source": "preset:routed",
+      "parent_routing": "{ only = [\"a-provider\"], allow_fallbacks = false }"
+    },
+    {
+      "kind": "synthetic",
+      "id": "cli-role-flag-makes-executor-generic",
+      "group": "cli-role",
+      "scenario": "wire",
+      "api": "chat_completions",
+      "layout": [
+        "ollama",
+        "ollama",
+        "ollama"
+      ],
+      "routing": "{ only = [\"open-inference\"], allow_fallbacks = false }",
+      "effort": "low",
+      "server": "ok",
+      "tools": "none",
+      "generic_roles": [
+        "executor"
+      ],
+      "expect_provider": {
+        "only": [
+          "open-inference"
+        ],
+        "allow_fallbacks": false
+      },
+      "expect_source": "preset:routed",
+      "cli": [
+        "--provider",
+        "openai-compatible",
+        "--base-url",
+        "<generic-url>"
+      ]
+    },
+    {
+      "kind": "synthetic",
+      "id": "cli-role-flag-removes-every-generic-role",
+      "group": "cli-role",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "ollama",
+        "ollama"
+      ],
+      "routing": "{ only = [\"open-inference\"], allow_fallbacks = false }",
+      "expect_error": [
+        "requires at least one openai-compatible role"
+      ],
+      "secret": "open-inference",
+      "cli": [
+        "--provider",
+        "ollama"
+      ]
+    },
+    {
+      "kind": "synthetic",
+      "id": "observe-reported-chat",
+      "group": "observe",
+      "scenario": "observe",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "ollama",
+        "ollama"
+      ],
+      "routing": "{ only = [\"open-inference/fp4\"], allow_fallbacks = false }",
+      "expect_status": "reported",
+      "expect_response_provider": "OpenInference",
+      "expect_reply": "ok",
+      "response_provider": "OpenInference"
+    },
+    {
+      "kind": "synthetic",
+      "id": "observe-missing-chat",
+      "group": "observe",
+      "scenario": "observe",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "ollama",
+        "ollama"
+      ],
+      "routing": "{ only = [\"open-inference/fp4\"], allow_fallbacks = false }",
+      "expect_status": "missing",
+      "expect_response_provider": null,
+      "expect_reply": "ok"
+    },
+    {
+      "kind": "synthetic",
+      "id": "observe-broken-tool-args-chat",
+      "group": "observe",
+      "scenario": "observe",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "ollama",
+        "ollama"
+      ],
+      "routing": "{ only = [\"open-inference/fp4\"], allow_fallbacks = false }",
+      "expect_status": "reported",
+      "expect_response_provider": "OpenInference",
+      "expect_reply": "parse-error",
+      "response_provider": "OpenInference",
+      "broken_tool_args": true
+    },
+    {
+      "kind": "synthetic",
+      "id": "observe-unparseable-chat",
+      "group": "observe",
+      "scenario": "observe",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "ollama",
+        "ollama"
+      ],
+      "routing": "{ only = [\"open-inference/fp4\"], allow_fallbacks = false }",
+      "expect_status": "unparseable",
+      "expect_response_provider": null,
+      "expect_reply": "parse-error",
+      "raw_body": "not-json-939"
+    },
+    {
+      "kind": "synthetic",
+      "id": "observe-reported-responses",
+      "group": "observe",
+      "scenario": "observe",
+      "api": "responses",
+      "layout": [
+        "generic",
+        "ollama",
+        "ollama"
+      ],
+      "routing": "{ only = [\"open-inference/fp4\"], allow_fallbacks = false }",
+      "expect_status": "reported",
+      "expect_response_provider": "OpenInference",
+      "expect_reply": "ok",
+      "response_provider": "OpenInference"
+    },
+    {
+      "kind": "synthetic",
+      "id": "observe-missing-responses",
+      "group": "observe",
+      "scenario": "observe",
+      "api": "responses",
+      "layout": [
+        "generic",
+        "ollama",
+        "ollama"
+      ],
+      "routing": "{ only = [\"open-inference/fp4\"], allow_fallbacks = false }",
+      "expect_status": "missing",
+      "expect_response_provider": null,
+      "expect_reply": "ok"
+    },
+    {
+      "kind": "synthetic",
+      "id": "observe-broken-tool-args-responses",
+      "group": "observe",
+      "scenario": "observe",
+      "api": "responses",
+      "layout": [
+        "generic",
+        "ollama",
+        "ollama"
+      ],
+      "routing": "{ only = [\"open-inference/fp4\"], allow_fallbacks = false }",
+      "expect_status": "reported",
+      "expect_response_provider": "OpenInference",
+      "expect_reply": "parse-error",
+      "response_provider": "OpenInference",
+      "broken_tool_args": true
+    },
+    {
+      "kind": "synthetic",
+      "id": "observe-unparseable-responses",
+      "group": "observe",
+      "scenario": "observe",
+      "api": "responses",
+      "layout": [
+        "generic",
+        "ollama",
+        "ollama"
+      ],
+      "routing": "{ only = [\"open-inference/fp4\"], allow_fallbacks = false }",
+      "expect_status": "unparseable",
+      "expect_response_provider": null,
+      "expect_reply": "parse-error",
+      "raw_body": "not-json-939"
+    },
+    {
+      "kind": "synthetic",
+      "id": "observe-display-name",
+      "group": "observe",
+      "scenario": "observe",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "ollama",
+        "ollama"
+      ],
+      "routing": "{ only = [\"open-inference/fp4\"], allow_fallbacks = false }",
+      "expect_status": "reported",
+      "expect_response_provider": "Open Inference (fp4)",
+      "expect_reply": "ok",
+      "response_provider": "Open Inference (fp4)"
+    },
+    {
+      "kind": "synthetic",
+      "id": "observe-null",
+      "group": "observe",
+      "scenario": "observe",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "ollama",
+        "ollama"
+      ],
+      "routing": "{ only = [\"open-inference/fp4\"], allow_fallbacks = false }",
+      "expect_status": "missing",
+      "expect_response_provider": null,
+      "expect_reply": "ok",
+      "response_provider": null
+    },
+    {
+      "kind": "synthetic",
+      "id": "observe-number",
+      "group": "observe",
+      "scenario": "observe",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "ollama",
+        "ollama"
+      ],
+      "routing": "{ only = [\"open-inference/fp4\"], allow_fallbacks = false }",
+      "expect_status": "invalid",
+      "expect_response_provider": null,
+      "expect_reply": "ok",
+      "response_provider": 939
+    },
+    {
+      "kind": "synthetic",
+      "id": "observe-object",
+      "group": "observe",
+      "scenario": "observe",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "ollama",
+        "ollama"
+      ],
+      "routing": "{ only = [\"open-inference/fp4\"], allow_fallbacks = false }",
+      "expect_status": "invalid",
+      "expect_response_provider": null,
+      "expect_reply": "ok",
+      "response_provider": {
+        "name": "OpenInference"
+      }
+    },
+    {
+      "kind": "synthetic",
+      "id": "observe-empty",
+      "group": "observe",
+      "scenario": "observe",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "ollama",
+        "ollama"
+      ],
+      "routing": "{ only = [\"open-inference/fp4\"], allow_fallbacks = false }",
+      "expect_status": "invalid",
+      "expect_response_provider": null,
+      "expect_reply": "ok",
+      "response_provider": ""
+    },
+    {
+      "kind": "synthetic",
+      "id": "observe-control-character",
+      "group": "observe",
+      "scenario": "observe",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "ollama",
+        "ollama"
+      ],
+      "routing": "{ only = [\"open-inference/fp4\"], allow_fallbacks = false }",
+      "expect_status": "invalid",
+      "expect_response_provider": null,
+      "expect_reply": "ok",
+      "response_provider": "Open\u0007Inference"
+    },
+    {
+      "kind": "synthetic",
+      "id": "observe-overlong",
+      "group": "observe",
+      "scenario": "observe",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "ollama",
+        "ollama"
+      ],
+      "routing": "{ only = [\"open-inference/fp4\"], allow_fallbacks = false }",
+      "expect_status": "invalid",
+      "expect_response_provider": null,
+      "expect_reply": "ok",
+      "response_provider": "ppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp"
+    },
+    {
+      "kind": "synthetic",
+      "id": "observe-unparseable-array",
+      "group": "observe",
+      "scenario": "observe",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "ollama",
+        "ollama"
+      ],
+      "routing": "{ only = [\"open-inference/fp4\"], allow_fallbacks = false }",
+      "expect_status": "unparseable",
+      "expect_response_provider": null,
+      "expect_reply": "parse-error",
+      "raw_body": "[1,2]"
+    },
+    {
+      "kind": "synthetic",
+      "id": "key-reflected-into-provider-chat",
+      "group": "key",
+      "scenario": "key",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "ollama",
+        "ollama"
+      ],
+      "routing": "{ only = [\"open-inference\"], allow_fallbacks = false }",
+      "expect_status": "invalid",
+      "expect_response_provider": null,
+      "expect_reply": "ok"
+    },
+    {
+      "kind": "synthetic",
+      "id": "key-reflected-into-provider-responses",
+      "group": "key",
+      "scenario": "key",
+      "api": "responses",
+      "layout": [
+        "generic",
+        "ollama",
+        "ollama"
+      ],
+      "routing": "{ only = [\"open-inference\"], allow_fallbacks = false }",
+      "expect_status": "invalid",
+      "expect_response_provider": null,
+      "expect_reply": "ok"
+    }
+  ]
+}

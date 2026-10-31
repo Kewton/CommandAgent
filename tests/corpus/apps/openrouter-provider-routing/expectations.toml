@@ -1,0 +1,55 @@
+case_id = "openrouter-provider-routing"
+source = "Issue #939: a preset's typed openrouter_provider (only, order, allow_fallbacks) is sent as the top-level provider object of Chat Completions and Responses by the roles that resolve to the generic openai-compatible transport only; the declared keys are sent as written without filling in allow_fallbacks, unset and {} keep the request and provider events byte-identical to the base SHA, an unknown key, wrong type, empty list, malformed or repeated slug, control character, or ${ENV} is a configuration error that names the file, line, and key but not the value, a parent preset or lower config layer is replaced as one table, LM Studio and Ollama native roles never receive it, an HTTP 400 or 404 is never resent without the routing, a 503 retry resends the same body, and each 2xx body records openrouter_provider_observed with the response's top-level provider as reported, missing, invalid, or unparseable, never filled in from the request or the transport name"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[json_fields]
+fixtures/cases.json:issue = "#939"
+source-manifest.json:base_sha = "06dc565df12f7342394bd335c416c1a44c530cf1"
+
+[fixture_contains]
+fixtures/cases.json = [
+  "\"kind\": \"synthetic\"",
+  "\"id\": \"unset-chat\"",
+  "\"id\": \"cleared-responses\"",
+  "\"id\": \"declared-relay-equivalent-chat\"",
+  "\"id\": \"declared-fp4-variant-responses\"",
+  "\"id\": \"declared-fallbacks-omitted-chat\"",
+  "\"id\": \"roles-generic-classifier-chat\"",
+  "\"id\": \"tools-text-responses\"",
+  "\"id\": \"transport-reject-400-chat\"",
+  "\"id\": \"transport-retry-503-responses\"",
+  "\"id\": \"layers-home-table-replaced\"",
+  "\"id\": \"observe-missing-chat\"",
+  "\"id\": \"observe-broken-tool-args-responses\"",
+  "\"id\": \"observe-unparseable-chat\"",
+  "\"id\": \"key-reflected-into-provider-chat\"",
+  "\"id\": \"config-unknown-key\""
+]
+
+[fixture_ordered]
+fixtures/cases.json = [
+  "\"legacy\"",
+  "\"config-unknown-key\"",
+  "\"unset-chat\"",
+  "\"declared-relay-equivalent-chat\"",
+  "\"observe-reported-chat\""
+]

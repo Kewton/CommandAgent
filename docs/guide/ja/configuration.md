@@ -89,6 +89,7 @@ platform の `commandagent` state directory に書き込み、既存 state の l
 | `stream` | `"on"` または `"off"` | REPL ではオン、それ以外はオフ |
 | `prompt_layout` | `"stable"` または `"legacy"` | トップレベル値、その後 `"legacy"` |
 | `plan_preset` | `"none"` または `"profile"` | トップレベル／計算された planner 値 |
+| `openrouter_provider` | `only`・`order`（provider slug の配列）と `allow_fallbacks`（boolean）だけを持つ 1 行の inline table。`openai-compatible` の役割が `provider` object として送る。例：`api = "chat_completions"` と `{ only = ["open-inference/fp4"], allow_fallbacks = false }`。`{}` は継承した table を解除（[プロバイダ](providers.md) を参照） | routing なし |
 
 `extends` は単一継承です。子が定義したフィールドを優先し、不足フィールドを親から継承します。
 親も 1 個の親を継承できますが、親が見つからない場合や `a -> b -> a` のような循環はエラーです。

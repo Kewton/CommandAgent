@@ -13,6 +13,7 @@ use crate::planner::intent::detect_intent;
 use crate::planner::profile::{ProfileInference, infer_profile, resolve_profile_runtime};
 
 mod env_deferral;
+pub mod openrouter_routing;
 mod resolution;
 mod validation;
 use resolution::{
@@ -46,6 +47,7 @@ pub const SUPPORTED_PRESET_KEYS: &[&str] = &[
     "stream",
     "prompt_layout",
     "plan_preset",
+    "openrouter_provider",
 ];
 pub const SUPPORTED_TOP_LEVEL_KEYS: &[&str] = &[
     "extension_root",
@@ -89,6 +91,7 @@ pub struct OpenAiCompatibleConfig {
     executor: bool,
     planner: bool,
     classifier: bool,
+    openrouter_provider: Option<openrouter_routing::ResolvedOpenRouterRouting>,
 }
 
 impl OpenAiCompatibleConfig {
@@ -537,6 +540,7 @@ struct PresetConfig {
     narration: Option<Sourced<NarrationMode>>,
     footer: Option<Sourced<FooterMode>>,
     stream: Option<Sourced<bool>>,
+    openrouter_provider: Option<Sourced<openrouter_routing::OpenRouterProviderRouting>>,
 }
 
 #[derive(Debug, Clone, Default)]

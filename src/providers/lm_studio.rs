@@ -14,6 +14,7 @@ use crate::state::ConversationMessage;
 use crate::tools::registry::ToolSpec;
 
 use super::compatible_effort::{self, CompatibleEffortSetting};
+use super::openrouter_routing::ClientRouting;
 use super::streaming::{CancelToken, HttpCall};
 use super::{
     AssistantReply, ChatClient, ProviderResponseMetadata, openai_chat_completions, openai_responses,
@@ -61,6 +62,9 @@ pub struct LmStudioClient {
     /// `from_*env` constructors; every clone, worker, and retry sends it.
     reasoning_effort: Option<&'static str>,
     provider_role: ProviderRole,
+    /// The preset's `openrouter_provider`, fixed at construction for generic
+    /// roles only (Issue #939); `None` sends and records nothing new.
+    openrouter_routing: Option<ClientRouting>,
 }
 
 impl fmt::Debug for LmStudioClient {
@@ -77,6 +81,7 @@ impl fmt::Debug for LmStudioClient {
             .field("eval_events_path", &self.eval_events_path)
             .field("reasoning_effort", &self.reasoning_effort)
             .field("provider_role", &self.provider_role)
+            .field("openrouter_routing", &self.openrouter_routing)
             .finish_non_exhaustive()
     }
 }
@@ -129,7 +134,11 @@ impl LmStudioClient {
             config.openai_api,
             config.eval_events_path.clone(),
         )
-        .map(|client| client.with_reasoning_effort(reasoning_effort, role))
+        .map(|client| {
+            let mut client = client.with_reasoning_effort(reasoning_effort, role);
+            client.openrouter_routing = ClientRouting::for_role(compatible, role);
+            client
+        })
     }
 
     fn with_reasoning_effort(
@@ -216,6 +225,7 @@ impl LmStudioClient {
             responses_state: Arc::new(Mutex::new(openai_responses::ConversationState::default())),
             reasoning_effort: None,
             provider_role: ProviderRole::Executor,
+            openrouter_routing: None,
         })
     }
 
@@ -257,6 +267,7 @@ impl LmStudioClient {
                 self.max_predict,
             ),
         };
+        let body = self.route(body)?;
         self.emit_request(model, "chat_completions", tools, native_tools_enabled);
         let (body, attempt) =
             self.post_json("/v1/chat/completions", model, "chat_completions", &body)?;
@@ -301,6 +312,7 @@ impl LmStudioClient {
                 &state,
             ),
         };
+        let body = self.route(body)?;
         self.emit_request(model, "responses", tools, native_tools_enabled);
         let (body, attempt) = self.post_json("/v1/responses", model, "responses", &body)?;
         match openai_responses::parse_response(&body) {
@@ -314,6 +326,13 @@ impl LmStudioClient {
                 Ok(parsed.reply)
             }
             Err(error) => self.parse_error(model, "responses", error),
+        }
+    }
+
+    fn route(&self, body: Value) -> anyhow::Result<Value> {
+        match &self.openrouter_routing {
+            Some(routing) => routing.apply(body),
+            None => Ok(body),
         }
     }
 
@@ -338,6 +357,9 @@ impl LmStudioClient {
             event["requested_reasoning_effort"] = json!(effort);
             event["reasoning_effort_source"] = json!(compatible_effort::SOURCE_ENV);
             event["provider_role"] = json!(compatible_effort::role_name(self.provider_role));
+        }
+        if let Some(routing) = &self.openrouter_routing {
+            routing.annotate_request(&mut event);
         }
         eval_events::emit(self.eval_events_path.as_deref(), event);
     }
@@ -383,7 +405,19 @@ impl LmStudioClient {
             );
             match call.run(async { request.send().await })? {
                 Ok(response) if response.status().is_success() => {
-                    return Ok((call.run(response.text())??, attempt + 1));
+                    let text = call.run(response.text())??;
+                    if let Some(routing) = &self.openrouter_routing {
+                        let event = routing.observed_event(
+                            self.kind.label(),
+                            api,
+                            model,
+                            attempt + 1,
+                            &text,
+                            |value| self.redacted_value(value),
+                        );
+                        eval_events::emit(self.eval_events_path.as_deref(), event);
+                    }
+                    return Ok((text, attempt + 1));
                 }
                 Ok(response)
                     if attempt == self.retries
@@ -474,11 +508,14 @@ impl LmStudioClient {
     }
 
     fn redacted_snippet(&self, value: &str) -> String {
-        let redacted = match self.api_token.as_deref() {
+        eval_events::body_snippet(&self.redacted_value(value))
+    }
+
+    fn redacted_value(&self, value: &str) -> String {
+        match self.api_token.as_deref() {
             Some(token) => value.replace(token, "<redacted>"),
             None => value.to_string(),
-        };
-        eval_events::body_snippet(&redacted)
+        }
     }
 
     fn connection_error(&self, error: impl std::fmt::Display) -> anyhow::Error {

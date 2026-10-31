@@ -92,6 +92,7 @@ unquoted integers.
 | `stream` | `"on"` or `"off"` | on for REPL, off otherwise |
 | `prompt_layout` | `"stable"` or `"legacy"` | top-level value, then `"legacy"` |
 | `plan_preset` | `"none"` or `"profile"` | top-level/computed planner value |
+| `openrouter_provider` | one-line inline table with only `only`, `order` (provider slug arrays), and `allow_fallbacks` (boolean), sent as the `provider` object by `openai-compatible` roles; for example with `api = "chat_completions"`, `{ only = ["open-inference/fp4"], allow_fallbacks = false }`; `{}` clears an inherited table (see [Providers](providers.md)) | no routing |
 
 `extends` performs single inheritance. The child wins for every field it
 defines, while missing fields come from the parent. Parents may themselves
