@@ -1,0 +1,61 @@
+case_id = "prefetched-planner-usage"
+source = "Issue #948: the speculative next-phase planner pairs each physical prefetch call with its own timing and response metadata; the replayed reply's provider_turn_duration carries that call's metadata and counts it once; every prefetch call also gets one additive speculative_phase_plan_provider_call event, with accounting_record false when replayed and true when unconsumed (discarded, stale, failed, dropped, or adopted unreplayed) or unsettled; unreported values stay absent and an explicit zero stays 0; the existing speculative_phase_plan_* events keep their base bytes"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[json_fields]
+fixtures/events.json:issue = "#948"
+fixtures/events.json:event = "speculative_phase_plan_provider_call"
+fixtures/events.json:accounting_flag = "accounting_record"
+fixtures/events.json:turn_event = "provider_turn_duration"
+source-manifest.json:base_sha = "4edfc5a726feb5fa468b4a24bc9de29f41c6b1bc"
+source-manifest.json:origin = "synthetic"
+
+[fixture_contains]
+fixtures/events.json = [
+  "\"id\": \"adopted-replayed\"",
+  "\"id\": \"discarded-settled\"",
+  "\"id\": \"cancelled-unsettled\"",
+  "\"id\": \"failed-attempts\"",
+  "\"id\": \"adopted-unreplayed\"",
+  "\"id\": \"pipeline-dropped\"",
+  "\"id\": \"http-adopted-replayed\"",
+  "\"id\": \"http-discarded-missing-cache\"",
+  "\"disposition\": \"replayed\"",
+  "\"disposition\": \"unconsumed\"",
+  "\"disposition\": \"unsettled\"",
+  "\"accounted_by\": \"provider_turn_duration\", \"accounting_record\": false",
+  "\"provider_cached_input_tokens\": 0",
+  "\"transport\": \"local_http\""
+]
+
+[fixture_ordered]
+fixtures/events.json = [
+  "\"base_pipeline_lines\"",
+  "\"started\"",
+  "\"adopted\"",
+  "\"discarded_stale_input\"",
+  "\"cases\"",
+  "\"adopted-replayed\"",
+  "\"discarded-settled\"",
+  "\"http-adopted-replayed\"",
+  "\"http-discarded-missing-cache\""
+]
