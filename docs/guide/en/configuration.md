@@ -386,7 +386,8 @@ no CLI flag), and a change during the run has no effect.
   `generic`, that has no completion contract, that does not continue an earlier
   conversation, and in which at least four loop iterations remain after the
   first request. Plan steps (`PlanRunStep`), other profiles, runs with a
-  completion contract, resumed or follow-up turns, and runs with less budget are
+  completion contract, resumed or follow-up turns, runs on a provider transport
+  that parses XML tool calls itself (Ollama), and runs with less budget are
   skipped. It is never enabled in the middle of a run.
 - Request: the first request alone carries one fixed guidance message. It asks
   for a `<requirement_plan>` JSON block at the start of the first reply with up
@@ -406,10 +407,12 @@ no CLI flag), and a change during the run has no effect.
   asked for again.
 - Handling: the host takes the block out of the first reply before any XML tool
   call is extracted or any tool runs. Nothing inside the block, and nothing
-  after an unclosed block, is read as a tool call by the loop (native tool calls
-  and explicit text mode, `tool_protocol = "text"`). A provider client that
-  parses XML tool calls itself before returning the reply (its own XML fallback)
-  does so before the host sees the block, so that path is not covered. The kept note passes the
+  after an unclosed block, is read as a tool call; a second, nested, or
+  unclosed block in the first reply also makes the note invalid. A provider
+  transport that parses XML tool calls itself before the host sees the reply
+  (today the Ollama client, in both native and `tool_protocol = "text"` runs)
+  is skipped with `reason` `provider_unsupported`: no guidance is sent and the
+  run is exactly the run with the variable off. The kept note passes the
   run's secret scrub, lives only in memory for that run, and is never written to
   the session, a file, or the runtime namespace; a resumed or follow-up turn does
   not get it back. Each later request of the run carries it exactly once, right

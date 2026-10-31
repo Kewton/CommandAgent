@@ -73,6 +73,11 @@ struct ScriptedClient {
     requests: Arc<Mutex<Vec<Vec<ConversationMessage>>>>,
     native_flags: Arc<Mutex<Vec<bool>>>,
     native: bool,
+    /// A client on the transport that parses XML tool calls itself before the
+    /// loop sees the reply (reported through `supports_ollama_think`).
+    parses_xml: bool,
+    /// What `allows_xml_fallback` reports.
+    allows_fallback: bool,
     /// Sets the requirement plan variable to this value during the first call.
     env_change_on_first_call: Option<&'static str>,
 }
@@ -84,6 +89,14 @@ impl ChatClient for ScriptedClient {
 
     fn supports_native_tools(&self, _model: &str) -> bool {
         self.native
+    }
+
+    fn supports_ollama_think(&self) -> bool {
+        self.parses_xml
+    }
+
+    fn allows_xml_fallback(&self) -> bool {
+        self.allows_fallback
     }
 
     fn boxed_clone(&self) -> Box<dyn ChatClient> {
@@ -192,6 +205,7 @@ struct Scenario {
     context_budget: usize,
     profile: String,
     xml: bool,
+    client_parses_xml: bool,
     prompt: String,
     history: Vec<(String, String)>,
     contract: Option<Value>,
@@ -234,6 +248,7 @@ impl Scenario {
             context_budget: row["context_budget"].as_u64().unwrap_or(100_000) as usize,
             profile: row["profile"].as_str().unwrap_or("generic").to_string(),
             xml: row["tool_mode"].as_str() == Some("xml"),
+            client_parses_xml: row["client_parses_xml"] == true,
             prompt,
             history: string_pairs(&row["history"]),
             contract: row.get("contract").cloned(),
@@ -372,6 +387,8 @@ impl Scenario {
             requests: Arc::new(Mutex::new(Vec::new())),
             native_flags: Arc::new(Mutex::new(Vec::new())),
             native: !self.xml,
+            parses_xml: self.client_parses_xml,
+            allows_fallback: false,
             env_change_on_first_call: None,
         });
         let mut session = earlier.unwrap_or_default();
@@ -663,6 +680,7 @@ const FIXED_STRINGS: &[&str] = &[
     "profile_not_generic",
     "completion_contract",
     "resumed_conversation",
+    "provider_unsupported",
     "insufficient_remaining_iterations",
     "no_provider_request",
     "first_request",
@@ -1454,4 +1472,30 @@ fn the_last_iteration_failure_kind_decides_the_release_reason() {
     }
     let trace = run_fixture_row("once-budget-after-plan-only-turn");
     assert_eq!(trace.plan_phases()[2], ["released", "budget_exhausted"]);
+}
+
+#[test]
+fn a_client_that_parses_xml_itself_is_skipped_exactly_like_off() {
+    for id in ["once-client-parses-xml", "once-client-parses-xml-text-mode"] {
+        let trace = run_fixture_row(id);
+        assert_eq!(
+            trace.plan_phases(),
+            vec![["skipped".to_string(), "provider_unsupported".to_string()]],
+            "{id}"
+        );
+        assert!(trace.request_indexes(GUIDANCE_MARKER).is_empty(), "{id}");
+    }
+    // The same scripts with a client that does not parse XML still plan, and
+    // `allows_xml_fallback` alone (LM Studio, OpenAI-compatible, OpenAI)
+    // does not skip it.
+    for id in ["once-captured-native", "once-captured-xml"] {
+        let row = scenario(id);
+        assert!(!row.client_parses_xml);
+        let trace = row.run_with(|mut client| {
+            client.allows_fallback = true;
+            client
+        });
+        assert_eq!(trace.request_indexes(GUIDANCE_MARKER), vec![0], "{id}");
+        assert_eq!(trace.plan_phases()[1][0], "captured", "{id}");
+    }
 }

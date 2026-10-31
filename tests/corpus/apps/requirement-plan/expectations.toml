@@ -41,5 +41,6 @@ fixtures/plan.json = [
   "\"id\": \"once-xml-invalid-then-unclosed-block\"",
   "\"id\": \"once-max-length-plan-turn\"",
   "\"id\": \"once-last-provider-failure\"",
-  "[\"released\", \"run_failed\"]"
+  "[\"released\", \"run_failed\"]",
+  "[\"skipped\", \"provider_unsupported\"]"
 ]

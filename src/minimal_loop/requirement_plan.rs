@@ -112,6 +112,7 @@ enum Reason {
     ProfileNotGeneric,
     CompletionContract,
     ResumedConversation,
+    ProviderUnsupported,
     InsufficientRemainingIterations,
     NoProviderRequest,
     FirstRequest,
@@ -133,6 +134,7 @@ impl Reason {
             Self::ProfileNotGeneric => "profile_not_generic",
             Self::CompletionContract => "completion_contract",
             Self::ResumedConversation => "resumed_conversation",
+            Self::ProviderUnsupported => "provider_unsupported",
             Self::InsufficientRemainingIterations => "insufficient_remaining_iterations",
             Self::NoProviderRequest => "no_provider_request",
             Self::FirstRequest => "first_request",
@@ -424,6 +426,14 @@ struct RunScope {
     generic_profile: bool,
     completion_contract: bool,
     new_conversation: bool,
+    /// The provider client parses XML tool calls itself, before the host can
+    /// take the note out of the reply. Today only the Ollama transport does
+    /// (`providers/ollama.rs`), and the existing capability that marks exactly
+    /// that transport is `ChatClient::supports_ollama_think`.
+    /// `allows_xml_fallback` is not used: it is also true for LM Studio, the
+    /// OpenAI-compatible transport (OpenRouter), and OpenAI, none of which
+    /// parse XML before returning the reply.
+    provider_parses_xml: bool,
 }
 
 impl RunScope {
@@ -436,6 +446,8 @@ impl RunScope {
             Some(Reason::CompletionContract)
         } else if !self.new_conversation {
             Some(Reason::ResumedConversation)
+        } else if self.provider_parses_xml {
+            Some(Reason::ProviderUnsupported)
         } else {
             None
         }
@@ -486,6 +498,7 @@ impl RequirementPlan {
         options: &RunSessionOptions,
         completion_contract: bool,
         history: &[ConversationMessage],
+        client: &dyn crate::providers::ChatClient,
     ) -> anyhow::Result<()> {
         let mode = parse_mode(read_env(ENV_NAME).as_deref())?;
         if mode == PlanMode::Once
@@ -499,6 +512,7 @@ impl RequirementPlan {
             generic_profile: config.profile == GENERIC_PROFILE_ID,
             completion_contract,
             new_conversation: history.is_empty(),
+            provider_parses_xml: client.supports_ollama_think(),
         };
         *self = Self::with_mode(mode, config.eval_events_path.as_deref(), scope);
         Ok(())
@@ -697,6 +711,7 @@ mod tests {
         generic_profile: true,
         completion_contract: false,
         new_conversation: true,
+        provider_parses_xml: false,
     };
 
     fn plain(text: &str) -> String {
@@ -1288,6 +1303,14 @@ mod tests {
                 Some("resumed_conversation"),
             ),
             (
+                RunScope {
+                    provider_parses_xml: true,
+                    ..ELIGIBLE
+                },
+                8,
+                Some("provider_unsupported"),
+            ),
+            (
                 ELIGIBLE,
                 MIN_REMAINING_ITERATIONS - 1,
                 Some("insufficient_remaining_iterations"),
@@ -1358,8 +1381,14 @@ mod tests {
 
     fn start(config: &Config) -> anyhow::Result<RequirementPlan> {
         let mut plan = RequirementPlan::default();
-        plan.start(config, &RunSessionOptions::default(), false, &[])
-            .map(|()| plan)
+        plan.start(
+            config,
+            &RunSessionOptions::default(),
+            false,
+            &[],
+            &NoXmlClient,
+        )
+        .map(|()| plan)
     }
 
     #[test]
@@ -1386,7 +1415,7 @@ mod tests {
 
     /// Every phase, reason, and field the plan emits beyond the shared
     /// `event`/`schema_version`/`phase`/`reason` keys and the `"1"` version.
-    const EMITTED_FIXED_WORDS: [&str; 30] = [
+    const EMITTED_FIXED_WORDS: [&str; 31] = [
         "requested",
         "captured",
         "skipped",
@@ -1395,6 +1424,7 @@ mod tests {
         "profile_not_generic",
         "completion_contract",
         "resumed_conversation",
+        "provider_unsupported",
         "insufficient_remaining_iterations",
         "no_provider_request",
         "first_request",
@@ -1441,6 +1471,10 @@ mod tests {
             },
             RunScope {
                 new_conversation: false,
+                ..ELIGIBLE
+            },
+            RunScope {
+                provider_parses_xml: true,
                 ..ELIGIBLE
             },
         ] {
@@ -1509,7 +1543,7 @@ mod tests {
                 }
             }
         }
-        let emitted = EMITTED_FIXED_WORDS[..27]
+        let emitted = EMITTED_FIXED_WORDS[..28]
             .iter()
             .map(|word| word.to_string())
             .collect::<std::collections::BTreeSet<_>>();
@@ -1523,6 +1557,28 @@ mod tests {
                 "{word} is not reserved in fixed_identifiers"
             );
             assert!(crate::sensitive_data::collides_with_fixed_identifier(word));
+        }
+    }
+
+    /// A client that never parses XML itself.
+    #[derive(Clone)]
+    struct NoXmlClient;
+
+    impl ChatClient for NoXmlClient {
+        fn label(&self) -> &str {
+            "no-xml"
+        }
+        fn boxed_clone(&self) -> Box<dyn ChatClient> {
+            Box::new(self.clone())
+        }
+        fn chat(
+            &mut self,
+            _model: &str,
+            _messages: &[ConversationMessage],
+            _tools: &[ToolSpec],
+            _native_tools_enabled: bool,
+        ) -> anyhow::Result<AssistantReply> {
+            anyhow::bail!("never called")
         }
     }
 

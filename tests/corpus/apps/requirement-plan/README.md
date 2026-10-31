@@ -54,9 +54,12 @@ public minimal loop with a mock `ChatClient`, and compares the keys the row's
 - `once-cancel-after-capture`: cancellation stays a failure.
 - `once-self-claimed-verified` / `once-wrong-expectation`: a model claim or a
   wrong expectation changes no existing outcome or event.
+- `once-client-parses-xml`, `once-client-parses-xml-text-mode`: a client on
+  the transport that parses XML tool calls itself (the mock reports
+  `supports_ollama_think`) is skipped with `provider_unsupported` and equals
+  the same script with the plan unset.
 
 Observation limits: the rows prove the host mechanism only. `captured` means
 the block had the right shape, not that the obligations or expected results
-are right, and nothing here measures whether a note improves correctness. A
-provider client that parses XML tool calls itself before returning the reply
-is outside these mock runs.
+are right, and nothing here measures whether a note improves correctness. The
+mock replies never pass through a real provider response parser.

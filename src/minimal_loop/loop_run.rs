@@ -477,6 +477,7 @@ fn run_session_planned(
         &options,
         completion_contract.is_some(),
         &session.messages,
+        &*client,
     )?;
     let implementation_completion =
         ImplementationCompletion::capture(config, &options, required_paths);

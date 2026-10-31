@@ -239,6 +239,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "provider_turn_duration",
     "provider_turn_timeout",
     "provider_turn_timeout_recovered",
+    "provider_unsupported",
     "python_cli_implementation_plan_canonicalized",
     "read_only_stagnation_feedback",
     "read_only_tool_rejected",
