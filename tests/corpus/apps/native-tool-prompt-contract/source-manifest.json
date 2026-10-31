@@ -1,0 +1,11 @@
+{
+  "issue": "#936",
+  "kind": "synthetic",
+  "owner": "minimal_loop prompt system prompt per ToolPromptMode, provider function schemas, and the existing provider_turn_duration estimated_prompt_tokens_sent",
+  "base_sha": "4bfa521bde8fe7274a114fd637bb09577c4f5a9c",
+  "generation": "fixtures/cases.json: inputs are hand-authored neutral texts unrelated to any benchmark task. registry_tools, systems, wire_formats, and telemetry were printed by a one-off capture test run against src/minimal_loop/prompt.rs of base_sha (every other file was identical to base_sha); the capture test was removed before commit. systems builder-* come from build_guided_request_messages with the root <root>, the inputs history, and the pending feedback; systems loop-* are the first request of a scripted run_session_with_outcome_with_ui run with the tempdir root replaced by <root>. wire_formats hold the sha256 of the serialized tools value of a native request recorded by loopback LM Studio, OpenAI-compatible, and Ollama stand-ins through the existing clients, and of the public Gemini request builders. telemetry holds estimated_prompt_tokens_sent of the existing provider_turn_duration event for one provider_call::chat turn to a loopback OpenAI-compatible stand-in. No benchmark task, grader input, expected answer, run record, host path, or credential is stored here.",
+  "regenerate_digests": "shasum -a 256 fixtures/cases.json",
+  "fixture_sha256": {
+    "cases.json": "7c6d05e1ad1da6b791f7da21a4091affa440b8a8917c17a5af06caa91d755182"
+  }
+}

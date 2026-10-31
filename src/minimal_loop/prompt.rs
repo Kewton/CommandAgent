@@ -63,21 +63,25 @@ fn system_prompt(
     guidance: PromptGuidance<'_>,
     mode: ToolPromptMode,
 ) -> String {
-    let tools = tools
-        .iter()
-        .map(|tool| format!("- {}: {}", tool.function.name, tool.function.description))
-        .collect::<Vec<_>>()
-        .join("\n");
     let mut prompt = format!(
         "You are commandagent, a local coding agent. Work only inside workspace `{}`.\n\
 Use tools for file changes, repository facts, file inspection, build/test checks, and any action that changes the workspace.\n\
 Do not end with planned future work. Do not claim files, tests, or builds succeeded unless you observed them with tools.\n\
 Use workspace-relative paths only, and do not read or write outside the workspace.\n\
-Do not claim completion until requested files and evidence are present.\n\
-Tools:\n{}",
+Do not claim completion until requested files and evidence are present.",
         root.display(),
-        tools
     );
+    // A native turn sends each description in the function schema, so only a
+    // turn without schemas lists the tools here (Issue #936).
+    if mode == ToolPromptMode::XmlFallback {
+        let tools = tools
+            .iter()
+            .map(|tool| format!("- {}: {}", tool.function.name, tool.function.description))
+            .collect::<Vec<_>>()
+            .join("\n");
+        prompt.push_str("\nTools:\n");
+        prompt.push_str(&tools);
+    }
     if let Some(guidance) = guidance.profile {
         prompt.push_str("\n\nProfile guidance:\n");
         prompt.push_str(guidance);
@@ -148,6 +152,26 @@ mod tests {
         assert!(prompt.contains("<anvil_tool_call"));
         assert!(prompt.contains("one JSON object"));
         assert!(prompt.contains("Do not end with planned future work"));
+    }
+
+    #[test]
+    fn only_the_xml_fallback_prompt_lists_the_tools() {
+        let registry = ToolRegistry::default();
+        let specs = registry.specs();
+        let prompt = |mode| {
+            build_request_messages(&[], specs, Path::new("/tmp/work"), None, None, mode)[0]
+                .content
+                .clone()
+        };
+        let native = prompt(ToolPromptMode::Native);
+        let xml = prompt(ToolPromptMode::XmlFallback);
+        assert!(!native.contains("Tools:"));
+        assert!(xml.contains("Tools:\n- Bash: "));
+        for spec in specs {
+            assert!(!native.contains(&spec.function.description));
+            assert!(xml.contains(&spec.function.description));
+        }
+        assert!(xml.starts_with(&native));
     }
 
     #[test]
