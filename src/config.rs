@@ -1216,6 +1216,7 @@ fn parse_config_file(
             .strip_prefix('[')
             .and_then(|line| line.strip_suffix(']'))
         {
+            openrouter_routing::reject_unsupported_section(path, line_no, section_name)?;
             section = if let Some(name) = section_name.trim().strip_prefix("preset.") {
                 let name = name.trim();
                 if name.is_empty() {

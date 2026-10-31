@@ -82,7 +82,9 @@ fn run_child(case: &Value) {
     if let Some(effort) = case["effort"].as_str() {
         command.env(EFFORT_ENV, effort);
     }
-    if case["scenario"] == "key" {
+    if let Some(value) = case["key_value"].as_str() {
+        command.env(DUMMY_KEY_ENV, value);
+    } else if uses_key(case) {
         command.env(DUMMY_KEY_ENV, DUMMY_KEY);
     }
     let output = command.output().expect("child process");
@@ -95,6 +97,10 @@ fn run_child(case: &Value) {
     );
 }
 
+fn uses_key(case: &Value) -> bool {
+    case["scenario"] == "key" || case["api_key"] == true || case["key_value"].is_string()
+}
+
 fn run_group(group: &str) {
     for case in cases(group) {
         run_child(&case);
@@ -105,6 +111,20 @@ fn run_group(group: &str) {
 #[test]
 fn config_errors_name_the_location_and_never_the_value() {
     run_group("config-error");
+}
+
+/// Security review B1: dotted, quoted, and section forms of the routing key are
+/// refused through the public `Config` path without the unknown suffix.
+#[test]
+fn unsupported_routing_forms_never_show_the_unknown_key() {
+    run_group("config-form");
+}
+
+/// Security review B3: an observation status value cannot be registered as a
+/// credential, and an ordinary key keeps the status enum intact.
+#[test]
+fn reserved_status_values_cannot_be_registered_as_credentials() {
+    run_group("reserved");
 }
 
 /// Verification 1: layers and `extends` replace the table as one value.
@@ -180,6 +200,8 @@ fn corpus_cases_match_the_wire_contract() {
         "transport",
         "observe",
         "key",
+        "config-form",
+        "reserved",
     ];
     let mut ids = BTreeSet::new();
     for case in corpus["cases"].as_array().unwrap() {
@@ -340,6 +362,51 @@ fn doctor_reports_routing_without_verifying_the_server() {
     );
 }
 
+/// Security review B1: doctor never shows an unknown routing key, whether it
+/// is written inline, as a dotted key, or as a nested section.
+#[test]
+fn doctor_never_shows_an_unknown_routing_key_in_any_form() {
+    let server = Server::spawn(Script::default());
+    let base_url = format!("http://{}/v1", server.address);
+    let generic = [
+        ("provider", "openai-compatible"),
+        ("planner_provider", "openai-compatible"),
+        ("classifier_provider", "openai-compatible"),
+    ];
+    let marker = "PRIVATE_MARKER_939";
+    let inline = format!(r#"{{ only = ["a"], {marker} = ["b"] }}"#);
+    let forms = [
+        (Some(inline.as_str()), String::new()),
+        (None, format!("openrouter_provider.{marker} = [\"b\"]\n")),
+        (
+            None,
+            format!("openrouter_provider.\"{marker}\" = [\"b\"]\n"),
+        ),
+        (
+            None,
+            format!("[preset.{PRESET}.openrouter_provider]\n{marker} = [\"b\"]\n"),
+        ),
+        (
+            None,
+            format!("[preset.{PRESET}.openrouter_provider.{marker}]\nonly = [\"b\"]\n"),
+        ),
+    ];
+    for (routing, tail) in &forms {
+        let output = doctor_with_tail(&base_url, &generic, *routing, tail);
+        assert!(!output.success, "{}\n{}", output.stdout, output.stderr);
+        assert!(!output.stdout.contains(marker), "{}", output.stdout);
+        assert!(!output.stderr.contains(marker), "{}", output.stderr);
+        assert!(
+            output.stdout.contains("openrouter_provider")
+                || output.stderr.contains("openrouter_provider"),
+            "the diagnostic names the fixed key: {}\n{}",
+            output.stdout,
+            output.stderr
+        );
+    }
+    server.finish();
+}
+
 struct DoctorOutput {
     success: bool,
     stdout: String,
@@ -347,6 +414,15 @@ struct DoctorOutput {
 }
 
 fn doctor(base_url: &str, providers: &[(&str, &str)], routing: Option<&str>) -> DoctorOutput {
+    doctor_with_tail(base_url, providers, routing, "")
+}
+
+fn doctor_with_tail(
+    base_url: &str,
+    providers: &[(&str, &str)],
+    routing: Option<&str>,
+    tail: &str,
+) -> DoctorOutput {
     let workspace = tempfile::tempdir().unwrap();
     let home = workspace.path().join("home");
     let state = workspace.path().join("state");
@@ -362,6 +438,7 @@ fn doctor(base_url: &str, providers: &[(&str, &str)], routing: Option<&str>) -> 
     if let Some(routing) = routing {
         preset.push_str(&format!("openrouter_provider = {routing}\n"));
     }
+    preset.push_str(tail);
     let config_dir = workspace.path().join(".commandagent");
     std::fs::create_dir_all(&config_dir).unwrap();
     std::fs::write(config_dir.join("config.toml"), preset).unwrap();
@@ -488,12 +565,15 @@ fn build_config(
             servers.generic.address
         ));
     }
-    if case["scenario"] == "key" {
+    if uses_key(case) {
         text.push_str(&format!("api_key_env = \"{DUMMY_KEY_ENV}\"\n"));
     }
     text.push_str(&format!("api = \"{}\"\n", api(case)));
     if let Some(routing) = routing {
         text.push_str(&format!("openrouter_provider = {routing}\n"));
+    }
+    if let Some(tail) = case["raw_tail"].as_str() {
+        text.push_str(tail);
     }
     let config_dir = root.join(".commandagent");
     std::fs::create_dir_all(&config_dir).unwrap();
@@ -908,6 +988,14 @@ fn run_observe_case(case: &Value) {
         assert_eq!(reply.content, "ok");
         assert_eq!(named(&events, "provider_response").len(), 1);
     }
+    let all = std::fs::read_to_string(dir.path().join("events.jsonl")).unwrap();
+    assert!(
+        all.contains(&format!(
+            "\"response_provider_status\":\"{}\"",
+            case["expect_status"].as_str().unwrap()
+        )),
+        "the status enum survives the scrub: {all}"
+    );
     if case["scenario"] == "key" {
         assert!(
             requests[0]

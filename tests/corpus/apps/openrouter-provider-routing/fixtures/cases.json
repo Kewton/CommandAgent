@@ -1818,6 +1818,383 @@
       "expect_status": "invalid",
       "expect_response_provider": null,
       "expect_reply": "ok"
+    },
+    {
+      "kind": "synthetic",
+      "id": "form-dotted-quoted-unknown",
+      "group": "config-form",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": null,
+      "expect_error": [
+        "config.toml:10 openrouter_provider must be a one-line inline table"
+      ],
+      "secret": "PRIVATE_MARKER_939",
+      "raw_tail": "openrouter_provider.\"PRIVATE_MARKER_939\" = [\"a\"]\n"
+    },
+    {
+      "kind": "synthetic",
+      "id": "form-dotted-bare-unknown",
+      "group": "config-form",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": null,
+      "expect_error": [
+        "config.toml:10 openrouter_provider must be a one-line inline table"
+      ],
+      "secret": "PRIVATE_MARKER_939",
+      "raw_tail": "openrouter_provider.PRIVATE_MARKER_939 = [\"a\"]\n"
+    },
+    {
+      "kind": "synthetic",
+      "id": "form-dotted-known-child",
+      "group": "config-form",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": null,
+      "expect_error": [
+        "config.toml:10 openrouter_provider must be a one-line inline table"
+      ],
+      "secret": "open-inference",
+      "raw_tail": "openrouter_provider.only = [\"open-inference\"]\n"
+    },
+    {
+      "kind": "synthetic",
+      "id": "form-quoted-key-dotted",
+      "group": "config-form",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": null,
+      "expect_error": [
+        "config.toml:10 openrouter_provider must be a one-line inline table"
+      ],
+      "secret": "PRIVATE_MARKER_939",
+      "raw_tail": "\"openrouter_provider\".PRIVATE_MARKER_939 = true\n"
+    },
+    {
+      "kind": "synthetic",
+      "id": "form-section-unknown",
+      "group": "config-form",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": null,
+      "expect_error": [
+        "config.toml:10 openrouter_provider must be a one-line inline table"
+      ],
+      "secret": "PRIVATE_MARKER_939",
+      "raw_tail": "[preset.routed.openrouter_provider]\nPRIVATE_MARKER_939 = [\"a\"]\n"
+    },
+    {
+      "kind": "synthetic",
+      "id": "form-nested-section",
+      "group": "config-form",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": null,
+      "expect_error": [
+        "config.toml:10 openrouter_provider must be a one-line inline table"
+      ],
+      "secret": "PRIVATE_MARKER_939",
+      "raw_tail": "[preset.routed.openrouter_provider.PRIVATE_MARKER_939]\nonly = [\"a\"]\n"
+    },
+    {
+      "kind": "synthetic",
+      "id": "form-array-of-tables",
+      "group": "config-form",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": null,
+      "expect_error": [
+        "config.toml:10 openrouter_provider must be a one-line inline table"
+      ],
+      "secret": "PRIVATE_MARKER_939",
+      "raw_tail": "[[preset.routed.openrouter_provider]]\nPRIVATE_MARKER_939 = [\"a\"]\n"
+    },
+    {
+      "kind": "synthetic",
+      "id": "form-inline-unknown",
+      "group": "config-form",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": "{ only = [\"a\"], PRIVATE_MARKER_939 = [\"b\"] }",
+      "expect_error": [
+        "config.toml:10 preset.routed.openrouter_provider",
+        "unsupported key"
+      ],
+      "secret": "PRIVATE_MARKER_939"
+    },
+    {
+      "kind": "synthetic",
+      "id": "form-general-unknown-key-still-named",
+      "group": "config-form",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": null,
+      "expect_error": [
+        "config.toml:10 unknown config key 'preset.routed.private_typo_939'"
+      ],
+      "secret": null,
+      "raw_tail": "private_typo_939 = \"x\"\n"
+    },
+    {
+      "kind": "synthetic",
+      "id": "reserved-credential-reported",
+      "group": "reserved",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": "{ only = [\"open-inference\"], allow_fallbacks = false }",
+      "expect_error": [
+        "collides with a reserved marker or a fixed identifier"
+      ],
+      "secret": "reported",
+      "key_value": "reported"
+    },
+    {
+      "kind": "synthetic",
+      "id": "reserved-credential-unparseable",
+      "group": "reserved",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": "{ only = [\"open-inference\"], allow_fallbacks = false }",
+      "expect_error": [
+        "collides with a reserved marker or a fixed identifier"
+      ],
+      "secret": "unparseable",
+      "key_value": "unparseable"
+    },
+    {
+      "kind": "synthetic",
+      "id": "reserved-credential-missing",
+      "group": "reserved",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": "{ only = [\"open-inference\"], allow_fallbacks = false }",
+      "expect_error": [
+        "refusing to register the credential value"
+      ],
+      "secret": "missing",
+      "key_value": "missing"
+    },
+    {
+      "kind": "synthetic",
+      "id": "reserved-credential-invalid",
+      "group": "reserved",
+      "scenario": "config-error",
+      "layout": [
+        "generic",
+        "generic",
+        "generic"
+      ],
+      "routing": "{ only = [\"open-inference\"], allow_fallbacks = false }",
+      "expect_error": [
+        "refusing to register the credential value"
+      ],
+      "secret": "invalid",
+      "key_value": "invalid"
+    },
+    {
+      "kind": "synthetic",
+      "id": "reserved-normal-key-keeps-reported",
+      "group": "reserved",
+      "scenario": "observe",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "ollama",
+        "ollama"
+      ],
+      "routing": "{ only = [\"open-inference/fp4\"], allow_fallbacks = false }",
+      "expect_status": "reported",
+      "expect_response_provider": "OpenInference",
+      "expect_reply": "ok",
+      "api_key": true,
+      "response_provider": "OpenInference"
+    },
+    {
+      "kind": "synthetic",
+      "id": "reserved-normal-key-keeps-missing",
+      "group": "reserved",
+      "scenario": "observe",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "ollama",
+        "ollama"
+      ],
+      "routing": "{ only = [\"open-inference/fp4\"], allow_fallbacks = false }",
+      "expect_status": "missing",
+      "expect_response_provider": null,
+      "expect_reply": "ok",
+      "api_key": true
+    },
+    {
+      "kind": "synthetic",
+      "id": "reserved-normal-key-keeps-invalid",
+      "group": "reserved",
+      "scenario": "observe",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "ollama",
+        "ollama"
+      ],
+      "routing": "{ only = [\"open-inference/fp4\"], allow_fallbacks = false }",
+      "expect_status": "invalid",
+      "expect_response_provider": null,
+      "expect_reply": "ok",
+      "api_key": true,
+      "response_provider": 939
+    },
+    {
+      "kind": "synthetic",
+      "id": "reserved-normal-key-keeps-unparseable",
+      "group": "reserved",
+      "scenario": "observe",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "ollama",
+        "ollama"
+      ],
+      "routing": "{ only = [\"open-inference/fp4\"], allow_fallbacks = false }",
+      "expect_status": "unparseable",
+      "expect_response_provider": null,
+      "expect_reply": "parse-error",
+      "api_key": true,
+      "raw_body": "not-json-939"
+    },
+    {
+      "kind": "synthetic",
+      "id": "observe-already-redacted-chat",
+      "group": "observe",
+      "scenario": "observe",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "ollama",
+        "ollama"
+      ],
+      "routing": "{ only = [\"open-inference/fp4\"], allow_fallbacks = false }",
+      "expect_status": "invalid",
+      "expect_response_provider": null,
+      "expect_reply": "ok",
+      "response_provider": "<redacted>"
+    },
+    {
+      "kind": "synthetic",
+      "id": "observe-redacted-suffix-chat",
+      "group": "observe",
+      "scenario": "observe",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "ollama",
+        "ollama"
+      ],
+      "routing": "{ only = [\"open-inference/fp4\"], allow_fallbacks = false }",
+      "expect_status": "invalid",
+      "expect_response_provider": null,
+      "expect_reply": "ok",
+      "response_provider": "OpenInference <redacted>"
+    },
+    {
+      "kind": "synthetic",
+      "id": "observe-already-redacted-responses",
+      "group": "observe",
+      "scenario": "observe",
+      "api": "responses",
+      "layout": [
+        "generic",
+        "ollama",
+        "ollama"
+      ],
+      "routing": "{ only = [\"open-inference/fp4\"], allow_fallbacks = false }",
+      "expect_status": "invalid",
+      "expect_response_provider": null,
+      "expect_reply": "ok",
+      "response_provider": "<redacted>"
+    },
+    {
+      "kind": "synthetic",
+      "id": "observe-redacted-suffix-responses",
+      "group": "observe",
+      "scenario": "observe",
+      "api": "responses",
+      "layout": [
+        "generic",
+        "ollama",
+        "ollama"
+      ],
+      "routing": "{ only = [\"open-inference/fp4\"], allow_fallbacks = false }",
+      "expect_status": "invalid",
+      "expect_response_provider": null,
+      "expect_reply": "ok",
+      "response_provider": "OpenInference <redacted>"
+    },
+    {
+      "kind": "synthetic",
+      "id": "observe-hidden-marker",
+      "group": "observe",
+      "scenario": "observe",
+      "api": "chat_completions",
+      "layout": [
+        "generic",
+        "ollama",
+        "ollama"
+      ],
+      "routing": "{ only = [\"open-inference/fp4\"], allow_fallbacks = false }",
+      "expect_status": "invalid",
+      "expect_response_provider": null,
+      "expect_reply": "ok",
+      "response_provider": "Open [hidden]"
     }
   ]
 }

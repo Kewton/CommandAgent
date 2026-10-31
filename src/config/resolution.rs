@@ -331,6 +331,7 @@ pub(super) fn parse_preset_key(
     preset: &mut PresetConfig,
 ) -> anyhow::Result<()> {
     let full_key = format!("preset.{name}.{key}");
+    super::openrouter_routing::reject_unsupported_key(path, line_no, key)?;
     if !SUPPORTED_PRESET_KEYS.contains(&key) {
         bail!(
             "{}:{} unknown config key '{full_key}'",

@@ -110,6 +110,28 @@ impl ClientRouting {
     }
 }
 
+/// Whether `name` already carries one of the reserved redaction markers, for
+/// example a value an upstream or relay redacted before it reached us. Such a
+/// name is not a provider name, so it is never recorded as reported.
+fn contains_redaction_marker(name: &str) -> bool {
+    let marker = crate::sensitive_data::active_marker();
+    if name.contains(marker.as_str()) {
+        return true;
+    }
+    name.char_indices().any(|(start, _)| {
+        name[start..]
+            .char_indices()
+            .skip(1)
+            .map(|(end, _)| end)
+            .chain(std::iter::once(name.len() - start))
+            .take_while(|end| *end <= MAX_MARKER_BYTES)
+            .any(|end| crate::sensitive_data::is_marker_candidate(&name[start..start + end]))
+    })
+}
+
+/// No reserved marker candidate is longer than this, in bytes.
+const MAX_MARKER_BYTES: usize = 16;
+
 /// What a response body says about its top-level `provider` field.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Observation {
@@ -130,7 +152,8 @@ pub(crate) fn observe(body: &str) -> Observation {
         Some(Value::String(name))
             if !name.trim().is_empty()
                 && !name.chars().any(char::is_control)
-                && name.chars().count() <= MAX_RESPONSE_PROVIDER_CHARS =>
+                && name.chars().count() <= MAX_RESPONSE_PROVIDER_CHARS
+                && !contains_redaction_marker(name) =>
         {
             Observation::Reported(name.clone())
         }
@@ -320,5 +343,51 @@ mod tests {
         );
         assert!(!heuristic.to_string().contains("sk-939"), "{heuristic}");
         assert_eq!(heuristic["response_provider_status"], "invalid");
+    }
+
+    #[test]
+    fn an_already_redacted_name_is_not_reported() {
+        for name in [
+            "<redacted>",
+            "OpenInference <redacted>",
+            "<redacted>OpenInference",
+            "Open[redacted]Inference",
+            "[hidden]",
+            "Open «hidden» Inference",
+        ] {
+            let body = json!({"provider": name}).to_string();
+            assert_eq!(observe(&body), Observation::Invalid, "{name}");
+        }
+        for name in [
+            "OpenInference",
+            "Open Inference (fp4)",
+            "<open>",
+            "[fp4]",
+            "redacted",
+        ] {
+            let body = json!({"provider": name}).to_string();
+            assert_eq!(
+                observe(&body),
+                Observation::Reported(name.to_string()),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn observation_statuses_are_reserved_fixed_identifiers() {
+        for status in ["reported", "missing", "invalid", "unparseable"] {
+            assert!(
+                crate::sensitive_data::is_fixed_identifier(status),
+                "{status}"
+            );
+            assert!(
+                crate::sensitive_data::collides_with_fixed_identifier(status),
+                "{status}"
+            );
+        }
+        assert!(crate::sensitive_data::is_fixed_identifier(
+            "openrouter_provider_observed"
+        ));
     }
 }

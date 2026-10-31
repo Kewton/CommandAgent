@@ -114,6 +114,50 @@ pub(super) fn resolve(
     }))
 }
 
+/// Refuses `openrouter_provider` written as a dotted or quoted preset key
+/// (`openrouter_provider.x = ...`). The unknown suffix is never shown, so it
+/// cannot leak through the general unknown-key diagnostic.
+pub(super) fn reject_unsupported_key(path: &Path, line_no: usize, key: &str) -> anyhow::Result<()> {
+    let segments = dotted_segments(key);
+    if key != OPENROUTER_PROVIDER_KEY && segments.first() == Some(&OPENROUTER_PROVIDER_KEY) {
+        bail!("{}", unsupported_form(path, line_no));
+    }
+    Ok(())
+}
+
+/// Refuses a `[preset.<name>.openrouter_provider...]` table or array-of-tables
+/// section header, naming only the fixed key.
+pub(super) fn reject_unsupported_section(
+    path: &Path,
+    line_no: usize,
+    section: &str,
+) -> anyhow::Result<()> {
+    let segments = dotted_segments(section.trim_matches(|c: char| c == '[' || c == ']'));
+    if segments.first() == Some(&"preset")
+        && segments
+            .iter()
+            .skip(2)
+            .any(|segment| *segment == OPENROUTER_PROVIDER_KEY)
+    {
+        bail!("{}", unsupported_form(path, line_no));
+    }
+    Ok(())
+}
+
+fn dotted_segments(key: &str) -> Vec<&str> {
+    key.split('.')
+        .map(|segment| segment.trim().trim_matches(|c: char| c == '"' || c == '\''))
+        .collect()
+}
+
+fn unsupported_form(path: &Path, line_no: usize) -> String {
+    format!(
+        "{}:{} {OPENROUTER_PROVIDER_KEY} must be a one-line inline table in a [preset.<name>] section; dotted keys, quoted keys, and table sections are not supported (the key and value are not shown)",
+        path.display(),
+        line_no
+    )
+}
+
 /// Parses `openrouter_provider` into `preset`, recording its source.
 pub(super) fn parse_into(
     preset: &mut PresetConfig,
@@ -228,7 +272,10 @@ mod tests {
 
     use serde_json::json;
 
-    use super::{MAX_SLUGS, OpenRouterProviderRouting, parse_value, resolve};
+    use super::{
+        MAX_SLUGS, OpenRouterProviderRouting, parse_value, reject_unsupported_key,
+        reject_unsupported_section, resolve,
+    };
     use crate::config::PresetConfig;
     use crate::config::resolution::merge_inherited_preset;
     use crate::config::sourced;
@@ -459,5 +506,62 @@ mod tests {
             inherited.value.provider_object(),
             json!({"only": ["a"], "allow_fallbacks": false})
         );
+    }
+
+    #[test]
+    fn dotted_quoted_and_section_forms_are_refused_without_the_suffix() {
+        let path = Path::new("config.toml");
+        for key in [
+            "openrouter_provider.\"PRIVATE_MARKER_939\"",
+            "openrouter_provider.PRIVATE_MARKER_939",
+            "openrouter_provider . only",
+            "\"openrouter_provider\".PRIVATE_MARKER_939",
+            "\"openrouter_provider\"",
+        ] {
+            let error = format!("{:#}", reject_unsupported_key(path, 4, key).unwrap_err());
+            assert!(
+                error.starts_with("config.toml:4 openrouter_provider must be"),
+                "{error}"
+            );
+            assert!(
+                !error.contains("PRIVATE_MARKER_939") && !error.contains("only"),
+                "{error}"
+            );
+        }
+        for section in [
+            "preset.routed.openrouter_provider",
+            " preset . routed . openrouter_provider ",
+            "preset.routed.openrouter_provider.PRIVATE_MARKER_939",
+            "[preset.routed.openrouter_provider]",
+            "preset.\"routed\".\"openrouter_provider\"",
+        ] {
+            let error = format!(
+                "{:#}",
+                reject_unsupported_section(path, 9, section).unwrap_err()
+            );
+            assert!(
+                error.starts_with("config.toml:9 openrouter_provider must be"),
+                "{error}"
+            );
+            assert!(!error.contains("PRIVATE_MARKER_939"), "{error}");
+        }
+        for key in [
+            "openrouter_provider",
+            "model",
+            "openrouter_provider_x",
+            "provider",
+        ] {
+            assert!(reject_unsupported_key(path, 1, key).is_ok(), "{key}");
+        }
+        for section in [
+            "preset.routed",
+            "preset.openrouter_provider",
+            "other.openrouter_provider",
+        ] {
+            assert!(
+                reject_unsupported_section(path, 1, section).is_ok(),
+                "{section}"
+            );
+        }
     }
 }
