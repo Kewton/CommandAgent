@@ -154,6 +154,28 @@
       "repair_attempts": 1,
       "base_sequence": ["receipt:failed:verified", "repair_start:max=2", "repair_complete:1:[]", "no_source_change:1", "exhausted:final_acceptance_repair_no_source_change", "stop:false"],
       "sequence": ["receipt:failed:verified", "repair_start:max=2", "repair_complete:1:[]", "no_source_change:1", "exhausted:final_acceptance_repair_no_source_change", "stop:false"]
+    },
+    {
+      "id": "b1-second-plain-1",
+      "kind": "synthetic",
+      "test": "b1_a_later_run_without_a_check_does_not_compare_earlier_inputs",
+      "change": "second run in a workspace an artifact run used: a profile without an artifact check whose repair writes only the earlier run's input",
+      "outcome": "failed",
+      "receipts": 0,
+      "repair_attempts": 1,
+      "base_sequence": ["repair_start:max=2", "repair_complete:1:[]", "no_source_change:1", "exhausted:final_acceptance_repair_no_source_change", "stop:false"],
+      "sequence": ["repair_start:max=2", "repair_complete:1:[]", "no_source_change:1", "exhausted:final_acceptance_repair_no_source_change", "stop:false"]
+    },
+    {
+      "id": "b1-second-other-1",
+      "kind": "synthetic",
+      "test": "b1_a_later_run_with_another_check_does_not_compare_earlier_inputs",
+      "change": "second run in a workspace an artifact run used: another check whose repair writes only the earlier run's input",
+      "outcome": "failed",
+      "receipts": 1,
+      "repair_attempts": 1,
+      "base_sequence": ["receipt:failed:verified", "repair_start:max=2", "repair_complete:1:[]", "no_source_change:1", "exhausted:final_acceptance_repair_no_source_change", "stop:false"],
+      "sequence": ["receipt:failed:verified", "repair_start:max=2", "repair_complete:1:[]", "no_source_change:1", "exhausted:final_acceptance_repair_no_source_change", "stop:false"]
     }
   ]
 }

@@ -66,8 +66,9 @@ pub(super) fn capture(
     goal: &str,
     expected_paths: &[String],
     extra_paths: &[String],
+    recorded: &[String],
 ) -> BTreeMap<String, Fingerprint> {
-    let artifacts = artifact_repair_candidates(root, profile, goal);
+    let artifacts = artifact_repair_candidates(root, profile, goal, recorded);
     capture_with_artifacts(root, profile, goal, expected_paths, extra_paths, &artifacts)
 }
 
@@ -317,7 +318,7 @@ mod tests {
     }
 
     fn snap(root: &Path, extra: &[String]) -> super::BTreeMap<String, super::Fingerprint> {
-        capture(root, "python-cli", "build a cli", &[], extra)
+        capture(root, "python-cli", "build a cli", &[], extra, &[])
     }
 
     fn changed(root: &Path, before: &super::BTreeMap<String, super::Fingerprint>) -> Vec<String> {
@@ -444,14 +445,14 @@ mod tests {
         write(dir.path(), "build/out.js", "a");
         write(dir.path(), "build/other.js", "a");
         let expected = ["build/out.js".to_string()];
-        let before = capture(dir.path(), "generic", "goal", &expected, &[]);
+        let before = capture(dir.path(), "generic", "goal", &expected, &[], &[]);
         assert!(before.contains_key("build/out.js"));
         assert!(!before.contains_key("build/other.js"));
         write(dir.path(), "build/out.js", "b");
         assert_eq!(
             changed_snapshot_paths(
                 &before,
-                &capture(dir.path(), "generic", "goal", &expected, &[])
+                &capture(dir.path(), "generic", "goal", &expected, &[], &[])
             ),
             ["build/out.js"]
         );

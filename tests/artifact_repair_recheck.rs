@@ -31,6 +31,7 @@ const ADAPTER: &str = "state-gate";
 const JSON_PROFILE: &str = "recheck-json";
 const YAML_PROFILE: &str = "recheck-yaml";
 const SPLIT_PROFILE: &str = "recheck-split";
+const PLAIN_PROFILE: &str = "recheck-plain";
 const REQUEST_PATH: &str = "check/request.json";
 const REPAIR_MAX_ATTEMPTS: u64 = 2;
 
@@ -117,6 +118,16 @@ fn fixture() -> &'static Fixture {
             std::fs::create_dir_all(&directory).unwrap();
             std::fs::write(directory.join("manifest.toml"), manifest(profile, declared)).unwrap();
         }
+        // A draft without an artifact check that requires a file no phase
+        // writes, so its final acceptance fails on its own.
+        let plain = extension.join(format!("profiles/{PLAIN_PROFILE}"));
+        std::fs::create_dir_all(&plain).unwrap();
+        let source = manifest(PLAIN_PROFILE, "\"notes/other.txt\"");
+        let source = format!(
+            "{}[[checks.final]]\nid = \"scaffold_files_present\"\nparams = {{ files = [\"notes/summary.md\"] }}\n",
+            source.split("[[checks.final]]").next().unwrap()
+        );
+        std::fs::write(plain.join("manifest.toml"), source).unwrap();
         // SAFETY: set once under the OnceLock before any case reads it; this
         // test binary owns its environment.
         unsafe {
@@ -269,11 +280,15 @@ struct Run {
 }
 
 fn run(case: &Case) -> Run {
+    run_in(case, tempfile::tempdir().unwrap())
+}
+
+/// Run `case` in an existing workspace, with its own events file.
+fn run_in(case: &Case, dir: tempfile::TempDir) -> Run {
     let fixture = fixture();
     let _lock = runner_lock();
-    let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
-    let events_path = root.join(".anvil/runs/artifact-repair-recheck/events.jsonl");
+    let events_path = root.join(format!(".anvil/runs/{}/events.jsonl", case.id));
     let plan = UltraPlan {
         goal: "Write the contract terms".to_string(),
         profile: case.profile.to_string(),
@@ -738,6 +753,83 @@ fn a_reported_change_to_an_unrelated_json_does_not_recheck() {
     assert_unchanged_from_base(&case, &run);
 }
 
+/// A later run in a workspace an artifact run already used compares none of
+/// the earlier run's inputs: its sequence is the corpus (and base) sequence.
+fn assert_later_run_ignores_earlier_inputs(case: &Case, second: &Run, expect_receipts: usize) {
+    let observed = projection(&second.events);
+    let expected = corpus_case(case.id);
+    assert_eq!(
+        observed,
+        strings(&expected["sequence"]),
+        "{}: sequence\n{}",
+        case.id,
+        render(&second.events)
+    );
+    assert_eq!(
+        expected["sequence"], expected["base_sequence"],
+        "{}",
+        case.id
+    );
+    assert_eq!(
+        expected["receipts"].as_u64(),
+        Some(expect_receipts as u64),
+        "{}",
+        case.id
+    );
+    assert_eq!(
+        events_named(&second.events, "artifact_contract_check_result").len(),
+        expect_receipts,
+        "{observed:?}"
+    );
+    let completes = events_named(&second.events, "final_acceptance_repair_complete");
+    assert_eq!(completes.len(), 1, "{}", render(&second.events));
+    assert_eq!(completes[0]["changed_paths"], json!([]), "{observed:?}");
+    assert_eq!(
+        events_named(&second.events, "final_acceptance_repair_no_source_change").len(),
+        1,
+        "{observed:?}"
+    );
+}
+
+#[test]
+fn b1_a_later_run_without_a_check_does_not_compare_earlier_inputs() {
+    let first = run(&json_case(
+        "b1-first-plain-1",
+        vec![vec![("contract/terms.json", "{\"state\": \"draft\"}\n")]],
+    ));
+    assert!(first.output.is_err());
+    let case = Case {
+        id: "b1-second-plain-1",
+        profile: PLAIN_PROFILE,
+        input: "contract/terms.json",
+        initial: vec![("notes/other.txt", "x\n")],
+        repairs: vec![vec![("contract/terms.json", "{\"state\": \"ready\"}\n")]],
+    };
+    let second = run_in(&case, first.workspace);
+    assert_later_run_ignores_earlier_inputs(&case, &second, 0);
+}
+
+#[test]
+fn b1_a_later_run_with_another_check_does_not_compare_earlier_inputs() {
+    let first = run(&json_case(
+        "b1-first-other-1",
+        vec![vec![("contract/terms.json", "{\"state\": \"draft\"}\n")]],
+    ));
+    assert!(first.output.is_err());
+    let case = Case {
+        id: "b1-second-other-1",
+        profile: SPLIT_PROFILE,
+        input: "data/terms.json",
+        initial: vec![
+            ("contract/schema.yaml", "version: 1\n"),
+            ("data/terms.json", "{\"state\": \"draft\"}\n"),
+        ],
+        repairs: vec![vec![("contract/terms.json", "{\"state\": \"ready\"}\n")]],
+    };
+    let second = run_in(&case, first.workspace);
+    assert_later_run_ignores_earlier_inputs(&case, &second, 1);
+}
+
 #[test]
 fn corpus_lists_the_cases_these_tests_run() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join(CORPUS);
@@ -768,13 +860,17 @@ fn corpus_lists_the_cases_these_tests_run() {
         assert!(case["repair_attempts"].as_u64().unwrap() <= REPAIR_MAX_ATTEMPTS);
         let sequence = strings(&case["sequence"]);
         let base = strings(&case["base_sequence"]);
-        // At the base every case stopped before a second receipt.
+        // At the base every case stopped before a second receipt; a case
+        // whose profile runs no artifact check has none.
+        let base_receipts = base
+            .iter()
+            .filter(|item| item.starts_with("receipt:"))
+            .count();
+        assert!(base_receipts <= 1, "{id}");
         assert_eq!(
-            base.iter()
-                .filter(|item| item.starts_with("receipt:"))
-                .count(),
-            1,
-            "{id}"
+            base_receipts == 0,
+            case["receipts"] == 0,
+            "{id}: a case without a receipt has none at the base either"
         );
         assert_eq!(sequence.first(), base.first(), "{id}");
         if case["outcome"] == "passed" {

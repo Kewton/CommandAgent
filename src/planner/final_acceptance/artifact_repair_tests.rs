@@ -12,7 +12,7 @@ use sha2::{Digest, Sha256};
 use super::super::changed_snapshot_paths;
 use super::super::repair_workspace_snapshot::{capture, capture_with_artifacts};
 use super::{artifact_candidates, artifact_repair_candidates};
-use crate::planner::artifact_contract_checks::{bound_workspace_paths, run_check};
+use crate::planner::artifact_contract_checks::run_check;
 use crate::planner::capability_catalog::artifact::ArtifactContractCheck;
 
 type Snapshot = BTreeMap<String, Option<Vec<u8>>>;
@@ -70,15 +70,19 @@ fn request(input_id: &str, path: &str) -> String {
     .to_string()
 }
 
-/// Run the check once in `root` and return the names it recorded there.
+/// Run the check once in `root` and return the names its receipt carries.
 fn recorded(registry: &Registry, adapter: &str, root: &Path) -> Vec<String> {
+    recorded_for(registry, adapter, REQUEST, root)
+}
+
+fn recorded_for(registry: &Registry, adapter: &str, request: &str, root: &Path) -> Vec<String> {
     let check = ArtifactContractCheck {
         adapter_id: adapter.to_string(),
-        request: REQUEST.to_string(),
+        request: request.to_string(),
     };
     let receipt = run_check(root, &check, Some(&registry.config), || false);
     assert!(!receipt.native_passed);
-    bound_workspace_paths(root)
+    receipt.repair_paths
 }
 
 fn write(root: &Path, rel: &str, content: &str) {
@@ -260,8 +264,8 @@ fn without_an_admitted_check_the_snapshot_is_the_legacy_one() {
     write(root, "web/page.tsx", "export {}\n");
     write(root, "contract/terms.json", "{}\n");
     let expected = strings(&["contract/terms.json"]);
-    assert!(artifact_repair_candidates(root, "generic", "goal").is_empty());
-    let captured = capture(root, "generic", "goal", &expected, &[]);
+    assert!(artifact_repair_candidates(root, "generic", "goal", &[]).is_empty());
+    let captured = capture(root, "generic", "goal", &expected, &[], &[]);
     let legacy = capture_with_artifacts(root, "generic", "goal", &expected, &[], &[]);
     assert_eq!(format!("{captured:?}"), format!("{legacy:?}"));
     assert!(
@@ -557,10 +561,7 @@ fn an_input_failing_its_operator_pin_stays_a_candidate() {
     };
     let receipt = run_check(dir.path(), &check, Some(&registry.config), || false);
     assert_eq!(receipt.stopped_at, "input");
-    assert_eq!(
-        bound_workspace_paths(dir.path()),
-        [REQUEST, "data/terms.json"]
-    );
+    assert_eq!(receipt.repair_paths, [REQUEST, "data/terms.json"]);
 }
 
 /// N1: a registry stop records nothing, so the snapshot stays legacy.
@@ -570,7 +571,113 @@ fn an_unregistered_adapter_records_nothing() {
     let dir = tempfile::tempdir().unwrap();
     write(dir.path(), REQUEST, &request("terms", "data/terms.json"));
     assert!(recorded(&registry, "absent", dir.path()).is_empty());
-    assert!(artifact_repair_candidates(dir.path(), "generic", "goal").is_empty());
+}
+
+/// B1: names live in the receipt of one run. A later run in the same
+/// workspace that runs no artifact check, or another check, sees none of the
+/// earlier run's names.
+#[test]
+fn an_earlier_run_in_the_same_workspace_leaves_no_candidates() {
+    let registry = registry(None);
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write(root, REQUEST, &request("terms", "data/a.json"));
+    write(root, "check/b.json", &request("terms", "data/b.json"));
+    write(root, "data/a.json", "{}\n");
+    assert_eq!(recorded(&registry, "gate", root), [REQUEST, "data/a.json"]);
+    // A later run with no artifact check carries no names.
+    let before = capture(root, "generic", "goal", &[], &[], &[]);
+    write(root, "data/a.json", "{\"changed\": true}\n");
+    assert_eq!(
+        changed_snapshot_paths(&before, &capture(root, "generic", "goal", &[], &[], &[])),
+        Vec::<String>::new()
+    );
+    // A later run with another check carries only its own names.
+    let other = recorded_for(&registry, "gate", "check/b.json", root);
+    assert_eq!(other, ["check/b.json", "data/b.json"]);
+    let before = capture(root, "generic", "goal", &[], &[], &other);
+    write(root, "data/a.json", "{\"changed\": 2}\n");
+    assert_eq!(
+        changed_snapshot_paths(&before, &capture(root, "generic", "goal", &[], &[], &other)),
+        Vec::<String>::new()
+    );
+}
+
+/// B1: a cycle that stops at the operator pin after an admitted cycle
+/// carries no names; the earlier cycle's names do not survive into it.
+#[test]
+fn a_pin_failure_after_an_admitted_cycle_carries_no_names() {
+    let registry = registry(None);
+    let dir = tempfile::tempdir().unwrap();
+    write(dir.path(), REQUEST, &request("terms", "data/terms.json"));
+    assert_eq!(
+        recorded(&registry, "gate", dir.path()),
+        [REQUEST, "data/terms.json"]
+    );
+    let tooling = registry.config.parent().unwrap().join("tooling/gate.sh");
+    std::fs::write(tooling, "exit 2\n").unwrap();
+    let check = ArtifactContractCheck {
+        adapter_id: "gate".to_string(),
+        request: REQUEST.to_string(),
+    };
+    let receipt = run_check(dir.path(), &check, Some(&registry.config), || false);
+    assert_eq!(receipt.stopped_at, "pin");
+    assert!(
+        receipt.repair_paths.is_empty(),
+        "{:?}",
+        receipt.repair_paths
+    );
+}
+
+/// B1: two executions in one workspace advanced in turn keep their own
+/// names.
+#[test]
+fn interleaved_runs_in_one_workspace_keep_their_own_names() {
+    let registry = registry(None);
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write(root, REQUEST, &request("terms", "data/a.json"));
+    write(root, "check/b.json", &request("terms", "data/b.json"));
+    let first = recorded(&registry, "gate", root);
+    let second = recorded_for(&registry, "gate", "check/b.json", root);
+    let first_again = recorded(&registry, "gate", root);
+    assert_eq!(first, [REQUEST, "data/a.json"]);
+    assert_eq!(second, ["check/b.json", "data/b.json"]);
+    assert_eq!(first_again, first);
+}
+
+/// B2: no process-wide capacity exists, so runs in many other workspaces
+/// between a run's acceptance and its snapshots never drop a byte change and
+/// never invent one.
+#[test]
+fn many_other_workspaces_never_drop_or_invent_a_byte_change() {
+    let registry = registry(None);
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write(root, REQUEST, &request("terms", "data/terms.json"));
+    write(root, "data/terms.json", "{\"state\": \"draft\"}\n");
+    let names = recorded(&registry, "gate", root);
+    let mut others = Vec::new();
+    for _ in 0..70 {
+        let other = tempfile::tempdir().unwrap();
+        write(other.path(), REQUEST, &request("terms", "data/terms.json"));
+        recorded(&registry, "gate", other.path());
+        others.push(other);
+    }
+    let before = capture(root, "generic", "goal", &[], &[], &names);
+    for _ in 0..70 {
+        let other = tempfile::tempdir().unwrap();
+        recorded(&registry, "gate", other.path());
+    }
+    assert_eq!(
+        changed_snapshot_paths(&before, &capture(root, "generic", "goal", &[], &[], &names)),
+        Vec::<String>::new()
+    );
+    write(root, "data/terms.json", "{\"state\": \"ready\"}\n");
+    assert_eq!(
+        changed_snapshot_paths(&before, &capture(root, "generic", "goal", &[], &[], &names)),
+        ["data/terms.json"]
+    );
 }
 
 /// N1: an input the binding refuses lexically (a credential name) is never

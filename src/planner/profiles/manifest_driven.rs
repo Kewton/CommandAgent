@@ -190,6 +190,7 @@ impl ManifestDrivenProfile {
         root: &Path,
         goal: &str,
         eval_events_path: Option<&Path>,
+        repair_paths: &mut Vec<String>,
     ) -> Vec<String> {
         let checks = match self.resolved_checks() {
             Ok(checks) => checks,
@@ -263,13 +264,16 @@ impl ManifestDrivenProfile {
                         ));
                         continue;
                     }
-                    failures.extend(crate::planner::artifact_contract_checks::run_and_record(
-                        root,
-                        &adapter,
-                        eval_events_path,
-                        "draft_profile",
-                        self.id,
-                    ));
+                    let (check_failures, paths) =
+                        crate::planner::artifact_contract_checks::run_and_record_with_repair_paths(
+                            root,
+                            &adapter,
+                            eval_events_path,
+                            "draft_profile",
+                            self.id,
+                        );
+                    failures.extend(check_failures);
+                    repair_paths.extend(paths);
                 }
                 ResolvedCapability::Internal(_) | ResolvedCapability::Probe(_) => {
                     failures.push(format!(
@@ -349,9 +353,11 @@ impl DomainProfile for ManifestDrivenProfile {
         for failure in self.artifact_failures(root) {
             report.push_profile_failure(failure);
         }
-        for failure in self.check_failures(root, goal, eval_events_path) {
+        let mut repair_paths = Vec::new();
+        for failure in self.check_failures(root, goal, eval_events_path, &mut repair_paths) {
             report.push_profile_failure(failure);
         }
+        report.artifact_repair_paths = repair_paths;
         report
     }
 

@@ -129,7 +129,7 @@ fn repair_workspace_snapshot_does_not_fingerprint_secret_files() {
         .map(|rel| rel.to_string())
         .collect::<Vec<_>>();
 
-    let captured = final_acceptance_source_snapshot(root, "python", "goal", &[], &extra);
+    let captured = final_acceptance_source_snapshot(root, "python", "goal", &[], &extra, &[]);
 
     assert!(captured.contains_key("src/app/page.tsx"));
     for rel in SECRET_PATHS {

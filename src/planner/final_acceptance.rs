@@ -230,8 +230,16 @@ pub(super) fn final_acceptance_source_snapshot(
     goal: &str,
     expected_paths: &[String],
     extra_paths: &[String],
+    artifact_paths: &[String],
 ) -> BTreeMap<String, Option<Vec<u8>>> {
-    repair_workspace_snapshot::capture(root, profile, goal, expected_paths, extra_paths)
+    repair_workspace_snapshot::capture(
+        root,
+        profile,
+        goal,
+        expected_paths,
+        extra_paths,
+        artifact_paths,
+    )
 }
 
 pub(super) fn changed_snapshot_paths(

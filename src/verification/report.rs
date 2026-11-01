@@ -21,6 +21,9 @@ pub struct VerificationReport {
     pub profile_failures: Vec<String>,
     pub compile_errors: Vec<CompileError>,
     pub python_tracebacks: Vec<PythonTraceback>,
+    /// Issue #949: names the admitted artifact checks of this acceptance made
+    /// repair candidates. Not a failure and not part of the status.
+    pub artifact_repair_paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,6 +56,7 @@ impl VerificationReport {
             profile_failures: Vec::new(),
             compile_errors: Vec::new(),
             python_tracebacks: Vec::new(),
+            artifact_repair_paths: Vec::new(),
         }
     }
 

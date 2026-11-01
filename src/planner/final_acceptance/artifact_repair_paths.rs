@@ -2,9 +2,18 @@
 //!
 //! Design record:
 //!
-//! - Origin. `artifact_contract_checks::run_check` records names only after
-//!   the operator registry, the workspace separation, and the tooling pins
-//!   passed; an earlier stop records nothing. Three kinds, in this order:
+//! - Carrying. No process-wide state holds the names. `run_check` puts them
+//!   in its receipt (never in the receipt event); the manifest-driven
+//!   profile's final verification returns them in
+//!   `VerificationReport::artifact_repair_paths`, which report merging
+//!   carries into the acceptance result of that one run. The bounded repair
+//!   attempt copies that result's names once and hands the same list to its
+//!   before and after snapshots; the rerun's acceptance result replaces it
+//!   for the next attempt. Another run, another workspace, or an earlier
+//!   cycle therefore never contributes names, and no capacity can evict them.
+//! - Origin. `run_check` sets names only after the operator registry, the
+//!   workspace separation, and the tooling pins passed; an earlier stop
+//!   carries none. Three kinds, in this order:
 //!   1. the declared request: the check's `request` param (a profile or pack
 //!      declaration), always, even when it is missing or does not parse;
 //!   2. named repair candidates: when the request parses and names exactly
@@ -45,20 +54,30 @@
 //!   acceptance (and so the same check) inside that attempt. No attempt,
 //!   loop, provider call, or budget is added, and the rerun's own receipt
 //!   decides the outcome.
+//! - Known limits. (1) Pack checks run only in the step-plan runner, which
+//!   has no bounded-repair snapshot, so the pack call site keeps
+//!   `run_and_record` unchanged and carries no names. (2) An acceptance that
+//!   skips the artifact check (for example after a profile invariant
+//!   failure) carries no names, so that attempt's snapshot falls back to the
+//!   legacy candidates.
 
 use std::path::{Component, Path};
 
 use super::{resolve_profile_runtime, safe_dir_rel_path};
 
 /// The artifact candidates for `root`: empty unless an admitted artifact
-/// check recorded names in this workspace.
-pub(super) fn artifact_repair_candidates(root: &Path, profile: &str, goal: &str) -> Vec<String> {
-    let bound = crate::planner::artifact_contract_checks::bound_workspace_paths(root);
-    if bound.is_empty() {
+/// check of this acceptance result carried names (`recorded`).
+pub(super) fn artifact_repair_candidates(
+    root: &Path,
+    profile: &str,
+    goal: &str,
+    recorded: &[String],
+) -> Vec<String> {
+    if recorded.is_empty() {
         return Vec::new();
     }
     let declared = resolve_profile_runtime(profile).expected_scaffold_paths(root, goal);
-    artifact_candidates(&declared, &bound)
+    artifact_candidates(&declared, recorded)
 }
 
 /// Declared artifacts first, then the recorded check names, each once,

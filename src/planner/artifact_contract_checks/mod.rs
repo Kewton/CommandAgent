@@ -23,7 +23,6 @@ use std::ffi::OsString;
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
-use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
 use serde::Deserialize;
@@ -460,6 +459,9 @@ pub(crate) struct Receipt {
     pub(crate) domain: DomainVerdict,
     pub(crate) native_passed: bool,
     pub(crate) reasons: Vec<String>,
+    /// Issue #949: workspace names this run made repair candidates. Never
+    /// written to the receipt event.
+    pub(crate) repair_paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -490,6 +492,7 @@ impl Receipt {
             domain: DomainVerdict::None,
             native_passed: false,
             reasons: Vec::new(),
+            repair_paths: Vec::new(),
         }
     }
 
@@ -528,6 +531,17 @@ pub(crate) fn run_and_record(
     source: &str,
     owner_id: &str,
 ) -> Vec<String> {
+    run_and_record_with_repair_paths(workspace, check, events_path, source, owner_id).0
+}
+
+/// [`run_and_record`] that also returns the run's repair candidates.
+pub(crate) fn run_and_record_with_repair_paths(
+    workspace: &Path,
+    check: &ArtifactContractCheck,
+    events_path: Option<&Path>,
+    source: &str,
+    owner_id: &str,
+) -> (Vec<String>, Vec<String>) {
     let receipt = run_check(
         workspace,
         check,
@@ -535,7 +549,7 @@ pub(crate) fn run_and_record(
         || false,
     );
     record(&receipt, events_path, source, owner_id);
-    receipt.failures()
+    (receipt.failures(), receipt.repair_paths)
 }
 
 pub(crate) fn run_check<F>(
@@ -574,7 +588,7 @@ where
         Err(reason) => return receipt.fail("pin", vec![reason]),
     }
     let request = read_request(&workspace, &check.request);
-    remember_bound_paths(&workspace, check, descriptor, request.as_ref().ok());
+    receipt.repair_paths = repair_paths(check, descriptor, request.as_ref().ok());
     let request = match request {
         Ok(request) => request,
         Err(reason) => return receipt.fail("request", vec![reason]),
@@ -927,21 +941,16 @@ fn names_registered_inputs(descriptor: &Descriptor, request: &protocol::Request)
     declared == requested
 }
 
-/// Workspace names each admitted check last recorded (Issue #949), before
+/// The names one admitted run makes repair candidates (Issue #949), before
 /// `bind_inputs`: the declared request, plus, when the request parses and
 /// names exactly the operator's input IDs, every input that passes the
-/// lexical guard, whether or not it then binds. Names are kept verbatim and
-/// keyed by canonical workspace; see `final_acceptance::artifact_repair_paths`.
-type BoundPaths = BTreeMap<PathBuf, BTreeMap<(String, String), Vec<String>>>;
-static BOUND_PATHS: Mutex<BoundPaths> = Mutex::new(BTreeMap::new());
-const MAX_REMEMBERED_WORKSPACES: usize = 64;
-
-fn remember_bound_paths(
-    workspace: &Path,
+/// lexical guard, whether or not it then binds. Names are kept verbatim; see
+/// `final_acceptance::artifact_repair_paths`.
+fn repair_paths(
     check: &ArtifactContractCheck,
     descriptor: &Descriptor,
     request: Option<&protocol::Request>,
-) {
+) -> Vec<String> {
     let mut paths = vec![check.request.clone()];
     if let Some(request) = request.filter(|request| names_registered_inputs(descriptor, request)) {
         paths.extend(
@@ -957,29 +966,7 @@ fn remember_bound_paths(
                 }),
         );
     }
-    let mut remembered = BOUND_PATHS.lock().unwrap_or_else(PoisonError::into_inner);
-    if !remembered.contains_key(workspace) && remembered.len() >= MAX_REMEMBERED_WORKSPACES {
-        remembered.pop_first();
-    }
-    let key = (check.adapter_id.clone(), check.request.clone());
-    remembered
-        .entry(workspace.to_path_buf())
-        .or_default()
-        .insert(key, paths);
-}
-
-/// The paths [`remember_bound_paths`] kept for `workspace`; empty when no
-/// admitted check ran there.
-pub(crate) fn bound_workspace_paths(workspace: &Path) -> Vec<String> {
-    let Ok(workspace) = fs::canonicalize(workspace) else {
-        return Vec::new();
-    };
-    let remembered = BOUND_PATHS.lock().unwrap_or_else(PoisonError::into_inner);
-    remembered
-        .get(&workspace)
-        .into_iter()
-        .flat_map(|checks| checks.values().flatten().cloned())
-        .collect()
+    paths
 }
 
 /// A safe workspace-relative regular file: no parent or absolute component,

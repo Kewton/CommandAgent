@@ -15,6 +15,9 @@ of an artifact an admitted `artifact_contract_check` inspected.
 - A bound input name is compared verbatim: a trailing-space name and a
   POSIX name holding `\` stay distinct from the look-alike `data/terms.json`
   beside them, so only the real input's change reruns the check.
+- A later run in a workspace an artifact run already used, without an
+  artifact check or with another one, compares none of the earlier run's
+  inputs: its repair of only those inputs is no change, as at the base.
 - A rerun that still fails (invalid content, adapter exit without an envelope,
   adapter timeout, a required row `unresolved` or `not_run`) stays a native
   failure, and no case exceeds the existing two repair attempts.

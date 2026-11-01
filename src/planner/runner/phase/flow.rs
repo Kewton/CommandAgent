@@ -933,12 +933,14 @@ pub fn run_ultra_plan_with_ui(
             let before_missing_keys = verification_missing_signals(&acceptance_report);
             let before_route_bound_paths =
                 route_bound_source_paths(&config.workspace_root, &plan.profile);
+            let artifact_repair_paths = acceptance_report.artifact_repair_paths.clone();
             let before_source_snapshot = final_acceptance_source_snapshot(
                 &config.workspace_root,
                 &plan.profile,
                 &plan.goal,
                 &expected_paths,
                 &[],
+                &artifact_repair_paths,
             );
             let mut repair_prompt = final_acceptance_repair_prompt_with_events(
                 &config.workspace_root,
@@ -1174,6 +1176,7 @@ pub fn run_ultra_plan_with_ui(
                 &plan.goal,
                 &expected_paths,
                 &repair_outcome.changed_paths,
+                &artifact_repair_paths,
             );
             let actual_changed_paths =
                 changed_snapshot_paths(&before_source_snapshot, &after_source_snapshot);
