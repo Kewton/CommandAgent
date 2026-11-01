@@ -10,6 +10,14 @@
 //! and the existing checks decide. Plan steps, recovery, and profile or final
 //! acceptance repair run as plan steps and keep the early completion.
 //!
+//! Satisfied paths are only a candidate. Before the stop, the existing
+//! `ImplementationCompletion::feedback` runs, and for a final repair the host
+//! bound to failed artifact checks it holds the candidate until a bound
+//! artifact's raw bytes change (Issue #956,
+//! `implementation_completion::repair_artifact_completion`). The same leaf
+//! holds the final answer without tools and the contract short-circuit, so no
+//! exit drops it. This module's policy is unchanged.
+//!
 //! The action-prompt vocabulary lives here too. A direct prompt also counts a
 //! request to repair (`直して`, `直す`, `repair`) as an action; plan steps keep
 //! the vocabulary they had.

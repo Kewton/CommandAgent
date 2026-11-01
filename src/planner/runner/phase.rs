@@ -2330,11 +2330,9 @@ pub(super) fn merge_verification_report(
     for reason in extra.profile_failures {
         report.push_profile_failure(reason);
     }
-    for path in extra.artifact_repair_paths {
-        if !report.artifact_repair_paths.contains(&path) {
-            report.artifact_repair_paths.push(path);
-        }
-    }
+    report
+        .artifact_repair_paths
+        .merge(extra.artifact_repair_paths);
     report
         .artifact_diagnostics
         .merge(extra.artifact_diagnostics);

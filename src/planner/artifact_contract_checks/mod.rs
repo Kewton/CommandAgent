@@ -543,7 +543,48 @@ pub(crate) fn run_and_record(
     run_and_record_with_repair_paths(workspace, check, events_path, source, owner_id).0
 }
 
-/// [`run_and_record`] that also returns the run's repair candidates and the
+/// The repair names of one acceptance result. `candidates` are the names of
+/// every admitted run (Issue #949). `failed_targets` holds the names of the
+/// runs whose receipt failed, verbatim: the host binding of the final repair
+/// that follows (Issue #956). The protocol does not map a row to an input,
+/// so a failed receipt binds its request and all its inputs; a passed run, or
+/// one that stopped before naming anything, binds nothing. Neither list is a
+/// failure or a status.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ArtifactRepairPaths {
+    pub candidates: Vec<String>,
+    pub failed_targets: Vec<String>,
+}
+
+impl ArtifactRepairPaths {
+    fn of_receipt(receipt: &Receipt) -> Self {
+        let failed = !receipt.failures().is_empty();
+        Self {
+            candidates: receipt.repair_paths.clone(),
+            failed_targets: if failed {
+                receipt.repair_paths.clone()
+            } else {
+                Vec::new()
+            },
+        }
+    }
+
+    /// Adds the names of `other` that are not yet present, in order.
+    pub fn merge(&mut self, other: Self) {
+        for (into, from) in [
+            (&mut self.candidates, other.candidates),
+            (&mut self.failed_targets, other.failed_targets),
+        ] {
+            for path in from {
+                if !into.contains(&path) {
+                    into.push(path);
+                }
+            }
+        }
+    }
+}
+
+/// [`run_and_record`] that also returns the run's repair names and the
 /// event projection of its accepted diagnostics (Issue #955), for the
 /// acceptance report of this same run.
 pub(crate) fn run_and_record_with_repair_paths(
@@ -552,7 +593,7 @@ pub(crate) fn run_and_record_with_repair_paths(
     events_path: Option<&Path>,
     source: &str,
     owner_id: &str,
-) -> (Vec<String>, Vec<String>, ArtifactDiagnosticGroup) {
+) -> (Vec<String>, ArtifactRepairPaths, ArtifactDiagnosticGroup) {
     let receipt = run_check(
         workspace,
         check,
@@ -560,7 +601,8 @@ pub(crate) fn run_and_record_with_repair_paths(
         || false,
     );
     let diagnostics = record(&receipt, events_path, source, owner_id);
-    (receipt.failures(), receipt.repair_paths, diagnostics)
+    let paths = ArtifactRepairPaths::of_receipt(&receipt);
+    (receipt.failures(), paths, diagnostics)
 }
 
 pub(crate) fn run_check<F>(

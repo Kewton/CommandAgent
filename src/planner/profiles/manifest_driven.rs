@@ -15,6 +15,7 @@ use crate::minimal_loop::dependency_setup::{
     NodeDependencySetupAuthority, NodeDependencySetupRequirement,
 };
 use crate::planner::adjudication::contract::ProbeOutcome;
+use crate::planner::artifact_contract_checks::ArtifactRepairPaths;
 use crate::planner::capability_catalog::{InternalCapability, ResolvedCapability};
 use crate::planner::profile::{
     DomainProfile, InteractionRepairContract, ProfileBehaviorProbeReport, ProfileBuildOracle,
@@ -191,7 +192,7 @@ impl ManifestDrivenProfile {
         root: &Path,
         goal: &str,
         eval_events_path: Option<&Path>,
-        repair_paths: &mut Vec<String>,
+        repair_paths: &mut ArtifactRepairPaths,
         diagnostics: &mut ArtifactDiagnostics,
     ) -> Vec<String> {
         let checks = match self.resolved_checks() {
@@ -275,7 +276,7 @@ impl ManifestDrivenProfile {
                             self.id,
                         );
                     failures.extend(check_failures);
-                    repair_paths.extend(paths);
+                    repair_paths.merge(paths);
                     diagnostics.push_group(group);
                 }
                 ResolvedCapability::Internal(_) | ResolvedCapability::Probe(_) => {
@@ -356,7 +357,7 @@ impl DomainProfile for ManifestDrivenProfile {
         for failure in self.artifact_failures(root) {
             report.push_profile_failure(failure);
         }
-        let mut repair_paths = Vec::new();
+        let mut repair_paths = ArtifactRepairPaths::default();
         let mut diagnostics = ArtifactDiagnostics::default();
         for failure in self.check_failures(
             root,
