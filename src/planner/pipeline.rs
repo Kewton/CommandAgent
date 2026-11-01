@@ -42,14 +42,25 @@
 //!   `accounting_record: false`, by the `provider_turn_duration` that carried
 //!   the replayed response (same `provider_response_id` when one was
 //!   reported). `"unconsumed"` (`accounting_record: true`) is a call that
-//!   settled but was never replayed: discarded, superseded, stale, a failed
-//!   attempt, the pipeline dropped, or adopted and never replayed, including a
-//!   main-path `provider_call` cancelled before it asked for the reply.
+//!   settled but could not hand its accounting to a turn: discarded,
+//!   superseded, stale, a failed attempt, the pipeline dropped, adopted and
+//!   never replayed (including a main-path `provider_call` cancelled before it
+//!   asked for the reply), or replayed into a turn that ended without the
+//!   result (`replay_turn_unrecorded`, below).
 //!   `"unsettled"` (`accounting_record: true`) is a call that started but had
 //!   no outcome when the log was closed; its usage is unknown and stays
 //!   absent. A main-path `provider_turn_duration` that is `aborted_by_user` or
 //!   `timed_out` carries no usage, and when it ended before the replay it
 //!   made no physical call.
+//! - **Billed amount.** The provider-reported `provider_billed_cost_usd`
+//!   (Issue #947) follows the same rule and is counted exactly once per
+//!   physical call: for a `replayed` call by the `provider_turn_duration` that
+//!   carried it (the replayed record never carries it), and for an
+//!   `unconsumed` call by its own accounting record. An `unsettled` call has
+//!   no known amount. It is written only when reported, as the provider's
+//!   decimal text in a JSON string (an explicit zero is `"0"`), and an
+//!   aggregator reads it as a decimal, never as a float. An amount that
+//!   overlaps a registered secret is left out, as for an unreported one.
 //! - **Handing the replayed call to its turn.** Replaying the reply does not
 //!   yet count it. The instance that replayed holds the paired call until
 //!   `provider_call` writes the turn that carried the worker's result and then
@@ -72,7 +83,8 @@
 //!   and `eval_count` (reply token counts), `provider_response_id`,
 //!   `provider_model_id`, `provider_service_tier`,
 //!   `provider_cached_input_tokens`, `provider_reasoning_tokens`,
-//!   `provider_total_tokens`, and the `ResponseTiming` durations, with the same
+//!   `provider_total_tokens`, `provider_billed_cost_usd`, and the
+//!   `ResponseTiming` durations, with the same
 //!   names as `provider_turn_duration`. An explicit zero is written as `0`; a
 //!   missing value is never written as `0`. The replayed record carries only
 //!   `provider_response_id` for correlation and `accounted_by`. No payload,
@@ -902,6 +914,16 @@ fn provider_call_event(
         "provider_total_tokens",
         metadata.and_then(|metadata| metadata.total_tokens),
     );
+    // Issue #947: the provider-reported billed amount, only when reported, as
+    // the verified decimal text in a JSON string; an amount that overlaps a
+    // registered secret is left out as unreported. A replayed call never gets
+    // here: its turn carries the amount.
+    if let Some(cost) = metadata
+        .and_then(|metadata| metadata.billed_cost_usd.as_ref())
+        .and_then(|cost| cost.event_value(account.events_path.as_deref()))
+    {
+        value["provider_billed_cost_usd"] = cost;
+    }
     insert_reported(
         &mut value,
         "prompt_eval_duration",

@@ -29,7 +29,9 @@ use crate::config::{
     PromptLayout, Provider,
 };
 use crate::providers::openai::OpenAiClient;
-use crate::providers::{AssistantReply, ChatClient, ProviderResponseMetadata, ResponseTiming};
+use crate::providers::{
+    AssistantReply, BilledCostUsd, ChatClient, ProviderResponseMetadata, ResponseTiming,
+};
 use crate::sensitive_data::{
     RegistrationRefusal, ReservedKind, SecretCatalog, is_fixed_identifier,
 };
@@ -45,6 +47,8 @@ const MANIFEST: &str =
     include_str!("../../../tests/corpus/apps/prefetched-planner-usage/source-manifest.json");
 /// Diagnostic ceiling only: it turns a missing signal into a bounded failure.
 const DEADLINE: Duration = Duration::from_secs(5);
+/// The billed amount field of Issue #947.
+const BILLED: &str = "provider_billed_cost_usd";
 
 fn test_config(root: &Path) -> Config {
     Config {
@@ -373,6 +377,14 @@ fn assert_case(id: &str, config: &Config, physical_calls: usize, paid_prompt_tok
         case["provider_call_events"],
         "{id}: provider call events"
     );
+    for event in &call_events {
+        if event[fixture["accounting_flag"].as_str().unwrap()] == false {
+            assert!(
+                event.get(BILLED).is_none(),
+                "{id}: the replayed record must leave the billed amount to its turn: {event}"
+            );
+        }
+    }
 
     let turns = lines
         .iter()
@@ -982,6 +994,59 @@ fn local_http_posts_match_accounting_events_for_a_discarded_prefetch() {
     );
 }
 
+/// A completion whose `usage.cost` is the given JSON number (Issue #947).
+fn billed_completion(id: &str, cost: Value) -> Value {
+    let mut body = completion(id, None);
+    body["usage"]["cost"] = cost;
+    body
+}
+
+#[test]
+fn local_http_billed_amounts_are_counted_by_the_turn_for_an_adopted_prefetch() {
+    let server = chat_server(vec![
+        billed_completion("resp-http-billed-prefetch", serde_json::json!(0.012345)),
+        billed_completion("resp-http-billed-fallback", serde_json::json!(0)),
+    ]);
+    let dir = tempfile::tempdir().unwrap();
+    let config = test_config(dir.path());
+    let planner = OpenAiClient::for_test("synthetic-test-key", server.base_url.clone(), None);
+    let mut pipeline = started(&planner, &config);
+    let mut adopted = pipeline
+        .take_planner(&key(), &planner, &config)
+        .expect("the prefetched reply is adopted");
+
+    planner_call(adopted.as_mut(), &config);
+    planner_call(adopted.as_mut(), &config);
+    drop(adopted);
+    drop(pipeline);
+
+    let posts = server.posts.load(Ordering::SeqCst);
+    assert_case(
+        "http-billed-adopted-replayed",
+        &config,
+        posts,
+        posts as u64 * 100,
+    );
+}
+
+#[test]
+fn local_http_billed_amount_is_counted_by_the_record_of_a_discarded_prefetch() {
+    let server = chat_server(vec![billed_completion(
+        "resp-http-billed-discarded",
+        serde_json::json!(0.012345),
+    )]);
+    let dir = tempfile::tempdir().unwrap();
+    let config = test_config(dir.path());
+    let planner = OpenAiClient::for_test("synthetic-test-key", server.base_url.clone(), None);
+    let mut pipeline = started(&planner, &config);
+    wait_for_calls(&pipeline, 1, true);
+
+    pipeline.cancel_and_discard(&config, "verification_failed");
+
+    let posts = server.posts.load(Ordering::SeqCst);
+    assert_case("http-billed-discarded", &config, posts, posts as u64 * 100);
+}
+
 #[test]
 fn corpus_manifest_pins_the_fixture_and_its_synthetic_origin() {
     let manifest: Value = serde_json::from_str(MANIFEST).unwrap();
@@ -1044,6 +1109,7 @@ const PRE_EXISTING_KEYS: &[&str] = &[
     "provider_cached_input_tokens",
     "provider_reasoning_tokens",
     "provider_total_tokens",
+    "provider_billed_cost_usd",
     "prompt_eval_duration",
     "eval_duration",
     "load_duration",
@@ -1125,11 +1191,11 @@ fn call_events_keep_their_schema_under_a_registered_credential() {
 // B1: the replayed call is handed to its turn only when the turn carries it.
 
 fn replay_with_account(config: &Config) -> PrefetchedReply {
-    let mut prefetched = paired(
-        "prefetched",
-        Some(timing(1100, 2200)),
-        Some(metadata("resp-prefetch", Some(40))),
-    );
+    replay_with_metadata(config, metadata("resp-prefetch", Some(40)))
+}
+
+fn replay_with_metadata(config: &Config, metadata: ProviderResponseMetadata) -> PrefetchedReply {
+    let mut prefetched = paired("prefetched", Some(timing(1100, 2200)), Some(metadata));
     prefetched.call.as_mut().unwrap().account.events_path = config.eval_events_path.clone();
     prefetched
 }
@@ -1305,4 +1371,228 @@ fn replay_whose_turn_carried_it_is_counted_by_the_turn() {
 #[test]
 fn replay_turn_unrecorded_reason_is_reserved() {
     assert!(is_fixed_identifier("replay_turn_unrecorded"));
+}
+
+// Issue #947 x #948: the billed amount of each physical prefetch call is
+// counted exactly once, by the turn that carried it or by its own accounting
+// record, and an unreported amount is written nowhere.
+
+/// A positive amount, an explicit zero, and an unreported amount.
+const BILLED_AMOUNTS: [Option<&str>; 3] = [Some("0.012345"), Some("0"), None];
+
+fn billed_metadata(id: &str, cost: Option<&str>) -> ProviderResponseMetadata {
+    ProviderResponseMetadata {
+        billed_cost_usd: cost.map(|cost| BilledCostUsd::from_json_token(cost).unwrap()),
+        ..metadata(id, None)
+    }
+}
+
+fn billed(content: &str, id: &str, cost: Option<&str>) -> Scripted {
+    Scripted {
+        metadata: Some(billed_metadata(id, cost)),
+        ..ok(content, id, None)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum BilledBy {
+    Turn,
+    Record,
+}
+
+/// The amount appears once, as the decimal text in a JSON string, in exactly
+/// one place, `carrier`; the replayed record never carries it. An unreported
+/// amount leaves the field out of every event.
+fn assert_billed_once(config: &Config, amount: Option<&str>, carrier: BilledBy, context: &str) {
+    let lines = event_lines(config)
+        .iter()
+        .map(|line| parse(line))
+        .collect::<Vec<_>>();
+    let calls = lines
+        .iter()
+        .filter(|value| event_name(value) == PROVIDER_CALL_EVENT)
+        .collect::<Vec<_>>();
+    assert_eq!(calls.len(), 1, "{context}: one physical call: {calls:?}");
+    for call in calls
+        .iter()
+        .filter(|call| call["accounting_record"] == false)
+    {
+        assert!(call.get(BILLED).is_none(), "{context}: replayed {call}");
+    }
+    let in_turns = lines
+        .iter()
+        .filter(|value| event_name(value) == "provider_turn_duration")
+        .filter_map(|turn| turn.get(BILLED))
+        .collect::<Vec<_>>();
+    let in_records = calls
+        .iter()
+        .filter(|call| call["accounting_record"] == true)
+        .filter_map(|call| call.get(BILLED))
+        .collect::<Vec<_>>();
+    let (carried, elsewhere) = match carrier {
+        BilledBy::Turn => (in_turns, in_records),
+        BilledBy::Record => (in_records, in_turns),
+    };
+    assert!(
+        elsewhere.is_empty(),
+        "{context}: counted twice {elsewhere:?}"
+    );
+    match amount {
+        Some(amount) => assert_eq!(
+            carried,
+            vec![&Value::String(amount.to_string())],
+            "{context}: carried by {carrier:?}"
+        ),
+        None => assert!(carried.is_empty(), "{context}: unreported {carried:?}"),
+    }
+}
+
+#[test]
+fn billed_amount_of_an_adopted_prefetch_is_counted_once_by_its_turn() {
+    for amount in BILLED_AMOUNTS {
+        let dir = tempfile::tempdir().unwrap();
+        let config = test_config(dir.path());
+        let planner = ScriptedClient::new(vec![billed("prefetched", "resp-billed", amount)]);
+        let mut pipeline = started(&planner, &config);
+        let mut adopted = pipeline
+            .take_planner(&key(), &planner, &config)
+            .expect("the prefetched reply is adopted");
+
+        assert_eq!(
+            planner_call(adopted.as_mut(), &config).content,
+            "prefetched"
+        );
+        drop(adopted);
+        drop(pipeline);
+
+        assert_eq!(planner.calls(), 1);
+        assert_billed_once(&config, amount, BilledBy::Turn, &format!("{amount:?}"));
+    }
+}
+
+#[test]
+fn billed_amount_of_a_discarded_prefetch_is_counted_once_by_its_record() {
+    for amount in BILLED_AMOUNTS {
+        let dir = tempfile::tempdir().unwrap();
+        let config = test_config(dir.path());
+        let planner = ScriptedClient::new(vec![billed("prefetched", "resp-billed", amount)]);
+        let mut pipeline = started(&planner, &config);
+        wait_for_calls(&pipeline, 1, true);
+
+        let stale = PhasePlanKey::new(NEXT, "a prompt changed at the gate");
+        assert!(pipeline.take_planner(&stale, &planner, &config).is_none());
+
+        assert_billed_once(&config, amount, BilledBy::Record, &format!("{amount:?}"));
+    }
+}
+
+#[test]
+fn billed_amount_of_a_replay_whose_turn_ended_without_it_is_counted_once_by_its_record() {
+    for amount in BILLED_AMOUNTS {
+        let dir = tempfile::tempdir().unwrap();
+        let config = test_config(dir.path());
+        let fallback = ScriptedClient::new(Vec::new());
+        let mut planner = PrefetchedPlanner::adopted(
+            &fallback,
+            replay_with_metadata(&config, billed_metadata("resp-prefetch", amount)),
+        );
+        let slot = Arc::clone(&planner.first_reply);
+        let checks = std::cell::Cell::new(0);
+
+        let outcome = replay_turn(&mut planner, &config, || {
+            checks.set(checks.get() + 1);
+            if checks.get() == 1 {
+                return false;
+            }
+            wait_until_replayed(&slot);
+            true
+        });
+        assert!(outcome.aborted_by_user);
+        drop(planner);
+        release_slot(slot);
+
+        let context = format!("{amount:?}");
+        assert_billed_once(&config, amount, BilledBy::Record, &context);
+        let record = event_lines(&config)
+            .iter()
+            .map(|line| parse(line))
+            .find(|value| event_name(value) == PROVIDER_CALL_EVENT)
+            .unwrap();
+        assert_eq!(record["reason"], "replay_turn_unrecorded", "{context}");
+        assert_eq!(fallback.calls(), 0);
+    }
+}
+
+#[test]
+fn replayed_turn_never_carries_the_fallback_billed_amount() {
+    for amount in BILLED_AMOUNTS {
+        let dir = tempfile::tempdir().unwrap();
+        let config = test_config(dir.path());
+        let mut fallback =
+            ScriptedClient::new(vec![billed("fallback", "resp-fallback", Some("0.25"))]);
+        fallback.metadata = Some(billed_metadata("resp-stale", Some("0.5")));
+        let mut planner = PrefetchedPlanner::adopted(
+            &fallback,
+            replay_with_metadata(&config, billed_metadata("resp-prefetch", amount)),
+        );
+
+        assert!(replay_turn(&mut planner, &config, || false).result.is_ok());
+        assert!(replay_turn(&mut planner, &config, || false).result.is_ok());
+        drop(planner);
+
+        let context = format!("{amount:?}");
+        let turns = event_lines(&config)
+            .iter()
+            .map(|line| parse(line))
+            .filter(|value| event_name(value) == "provider_turn_duration")
+            .collect::<Vec<_>>();
+        assert_eq!(turns.len(), 2, "{context}");
+        assert_eq!(turns[0]["provider_response_id"], "resp-prefetch");
+        assert_eq!(
+            turns[0].get(BILLED),
+            amount
+                .map(|amount| Value::String(amount.to_string()))
+                .as_ref(),
+            "{context}: the replay carries only the paired call's amount"
+        );
+        assert_eq!(turns[1]["provider_response_id"], "resp-fallback");
+        assert_eq!(
+            turns[1][BILLED], "0.25",
+            "{context}: the fallback's own call"
+        );
+        assert_eq!(fallback.calls(), 1);
+    }
+}
+
+#[test]
+fn billed_amount_overlapping_a_secret_is_left_out_of_the_record() {
+    use crate::sensitive_data::{install_scope, set_current};
+
+    let dir = tempfile::tempdir().unwrap();
+    let config = test_config(dir.path());
+    let mut catalog = SecretCatalog::new();
+    // A fake credential equal to the amount.
+    catalog
+        .register_credential("SYNTHETIC_API_KEY", "0.012345")
+        .unwrap();
+    install_scope(catalog, None, config.eval_events_path.as_deref());
+    set_current(None);
+    let planner = ScriptedClient::new(vec![billed("prefetched", "resp-billed", Some("0.012345"))]);
+    let mut pipeline = started(&planner, &config);
+    wait_for_calls(&pipeline, 1, true);
+
+    let stale = PhasePlanKey::new(NEXT, "a prompt changed at the gate");
+    assert!(pipeline.take_planner(&stale, &planner, &config).is_none());
+
+    assert_billed_once(&config, None, BilledBy::Record, "overlapping a secret");
+    let record = event_lines(&config)
+        .iter()
+        .map(|line| parse(line))
+        .find(|value| event_name(value) == PROVIDER_CALL_EVENT)
+        .unwrap();
+    assert_eq!(
+        record["prompt_eval_count"], 100,
+        "the rest of the usage stays"
+    );
+    assert!(!record.to_string().contains("0.012345"));
 }

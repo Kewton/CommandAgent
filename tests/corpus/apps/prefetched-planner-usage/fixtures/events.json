@@ -141,6 +141,31 @@
         {"accounting_record": true, "call_index": 1, "current_phase_id": "phase-n", "disposition": "unconsumed", "eval_count": 5, "event": "speculative_phase_plan_provider_call", "next_phase_id": "phase-n-plus-one", "ok": true, "prompt_eval_count": 100, "provider_model_id": "synthetic-model", "provider_response_id": "resp-http-discarded", "reason": "verification_failed", "schema_version": "1"}
       ],
       "turns": []
+    },
+    {
+      "id": "http-billed-adopted-replayed",
+      "transport": "local_http",
+      "physical_calls": 2,
+      "prefetch_calls": 1,
+      "pipeline_events": ["started", "adopted"],
+      "provider_call_events": [
+        {"accounted_by": "provider_turn_duration", "accounting_record": false, "call_index": 1, "current_phase_id": "phase-n", "disposition": "replayed", "event": "speculative_phase_plan_provider_call", "next_phase_id": "phase-n-plus-one", "ok": true, "provider_response_id": "resp-http-billed-prefetch", "reason": "gate_passed", "schema_version": "1"}
+      ],
+      "turns": [
+        {"expect": {"caller_scope": "planner_step", "provider_response_id": "resp-http-billed-prefetch", "provider_billed_cost_usd": "0.012345", "prompt_eval_count": 100, "eval_count": 5}, "absent": []},
+        {"expect": {"caller_scope": "planner_step", "provider_response_id": "resp-http-billed-fallback", "provider_billed_cost_usd": "0", "prompt_eval_count": 100, "eval_count": 5}, "absent": []}
+      ]
+    },
+    {
+      "id": "http-billed-discarded",
+      "transport": "local_http",
+      "physical_calls": 1,
+      "prefetch_calls": 1,
+      "pipeline_events": ["started", "discarded_verification_failed"],
+      "provider_call_events": [
+        {"accounting_record": true, "call_index": 1, "current_phase_id": "phase-n", "disposition": "unconsumed", "eval_count": 5, "event": "speculative_phase_plan_provider_call", "next_phase_id": "phase-n-plus-one", "ok": true, "prompt_eval_count": 100, "provider_billed_cost_usd": "0.012345", "provider_model_id": "synthetic-model", "provider_response_id": "resp-http-billed-discarded", "reason": "verification_failed", "schema_version": "1"}
+      ],
+      "turns": []
     }
   ]
 }

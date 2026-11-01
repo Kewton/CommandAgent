@@ -6,12 +6,13 @@
   "synthetic_source": {
     "base_pipeline_lines": "captured by running the pipeline at base_sha (before this change) with a fake ChatClient and phase ids phase-n / phase-n-plus-one; the started, adopted, and discarded (stale_input, verification_failed, prefetch_failed) lines are copied byte for byte",
     "base_observation": "at base_sha the replayed planner_step provider_turn_duration carried no provider_response_id or provider_cached_input_tokens, and discarded, failed, and dropped prefetch calls left no usage record",
+    "billed_amount": "the http-billed-* cases serve a synthetic usage.cost (Issue #947) from the loopback stand-in; the amount is counted once, by the turn for a replayed call and by the accounting record for an unconsumed call",
     "cases": "hand-authored from the #948 design in the src/planner/pipeline.rs module doc: fake_client cases use invented response ids, token counts, cache counts, and ResponseTiming durations; local_http cases are served by a throwaway 127.0.0.1 OpenAI-compatible stand-in with a synthetic key",
     "excluded": "no live model, real key, external provider, benchmark task, grader input, expected answer, generated code, run record, or host path is stored here"
   },
   "derived_fixture": "fixtures/events.json is read by src/planner/pipeline/usage_tests.rs, which runs each case through the product pipeline and provider_call path and checks the emitted events against it; each case reconciles the physical calls (one call event per physical prefetch call) and the prompt tokens of every known reply (counted exactly once by a turn or an accounting_record true event)",
   "regenerate_digests": "shasum -a 256 fixtures/events.json",
   "fixture_sha256": {
-    "events.json": "a68b50feac7c4bc072caabb94bfb658f5d1cf8613c9cc5cfdfaeac7ab0093d65"
+    "events.json": "164d175d9c577f960793bbc994370b9b64b62da8a67819e1e649be59cb6e2df9"
   }
 }
