@@ -1,0 +1,66 @@
+case_id = "budget-exhaustion-observation"
+source = "Issue #959: synthetic scripted runs through the minimal loop; when the run leaves the loop because its iteration budget is spent, the loop_stop gains nine additive fields (iteration_limit, iterations_used, iteration_budget_exhausted, successful_write_count, last_successful_write_iteration, bash_results_after_last_write, bash_failures_after_last_write, last_bash_after_last_write_succeeded, write_failure_after_last_write) whose values are numbers, bools, or null; the reason, every existing field, the requests, and the event sequence were recorded from source 20b549fc6269217bd0161d2038326480c7605d5f before the observation existed, and other loop_stop sites keep their base bytes"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/events.jsonl = [
+  "\"kind\": \"synthetic\"",
+  "\"source\": \"20b549fc\"",
+  "\"id\": \"all-tools-default-budget\"",
+  "\"id\": \"max-iterations-four\"",
+  "\"id\": \"no-writes\"",
+  "\"id\": \"no-bash-after-last-write\"",
+  "\"id\": \"write-failure-after-last-write\"",
+  "\"id\": \"environment-blocker\"",
+  "\"id\": \"same-response-reset\"",
+  "\"id\": \"repeated-success\"",
+  "\"id\": \"write-rejected\"",
+  "\"id\": \"policy-blocked-bash\"",
+  "\"id\": \"contract-allowance-budget\"",
+  "\"iteration_limit\": 8, \"iterations_used\": 8, \"iteration_budget_exhausted\": true",
+  "\"wall_clock_cap_ms\": 0",
+  "\"dominant_time_sink\\\":\\\"no timed command/provider recorded\\\"",
+  "\"id\": \"plan-inspect-write-rejected\"",
+  "\"id\": \"plan-verify-policy-substituted\"",
+  "\"id\": \"other-site-post-write-read\"",
+  "\"id\": \"other-site-recoverable-repeat\"",
+  "\"id\": \"other-site-max-length\"",
+  "\"id\": \"other-site-plan-after-tool\"",
+  "\"id\": \"other-site-plan-step-observation\"",
+  "\"id\": \"other-site-plan-wall-clock\"",
+  "\"reason\": \"model_stagnation:no_progress_recorded\"",
+  "\"reason\": \"loop_progress_exhausted\"",
+  "\"reason\": \"artifact_follow_through_exhausted\"",
+  "\"iteration_limit\": 15, \"iterations_used\": 15, \"iteration_budget_exhausted\": true",
+  "\"iteration_limit\": 7, \"iterations_used\": 7, \"iteration_budget_exhausted\": true",
+  "\"budget_fields\": null"
+]
+
+[fixture_ordered]
+fixtures/events.jsonl = [
+  "\"id\": \"all-tools-default-budget\"",
+  "\"base_loop_stop\"",
+  "\"budget_fields\": {",
+  "\"id\": \"max-iterations-four\"",
+  "\"id\": \"other-site-post-write-read\"",
+  "\"budget_fields\": null"
+]

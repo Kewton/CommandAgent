@@ -61,7 +61,9 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "artifact-check-diagnostics",
     "artifact_contract_check_result",
     "artifact_stagnation_feedback",
+    "bash_failures_after_last_write",
     "bash_path_confinement_rejected",
+    "bash_results_after_last_write",
     "bash_results_after_prompt",
     "bash_sandbox_status",
     "bash_sandbox_unavailable",
@@ -186,6 +188,11 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "investigation_plan_synthesized",
     "items",
     "iteration",
+    "iteration_budget_exhausted",
+    "iteration_limit",
+    "iterations_used",
+    "last_bash_after_last_write_succeeded",
+    "last_successful_write_iteration",
     "legacy_detail",
     "local_pack",
     "loop_stop",
@@ -347,6 +354,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "success",
     "successful_bash_after_prompt",
     "successful_bash_since_latest_edit",
+    "successful_write_count",
     "target",
     "test_node_event",
     "time_profile",
@@ -415,6 +423,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "workflow_reproducer_prevalidated",
     "workflow_started",
     "workspace_cd_stripped",
+    "write_failure_after_last_write",
     "write_required_off_target_write_allowed",
 ];
 
@@ -730,5 +739,115 @@ mod artifact_diagnostics_field_tests {
         let item = &value["adapter_diagnostics"]["items"][0];
         assert_eq!(item["check"], "rows/alpha");
         assert_eq!(item["row_status"], "failed");
+    }
+}
+
+/// Issue #959: the nine budget-exhaustion `loop_stop` field names are fixed
+/// identifiers, so a credential equal to one of them or to a fragment of one
+/// is refused at registration instead of turning a field name into a marker.
+#[cfg(test)]
+mod budget_exhaustion_field_tests {
+    use serde_json::json;
+
+    use super::{FIXED_IDENTIFIERS, collides_with_fixed_identifier, is_fixed_identifier};
+    use crate::sensitive_data::{RegistrationRefusal, ReservedKind, SecretCatalog};
+
+    const FIELDS: [&str; 9] = [
+        "iteration_limit",
+        "iterations_used",
+        "iteration_budget_exhausted",
+        "successful_write_count",
+        "last_successful_write_iteration",
+        "bash_results_after_last_write",
+        "bash_failures_after_last_write",
+        "last_bash_after_last_write_succeeded",
+        "write_failure_after_last_write",
+    ];
+
+    #[test]
+    fn each_field_is_reserved_once_in_name_order() {
+        for field in FIELDS {
+            assert!(is_fixed_identifier(field), "{field}");
+            assert_eq!(
+                FIXED_IDENTIFIERS
+                    .iter()
+                    .filter(|fixed| **fixed == field)
+                    .count(),
+                1,
+                "{field}"
+            );
+            let at = FIXED_IDENTIFIERS
+                .iter()
+                .position(|fixed| *fixed == field)
+                .unwrap();
+            assert!(FIXED_IDENTIFIERS[at - 1] < field, "{field}");
+            assert!(field < FIXED_IDENTIFIERS[at + 1], "{field}");
+        }
+    }
+
+    #[test]
+    fn a_credential_equal_to_a_field_or_a_fragment_of_it_is_refused_unnamed() {
+        let fragments = [
+            "budget_exhausted",
+            "ations_use",
+            "_successful_write_",
+            "results_after_last_wr",
+            "failures_after_last",
+            "after_last_write_succeeded",
+            "write_failure_after",
+        ];
+        for value in FIELDS.into_iter().chain(fragments) {
+            assert!(collides_with_fixed_identifier(value), "{value}");
+            let mut catalog = SecretCatalog::new();
+            let error = catalog
+                .register_credential("COMPAT_API_KEY", value)
+                .unwrap_err();
+            assert_eq!(
+                error,
+                RegistrationRefusal::Reserved {
+                    name: "COMPAT_API_KEY".to_string(),
+                    kind: ReservedKind::FixedIdentifier,
+                }
+            );
+            assert!(catalog.is_empty());
+            for text in [error.to_string(), format!("{error:?}")] {
+                assert!(!text.contains(value), "the refusal names the value");
+            }
+        }
+    }
+
+    #[test]
+    fn a_normal_credential_leaves_the_field_names_and_values_unchanged() {
+        let credential = "fake-credential-959-not-a-real-key";
+        let mut catalog = SecretCatalog::new();
+        catalog
+            .register_credential("COMPAT_API_KEY", credential)
+            .unwrap();
+        let mut value = json!({
+            "event": "loop_stop",
+            "reason": "model_stagnation:no_progress_recorded",
+            "last_blocking_reason": format!("echo {credential}"),
+            "iteration_limit": 15,
+            "iterations_used": 15,
+            "iteration_budget_exhausted": true,
+            "successful_write_count": 2,
+            "last_successful_write_iteration": 9,
+            "bash_results_after_last_write": 3,
+            "bash_failures_after_last_write": 1,
+            "last_bash_after_last_write_succeeded": null,
+            "write_failure_after_last_write": false,
+        });
+        catalog.scrub_value_lenient(&mut value);
+        assert!(!value.to_string().contains(credential), "{value}");
+        let object = value.as_object().unwrap();
+        assert_eq!(object.len(), 12, "{value}");
+        for field in FIELDS {
+            assert!(object.contains_key(field), "{field}: {value}");
+        }
+        assert_eq!(value["iteration_limit"], 15);
+        assert_eq!(value["iteration_budget_exhausted"], true);
+        assert_eq!(value["last_bash_after_last_write_succeeded"], json!(null));
+        assert_eq!(value["write_failure_after_last_write"], false);
+        assert_eq!(value["reason"], "model_stagnation:no_progress_recorded");
     }
 }
