@@ -240,6 +240,9 @@ pub(crate) fn parse_response(body: &str) -> anyhow::Result<ParsedResponse> {
         total_tokens: usage
             .and_then(|usage| usage.get("total_tokens"))
             .and_then(Value::as_u64),
+        // Issue #947 reads a billed amount from Chat Completions only; the
+        // Responses API keeps reporting none.
+        billed_cost_usd: None,
     };
     Ok(ParsedResponse {
         reply: AssistantReply {

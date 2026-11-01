@@ -1,6 +1,6 @@
 use serde_json::{Value, json};
 
-use crate::providers::{AssistantReply, ProviderResponseMetadata};
+use crate::providers::{AssistantReply, BilledCostUsd, ProviderResponseMetadata};
 use crate::state::{ConversationMessage, ToolCall};
 use crate::tools::args_recovery::recover_tool_arguments;
 use crate::tools::registry::ToolSpec;
@@ -188,8 +188,27 @@ pub(crate) fn parse_response(
         cached_input_tokens: cached_input_tokens(usage, reply.prompt_tokens),
         reasoning_tokens: None,
         total_tokens: None,
+        billed_cost_usd: billed_cost_usd(body),
     };
     Ok((reply, metadata))
+}
+
+/// The raw members of a JSON object, borrowed before any number in them
+/// becomes an `f64`. Only an object deserializes into it (an array does not),
+/// and a repeated key keeps its last value, as `serde_json::Value` does.
+type RawMembers<'a> = std::collections::HashMap<String, &'a serde_json::value::RawValue>;
+
+/// The provider-reported billed amount in `usage.cost` (Issue #947), kept as
+/// optional provider metadata only; no amount is derived from token counts,
+/// model, or provider. It is read from the raw number token of the body that
+/// already parsed as a whole, so `1e-400` is not underflowed to zero and
+/// `1.00000000000000001` is not rounded. Anything but an unsigned, in-range
+/// number token is unreported (`None`) and changes no other field; an explicit
+/// zero stays a value.
+fn billed_cost_usd(body: &str) -> Option<BilledCostUsd> {
+    let response: RawMembers<'_> = serde_json::from_str(body).ok()?;
+    let usage: RawMembers<'_> = serde_json::from_str(response.get("usage")?.get()).ok()?;
+    BilledCostUsd::from_json_token(usage.get("cost")?.get())
 }
 
 /// The provider-reported cached share of the prompt, already included in
@@ -242,6 +261,265 @@ fn parse_tool_call(value: &Value) -> anyhow::Result<ToolCall> {
 
 #[cfg(test)]
 mod cache_usage_tests;
+
+/// Issue #947: `usage.cost` reaches `ProviderResponseMetadata.billed_cost_usd`
+/// as the exact decimal text of the number token in the raw body. An explicit
+/// zero is a value; a missing, null, non-number, negative, or out-of-range
+/// amount is unreported. Every body here is raw text, never a `Value`, so a
+/// lost digit cannot hide behind an `f64` on both sides.
+#[cfg(test)]
+mod billed_cost_tests {
+    use super::parse_response;
+    use crate::providers::{AssistantReply, BilledCostUsd, ProviderResponseMetadata};
+
+    const USAGE_TOKENS: &str = r#""prompt_tokens":5361,"completion_tokens":2,"total_tokens":5363,"prompt_tokens_details":{"cached_tokens":5344}"#;
+
+    /// A raw response body; `usage` is the raw text of the usage member, or
+    /// `None` for no usage at all.
+    fn body(usage: Option<&str>) -> String {
+        let usage = usage.map_or_else(String::new, |usage| format!(r#","usage":{usage}"#));
+        format!(
+            r#"{{"id":"chatcmpl-947","model":"compatible-model","created":1790000000,"system_fingerprint":"fp_947","service_tier":"default","choices":[{{"message":{{"content":"reading","tool_calls":[{{"id":"call-947","type":"function","function":{{"name":"Read","arguments":"{{\"path\":\"README.md\"}}"}}}}]}}}}]{usage}}}"#
+        )
+    }
+
+    /// The raw usage member with `cost` set to the raw token `cost`.
+    fn usage_with_cost(cost: &str) -> String {
+        format!(r#"{{{USAGE_TOKENS},"cost":{cost}}}"#)
+    }
+
+    fn parse(usage: Option<&str>) -> (AssistantReply, ProviderResponseMetadata) {
+        parse_response(&body(usage)).expect("a malformed amount must not fail the parse")
+    }
+
+    fn cost(usage: Option<&str>) -> Option<BilledCostUsd> {
+        parse(usage).1.billed_cost_usd
+    }
+
+    /// The kept decimal text for the raw cost token `sent`.
+    fn cost_text(sent: &str) -> Option<String> {
+        cost(Some(&usage_with_cost(sent))).map(|cost| cost.as_decimal_str().to_string())
+    }
+
+    #[test]
+    fn positive_amounts_are_kept_as_sent_without_rounding() {
+        for sent in [
+            "0.012345",
+            "0.000123",
+            "1.5e-7",
+            "12.5",
+            "2",
+            "1E+2",
+            "1.00000000000000001",
+            "0.123456789012345678901234567890",
+            "123456.000000000000000000000001",
+        ] {
+            assert_eq!(cost_text(sent).as_deref(), Some(sent), "{sent}");
+        }
+        let kept = cost(Some(&usage_with_cost("0.012345"))).unwrap();
+        assert_eq!(kept.as_decimal_str(), "0.012345");
+        assert_eq!(kept.event_value(None).unwrap().to_string(), r#""0.012345""#);
+    }
+
+    #[test]
+    fn a_tiny_positive_amount_is_not_underflowed_to_zero() {
+        for sent in ["1e-400", "5E-324", "0.1e-1000", "1e-99999999999999999999"] {
+            assert_eq!(cost_text(sent).as_deref(), Some(sent), "{sent}");
+        }
+        let kept = cost(Some(&usage_with_cost("1e-400"))).unwrap();
+        assert_eq!(kept.event_value(None).unwrap().to_string(), r#""1e-400""#);
+    }
+
+    #[test]
+    fn explicit_zero_is_a_value_not_unknown() {
+        for sent in ["0", "0.0", "0e5", "0.000E-3"] {
+            assert_eq!(cost_text(sent).as_deref(), Some(sent), "{sent}");
+        }
+        let zero = cost(Some(&usage_with_cost("0"))).unwrap();
+        assert_eq!(zero.event_value(None).unwrap().to_string(), r#""0""#);
+    }
+
+    #[test]
+    fn surrounding_whitespace_is_not_part_of_the_amount() {
+        assert_eq!(cost_text(" 0.012345 ").as_deref(), Some("0.012345"));
+        assert_eq!(cost_text("\n1e-400\t").as_deref(), Some("1e-400"));
+    }
+
+    #[test]
+    fn missing_amounts_stay_unreported() {
+        let without_cost = format!("{{{USAGE_TOKENS}}}");
+        for (label, usage) in [
+            ("no usage", None),
+            ("usage without cost", Some(without_cost.as_str())),
+            ("usage is null", Some("null")),
+            ("usage is a number", Some("1")),
+            ("usage is an array", Some("[0.012345]")),
+        ] {
+            assert_eq!(cost(usage), None, "{label}");
+        }
+        assert_eq!(cost_text("null"), None, "cost null");
+    }
+
+    #[test]
+    fn a_repeated_key_keeps_its_last_value_as_the_other_fields_do() {
+        let last_null = format!(r#"{{{USAGE_TOKENS},"cost":0.5,"cost":null}}"#);
+        let last_amount = format!(r#"{{{USAGE_TOKENS},"cost":null,"cost":0.5}}"#);
+        assert_eq!(cost(Some(&last_null)), None);
+        assert_eq!(
+            cost(Some(&last_amount)).map(|cost| cost.as_decimal_str().to_string()),
+            Some("0.5".to_string())
+        );
+        let repeated_usage = body(Some(&usage_with_cost("0.25"))).replacen(
+            r#""id":"chatcmpl-947""#,
+            r#""usage":{"cost":7},"id":"chatcmpl-947""#,
+            1,
+        );
+        let (_, metadata) = parse_response(&repeated_usage).unwrap();
+        assert_eq!(metadata.billed_cost_usd.unwrap().as_decimal_str(), "0.25");
+        assert_eq!(metadata.cached_input_tokens, Some(5344));
+    }
+
+    #[test]
+    fn non_number_amounts_stay_unreported() {
+        for sent in [
+            r#""0.012345""#,
+            r#""""#,
+            "true",
+            "false",
+            "[0.012345]",
+            r#"{"usd":0.012345}"#,
+        ] {
+            assert_eq!(cost_text(sent), None, "{sent}");
+        }
+    }
+
+    #[test]
+    fn negative_amounts_stay_unreported() {
+        for sent in ["-0.012345", "-1", "-0", "-0.0", "-0e5", "-1e-400"] {
+            assert_eq!(cost_text(sent), None, "{sent}");
+        }
+    }
+
+    #[test]
+    fn the_upper_bound_is_exact_in_decimal() {
+        for sent in [
+            "9007199254740991",
+            "9007199254740991.0",
+            "9.007199254740991e15",
+            "900719925474099.1E1",
+            "0.9007199254740991e16",
+            "9007199254740990.99999999999999999999",
+        ] {
+            assert_eq!(cost_text(sent).as_deref(), Some(sent), "{sent}");
+        }
+        for sent in [
+            "9007199254740992",
+            "9007199254740991.000000000000000001",
+            "9.007199254740992e15",
+            "9.0071992547409910001E15",
+            "1e16",
+            "18446744073709551616",
+            "1e300",
+            "1.7976931348623157e308",
+        ] {
+            assert_eq!(cost_text(sent), None, "{sent}");
+        }
+    }
+
+    #[test]
+    fn a_number_beyond_f64_still_fails_the_whole_body_as_at_base() {
+        // serde_json rejects `1e400` (number out of range) while parsing the
+        // whole body, before the amount is read; the base commit fails the same
+        // way, and this change keeps that honest failure.
+        for sent in ["1e400", "1e99999999999999999999"] {
+            let error = parse_response(&body(Some(&usage_with_cost(sent))))
+                .expect_err("the whole body fails to parse");
+            assert!(
+                error.to_string().contains("out of range"),
+                "{sent}: {error}"
+            );
+        }
+        for broken in ["{", "", r#"{"choices":[]}"#] {
+            assert!(parse_response(broken).is_err(), "{broken}");
+        }
+    }
+
+    #[test]
+    fn reply_tokens_and_cached_count_are_unchanged_by_the_amount() {
+        let legacy = format!("{{{USAGE_TOKENS}}}");
+        let (legacy_reply, legacy_metadata) = parse(Some(&legacy));
+        assert_eq!(legacy_metadata.billed_cost_usd, None);
+        assert_eq!(legacy_metadata.cached_input_tokens, Some(5344));
+        assert_eq!(legacy_metadata.total_tokens, None);
+        assert_eq!(legacy_metadata.reasoning_tokens, None);
+        assert_eq!(legacy_reply.prompt_tokens, Some(5361));
+        assert_eq!(legacy_reply.completion_tokens, Some(2));
+        for (sent, reported) in [
+            ("0.012345", true),
+            ("0", true),
+            ("1e-400", true),
+            ("null", false),
+            (r#""0.012345""#, false),
+            ("-1", false),
+            ("-0", false),
+            ("1e300", false),
+        ] {
+            let (reply, metadata) = parse(Some(&usage_with_cost(sent)));
+            assert_eq!(reply, legacy_reply, "cost {sent}");
+            assert_eq!(metadata.billed_cost_usd.is_some(), reported, "cost {sent}");
+            let mut without_cost = metadata.clone();
+            without_cost.billed_cost_usd = None;
+            assert_eq!(without_cost, legacy_metadata, "cost {sent}");
+        }
+    }
+
+    #[test]
+    fn an_amount_overlapping_a_registered_secret_is_left_out_of_the_event() {
+        use crate::sensitive_data::{SecretCatalog, install_scope, set_current};
+
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join("events.jsonl");
+        let mut catalog = SecretCatalog::new();
+        // Fake credentials only: one equal to an amount, one inside another.
+        catalog
+            .register_credential("COMPAT_API_KEY", "0.012345")
+            .unwrap();
+        catalog
+            .register_credential("OTHER_API_KEY", "12345678")
+            .unwrap();
+        install_scope(catalog, None, Some(&events));
+        set_current(None);
+        let amount = |sent: &str| cost(Some(&usage_with_cost(sent))).unwrap();
+        for sent in ["0.012345", "0.12345678", "12345678", "1.123456789e-3"] {
+            assert_eq!(amount(sent).event_value(Some(&events)), None, "{sent}");
+        }
+        for (sent, kept) in [("0.000123", r#""0.000123""#), ("0", r#""0""#)] {
+            let value = amount(sent).event_value(Some(&events)).unwrap();
+            assert_eq!(value.to_string(), kept, "{sent}");
+        }
+        let other = dir.path().join("other-events.jsonl");
+        assert_eq!(
+            amount("0.012345")
+                .event_value(Some(&other))
+                .unwrap()
+                .to_string(),
+            r#""0.012345""#,
+            "a run without that secret keeps the amount"
+        );
+    }
+
+    #[test]
+    fn metadata_equality_compares_the_amount() {
+        let first = parse(Some(&usage_with_cost("0.012345"))).1;
+        let same = parse(Some(&usage_with_cost("0.012345"))).1;
+        let other = parse(Some(&usage_with_cost("0.012346"))).1;
+        let beyond_f64 = parse(Some(&usage_with_cost("1.00000000000000001"))).1;
+        let one = parse(Some(&usage_with_cost("1"))).1;
+        assert_eq!(first, same);
+        assert_ne!(first, other);
+        assert_ne!(beyond_f64, one);
+    }
+}
 
 #[cfg(test)]
 mod tests {

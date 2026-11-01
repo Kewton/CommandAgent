@@ -386,6 +386,19 @@ impl LmStudioClient {
             event["response_id"] = json!(metadata.response_id);
             event["reasoning_tokens"] = json!(metadata.reasoning_tokens);
         }
+        // Issue #947: additive and only when reported, as a JSON string of the
+        // decimal text the provider sent (e.g. "0.012345") for an aggregator
+        // to read as a decimal. The turn's provider_turn_duration carries the
+        // same amount; count it once per turn, never the two added together.
+        // An amount that overlaps a registered secret is left out (unreported)
+        // rather than scrubbed into a marker.
+        if let Some(cost) = metadata
+            .billed_cost_usd
+            .as_ref()
+            .and_then(|cost| cost.event_value(self.eval_events_path.as_deref()))
+        {
+            event["provider_billed_cost_usd"] = cost;
+        }
         eval_events::emit(self.eval_events_path.as_deref(), event);
     }
 
@@ -929,5 +942,669 @@ mod cancel_tests {
                 false,
             )
         });
+    }
+}
+
+/// Issue #947: an OpenAI-compatible Chat Completions `usage.cost` reaches the
+/// `provider_response` and `provider_turn_duration` events of the same turn as
+/// `provider_billed_cost_usd`, on the planner and the executor paths. A
+/// loopback stand-in without credentials replays the synthetic corpus
+/// `tests/corpus/apps/compatible-billed-cost/`; no case reaches a real
+/// provider.
+#[cfg(test)]
+mod billed_cost_telemetry_tests {
+    use std::io::{Read, Write};
+    use std::net::{SocketAddr, TcpListener, TcpStream};
+    use std::path::Path;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::thread::JoinHandle;
+    use std::time::Duration;
+
+    use serde_json::{Value, json};
+
+    use crate::config::Config;
+    use crate::provider_call::{self, ProviderCallScope, ProviderChatRequest};
+    use crate::providers::{ChatClient, client_from_config};
+    use crate::state::ConversationMessage;
+
+    const FIXTURE: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/corpus/apps/compatible-billed-cost/fixtures/events.json"
+    );
+    const MODEL: &str = "compatible-model-947";
+
+    fn corpus() -> Value {
+        serde_json::from_str(&std::fs::read_to_string(FIXTURE).unwrap()).unwrap()
+    }
+
+    /// The raw response body text. `cost_token` is appended to the usage
+    /// object as raw JSON text, so a number such as `1e-400` reaches the client
+    /// exactly as written, never through an `f64` in the test.
+    fn response_body(usage: &Value, cost_token: Option<&str>) -> String {
+        let usage = match (usage, cost_token) {
+            (Value::Null, None) => String::new(),
+            (Value::Object(_), None) => format!(r#","usage":{usage}"#),
+            (Value::Object(fields), Some(token)) if !fields.is_empty() => {
+                let text = usage.to_string();
+                let open = &text[..text.len() - 1];
+                format!(r#","usage":{open},"cost":{token}}}"#)
+            }
+            other => panic!("unsupported usage {other:?} with cost {cost_token:?}"),
+        };
+        format!(
+            r#"{{"choices":[{{"finish_reason":"stop","index":0,"message":{{"content":"done"}}}}],"created":1790000000,"id":"chatcmpl-947","model":"{MODEL}","object":"chat.completion"{usage}}}"#
+        )
+    }
+
+    fn tokens_usage() -> Value {
+        json!({"prompt_tokens": 12, "completion_tokens": 3})
+    }
+
+    fn read_request(stream: &mut TcpStream) -> String {
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .expect("read timeout");
+        let mut data = Vec::new();
+        let mut buffer = [0_u8; 8192];
+        loop {
+            let read = stream.read(&mut buffer).expect("request");
+            assert!(read > 0, "client closed before sending the request");
+            data.extend_from_slice(&buffer[..read]);
+            let Some(end) = data.windows(4).position(|window| window == b"\r\n\r\n") else {
+                continue;
+            };
+            let head = String::from_utf8_lossy(&data[..end]).to_ascii_lowercase();
+            let length = head
+                .lines()
+                .find_map(|line| line.strip_prefix("content-length:"))
+                .and_then(|value| value.trim().parse::<usize>().ok())
+                .unwrap_or(0);
+            if data.len() >= end + 4 + length {
+                return head;
+            }
+        }
+    }
+
+    struct Server {
+        address: SocketAddr,
+        stop: Arc<AtomicBool>,
+        handle: JoinHandle<Vec<String>>,
+    }
+
+    impl Server {
+        /// Serves `bodies` in order, one per connection, and records the head
+        /// of every request it receives.
+        fn spawn(bodies: Vec<String>) -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+            let address = listener.local_addr().expect("address");
+            listener.set_nonblocking(true).expect("nonblocking");
+            let stop = Arc::new(AtomicBool::new(false));
+            let thread_stop = Arc::clone(&stop);
+            let handle = std::thread::spawn(move || {
+                let mut bodies = bodies.into_iter();
+                let mut heads = Vec::new();
+                while !thread_stop.load(Ordering::SeqCst) {
+                    let mut stream = match listener.accept() {
+                        Ok((stream, _)) => stream,
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            std::thread::sleep(Duration::from_millis(10));
+                            continue;
+                        }
+                        Err(error) => panic!("accept: {error}"),
+                    };
+                    stream.set_nonblocking(false).expect("blocking stream");
+                    heads.push(read_request(&mut stream));
+                    let (status, body) = match bodies.next() {
+                        Some(body) => ("200 OK", body),
+                        None => (
+                            "400 Bad Request",
+                            r#"{"error":"script exhausted"}"#.to_string(),
+                        ),
+                    };
+                    write!(
+                        stream,
+                        "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                    .expect("response");
+                    stream.flush().expect("flush");
+                }
+                heads
+            });
+            Self {
+                address,
+                stop,
+                handle,
+            }
+        }
+
+        fn finish(self) -> Vec<String> {
+            self.stop.store(true, Ordering::SeqCst);
+            self.handle.join().expect("server thread")
+        }
+    }
+
+    fn config_for(address: SocketAddr, root: &Path, model: &str) -> Config {
+        let parsed = crate::provider_cli::parse_from([
+            "commandagent",
+            "--cwd",
+            &root.to_string_lossy(),
+            "--state-dir",
+            &root.join("state").to_string_lossy(),
+            "--model",
+            model,
+            "--provider",
+            "openai-compatible",
+            "--base-url",
+            &format!("http://{address}/v1"),
+            "--chat-timeout-secs",
+            "30",
+        ])
+        .expect("arguments");
+        let mut config =
+            Config::from_cli_with_provider_options(parsed.cli, parsed.provider_options)
+                .expect("config");
+        config.eval_events_path = Some(root.join("events.jsonl"));
+        config
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    enum Path947 {
+        Planner,
+        Executor,
+    }
+
+    impl Path947 {
+        const fn key(self) -> &'static str {
+            match self {
+                Self::Planner => "planner",
+                Self::Executor => "executor",
+            }
+        }
+    }
+
+    /// Replace the wall-clock values of a raw event line with `0` and keep
+    /// every other byte.
+    fn normalize(line: &str) -> String {
+        let mut out = line.to_string();
+        for key in ["\"duration_ms\":", "\"occurred_at_epoch_ms\":"] {
+            if let Some(start) = out.find(key) {
+                let digits = start + key.len();
+                let end = out[digits..]
+                    .find(|ch: char| !ch.is_ascii_digit())
+                    .map_or(out.len(), |offset| digits + offset);
+                out.replace_range(digits..end, "0");
+            }
+        }
+        out
+    }
+
+    /// One provider turn per body through the same entry the planner or the
+    /// executor uses, returning the raw `provider_response` and
+    /// `provider_turn_duration` lines of each turn and the request heads.
+    ///
+    /// `model` keys the process-wide stable-prefix estimate, so each test
+    /// passes its own model and the golden lines do not depend on test order.
+    fn run_turns(
+        path: Path947,
+        model: &str,
+        bodies: Vec<String>,
+    ) -> (Vec<[String; 2]>, Vec<String>) {
+        run_turns_with_secrets(path, model, bodies, &[])
+    }
+
+    /// [`run_turns`] with `secrets` (fake credential values only) registered
+    /// in the redaction scope of the run's events path, the same scope
+    /// `eval_events::emit` scrubs every event with.
+    fn run_turns_with_secrets(
+        path: Path947,
+        model: &str,
+        bodies: Vec<String>,
+        secrets: &[&str],
+    ) -> (Vec<[String; 2]>, Vec<String>) {
+        let turns = bodies.len();
+        let (results, text, heads) = run_raw_turns(path, model, bodies, secrets);
+        for (turn, result) in results.into_iter().enumerate() {
+            let content =
+                result.unwrap_or_else(|error| panic!("{path:?} turn {turn} failed: {error}"));
+            assert_eq!(content, "done");
+        }
+        let mut response = None;
+        let mut pairs = Vec::new();
+        for line in text.lines() {
+            let event: Value = serde_json::from_str(line).expect("event json");
+            match event["event"].as_str() {
+                Some("provider_response") => {
+                    assert!(response.is_none(), "two responses in one turn: {text}");
+                    response = Some(line.to_string());
+                }
+                Some("provider_turn_duration") => {
+                    let response = response.take().expect("response before turn event");
+                    pairs.push([response, line.to_string()]);
+                }
+                _ => {}
+            }
+        }
+        assert!(response.is_none(), "response without a turn event: {text}");
+        assert_eq!(pairs.len(), turns, "{text}");
+        (pairs, heads)
+    }
+
+    /// One provider turn per body, returning each turn's reply content or
+    /// error text, the whole events file, and the request heads.
+    fn run_raw_turns(
+        path: Path947,
+        model: &str,
+        bodies: Vec<String>,
+        secrets: &[&str],
+    ) -> (Vec<Result<String, String>>, String, Vec<String>) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let turns = bodies.len();
+        let server = Server::spawn(bodies);
+        let config = config_for(server.address, dir.path(), model);
+        let events_path = config.eval_events_path.clone().expect("events path");
+        if !secrets.is_empty() {
+            let mut catalog = crate::sensitive_data::SecretCatalog::new();
+            for (index, secret) in secrets.iter().enumerate() {
+                catalog
+                    .register_credential(&format!("FAKE_KEY_{index}"), secret)
+                    .expect("fake credential");
+            }
+            crate::sensitive_data::install_scope(catalog, Some(dir.path()), Some(&events_path));
+        }
+        let planner = matches!(path, Path947::Planner);
+        let mut client: Box<dyn ChatClient> = client_from_config(&config, planner).expect("client");
+        let (scope, native_tools_enabled) = match path {
+            Path947::Planner => (ProviderCallScope::PlannerStep, false),
+            Path947::Executor => (ProviderCallScope::Executor, true),
+        };
+        let messages = [ConversationMessage::user("Summarize notes.md.")];
+        let mut results = Vec::new();
+        for _ in 0..turns {
+            let outcome = provider_call::chat_with_cancel_and_stream(
+                client.as_mut(),
+                &config,
+                ProviderChatRequest {
+                    scope,
+                    model,
+                    messages: &messages,
+                    tools: &[],
+                    native_tools_enabled,
+                },
+                || false,
+                &mut |_chunk| Ok(()),
+            );
+            results.push(
+                outcome
+                    .result
+                    .map(|reply| reply.content)
+                    .map_err(|error| format!("{error:#}")),
+            );
+        }
+        let heads = server.finish();
+        if !secrets.is_empty() {
+            crate::sensitive_data::set_current(None);
+        }
+        let text = std::fs::read_to_string(&events_path).unwrap_or_default();
+        (results, text, heads)
+    }
+
+    const FIELD: &str = "provider_billed_cost_usd";
+
+    /// `line` without the `"<FIELD>":<value>` member, or `None` when the line
+    /// does not carry exactly that member.
+    fn without_field(line: &str, value: &str) -> Option<String> {
+        let member = format!("\"{FIELD}\":{value}");
+        if line.matches(&member).count() != 1 {
+            return None;
+        }
+        let leading = format!("{member},");
+        let trailing = format!(",{member}");
+        if line.contains(&leading) {
+            Some(line.replacen(&leading, "", 1))
+        } else if line.contains(&trailing) {
+            Some(line.replacen(&trailing, "", 1))
+        } else {
+            None
+        }
+    }
+
+    fn assert_no_credential_sent(heads: &[String], turns: usize) {
+        assert_eq!(heads.len(), turns, "one request per turn: {heads:?}");
+        for head in heads {
+            assert!(head.starts_with("post /v1/chat/completions "), "{head}");
+            assert!(!head.contains("authorization:"), "{head}");
+        }
+    }
+
+    #[test]
+    fn every_case_reaches_both_events_of_the_turn_on_planner_and_executor_paths() {
+        let corpus = corpus();
+        assert_eq!(corpus["event_field"], FIELD);
+        assert_eq!(corpus["event_type"], "string");
+        // The credential-overlap cases need a redaction scope; they run in
+        // credential_overlap_cases_leave_the_amount_out_on_both_paths.
+        let cases = corpus["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|case| case.get("fake_credential").is_none())
+            .collect::<Vec<_>>();
+        let bodies = cases
+            .iter()
+            .map(|case| response_body(&case["usage"], case["cost_token"].as_str()))
+            .collect::<Vec<_>>();
+        let mut reported = 0;
+        for path in [Path947::Executor, Path947::Planner] {
+            let (pairs, heads) = run_turns(path, MODEL, bodies.clone());
+            assert_no_credential_sent(&heads, cases.len());
+            let base = &corpus["base_events"][path.key()];
+            for (case, pair) in cases.iter().zip(&pairs) {
+                let id = case["id"].as_str().unwrap();
+                let expected = case["expected_provider_billed_cost_usd"].as_str();
+                for (index, line) in pair.iter().enumerate() {
+                    let label = format!("{path:?} {id} event {index}");
+                    let line = normalize(line);
+                    let base_line = base[id][index]
+                        .as_str()
+                        .unwrap_or_else(|| panic!("{label}: no base line"));
+                    match expected {
+                        None => {
+                            assert!(!line.contains(FIELD), "{label}: {line}");
+                            assert_eq!(
+                                line, base_line,
+                                "{label}: an unreported amount changes no byte"
+                            );
+                        }
+                        Some(expected) => {
+                            // The raw member, compared as text: a JSON string
+                            // holding exactly the decimal text sent.
+                            let member = format!("\"{expected}\"");
+                            assert_eq!(
+                                without_field(&line, &member).as_deref(),
+                                Some(base_line),
+                                "{label}: the amount is the only addition: {line}"
+                            );
+                        }
+                    }
+                }
+                let response: Value = serde_json::from_str(&pair[0]).unwrap();
+                let turn: Value = serde_json::from_str(&pair[1]).unwrap();
+                assert_eq!(response.get(FIELD), turn.get(FIELD), "{path:?} {id}");
+                if turn.get(FIELD).is_some() {
+                    reported += 1;
+                }
+            }
+        }
+        assert_eq!(reported, 10, "five reported cases on each of two paths");
+    }
+
+    #[test]
+    fn credential_overlap_cases_leave_the_amount_out_on_both_paths() {
+        let corpus = corpus();
+        let overlap = corpus["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|case| case.get("fake_credential").is_some())
+            .collect::<Vec<_>>();
+        assert_eq!(overlap.len(), 2, "an equal and a contained fake credential");
+        let secrets = overlap
+            .iter()
+            .map(|case| case["fake_credential"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        // Turn 0 only settles the stable-prefix estimate; then each overlap
+        // case; then amounts that overlap no registered secret.
+        let mut bodies = vec![response_body(&tokens_usage(), None)];
+        bodies.extend(
+            overlap
+                .iter()
+                .map(|case| response_body(&case["usage"], case["cost_token"].as_str())),
+        );
+        let kept = ["0.000123", "0", "1e-400"];
+        bodies.extend(
+            kept.iter()
+                .map(|sent| response_body(&tokens_usage(), Some(sent))),
+        );
+        // Its own model keeps the process-wide stable-prefix estimate of the
+        // corpus model untouched; the request model is mapped back to the
+        // corpus model before the base comparison.
+        const OVERLAP_MODEL: &str = "compatible-model-947-secret";
+        for path in [Path947::Executor, Path947::Planner] {
+            let (pairs, heads) =
+                run_turns_with_secrets(path, OVERLAP_MODEL, bodies.clone(), &secrets);
+            assert_no_credential_sent(&heads, bodies.len());
+            let base = &corpus["base_events"][path.key()];
+            for (case, pair) in overlap.iter().zip(&pairs[1..]) {
+                let id = case["id"].as_str().unwrap();
+                assert!(case["expected_provider_billed_cost_usd"].is_null(), "{id}");
+                for (index, line) in pair.iter().enumerate() {
+                    let line = normalize(line).replace(
+                        &format!("\"model\":\"{OVERLAP_MODEL}\""),
+                        &format!("\"model\":\"{MODEL}\""),
+                    );
+                    assert!(!line.contains(FIELD), "{path:?} {id}: {line}");
+                    assert_eq!(
+                        Some(line.as_str()),
+                        base[id][index].as_str(),
+                        "{path:?} {id} event {index}: a left-out amount changes no other byte"
+                    );
+                }
+            }
+            for (sent, pair) in kept.iter().zip(&pairs[1 + overlap.len()..]) {
+                for line in pair {
+                    assert_eq!(
+                        line.matches(&format!("\"{FIELD}\":\"{sent}\"")).count(),
+                        1,
+                        "{path:?} {sent}: {line}"
+                    );
+                }
+            }
+            // Every stored amount is a validated decimal string or absent: no
+            // secret, no marker inside an amount, no made-up zero.
+            for line in pairs.iter().flatten() {
+                let event: Value = serde_json::from_str(line).unwrap();
+                if let Some(amount) = event.get(FIELD) {
+                    let text = amount.as_str().expect("the amount is a JSON string");
+                    let parsed = crate::providers::BilledCostUsd::from_json_token(text);
+                    assert_eq!(
+                        parsed.as_ref().map(|cost| cost.as_decimal_str()),
+                        Some(text)
+                    );
+                    assert!(kept.contains(&text), "{path:?}: {line}");
+                }
+                for secret in &secrets {
+                    assert!(!line.contains(secret), "{path:?}: {line}");
+                }
+                assert!(!line.contains("redacted"), "{path:?}: {line}");
+            }
+        }
+    }
+
+    #[test]
+    fn raw_amounts_reach_both_events_as_the_decimal_text_sent() {
+        let cases: [(&str, Option<&str>); 14] = [
+            ("1e-400", Some("1e-400")),
+            ("1.00000000000000001", Some("1.00000000000000001")),
+            (
+                "0.123456789012345678901234567890",
+                Some("0.123456789012345678901234567890"),
+            ),
+            ("0", Some("0")),
+            ("0.0", Some("0.0")),
+            ("0e5", Some("0e5")),
+            ("9007199254740991", Some("9007199254740991")),
+            ("9.007199254740991e15", Some("9.007199254740991e15")),
+            ("-0", None),
+            ("-0.0", None),
+            ("-1e-400", None),
+            ("9007199254740992", None),
+            ("9.007199254740992e15", None),
+            ("9007199254740991.000000000000000001", None),
+        ];
+        let bodies = cases
+            .iter()
+            .map(|(sent, _)| response_body(&tokens_usage(), Some(sent)))
+            .collect::<Vec<_>>();
+        for path in [Path947::Executor, Path947::Planner] {
+            let (pairs, heads) = run_turns(path, "compatible-model-947-raw", bodies.clone());
+            assert_no_credential_sent(&heads, cases.len());
+            for ((sent, expected), pair) in cases.iter().zip(&pairs) {
+                for line in pair {
+                    match expected {
+                        Some(expected) => assert_eq!(
+                            line.matches(&format!("\"{FIELD}\":\"{expected}\"")).count(),
+                            1,
+                            "{path:?} {sent}: {line}"
+                        ),
+                        None => assert!(!line.contains(FIELD), "{path:?} {sent}: {line}"),
+                    }
+                    assert_eq!(line.matches(FIELD).count(), usize::from(expected.is_some()));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_number_beyond_f64_fails_the_whole_response_as_at_base() {
+        for path in [Path947::Executor, Path947::Planner] {
+            let (results, text, _) = run_raw_turns(
+                path,
+                "compatible-model-947-beyond",
+                vec![response_body(&tokens_usage(), Some("1e400"))],
+                &[],
+            );
+            let error = results[0]
+                .as_ref()
+                .expect_err("the whole response fails to parse, as at base");
+            assert!(error.contains("out of range"), "{path:?}: {error}");
+            assert!(!text.contains(FIELD), "{path:?}: {text}");
+            assert!(
+                !text.contains("\"event\":\"provider_response\""),
+                "{path:?}: {text}"
+            );
+        }
+    }
+
+    #[test]
+    fn one_turn_keeps_the_reported_amount_once_without_rounding() {
+        for path in [Path947::Executor, Path947::Planner] {
+            let (pairs, heads) = run_turns(
+                path,
+                "compatible-model-947-once",
+                vec![response_body(&tokens_usage(), Some("0.012345"))],
+            );
+            assert_no_credential_sent(&heads, 1);
+            let [response, turn] = &pairs[0];
+            for line in [response, turn] {
+                assert_eq!(
+                    line.matches(&format!("\"{FIELD}\":\"0.012345\"")).count(),
+                    1,
+                    "{path:?}: {line}"
+                );
+                assert_eq!(line.matches(FIELD).count(), 1, "{path:?}: {line}");
+            }
+            let turn: Value = serde_json::from_str(turn).unwrap();
+            assert_eq!(turn[FIELD].as_str(), Some("0.012345"), "{path:?}");
+            assert_eq!(turn["prompt_eval_count"], 12, "{path:?}");
+            assert_eq!(turn["eval_count"], 3, "{path:?}");
+            let expected_scope = match path {
+                Path947::Planner => "planner_step",
+                Path947::Executor => "executor",
+            };
+            assert_eq!(turn["caller_scope"], expected_scope);
+        }
+    }
+
+    #[test]
+    fn a_reported_turn_does_not_carry_its_amount_into_the_next_turn() {
+        for path in [Path947::Executor, Path947::Planner] {
+            let (pairs, _) = run_turns(
+                path,
+                "compatible-model-947-carry",
+                vec![
+                    response_body(&tokens_usage(), Some("0.012345")),
+                    response_body(&tokens_usage(), None),
+                    response_body(&Value::Null, None),
+                ],
+            );
+            let fields = pairs
+                .iter()
+                .flatten()
+                .map(|line| serde_json::from_str::<Value>(line).unwrap()[FIELD].clone())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                fields,
+                vec![
+                    json!("0.012345"),
+                    json!("0.012345"),
+                    Value::Null,
+                    Value::Null,
+                    Value::Null,
+                    Value::Null
+                ],
+                "{path:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn corpus_is_synthetic_and_pinned_to_its_base() {
+        use sha2::{Digest, Sha256};
+
+        let root =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/corpus/apps/compatible-billed-cost");
+        let manifest: Value = serde_json::from_str(
+            &std::fs::read_to_string(root.join("source-manifest.json")).unwrap(),
+        )
+        .unwrap();
+        let bytes = std::fs::read(FIXTURE).unwrap();
+        assert_eq!(
+            manifest["fixture_sha256"]["events.json"],
+            format!("{:x}", Sha256::digest(&bytes))
+        );
+        let text = String::from_utf8(bytes).unwrap();
+        for forbidden in [
+            "/Users/",
+            "/Volumes/",
+            "/home/",
+            "/tmp/",
+            "Bearer",
+            "authorization",
+            "sk-",
+            "api_key",
+        ] {
+            assert!(!text.contains(forbidden), "fixture contains {forbidden}");
+        }
+        let corpus = corpus();
+        assert_eq!(corpus["kind"], "synthetic");
+        assert_eq!(
+            corpus["base_events"]["captured_at"], manifest["base_sha"],
+            "the golden events come from the base commit"
+        );
+        // The base commit never reads usage.cost, so a case that differs from
+        // synthetic-cost-absent only in its cost token has the same base lines.
+        for copied in corpus["base_events"]["copied_from_absent"]
+            .as_array()
+            .unwrap()
+        {
+            let id = copied.as_str().unwrap();
+            for path in ["executor", "planner"] {
+                let base = &corpus["base_events"][path];
+                assert_eq!(base[id], base["synthetic-cost-absent"], "{path} {id}");
+            }
+        }
+        for case in corpus["cases"].as_array().unwrap() {
+            let id = case["id"].as_str().unwrap();
+            assert!(id.starts_with("synthetic-"), "{id}");
+            for path in ["executor", "planner"] {
+                assert_eq!(
+                    corpus["base_events"][path][id].as_array().map(Vec::len),
+                    Some(2),
+                    "{path} {id}"
+                );
+            }
+        }
     }
 }
