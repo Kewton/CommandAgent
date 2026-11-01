@@ -120,6 +120,24 @@ carries the sentence. Every other request is forwarded as before, a late
 worker included, with the same provider-call result (leaf test against the
 bare client, for both a cancel and a timeout).
 
+## Known limit: a request that carries both notices
+
+One narrow case remains. It needs all three of these at once:
+
+- the run opted in with `COMMANDAGENT_BUDGET_CLOSING=once`;
+- the Issue #957 notice and this sentence are in the same single request;
+- the provider call returns first on a cancel or a timeout while its late
+  worker has passed the #957 watch but not yet entered the #958 watch.
+
+A run with the setting off, and a run with only this sentence, never meet
+it. When it happens, the request never reaches the client, yet the #957
+`budget_closing` notice event is recorded and the #957 guard is active
+(the guard only sends a final back while a failure is unresolved, so it
+never loosens a check). This sentence was not sent, so it is armed again
+and carried by the next request. The cause is that the two leaves keep
+separate dispatch states; closing the case needs a change that shares one
+state between them, which is outside this Issue.
+
 `tests/output_limit_feedback.rs` also runs one script with Issue #957's
 `COMMANDAGENT_BUDGET_CLOSING=once` (not a fixture row, since every row's
 base runs without it): the request that leaves three calls follows the

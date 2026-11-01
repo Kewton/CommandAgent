@@ -37,6 +37,13 @@
 //! sends that request late; it returns the interruption error instead.
 //! Every other request behaves exactly as before, a late worker included.
 //!
+//! Known limit: this state is separate from the Issue #957 notice's. When
+//! one request of a `COMMANDAGENT_BUDGET_CLOSING=once` run carries both, and
+//! the call returns first while its late worker sits between the #957 watch
+//! and this one, the request is not sent but the #957 notice is recorded;
+//! this sentence is armed again for the next request. Closing that needs one
+//! shared state, outside this Issue.
+//!
 //! The event carries only counts and fixed words: `kind`, `attempt` (the
 //! requests of that kind actually sent), `num_predict`, `completion_tokens`,
 //! `prompt_version`, and `provider_reasoning_tokens` when the provider
