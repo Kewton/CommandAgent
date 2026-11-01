@@ -20,8 +20,11 @@
 //! cannot be identified stays unresolved. After the notice, every normal
 //! final that already passed every existing check is deferred while one
 //! entry remains, however many finals came before; the budget then ends the
-//! run through the existing exhaustion path. Before the notice, finals are
-//! judged by the existing checks alone.
+//! run through the existing exhaustion path. The existing post-write read
+//! confirmation, which also ends a direct run as a success, is held to the
+//! same rule. Before the notice, finals are judged by the existing checks
+//! alone. The notice is recorded only when the provider call that carried it
+//! was not aborted before reaching the client.
 //!
 //! Unset, empty, or `off` disables everything: no state, no event, and no
 //! request change. Any other value is a configuration error that names the
@@ -34,6 +37,7 @@ use std::collections::BTreeSet;
 use std::ffi::{OsStr, OsString};
 use std::path::{Component, Path, PathBuf};
 
+use anyhow::Error;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
@@ -42,6 +46,8 @@ use crate::eval_events;
 use crate::planner::profile_descriptor::GENERIC_PROFILE_ID;
 use crate::state::ConversationMessage;
 use crate::tools::path_guard::normalize_workspace_path;
+use crate::tools::registry::tool_error_kind;
+use crate::tools::{hidden_path, sensitive_path};
 
 use super::execution_progress::ExecutionProgress;
 use super::loop_run::{RunSessionOptions, RunSessionScope};
@@ -199,6 +205,12 @@ pub(crate) struct BudgetClosing {
     /// `(iteration, remaining_calls, iteration_limit)` of a composed notice
     /// that is not yet known to be in a sent request.
     staged: Option<(usize, usize, usize)>,
+    /// The same, once the built request was found to carry the notice and
+    /// before the provider call returned.
+    awaiting_dispatch: Option<(usize, usize, usize)>,
+    /// A Bash call of the current tool was refused before it ran; its
+    /// execution-progress observation is not a check result.
+    bash_refused_before_run: bool,
     iteration_limit: usize,
     deferrals: usize,
 }
@@ -230,6 +242,8 @@ impl BudgetClosing {
             root: root.to_path_buf(),
             ledger: Ledger::default(),
             staged: None,
+            awaiting_dispatch: None,
+            bash_refused_before_run: false,
             iteration_limit: 0,
             deferrals: 0,
         }
@@ -259,17 +273,32 @@ impl BudgetClosing {
         }))
     }
 
-    /// Called with the messages of the request about to be sent. A composed
-    /// notice is recorded only when that request really carries it.
+    /// Called with the final messages of the request about to be handed to
+    /// the provider call. A composed notice is kept for
+    /// [`Self::note_provider_call`] only when that request really carries it.
     pub(crate) fn note_request(&mut self, messages: &[ConversationMessage]) {
-        let Some((iteration, remaining_calls, iteration_limit)) = self.staged.take() else {
+        let staged = self.staged.take();
+        self.awaiting_dispatch = staged.filter(|_| {
+            self.phase == Phase::Armed
+                && messages
+                    .iter()
+                    .any(|message| message.content.contains(NOTICE))
+        });
+    }
+
+    /// Called when the provider call for that request returned.
+    /// `aborted_by_user` is the call's own outcome flag: the provider call
+    /// checks cancellation before it hands the request to the client and
+    /// reports that stop as aborted. An aborted call is never recorded as a
+    /// sent notice. (A cancel after the client already received the request
+    /// reports the same flag; the run then stops with that interruption, and
+    /// the notice stays unrecorded rather than recorded without a send.)
+    pub(crate) fn note_provider_call(&mut self, aborted_by_user: bool) {
+        let Some((iteration, remaining_calls, iteration_limit)) = self.awaiting_dispatch.take()
+        else {
             return;
         };
-        if self.phase != Phase::Armed
-            || !messages
-                .iter()
-                .any(|message| message.content.contains(NOTICE))
-        {
+        if aborted_by_user || self.phase != Phase::Armed {
             return;
         }
         self.phase = Phase::Noticed;
@@ -285,7 +314,7 @@ impl BudgetClosing {
     /// classification. `command` is the same recovered command string the
     /// classification uses.
     pub(crate) fn note_bash(&mut self, command: Option<&str>, progress: ExecutionProgress) {
-        if !self.recording() {
+        if std::mem::take(&mut self.bash_refused_before_run) || !self.recording() {
             return;
         }
         let command = command.map(str::trim).filter(|command| !command.is_empty());
@@ -309,6 +338,26 @@ impl BudgetClosing {
         if self.recording() && tool_name == "Bash" {
             self.ledger.rejected_bash += 1;
         }
+    }
+
+    /// A tool call ended in a recoverable error. A Write or Edit is a write
+    /// failure. A Bash call that the tool layer refused before running it
+    /// (an engine-private or sensitive path, a missing argument, a path,
+    /// confinement, protected-path, or command policy) is counted as refused,
+    /// and the execution-progress observation that follows for the same call
+    /// is not recorded as a check result. A Bash error that does not prove
+    /// the command never ran (a timeout, anything unknown) is left to that
+    /// observation and stays a failure.
+    pub(crate) fn note_tool_error(&mut self, tool_name: &str, arguments: &Value, error: &Error) {
+        self.bash_refused_before_run = false;
+        if tool_name == "Bash" {
+            if bash_refused_before_run(error) {
+                self.bash_refused_before_run = true;
+                self.note_bash_rejected(tool_name);
+            }
+            return;
+        }
+        self.note_write_failure(tool_name, arguments);
     }
 
     /// A Write or Edit call ended in a recoverable error or was rejected.
@@ -359,6 +408,28 @@ impl BudgetClosing {
         iteration: usize,
         remaining_iterations: usize,
     ) -> Option<&'static str> {
+        self.guard_success(iteration, remaining_iterations)
+    }
+
+    /// Called when the existing post-write read confirmation is about to end
+    /// the run as a success. It applies the same rule and records the same
+    /// events as [`Self::before_normal_final`]. When it returns the feedback,
+    /// the run does not stop there: there is no assistant answer to remove,
+    /// so the tool results stay in the history, the feedback goes into the
+    /// next request, and the loop continues inside its existing budget.
+    pub(crate) fn before_post_write_read_completion(
+        &mut self,
+        iteration: usize,
+        remaining_iterations: usize,
+    ) -> Option<&'static str> {
+        self.guard_success(iteration, remaining_iterations)
+    }
+
+    fn guard_success(
+        &mut self,
+        iteration: usize,
+        remaining_iterations: usize,
+    ) -> Option<&'static str> {
         if self.phase != Phase::Noticed {
             return None;
         }
@@ -382,8 +453,11 @@ impl BudgetClosing {
         self.emit(EventPhase::ExhaustedAfterNotice, self.iteration_limit, 0);
     }
 
-    /// The target as the tools normalize it, with `.` components dropped.
-    /// Paths that still differ are different targets.
+    /// The target as the tools normalize it, then rebuilt from its
+    /// `Path::components()`: `.` components and repeated or trailing
+    /// separators do not make a different target (`a//b`, `a/./b`, and `a/b`
+    /// are one target). `..` is kept as written and never resolved, so
+    /// paths that still differ are different targets.
     fn workspace_path(&self, arguments: &Value) -> Option<String> {
         let raw = arguments.get("path")?.as_str()?;
         let path = match normalize_workspace_path(&self.root, raw) {
@@ -440,12 +514,39 @@ impl BudgetClosing {
 }
 
 /// Whether a successful Write's whole content shows the failed Edit's effect:
-/// the replacement is present and the replaced text is gone (or is part of
-/// the replacement). An Edit without replaced text has no defined effect.
+/// the replacement is present and the replaced text is gone. When the
+/// replacement contains the replaced text, or the Edit had no replaced text,
+/// no content can show that the failed operation was carried out, so the
+/// Edit is never resolved by a Write (only by the same Edit succeeding).
 fn edit_effect_present(failed: &EditOperation, content: &str) -> bool {
     !failed.old.is_empty()
+        && !failed.new.contains(&failed.old)
         && content.contains(&failed.new)
-        && (failed.new.contains(&failed.old) || !content.contains(&failed.old))
+        && !content.contains(&failed.old)
+}
+
+/// Whether a recoverable Bash error shows that the tool layer refused the
+/// command before running it. Unknown kinds count as not refused.
+fn bash_refused_before_run(error: &Error) -> bool {
+    hidden_path::access_from_error(error).is_some()
+        || sensitive_path::refusal_from_error(error).is_some()
+        || matches!(
+            tool_error_kind(error),
+            "missing_arg"
+                | "unknown_tool"
+                | "extension_tool_rejected"
+                | "tool_args_path_near_root_corruption"
+                | "tool_args_path_malformed"
+                | "stale_absolute_path_recoverable"
+                | "bash_path_confinement_error"
+                | "path_confinement_error"
+                | "workspace_policy_blocked"
+                | "protected_path_mutation_rejected"
+                | "verify_command_policy_error"
+                | "dangerous_command"
+                | "allow_policy_rejected"
+                | "approval_required"
+        )
 }
 
 #[cfg(test)]

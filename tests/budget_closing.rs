@@ -8,6 +8,7 @@
 //! and the unused replies. Unset, empty, and `off` must reproduce it exactly.
 //! The `once` expectations come from the rules in the Issue body.
 
+use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -21,7 +22,8 @@ use commandagent::minimal_loop::loop_run::{RunStopReason, run_session_with_outco
 use commandagent::providers::{AssistantReply, ChatClient};
 use commandagent::state::{ConversationMessage, SessionSnapshot, ToolCall};
 use commandagent::tools::registry::ToolSpec;
-use commandagent::tui::NOOP_UI;
+use commandagent::tui::status::UiStatus;
+use commandagent::tui::{InteractionUi, UiGuard};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
@@ -92,6 +94,30 @@ impl ChatClient for ScriptedClient {
             anyhow::bail!("scripted client exhausted");
         }
         Ok(replies.remove(0))
+    }
+}
+
+/// A UI that reports an interrupt once the given model call has started,
+/// that is, after the request was built and before the client is called.
+struct CancelAtModelCall {
+    calls: Cell<usize>,
+    cancel_at: usize,
+}
+
+impl InteractionUi for CancelAtModelCall {
+    fn before_model_call(&self, _label: &str) -> UiGuard {
+        self.calls.set(self.calls.get() + 1);
+        UiGuard::noop()
+    }
+
+    fn before_tool_call(&self, _name: &str) -> UiGuard {
+        UiGuard::noop()
+    }
+
+    fn publish_status(&self, _status: UiStatus) {}
+
+    fn interrupted(&self) -> bool {
+        self.calls.get() >= self.cancel_at
     }
 }
 
@@ -264,6 +290,60 @@ impl Trace {
             .collect()
     }
 
+    /// One digest per event line: the whole payload, with only wall-clock
+    /// values, generated ids, and the temporary root normalized. The
+    /// provider-turn size estimates count the system prompt, which names the
+    /// temporary root, so their numbers depend on the root's length; the
+    /// request digests already pin the requests those estimates describe.
+    fn event_digest(&self) -> String {
+        let lines = self.normalized_events_without(None).join("\n");
+        Sha256::digest(lines.as_bytes())
+            .iter()
+            .take(8)
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
+    }
+
+    /// The normalized event lines, leaving out one event name.
+    fn normalized_events_without(&self, name: Option<&str>) -> Vec<String> {
+        self.events
+            .iter()
+            .filter(|event| name.is_none_or(|name| event["event"] != name))
+            .map(|event| serde_json::to_string(&self.normalize_event(event)).unwrap())
+            .collect()
+    }
+
+    fn normalize_event(&self, value: &Value) -> Value {
+        match value {
+            Value::Object(object) => Value::Object(
+                object
+                    .iter()
+                    .map(|(key, value)| {
+                        let timed = key.ends_with("_ms")
+                            || key.ends_with("_seconds")
+                            || key.contains("duration")
+                            || key.contains("per_second")
+                            || key.starts_with("estimated_");
+                        let value = if timed && value.is_number() {
+                            json!("<N>")
+                        } else {
+                            self.normalize_event(value)
+                        };
+                        (key.clone(), value)
+                    })
+                    .collect(),
+            ),
+            Value::Array(items) => Value::Array(
+                items
+                    .iter()
+                    .map(|item| self.normalize_event(item))
+                    .collect(),
+            ),
+            Value::String(text) => Value::String(self.normalize(text)),
+            other => other.clone(),
+        }
+    }
+
     /// The messages of one request, each serialized with the root normalized.
     fn request_messages(&self, index: usize) -> Vec<String> {
         self.requests[index]
@@ -299,6 +379,7 @@ impl Trace {
             "remaining_replies": self.remaining_replies,
             "request_digests": self.request_digests(),
             "event_names": self.event_names(true),
+            "event_digest": self.event_digest(),
         })
     }
 
@@ -376,13 +457,19 @@ fn run_with(row: &Value, setting: Option<&str>, review: Option<&str>) -> Trace {
         "question" => QUESTION_PROMPT,
         other => panic!("unknown prompt {other}"),
     };
+    let ui = CancelAtModelCall {
+        calls: Cell::new(0),
+        cancel_at: row["cancel_at_request"]
+            .as_u64()
+            .map_or(usize::MAX, |value| value as usize),
+    };
     let result = run_session_with_outcome_with_ui(
         &mut client,
         &mut SessionSnapshot::new(),
         prompt,
         &required_paths,
         &config,
-        &NOOP_UI,
+        &ui,
     )
     .map(|outcome| (outcome.stop_reason, outcome.final_text, outcome.iterations))
     .map_err(|error| format!("{error:#}"));
@@ -535,6 +622,20 @@ fn run_once(row: &Value) -> Trace {
     for event in &events {
         assert_fixed_shape(event);
     }
+    // Every event before the notice is, payload for payload, what the same
+    // script records with the variable off (pinned to the base above).
+    let off = run(row, None);
+    assert_eq!(off.event_digest(), row["base"]["event_digest"], "{id}");
+    let before = trace
+        .events
+        .iter()
+        .position(|event| event["event"] == EVENT)
+        .unwrap();
+    assert_eq!(
+        trace.normalized_events_without(None)[..before],
+        off.normalized_events_without(None)[..before],
+        "{id}: events before the notice"
+    );
     trace
 }
 
@@ -609,6 +710,13 @@ fn assert_accepted(id: &str) -> Trace {
     assert_eq!(accepted["unresolved_bash_failures"], 0, "{id}");
     assert_eq!(accepted["unresolved_write_failures"], 0, "{id}");
     assert_eq!(accepted["guard_reason"], "no_unresolved_failure", "{id}");
+    // Without an unresolved failure every other event keeps its payload.
+    let off = run(&row, None);
+    assert_eq!(
+        trace.normalized_events_without(Some(EVENT)),
+        off.normalized_events_without(None),
+        "{id}: events other than budget_closing"
+    );
     trace
 }
 
@@ -645,6 +753,11 @@ fn every_fixture_row_is_named_by_a_test() {
         "profile-not-generic",
         "completion-contract-run",
         "policy-rejected-bash",
+        "unchanged-write-after-ambiguous-edit",
+        "hidden-path-bash-rejected",
+        "cancel-before-notice-request",
+        "post-write-read-after-failed-write",
+        "post-write-read-accepted",
     ]
     .iter()
     .map(|id| id.to_string())
@@ -985,4 +1098,102 @@ fn policy_rejected_bash_is_counted_but_not_a_failure() {
     let accepted = &trace.closing_events()[1];
     assert_eq!(accepted["policy_rejected_bash"], 1);
     assert_eq!(accepted["resolved_failures"], 0);
+}
+
+// Review fixes.
+
+#[test]
+fn an_unchanged_write_does_not_resolve_a_failed_edit_contained_in_its_replacement() {
+    let trace = assert_guarded("unchanged-write-after-ambiguous-edit");
+    // The edit really failed as ambiguous and the write really succeeded.
+    assert!(
+        trace
+            .events
+            .iter()
+            .any(|event| event["error_kind"] == "edit_ambiguous_anchor")
+    );
+    let deferred = &trace.closing_events()[1];
+    assert_eq!(deferred["unresolved_write_failures"], 1);
+    assert_eq!(deferred["resolved_failures"], 0);
+}
+
+#[test]
+fn a_bash_refused_by_the_tool_layer_is_counted_not_guarded() {
+    let trace = assert_accepted("hidden-path-bash-rejected");
+    assert!(
+        trace
+            .events
+            .iter()
+            .any(|event| event["event"] == "hidden_path_feedback")
+    );
+    // The front policy branch did not see it; the tool layer refused it.
+    assert!(
+        !trace
+            .events
+            .iter()
+            .any(|event| event["event"] == "tool_policy_error")
+    );
+    for event in &trace.closing_events() {
+        assert_eq!(event["unresolved_bash_failures"], 0);
+        assert_eq!(event["policy_rejected_bash"], 1);
+    }
+    // A Bash that ran and failed stays unresolved and is guarded.
+    let failed = assert_guarded("failure-before-notice");
+    for event in &failed.closing_events() {
+        assert_eq!(event["unresolved_bash_failures"], 1);
+        assert_eq!(event["policy_rejected_bash"], 0);
+    }
+}
+
+#[test]
+fn a_cancel_before_the_notice_request_reaches_the_client_records_no_notice() {
+    let row = row("cancel-before-notice-request");
+    let trace = run(&row, Some("once"));
+    // The client saw only the two earlier requests.
+    assert_eq!(trace.requests.len(), notice_request(&row) - 1);
+    assert!(trace.closing_events().is_empty());
+    assert_eq!(trace.base_summary(), row["base"]);
+    assert!(
+        trace
+            .events
+            .iter()
+            .any(|event| event["event"] == "provider_turn_aborted_by_user")
+    );
+}
+
+#[test]
+fn a_post_write_read_completion_with_an_unresolved_failure_is_not_claimed() {
+    let row = row("post-write-read-after-failed-write");
+    // At base the second read batch ended the run as a success.
+    assert_eq!(
+        row["base"]["outcome"]["final_text"],
+        "workspace changes confirmed by post-write reads (unverified)"
+    );
+    let trace = assert_guarded("post-write-read-after-failed-write");
+    let events = trace.closing_events();
+    assert_eq!(events[0]["unresolved_write_failures"], 1);
+    assert_eq!(events[1]["phase"], "final_deferred");
+    assert_eq!(events[1]["iteration"], notice_request(&row) + 1);
+    assert!(
+        !trace
+            .events
+            .iter()
+            .any(|event| event["reason"] == "post_write_read_confirmation_completed")
+    );
+}
+
+#[test]
+fn a_post_write_read_completion_without_a_failure_still_completes() {
+    let trace = assert_accepted("post-write-read-accepted");
+    let accepted = &trace.closing_events()[1];
+    assert_eq!(
+        accepted["iteration"],
+        notice_request(&row("post-write-read-accepted"))
+    );
+    assert!(
+        trace
+            .events
+            .iter()
+            .any(|event| event["reason"] == "post_write_read_confirmation_completed")
+    );
 }

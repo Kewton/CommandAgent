@@ -756,6 +756,7 @@ fn run_session_planned(
             }
             outcome
         };
+        budget_closing.note_provider_call(chat_outcome.aborted_by_user);
         let provider_turn_elapsed = chat_outcome.elapsed;
         record_time_sink(
             &mut time_sinks,
@@ -1668,7 +1669,7 @@ fn run_session_planned(
                     batch_had_recoverable_tool_error = true;
                     post_write_completion_tracker.note_recoverable_tool_error(&call.name);
                     budget_observation.note_tool_error(&call.name);
-                    budget_closing.note_write_failure(&call.name, &call.arguments);
+                    budget_closing.note_tool_error(&call.name, &call.arguments, &err);
                     let kind = tool_error_kind(&err);
                     let err_text = err.to_string();
                     let repeats = recoverable_tool_error_state.record(&call.name, &err);
@@ -1894,6 +1895,14 @@ fn run_session_planned(
                 batch_had_recoverable_tool_error,
             )
         {
+            if let Some(feedback) = budget_closing
+                .before_post_write_read_completion(iterations_used, remaining_iterations)
+            {
+                last_blocking_reason =
+                    Some(super::budget_closing::DEFERRAL_BLOCKING_REASON.to_string());
+                pending_feedback = Some(feedback.to_string());
+                continue;
+            }
             eval_events::emit(
                 config.eval_events_path.as_deref(),
                 json!({

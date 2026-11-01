@@ -5,6 +5,7 @@ use std::ffi::{OsStr, OsString};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+use anyhow::anyhow;
 use serde_json::{Value, json};
 
 use super::{
@@ -21,6 +22,7 @@ use crate::planner::profile_descriptor::{
 };
 use crate::providers::{AssistantReply, ChatClient};
 use crate::state::{ConversationMessage, SessionSnapshot, ToolCall};
+use crate::tools::hidden_path;
 use crate::tools::registry::ToolSpec;
 use crate::tui::NOOP_UI;
 
@@ -87,6 +89,7 @@ fn send_notice(closing: &mut BudgetClosing, limit: usize) {
         .map(Cow::into_owned);
     assert_eq!(feedback.as_deref(), Some(NOTICE));
     closing.note_request(&[ConversationMessage::user(feedback.unwrap())]);
+    closing.note_provider_call(false);
 }
 
 fn edit(path: &str, old: &str, new: &str) -> Value {
@@ -155,6 +158,7 @@ fn disabled_state_never_changes_a_request_records_or_emits() {
         assert!(matches!(feedback, Some(Cow::Borrowed("existing feedback"))));
         assert_eq!(closing.request_feedback(remaining, 10, None), None);
         closing.note_request(&[ConversationMessage::user(NOTICE)]);
+        closing.note_provider_call(false);
     }
     closing.note_bash(Some("false"), ExecutionProgress::NotSuccessful);
     closing.note_bash_rejected("Bash");
@@ -185,6 +189,9 @@ fn notice_is_composed_only_when_three_calls_remain_and_follows_feedback() {
         .into_owned();
     assert_eq!(composed, format!("existing feedback\n\n{NOTICE}"));
     closing.note_request(&[ConversationMessage::user(composed)]);
+    // Built but not yet returned from the provider call: nothing recorded.
+    assert!(events(&dir).is_empty());
+    closing.note_provider_call(false);
     for remaining in [1, 0] {
         assert_eq!(closing.request_feedback(remaining, limit, None), None);
     }
@@ -215,14 +222,77 @@ fn a_composed_notice_that_is_not_in_the_sent_request_is_not_recorded() {
     let (dir, mut closing) = closing(true);
     assert!(closing.request_feedback(2, 6, None).is_some());
     closing.note_request(&[ConversationMessage::user("something else")]);
+    closing.note_provider_call(false);
     // A later request never carries it, and nothing was recorded.
     closing.note_request(&[ConversationMessage::user(NOTICE)]);
+    closing.note_provider_call(false);
     assert_eq!(closing.request_feedback(1, 6, None), None);
     assert!(events(&dir).is_empty());
     // Without a recorded notice the guard does not apply.
     closing.note_bash(Some("false"), ExecutionProgress::NotSuccessful);
     assert_eq!(closing.before_normal_final(5, 1), None);
     assert!(events(&dir).is_empty());
+}
+
+#[test]
+fn a_notice_whose_provider_call_was_aborted_is_not_recorded() {
+    let (dir, mut closing) = closing(true);
+    let feedback = closing
+        .request_feedback(2, 6, None)
+        .map(Cow::into_owned)
+        .unwrap();
+    closing.note_request(&[ConversationMessage::user(feedback)]);
+    closing.note_provider_call(true);
+    // A later call does not record it either; the guard never applies.
+    closing.note_provider_call(false);
+    assert_eq!(closing.request_feedback(1, 6, None), None);
+    closing.note_bash(Some("false"), ExecutionProgress::NotSuccessful);
+    assert_eq!(closing.before_normal_final(5, 1), None);
+    assert_eq!(closing.before_post_write_read_completion(5, 1), None);
+    closing.note_budget_exhausted();
+    assert!(events(&dir).is_empty());
+}
+
+#[test]
+fn a_bash_refused_before_it_ran_is_counted_and_not_a_failure() {
+    let (_dir, mut closing) = closing(true);
+    let root = closing.root.clone();
+    let refusals = [
+        hidden_path::path_error(&root, &root.join(".anvil/missing")),
+        anyhow!("missing string argument `command`"),
+        anyhow!("bash_path_confinement_error: command remains blocked"),
+    ];
+    for error in &refusals {
+        closing.note_tool_error("Bash", &json!({"command": "cat .anvil/missing"}), error);
+        // The observation that follows for the same call is not a result.
+        closing.note_bash(Some("cat .anvil/missing"), ExecutionProgress::NotSuccessful);
+    }
+    assert_eq!(closing.ledger.rejected_bash, 3);
+    assert_eq!(closing.ledger.unresolved_bash(), 0);
+    // The next call's observation counts again.
+    closing.note_bash(Some("false"), ExecutionProgress::NotSuccessful);
+    assert_eq!(closing.ledger.unresolved_bash(), 1);
+}
+
+#[test]
+fn a_bash_error_that_does_not_prove_a_refusal_stays_a_failure() {
+    let (_dir, mut closing) = closing(true);
+    for error in [
+        anyhow!("command_timeout: sleep 99"),
+        anyhow!("something unexpected"),
+    ] {
+        closing.note_tool_error("Bash", &json!({"command": "sleep 99"}), &error);
+        closing.note_bash(Some("sleep 99"), ExecutionProgress::NotSuccessful);
+    }
+    assert_eq!(closing.ledger.rejected_bash, 0);
+    assert_eq!(closing.ledger.unresolved_bash(), 1);
+    // A Write error through the same entry is a write failure.
+    closing.note_tool_error(
+        "Write",
+        &write("notes.txt", "v1\n"),
+        &anyhow!("path_not_found_recoverable"),
+    );
+    assert_eq!(closing.ledger.unresolved_writes(), 1);
 }
 
 #[test]
@@ -305,6 +375,77 @@ fn a_whole_file_write_resolves_an_edit_only_when_it_shows_the_effect() {
     // The edit without replaced text has no defined effect and stays.
     assert_eq!(closing.ledger.unresolved_writes(), 1);
     assert_eq!(closing.ledger.resolved, 1);
+}
+
+#[test]
+fn an_unchanged_write_never_resolves_an_edit_whose_replacement_contains_its_anchor() {
+    let (_dir, mut closing) = closing(true);
+    // The ambiguous edit `foo` → `foobar` failed on `foobar foo`.
+    closing.note_write_failure("Edit", &edit("notes.txt", "foo", "foobar"));
+    closing.note_write_success("Write", &write("notes.txt", "foobar foo"));
+    // Even content without a second `foo` cannot show the edit was made.
+    closing.note_write_success("Write", &write("notes.txt", "foobar"));
+    assert_eq!(closing.ledger.unresolved_writes(), 1);
+    // replace_all is part of the operation.
+    let mut replace_all = edit("notes.txt", "foo", "foobar");
+    replace_all["replace_all"] = json!(true);
+    closing.note_write_success("Edit", &replace_all);
+    assert_eq!(closing.ledger.unresolved_writes(), 1);
+    closing.note_write_success("Edit", &edit("notes.txt", "foo", "foobar"));
+    assert_eq!(closing.ledger.unresolved_writes(), 0);
+    // A failed replace_all edit needs a replace_all success.
+    closing.note_write_failure("Edit", &replace_all);
+    closing.note_write_success("Edit", &edit("notes.txt", "foo", "foobar"));
+    assert_eq!(closing.ledger.unresolved_writes(), 1);
+    closing.note_write_success("Edit", &replace_all);
+    assert_eq!(closing.ledger.unresolved_writes(), 0);
+}
+
+#[test]
+fn repeated_separators_and_dot_components_name_the_same_target() {
+    let (_dir, mut closing) = closing(true);
+    closing.note_write_failure("Write", &write("a//b.txt", "v1\n"));
+    closing.note_write_failure("Write", &write("a/./b.txt", "v1\n"));
+    closing.note_write_success("Write", &write("a/b.txt", "v1\n"));
+    assert_eq!(closing.ledger.unresolved_writes(), 0);
+    // `..` is not resolved: `a/../b.txt` stays another target than `b.txt`.
+    closing.note_write_failure("Write", &write("a/../b.txt", "v1\n"));
+    closing.note_write_success("Write", &write("b.txt", "v1\n"));
+    assert_eq!(closing.ledger.unresolved_writes(), 1);
+}
+
+#[test]
+fn the_post_write_read_completion_follows_the_same_guard() {
+    let (dir, mut closing) = closing(true);
+    closing.note_write_failure("Write", &write(".env", "v1\n"));
+    closing.note_write_success("Write", &write("notes.txt", "v1\n"));
+    // Before the notice the existing completion is left alone.
+    assert_eq!(closing.before_post_write_read_completion(2, 3), None);
+    assert!(events(&dir).is_empty());
+    send_notice(&mut closing, 5);
+    for iteration in 3..6 {
+        assert_eq!(
+            closing.before_post_write_read_completion(iteration, 5 - iteration),
+            Some(DEFERRAL_FEEDBACK)
+        );
+    }
+    closing.note_budget_exhausted();
+    assert_eq!(
+        phases(&dir),
+        [
+            "notice",
+            "final_deferred",
+            "final_deferred",
+            "final_deferred",
+            "exhausted_after_notice"
+        ]
+    );
+    // Without an unresolved failure it is accepted like a normal final.
+    let (dir, mut closing) = self::closing(true);
+    closing.note_write_success("Write", &write("notes.txt", "v1\n"));
+    send_notice(&mut closing, 5);
+    assert_eq!(closing.before_post_write_read_completion(3, 2), None);
+    assert_eq!(phases(&dir), ["notice", "final_accepted"]);
 }
 
 #[test]

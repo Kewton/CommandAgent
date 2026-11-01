@@ -409,20 +409,28 @@ request（各 turn、tool 呼び出し後の turn、空応答の fresh retry、n
   確認を 1 回実行する。確認が成功したら tool を呼ばずに、変えた file・実行した確認・その結果を報告して終える。
   失敗した、または実行できなかったときは成功と書かず、残っている問題を報告する」です。その request の既存の
   feedback は残り、案内はその後ろに付きます。空応答の後の fresh-session retry では案内だけが feedback になり、
-  retry は従来どおり過去の履歴を送りません。案内は送った request に含まれたときだけ記録され、run に 1 回までで、
+  retry は従来どおり過去の履歴を送りません。案内は、送った request に含まれ、その provider の呼出しが client に
+  届く前に中断されなかったときだけ記録されます（呼出しの途中の中断でも記録されず、run はその中断で止まります）。
+  run に 1 回までで、
   反復の上限が 3 以下なら出ません。tool と権限は変わりません。
 - 台帳：host は run の開始から、未解決の失敗を memory に保持します。実行された（policy で拒否・置換されて
   いない）Bash で、既存の execution-progress の分類が成功でないとしたものは、同じ command が後で成功したときだけ
   解除されます。recoverable error または拒否になった Write/Edit は、それに対応する後の成功だけで解除されます。
   対応とは、同じ Edit（path・`old_string`・`new_string`・`replace_all`）、同じ Write（path と内容）、または失敗した
-  Edit の効果が内容に現れている同じ path への Write です。無関係な command・別の path への書込み・同じ file の別の
+  Edit の `new_string` を含み `old_string` を含まなくなった内容の、同じ path への Write です（`new_string` が
+  `old_string` を含む Edit は Write では解除されません）。path は tools の正規化の後に成分から組み直して比べるので、
+  `a//b`・`a/./b`・`a/b` は同じ対象です。`..` は解決しません。tool の層が実行前に拒否した Bash（engine 専用や
+  秘密の path、引数の欠落、path・confinement・command の policy など）は失敗ではなく拒否として数えます。timeout など、
+  実行された可能性のある command の error は失敗のままです。無関係な command・別の path への書込み・同じ file の別の
   Edit・Read・後に書込みがあることだけ・model の発言（「直した」「未完了」を含む）では何も解除されません。
   特定できない失敗は未解決のままです。policy で拒否された Bash は失敗にも成功にも数えず、件数だけを残します。
 - guard：案内の後、既存の確認（required path・action prompt の確認・相対 import・完了前の見直し）をすべて
   通った通常の final でも、失敗が 1 件でも残っていれば、何回目の final でも返しません。回答を取り除き、
   「失敗を直して同じ確認を通すか、未完了として報告する」固定の feedback を渡し、既存の予算の中で loop を
   続けます。呼出し・反復・時間・retry は増えません。予算が尽きれば既存の予算切れの経路で run は失敗し、
-  reason は既存の優先順で決まります。案内の前の final、書込み後の Read による自動完了、その他の既存の停止は
+  reason は既存の優先順で決まります。書込み後の Read による自動完了も、案内の後は同じ規則に従います。失敗が
+  残っている間は run を終えず、tool の結果は残したまま、同じ feedback を次の request に渡し、既存の予算の中で
+  loop を続けます。案内の前の final、案内の前や失敗が残っていないときのその自動完了、その他の既存の停止は
   従来どおりです。
 - event：run は `budget_closing` を記録します。`phase` は `notice`・`final_deferred`・`final_accepted`・
   `exhausted_after_notice`、`guard_reason` は固定の語で、`prompt_version`・`iteration`・`iteration_limit`・

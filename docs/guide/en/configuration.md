@@ -470,7 +470,10 @@ effect.
   feedback for that request stays and the notice follows it. On an
   empty-response fresh-session retry the notice is the only feedback and the
   retry still sends no earlier history. The notice is recorded only when a
-  sent request carries it, at most once per run, and never when the
+  sent request carries it and its provider call was not aborted before
+  reaching the client (a cancel during that call also leaves it
+  unrecorded; the run then stops with the interruption), at most once per
+  run, and never when the
   iteration limit is three or less. Tools and permissions do not change.
 - Ledger: from the start of the run the host keeps unresolved failures in
   memory. A Bash call that ran (not refused or replaced by policy) and that
@@ -479,7 +482,15 @@ effect.
   ended in a recoverable error or rejection is resolved only by a later
   success that matches it: the same Edit (path, `old_string`, `new_string`,
   `replace_all`), the same Write (path and content), or a Write to the same
-  path whose content shows the failed Edit's effect. An unrelated command, a
+  path whose content contains the failed Edit's `new_string` and no longer
+  contains its `old_string` (never when `new_string` contains `old_string`).
+  Paths are compared after the tools' normalization and rebuilt from their
+  components, so `a//b`, `a/./b`, and `a/b` are one target; `..` is not
+  resolved. A Bash call the tool layer refuses before running it (for
+  example an engine-private or sensitive path, a missing argument, or a
+  path, confinement, or command policy) is counted as refused, not as a
+  failure; a timeout or any other error of a command that may have run stays
+  a failure. An unrelated command, a
   write to another path, another edit of the same file, a read, a later write
   alone, or anything the model says (including "fixed" or "not finished")
   resolves nothing. A failure that cannot be identified stays unresolved.
@@ -492,9 +503,13 @@ effect.
   the failure and pass the same check or report the work as unfinished, and
   the loop continues inside the existing budget. No call, iteration, time, or
   retry is added; when the budget runs out the run fails through the existing
-  budget exit, whose reason is chosen by the existing order. Finals before the
-  notice, the automatic post-write read completion, and other existing stops
-  are judged as before.
+  budget exit, whose reason is chosen by the existing order. The automatic
+  post-write read completion follows the same rule after the notice: while a
+  failure remains it does not end the run; the tool results stay, the same
+  feedback goes into the next request, and the loop continues inside the
+  existing budget. Finals before the notice, that completion before the
+  notice or without a remaining failure, and other existing stops are judged
+  as before.
 - Events: the run records `budget_closing` with `phase` `notice`,
   `final_deferred`, `final_accepted`, or `exhausted_after_notice`, a fixed
   `guard_reason`, `prompt_version`, `iteration`, `iteration_limit`,

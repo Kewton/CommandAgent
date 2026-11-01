@@ -1,5 +1,5 @@
 case_id = "budget-closing"
-source = "Issue #957: synthetic scripted runs through the public minimal loop for the opt-in COMMANDAGENT_BUDGET_CLOSING=once; every row's base (outcome, request digests, event-name sequence, unused replies) was recorded from source c141d74028d2384d65668dabe278361596c9d67e before the closing existed, and unset, empty, and off must reproduce it; the once expectations come from the Issue's rules"
+source = "Issue #957: synthetic scripted runs through the public minimal loop for the opt-in COMMANDAGENT_BUDGET_CLOSING=once; every row's base (outcome, request digests, event-name sequence, a digest of every normalized event payload, unused replies) was recorded from source c141d74028d2384d65668dabe278361596c9d67e before the closing existed, and unset, empty, and off must reproduce it; the once expectations come from the Issue's rules"
 required_paths = []
 verify_commands = []
 required_capabilities = []
@@ -50,6 +50,15 @@ fixtures/events.jsonl = [
   "\"id\":\"profile-not-generic\"",
   "\"id\":\"completion-contract-run\"",
   "\"id\":\"policy-rejected-bash\"",
+  "\"id\":\"unchanged-write-after-ambiguous-edit\"",
+  "\"id\":\"hidden-path-bash-rejected\"",
+  "\"id\":\"cancel-before-notice-request\"",
+  "\"id\":\"post-write-read-after-failed-write\"",
+  "\"id\":\"post-write-read-accepted\"",
+  "\"final_text\":\"workspace changes confirmed by post-write reads (unverified)\"",
+  "\"provider_turn_aborted_by_user\"",
+  "\"hidden_path_feedback\"",
+  "\"event_digest\":\"",
   "\"stop_reason\":\"AssistantFinal\"",
   "\"error\":\"model_stagnation:no_progress_recorded: objective: Write the notes file and check it with shell commands.\"",
   "\"empty_response_escalation\"",
@@ -64,5 +73,7 @@ fixtures/events.jsonl = [
   "\"id\":\"default-budget-tool-turns\"",
   "\"id\":\"fresh-retry-native\"",
   "\"id\":\"fresh-retry-xml\"",
-  "\"id\":\"policy-rejected-bash\""
+  "\"id\":\"policy-rejected-bash\"",
+  "\"id\":\"unchanged-write-after-ambiguous-edit\"",
+  "\"id\":\"post-write-read-accepted\""
 ]
