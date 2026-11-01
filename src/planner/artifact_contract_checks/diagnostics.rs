@@ -21,9 +21,10 @@
 //!   and bidi characters become visible `\u{..}` text, then `&`, `<`, `>`,
 //!   and the backtick are encoded as `&amp;`, `&lt;`, `&gt;`, and `&#96;`.
 //!   Nothing is cut or stripped before the scrub. Only then do the bounds
-//!   apply: an ownership string longer than [`MAX_OWNERSHIP_BYTES`] is cut
-//!   on a whole encoded character (never inside an entity or a `\u{..}`
-//!   sequence) and its field is named in the group's `truncated` list, whose
+//!   apply: an ownership string longer than [`MAX_OWNERSHIP_BYTES`] keeps
+//!   the whole encoding units (a character, an `&...;` entity, or a `\u{..}`
+//!   escape) that fit and stops before the first unit that would cross the
+//!   bound, and its field is named in the group's `truncated` list, whose
 //!   bytes count toward the bound; items are dropped whole until the event
 //!   field fits.
 //! - Delimiters. A value can therefore hold no raw `<`, so it cannot form the
@@ -97,8 +98,19 @@ fn extract(result: &AdapterResult, expectation: &Expectation) -> Vec<ArtifactDia
 /// One complete decoded display value: scrub, then make control characters
 /// visible, then encode the delimiter characters.
 pub(crate) fn safe_text(value: &str) -> String {
+    safe_units(value).concat()
+}
+
+/// [`safe_text`] as its encoding units, in order: the whole value is
+/// scrubbed first, then each scrubbed character becomes one unit (itself, a
+/// `\u{..}` escape, or an `&...;` entity). Cutting between units never
+/// leaves part of an escape or an entity.
+fn safe_units(value: &str) -> Vec<String> {
     let scrubbed = crate::eval_events::scrub_sensitive_text(value);
-    encode_delimiters(&visible_controls(&scrubbed))
+    scrubbed
+        .chars()
+        .map(|ch| encode_delimiters(&visible_controls(ch.encode_utf8(&mut [0; 4]))))
+        .collect()
 }
 
 fn is_invisible(ch: char) -> bool {
@@ -141,34 +153,20 @@ fn encode_delimiters(value: &str) -> String {
 }
 
 /// A safe ownership string and whether it was cut at
-/// [`MAX_OWNERSHIP_BYTES`]. The cut falls on a character boundary and never
-/// inside an `&...;` entity or a `\u{..}` sequence, so a cut value holds only
-/// whole encoded characters.
+/// [`MAX_OWNERSHIP_BYTES`]. The full scrubbed and encoded value is built
+/// from whole encoding units; a cut keeps the units that fit and stops
+/// before the first one that would cross the bound, so a cut value never
+/// ends in part of an `&...;` entity or a `\u{..}` escape.
 fn ownership_text(value: &str) -> (String, bool) {
-    let mut text = safe_text(value);
-    if text.len() <= MAX_OWNERSHIP_BYTES {
-        return (text, false);
+    let units = safe_units(value);
+    let mut text = String::new();
+    for unit in &units {
+        if text.len() + unit.len() > MAX_OWNERSHIP_BYTES {
+            return (text, true);
+        }
+        text.push_str(unit);
     }
-    let mut end = MAX_OWNERSHIP_BYTES;
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    let head = &text[..end];
-    if let Some(start) = head
-        .rfind('&')
-        .filter(|start| !head[*start..].contains(';'))
-    {
-        end = start;
-    }
-    let head = &text[..end];
-    if let Some(start) = head
-        .rfind("\\u{")
-        .filter(|start| !head[*start..].contains('}'))
-    {
-        end = start;
-    }
-    text.truncate(end);
-    (text, true)
+    (text, false)
 }
 
 /// The receipt's ownership and the facts a group is built from.
@@ -709,16 +707,96 @@ mod tests {
         assert!(event_value(&group(&ownership(), &[])).is_none());
     }
 
-    /// Every whole `&...;` entity and `\u{..}` sequence: no `&` without its
-    /// `;` and no `\u{` without its `}`.
+    /// Whether every `&` opens a whole entity (letters, digits, or `#`, then
+    /// `;`) and every backslash opens a whole `\u{hex}` escape, so no
+    /// fragment such as a trailing `\`, `\u`, `\u{1`, or `&lt` remains. The
+    /// inputs these tests use hold no literal backslash.
     fn whole_encodings(text: &str) -> bool {
-        let entities = text
-            .match_indices('&')
-            .all(|(at, _)| text[at..].find(';').is_some_and(|end| end <= 5));
-        let escapes = text
-            .match_indices("\\u{")
-            .all(|(at, _)| text[at..].contains('}'));
+        let entities = text.match_indices('&').all(|(at, _)| {
+            let rest = &text[at + 1..];
+            rest.find(';').is_some_and(|end| {
+                end > 0
+                    && end <= 4
+                    && rest[..end]
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'#')
+            })
+        });
+        let escapes = text.match_indices('\\').all(|(at, _)| {
+            let rest = &text[at + 1..];
+            rest.strip_prefix("u{")
+                .and_then(|rest| rest.find('}').map(|end| &rest[..end]))
+                .is_some_and(|hex| !hex.is_empty() && hex.bytes().all(|b| b.is_ascii_hexdigit()))
+        });
         entities && escapes
+    }
+
+    #[test]
+    fn fragment_detection_flags_every_partial_encoding() {
+        for fragment in [
+            "x\\", "x\\u", "x\\u{", "x\\u{20", "x&", "x&l", "x&lt", "x&amp",
+        ] {
+            assert!(!whole_encodings(fragment), "{fragment}");
+        }
+        for whole in ["x\\u{202e}", "x&lt;", "x&amp;", "x&#96;", "plain"] {
+            assert!(whole_encodings(whole), "{whole}");
+        }
+    }
+
+    /// `offset` ASCII bytes, then one character whose encoding unit is
+    /// several bytes, then more ASCII; a path keeps short components.
+    fn crossing_value(field: &str, offset: usize, ch: char) -> String {
+        let prefix = match field {
+            "request" => "segment-a/".repeat(offset / 10 + 1)[..offset].to_string(),
+            _ => "q".repeat(offset),
+        };
+        format!("{prefix}{ch}{}", "z".repeat(24))
+    }
+
+    #[test]
+    fn an_ownership_cut_at_every_offset_keeps_only_whole_units() {
+        for field in ["request_id", "request"] {
+            for (ch, unit) in [
+                ('<', "&lt;"),
+                ('`', "&#96;"),
+                ('\u{202e}', "\\u{202e}"),
+                ('\u{1b}', "\\u{1b}"),
+            ] {
+                for offset in 250..=MAX_OWNERSHIP_BYTES {
+                    let value = crossing_value(field, offset, ch);
+                    let mut ownership = ownership();
+                    match field {
+                        "request_id" => ownership.request_id = Some(value.as_str()),
+                        _ => ownership.request = value.as_str(),
+                    }
+                    let projected = group(&ownership, &[sample(0, "m")]);
+                    let text = match field {
+                        "request_id" => projected.request_id.clone().unwrap(),
+                        _ => projected.request.clone(),
+                    };
+                    let prefix = &value[..offset];
+                    let expected = if offset + unit.len() <= MAX_OWNERSHIP_BYTES {
+                        format!(
+                            "{prefix}{unit}{}",
+                            "z".repeat(MAX_OWNERSHIP_BYTES - offset - unit.len())
+                        )
+                    } else {
+                        prefix.to_string()
+                    };
+                    assert_eq!(text, expected, "{field} {unit} at {offset}");
+                    assert!(text.len() <= MAX_OWNERSHIP_BYTES);
+                    assert!(whole_encodings(&text), "{field} {unit} at {offset}: {text}");
+                    for tail in ["\\", "\\u", "\\u{", "&", "&l", "&lt", "&#", "&#9", "&#96"] {
+                        assert!(!text.ends_with(tail), "{field} {unit} at {offset}: {tail}");
+                    }
+                    assert_eq!(
+                        projected.truncated,
+                        vec![field],
+                        "{field} {unit} at {offset}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

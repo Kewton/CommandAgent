@@ -273,9 +273,11 @@ verdict.
   profile ID and its adapter a validated slug; a local pack's owner is its
   validated `id@version`; the request ID is a validated opaque ID; the request
   is the declared workspace path. After scrub and encoding, each ownership
-  string keeps at most 256 bytes. A longer one is cut on a whole encoded
-  character (never inside an `&...;` entity or a `\u{..}` sequence), and its
-  field name is listed in the group's `truncated` array, which is absent when
+  string keeps at most 256 bytes. The full scrubbed and encoded value is a
+  sequence of whole units (one character, one `&...;` entity, or one `\u{..}`
+  escape); a longer value keeps the units that fit and stops before the first
+  unit that would cross 256 bytes, so it never ends in part of an entity or an
+  escape. Its field name is listed in the group's `truncated` array, which is absent when
   nothing was cut and whose bytes count toward the bound. Two values that
   differ only after the cut can therefore look alike; `truncated` says the
   displayed value is a prefix.
