@@ -30,7 +30,11 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 
 use crate::planner::capability_catalog::artifact::ArtifactContractCheck;
+use crate::verification::report::artifact_diagnostics::{
+    ArtifactDiagnostic, ArtifactDiagnosticGroup,
+};
 
+pub(crate) mod diagnostics;
 pub(crate) mod process;
 pub(crate) mod protocol;
 #[cfg(test)]
@@ -462,6 +466,9 @@ pub(crate) struct Receipt {
     /// Issue #949: workspace names this run made repair candidates. Never
     /// written to the receipt event.
     pub(crate) repair_paths: Vec<String>,
+    /// Issue #955: safe diagnostics of an accepted result only; metadata that
+    /// never decides the receipt.
+    pub(crate) diagnostics: Vec<ArtifactDiagnostic>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -493,6 +500,7 @@ impl Receipt {
             native_passed: false,
             reasons: Vec::new(),
             repair_paths: Vec::new(),
+            diagnostics: Vec::new(),
         }
     }
 
@@ -500,6 +508,7 @@ impl Receipt {
         self.stopped_at = stopped_at;
         self.reasons = reasons;
         self.reasons.truncate(MAX_REASONS);
+        self.diagnostics.clear();
         self.uncapped = DomainVerdict::None;
         self.domain = DomainVerdict::None;
         self.native_passed = false;
@@ -534,22 +543,24 @@ pub(crate) fn run_and_record(
     run_and_record_with_repair_paths(workspace, check, events_path, source, owner_id).0
 }
 
-/// [`run_and_record`] that also returns the run's repair candidates.
+/// [`run_and_record`] that also returns the run's repair candidates and the
+/// event projection of its accepted diagnostics (Issue #955), for the
+/// acceptance report of this same run.
 pub(crate) fn run_and_record_with_repair_paths(
     workspace: &Path,
     check: &ArtifactContractCheck,
     events_path: Option<&Path>,
     source: &str,
     owner_id: &str,
-) -> (Vec<String>, Vec<String>) {
+) -> (Vec<String>, Vec<String>, ArtifactDiagnosticGroup) {
     let receipt = run_check(
         workspace,
         check,
         config_root_from_environment().as_deref(),
         || false,
     );
-    record(&receipt, events_path, source, owner_id);
-    (receipt.failures(), receipt.repair_paths)
+    let diagnostics = record(&receipt, events_path, source, owner_id);
+    (receipt.failures(), receipt.repair_paths, diagnostics)
 }
 
 pub(crate) fn run_check<F>(
@@ -719,10 +730,12 @@ where
         required,
         optional,
     };
-    let facts = match protocol::validate_result(&result, &expectation, exit_code) {
-        Ok(facts) => facts,
-        Err(violations) => return receipt.fail("envelope", violations),
-    };
+    let (facts, accepted_diagnostics) =
+        match diagnostics::accepted(&result, &expectation, exit_code) {
+            Ok(accepted) => accepted,
+            Err(violations) => return receipt.fail("envelope", violations),
+        };
+    receipt.diagnostics = accepted_diagnostics;
     receipt.stopped_at = "verified";
     receipt.facts = Some(facts);
     receipt.uncapped = facts.uncapped_verdict();
@@ -739,13 +752,7 @@ fn row_reasons(
     result
         .checks
         .iter()
-        .filter(|row| {
-            let required = expectation
-                .required
-                .contains(&(row.check_id.clone(), row.target_id.clone()));
-            row.status == protocol::RowStatus::Failed
-                || (required && row.status != protocol::RowStatus::Passed)
-        })
+        .filter(|row| diagnostics::reported(row, expectation))
         .take(MAX_REASONS)
         .map(|row| {
             let target = row
@@ -753,13 +760,7 @@ fn row_reasons(
                 .as_deref()
                 .map(|target| format!("/`{target}`"))
                 .unwrap_or_default();
-            let status = match row.status {
-                protocol::RowStatus::Failed => "failed",
-                protocol::RowStatus::Unresolved => "unresolved",
-                protocol::RowStatus::NotRun => "not_run",
-                protocol::RowStatus::NotProvided => "not_provided",
-                protocol::RowStatus::Passed => "passed",
-            };
+            let status = diagnostics::status_word(row.status);
             format!("row `{}`{target} is {status}", row.check_id)
         })
         .collect()
@@ -1162,8 +1163,21 @@ fn sha256_hex(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
-fn record(receipt: &Receipt, events_path: Option<&Path>, source: &str, owner_id: &str) {
+fn record(
+    receipt: &Receipt,
+    events_path: Option<&Path>,
+    source: &str,
+    owner_id: &str,
+) -> ArtifactDiagnosticGroup {
     let facts = receipt.facts.unwrap_or_default();
+    let ownership = diagnostics::Ownership {
+        source,
+        owner: owner_id,
+        adapter: &receipt.adapter_id,
+        request: &receipt.request,
+        request_id: receipt.request_id.as_deref(),
+    };
+    let group = diagnostics::group(&ownership, &receipt.diagnostics);
     let process = receipt.process.as_ref().map(|process| {
         json!({
             "ended": process.ended,
@@ -1176,9 +1190,7 @@ fn record(receipt: &Receipt, events_path: Option<&Path>, source: &str, owner_id:
             "stderr_bytes": process.stderr_bytes,
         })
     });
-    crate::eval_events::emit(
-        events_path,
-        json!({
+    let mut event = json!({
             "event": "artifact_contract_check_result",
             "source": source,
             "owner_id": owner_id,
@@ -1211,8 +1223,12 @@ fn record(receipt: &Receipt, events_path: Option<&Path>, source: &str, owner_id:
                 .iter()
                 .map(|reason| crate::eval_events::body_snippet(reason))
                 .collect::<Vec<_>>(),
-        }),
-    );
+    });
+    // Issue #955: additive, and absent when there is nothing to carry.
+    if let (Some(object), Some(value)) = (event.as_object_mut(), diagnostics::event_value(&group)) {
+        object.insert(diagnostics::EVENT_FIELD.to_string(), value);
+    }
+    crate::eval_events::emit(events_path, event);
     let mut line = format!(
         "Artifact contract checks ({source} `{owner_id}`): adapter `{}` {}; domain {} (cap {})",
         receipt.adapter_id,
@@ -1229,4 +1245,5 @@ fn record(receipt: &Receipt, events_path: Option<&Path>, source: &str, owner_id:
         line.push_str(reason);
     }
     crate::eval_events::append_run_summary(events_path, &line);
+    group
 }

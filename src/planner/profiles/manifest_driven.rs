@@ -31,6 +31,7 @@ use crate::planner::profile_manifest::{
 };
 use crate::planner::ultra_plan::{UltraPhase, UltraPlan};
 use crate::planner::verify::VerificationReport;
+use crate::verification::report::artifact_diagnostics::ArtifactDiagnostics;
 
 /// What the adapter is bound to.
 pub enum ManifestBinding {
@@ -191,6 +192,7 @@ impl ManifestDrivenProfile {
         goal: &str,
         eval_events_path: Option<&Path>,
         repair_paths: &mut Vec<String>,
+        diagnostics: &mut ArtifactDiagnostics,
     ) -> Vec<String> {
         let checks = match self.resolved_checks() {
             Ok(checks) => checks,
@@ -264,7 +266,7 @@ impl ManifestDrivenProfile {
                         ));
                         continue;
                     }
-                    let (check_failures, paths) =
+                    let (check_failures, paths, group) =
                         crate::planner::artifact_contract_checks::run_and_record_with_repair_paths(
                             root,
                             &adapter,
@@ -274,6 +276,7 @@ impl ManifestDrivenProfile {
                         );
                     failures.extend(check_failures);
                     repair_paths.extend(paths);
+                    diagnostics.push_group(group);
                 }
                 ResolvedCapability::Internal(_) | ResolvedCapability::Probe(_) => {
                     failures.push(format!(
@@ -354,10 +357,18 @@ impl DomainProfile for ManifestDrivenProfile {
             report.push_profile_failure(failure);
         }
         let mut repair_paths = Vec::new();
-        for failure in self.check_failures(root, goal, eval_events_path, &mut repair_paths) {
+        let mut diagnostics = ArtifactDiagnostics::default();
+        for failure in self.check_failures(
+            root,
+            goal,
+            eval_events_path,
+            &mut repair_paths,
+            &mut diagnostics,
+        ) {
             report.push_profile_failure(failure);
         }
         report.artifact_repair_paths = repair_paths;
+        report.artifact_diagnostics = diagnostics;
         report
     }
 

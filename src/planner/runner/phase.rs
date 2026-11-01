@@ -2335,6 +2335,9 @@ pub(super) fn merge_verification_report(
             report.artifact_repair_paths.push(path);
         }
     }
+    report
+        .artifact_diagnostics
+        .merge(extra.artifact_diagnostics);
     report.refresh_status();
 }
 

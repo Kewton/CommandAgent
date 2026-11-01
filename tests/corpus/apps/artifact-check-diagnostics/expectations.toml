@@ -1,0 +1,59 @@
+case_id = "artifact-check-diagnostics"
+source = "Issue #955: the accepted diagnostics (check/target/code/message) of an operator-registered artifact_contract_check adapter reach the existing bounded final repair in both prompt layouts as one untrusted, bounded data block and the receipt event as the additive adapter_diagnostics field; refused results carry none; the verdict, receipts, repair attempts, and provider calls are those observed at the base"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[json_fields]
+fixtures/events.json:kind = "synthetic"
+fixtures/events.json:base_sha = "20b549fc6269217bd0161d2038326480c7605d5f"
+source-manifest.json:kind = "synthetic"
+source-manifest.json:base_sha = "20b549fc6269217bd0161d2038326480c7605d5f"
+
+[fixture_contains]
+fixtures/events.json = [
+  "\"id\": \"reach-stable-1\"",
+  "\"id\": \"reach-legacy-1\"",
+  "\"id\": \"plain-base-1\"",
+  "\"id\": \"refuse-nonce-1\"",
+  "\"id\": \"refuse-timeout-1\"",
+  "\"id\": \"refuse-tooling-1\"",
+  "\"id\": \"cycle-two-1\"",
+  "\"id\": \"inject-1\"",
+  "\"id\": \"secret-1\"",
+  "\"id\": \"byte-section-above\"",
+  "\"receipt:diag-gate-a:failed:envelope\"",
+  "\"receipt:diag-gate-t:failed:binding\"",
+  "\"repair_start:max=2\""
+]
+
+[fixture_ordered]
+fixtures/events.json = [
+  "\"id\": \"reach-stable-1\"",
+  "\"receipt:diag-gate-a:failed:verified\"",
+  "\"repair_complete:1:[data/terms.txt]\"",
+  "\"receipt:diag-gate-a:passed:verified\"",
+  "\"stop:true\"",
+  "\"id\": \"cycle-two-1\"",
+  "\"receipt:diag-gate-b:failed:verified\"",
+  "\"repair_complete:2:[data/terms.txt]\"",
+  "\"receipt:diag-gate-b:passed:verified\"",
+  "\"stop:true\""
+]

@@ -1,4 +1,5 @@
 use super::diagnostics::{CompileError, PythonTraceback};
+pub mod artifact_diagnostics; // Issue #955: accepted adapter diagnostics, never a verdict
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VerifyStatus {
@@ -21,9 +22,8 @@ pub struct VerificationReport {
     pub profile_failures: Vec<String>,
     pub compile_errors: Vec<CompileError>,
     pub python_tracebacks: Vec<PythonTraceback>,
-    /// Issue #949: names the admitted artifact checks of this acceptance made
-    /// repair candidates. Not a failure and not part of the status.
-    pub artifact_repair_paths: Vec<String>,
+    pub artifact_repair_paths: Vec<String>, // #949 repair candidates; not a failure or status
+    pub artifact_diagnostics: artifact_diagnostics::ArtifactDiagnostics,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,6 +57,7 @@ impl VerificationReport {
             compile_errors: Vec::new(),
             python_tracebacks: Vec::new(),
             artifact_repair_paths: Vec::new(),
+            artifact_diagnostics: Default::default(),
         }
     }
 

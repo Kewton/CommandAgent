@@ -54,8 +54,10 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "aborted",
     "accounted_by",
     "accounting_record",
+    "adapter_diagnostics",
     "adopted_unreplayed",
     "anchor_stagnation_interlock",
+    "artifact-check-diagnostics",
     "artifact_contract_check_result",
     "artifact_stagnation_feedback",
     "bash_path_confinement_rejected",
@@ -523,5 +525,76 @@ mod billed_cost_field_tests {
             assert!(object.contains_key(FIELD), "{value}");
             assert_eq!(object.len(), 4, "{value}");
         }
+    }
+}
+
+/// Issue #955: the additive receipt field `adapter_diagnostics` and the repair
+/// block delimiter `artifact-check-diagnostics` are fixed identifiers, so a
+/// credential equal to either or to a fragment of either is refused, while the
+/// dynamic values under the field stay subject to the scrub.
+#[cfg(test)]
+mod artifact_diagnostics_field_tests {
+    use serde_json::json;
+
+    use super::{FIXED_IDENTIFIERS, collides_with_fixed_identifier, is_fixed_identifier};
+    use crate::sensitive_data::SecretCatalog;
+
+    const NAMES: [&str; 2] = ["adapter_diagnostics", "artifact-check-diagnostics"];
+
+    #[test]
+    fn the_names_are_reserved_once_in_name_order() {
+        for name in NAMES {
+            assert!(is_fixed_identifier(name));
+            let at = FIXED_IDENTIFIERS
+                .iter()
+                .position(|fixed| *fixed == name)
+                .unwrap();
+            assert_eq!(
+                FIXED_IDENTIFIERS
+                    .iter()
+                    .filter(|fixed| **fixed == name)
+                    .count(),
+                1
+            );
+            assert!(FIXED_IDENTIFIERS[at - 1] < name, "{name}");
+            assert!(name < FIXED_IDENTIFIERS[at + 1], "{name}");
+        }
+    }
+
+    #[test]
+    fn a_credential_fragment_of_a_name_is_refused() {
+        for value in ["adapter_diagnost", "check-diagnostics", "-check-diag"] {
+            assert!(collides_with_fixed_identifier(value), "{value}");
+            let mut catalog = SecretCatalog::new();
+            assert!(
+                catalog
+                    .register_credential("COMPAT_API_KEY", value)
+                    .is_err()
+            );
+            assert!(catalog.is_empty());
+        }
+    }
+
+    #[test]
+    fn values_under_the_field_are_still_scrubbed() {
+        let credential = "fake-credential-955-not-a-real-key";
+        let mut catalog = SecretCatalog::new();
+        catalog
+            .register_credential("COMPAT_API_KEY", credential)
+            .unwrap();
+        let mut value = json!({
+            "event": "artifact_contract_check_result",
+            "adapter_diagnostics": {
+                "items": [{"check": "rows/alpha", "code": credential, "message": format!("x {credential}")}],
+                "omitted": 0,
+            },
+        });
+        catalog.scrub_value_lenient(&mut value);
+        assert!(value.get("adapter_diagnostics").is_some(), "{value}");
+        assert!(!value.to_string().contains(credential), "{value}");
+        assert_eq!(
+            value["adapter_diagnostics"]["items"][0]["check"],
+            "rows/alpha"
+        );
     }
 }
