@@ -230,6 +230,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "profile_reinferred",
     "prompt_version",
     "protected_path_mutation_rejected",
+    "provider_billed_cost_usd",
     "provider_error",
     "provider_parse_error",
     "provider_request",
@@ -417,4 +418,99 @@ pub fn collides_with_fixed_identifier(value: &str) -> bool {
     FIXED_IDENTIFIERS
         .iter()
         .any(|fixed| *fixed == value || fixed.contains(value))
+}
+
+/// Issue #947 (review B2): the event field `provider_billed_cost_usd` is a
+/// fixed identifier, so a credential equal to it or to a fragment of it is
+/// refused at registration instead of turning the field name into a marker.
+#[cfg(test)]
+mod billed_cost_field_tests {
+    use serde_json::json;
+
+    use super::{FIXED_IDENTIFIERS, collides_with_fixed_identifier, is_fixed_identifier};
+    use crate::sensitive_data::{RegistrationRefusal, ReservedKind, SecretCatalog};
+
+    const FIELD: &str = "provider_billed_cost_usd";
+
+    #[test]
+    fn the_field_is_reserved_once_in_name_order() {
+        assert!(is_fixed_identifier(FIELD));
+        assert_eq!(
+            FIXED_IDENTIFIERS
+                .iter()
+                .filter(|fixed| **fixed == FIELD)
+                .count(),
+            1
+        );
+        let at = FIXED_IDENTIFIERS
+            .iter()
+            .position(|fixed| *fixed == FIELD)
+            .unwrap();
+        assert!(
+            FIXED_IDENTIFIERS[at - 1] < FIELD,
+            "{}",
+            FIXED_IDENTIFIERS[at - 1]
+        );
+        assert!(
+            FIELD < FIXED_IDENTIFIERS[at + 1],
+            "{}",
+            FIXED_IDENTIFIERS[at + 1]
+        );
+    }
+
+    #[test]
+    fn a_credential_equal_to_the_field_or_a_fragment_of_it_is_refused_unnamed() {
+        for value in [
+            FIELD,
+            "provider_billed_cost",
+            "billed_cost_usd",
+            "_billed_cost_",
+            "der_billed_c",
+        ] {
+            assert!(
+                collides_with_fixed_identifier(value),
+                "fragment {}",
+                value.len()
+            );
+            let mut catalog = SecretCatalog::new();
+            let error = catalog
+                .register_credential("COMPAT_API_KEY", value)
+                .unwrap_err();
+            assert_eq!(
+                error,
+                RegistrationRefusal::Reserved {
+                    name: "COMPAT_API_KEY".to_string(),
+                    kind: ReservedKind::FixedIdentifier,
+                }
+            );
+            assert!(catalog.is_empty());
+            for text in [error.to_string(), format!("{error:?}")] {
+                assert!(!text.contains(value), "the refusal names the value");
+            }
+        }
+    }
+
+    #[test]
+    fn a_normal_credential_leaves_the_field_name_and_amount_unchanged() {
+        let credential = "fake-credential-947-not-a-real-key";
+        let mut catalog = SecretCatalog::new();
+        catalog
+            .register_credential("COMPAT_API_KEY", credential)
+            .unwrap();
+        for event in ["provider_response", "provider_turn_duration"] {
+            let mut value = json!({
+                "event": event,
+                "provider": "openai-compatible",
+                FIELD: "0.012345",
+                "body_snippet": format!("echo {credential}"),
+            });
+            catalog.scrub_value_lenient(&mut value);
+            assert_eq!(value[FIELD], "0.012345", "{value}");
+            assert_eq!(value["event"], event, "{value}");
+            assert!(!value.to_string().contains(credential), "{value}");
+            let object = value.as_object().unwrap();
+            assert!(object.contains_key(FIELD), "{value}");
+            assert_eq!(object.len(), 4, "{value}");
+        }
+    }
 }
