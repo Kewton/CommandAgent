@@ -9,8 +9,8 @@ use anyhow::anyhow;
 use serde_json::{Value, json};
 
 use super::{
-    BudgetClosing, CLOSING_REMAINING_CALLS, ClosingMode, DEFERRAL_FEEDBACK, ENV_NAME, NOTICE,
-    PROMPT_VERSION, TEST_ENV, in_scope, parse_mode,
+    BudgetClosing, CLOSING_REMAINING_CALLS, CallClient, ClosingMode, DEFERRAL_FEEDBACK, ENV_NAME,
+    NOTICE, PROMPT_VERSION, TEST_ENV, in_scope, parse_mode,
 };
 use crate::config::Config;
 use crate::minimal_loop::execution_progress::ExecutionProgress;
@@ -89,7 +89,28 @@ fn send_notice(closing: &mut BudgetClosing, limit: usize) {
         .map(Cow::into_owned);
     assert_eq!(feedback.as_deref(), Some(NOTICE));
     closing.note_request(&[ConversationMessage::user(feedback.unwrap())]);
-    closing.note_provider_call(false);
+    provider_call(closing, true);
+}
+
+/// One provider call: the watch the run would hand to the provider call,
+/// whose clone is asked for a reply only when the request reaches the client.
+fn provider_call(closing: &mut BudgetClosing, reaches_client: bool) {
+    let mut client = scripted(vec![reply("ok", Vec::new())]);
+    {
+        let mut call = closing.watch(&mut client);
+        if reaches_client {
+            let mut clone = call.client().boxed_clone();
+            let _ = clone.chat("m", &[], &[], true);
+        }
+    }
+    closing.note_provider_call();
+}
+
+fn scripted(replies: Vec<AssistantReply>) -> Scripted {
+    Scripted {
+        replies: Arc::new(Mutex::new(replies)),
+        requests: Arc::new(Mutex::new(Vec::new())),
+    }
 }
 
 fn edit(path: &str, old: &str, new: &str) -> Value {
@@ -158,7 +179,7 @@ fn disabled_state_never_changes_a_request_records_or_emits() {
         assert!(matches!(feedback, Some(Cow::Borrowed("existing feedback"))));
         assert_eq!(closing.request_feedback(remaining, 10, None), None);
         closing.note_request(&[ConversationMessage::user(NOTICE)]);
-        closing.note_provider_call(false);
+        provider_call(&mut closing, true);
     }
     closing.note_bash(Some("false"), ExecutionProgress::NotSuccessful);
     closing.note_bash_rejected("Bash");
@@ -191,7 +212,7 @@ fn notice_is_composed_only_when_three_calls_remain_and_follows_feedback() {
     closing.note_request(&[ConversationMessage::user(composed)]);
     // Built but not yet returned from the provider call: nothing recorded.
     assert!(events(&dir).is_empty());
-    closing.note_provider_call(false);
+    provider_call(&mut closing, true);
     for remaining in [1, 0] {
         assert_eq!(closing.request_feedback(remaining, limit, None), None);
     }
@@ -222,10 +243,10 @@ fn a_composed_notice_that_is_not_in_the_sent_request_is_not_recorded() {
     let (dir, mut closing) = closing(true);
     assert!(closing.request_feedback(2, 6, None).is_some());
     closing.note_request(&[ConversationMessage::user("something else")]);
-    closing.note_provider_call(false);
+    provider_call(&mut closing, true);
     // A later request never carries it, and nothing was recorded.
     closing.note_request(&[ConversationMessage::user(NOTICE)]);
-    closing.note_provider_call(false);
+    provider_call(&mut closing, true);
     assert_eq!(closing.request_feedback(1, 6, None), None);
     assert!(events(&dir).is_empty());
     // Without a recorded notice the guard does not apply.
@@ -235,16 +256,61 @@ fn a_composed_notice_that_is_not_in_the_sent_request_is_not_recorded() {
 }
 
 #[test]
-fn a_notice_whose_provider_call_was_aborted_is_not_recorded() {
+fn a_notice_whose_request_reached_the_client_is_recorded_even_if_the_call_then_stops() {
     let (dir, mut closing) = closing(true);
     let feedback = closing
         .request_feedback(2, 6, None)
         .map(Cow::into_owned)
         .unwrap();
     closing.note_request(&[ConversationMessage::user(feedback)]);
-    closing.note_provider_call(true);
+    // The client was asked; whatever the call's outcome, the notice was sent.
+    provider_call(&mut closing, true);
+    assert_eq!(phases(&dir), ["notice"]);
+    // A run stopped by that interruption ends without a terminal phase.
+    assert_eq!(phases(&dir).len(), 1);
+}
+
+#[test]
+fn only_the_notice_request_goes_through_the_dispatch_watch() {
+    let mut client = scripted(vec![reply("plain", Vec::new())]);
+    // Disabled, and enabled outside the notice request: the client itself.
+    for enabled in [false, true] {
+        let (_dir, mut closing) = closing(enabled);
+        assert!(matches!(closing.watch(&mut client), CallClient::Direct(_)));
+        let _ = closing.request_feedback(5, 9, None);
+        closing.note_request(&[ConversationMessage::user(NOTICE)]);
+        assert!(matches!(closing.watch(&mut client), CallClient::Direct(_)));
+    }
+    // The notice request: a watch that forwards everything unchanged.
+    let (_dir, mut closing) = closing(true);
+    let feedback = closing.request_feedback(2, 6, None).unwrap().into_owned();
+    closing.note_request(&[ConversationMessage::user(feedback)]);
+    let mut call = closing.watch(&mut client);
+    assert!(matches!(call, CallClient::Watched(_)));
+    let watched = call.client();
+    assert_eq!(watched.label(), "scripted");
+    assert!(watched.supports_native_tools("m"));
+    let mut clone = watched.boxed_clone();
+    let messages = [ConversationMessage::user("hello")];
+    let reply = clone.chat("m", &messages, &[], true).unwrap();
+    assert_eq!(reply.content, "plain");
+    assert!(clone.chat("m", &messages, &[], true).is_err());
+    drop(call);
+    assert_eq!(client.requests.lock().unwrap().len(), 2);
+    assert_eq!(client.requests.lock().unwrap()[0], messages.to_vec());
+}
+
+#[test]
+fn a_notice_whose_request_never_reached_the_client_is_not_recorded() {
+    let (dir, mut closing) = closing(true);
+    let feedback = closing
+        .request_feedback(2, 6, None)
+        .map(Cow::into_owned)
+        .unwrap();
+    closing.note_request(&[ConversationMessage::user(feedback)]);
+    provider_call(&mut closing, false);
     // A later call does not record it either; the guard never applies.
-    closing.note_provider_call(false);
+    provider_call(&mut closing, true);
     assert_eq!(closing.request_feedback(1, 6, None), None);
     closing.note_bash(Some("false"), ExecutionProgress::NotSuccessful);
     assert_eq!(closing.before_normal_final(5, 1), None);
@@ -272,6 +338,48 @@ fn a_bash_refused_before_it_ran_is_counted_and_not_a_failure() {
     // The next call's observation counts again.
     closing.note_bash(Some("false"), ExecutionProgress::NotSuccessful);
     assert_eq!(closing.ledger.unresolved_bash(), 1);
+}
+
+/// The error the Bash tool returns for a command that ran and timed out
+/// (`src/tools/bash.rs` `run_with_cancel_and_force`): the command, then the
+/// formatted outcome with its output.
+fn timeout_error(command: &str, stdout: &str, stderr: &str) -> anyhow::Error {
+    anyhow!(
+        "command_timeout: {command}\noutcome: Timeout\nstatus: timed out\nelapsed_ms: 1\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    )
+}
+
+#[test]
+fn a_timeout_that_names_a_refusal_in_its_command_or_output_stays_a_failure() {
+    let words = [
+        "bash_path_confinement_error: rejected",
+        "protected_path_mutation_rejected: frozen",
+        "missing string argument `command`",
+        "hidden_path engine-private .anvil",
+    ];
+    for word in words {
+        for (command, stdout, stderr) in [
+            (format!("sleep 999 # {word}"), String::new(), String::new()),
+            ("sleep 999".to_string(), word.to_string(), String::new()),
+            ("sleep 999".to_string(), String::new(), word.to_string()),
+        ] {
+            let (dir, mut closing) = closing(true);
+            let error = timeout_error(&command, &stdout, &stderr);
+            closing.note_tool_error("Bash", &json!({"command": &command}), &error);
+            closing.note_bash(Some(&command), ExecutionProgress::NotSuccessful);
+            assert_eq!(closing.ledger.rejected_bash, 0, "{error}");
+            assert_eq!(closing.ledger.unresolved_bash(), 1, "{error}");
+            send_notice(&mut closing, 6);
+            assert_eq!(
+                closing.before_normal_final(4, 2),
+                Some(DEFERRAL_FEEDBACK),
+                "{error}"
+            );
+            let deferred = &events(&dir)[1];
+            assert_eq!(deferred["policy_rejected_bash"], 0);
+            assert_eq!(deferred["unresolved_bash_failures"], 1);
+        }
+    }
 }
 
 #[test]

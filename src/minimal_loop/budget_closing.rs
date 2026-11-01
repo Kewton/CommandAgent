@@ -23,8 +23,9 @@
 //! run through the existing exhaustion path. The existing post-write read
 //! confirmation, which also ends a direct run as a success, is held to the
 //! same rule. Before the notice, finals are judged by the existing checks
-//! alone. The notice is recorded only when the provider call that carried it
-//! was not aborted before reaching the client.
+//! alone. The notice is recorded only when the request that carried it was
+//! handed to the client, which a [`DispatchWatch`] around that one provider
+//! call observes; a call cancelled before that records nothing.
 //!
 //! Unset, empty, or `off` disables everything: no state, no event, and no
 //! request change. Any other value is a configuration error that names the
@@ -35,7 +36,10 @@
 use std::borrow::Cow;
 use std::collections::BTreeSet;
 use std::ffi::{OsStr, OsString};
+use std::ops::DerefMut;
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::Error;
 use serde_json::{Value, json};
@@ -44,9 +48,11 @@ use sha2::{Digest, Sha256};
 use crate::config::Config;
 use crate::eval_events;
 use crate::planner::profile_descriptor::GENERIC_PROFILE_ID;
+use crate::providers::streaming::CancelToken;
+use crate::providers::{AssistantReply, ChatClient, ProviderResponseMetadata, ResponseTiming};
 use crate::state::ConversationMessage;
 use crate::tools::path_guard::normalize_workspace_path;
-use crate::tools::registry::tool_error_kind;
+use crate::tools::registry::ToolSpec;
 use crate::tools::{hidden_path, sensitive_path};
 
 use super::execution_progress::ExecutionProgress;
@@ -208,6 +214,8 @@ pub(crate) struct BudgetClosing {
     /// The same, once the built request was found to carry the notice and
     /// before the provider call returned.
     awaiting_dispatch: Option<(usize, usize, usize)>,
+    /// Set by the [`DispatchWatch`] of that request's provider call.
+    dispatched: Option<Arc<AtomicBool>>,
     /// A Bash call of the current tool was refused before it ran; its
     /// execution-progress observation is not a check result.
     bash_refused_before_run: bool,
@@ -243,6 +251,7 @@ impl BudgetClosing {
             ledger: Ledger::default(),
             staged: None,
             awaiting_dispatch: None,
+            dispatched: None,
             bash_refused_before_run: false,
             iteration_limit: 0,
             deferrals: 0,
@@ -286,19 +295,40 @@ impl BudgetClosing {
         });
     }
 
-    /// Called when the provider call for that request returned.
-    /// `aborted_by_user` is the call's own outcome flag: the provider call
-    /// checks cancellation before it hands the request to the client and
-    /// reports that stop as aborted. An aborted call is never recorded as a
-    /// sent notice. (A cancel after the client already received the request
-    /// reports the same flag; the run then stops with that interruption, and
-    /// the notice stays unrecorded rather than recorded without a send.)
-    pub(crate) fn note_provider_call(&mut self, aborted_by_user: bool) {
+    /// The client to hand to the provider call. Only the request that
+    /// carries the notice goes through a [`DispatchWatch`], which records
+    /// that the client was asked for a reply; every other request, and every
+    /// request of a disabled or out-of-scope run, uses the client itself.
+    pub(crate) fn watch<'a, 'c>(
+        &mut self,
+        client: &'a mut (dyn ChatClient + 'c),
+    ) -> CallClient<'a, 'c> {
+        self.dispatched = None;
+        if self.awaiting_dispatch.is_none() {
+            return CallClient::Direct(client);
+        }
+        let dispatched = Arc::new(AtomicBool::new(false));
+        self.dispatched = Some(Arc::clone(&dispatched));
+        CallClient::Watched(DispatchWatch {
+            inner: client,
+            dispatched,
+        })
+    }
+
+    /// Called when the provider call for that request returned, however it
+    /// ended. The notice is recorded when the request reached the client,
+    /// including a call interrupted after that; a call stopped before the
+    /// client was asked (a cancel before dispatch) records nothing.
+    pub(crate) fn note_provider_call(&mut self) {
+        let dispatched = self
+            .dispatched
+            .take()
+            .is_some_and(|flag| flag.load(Ordering::SeqCst));
         let Some((iteration, remaining_calls, iteration_limit)) = self.awaiting_dispatch.take()
         else {
             return;
         };
-        if aborted_by_user || self.phase != Phase::Armed {
+        if !dispatched || self.phase != Phase::Armed {
             return;
         }
         self.phase = Phase::Noticed;
@@ -342,11 +372,10 @@ impl BudgetClosing {
 
     /// A tool call ended in a recoverable error. A Write or Edit is a write
     /// failure. A Bash call that the tool layer refused before running it
-    /// (an engine-private or sensitive path, a missing argument, a path,
-    /// confinement, protected-path, or command policy) is counted as refused,
-    /// and the execution-progress observation that follows for the same call
-    /// is not recorded as a check result. A Bash error that does not prove
-    /// the command never ran (a timeout, anything unknown) is left to that
+    /// (see [`bash_refused_before_run`]) is counted as refused, and the
+    /// execution-progress observation that follows for the same call is not
+    /// recorded as a check result. A Bash error that does not prove the
+    /// command never ran (a timeout, anything unknown) is left to that
     /// observation and stays a failure.
     pub(crate) fn note_tool_error(&mut self, tool_name: &str, arguments: &Value, error: &Error) {
         self.bash_refused_before_run = false;
@@ -525,28 +554,142 @@ fn edit_effect_present(failed: &EditOperation, content: &str) -> bool {
         && !content.contains(&failed.old)
 }
 
+/// The leading words of the host's own messages for a Bash call the tool
+/// layer refused before running it: a missing argument, a refused path
+/// (`bash_path_confinement_error:`, also the summary of a blocked outcome),
+/// or a frozen protected path. They are matched only at the very start of
+/// the message, which the host writes; a command or its output never comes
+/// first.
+const REFUSED_BEFORE_RUN_PREFIXES: [&str; 3] = [
+    "missing string argument `",
+    "bash_path_confinement_error:",
+    "protected_path_mutation_rejected:",
+];
+
 /// Whether a recoverable Bash error shows that the tool layer refused the
-/// command before running it. Unknown kinds count as not refused.
+/// command before running it: a typed engine-private or sensitive path
+/// refusal, or a message that starts with one of
+/// [`REFUSED_BEFORE_RUN_PREFIXES`]. The message is never searched: a
+/// timeout reports the command and its output after `command_timeout:`, so a
+/// word there proves nothing. Anything else, a timeout or an unknown error,
+/// counts as a command that may have run.
 fn bash_refused_before_run(error: &Error) -> bool {
-    hidden_path::access_from_error(error).is_some()
+    if hidden_path::access_from_error(error).is_some()
         || sensitive_path::refusal_from_error(error).is_some()
-        || matches!(
-            tool_error_kind(error),
-            "missing_arg"
-                | "unknown_tool"
-                | "extension_tool_rejected"
-                | "tool_args_path_near_root_corruption"
-                | "tool_args_path_malformed"
-                | "stale_absolute_path_recoverable"
-                | "bash_path_confinement_error"
-                | "path_confinement_error"
-                | "workspace_policy_blocked"
-                | "protected_path_mutation_rejected"
-                | "verify_command_policy_error"
-                | "dangerous_command"
-                | "allow_policy_rejected"
-                | "approval_required"
-        )
+    {
+        return true;
+    }
+    let message = error.to_string();
+    REFUSED_BEFORE_RUN_PREFIXES
+        .iter()
+        .any(|prefix| message.starts_with(prefix))
+}
+
+/// The client handed to one provider call.
+pub(crate) enum CallClient<'a, 'c> {
+    Direct(&'a mut (dyn ChatClient + 'c)),
+    Watched(DispatchWatch<&'a mut (dyn ChatClient + 'c)>),
+}
+
+impl CallClient<'_, '_> {
+    pub(crate) fn client(&mut self) -> &mut dyn ChatClient {
+        match self {
+            Self::Direct(client) => &mut **client,
+            Self::Watched(watch) => watch,
+        }
+    }
+}
+
+/// A [`ChatClient`] that forwards every call unchanged to the client it
+/// wraps and records, before forwarding, that `chat` or `chat_stream` was
+/// called on it or on one of its clones (the provider call talks to a
+/// clone). Requests, replies, stream chunks, errors, cancellation, timing,
+/// and metadata pass through as they are.
+pub(crate) struct DispatchWatch<C> {
+    inner: C,
+    dispatched: Arc<AtomicBool>,
+}
+
+impl<C> ChatClient for DispatchWatch<C>
+where
+    C: DerefMut + Send,
+    C::Target: ChatClient,
+{
+    fn label(&self) -> &str {
+        self.inner.label()
+    }
+
+    fn boxed_clone(&self) -> Box<dyn ChatClient> {
+        Box::new(DispatchWatch {
+            inner: self.inner.boxed_clone(),
+            dispatched: Arc::clone(&self.dispatched),
+        })
+    }
+
+    fn supports_native_tools(&self, model: &str) -> bool {
+        self.inner.supports_native_tools(model)
+    }
+
+    fn allows_xml_fallback(&self) -> bool {
+        self.inner.allows_xml_fallback()
+    }
+
+    fn parses_xml_tool_calls_before_host(&self) -> bool {
+        self.inner.parses_xml_tool_calls_before_host()
+    }
+
+    fn supports_ollama_think(&self) -> bool {
+        self.inner.supports_ollama_think()
+    }
+
+    fn take_response_timing(&mut self) -> Option<ResponseTiming> {
+        self.inner.take_response_timing()
+    }
+
+    fn take_response_metadata(&mut self) -> Option<ProviderResponseMetadata> {
+        self.inner.take_response_metadata()
+    }
+
+    fn set_cancel_token(&mut self, token: CancelToken) {
+        self.inner.set_cancel_token(token);
+    }
+
+    fn provider_turn_carried_result(&mut self) {
+        self.inner.provider_turn_carried_result();
+    }
+
+    fn supports_streaming(&self) -> bool {
+        self.inner.supports_streaming()
+    }
+
+    fn supports_streaming_for_model(&self, model: &str) -> bool {
+        self.inner.supports_streaming_for_model(model)
+    }
+
+    fn chat_stream(
+        &mut self,
+        model: &str,
+        messages: &[ConversationMessage],
+        tools: &[ToolSpec],
+        native_tools_enabled: bool,
+        on_chunk: &mut dyn FnMut(&str) -> anyhow::Result<()>,
+    ) -> anyhow::Result<AssistantReply> {
+        self.dispatched.store(true, Ordering::SeqCst);
+        self.inner
+            .chat_stream(model, messages, tools, native_tools_enabled, on_chunk)
+    }
+
+    fn chat(
+        &mut self,
+        model: &str,
+        messages: &[ConversationMessage],
+        tools: &[ToolSpec],
+        native_tools_enabled: bool,
+    ) -> anyhow::Result<AssistantReply> {
+        self.dispatched.store(true, Ordering::SeqCst);
+        self.inner
+            .chat(model, messages, tools, native_tools_enabled)
+    }
 }
 
 #[cfg(test)]
