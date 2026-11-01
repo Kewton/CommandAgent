@@ -474,6 +474,9 @@ effect.
   when the call is interrupted afterwards; a cancel before the client is
   called records nothing), at most once per run, and never when the
   iteration limit is three or less. Tools and permissions do not change.
+  One cancel behavior changes, for that request only: when the provider call
+  has already returned interrupted before its worker reached the client,
+  the worker no longer sends the request late.
 - Ledger: from the start of the run the host keeps unresolved failures in
   memory. A Bash call that ran (not refused or replaced by policy) and that
   the existing execution-progress classification counts as not successful is

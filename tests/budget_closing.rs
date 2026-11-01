@@ -342,9 +342,12 @@ impl Trace {
     }
 
     /// One digest over every event line in order. Only the numbers of
-    /// [`NORMALIZED_NUMBER_FIELDS`] are replaced, plus the temporary root,
-    /// generated ids, and `elapsed_ms: N` inside strings; every other key and
-    /// value, configuration numbers included, is compared as written.
+    /// [`NORMALIZED_NUMBER_FIELDS`] are replaced, plus, inside strings, the
+    /// temporary root, generated ids (UUIDs), `elapsed_ms: N`, and
+    /// `total_duration_ms=N`; every other key and value, configuration
+    /// numbers included, is compared as written. It compares the event
+    /// payloads apart from those values; it is not a proof that the raw
+    /// payload bytes are unchanged.
     fn event_digest(&self) -> String {
         let lines = self.normalized_events_without(None).join("\n");
         Sha256::digest(lines.as_bytes())

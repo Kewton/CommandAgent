@@ -26,10 +26,12 @@ numbers of exactly five keys (`occurred_at_epoch_ms`, `duration_ms`,
 the system prompt that names the temporary root and so changes with its
 length, and `estimated_stable_prefix_chars`, which is measured against the
 previous request in a process-wide cache and so depends on the tests that
-ran before), the temporary root, generated ids, and `elapsed_ms: N` inside
-strings. The test separately requires every provider turn to report a
-positive prompt size estimate. It is therefore not a proof that every payload
-byte is unchanged; it pins everything except those values. The five rows added in the review round
+ran before), and, inside strings, the temporary root, generated ids (UUIDs),
+`elapsed_ms: N`, and `total_duration_ms=N`. The test separately requires
+every provider turn to report a positive prompt size estimate. It is
+therefore a comparison of the event payloads apart from those five numbers
+and those string normalizations, not a proof that the raw payload bytes are
+unchanged. The five rows added in the review round
 (`unchanged-write-after-ambiguous-edit`, `hidden-path-bash-rejected`,
 `cancel-before-notice-request`, `post-write-read-after-failed-write`,
 `post-write-read-accepted`) and the `event_digest` of every row were recorded
@@ -97,7 +99,13 @@ command, path, content, model text, tool output, or secret is copied.
   without one it completes as before (`post-write-read-accepted`).
 - A cancel before the notice request reaches the client records no notice
   (`cancel-before-notice-request`); the same script interrupted after the
-  client received it records the notice and no terminal phase (the test
+  client received it records the notice and no terminal phase. The notice
+  request and the run share one dispatch state that moves once: the
+  provider call's worker dispatches it or the returned call closes it, so a
+  worker that reaches the client after the call already returned
+  interrupted does not send that request (a leaf test holds the worker at
+  that point). That is the only cancel behavior that changes, and only for
+  the notice request of an enabled run (the test
   derives that variant from this row).
 - A recoverable Bash error is a refusal only when it is a typed
   engine-private or sensitive path refusal or starts with the host's own

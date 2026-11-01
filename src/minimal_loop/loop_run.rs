@@ -736,9 +736,8 @@ fn run_session_planned(
             eval_events::provider_turn::ExecutionTelemetry::new(config.eval_events_path.as_deref());
         let chat_outcome = {
             let mut guard = ui.before_model_call(&label);
-            let mut call_client = budget_closing.watch(&mut *client);
-            let mut outcome = provider_call::chat_with_cancel_and_stream(
-                call_client.client(),
+            let mut outcome = budget_closing.chat_with_cancel_and_stream(
+                &mut *client,
                 config,
                 provider_call::ProviderChatRequest {
                     scope: call_scope,
@@ -757,7 +756,6 @@ fn run_session_planned(
             }
             outcome
         };
-        budget_closing.note_provider_call();
         let provider_turn_elapsed = chat_outcome.elapsed;
         record_time_sink(
             &mut time_sinks,

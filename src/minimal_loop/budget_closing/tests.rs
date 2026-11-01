@@ -3,14 +3,16 @@
 use std::borrow::Cow;
 use std::ffi::{OsStr, OsString};
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Condvar, Mutex, mpsc};
+use std::time::Duration;
 
 use anyhow::anyhow;
 use serde_json::{Value, json};
 
 use super::{
-    BudgetClosing, CLOSING_REMAINING_CALLS, CallClient, ClosingMode, DEFERRAL_FEEDBACK, ENV_NAME,
-    NOTICE, PROMPT_VERSION, TEST_ENV, in_scope, parse_mode,
+    BudgetClosing, CLOSING_REMAINING_CALLS, ClosingMode, DEFERRAL_FEEDBACK, ENV_NAME, NOTICE,
+    PROMPT_VERSION, TEST_ENV, in_scope, parse_mode,
 };
 use crate::config::Config;
 use crate::minimal_loop::execution_progress::ExecutionProgress;
@@ -20,6 +22,8 @@ use crate::minimal_loop::loop_run::{
 use crate::planner::profile_descriptor::{
     DATA_PROFILE_ID, INGEST_PROFILE_ID, NEXTJS_PROFILE_ID, PYTHON_CLI_PROFILE_ID,
 };
+use crate::provider_call::{ProviderCallOutcome, ProviderCallScope, ProviderChatRequest};
+use crate::providers::streaming::CancelToken;
 use crate::providers::{AssistantReply, ChatClient};
 use crate::state::{ConversationMessage, SessionSnapshot, ToolCall};
 use crate::tools::hidden_path;
@@ -92,18 +96,116 @@ fn send_notice(closing: &mut BudgetClosing, limit: usize) {
     provider_call(closing, true);
 }
 
-/// One provider call: the watch the run would hand to the provider call,
-/// whose clone is asked for a reply only when the request reaches the client.
-fn provider_call(closing: &mut BudgetClosing, reaches_client: bool) {
+/// One real provider call through the closing's entry with a scripted
+/// client: it completes normally, or it is cancelled before it dispatches.
+fn provider_call(closing: &mut BudgetClosing, reaches_client: bool) -> ProviderCallOutcome {
     let mut client = scripted(vec![reply("ok", Vec::new())]);
-    {
-        let mut call = closing.watch(&mut client);
-        if reaches_client {
-            let mut clone = call.client().boxed_clone();
-            let _ = ChatClient::chat(clone.as_mut(), "m", &[], &[], true);
+    let outcome = call_through(closing, &mut client, move || !reaches_client);
+    let calls = client.requests.lock().unwrap().len();
+    assert_eq!(calls, usize::from(reaches_client));
+    outcome
+}
+
+/// Calls the closing's public entry, which runs the existing provider call.
+fn call_through(
+    closing: &mut BudgetClosing,
+    client: &mut dyn ChatClient,
+    is_cancelled: impl Fn() -> bool,
+) -> ProviderCallOutcome {
+    let dir = tempfile::tempdir().unwrap();
+    // Provider-call events go to their own file, closing events to `e.jsonl`.
+    let config = config(dir.path());
+    let messages = [ConversationMessage::user("hello")];
+    closing.chat_with_cancel_and_stream(
+        client,
+        &config,
+        ProviderChatRequest {
+            scope: ProviderCallScope::Executor,
+            model: "m",
+            messages: &messages,
+            tools: &[],
+            native_tools_enabled: true,
+        },
+        is_cancelled,
+        &mut |_| Ok(()),
+    )
+}
+
+/// Holds the notice request's provider-call worker right before the watch
+/// takes its dispatch state, and reports the watch's decision.
+#[derive(Debug)]
+pub(super) struct DispatchGate {
+    reached: AtomicBool,
+    released: (Mutex<bool>, Condvar),
+    decided: Mutex<mpsc::Sender<bool>>,
+}
+
+impl DispatchGate {
+    fn new() -> (Arc<Self>, mpsc::Receiver<bool>) {
+        let (sender, receiver) = mpsc::channel();
+        let gate = Self {
+            reached: AtomicBool::new(false),
+            released: (Mutex::new(false), Condvar::new()),
+            decided: Mutex::new(sender),
+        };
+        (Arc::new(gate), receiver)
+    }
+
+    pub(super) fn hold(&self) {
+        self.reached.store(true, Ordering::SeqCst);
+        let (lock, condvar) = &self.released;
+        let mut released = lock.lock().unwrap();
+        while !*released {
+            released = condvar.wait(released).unwrap();
         }
     }
-    closing.note_provider_call();
+
+    pub(super) fn decided(&self, proceeded: bool) {
+        let _ = self.decided.lock().unwrap().send(proceeded);
+    }
+
+    fn release(&self) {
+        let (lock, condvar) = &self.released;
+        *lock.lock().unwrap() = true;
+        condvar.notify_all();
+    }
+}
+
+/// A client that, once asked, reports it and waits until the provider call
+/// gives up on the request (it cancels the token on every exit).
+#[derive(Clone)]
+struct HoldsUntilCancelled {
+    received: Arc<AtomicBool>,
+    calls: Arc<Mutex<usize>>,
+    token: Option<CancelToken>,
+}
+
+impl ChatClient for HoldsUntilCancelled {
+    fn label(&self) -> &str {
+        "holding"
+    }
+    fn boxed_clone(&self) -> Box<dyn ChatClient> {
+        Box::new(self.clone())
+    }
+    fn set_cancel_token(&mut self, token: CancelToken) {
+        self.token = Some(token);
+    }
+    fn chat(
+        &mut self,
+        _model: &str,
+        _messages: &[ConversationMessage],
+        _tools: &[ToolSpec],
+        _native_tools_enabled: bool,
+    ) -> anyhow::Result<AssistantReply> {
+        *self.calls.lock().unwrap() += 1;
+        self.received.store(true, Ordering::SeqCst);
+        let token = self.token.clone().expect("the provider call sets a token");
+        let started = std::time::Instant::now();
+        while !token.is_cancelled() && started.elapsed() < Duration::from_secs(60) {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        anyhow::bail!("held request interrupted")
+    }
 }
 
 fn scripted(replies: Vec<AssistantReply>) -> Scripted {
@@ -263,41 +365,87 @@ fn a_notice_whose_request_reached_the_client_is_recorded_even_if_the_call_then_s
         .map(Cow::into_owned)
         .unwrap();
     closing.note_request(&[ConversationMessage::user(feedback)]);
-    // The client was asked; whatever the call's outcome, the notice was sent.
-    provider_call(&mut closing, true);
+    // The client receives the request, then the provider call is interrupted.
+    let received = Arc::new(AtomicBool::new(false));
+    let calls = Arc::new(Mutex::new(0));
+    let mut client = HoldsUntilCancelled {
+        received: Arc::clone(&received),
+        calls: Arc::clone(&calls),
+        token: None,
+    };
+    let outcome = call_through(&mut closing, &mut client, || {
+        received.load(Ordering::SeqCst)
+    });
+    assert!(outcome.aborted_by_user);
+    assert_eq!(*calls.lock().unwrap(), 1);
+    // The notice was sent; the stopped run records no terminal phase.
     assert_eq!(phases(&dir), ["notice"]);
-    // A run stopped by that interruption ends without a terminal phase.
-    assert_eq!(phases(&dir).len(), 1);
 }
 
 #[test]
-fn only_the_notice_request_goes_through_the_dispatch_watch() {
-    let mut client = scripted(vec![reply("plain", Vec::new())]);
+fn a_worker_that_reaches_the_client_after_the_call_returned_never_sends_the_notice() {
+    let (dir, mut closing) = closing(true);
+    let feedback = closing
+        .request_feedback(2, 6, None)
+        .map(Cow::into_owned)
+        .unwrap();
+    closing.note_request(&[ConversationMessage::user(feedback)]);
+    let (gate, decided) = DispatchGate::new();
+    closing.dispatch_gate = Some(Arc::clone(&gate));
+    let mut client = scripted(vec![reply("late", Vec::new())]);
+    // The worker stops right before the watch takes the dispatch state; the
+    // provider call sees the interrupt and returns while it waits.
+    let held = Arc::clone(&gate);
+    let outcome = call_through(&mut closing, &mut client, move || {
+        held.reached.load(Ordering::SeqCst)
+    });
+    assert!(outcome.aborted_by_user);
+    assert!(
+        events(&dir).is_empty(),
+        "no notice for an undispatched request"
+    );
+    // Released afterwards, the worker finds the request closed.
+    gate.release();
+    let proceeded = decided
+        .recv_timeout(Duration::from_secs(60))
+        .expect("the worker decides once released");
+    assert!(!proceeded);
+    assert!(
+        client.requests.lock().unwrap().is_empty(),
+        "the client was never asked"
+    );
+    assert!(events(&dir).is_empty());
+}
+
+#[test]
+fn the_entry_forwards_every_request_through_the_provider_call_unchanged() {
     // Disabled, and enabled outside the notice request: the client itself.
     for enabled in [false, true] {
-        let (_dir, mut closing) = closing(enabled);
-        assert!(matches!(closing.watch(&mut client), CallClient::Direct(_)));
+        let (dir, mut closing) = closing(enabled);
         let _ = closing.request_feedback(5, 9, None);
         closing.note_request(&[ConversationMessage::user(NOTICE)]);
-        assert!(matches!(closing.watch(&mut client), CallClient::Direct(_)));
+        let mut client = scripted(vec![reply("plain", Vec::new())]);
+        let outcome = call_through(&mut closing, &mut client, || false);
+        assert_eq!(outcome.result.unwrap().content, "plain");
+        assert_eq!(
+            client.requests.lock().unwrap().clone(),
+            vec![vec![ConversationMessage::user("hello")]]
+        );
+        assert!(events(&dir).is_empty());
     }
-    // The notice request: a watch that forwards everything unchanged.
-    let (_dir, mut closing) = closing(true);
+    // The notice request: the same request and reply, and the notice.
+    let (dir, mut closing) = closing(true);
     let feedback = closing.request_feedback(2, 6, None).unwrap().into_owned();
     closing.note_request(&[ConversationMessage::user(feedback)]);
-    let mut call = closing.watch(&mut client);
-    assert!(matches!(call, CallClient::Watched(_)));
-    let watched = call.client();
-    assert_eq!(watched.label(), "scripted");
-    assert!(watched.supports_native_tools("m"));
-    let mut clone = watched.boxed_clone();
-    let messages = [ConversationMessage::user("hello")];
-    let reply = ChatClient::chat(clone.as_mut(), "m", &messages, &[], true).unwrap();
-    assert_eq!(reply.content, "plain");
-    assert!(ChatClient::chat(clone.as_mut(), "m", &messages, &[], true).is_err());
-    drop(call);
-    assert_eq!(client.requests.lock().unwrap().len(), 2);
-    assert_eq!(client.requests.lock().unwrap()[0], messages.to_vec());
+    let mut client = scripted(vec![reply("plain", Vec::new())]);
+    let outcome = call_through(&mut closing, &mut client, || false);
+    assert!(!outcome.aborted_by_user);
+    assert_eq!(outcome.result.unwrap().content, "plain");
+    assert_eq!(
+        client.requests.lock().unwrap().clone(),
+        vec![vec![ConversationMessage::user("hello")]]
+    );
+    assert_eq!(phases(&dir), ["notice"]);
 }
 
 #[test]

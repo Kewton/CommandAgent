@@ -39,7 +39,7 @@ use std::ffi::{OsStr, OsString};
 use std::ops::DerefMut;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 
 use anyhow::Error;
 use serde_json::{Value, json};
@@ -48,6 +48,7 @@ use sha2::{Digest, Sha256};
 use crate::config::Config;
 use crate::eval_events;
 use crate::planner::profile_descriptor::GENERIC_PROFILE_ID;
+use crate::provider_call;
 use crate::providers::streaming::CancelToken;
 use crate::providers::{AssistantReply, ChatClient, ProviderResponseMetadata, ResponseTiming};
 use crate::state::ConversationMessage;
@@ -214,8 +215,9 @@ pub(crate) struct BudgetClosing {
     /// The same, once the built request was found to carry the notice and
     /// before the provider call returned.
     awaiting_dispatch: Option<(usize, usize, usize)>,
-    /// Set by the [`DispatchWatch`] of that request's provider call.
-    dispatched: Option<Arc<AtomicBool>>,
+    /// Leaf tests hold the notice request's worker before it dispatches.
+    #[cfg(test)]
+    dispatch_gate: Option<Arc<tests::DispatchGate>>,
     /// A Bash call of the current tool was refused before it ran; its
     /// execution-progress observation is not a check result.
     bash_refused_before_run: bool,
@@ -251,7 +253,8 @@ impl BudgetClosing {
             ledger: Ledger::default(),
             staged: None,
             awaiting_dispatch: None,
-            dispatched: None,
+            #[cfg(test)]
+            dispatch_gate: None,
             bash_refused_before_run: false,
             iteration_limit: 0,
             deferrals: 0,
@@ -295,45 +298,76 @@ impl BudgetClosing {
         });
     }
 
-    /// The client to hand to the provider call. Only the request that
-    /// carries the notice goes through a [`DispatchWatch`], which records
-    /// that the client was asked for a reply; every other request, and every
-    /// request of a disabled or out-of-scope run, uses the client itself.
-    pub(crate) fn watch<'a, 'c>(
+    /// Runs the existing provider call
+    /// ([`provider_call::chat_with_cancel_and_stream`]) with the same
+    /// arguments and returns its outcome unchanged. Every request but the one
+    /// that carries the notice, and every request of a disabled or
+    /// out-of-scope run, hands `client` itself to the provider call.
+    ///
+    /// The notice request alone hands over a private [`DispatchWatch`]
+    /// instead. The watch and this function share one state per request,
+    /// which moves once, either `Pending → Dispatched` (the watch, right
+    /// before it asks the client) or `Pending → Closed` (this function, once
+    /// the provider call returned). The notice is recorded exactly when the
+    /// request was dispatched, including a call interrupted after that; a
+    /// call that returned first (a cancel before dispatch, or a cancel while
+    /// the provider call's worker had not yet reached the client) records
+    /// nothing, and the watch then never asks the client.
+    ///
+    /// Cancel behavior change, limited to the notice request of an enabled
+    /// run: when the provider call has already returned (interrupted) before
+    /// its worker reaches the client, the worker no longer sends that request
+    /// late; it returns the interruption error instead. Every other request
+    /// behaves exactly as before.
+    pub(crate) fn chat_with_cancel_and_stream<F>(
         &mut self,
-        client: &'a mut (dyn ChatClient + 'c),
-    ) -> CallClient<'a, 'c> {
-        self.dispatched = None;
-        if self.awaiting_dispatch.is_none() {
-            return CallClient::Direct(client);
-        }
-        let dispatched = Arc::new(AtomicBool::new(false));
-        self.dispatched = Some(Arc::clone(&dispatched));
-        CallClient::Watched(DispatchWatch {
-            inner: client,
-            dispatched,
-        })
-    }
-
-    /// Called when the provider call for that request returned, however it
-    /// ended. The notice is recorded when the request reached the client,
-    /// including a call interrupted after that; a call stopped before the
-    /// client was asked (a cancel before dispatch) records nothing.
-    pub(crate) fn note_provider_call(&mut self) {
-        let dispatched = self
-            .dispatched
-            .take()
-            .is_some_and(|flag| flag.load(Ordering::SeqCst));
+        client: &mut dyn ChatClient,
+        config: &Config,
+        request: provider_call::ProviderChatRequest<'_>,
+        is_cancelled: F,
+        on_chunk: &mut (dyn FnMut(&str) -> anyhow::Result<()> + '_),
+    ) -> provider_call::ProviderCallOutcome
+    where
+        F: Fn() -> bool,
+    {
         let Some((iteration, remaining_calls, iteration_limit)) = self.awaiting_dispatch.take()
         else {
-            return;
+            return provider_call::chat_with_cancel_and_stream(
+                client,
+                config,
+                request,
+                is_cancelled,
+                on_chunk,
+            );
         };
-        if !dispatched || self.phase != Phase::Armed {
-            return;
+        let state = Arc::new(AtomicU8::new(DISPATCH_PENDING));
+        let mut watch = DispatchWatch {
+            inner: client,
+            state: Arc::clone(&state),
+            #[cfg(test)]
+            gate: self.dispatch_gate.clone(),
+        };
+        let outcome = provider_call::chat_with_cancel_and_stream(
+            &mut watch,
+            config,
+            request,
+            is_cancelled,
+            on_chunk,
+        );
+        let dispatched = state
+            .compare_exchange(
+                DISPATCH_PENDING,
+                DISPATCH_CLOSED,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            )
+            .is_err();
+        if dispatched && self.phase == Phase::Armed {
+            self.phase = Phase::Noticed;
+            self.iteration_limit = iteration_limit;
+            self.emit(EventPhase::Notice, iteration, remaining_calls);
         }
-        self.phase = Phase::Noticed;
-        self.iteration_limit = iteration_limit;
-        self.emit(EventPhase::Notice, iteration, remaining_calls);
+        outcome
     }
 
     fn recording(&self) -> bool {
@@ -585,29 +619,60 @@ fn bash_refused_before_run(error: &Error) -> bool {
         .any(|prefix| message.starts_with(prefix))
 }
 
-/// The client handed to one provider call.
-pub(crate) enum CallClient<'a, 'c> {
-    Direct(&'a mut (dyn ChatClient + 'c)),
-    Watched(DispatchWatch<&'a mut (dyn ChatClient + 'c)>),
-}
+/// The notice request's dispatch state: it moves once, to `DISPATCHED` (the
+/// watch, before it asks the client) or to `CLOSED` (the run, after the
+/// provider call returned).
+const DISPATCH_PENDING: u8 = 0;
+const DISPATCH_DISPATCHED: u8 = 1;
+const DISPATCH_CLOSED: u8 = 2;
 
-impl CallClient<'_, '_> {
-    pub(crate) fn client(&mut self) -> &mut dyn ChatClient {
-        match self {
-            Self::Direct(client) => &mut **client,
-            Self::Watched(watch) => watch,
-        }
-    }
-}
+/// The error a watch returns instead of asking the client once the run has
+/// closed the request; it is the provider call's own interruption text.
+const DISPATCH_CLOSED_ERROR: &str = "aborted_by_user: interrupted by user";
 
 /// A [`ChatClient`] that forwards every call unchanged to the client it
-/// wraps and records, before forwarding, that `chat` or `chat_stream` was
-/// called on it or on one of its clones (the provider call talks to a
-/// clone). Requests, replies, stream chunks, errors, cancellation, timing,
-/// and metadata pass through as they are.
-pub(crate) struct DispatchWatch<C> {
+/// wraps, except that `chat` and `chat_stream` first take the request's
+/// shared state from pending to dispatched; when the run already closed the
+/// request they return the interruption error without asking the client.
+/// Requests, replies, stream chunks, errors, cancellation, timing, and
+/// metadata otherwise pass through as they are.
+///
+/// Ownership and visibility: a watch is created only inside
+/// [`BudgetClosing::chat_with_cancel_and_stream`], handed only to
+/// [`provider_call::chat_with_cancel_and_stream`] (which clones it for its
+/// worker), and dropped when that call returns. The type and every way to
+/// reach the wrapped client stay private to this module, so no caller can
+/// talk to a client around the provider call through it.
+struct DispatchWatch<C> {
     inner: C,
-    dispatched: Arc<AtomicBool>,
+    state: Arc<AtomicU8>,
+    #[cfg(test)]
+    gate: Option<Arc<tests::DispatchGate>>,
+}
+
+impl<C> DispatchWatch<C> {
+    /// Takes the state to dispatched, or finds it already dispatched (a
+    /// second call of the same request). False when the run closed it.
+    fn dispatch(&self) -> bool {
+        #[cfg(test)]
+        if let Some(gate) = &self.gate {
+            gate.hold();
+        }
+        let proceed = match self.state.compare_exchange(
+            DISPATCH_PENDING,
+            DISPATCH_DISPATCHED,
+            Ordering::SeqCst,
+            Ordering::SeqCst,
+        ) {
+            Ok(_) => true,
+            Err(current) => current == DISPATCH_DISPATCHED,
+        };
+        #[cfg(test)]
+        if let Some(gate) = &self.gate {
+            gate.decided(proceed);
+        }
+        proceed
+    }
 }
 
 impl<C> ChatClient for DispatchWatch<C>
@@ -622,7 +687,9 @@ where
     fn boxed_clone(&self) -> Box<dyn ChatClient> {
         Box::new(DispatchWatch {
             inner: self.inner.boxed_clone(),
-            dispatched: Arc::clone(&self.dispatched),
+            state: Arc::clone(&self.state),
+            #[cfg(test)]
+            gate: self.gate.clone(),
         })
     }
 
@@ -674,7 +741,9 @@ where
         native_tools_enabled: bool,
         on_chunk: &mut dyn FnMut(&str) -> anyhow::Result<()>,
     ) -> anyhow::Result<AssistantReply> {
-        self.dispatched.store(true, Ordering::SeqCst);
+        if !self.dispatch() {
+            anyhow::bail!(DISPATCH_CLOSED_ERROR);
+        }
         self.inner
             .chat_stream(model, messages, tools, native_tools_enabled, on_chunk)
     }
@@ -686,7 +755,9 @@ where
         tools: &[ToolSpec],
         native_tools_enabled: bool,
     ) -> anyhow::Result<AssistantReply> {
-        self.dispatched.store(true, Ordering::SeqCst);
+        if !self.dispatch() {
+            anyhow::bail!(DISPATCH_CLOSED_ERROR);
+        }
         // Called only from inside the provider call, which handed this client
         // over; the forwarding form matches the other wrappers
         // (`src/planner/pipeline.rs`).

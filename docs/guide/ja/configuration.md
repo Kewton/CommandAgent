@@ -412,7 +412,8 @@ request（各 turn、tool 呼び出し後の turn、空応答の fresh retry、n
   retry は従来どおり過去の履歴を送りません。案内は、送った request に含まれ、その request が client に渡された
   ときだけ記録されます（渡した後に中断されても記録され、client を呼ぶ前の cancel では記録されません）。
   run に 1 回までで、
-  反復の上限が 3 以下なら出ません。tool と権限は変わりません。
+  反復の上限が 3 以下なら出ません。tool と権限は変わりません。cancel の挙動は、その request についてだけ 1 点
+  変わります。provider の呼出しが中断で先に返った後に worker が client に届いても、その request を遅れて送りません。
 - 台帳：host は run の開始から、未解決の失敗を memory に保持します。実行された（policy で拒否・置換されて
   いない）Bash で、既存の execution-progress の分類が成功でないとしたものは、同じ command が後で成功したときだけ
   解除されます。recoverable error または拒否になった Write/Edit は、それに対応する後の成功だけで解除されます。
