@@ -22,7 +22,7 @@ pub struct VerificationReport {
     pub profile_failures: Vec<String>,
     pub compile_errors: Vec<CompileError>,
     pub python_tracebacks: Vec<PythonTraceback>,
-    pub artifact_repair_paths: Vec<String>, // #949 repair candidates; not a failure or status
+    pub artifact_repair_paths: crate::planner::artifact_contract_checks::ArtifactRepairPaths,
     pub artifact_diagnostics: artifact_diagnostics::ArtifactDiagnostics,
 }
 
@@ -56,7 +56,7 @@ impl VerificationReport {
             profile_failures: Vec::new(),
             compile_errors: Vec::new(),
             python_tracebacks: Vec::new(),
-            artifact_repair_paths: Vec::new(),
+            artifact_repair_paths: Default::default(),
             artifact_diagnostics: Default::default(),
         }
     }

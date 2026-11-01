@@ -20,6 +20,8 @@ use super::repair_pressure::{CarriedPressure, PressureSeed, pressure_seed};
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 struct EscalationCarryoverState {
     pressure: CarriedPressure,
+    /// Issue #956: the host's repair targets for the next session only.
+    repair_targets: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -36,8 +38,22 @@ impl EscalationCarryoverHandle {
 
     pub(crate) fn from_pressure(pressure: CarriedPressure) -> Self {
         Self {
-            state: Arc::new(Mutex::new(EscalationCarryoverState { pressure })),
+            state: Arc::new(Mutex::new(EscalationCarryoverState {
+                pressure,
+                repair_targets: None,
+            })),
         }
+    }
+
+    /// Binds `targets` to the next session that starts with this handle; an
+    /// empty list binds nothing. Replaces an earlier, unused binding.
+    pub(crate) fn bind_repair_targets(&self, targets: &[String]) {
+        self.state.lock().unwrap().repair_targets = (!targets.is_empty()).then(|| targets.to_vec());
+    }
+
+    /// The binding, taken once: a later session of this handle has none.
+    pub(crate) fn take_repair_targets(&self) -> Option<Vec<String>> {
+        self.state.lock().unwrap().repair_targets.take()
     }
 
     pub(crate) fn seed_for_session(&self, repair_turn_budget: usize) -> EscalationCarryoverSeed {

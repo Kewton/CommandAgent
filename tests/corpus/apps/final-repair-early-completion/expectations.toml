@@ -1,0 +1,57 @@
+case_id = "final-repair-early-completion"
+source = "Issue #956: a final-acceptance repair bound by a failed artifact_contract_check receipt holds a read-only or inspection-only completion (after a tool batch, a final answer without tools, or a contract short-circuit) until a bound artifact's raw bytes change or a Write/Edit hands the decision to the repair loop's snapshot; the same check then reruns inside the existing bounded repair, a session that only reads ends as a non-success inside the existing limits, and a session without a host binding, a direct prompt, a native Read then Write, and a Write first keep their base calls"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[json_fields]
+fixtures/events.json:kind = "synthetic"
+fixtures/events.json:base_sha = "3ec27982218331586f7367591eaf50eb2cfd790c"
+source-manifest.json:kind = "synthetic"
+source-manifest.json:base_sha = "3ec27982218331586f7367591eaf50eb2cfd790c"
+
+[fixture_contains]
+fixtures/events.json = [
+  "\"id\": \"bash-cat-then-write-1\"",
+  "\"id\": \"inspect-then-write-1\"",
+  "\"id\": \"read-then-write-1\"",
+  "\"id\": \"write-first-1\"",
+  "\"id\": \"bash-edit-target-1\"",
+  "\"id\": \"bash-unrelated-then-write-1\"",
+  "\"id\": \"cat-final-then-write-1\"",
+  "\"id\": \"bash-undo-then-write-1\"",
+  "\"id\": \"read-only-1\"",
+  "\"id\": \"unbound-cat-then-write-1\"",
+  "\"id\": \"fifo-1\"",
+  "\"id\": \"direct-cat-1\"",
+  "\"blocked:final_repair_artifact_unchanged\""
+]
+
+[fixture_ordered]
+fixtures/events.json = [
+  "\"id\": \"bash-cat-then-write-1\"",
+  "\"repair_start:max=2\"",
+  "\"tool:Bash:ok\"",
+  "\"blocked:final_repair_artifact_unchanged\"",
+  "\"tool:Write:ok\"",
+  "\"repair_complete:1:[contract/terms.json]\"",
+  "\"receipt:passed:verified\"",
+  "\"stop:true\""
+]

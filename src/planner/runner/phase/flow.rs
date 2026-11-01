@@ -933,7 +933,7 @@ pub fn run_ultra_plan_with_ui(
             let before_missing_keys = verification_missing_signals(&acceptance_report);
             let before_route_bound_paths =
                 route_bound_source_paths(&config.workspace_root, &plan.profile);
-            let artifact_repair_paths = acceptance_report.artifact_repair_paths.clone();
+            let artifact_repair_paths = acceptance_report.artifact_repair_paths.candidates.clone();
             let before_source_snapshot = final_acceptance_source_snapshot(
                 &config.workspace_root,
                 &plan.profile,
@@ -1013,6 +1013,8 @@ pub fn run_ultra_plan_with_ui(
                     "session_message_count": ultra_session.messages.len(),
                 }),
             );
+            escalation_carryover
+                .bind_repair_targets(&acceptance_report.artifact_repair_paths.failed_targets);
             let repair_outcome = match if evidence_compact_retry {
                 let mut compact_session = SessionSnapshot::new();
                 run_final_acceptance_repair_with_carryover(

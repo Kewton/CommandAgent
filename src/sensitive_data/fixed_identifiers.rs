@@ -149,6 +149,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "final_acceptance_repair_failed",
     "final_acceptance_repair_no_source_change",
     "final_acceptance_repair_start",
+    "final_repair_artifact_unchanged",
     "first_request",
     "fix_evidence_recorded",
     "fix_plan_synthesized",

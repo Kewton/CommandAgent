@@ -1,0 +1,363 @@
+{
+  "issue": "#956",
+  "kind": "synthetic",
+  "base_sha": "3ec27982218331586f7367591eaf50eb2cfd790c",
+  "projection": "receipt:<status>:<stopped_at> | repair_start:max=<max_attempts> | tool:<name>:<status> (repair turns only) | blocked:<reason> (repair turns only) | repair_complete:<attempt>:[<native changed_paths>] | no_source_change:<attempt> | exhausted:<exhausted_reason> | cycle_complete:<ok> | stop:<ok>",
+  "cases": [
+    {
+      "id": "bash-cat-then-write-1",
+      "kind": "synthetic",
+      "test": "a_bash_cat_before_the_write_keeps_the_next_request",
+      "change": "a read-only cat of the bound invalid artifact, then the planned Write",
+      "outcome": "passed",
+      "receipts": 2,
+      "adapter_calls": 2,
+      "executor_calls": 4,
+      "base_executor_calls": 3,
+      "base_sequence": [
+        "receipt:failed:verified",
+        "repair_start:max=2",
+        "tool:Bash:ok",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "sequence": [
+        "receipt:failed:verified",
+        "repair_start:max=2",
+        "tool:Bash:ok",
+        "blocked:final_repair_artifact_unchanged",
+        "tool:Write:ok",
+        "repair_complete:1:[contract/terms.json]",
+        "receipt:passed:verified",
+        "cycle_complete:true",
+        "stop:true"
+      ]
+    },
+    {
+      "id": "inspect-then-write-1",
+      "kind": "synthetic",
+      "test": "a_passing_inspection_before_the_write_keeps_the_next_request",
+      "change": "a passing test -f and ls, then the planned Write",
+      "outcome": "passed",
+      "receipts": 2,
+      "adapter_calls": 2,
+      "executor_calls": 4,
+      "base_executor_calls": 3,
+      "base_sequence": [
+        "receipt:failed:verified",
+        "repair_start:max=2",
+        "tool:Bash:ok",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "sequence": [
+        "receipt:failed:verified",
+        "repair_start:max=2",
+        "tool:Bash:ok",
+        "blocked:final_repair_artifact_unchanged",
+        "tool:Write:ok",
+        "repair_complete:1:[contract/terms.json]",
+        "receipt:passed:verified",
+        "cycle_complete:true",
+        "stop:true"
+      ]
+    },
+    {
+      "id": "read-then-write-1",
+      "kind": "synthetic",
+      "test": "a_native_read_then_write_repairs_as_before",
+      "change": "control: a native Read, then the same Write",
+      "outcome": "passed",
+      "receipts": 2,
+      "adapter_calls": 2,
+      "executor_calls": 4,
+      "base_executor_calls": 4,
+      "base_sequence": [
+        "receipt:failed:verified",
+        "repair_start:max=2",
+        "tool:Read:ok",
+        "tool:Write:ok",
+        "repair_complete:1:[contract/terms.json]",
+        "receipt:passed:verified",
+        "cycle_complete:true",
+        "stop:true"
+      ],
+      "sequence": [
+        "receipt:failed:verified",
+        "repair_start:max=2",
+        "tool:Read:ok",
+        "tool:Write:ok",
+        "repair_complete:1:[contract/terms.json]",
+        "receipt:passed:verified",
+        "cycle_complete:true",
+        "stop:true"
+      ]
+    },
+    {
+      "id": "write-first-1",
+      "kind": "synthetic",
+      "test": "a_write_first_repairs_in_one_request",
+      "change": "control: the same Write first",
+      "outcome": "passed",
+      "receipts": 2,
+      "adapter_calls": 2,
+      "executor_calls": 3,
+      "base_executor_calls": 3,
+      "base_sequence": [
+        "receipt:failed:verified",
+        "repair_start:max=2",
+        "tool:Write:ok",
+        "repair_complete:1:[contract/terms.json]",
+        "receipt:passed:verified",
+        "cycle_complete:true",
+        "stop:true"
+      ],
+      "sequence": [
+        "receipt:failed:verified",
+        "repair_start:max=2",
+        "tool:Write:ok",
+        "repair_complete:1:[contract/terms.json]",
+        "receipt:passed:verified",
+        "cycle_complete:true",
+        "stop:true"
+      ]
+    },
+    {
+      "id": "bash-edit-target-1",
+      "kind": "synthetic",
+      "test": "a_bash_edit_of_the_bound_artifact_reruns_the_check_without_another_request",
+      "change": "a Bash edit of the bound artifact, no Write",
+      "outcome": "passed",
+      "receipts": 2,
+      "adapter_calls": 2,
+      "executor_calls": 3,
+      "base_executor_calls": 3,
+      "base_sequence": [
+        "receipt:failed:verified",
+        "repair_start:max=2",
+        "tool:Bash:ok",
+        "repair_complete:1:[contract/terms.json]",
+        "receipt:passed:verified",
+        "cycle_complete:true",
+        "stop:true"
+      ],
+      "sequence": [
+        "receipt:failed:verified",
+        "repair_start:max=2",
+        "tool:Bash:ok",
+        "repair_complete:1:[contract/terms.json]",
+        "receipt:passed:verified",
+        "cycle_complete:true",
+        "stop:true"
+      ]
+    },
+    {
+      "id": "bash-unrelated-then-write-1",
+      "kind": "synthetic",
+      "test": "a_bash_change_of_an_unrelated_expected_file_keeps_the_next_request",
+      "change": "a Bash change of an expected file the failed check does not read, then the Write",
+      "outcome": "passed",
+      "receipts": 2,
+      "adapter_calls": 2,
+      "executor_calls": 4,
+      "base_executor_calls": 4,
+      "base_sequence": [
+        "receipt:failed:verified",
+        "repair_start:max=2",
+        "tool:Bash:ok",
+        "repair_complete:1:[notes/delivery.md]",
+        "receipt:failed:verified",
+        "cycle_complete:false",
+        "repair_start:max=2",
+        "tool:Write:ok",
+        "repair_complete:2:[contract/terms.json]",
+        "receipt:passed:verified",
+        "cycle_complete:true",
+        "stop:true"
+      ],
+      "sequence": [
+        "receipt:failed:verified",
+        "repair_start:max=2",
+        "tool:Bash:ok",
+        "blocked:final_repair_artifact_unchanged",
+        "tool:Write:ok",
+        "repair_complete:1:[contract/terms.json,notes/delivery.md]",
+        "receipt:passed:verified",
+        "cycle_complete:true",
+        "stop:true"
+      ]
+    },
+    {
+      "id": "cat-final-then-write-1",
+      "kind": "synthetic",
+      "test": "a_self_reported_final_answer_keeps_the_next_request",
+      "change": "a cat, a final answer without tools that claims the repair, then the Write",
+      "outcome": "passed",
+      "receipts": 2,
+      "adapter_calls": 2,
+      "executor_calls": 5,
+      "base_executor_calls": 3,
+      "base_sequence": [
+        "receipt:failed:verified",
+        "repair_start:max=2",
+        "tool:Bash:ok",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "sequence": [
+        "receipt:failed:verified",
+        "repair_start:max=2",
+        "tool:Bash:ok",
+        "blocked:final_repair_artifact_unchanged",
+        "blocked:final_repair_artifact_unchanged",
+        "tool:Write:ok",
+        "repair_complete:1:[contract/terms.json]",
+        "receipt:passed:verified",
+        "cycle_complete:true",
+        "stop:true"
+      ]
+    },
+    {
+      "id": "bash-undo-then-write-1",
+      "kind": "synthetic",
+      "test": "a_change_undone_keeps_the_next_request",
+      "change": "a Bash change of the bound artifact undone in the same command, then the Write",
+      "outcome": "passed",
+      "receipts": 2,
+      "adapter_calls": 2,
+      "executor_calls": 4,
+      "base_executor_calls": 3,
+      "base_sequence": [
+        "receipt:failed:verified",
+        "repair_start:max=2",
+        "tool:Bash:ok",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "sequence": [
+        "receipt:failed:verified",
+        "repair_start:max=2",
+        "tool:Bash:ok",
+        "blocked:final_repair_artifact_unchanged",
+        "tool:Write:ok",
+        "repair_complete:1:[contract/terms.json]",
+        "receipt:passed:verified",
+        "cycle_complete:true",
+        "stop:true"
+      ]
+    },
+    {
+      "id": "read-only-1",
+      "kind": "synthetic",
+      "test": "reading_only_ends_as_a_non_success_inside_the_existing_limits",
+      "change": "only cat commands, never a change",
+      "outcome": "failed",
+      "receipts": 1,
+      "adapter_calls": 1,
+      "executor_calls": 11,
+      "base_executor_calls": 3,
+      "base_sequence": [
+        "receipt:failed:verified",
+        "repair_start:max=2",
+        "tool:Bash:ok",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "sequence": [
+        "receipt:failed:verified",
+        "repair_start:max=2",
+        "tool:Bash:ok",
+        "blocked:final_repair_artifact_unchanged",
+        "tool:Bash:ok",
+        "blocked:final_repair_artifact_unchanged",
+        "tool:Bash:ok",
+        "blocked:final_repair_artifact_unchanged",
+        "tool:Bash:ok",
+        "blocked:final_repair_artifact_unchanged",
+        "tool:Bash:ok",
+        "blocked:final_repair_artifact_unchanged",
+        "tool:Bash:ok",
+        "blocked:final_repair_artifact_unchanged",
+        "tool:Bash:ok",
+        "blocked:final_repair_artifact_unchanged",
+        "tool:Bash:ok",
+        "blocked:final_repair_artifact_unchanged",
+        "tool:Bash:ok",
+        "blocked:final_repair_artifact_unchanged",
+        "stop:false"
+      ]
+    },
+    {
+      "id": "unbound-cat-then-write-1",
+      "kind": "synthetic",
+      "test": "without_a_binding_the_session_ends_as_before",
+      "change": "control: the receipt stops at the tooling pin and names nothing; a cat, then the Write",
+      "outcome": "failed",
+      "receipts": 0,
+      "adapter_calls": 0,
+      "executor_calls": 3,
+      "base_executor_calls": 3,
+      "base_sequence": [
+        "repair_start:max=2",
+        "tool:Bash:ok",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "sequence": [
+        "repair_start:max=2",
+        "tool:Bash:ok",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ]
+    },
+    {
+      "id": "fifo-1",
+      "kind": "synthetic",
+      "test": "a_fifo_artifact_is_refused_and_the_entry_returns",
+      "change": "the bound artifact replaced by a FIFO, then listings only",
+      "outcome": "failed",
+      "receipts": 1,
+      "adapter_calls": 1,
+      "executor_calls": 6,
+      "base_executor_calls": null,
+      "base_note": "at the base the step-hash capture read the FIFO without a bound and the case did not return; it was stopped by hand",
+      "base_sequence": null,
+      "sequence": [
+        "receipt:failed:verified",
+        "repair_start:max=2",
+        "tool:Bash:ok",
+        "blocked:final_repair_artifact_unchanged",
+        "tool:Bash:ok",
+        "blocked:final_repair_artifact_unchanged",
+        "tool:Bash:ok",
+        "blocked:final_repair_artifact_unchanged",
+        "stop:false"
+      ]
+    },
+    {
+      "id": "direct-cat-1",
+      "kind": "synthetic",
+      "test": "a_direct_prompt_keeps_its_requests",
+      "change": "control: a direct prompt (scope MinimalLoop, no step kind), a cat, then a final answer",
+      "outcome": "passed",
+      "executor_calls": 2,
+      "base_executor_calls": 2,
+      "base_sequence": null,
+      "sequence": null
+    }
+  ]
+}
