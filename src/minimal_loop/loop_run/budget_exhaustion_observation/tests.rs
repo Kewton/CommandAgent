@@ -119,7 +119,6 @@ fn existing_fields_are_kept_and_values_are_numbers_bools_or_null() {
 struct Scripted {
     replies: Arc<Mutex<Vec<AssistantReply>>>,
     requests: Arc<Mutex<Vec<Vec<ConversationMessage>>>>,
-    delay: Duration,
 }
 
 impl ChatClient for Scripted {
@@ -142,7 +141,6 @@ impl ChatClient for Scripted {
         _tools: &[ToolSpec],
         _native_tools_enabled: bool,
     ) -> anyhow::Result<AssistantReply> {
-        std::thread::sleep(self.delay);
         self.requests.lock().unwrap().push(messages.to_vec());
         let mut replies = self.replies.lock().unwrap();
         if replies.is_empty() {
@@ -313,9 +311,12 @@ impl Trace {
 
 fn run(row: &Value) -> Trace {
     let dir = tempfile::tempdir().unwrap();
+    // A canonical root keeps tool output the same on macOS (symlinked temp
+    // directory) and Linux; see the public-entry test for the details.
+    let root = dir.path().canonicalize().unwrap();
     for seed in row["seed"].as_array().into_iter().flatten() {
         std::fs::write(
-            dir.path().join(seed[0].as_str().unwrap()),
+            root.join(seed[0].as_str().unwrap()),
             seed[1].as_str().unwrap(),
         )
         .unwrap();
@@ -327,13 +328,14 @@ fn run(row: &Value) -> Trace {
         other => panic!("unknown step kind {other}"),
     };
     let mut options = RunSessionOptions::plan_step(step_kind);
+    // A cap of 0 expires before the first provider call whatever the machine
+    // speed, so the wall-clock row never depends on how long the run takes.
     if let Some(cap) = row["wall_clock_cap_ms"].as_u64() {
         options.step_wall_clock_cap = Some(Duration::from_millis(cap));
     }
     let mut client = Scripted {
         replies: Arc::new(Mutex::new(replies(row["script"].as_array().unwrap()))),
         requests: Arc::new(Mutex::new(Vec::new())),
-        delay: Duration::from_millis(row["delay_ms"].as_u64().unwrap_or(0)),
     };
     let max_iterations = row["max_iterations"].as_u64().unwrap() as usize;
     let result = run_session_with_outcome_with_options(
@@ -341,11 +343,11 @@ fn run(row: &Value) -> Trace {
         &mut SessionSnapshot::new(),
         PROMPT,
         &strings(&row["required_paths"]),
-        &config(dir.path(), max_iterations),
+        &config(&root, max_iterations),
         &NOOP_UI,
         options,
     );
-    let lines = std::fs::read_to_string(dir.path().join("events.jsonl"))
+    let lines = std::fs::read_to_string(root.join("events.jsonl"))
         .unwrap_or_default()
         .lines()
         .map(str::to_string)
@@ -353,7 +355,7 @@ fn run(row: &Value) -> Trace {
     let requests = client.requests.lock().unwrap().clone();
     let remaining_replies = client.replies.lock().unwrap().len();
     let mut trace = Trace {
-        root: dir.path().to_path_buf(),
+        root,
         _dir: dir,
         error: None,
         requests,

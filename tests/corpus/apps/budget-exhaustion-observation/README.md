@@ -9,7 +9,21 @@ Every row in `fixtures/events.jsonl` is a scripted run written for this case:
 a fake `ChatClient` returns fixed tool calls (`Write`/`Edit` of `notes.txt`,
 `Bash` with `true`, `false`, `test -f notes.txt`, `exit 127`, a refused
 path, `Read`, `Glob`) in a temporary workspace. No model, key, or provider is
-used.
+used. One row (`contract-allowance-budget`) carries a synthetic completion
+contract with one required path, so its limit includes the existing contract
+allowance (`--max-iterations` 1 + 3 + 1 + 3 = 8).
+
+No row depends on how fast the machine is. The step wall-clock row uses a cap
+of 0, so the cap has expired before the first provider call: no request is
+sent and no time sink is recorded. The other rows keep the default cap and
+never sleep.
+
+No row depends on the platform either. The workspace root is the
+canonicalized temporary directory: `Read` prints a path relative to the root
+only when the resolved file path starts with the root
+(`src/tools/path_guard.rs` `relative_display`), and macOS keeps its temporary
+directory behind a symlink, so a non-canonical root would make the `Read`
+result (and the request digest) differ between macOS and Linux.
 
 Each row's `expect` was recorded from the base commit
 `20b549fc6269217bd0161d2038326480c7605d5f`, before the observation existed:

@@ -275,7 +275,16 @@ fn run(row: &Value) -> Trace {
         replies: Arc::new(Mutex::new(replies(row["script"].as_array().unwrap()))),
         requests: Arc::new(Mutex::new(Vec::new())),
     };
-    let config = config(dir.path(), max_iterations);
+    // The canonical root keeps tool output the same on every platform: Read
+    // shows a path relative to the workspace root only when the resolved path
+    // starts with it, and macOS's temporary directory is behind a symlink.
+    let root = dir.path().canonicalize().unwrap();
+    let mut config = config(&root, max_iterations);
+    if let Some(contract) = row.get("contract") {
+        let path = root.join("completion-contract.json");
+        std::fs::write(&path, serde_json::to_vec_pretty(contract).unwrap()).unwrap();
+        config.completion_contract_path = Some(path);
+    }
     let result = run_session_with_outcome_with_ui(
         &mut client,
         &mut SessionSnapshot::new(),
@@ -284,7 +293,7 @@ fn run(row: &Value) -> Trace {
         &config,
         &NOOP_UI,
     );
-    let lines = std::fs::read_to_string(dir.path().join("events.jsonl"))
+    let lines = std::fs::read_to_string(root.join("events.jsonl"))
         .unwrap_or_default()
         .lines()
         .map(str::to_string)
@@ -292,7 +301,7 @@ fn run(row: &Value) -> Trace {
     let requests = client.requests.lock().unwrap().clone();
     let remaining_replies = client.replies.lock().unwrap().len();
     let mut trace = Trace {
-        root: dir.path().to_path_buf(),
+        root,
         _dir: dir,
         error: None,
         requests,
@@ -320,6 +329,18 @@ fn row(id: &str) -> Value {
         .into_iter()
         .find(|row| row["id"] == id)
         .unwrap_or_else(|| panic!("missing fixture row {id}"))
+}
+
+/// `--max-iterations` + 3 empty-response recovery iterations, plus the
+/// existing completion-contract allowance (3 per required path, at least one
+/// path, and one more) when the row carries a contract.
+fn expected_iteration_limit(row: &Value) -> u64 {
+    let base = row["max_iterations"].as_u64().unwrap() + 3;
+    let Some(contract) = row.get("contract") else {
+        return base;
+    };
+    let required = contract["required_paths"].as_array().unwrap().len() as u64;
+    base + 3 * required.max(1) + 1
 }
 
 /// The base behavior the row pins: everything except the nine new fields.
@@ -374,10 +395,10 @@ fn check_budget_row(row: &Value) -> Map<String, Value> {
         );
         assert_eq!(&actual, &expected[field], "{id}: {field}");
     }
-    let limit = row["max_iterations"].as_u64().unwrap() + 3;
+    let limit = expected_iteration_limit(row);
     assert_eq!(
         expected["iteration_limit"], limit,
-        "{id}: limit is --max-iterations + 3"
+        "{id}: limit is --max-iterations + contract allowance + 3"
     );
     assert_eq!(expected["iterations_used"], limit, "{id}");
     assert_eq!(expected["iteration_budget_exhausted"], true, "{id}");
@@ -402,7 +423,8 @@ fn check_other_site_row(row: &Value) {
     assert_eq!(trace.loop_stop_line(), base, "{id}: bytes as at base");
 }
 
-const BUDGET_ROWS: [&str; 10] = [
+const BUDGET_ROWS: [&str; 11] = [
+    "contract-allowance-budget",
     "all-tools-default-budget",
     "max-iterations-four",
     "no-writes",
@@ -526,6 +548,23 @@ fn a_refused_write_sets_the_failure_flag() {
     let fields = check_budget_row(&row("write-rejected"));
     assert_eq!(fields["successful_write_count"], 1);
     assert_eq!(fields["write_failure_after_last_write"], true);
+}
+
+#[test]
+fn a_completion_contract_adds_its_allowance_to_the_limit() {
+    let row = row("contract-allowance-budget");
+    assert_eq!(parsed_max_iterations(1), 1);
+    // 1 (--max-iterations) + 3 x 1 required path + 1 (contract) + 3 (recovery).
+    assert_eq!(expected_iteration_limit(&row), 8);
+    assert_eq!(row["script"].as_array().unwrap().len(), 8);
+    let fields = check_budget_row(&row);
+    assert_eq!(fields["iteration_limit"], 8);
+    assert_eq!(fields["iterations_used"], 8);
+    assert_eq!(fields["successful_write_count"], 4);
+    assert_eq!(fields["last_successful_write_iteration"], 7);
+    assert_eq!(fields["bash_results_after_last_write"], 1);
+    assert_eq!(fields["last_bash_after_last_write_succeeded"], true);
+    assert_eq!(row["expect"]["reason"], "artifact_follow_through_exhausted");
 }
 
 #[test]
