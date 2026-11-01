@@ -56,6 +56,7 @@ use super::repair_progress::{
 use super::requirement_plan::RequirementPlan;
 
 mod after_tool_completion;
+mod budget_exhaustion_observation;
 #[path = "loop_run/context.rs"]
 mod context;
 mod contract_outcome;
@@ -522,6 +523,7 @@ fn run_session_planned(
     let mut recoverable_tool_error_state = RecoverableToolErrorState::default();
     let mut execution_progress_tracker = ExecutionProgressTracker::default();
     let mut post_write_completion_tracker = PostWriteCompletionTracker::default();
+    let mut budget_observation = budget_exhaustion_observation::BudgetObservation::default();
     let mut edit_anchor_recovery_state = EditAnchorRecoveryState::default();
     let mut route_unbound_recovery_state =
         super::route_unbound_recovery::RouteUnboundRecoveryState::default();
@@ -598,6 +600,7 @@ fn run_session_planned(
             return Ok(outcome);
         }
         let iterations_used = iteration + 1;
+        budget_observation.note_iteration(iterations_used);
         let remaining_iterations = iteration_limit.saturating_sub(iterations_used);
         pressure_inputs.remaining_budget = remaining_iterations;
         pressure_state = transition(pressure_inputs.clone());
@@ -1324,6 +1327,7 @@ fn run_session_planned(
             }) {
                 batch_had_recoverable_tool_error = true;
                 post_write_completion_tracker.note_recoverable_tool_error(&call.name);
+                budget_observation.note_tool_error(&call.name);
                 last_blocking_reason = Some("inspect_mutation_rejected".to_string());
                 let error = anyhow::anyhow!("{reason}");
                 let repeats = recoverable_tool_error_state.record(&call.name, &error);
@@ -1363,6 +1367,7 @@ fn run_session_planned(
             ) {
                 batch_had_recoverable_tool_error = true;
                 post_write_completion_tracker.note_recoverable_tool_error(&call.name);
+                budget_observation.note_tool_error(&call.name);
                 last_blocking_reason = Some(READ_ONLY_STAGNATION_REASON.to_string());
                 let feedback = rejection.feedback.clone();
                 let selected_targets = write_required_state.selected_targets().to_vec();
@@ -1596,6 +1601,7 @@ fn run_session_planned(
                     );
                     if matches!(call.name.as_str(), "Write" | "Edit") {
                         write_or_edit_seen = true;
+                        budget_observation.note_successful_write();
                         obligation_review.note_successful_edit();
                         max_length_guard.write_or_edit_succeeded();
                         turn_events.write_or_edit_succeeded();
@@ -1636,6 +1642,7 @@ fn run_session_planned(
                 Err(err) if recoverable_tool_error(&err) => {
                     batch_had_recoverable_tool_error = true;
                     post_write_completion_tracker.note_recoverable_tool_error(&call.name);
+                    budget_observation.note_tool_error(&call.name);
                     let kind = tool_error_kind(&err);
                     let err_text = err.to_string();
                     let repeats = recoverable_tool_error_state.record(&call.name, &err);
@@ -1787,6 +1794,7 @@ fn run_session_planned(
                 )
             });
             if let Some(execution_progress) = execution_progress {
+                budget_observation.note_bash(execution_progress);
                 obligation_review
                     .note_bash_result(execution_progress != ExecutionProgress::NotSuccessful);
                 post_write_completion_tracker.note_bash_result(
@@ -2319,6 +2327,7 @@ fn run_session_planned(
             "last_blocking_reason": last_blocking_reason,
             "last_provider_error": last_provider_error.as_deref().map(eval_events::body_snippet),
     });
+    let loop_stop_event = budget_observation.with_fields(loop_stop_event, iteration_limit);
     eval_events::emit(config.eval_events_path.as_deref(), loop_stop_event);
     if !non_scaffold_missing.is_empty() {
         bail!(
