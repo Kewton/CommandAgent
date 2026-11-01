@@ -334,9 +334,10 @@ fn issue952_earlier_setup_tool_is_accepted_and_later_setup_is_an_order_error() {
     let setup = || step("setup", "setup", &["package.json"], &["npm install"]);
     let check = || step("check", "verify", &[], &[command]);
     let before = ordered_plan(vec![setup(), check()]);
+    // The shape verdict uses a pinned (absent) PATH; the order lint never
+    // reads PATH.
     assert!(offenses(&before, dir.path(), None).is_empty());
     let report = lint_plan_for_execution(&before, Some(dir.path()));
-    assert!(!report.has_category(CATEGORY), "{report:?}");
     assert!(!report.has_category("dependency_order"), "{report:?}");
     let after = ordered_plan(vec![check(), setup()]);
     let report = lint_plan_for_execution(&after, Some(dir.path()));
@@ -348,8 +349,10 @@ fn issue952_later_producer_is_an_order_error_and_earlier_is_not() {
     let dir = tempfile::tempdir().unwrap();
     let make = || step("make", "implement", &["tools/check_output.sh"], &[]);
     let check = || step("check", "verify", &[], &["sh tools/check_output.sh"]);
-    let report = lint_plan_for_execution(&ordered_plan(vec![make(), check()]), Some(dir.path()));
-    assert!(report.is_pass(), "{report:?}");
+    let before = ordered_plan(vec![make(), check()]);
+    assert!(offenses(&before, dir.path(), None).is_empty());
+    let report = lint_plan_for_execution(&before, Some(dir.path()));
+    assert!(!report.has_category("verify_semantics"), "{report:?}");
     let report = lint_plan_for_execution(&ordered_plan(vec![check(), make()]), Some(dir.path()));
     assert!(report.has_category("verify_semantics"), "{report:?}");
     assert!(
@@ -424,19 +427,86 @@ fn issue952_lint_never_runs_the_command() {
     assert!(!script_marker.exists());
 }
 
-// Issue #952 negative cases: synthetic sentences and deferrals in English,
-// Japanese, and mixed scripts are rejected with an empty pinned PATH and no
-// workspace file, whatever their first word.
+// Issue #952 negative cases: synthetic sentences and deferrals that a static
+// check can call prose are rejected with an empty pinned PATH and no
+// workspace file. The ASCII ones have three or more letters-only words and
+// close with sentence punctuation; the Japanese ones have a first word that
+// cannot be a command name. Two share the shape of the smoke5 failures (a
+// `Deferred` and a `Validate` sentence) without copying their text.
 const ISSUE952_PROSE: &[&str] = &[
     "Postpone the format review until the final checker runs.",
-    "Later steps will confirm the report format",
-    "Review manually, then record the outcome",
+    "Deferred until the final checker runs.",
+    "Validate the vocabulary file after all steps.",
     "Confirmed by the host review!",
+    "Is the report ready?",
     "出力の形式は最終工程でまとめて確かめる",
     "後続の検査で確認予定。",
+];
+
+// Lines that read as prose to a person but that the static rule does not
+// call prose. Issue #952 asked for these to be lint errors; under the PM
+// decision (plan A) they pass lint and fail at runtime instead (exit 127,
+// existing classification). That gap is a known limit, not a success.
+const ISSUE952_LEFT_TO_RUNTIME: &[&str] = &[
+    // No closing sentence punctuation.
+    "Later steps will confirm the report format",
+    // A comma makes a word non-letters.
+    "Review manually, then record the outcome",
+    // Two words only.
     "Report の形式は後で確かめる。",
+    // One mixed-script word with an ASCII letter.
     "JSONの整形は最後に確かめる",
 ];
+
+// Valid command shapes that an earlier draft rejected; none is on the planning
+// PATH or in the workspace.
+const ISSUE952_FALSE_POSITIVES: &[&str] = &[
+    "Checker inspect input output",
+    "checker fixture?",
+    "checker \"ready.\"",
+    "checker alpha, beta",
+    "café",
+    "check日本語",
+    "checker 'fixture?'",
+    "R'script' analyze input output",
+    "checker \"the report is ready.\"",
+    "checker some\\ thing done.",
+    "checker the $value ready.",
+    "checker the ~ ready.",
+    "checker key=value is ready.",
+    "checker the 2 files ready.",
+    "checker the -q flag.",
+    "checker the out/report ready.",
+    "checker report.txt is ready.",
+    "checker the *.txt ready.",
+];
+
+#[test]
+fn issue952_false_positive_shapes_are_left_to_runtime() {
+    let dir = tempfile::tempdir().unwrap();
+    let empty = tempfile::tempdir().unwrap();
+    for path_var in [None, Some(empty.path().as_os_str())] {
+        for command in ISSUE952_FALSE_POSITIVES {
+            let found = offenses(&verify_plan(&["out.txt"], command), dir.path(), path_var);
+            assert!(found.is_empty(), "{command}: {found:?}");
+        }
+    }
+}
+
+// Known limit of plan A: these pass lint; the runtime gate fails them.
+#[test]
+fn issue952_limit_prose_without_the_static_shape_passes_lint() {
+    let dir = tempfile::tempdir().unwrap();
+    let empty = tempfile::tempdir().unwrap();
+    for command in ISSUE952_LEFT_TO_RUNTIME {
+        let found = offenses(
+            &verify_plan(&["out.txt"], command),
+            dir.path(),
+            Some(empty.path().as_os_str()),
+        );
+        assert!(found.is_empty(), "{command}: {found:?}");
+    }
+}
 
 #[test]
 fn issue952_sentences_in_any_script_are_rejected() {
@@ -457,40 +527,49 @@ fn issue952_sentences_in_any_script_are_rejected() {
 fn issue952_ascii_first_word_sentences_are_rejected() {
     // The first word of each has an ASCII letter, which used to exempt it.
     let dir = tempfile::tempdir().unwrap();
-    for command in ISSUE952_PROSE
+    let empty = tempfile::tempdir().unwrap();
+    let ascii = ISSUE952_PROSE
         .iter()
         .filter(|c| c.chars().next().is_some_and(|ch| ch.is_ascii()))
-    {
-        let report = lint_plan_for_execution(&verify_plan(&["out.txt"], command), Some(dir.path()));
-        assert!(report.has_category(CATEGORY), "{command}: {report:?}");
+        .collect::<Vec<_>>();
+    assert_eq!(ascii.len(), 5);
+    for command in ascii {
+        let found = offenses(
+            &verify_plan(&["out.txt"], command),
+            dir.path(),
+            Some(empty.path().as_os_str()),
+        );
+        assert_eq!(found.len(), 1, "{command}: {found:?}");
     }
 }
 
 #[test]
 fn issue952_sentence_shapes_are_judged_by_shape_not_by_words() {
     let dir = tempfile::tempdir().unwrap();
-    // The same words with a flag, a path, a digit, or no sentence mark are
-    // not sentences; they may name a tool and are left to the runtime gate.
+    // The same words with a flag, a path, a digit, a quote, fewer than three
+    // words, or no closing mark are not sentences; they may name a tool and
+    // are left to the runtime gate.
     for command in [
         "postpone the format review",
-        "Postpone --until final",
+        "Postpone --until final.",
         "Postpone the review in out/report.txt.",
-        "Later steps 2 confirm the format",
-        "Later steps",
-        "Review",
-        "review manually",
-        "Run it",
+        "Later steps 2 confirm the format.",
+        "Later steps.",
+        "Review.",
+        "Postpone the format review now",
+        "Postpone \"the format\" review.",
         "mytool 確認",
+        "確認するReport",
     ] {
         let found = offenses(&verify_plan(&["out.txt"], command), dir.path(), None);
         assert!(found.is_empty(), "{command}: {found:?}");
     }
     for command in [
         "postpone the format review.",
-        "review manually, then record it",
-        "Postpone the format review now",
         "Postpone the format review now!",
-        "確認するReport",
+        "Postpone the format review now?",
+        "postpone the review。",
+        "Prüfe die Ausgabe später.",
     ] {
         let found = offenses(&verify_plan(&["out.txt"], command), dir.path(), None);
         assert_eq!(found.len(), 1, "{command}: {found:?}");

@@ -11,6 +11,6 @@
   "derived_fixture": "fixtures/events.json is read by tests/verify_command_admission.rs, which runs each case through the public --validate-plan and the scripted planner",
   "regenerate_digests": "shasum -a 256 fixtures/events.json",
   "fixture_sha256": {
-    "events.json": "3a1e9e942d949f87e565fb85a9979b9f12b3f831652ab2af90fb8c45387b336c"
+    "events.json": "623ed42fd9fd1dcadf729d253bd42cd3758a1b2877807ae5f67a3922a0179dd8"
   }
 }

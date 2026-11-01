@@ -1,5 +1,5 @@
 case_id = "verify-command-admission"
-source = "Issue #952: a verify entry that reads as a sentence or a deferral, in English, Japanese, or mixed scripts, is a verify_command_shape lint error before anything runs, so the existing three planner attempts repair it or the run stops; builtins, pinned-PATH executables, relative, absolute, and non-ASCII paths, same-step or earlier producers, earlier setup tools, catalog checks, and commands not on PATH yet are left to the runtime gate; later producers and setup steps stay order-lint errors; host-owned checks are never satisfied by deleted, empty, true, echo, or weaker repairs; the existing planner_error event keeps its base keys and message shape"
+source = "Issue #952 (plan A): a verify line whose first word resolves to nothing is a verify_command_shape lint error only when that word cannot be a command name or the line has at least three raw letters-only words closing with sentence punctuation, so the existing three planner attempts repair it or the run stops; builtins, pinned-PATH executables, paths, same-step or earlier producers, earlier setup tools, catalog checks, commands not on PATH yet, and quoted, glob, comma, capitalized, and mixed-script command shapes are left to the runtime gate; prose without the static shape passes lint and fails at runtime (known limit); later producers and setup steps stay order-lint errors; host-owned checks are never satisfied by deleted, empty, true, echo, or weaker repairs through the public generate-and-run entry; the existing planner_error event keeps its base keys and message shape"
 required_paths = []
 verify_commands = []
 required_capabilities = []
@@ -40,6 +40,15 @@ fixtures/events.json = [
   "\"id\": \"english-sentence\"",
   "\"id\": \"japanese-deferral\"",
   "\"id\": \"mixed-sentence\"",
+  "\"id\": \"english-deferred-shape\"",
+  "\"id\": \"english-validate-shape\"",
+  "\"id\": \"capitalized-with-arguments\"",
+  "\"id\": \"quoted-sentence-argument\"",
+  "\"id\": \"latin-name\"",
+  "\"id\": \"english-no-closing-mark\"",
+  "\"runtime\": \"exit_127\"",
+  "\"id\": \"delete-check-step\"",
+  "\"id\": \"weaker-check\"",
   "\"base_verdict\": \"accepted\"",
   "\"base_verdict\": \"rejected\"",
   "\"after_category\": \"verify_semantics\"",
@@ -51,6 +60,7 @@ fixtures/events.json = [
 fixtures/events.json = [
   "\"positive\"",
   "\"negative\"",
+  "\"left_to_runtime\"",
   "\"order_controls\"",
   "\"obligation\"",
   "\"base_lint_message\"",
@@ -60,5 +70,6 @@ fixtures/events.json = [
   "\"verify_step passes after the artifact\"",
   "\"planner_error lint attempt 3\"",
   "\"invalid StepPlan after corrective retries\"",
-  "\"nothing executed\""
+  "\"nothing executed\"",
+  "\"final contract judges the run\""
 ]

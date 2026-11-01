@@ -2,226 +2,75 @@
   "issue": "#952",
   "kind": "synthetic",
   "category": "verify_command_shape",
+  "rule": "plan A: unresolved first word, and either a first word with no command character or at least three raw letters-only words whose last closes with . ! ? 。 ！ ？",
   "goal": "Write the synthetic report file out/report.txt.",
   "artifact": "out/report.txt",
   "positive": [
-    {
-      "id": "builtin-test",
-      "verify": "test -s out/report.txt",
-      "producer_paths": [
-        "out/report.txt"
-      ]
-    },
-    {
-      "id": "builtin-bracket",
-      "verify": "[ -f out/report.txt ]",
-      "producer_paths": [
-        "out/report.txt"
-      ]
-    },
-    {
-      "id": "pinned-path-executable",
-      "verify": "checker --strict out/report.txt",
-      "producer_paths": [
-        "out/report.txt"
-      ],
-      "path_bin": [
-        "checker"
-      ]
-    },
-    {
-      "id": "same-first-word-on-path",
-      "verify": "Postpone the format review until the final checker runs.",
-      "producer_paths": [
-        "out/report.txt"
-      ],
-      "path_bin": [
-        "Postpone"
-      ]
-    },
-    {
-      "id": "same-first-word-produced",
-      "verify": "Postpone the format review until the final checker runs.",
-      "producer_paths": [
-        "out/report.txt",
-        "Postpone"
-      ]
-    },
-    {
-      "id": "relative-script",
-      "verify": "./run_checks.sh",
-      "producer_paths": [
-        "out/report.txt"
-      ],
-      "existing": "run_checks.sh"
-    },
-    {
-      "id": "absolute-path",
-      "verify": "/opt/tools/verify-output --strict out/report.txt",
-      "producer_paths": [
-        "out/report.txt"
-      ]
-    },
-    {
-      "id": "non-ascii-path",
-      "verify": "./検査/確かめる --all",
-      "producer_paths": [
-        "out/report.txt",
-        "検査/確かめる"
-      ]
-    },
-    {
-      "id": "earlier-producer-script",
-      "verify": "sh tools/check_report.sh",
-      "producer_paths": [
-        "out/report.txt",
-        "tools/check_report.sh"
-      ]
-    },
-    {
-      "id": "not-yet-on-path",
-      "verify": "lint-output --strict out/report.txt",
-      "producer_paths": [
-        "out/report.txt"
-      ]
-    },
-    {
-      "id": "unknown-plain-words",
-      "verify": "mytool run fast",
-      "producer_paths": [
-        "out/report.txt"
-      ]
-    },
-    {
-      "id": "unknown-capitalized",
-      "verify": "Rscript analysis.R",
-      "producer_paths": [
-        "out/report.txt",
-        "analysis.R"
-      ]
-    }
+    {"id": "builtin-test", "verify": "test -s out/report.txt", "producer_paths": ["out/report.txt"]},
+    {"id": "builtin-bracket", "verify": "[ -f out/report.txt ]", "producer_paths": ["out/report.txt"]},
+    {"id": "pinned-path-executable", "verify": "checker --strict out/report.txt", "producer_paths": ["out/report.txt"], "path_bin": ["checker"]},
+    {"id": "same-first-word-on-path", "verify": "Postpone the format review until the final checker runs.", "producer_paths": ["out/report.txt"], "path_bin": ["Postpone"]},
+    {"id": "same-first-word-produced", "verify": "Postpone the format review until the final checker runs.", "producer_paths": ["out/report.txt", "Postpone"]},
+    {"id": "relative-script", "verify": "./run_checks.sh", "producer_paths": ["out/report.txt"], "existing": "run_checks.sh"},
+    {"id": "absolute-path", "verify": "/opt/tools/verify-output --strict out/report.txt", "producer_paths": ["out/report.txt"]},
+    {"id": "non-ascii-path", "verify": "./検査/確かめる --all", "producer_paths": ["out/report.txt", "検査/確かめる"]},
+    {"id": "earlier-producer-script", "verify": "sh tools/check_report.sh", "producer_paths": ["out/report.txt", "tools/check_report.sh"]},
+    {"id": "not-yet-on-path", "verify": "lint-output --strict out/report.txt", "producer_paths": ["out/report.txt"]},
+    {"id": "unknown-plain-words", "verify": "mytool run fast", "producer_paths": ["out/report.txt"]},
+    {"id": "unknown-capitalized", "verify": "Rscript analysis.R", "producer_paths": ["out/report.txt", "analysis.R"]},
+    {"id": "capitalized-with-arguments", "verify": "Checker inspect input output", "producer_paths": ["out/report.txt"]},
+    {"id": "glob-argument", "verify": "checker fixture?", "producer_paths": ["out/report.txt"]},
+    {"id": "quoted-sentence-argument", "verify": "checker \"ready.\"", "producer_paths": ["out/report.txt"]},
+    {"id": "comma-argument", "verify": "checker alpha, beta", "producer_paths": ["out/report.txt"]},
+    {"id": "latin-name", "verify": "café", "producer_paths": ["out/report.txt"]},
+    {"id": "mixed-script-name", "verify": "check日本語", "producer_paths": ["out/report.txt"]},
+    {"id": "single-quoted-glob", "verify": "checker 'fixture?'", "producer_paths": ["out/report.txt"]},
+    {"id": "joined-quoted-name", "verify": "R'script' analyze input output", "producer_paths": ["out/report.txt"]},
+    {"id": "quoted-grep-pattern", "verify": "grep -q \"Ready for review.\" out/report.txt", "producer_paths": ["out/report.txt"]},
+    {"id": "output-pipe", "verify": "checker \"the report is ready.\" | tail -n 5", "producer_paths": ["out/report.txt"]},
+    {"id": "stderr-redirect", "verify": "checker inspect input output 2>/dev/null", "producer_paths": ["out/report.txt"]},
+    {"id": "and-list", "verify": "test -s \"out/report.txt\" && test -f out/report.txt", "producer_paths": ["out/report.txt"]}
   ],
   "negative": [
-    {
-      "id": "english-sentence",
-      "language": "english",
-      "verify": "Postpone the format review until the final checker runs.",
-      "base_verdict": "accepted"
-    },
-    {
-      "id": "english-deferral",
-      "language": "english",
-      "verify": "Later steps will confirm the report format",
-      "base_verdict": "accepted"
-    },
-    {
-      "id": "english-clause",
-      "language": "english",
-      "verify": "Review manually, then record the outcome",
-      "base_verdict": "accepted"
-    },
-    {
-      "id": "japanese-deferral",
-      "language": "japanese",
-      "verify": "出力の形式は最終工程でまとめて確かめる",
-      "base_verdict": "rejected"
-    },
-    {
-      "id": "japanese-sentence",
-      "language": "japanese",
-      "verify": "後続の検査で確認予定。",
-      "base_verdict": "rejected"
-    },
-    {
-      "id": "mixed-sentence",
-      "language": "mixed",
-      "verify": "Report の形式は後で確かめる。",
-      "base_verdict": "accepted"
-    },
-    {
-      "id": "mixed-word",
-      "language": "mixed",
-      "verify": "JSONの整形は最後に確かめる",
-      "base_verdict": "accepted"
-    }
+    {"id": "english-sentence", "language": "english", "verify": "Postpone the format review until the final checker runs.", "base_verdict": "accepted"},
+    {"id": "english-deferred-shape", "language": "english", "verify": "Deferred until the final checker runs.", "base_verdict": "accepted"},
+    {"id": "english-validate-shape", "language": "english", "verify": "Validate the vocabulary file after all steps.", "base_verdict": "accepted"},
+    {"id": "english-question", "language": "english", "verify": "Is the report ready?", "base_verdict": "accepted"},
+    {"id": "japanese-deferral", "language": "japanese", "verify": "出力の形式は最終工程でまとめて確かめる", "base_verdict": "rejected"},
+    {"id": "japanese-sentence", "language": "japanese", "verify": "後続の検査で確認予定。", "base_verdict": "rejected"},
+    {"id": "mixed-sentence", "language": "mixed", "verify": "後で README の内容を確かめる。", "base_verdict": "rejected"}
+  ],
+  "left_to_runtime": [
+    {"id": "english-no-closing-mark", "verify": "Later steps will confirm the report format", "base_verdict": "accepted", "lint": "passes", "runtime": "exit_127"},
+    {"id": "english-comma", "verify": "Review manually, then record the outcome", "base_verdict": "accepted", "lint": "passes", "runtime": "exit_127"},
+    {"id": "mixed-two-words", "verify": "Report の形式は後で確かめる。", "base_verdict": "accepted", "lint": "passes", "runtime": "exit_127"},
+    {"id": "mixed-one-word", "verify": "JSONの整形は最後に確かめる", "base_verdict": "accepted", "lint": "passes", "runtime": "exit_127"}
   ],
   "corrected_verify": "test -s out/report.txt",
   "other_lint_error_verify": "[ out/report.txt -f ]",
   "order_controls": [
-    {
-      "id": "producer",
-      "producer_step": {
-        "id": "make-check",
-        "kind": "implement",
-        "expected_paths": [
-          "tools/check_report.sh"
-        ]
-      },
-      "verify": "sh tools/check_report.sh",
-      "before": "accepted",
-      "after_category": "verify_semantics",
-      "after_reason": "only produced by a later step"
-    },
-    {
-      "id": "setup",
-      "producer_step": {
-        "id": "install",
-        "kind": "setup",
-        "expected_paths": [
-          "package.json"
-        ]
-      },
-      "verify": "npx --no-install eslint .",
-      "before": "accepted",
-      "after_category": "dependency_order",
-      "after_reason": "requires dependency setup"
-    }
+    {"id": "producer", "producer_step": {"id": "make-check", "kind": "implement", "expected_paths": ["tools/check_report.sh"]}, "verify": "sh tools/check_report.sh", "before": "accepted", "after_category": "verify_semantics", "after_reason": "only produced by a later step"},
+    {"id": "setup", "producer_step": {"id": "install", "kind": "setup", "expected_paths": ["package.json"]}, "verify": "npx --no-install eslint .", "before": "accepted", "after_category": "dependency_order", "after_reason": "requires dependency setup"}
   ],
   "obligation": {
     "contract_verify": "sh check_ready.sh out/report.txt",
+    "check_script": "grep -q READY \"$1\"",
+    "draft_body": "draft\n",
+    "ready_body": "READY\n",
     "weak_repairs": [
-      [],
-      [
-        "true"
-      ],
-      [
-        "echo ok"
-      ],
-      [
-        "test -e out/report.txt"
-      ]
+      {"id": "delete-check-step", "verify": null},
+      {"id": "empty", "verify": []},
+      {"id": "true", "verify": ["true"]},
+      {"id": "echo", "verify": ["echo ok"]},
+      {"id": "weaker-check", "verify": ["test -e out/report.txt"]}
     ],
-    "correct_repair": [
-      "sh check_ready.sh out/report.txt"
-    ]
+    "correct_repair": ["sh check_ready.sh out/report.txt"]
   },
   "base_lint_message": "verify command cannot execute as written (`{first}` is not a shell builtin, a command on PATH, or a workspace path): step {step} command `{command}`; replace it with an executable command such as `python3 <script> <args>`, `node <script>`, or `test -f <path>`",
-  "base_planner_error_keys": [
-    "event",
-    "planner_error_kind",
-    "planner_error_message",
-    "planner_model",
-    "planner_provider",
-    "planner_stage",
-    "repair_attempt",
-    "schema_version"
-  ],
+  "base_planner_error_keys": ["event", "planner_error_kind", "planner_error_message", "planner_model", "planner_provider", "planner_stage", "repair_attempt", "schema_version"],
   "event_order": {
-    "repaired": [
-      "planner_raw_output_shape attempt 1",
-      "planner_error lint attempt 1",
-      "planner_raw_output_shape attempt 2",
-      "plan admitted",
-      "verify_step fails before the artifact",
-      "verify_step passes after the artifact"
-    ],
-    "stopped": [
-      "planner_error lint attempt 1",
-      "planner_error lint attempt 2",
-      "planner_error lint attempt 3",
-      "invalid StepPlan after corrective retries",
-      "no plan saved",
-      "nothing executed"
-    ]
+    "repaired": ["planner_raw_output_shape attempt 1", "planner_error lint attempt 1", "planner_raw_output_shape attempt 2", "plan admitted", "verify_step fails before the artifact", "verify_step passes after the artifact"],
+    "stopped": ["planner_error lint attempt 1", "planner_error lint attempt 2", "planner_error lint attempt 3", "invalid StepPlan after corrective retries", "no plan saved", "nothing executed"],
+    "obligation_run": ["planner_error lint attempt 1", "repair admitted or refused within three attempts", "scripted executor writes the artifact", "final contract judges the run"]
   }
 }
