@@ -459,6 +459,9 @@ pub(crate) struct Receipt {
     pub(crate) domain: DomainVerdict,
     pub(crate) native_passed: bool,
     pub(crate) reasons: Vec<String>,
+    /// Issue #949: workspace names this run made repair candidates. Never
+    /// written to the receipt event.
+    pub(crate) repair_paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -489,6 +492,7 @@ impl Receipt {
             domain: DomainVerdict::None,
             native_passed: false,
             reasons: Vec::new(),
+            repair_paths: Vec::new(),
         }
     }
 
@@ -527,6 +531,17 @@ pub(crate) fn run_and_record(
     source: &str,
     owner_id: &str,
 ) -> Vec<String> {
+    run_and_record_with_repair_paths(workspace, check, events_path, source, owner_id).0
+}
+
+/// [`run_and_record`] that also returns the run's repair candidates.
+pub(crate) fn run_and_record_with_repair_paths(
+    workspace: &Path,
+    check: &ArtifactContractCheck,
+    events_path: Option<&Path>,
+    source: &str,
+    owner_id: &str,
+) -> (Vec<String>, Vec<String>) {
     let receipt = run_check(
         workspace,
         check,
@@ -534,7 +549,7 @@ pub(crate) fn run_and_record(
         || false,
     );
     record(&receipt, events_path, source, owner_id);
-    receipt.failures()
+    (receipt.failures(), receipt.repair_paths)
 }
 
 pub(crate) fn run_check<F>(
@@ -572,7 +587,9 @@ where
         Ok(executable_sha256) => receipt.executable_sha256 = Some(executable_sha256),
         Err(reason) => return receipt.fail("pin", vec![reason]),
     }
-    let request = match read_request(&workspace, &check.request) {
+    let request = read_request(&workspace, &check.request);
+    receipt.repair_paths = repair_paths(check, descriptor, request.as_ref().ok());
+    let request = match request {
         Ok(request) => request,
         Err(reason) => return receipt.fail("request", vec![reason]),
     };
@@ -880,17 +897,7 @@ fn bind_inputs(
     descriptor: &Descriptor,
     request: &protocol::Request,
 ) -> Result<Vec<BoundInput>, String> {
-    let declared = descriptor
-        .inputs
-        .iter()
-        .map(|input| input.input_id.as_str())
-        .collect::<BTreeSet<_>>();
-    let requested = request
-        .inputs
-        .iter()
-        .map(|input| input.input_id.as_str())
-        .collect::<BTreeSet<_>>();
-    if declared != requested {
+    if !names_registered_inputs(descriptor, request) {
         return Err(
             "request inputs must name exactly the operator-registered input IDs".to_string(),
         );
@@ -918,6 +925,48 @@ fn bind_inputs(
         });
     }
     Ok(bound)
+}
+
+fn names_registered_inputs(descriptor: &Descriptor, request: &protocol::Request) -> bool {
+    let declared = descriptor
+        .inputs
+        .iter()
+        .map(|input| input.input_id.as_str())
+        .collect::<BTreeSet<_>>();
+    let requested = request
+        .inputs
+        .iter()
+        .map(|input| input.input_id.as_str())
+        .collect::<BTreeSet<_>>();
+    declared == requested
+}
+
+/// The names one admitted run makes repair candidates (Issue #949), before
+/// `bind_inputs`: the declared request, plus, when the request parses and
+/// names exactly the operator's input IDs, every input that passes the
+/// lexical guard, whether or not it then binds. Names are kept verbatim; see
+/// `final_acceptance::artifact_repair_paths`.
+fn repair_paths(
+    check: &ArtifactContractCheck,
+    descriptor: &Descriptor,
+    request: Option<&protocol::Request>,
+) -> Vec<String> {
+    let mut paths = vec![check.request.clone()];
+    if let Some(request) = request.filter(|request| names_registered_inputs(descriptor, request)) {
+        paths.extend(
+            request
+                .inputs
+                .iter()
+                .map(|input| input.path.clone())
+                .filter(|path| {
+                    safe_relative(path, "path").is_ok()
+                        && !crate::tools::sensitive_path::relative_path_is_sensitive(Path::new(
+                            path,
+                        ))
+                }),
+        );
+    }
+    paths
 }
 
 /// A safe workspace-relative regular file: no parent or absolute component,

@@ -11,7 +11,9 @@
 //!
 //! Candidates are the existing expected, config and route-bound paths plus an
 //! independent walk of the workspace for Web source extensions and `.py`, so
-//! the delta does not depend on what the repair session reported.
+//! the delta does not depend on what the repair session reported. Paths an
+//! admitted artifact check bound, with the profile's declared artifacts, come
+//! first whatever their extension (Issue #949, `artifact_repair_paths`).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
@@ -21,6 +23,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use sha2::{Digest, Sha256};
 
+use super::artifact_repair_paths::artifact_repair_candidates;
 use super::{
     merge_final_acceptance_snapshot_candidates, route_bound_source_paths, safe_dir_rel_path,
     safe_final_acceptance_snapshot_rel_path, snapshot_source_candidates,
@@ -63,8 +66,28 @@ pub(super) fn capture(
     goal: &str,
     expected_paths: &[String],
     extra_paths: &[String],
+    recorded: &[String],
 ) -> BTreeMap<String, Fingerprint> {
-    let mut paths = legacy_candidates(root, profile, goal, expected_paths, extra_paths);
+    let artifacts = artifact_repair_candidates(root, profile, goal, recorded);
+    capture_with_artifacts(root, profile, goal, expected_paths, extra_paths, &artifacts)
+}
+
+/// [`capture`] with the artifact candidates of Issue #949 (see
+/// `artifact_repair_paths`) placed first, so the candidate cap keeps them.
+pub(super) fn capture_with_artifacts(
+    root: &Path,
+    profile: &str,
+    goal: &str,
+    expected_paths: &[String],
+    extra_paths: &[String],
+    artifacts: &[String],
+) -> BTreeMap<String, Fingerprint> {
+    let mut paths = artifacts.to_vec();
+    for path in legacy_candidates(root, profile, goal, expected_paths, extra_paths) {
+        if !paths.contains(&path) {
+            paths.push(path);
+        }
+    }
     let mut walk = Walk::default();
     walk.dir(root, "", 0);
     for path in walk.found {
@@ -295,7 +318,7 @@ mod tests {
     }
 
     fn snap(root: &Path, extra: &[String]) -> super::BTreeMap<String, super::Fingerprint> {
-        capture(root, "python-cli", "build a cli", &[], extra)
+        capture(root, "python-cli", "build a cli", &[], extra, &[])
     }
 
     fn changed(root: &Path, before: &super::BTreeMap<String, super::Fingerprint>) -> Vec<String> {
@@ -422,14 +445,14 @@ mod tests {
         write(dir.path(), "build/out.js", "a");
         write(dir.path(), "build/other.js", "a");
         let expected = ["build/out.js".to_string()];
-        let before = capture(dir.path(), "generic", "goal", &expected, &[]);
+        let before = capture(dir.path(), "generic", "goal", &expected, &[], &[]);
         assert!(before.contains_key("build/out.js"));
         assert!(!before.contains_key("build/other.js"));
         write(dir.path(), "build/out.js", "b");
         assert_eq!(
             changed_snapshot_paths(
                 &before,
-                &capture(dir.path(), "generic", "goal", &expected, &[])
+                &capture(dir.path(), "generic", "goal", &expected, &[], &[])
             ),
             ["build/out.js"]
         );
