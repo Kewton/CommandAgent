@@ -295,6 +295,7 @@ OpenAI キーと任意の `LM_STUDIO_API_TOKEN` はプロセス環境だけか�
 | `COMMANDAGENT_COMPATIBLE_REASONING_EFFORT` | OpenAI 互換の transport（`openai-compatible` と `lm-studio`）を使う role に推論の強さを宣言します。未設定・空文字なら何も送りません。下を参照してください。 |
 | `COMMANDAGENT_COMPLETION_OBLIGATION_REVIEW` | 実験用です。`once` で、generic の編集 run が最初の通常の最終回答の前に依頼の義務を一度だけ見直します。未設定・空文字・`off`（既定）なら何も変わりません。下を参照してください。 |
 | `COMMANDAGENT_REQUIREMENT_PLAN` | 実験用です。`once` で、新しい generic の run が最初の実装の前に短い要求計画ノートを書きます。未設定・空文字・`off`（既定）なら何も変わりません。下を参照してください。 |
+| `COMMANDAGENT_BUDGET_CLOSING` | 実験用です。`once` で、generic の direct run の反復上限の 3 回前に締めを一度だけ案内し、失敗した確認や書込みが未解決のままの final を通常の final として終わらせません。未設定・空文字・`off`（既定）なら何も変わりません。下を参照してください。 |
 
 `COMMANDAGENT_*` 項目では現在名が優先されます。現在名がない場合だけ対応する `ANVIL_*` 名を使い、
 1 回だけ非推奨警告を出します。それでも表中の旧名は、現在サポートされている正確な綴りです。
@@ -390,6 +391,58 @@ request（各 turn、tool 呼び出し後の turn、空応答の fresh retry、n
   ありません。ノート・依頼・例の値・tool の出力・秘密・未知の key 名・parser のメッセージは写しません。既存の
   event、停止理由、assurance、受入と release の gate は変わらず、自作の例の成功や model の「全部確認した」で何も
   上がりません。ノートが正答を増やすかどうかは未測定です。
+
+`COMMANDAGENT_BUDGET_CLOSING` は、generic の direct run の反復予算の末尾に向けた実験用 opt-in です。
+既定は off で、検証・受入・成功の gate ではありません。minimal loop の run の開始時に、プロセス環境だけから
+1 回読みます（`ANVIL_*` の旧名・設定ファイル・`.env`・CLI flag はありません）。run の途中で変えても効きません。
+
+- 値：未設定・空文字・空白だけ・`off` なら無効で、変数がないときとまったく同じ run になります。provider への
+  request とその順序、event、停止理由は変わらず、新しい状態も event も出ません。`once`（前後の空白を除き、
+  小文字）で有効になります。それ以外の値（`ONCE` や UTF-8 でない byte 列を含む）は、最初の request の前に、
+  変数名は示し値は示さない固定のエラーで run が失敗します。
+- 対象：step kind・phase scope・recovery の義務のない minimal loop の run で、effective profile が `generic`、
+  completion contract がないもの。plan の step（`PlanRunStep`）・recovery・final acceptance の repair・ほかの
+  profile・completion contract のある run は状態を持たず、何も出しません。effort・model・provider・依頼の
+  言葉では変わりません。
+- 案内：残りの呼出しが現在の回を含めて 3 回になったとき、実際に送る request に固定の案内（prompt version 1）を
+  一度だけ付けます。要旨は「残りは 3 回。新しい改善や作り直しは始めない。必要な変更が残っていれば最小限で行い、
+  確認を 1 回実行する。確認が成功したら tool を呼ばずに、変えた file・実行した確認・その結果を報告して終える。
+  失敗した、または実行できなかったときは成功と書かず、残っている問題を報告する」です。その request の既存の
+  feedback は残り、案内はその後ろに付きます。空応答の後の fresh-session retry では案内だけが feedback になり、
+  retry は従来どおり過去の履歴を送りません。案内は、送った request に含まれ、その request が client に渡された
+  ときだけ記録されます（渡した後に中断されても記録され、client を呼ぶ前の cancel では記録されません）。
+  run に 1 回までで、
+  反復の上限が 3 以下なら出ません。tool と権限は変わりません。cancel の挙動は、その request についてだけ 1 点
+  変わります。provider の呼出しが中断で先に返った後に worker が client に届いても、その request を遅れて送りません。
+- 台帳：host は run の開始から、未解決の失敗を memory に保持します。実行された（policy で拒否・置換されて
+  いない）Bash で、既存の execution-progress の分類が成功でないとしたものは、同じ command が後で成功したときだけ
+  解除されます。recoverable error または拒否になった Write/Edit は、それに対応する後の成功だけで解除されます。
+  対応とは、同じ Edit（path・`old_string`・`new_string`・`replace_all`）、同じ Write（path と内容）、または失敗した
+  Edit の `new_string` を含み `old_string` を含まなくなった内容の、同じ path への Write です（`new_string` が
+  `old_string` を含む Edit は Write では解除されません）。path は tools の正規化の後に成分から組み直して比べるので、
+  `a//b`・`a/./b`・`a/b` は同じ対象です。`..` は解決しません。tool の層が実行前に拒否した Bash（engine 専用や
+  秘密の path、引数の欠落、path の confinement、保護された path。error の型か、message の先頭の host 自身の語で
+  判定します）は失敗ではなく拒否として数えます。timeout など、実行された可能性のある command の error は、command や
+  出力に何が書かれていても失敗のままです。無関係な command・別の path への書込み・同じ file の別の
+  Edit・Read・後に書込みがあることだけ・model の発言（「直した」「未完了」を含む）では何も解除されません。
+  特定できない失敗は未解決のままです。policy で拒否された Bash は失敗にも成功にも数えず、件数だけを残します。
+- guard：案内の後、既存の確認（required path・action prompt の確認・相対 import・完了前の見直し）をすべて
+  通った通常の final でも、失敗が 1 件でも残っていれば、何回目の final でも返しません。回答を取り除き、
+  「失敗を直して同じ確認を通すか、未完了として報告する」固定の feedback を渡し、既存の予算の中で loop を
+  続けます。呼出し・反復・時間・retry は増えません。予算が尽きれば既存の予算切れの経路で run は失敗し、
+  reason は既存の優先順で決まります。書込み後の Read による自動完了も、案内の後は同じ規則に従います。失敗が
+  残っている間は run を終えず、tool の結果は残したまま、同じ feedback を次の request に渡し、既存の予算の中で
+  loop を続けます。案内の前の final、案内の前や失敗が残っていないときのその自動完了、その他の既存の停止は
+  従来どおりです。
+- event：run は `budget_closing` を記録します。`phase` は `notice`・`final_deferred`・`final_accepted`・
+  `exhausted_after_notice`、`guard_reason` は固定の語で、`prompt_version`・`iteration`・`iteration_limit`・
+  `remaining_calls`・`unresolved_bash_failures`・`unresolved_write_failures`・`resolved_failures`・
+  `policy_rejected_bash`・`final_deferrals` を持ちます。provider error・timeout・max length・cancel など
+  ほかの失敗では `final_accepted` も `exhausted_after_notice` も出ません。command・path・内容・model の文・
+  tool の出力・秘密は写しません。
+- 意味と費用：`final_accepted` は台帳に失敗が残っていなかったという意味だけです。成功した command は正常に
+  終わったことしか示さず、guard は作業が正しいことの証拠ではありません。差し戻しで、変数が off のときより
+  既存の予算を多く使うことがあります。案内が正答を増やすかどうかは未測定です。
 
 `COMMANDAGENT_COMPATIBLE_REASONING_EFFORT` は、OpenAI 互換 server に推論の強さを指定する宣言です。
 provider の client を作るときにプロセス環境だけから読みます（`ANVIL_*` の旧名はなく、設定ファイルや

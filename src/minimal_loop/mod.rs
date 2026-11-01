@@ -1,6 +1,7 @@
 pub mod anchor_stagnation_interlock;
 pub mod behavior_evidence;
 pub mod browser_probe;
+pub(crate) mod budget_closing;
 pub mod build_verifier;
 pub mod compact;
 pub mod compile_repair_scope;

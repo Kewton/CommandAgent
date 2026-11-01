@@ -284,6 +284,7 @@ variables also affect normal user-visible behavior:
 | `COMMANDAGENT_COMPATIBLE_REASONING_EFFORT` | Declares a reasoning effort for the roles that use the OpenAI-compatible transport (`openai-compatible` and `lm-studio`). Unset or empty sends nothing. See below. |
 | `COMMANDAGENT_COMPLETION_OBLIGATION_REVIEW` | Experimental. `once` asks a generic edit run to review the request's obligations once before its first normal final answer. Unset, empty, or `off` (the default) changes nothing. See below. |
 | `COMMANDAGENT_REQUIREMENT_PLAN` | Experimental. `once` asks a new generic run to write a short requirement plan note before its first implementation step. Unset, empty, or `off` (the default) changes nothing. See below. |
+| `COMMANDAGENT_BUDGET_CLOSING` | Experimental. `once` tells a generic direct run once, three calls before its iteration limit, to close out, and keeps a final with an unresolved failed check or write from ending the run as a normal final. Unset, empty, or `off` (the default) changes nothing. See below. |
 
 For `COMMANDAGENT_*` entries, the current name wins. The matching `ANVIL_*`
 name is used only when the current name is absent, and emits a one-time
@@ -441,6 +442,90 @@ no CLI flag), and a change during the run has no effect.
   not change; a successful self-written example or the model saying everything
   was checked raises nothing. Whether the note improves correctness is
   unmeasured.
+
+`COMMANDAGENT_BUDGET_CLOSING` is an experimental opt-in for the end of a
+generic direct run's iteration budget. It is off by default and is not a
+verification, acceptance, or success gate. It is read once, from the process
+environment only, when a minimal-loop run starts (no `ANVIL_*` legacy name, no
+config file, no `.env`, no CLI flag), and a change during the run has no
+effect.
+
+- Values: unset, empty, whitespace-only, or `off` disables it, and the run is
+  exactly the run without the variable: the same provider requests in the same
+  order, the same events, and the same stop reason, with no new state or
+  event. `once` (surrounding whitespace trimmed, lowercase) enables it. Any
+  other value, including `ONCE` or non-UTF-8 bytes, fails the run before the
+  first request with a fixed error that names the variable but not the value.
+- Scope: a minimal-loop run with no step kind, no phase scope, and no recovery
+  obligation, whose effective profile is `generic` and that has no completion
+  contract. Plan steps (`PlanRunStep`), recovery runs, the final acceptance
+  repair, other profiles, and runs with a completion contract keep no state
+  and emit nothing. No effort, model, provider, or task wording changes it.
+- Notice: when the calls left, counting the current one, reach three, the
+  request that is actually sent carries one fixed notice (prompt version 1):
+  three calls remain; start no new improvement or rewrite; make any remaining
+  change minimal and run one check; if the check succeeds, report the changed
+  files, the check, and its result without calling a tool; if it failed or
+  could not run, do not claim success and report what remains. Existing
+  feedback for that request stays and the notice follows it. On an
+  empty-response fresh-session retry the notice is the only feedback and the
+  retry still sends no earlier history. The notice is recorded only when a
+  sent request carries it and that request was handed to the client (also
+  when the call is interrupted afterwards; a cancel before the client is
+  called records nothing), at most once per run, and never when the
+  iteration limit is three or less. Tools and permissions do not change.
+  One cancel behavior changes, for that request only: when the provider call
+  has already returned interrupted before its worker reached the client,
+  the worker no longer sends the request late.
+- Ledger: from the start of the run the host keeps unresolved failures in
+  memory. A Bash call that ran (not refused or replaced by policy) and that
+  the existing execution-progress classification counts as not successful is
+  resolved only by a later success of the same command. A Write or Edit that
+  ended in a recoverable error or rejection is resolved only by a later
+  success that matches it: the same Edit (path, `old_string`, `new_string`,
+  `replace_all`), the same Write (path and content), or a Write to the same
+  path whose content contains the failed Edit's `new_string` and no longer
+  contains its `old_string` (never when `new_string` contains `old_string`).
+  Paths are compared after the tools' normalization and rebuilt from their
+  components, so `a//b`, `a/./b`, and `a/b` are one target; `..` is not
+  resolved. A Bash call the tool layer refuses before running it (an
+  engine-private or sensitive path, a missing argument, a path confinement
+  refusal, or a protected path, recognized by the error's type or by the
+  host's own words at the start of the message) is counted as refused, not
+  as a failure; a timeout or any other error of a command that may have run
+  stays a failure, whatever its command or output says. An unrelated command, a
+  write to another path, another edit of the same file, a read, a later write
+  alone, or anything the model says (including "fixed" or "not finished")
+  resolves nothing. A failure that cannot be identified stays unresolved.
+  Bash refused by policy is neither a failure nor a success; only its count
+  is kept.
+- Guard: after the notice, a normal final that passed every existing check
+  (required paths, the action-prompt check, relative imports, the completion
+  obligation review) is not returned while one failure remains, however many
+  finals came before. The answer is removed, one fixed feedback asks to fix
+  the failure and pass the same check or report the work as unfinished, and
+  the loop continues inside the existing budget. No call, iteration, time, or
+  retry is added; when the budget runs out the run fails through the existing
+  budget exit, whose reason is chosen by the existing order. The automatic
+  post-write read completion follows the same rule after the notice: while a
+  failure remains it does not end the run; the tool results stay, the same
+  feedback goes into the next request, and the loop continues inside the
+  existing budget. Finals before the notice, that completion before the
+  notice or without a remaining failure, and other existing stops are judged
+  as before.
+- Events: the run records `budget_closing` with `phase` `notice`,
+  `final_deferred`, `final_accepted`, or `exhausted_after_notice`, a fixed
+  `guard_reason`, `prompt_version`, `iteration`, `iteration_limit`,
+  `remaining_calls`, `unresolved_bash_failures`, `unresolved_write_failures`,
+  `resolved_failures`, `policy_rejected_bash`, and `final_deferrals`. Other
+  failures (provider errors, timeouts, max length, cancellation) emit neither
+  `final_accepted` nor `exhausted_after_notice`. The event never copies a
+  command, a path, content, model text, tool output, or a secret.
+- Meaning and cost: `final_accepted` means only that no failure was left in
+  the ledger; a successful command proves only that it exited successfully,
+  and the guard is not evidence that the work is correct. Deferred finals can
+  make a run use more of its existing budget than with the variable off.
+  Whether the notice improves correctness is unmeasured.
 
 `COMMANDAGENT_COMPATIBLE_REASONING_EFFORT` declares how hard an
 OpenAI-compatible server should reason. It is read from the process environment
