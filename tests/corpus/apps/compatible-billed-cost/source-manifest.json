@@ -3,11 +3,13 @@
   "owner": "providers openai_chat_completions usage.cost parse to the provider_response and provider_turn_duration events",
   "base_sha": "4edfc5a726feb5fa468b4a24bc9de29f41c6b1bc",
   "origin": "synthetic",
-  "synthetic_source": "Every usage object in fixtures/events.json is hand-authored for Issue #947; none is copied from a provider response, a benchmark task, a grader input, an expected answer, generated code, or a run record. The amount 0.012345 matches the value the S-175a host check sent to a local fake HTTP stand-in; nothing else is taken from that record.",
-  "base_events": "fixtures/events.json base_events holds, for each case and for the executor and planner paths, the provider_response and provider_turn_duration lines that commit base_sha wrote when src/providers/lm_studio.rs billed_cost_telemetry_tests replayed the case from a loopback OpenAI-compatible stand-in with no credentials; only the wall-clock duration_ms value is replaced with 0. An unreported amount must leave these lines byte-identical; a reported one may only add provider_billed_cost_usd.",
-  "aggregation": "count provider_billed_cost_usd once per turn; provider_response and provider_turn_duration of one turn carry the same amount and are never added together",
+  "synthetic_source": "Every usage object and cost token in fixtures/events.json is hand-authored for Issue #947; none is copied from a provider response, a benchmark task, a grader input, an expected answer, generated code, or a run record. The amount 0.012345 matches the value the S-175a host check sent to a local fake HTTP stand-in; nothing else is taken from that record.",
+  "raw_cost_tokens": "Each case's cost_token is raw JSON text that the test appends to the usage object of the response body as written, so 1e-400 and 1.00000000000000001 reach the client unrounded; reading the fixture as JSON never touches them.",
+  "event_type": "provider_billed_cost_usd is a JSON string holding the exact decimal text of the usage.cost number token the provider sent (for example \"0.012345\", \"1e-400\", \"0\"), never a JSON number; an aggregator parses it as a decimal, never as a float.",
+  "base_events": "fixtures/events.json base_events holds, for each case and for the executor and planner paths, the provider_response and provider_turn_duration lines that commit base_sha wrote when src/providers/lm_studio.rs billed_cost_telemetry_tests replayed the case from a loopback OpenAI-compatible stand-in with no credentials; only the wall-clock duration_ms value is replaced with 0. The cases listed in copied_from_absent were added after the capture and differ from synthetic-cost-absent only in usage.cost, which commit base_sha never reads, so their lines are copies of synthetic-cost-absent. An unreported amount must leave these lines byte-identical; a reported one may only add provider_billed_cost_usd.",
+  "aggregation": "read provider_billed_cost_usd as a decimal string and count it once per turn; provider_response and provider_turn_duration of one turn carry the same amount and are never added together",
   "regenerate_digests": "shasum -a 256 fixtures/events.json",
   "fixture_sha256": {
-    "events.json": "fc74fb97b1456e85268604d9d1a2421442da3f85df0814a0a2cbbb871a18fca3"
+    "events.json": "3c6577f3b2155dd246fe155b7161bd53a54e117ba2b2ac309e9e6eba95e4cc4f"
   }
 }

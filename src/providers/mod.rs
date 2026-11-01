@@ -43,33 +43,36 @@ pub struct ProviderResponseMetadata {
     /// The amount the provider itself reports it billed for this response
     /// (Issue #947), never a price computed from token counts. `None` means
     /// unreported; an explicit zero is `Some`. The `provider_response` and
-    /// `provider_turn_duration` events of one turn carry the same amount, so an
-    /// aggregator counts it once per turn, never the two events added together.
+    /// `provider_turn_duration` events of one turn both carry it as the JSON
+    /// string `provider_billed_cost_usd` (the decimal text the provider sent,
+    /// e.g. `"0.012345"`); an aggregator reads it as a decimal, never as a
+    /// float, and counts it once per turn, never the two events added together.
     pub billed_cost_usd: Option<BilledCostUsd>,
 }
 
-/// A provider-reported USD amount, kept as the decimal text of the JSON number
-/// the provider sent so the metadata stays `Eq` and nothing is rounded.
+/// A provider-reported USD amount, kept as the exact decimal text of the JSON
+/// number token the provider sent, read before any `f64` conversion, so the
+/// metadata stays `Eq` and nothing is rounded or underflows (`1e-400` stays
+/// `1e-400`, never zero).
 ///
-/// Only a finite, non-negative JSON number up to [`Self::MAX`] is accepted; it
-/// is written back to events as the same JSON number.
+/// Only an unsigned JSON number token no larger than [`Self::MAX`] is accepted;
+/// it is written to events as that decimal text in a JSON string.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BilledCostUsd(String);
 
 impl BilledCostUsd {
-    /// The largest accepted amount: 2^53 - 1, beyond which an `f64` (and a
-    /// JSON consumer reading it as one) no longer holds whole dollars exactly.
-    pub const MAX: f64 = 9_007_199_254_740_991.0;
+    /// The largest accepted amount, 2^53 - 1, as decimal digits. It is
+    /// compared digit by digit, never through an `f64`.
+    pub const MAX: &'static str = "9007199254740991";
 
-    /// The amount in a JSON value, or `None` for anything but a finite,
-    /// non-negative number no larger than [`Self::MAX`]: null, strings,
-    /// booleans, arrays, objects, negative numbers (including `-0`), and
-    /// out-of-range numbers are unreported, never zero.
-    pub fn from_json(value: &serde_json::Value) -> Option<Self> {
-        let number = value.as_number()?;
-        let amount = number.as_f64()?;
-        let valid = amount.is_finite() && !amount.is_sign_negative() && amount <= Self::MAX;
-        valid.then(|| Self(number.to_string()))
+    /// The amount in a raw JSON value token, or `None` for anything but a JSON
+    /// number token with no sign and a value no larger than [`Self::MAX`]:
+    /// null, strings, booleans, arrays, objects, negative numbers (including
+    /// `-0`), and larger numbers are unreported, never zero. `0`, `0.0`, and
+    /// `0e5` are an explicit zero.
+    pub fn from_json_token(token: &str) -> Option<Self> {
+        let token = token.trim();
+        unsigned_decimal_within(token, Self::MAX).then(|| Self(token.to_string()))
     }
 
     /// The decimal text of the accepted JSON number, e.g. `0.012345`.
@@ -77,11 +80,88 @@ impl BilledCostUsd {
         &self.0
     }
 
-    /// The amount as the JSON number it was received as.
-    pub fn to_json(&self) -> Option<serde_json::Value> {
-        serde_json::from_str::<serde_json::Number>(&self.0)
-            .ok()
-            .map(serde_json::Value::Number)
+    /// The amount as written to events: the decimal text in a JSON string,
+    /// e.g. `"0.012345"`, for an aggregator to read as a decimal.
+    pub fn to_event_value(&self) -> serde_json::Value {
+        serde_json::Value::String(self.0.clone())
+    }
+}
+
+/// Whether `token` follows the JSON number grammar without a sign
+/// (`0|[1-9][0-9]*`, optional `.` fraction, optional exponent) and its value is
+/// at most the integer `max` (decimal digits without leading zeros). The
+/// comparison is exact in decimal; nothing goes through an `f64`.
+fn unsigned_decimal_within(token: &str, max: &str) -> bool {
+    let (mantissa, exponent) = match token.find(['e', 'E']) {
+        Some(at) => (&token[..at], Some(&token[at + 1..])),
+        None => (token, None),
+    };
+    let (integer, fraction) = match mantissa.split_once('.') {
+        Some((integer, fraction)) => (integer, Some(fraction)),
+        None => (mantissa, None),
+    };
+    let all_digits =
+        |text: &str| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit());
+    if !all_digits(integer) || (integer.len() > 1 && integer.starts_with('0')) {
+        return false;
+    }
+    if fraction.is_some_and(|fraction| !all_digits(fraction)) {
+        return false;
+    }
+    let exponent = match exponent {
+        None => 0_i64,
+        Some(exponent) => {
+            let (negative, digits) = match exponent.as_bytes().first() {
+                Some(b'+') => (false, &exponent[1..]),
+                Some(b'-') => (true, &exponent[1..]),
+                _ => (false, exponent),
+            };
+            if !all_digits(digits) {
+                return false;
+            }
+            // Saturate far beyond any digit count; only the sign of the
+            // comparison below matters.
+            let magnitude = digits.trim_start_matches('0');
+            let magnitude = if magnitude.len() > 15 {
+                i64::MAX / 4
+            } else {
+                magnitude.parse::<i64>().unwrap_or(0)
+            };
+            if negative { -magnitude } else { magnitude }
+        }
+    };
+    let fraction = fraction.unwrap_or("");
+    let digits = format!("{integer}{fraction}");
+    let significant = digits.trim_start_matches('0');
+    if significant.is_empty() {
+        return true;
+    }
+    let trimmed = significant.trim_end_matches('0');
+    // The value is `trimmed * 10^scale`, with no leading or trailing zeros.
+    let fraction_len = i64::try_from(fraction.len()).unwrap_or(i64::MAX / 4);
+    let trailing = i64::try_from(significant.len() - trimmed.len()).unwrap_or(0);
+    let scale = exponent
+        .saturating_sub(fraction_len)
+        .saturating_add(trailing);
+    let trimmed_len = i64::try_from(trimmed.len()).unwrap_or(i64::MAX / 4);
+    let integer_digits = trimmed_len.saturating_add(scale);
+    let max_len = i64::try_from(max.len()).unwrap_or(i64::MAX / 4);
+    match integer_digits.cmp(&max_len) {
+        std::cmp::Ordering::Less => true,
+        std::cmp::Ordering::Greater => false,
+        std::cmp::Ordering::Equal => {
+            let head = trimmed
+                .chars()
+                .chain(std::iter::repeat('0'))
+                .take(max.len())
+                .collect::<String>();
+            let has_fraction = trimmed.len() > max.len();
+            match head.as_str().cmp(max) {
+                std::cmp::Ordering::Less => true,
+                std::cmp::Ordering::Equal => !has_fraction,
+                std::cmp::Ordering::Greater => false,
+            }
+        }
     }
 }
 

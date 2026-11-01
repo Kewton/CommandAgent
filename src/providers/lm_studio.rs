@@ -386,14 +386,12 @@ impl LmStudioClient {
             event["response_id"] = json!(metadata.response_id);
             event["reasoning_tokens"] = json!(metadata.reasoning_tokens);
         }
-        // Issue #947: additive and only when reported. The turn's
-        // provider_turn_duration carries the same amount; count it once.
-        if let Some(cost) = metadata
-            .billed_cost_usd
-            .as_ref()
-            .and_then(super::BilledCostUsd::to_json)
-        {
-            event["provider_billed_cost_usd"] = cost;
+        // Issue #947: additive and only when reported, as a JSON string of the
+        // decimal text the provider sent (e.g. "0.012345") for an aggregator
+        // to read as a decimal. The turn's provider_turn_duration carries the
+        // same amount; count it once per turn, never the two added together.
+        if let Some(cost) = &metadata.billed_cost_usd {
+            event["provider_billed_cost_usd"] = cost.to_event_value();
         }
         eval_events::emit(self.eval_events_path.as_deref(), event);
     }
@@ -974,18 +972,27 @@ mod billed_cost_telemetry_tests {
         serde_json::from_str(&std::fs::read_to_string(FIXTURE).unwrap()).unwrap()
     }
 
-    fn response_body(usage: &Value) -> String {
-        let mut body = json!({
-            "id": "chatcmpl-947",
-            "object": "chat.completion",
-            "model": MODEL,
-            "created": 1_790_000_000,
-            "choices": [{"index": 0, "message": {"content": "done"}, "finish_reason": "stop"}]
-        });
-        if !usage.is_null() {
-            body["usage"] = usage.clone();
-        }
-        body.to_string()
+    /// The raw response body text. `cost_token` is appended to the usage
+    /// object as raw JSON text, so a number such as `1e-400` reaches the client
+    /// exactly as written, never through an `f64` in the test.
+    fn response_body(usage: &Value, cost_token: Option<&str>) -> String {
+        let usage = match (usage, cost_token) {
+            (Value::Null, None) => String::new(),
+            (Value::Object(_), None) => format!(r#","usage":{usage}"#),
+            (Value::Object(fields), Some(token)) if !fields.is_empty() => {
+                let text = usage.to_string();
+                let open = &text[..text.len() - 1];
+                format!(r#","usage":{open},"cost":{token}}}"#)
+            }
+            other => panic!("unsupported usage {other:?} with cost {cost_token:?}"),
+        };
+        format!(
+            r#"{{"choices":[{{"finish_reason":"stop","index":0,"message":{{"content":"done"}}}}],"created":1790000000,"id":"chatcmpl-947","model":"{MODEL}","object":"chat.completion"{usage}}}"#
+        )
+    }
+
+    fn tokens_usage() -> Value {
+        json!({"prompt_tokens": 12, "completion_tokens": 3})
     }
 
     fn read_request(stream: &mut TcpStream) -> String {
@@ -1138,39 +1145,13 @@ mod billed_cost_telemetry_tests {
         model: &str,
         bodies: Vec<String>,
     ) -> (Vec<[String; 2]>, Vec<String>) {
-        let dir = tempfile::tempdir().expect("tempdir");
         let turns = bodies.len();
-        let server = Server::spawn(bodies);
-        let config = config_for(server.address, dir.path(), model);
-        let events_path = config.eval_events_path.clone().expect("events path");
-        let planner = matches!(path, Path947::Planner);
-        let mut client: Box<dyn ChatClient> = client_from_config(&config, planner).expect("client");
-        let (scope, native_tools_enabled) = match path {
-            Path947::Planner => (ProviderCallScope::PlannerStep, false),
-            Path947::Executor => (ProviderCallScope::Executor, true),
-        };
-        let messages = [ConversationMessage::user("Summarize notes.md.")];
-        for turn in 0..turns {
-            let outcome = provider_call::chat_with_cancel_and_stream(
-                client.as_mut(),
-                &config,
-                ProviderChatRequest {
-                    scope,
-                    model,
-                    messages: &messages,
-                    tools: &[],
-                    native_tools_enabled,
-                },
-                || false,
-                &mut |_chunk| Ok(()),
-            );
-            let reply = outcome
-                .result
-                .unwrap_or_else(|error| panic!("{path:?} turn {turn} failed: {error:#}"));
-            assert_eq!(reply.content, "done");
+        let (results, text, heads) = run_raw_turns(path, model, bodies);
+        for (turn, result) in results.into_iter().enumerate() {
+            let content =
+                result.unwrap_or_else(|error| panic!("{path:?} turn {turn} failed: {error}"));
+            assert_eq!(content, "done");
         }
-        let heads = server.finish();
-        let text = std::fs::read_to_string(&events_path).unwrap_or_default();
         let mut response = None;
         let mut pairs = Vec::new();
         for line in text.lines() {
@@ -1190,6 +1171,52 @@ mod billed_cost_telemetry_tests {
         assert!(response.is_none(), "response without a turn event: {text}");
         assert_eq!(pairs.len(), turns, "{text}");
         (pairs, heads)
+    }
+
+    /// One provider turn per body, returning each turn's reply content or
+    /// error text, the whole events file, and the request heads.
+    fn run_raw_turns(
+        path: Path947,
+        model: &str,
+        bodies: Vec<String>,
+    ) -> (Vec<Result<String, String>>, String, Vec<String>) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let turns = bodies.len();
+        let server = Server::spawn(bodies);
+        let config = config_for(server.address, dir.path(), model);
+        let events_path = config.eval_events_path.clone().expect("events path");
+        let planner = matches!(path, Path947::Planner);
+        let mut client: Box<dyn ChatClient> = client_from_config(&config, planner).expect("client");
+        let (scope, native_tools_enabled) = match path {
+            Path947::Planner => (ProviderCallScope::PlannerStep, false),
+            Path947::Executor => (ProviderCallScope::Executor, true),
+        };
+        let messages = [ConversationMessage::user("Summarize notes.md.")];
+        let mut results = Vec::new();
+        for _ in 0..turns {
+            let outcome = provider_call::chat_with_cancel_and_stream(
+                client.as_mut(),
+                &config,
+                ProviderChatRequest {
+                    scope,
+                    model,
+                    messages: &messages,
+                    tools: &[],
+                    native_tools_enabled,
+                },
+                || false,
+                &mut |_chunk| Ok(()),
+            );
+            results.push(
+                outcome
+                    .result
+                    .map(|reply| reply.content)
+                    .map_err(|error| format!("{error:#}")),
+            );
+        }
+        let heads = server.finish();
+        let text = std::fs::read_to_string(&events_path).unwrap_or_default();
+        (results, text, heads)
     }
 
     const FIELD: &str = "provider_billed_cost_usd";
@@ -1224,10 +1251,11 @@ mod billed_cost_telemetry_tests {
     fn every_case_reaches_both_events_of_the_turn_on_planner_and_executor_paths() {
         let corpus = corpus();
         assert_eq!(corpus["event_field"], FIELD);
+        assert_eq!(corpus["event_type"], "string");
         let cases = corpus["cases"].as_array().unwrap();
         let bodies = cases
             .iter()
-            .map(|case| response_body(&case["usage"]))
+            .map(|case| response_body(&case["usage"], case["cost_token"].as_str()))
             .collect::<Vec<_>>();
         let mut reported = 0;
         for path in [Path947::Executor, Path947::Planner] {
@@ -1236,28 +1264,31 @@ mod billed_cost_telemetry_tests {
             let base = &corpus["base_events"][path.key()];
             for (case, pair) in cases.iter().zip(&pairs) {
                 let id = case["id"].as_str().unwrap();
-                let expected = &case["expected_provider_billed_cost_usd"];
+                let expected = case["expected_provider_billed_cost_usd"].as_str();
                 for (index, line) in pair.iter().enumerate() {
                     let label = format!("{path:?} {id} event {index}");
                     let line = normalize(line);
                     let base_line = base[id][index]
                         .as_str()
                         .unwrap_or_else(|| panic!("{label}: no base line"));
-                    let event: Value = serde_json::from_str(&line).unwrap();
-                    if expected.is_null() {
-                        assert!(event.get(FIELD).is_none(), "{label}: {line}");
-                        assert_eq!(
-                            line, base_line,
-                            "{label}: an unreported amount changes no byte"
-                        );
-                    } else {
-                        assert_eq!(&event[FIELD], expected, "{label}: {line}");
-                        let sent = case["usage"]["cost"].to_string();
-                        assert_eq!(
-                            without_field(&line, &sent).as_deref(),
-                            Some(base_line),
-                            "{label}: the amount is the only addition: {line}"
-                        );
+                    match expected {
+                        None => {
+                            assert!(!line.contains(FIELD), "{label}: {line}");
+                            assert_eq!(
+                                line, base_line,
+                                "{label}: an unreported amount changes no byte"
+                            );
+                        }
+                        Some(expected) => {
+                            // The raw member, compared as text: a JSON string
+                            // holding exactly the decimal text sent.
+                            let member = format!("\"{expected}\"");
+                            assert_eq!(
+                                without_field(&line, &member).as_deref(),
+                                Some(base_line),
+                                "{label}: the amount is the only addition: {line}"
+                            );
+                        }
                     }
                 }
                 let response: Value = serde_json::from_str(&pair[0]).unwrap();
@@ -1268,30 +1299,93 @@ mod billed_cost_telemetry_tests {
                 }
             }
         }
-        assert_eq!(reported, 6, "three reported cases on each of two paths");
+        assert_eq!(reported, 10, "five reported cases on each of two paths");
+    }
+
+    #[test]
+    fn raw_amounts_reach_both_events_as_the_decimal_text_sent() {
+        let cases: [(&str, Option<&str>); 14] = [
+            ("1e-400", Some("1e-400")),
+            ("1.00000000000000001", Some("1.00000000000000001")),
+            (
+                "0.123456789012345678901234567890",
+                Some("0.123456789012345678901234567890"),
+            ),
+            ("0", Some("0")),
+            ("0.0", Some("0.0")),
+            ("0e5", Some("0e5")),
+            ("9007199254740991", Some("9007199254740991")),
+            ("9.007199254740991e15", Some("9.007199254740991e15")),
+            ("-0", None),
+            ("-0.0", None),
+            ("-1e-400", None),
+            ("9007199254740992", None),
+            ("9.007199254740992e15", None),
+            ("9007199254740991.000000000000000001", None),
+        ];
+        let bodies = cases
+            .iter()
+            .map(|(sent, _)| response_body(&tokens_usage(), Some(sent)))
+            .collect::<Vec<_>>();
+        for path in [Path947::Executor, Path947::Planner] {
+            let (pairs, heads) = run_turns(path, "compatible-model-947-raw", bodies.clone());
+            assert_no_credential_sent(&heads, cases.len());
+            for ((sent, expected), pair) in cases.iter().zip(&pairs) {
+                for line in pair {
+                    match expected {
+                        Some(expected) => assert_eq!(
+                            line.matches(&format!("\"{FIELD}\":\"{expected}\"")).count(),
+                            1,
+                            "{path:?} {sent}: {line}"
+                        ),
+                        None => assert!(!line.contains(FIELD), "{path:?} {sent}: {line}"),
+                    }
+                    assert_eq!(line.matches(FIELD).count(), usize::from(expected.is_some()));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_number_beyond_f64_fails_the_whole_response_as_at_base() {
+        for path in [Path947::Executor, Path947::Planner] {
+            let (results, text, _) = run_raw_turns(
+                path,
+                "compatible-model-947-beyond",
+                vec![response_body(&tokens_usage(), Some("1e400"))],
+            );
+            let error = results[0]
+                .as_ref()
+                .expect_err("the whole response fails to parse, as at base");
+            assert!(error.contains("out of range"), "{path:?}: {error}");
+            assert!(!text.contains(FIELD), "{path:?}: {text}");
+            assert!(
+                !text.contains("\"event\":\"provider_response\""),
+                "{path:?}: {text}"
+            );
+        }
     }
 
     #[test]
     fn one_turn_keeps_the_reported_amount_once_without_rounding() {
-        let usage = json!({"prompt_tokens": 12, "completion_tokens": 3, "cost": 0.012345});
         for path in [Path947::Executor, Path947::Planner] {
             let (pairs, heads) = run_turns(
                 path,
                 "compatible-model-947-once",
-                vec![response_body(&usage)],
+                vec![response_body(&tokens_usage(), Some("0.012345"))],
             );
             assert_no_credential_sent(&heads, 1);
             let [response, turn] = &pairs[0];
             for line in [response, turn] {
                 assert_eq!(
-                    line.matches(&format!("\"{FIELD}\":0.012345")).count(),
+                    line.matches(&format!("\"{FIELD}\":\"0.012345\"")).count(),
                     1,
                     "{path:?}: {line}"
                 );
                 assert_eq!(line.matches(FIELD).count(), 1, "{path:?}: {line}");
             }
             let turn: Value = serde_json::from_str(turn).unwrap();
-            assert_eq!(turn[FIELD].as_f64(), Some(0.012345), "{path:?}");
+            assert_eq!(turn[FIELD].as_str(), Some("0.012345"), "{path:?}");
             assert_eq!(turn["prompt_eval_count"], 12, "{path:?}");
             assert_eq!(turn["eval_count"], 3, "{path:?}");
             let expected_scope = match path {
@@ -1304,16 +1398,14 @@ mod billed_cost_telemetry_tests {
 
     #[test]
     fn a_reported_turn_does_not_carry_its_amount_into_the_next_turn() {
-        let reported = json!({"prompt_tokens": 12, "completion_tokens": 3, "cost": 0.012345});
-        let unreported = json!({"prompt_tokens": 12, "completion_tokens": 3});
         for path in [Path947::Executor, Path947::Planner] {
             let (pairs, _) = run_turns(
                 path,
                 "compatible-model-947-carry",
                 vec![
-                    response_body(&reported),
-                    response_body(&unreported),
-                    response_body(&Value::Null),
+                    response_body(&tokens_usage(), Some("0.012345")),
+                    response_body(&tokens_usage(), None),
+                    response_body(&Value::Null, None),
                 ],
             );
             let fields = pairs
@@ -1324,8 +1416,8 @@ mod billed_cost_telemetry_tests {
             assert_eq!(
                 fields,
                 vec![
-                    json!(0.012345),
-                    json!(0.012345),
+                    json!("0.012345"),
+                    json!("0.012345"),
                     Value::Null,
                     Value::Null,
                     Value::Null,
@@ -1370,6 +1462,18 @@ mod billed_cost_telemetry_tests {
             corpus["base_events"]["captured_at"], manifest["base_sha"],
             "the golden events come from the base commit"
         );
+        // The base commit never reads usage.cost, so a case that differs from
+        // synthetic-cost-absent only in its cost token has the same base lines.
+        for copied in corpus["base_events"]["copied_from_absent"]
+            .as_array()
+            .unwrap()
+        {
+            let id = copied.as_str().unwrap();
+            for path in ["executor", "planner"] {
+                let base = &corpus["base_events"][path];
+                assert_eq!(base[id], base["synthetic-cost-absent"], "{path} {id}");
+            }
+        }
         for case in corpus["cases"].as_array().unwrap() {
             let id = case["id"].as_str().unwrap();
             assert!(id.starts_with("synthetic-"), "{id}");

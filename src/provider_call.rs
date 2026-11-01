@@ -1182,15 +1182,13 @@ fn emit_provider_turn_duration(config: &Config, telemetry: ProviderTurnTelemetry
             value["provider_total_tokens"] = json!(metadata.total_tokens);
         }
         // Issue #947: the provider-reported billed amount, additive and only
-        // when reported. The same turn's provider_response repeats it, so an
+        // when reported, as a JSON string of the decimal text the provider
+        // sent (e.g. "0.012345"); an aggregator reads it as a decimal, never
+        // a float. The same turn's provider_response repeats it, so an
         // aggregator counts it once per turn from this event and never adds
         // the two. It is never a price computed from token counts.
-        if let Some(cost) = metadata
-            .billed_cost_usd
-            .as_ref()
-            .and_then(crate::providers::BilledCostUsd::to_json)
-        {
-            value["provider_billed_cost_usd"] = cost;
+        if let Some(cost) = &metadata.billed_cost_usd {
+            value["provider_billed_cost_usd"] = cost.to_event_value();
         }
     }
     eval_events::emit(config.eval_events_path.as_deref(), value);
