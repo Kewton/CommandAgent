@@ -41,6 +41,18 @@ fixtures/events.json = [
   "\"id\": \"unbound-cat-then-write-1\"",
   "\"id\": \"fifo-1\"",
   "\"id\": \"direct-cat-1\"",
+  "\"id\": \"write-then-write-back-1\"",
+  "\"id\": \"count-127-1\"",
+  "\"id\": \"count-128-1\"",
+  "\"id\": \"count-129-1\"",
+  "\"id\": \"file-1048575-1\"",
+  "\"id\": \"file-1048576-1\"",
+  "\"id\": \"file-1048577-1\"",
+  "\"id\": \"set-8388607-1\"",
+  "\"id\": \"set-8388608-1\"",
+  "\"id\": \"set-8388609-1\"",
+  "\"target_hash\": \"unknown:too_many_targets\"",
+  "\"target_hash\": \"unknown:over_limit\"",
   "\"blocked:final_repair_artifact_unchanged\""
 ]
 

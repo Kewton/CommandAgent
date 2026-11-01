@@ -5,7 +5,8 @@
 //! - Binding. The obligation exists only when the host bound repair targets
 //!   to this session: the final-acceptance repair loop binds the names of the
 //!   failed artifact-check receipts to its escalation carryover just before
-//!   the session, and the session takes them once when it starts. The step
+//!   the session, and the session takes them once when it starts (the
+//!   carryover wrapper discards an untaken binding on every exit). The step
 //!   must also be a plan-run Implement step with the host mutation flag and
 //!   no Recovery obligation (Issue #465 keeps its own proof). Options alone,
 //!   a carryover alone, the prompt, the profile, the intent, the model, or
@@ -20,27 +21,47 @@
 //!   turn of the existing loop, so its iteration, stagnation, wall-clock, and
 //!   provider limits end a session that keeps reading as a non-success. A
 //!   raw-byte change of a bound target, by any tool (a Bash edit included),
-//!   hands the candidate back to the existing checks. A Write or Edit hands it
-//!   back too, whatever it wrote: the repair loop's raw-byte snapshot already
-//!   turns a same-bytes or unrelated write into `no_source_change`, and
-//!   holding the session would spend a provider call the bounded repair does
-//!   not have. Neither hand-back is a pass: the same host check decides.
+//!   hands the candidate back to the existing checks. A successful Write or
+//!   Edit hands it back too, whatever it wrote, so the bounded repair spends
+//!   no provider call it does not have. Neither hand-back is a pass. The
+//!   repair loop then compares its own raw-byte snapshot, whose candidates
+//!   are not this binding: no change there (a same-bytes rewrite, a change
+//!   undone, a write outside it) ends the attempt as `no_source_change`; a
+//!   change there reruns the full host final acceptance, and an invalid bound
+//!   artifact that is still invalid keeps its receipt failed.
+//! - Identity. A target and a step path are the same file when their
+//!   lexical components are: repeated separators and `.` components are
+//!   dropped, so `contract//terms.json`, `./contract/terms.json`, and
+//!   `contract/terms.json` are one target and every reading of it goes
+//!   through this reader. Names are never trimmed, `\` is never turned into
+//!   `/`, and symlinks are never resolved, so no other file is taken for a
+//!   target. A name with a `..`, root, or prefix component is an escape and
+//!   matches only its own spelling. The original spelling is what callers
+//!   show.
 //! - Limits and guards. At most [`MAX_TARGETS`] targets; each adopted content
 //!   at most [`MAX_FILE_BYTES`], the set at most [`MAX_TOTAL_BYTES`]. One set
 //!   read reads at most one probe byte more per file, so at most
 //!   1,048,577 bytes per file and 8,388,736 for the set. Only a workspace
 //!   regular file is read: an escape, a credential path, any symlink (inside
 //!   the workspace too, and on a parent), and a special file are refused
-//!   before any open, and the open neither follows a link nor blocks, so a
-//!   FIFO returns at once. A file replaced, grown, or changed while it is read
-//!   is unknown. An unknown fingerprint never equals anything, so it never
+//!   before any open. The open walks every parent from a directory fd with
+//!   `O_DIRECTORY | O_NOFOLLOW` and opens the leaf from its parent fd with
+//!   `O_NOFOLLOW | O_NONBLOCK` (`tools::dir_fd::open_read_file`), so a parent
+//!   swapped for a symlink is refused and a FIFO returns at once.
+//! - Replacement. The identity of a read is the `(st_dev, st_ino)` of the
+//!   opened fd. It must equal the `lstat` of the leaf taken before the open,
+//!   and a second fd walk after the read must reach the same identity; the
+//!   fd's length must equal the bytes read and its length and mtime must not
+//!   change during the read. Otherwise the target is unknown (`replaced`,
+//!   `changed_during_read`). A platform without that fd walk reads nothing
+//!   and is unknown (`unsupported_platform`).
+//! - Unknown. An unknown fingerprint never equals anything, so it never
 //!   counts as a change; a binding over the target limit is unbindable and is
 //!   held. Only digests and fixed reason words are kept; no content leaves
 //!   this module except the placeholder check of the same bounded read.
 
-use std::fs::File;
-use std::io::{ErrorKind, Read};
-use std::path::{Component, Path};
+use std::io::ErrorKind;
+use std::path::{Component, Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
@@ -97,12 +118,49 @@ pub(crate) struct SetRead {
     pub(crate) bytes_read: u64,
 }
 
+/// The lexical identity of a workspace-relative name: its normal components,
+/// with repeated separators and `.` components dropped. `None` for an empty
+/// name or one with a `..`, root, or prefix component.
+pub(crate) fn identity(name: &str) -> Option<PathBuf> {
+    let mut out = PathBuf::new();
+    for component in Path::new(name).components() {
+        match component {
+            Component::Normal(part) => out.push(part),
+            Component::CurDir => {}
+            _ => return None,
+        }
+    }
+    (!out.as_os_str().is_empty()).then_some(out)
+}
+
+/// A bound name and its identity.
+#[derive(Debug)]
+struct Name {
+    spelling: String,
+    identity: Option<PathBuf>,
+}
+
+impl Name {
+    fn new(spelling: String) -> Self {
+        let identity = identity(&spelling);
+        Self { spelling, identity }
+    }
+
+    /// Whether `path` names the same target.
+    fn names(&self, path: &str) -> bool {
+        match (&self.identity, identity(path)) {
+            (Some(own), Some(other)) => *own == other,
+            _ => self.spelling == path,
+        }
+    }
+}
+
 #[derive(Debug)]
 enum State {
     Inactive,
     /// The binding is refused as a whole; its names are never read.
-    Unbindable(&'static str, Vec<String>),
-    Bound(Vec<(String, Fingerprint)>),
+    Unbindable(&'static str, Vec<Name>),
+    Bound(Vec<(Name, Fingerprint)>),
 }
 
 const TOO_MANY_TARGETS: Fingerprint = Fingerprint::Unknown("too_many_targets");
@@ -140,7 +198,8 @@ fn eligible(options: &RunSessionOptions) -> bool {
 
 impl RepairArtifactCompletion {
     /// Takes the host binding of this session, if any, and records the
-    /// initial fingerprints of its targets. Reads nothing without a binding.
+    /// initial fingerprints of its targets. Reads nothing without a binding
+    /// or when the session is not eligible; the binding is taken either way.
     pub(crate) fn capture(root: &Path, options: &RunSessionOptions) -> Self {
         let Some(bound) = options
             .escalation_carryover
@@ -152,10 +211,11 @@ impl RepairArtifactCompletion {
         if !eligible(options) {
             return Self::default();
         }
-        let mut targets: Vec<String> = Vec::new();
-        for path in bound {
-            if !targets.contains(&path) {
-                targets.push(path);
+        let mut targets: Vec<Name> = Vec::new();
+        for spelling in bound {
+            let name = Name::new(spelling);
+            if !targets.iter().any(|target| target.names(&name.spelling)) {
+                targets.push(name);
             }
         }
         if targets.len() > MAX_TARGETS {
@@ -163,13 +223,16 @@ impl RepairArtifactCompletion {
                 state: State::Unbindable("too_many_targets", targets),
             };
         }
-        let read = read_set(root, &targets, false);
+        let spellings = targets
+            .iter()
+            .map(|target| target.spelling.clone())
+            .collect::<Vec<_>>();
+        let read = read_set(root, &spellings, false);
         Self {
             state: State::Bound(
                 targets
                     .into_iter()
-                    .zip(read.items)
-                    .map(|(path, item)| (path, item.fingerprint))
+                    .zip(read.items.into_iter().map(|item| item.fingerprint))
                     .collect(),
             ),
         }
@@ -180,17 +243,17 @@ impl RepairArtifactCompletion {
         !matches!(self.state, State::Inactive)
     }
 
-    /// The initial fingerprint of a bound target; `None` when `path` is not
-    /// bound (the caller keeps its own reading for it).
+    /// The initial fingerprint of the bound target `path` names; `None` when
+    /// it names none (the caller keeps its own reading for it).
     pub(crate) fn initial(&self, path: &str) -> Option<&Fingerprint> {
         match &self.state {
             State::Bound(targets) => targets
                 .iter()
-                .find(|(target, _)| target == path)
+                .find(|(target, _)| target.names(path))
                 .map(|(_, fingerprint)| fingerprint),
             State::Unbindable(_, names) => names
                 .iter()
-                .any(|name| name == path)
+                .any(|name| name.names(path))
                 .then_some(&TOO_MANY_TARGETS),
             State::Inactive => None,
         }
@@ -214,17 +277,20 @@ impl RepairArtifactCompletion {
         }
         match &self.state {
             State::Inactive => None,
-            State::Unbindable(reason, _) => Some(Held {
+            State::Unbindable(reason, names) => Some(Held {
                 feedback: format!(
                     "Final repair is incomplete: the host repair binding is unavailable ({reason}), so no change to the failing artifact can be confirmed. Reading or re-running a check does not repair it."
                 ),
-                targets: 0,
+                targets: names.len(),
                 unchanged: 0,
                 absent: 0,
-                unknown: 0,
+                unknown: names.len(),
             }),
             State::Bound(targets) => {
-                let paths = targets.iter().map(|(p, _)| p.clone()).collect::<Vec<_>>();
+                let paths = targets
+                    .iter()
+                    .map(|(name, _)| name.spelling.clone())
+                    .collect::<Vec<_>>();
                 let now = read_set(root, &paths, false);
                 let mut held = Held {
                     feedback: String::new(),
@@ -234,7 +300,7 @@ impl RepairArtifactCompletion {
                     unknown: 0,
                 };
                 let mut named = Vec::new();
-                for ((path, before), after) in targets.iter().zip(&now.items) {
+                for ((name, before), after) in targets.iter().zip(&now.items) {
                     if after.fingerprint.changed_from(before) {
                         return None;
                     }
@@ -244,7 +310,7 @@ impl RepairArtifactCompletion {
                         Fingerprint::Digest(_) => held.unchanged += 1,
                     }
                     if after.fingerprint != Fingerprint::Unknown("sensitive") {
-                        named.push(path.as_str());
+                        named.push(name.spelling.as_str());
                     }
                 }
                 held.feedback = format!(
@@ -286,55 +352,26 @@ fn unknown(reason: &'static str) -> TargetRead {
 }
 
 /// One target, reading at most `cap + 1` bytes; returns the bytes read.
-fn read_one(root: &Path, rel: &str, cap: u64, keep: bool) -> (TargetRead, u64) {
-    let file = match open_regular(root, rel) {
-        Ok(Some(file)) => file,
+fn read_one(root: &Path, name: &str, cap: u64, keep: bool) -> (TargetRead, u64) {
+    let Some(relative) = identity(name) else {
+        return (unknown("escape"), 0);
+    };
+    match classify(root, &relative) {
+        Ok(Some(leaf)) => read_regular(root, &relative, &leaf, cap, keep),
         Ok(None) => {
             let absent = TargetRead {
                 fingerprint: Fingerprint::Absent,
                 bytes: None,
             };
-            return (absent, 0);
+            (absent, 0)
         }
-        Err(reason) => return (unknown(reason), 0),
-    };
-    let Ok(before) = file.metadata() else {
-        return (unknown("unreadable"), 0);
-    };
-    let mut bytes = Vec::new();
-    if (&file).take(cap + 1).read_to_end(&mut bytes).is_err() {
-        let read = bytes.len() as u64;
-        return (unknown("unreadable"), read);
+        Err(reason) => (unknown(reason), 0),
     }
-    let read = bytes.len() as u64;
-    if read > cap {
-        return (unknown("over_limit"), read);
-    }
-    let stable = file
-        .metadata()
-        .is_ok_and(|after| after.len() == read && after.modified().ok() == before.modified().ok());
-    if !stable {
-        return (unknown("changed_during_read"), read);
-    }
-    let digest: [u8; 32] = Sha256::digest(&bytes).into();
-    let item = TargetRead {
-        fingerprint: Fingerprint::Digest(digest),
-        bytes: keep.then_some(bytes),
-    };
-    (item, read)
 }
 
-/// `Ok(None)` is an absent target. Every escape, credential path, symlink,
-/// and special file is refused before any open.
-fn open_regular(root: &Path, rel: &str) -> Result<Option<File>, &'static str> {
-    let relative = Path::new(rel);
-    if rel.is_empty()
-        || relative
-            .components()
-            .any(|component| !matches!(component, Component::Normal(_)))
-    {
-        return Err("escape");
-    }
+/// The `lstat` of the leaf, before any open: `Ok(None)` is an absent target,
+/// and every credential path, escape, symlink, and special file is refused.
+fn classify(root: &Path, relative: &Path) -> Result<Option<std::fs::Metadata>, &'static str> {
     match sensitive_skip(root, &root.join(relative)) {
         Some(SkippedPath::Credential) => return Err("sensitive"),
         Some(SkippedPath::Outside) => return Err("escape"),
@@ -342,7 +379,6 @@ fn open_regular(root: &Path, rel: &str) -> Result<Option<File>, &'static str> {
     }
     let mut cursor = root.to_path_buf();
     let count = relative.components().count();
-    let mut leaf = None;
     for (index, component) in relative.components().enumerate() {
         cursor.push(component);
         let meta = match std::fs::symlink_metadata(&cursor) {
@@ -358,41 +394,76 @@ fn open_regular(root: &Path, rel: &str) -> Result<Option<File>, &'static str> {
                 return Ok(None);
             }
         } else if meta.file_type().is_file() {
-            leaf = Some(meta);
+            return Ok(Some(meta));
         } else {
             return Err("special_file");
         }
     }
-    let leaf = leaf.ok_or("escape")?;
-    let file = open_no_follow(&cursor).map_err(|_| "unreadable")?;
-    let opened = file.metadata().map_err(|_| "unreadable")?;
-    if !opened.file_type().is_file() || !same_file(&leaf, &opened) {
-        return Err("replaced");
-    }
-    Ok(Some(file))
+    Err("escape")
 }
 
 #[cfg(unix)]
-fn open_no_follow(path: &Path) -> std::io::Result<File> {
-    use std::os::unix::fs::OpenOptionsExt;
-    std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(path)
-}
-
-#[cfg(not(unix))]
-fn open_no_follow(path: &Path) -> std::io::Result<File> {
-    File::open(path)
-}
-
-#[cfg(unix)]
-fn same_file(before: &std::fs::Metadata, opened: &std::fs::Metadata) -> bool {
+fn read_regular(
+    root: &Path,
+    relative: &Path,
+    leaf: &std::fs::Metadata,
+    cap: u64,
+    keep: bool,
+) -> (TargetRead, u64) {
+    use std::io::Read as _;
     use std::os::unix::fs::MetadataExt;
-    before.dev() == opened.dev() && before.ino() == opened.ino()
+    let same =
+        |a: &std::fs::Metadata, b: &std::fs::Metadata| a.dev() == b.dev() && a.ino() == b.ino();
+    let Ok(file) = crate::tools::dir_fd::open_read_file(root, relative) else {
+        return (unknown("replaced"), 0);
+    };
+    let Ok(before) = file.metadata() else {
+        return (unknown("unreadable"), 0);
+    };
+    if !before.is_file() || !same(leaf, &before) {
+        return (unknown("replaced"), 0);
+    }
+    #[cfg(test)]
+    tests::read_seam(relative);
+    let mut bytes = Vec::new();
+    if (&file).take(cap + 1).read_to_end(&mut bytes).is_err() {
+        let read = bytes.len() as u64;
+        return (unknown("unreadable"), read);
+    }
+    let read = bytes.len() as u64;
+    if read > cap {
+        return (unknown("over_limit"), read);
+    }
+    let stable = file.metadata().is_ok_and(|after| {
+        before.len() == read
+            && after.len() == read
+            && after.modified().ok() == before.modified().ok()
+    });
+    if !stable {
+        return (unknown("changed_during_read"), read);
+    }
+    let still = crate::tools::dir_fd::open_read_file(root, relative)
+        .and_then(|again| Ok(again.metadata()?))
+        .is_ok_and(|again| same(&before, &again));
+    if !still {
+        return (unknown("replaced"), read);
+    }
+    let digest: [u8; 32] = Sha256::digest(&bytes).into();
+    let item = TargetRead {
+        fingerprint: Fingerprint::Digest(digest),
+        bytes: keep.then_some(bytes),
+    };
+    (item, read)
 }
 
+/// Without the Unix fd walk no read is safe enough to adopt.
 #[cfg(not(unix))]
-fn same_file(_: &std::fs::Metadata, _: &std::fs::Metadata) -> bool {
-    true
+fn read_regular(
+    _root: &Path,
+    _relative: &Path,
+    _leaf: &std::fs::Metadata,
+    _cap: u64,
+    _keep: bool,
+) -> (TargetRead, u64) {
+    (unknown("unsupported_platform"), 0)
 }

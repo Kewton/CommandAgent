@@ -37,11 +37,13 @@ impl ImplementationCompletion {
     }
 
     pub(super) fn capture(config: &Config, options: &RunSessionOptions, paths: &[String]) -> Self {
+        let root = &config.workspace_root;
+        // Taken first, so a session of another kind leaves no binding behind;
+        // it reads nothing unless the session is eligible.
+        let repair = RepairArtifactCompletion::capture(root, options);
         if options.step_kind != Some(RunSessionStepKind::Implement) {
             return Self::default();
         }
-        let root = &config.workspace_root;
-        let repair = RepairArtifactCompletion::capture(root, options);
         let initial_hashes = paths
             .iter()
             .map(|path| {

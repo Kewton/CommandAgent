@@ -5,9 +5,20 @@ end after a read-only Bash command, a passing inspection, or the mere presence
 of its paths. A failed `artifact_contract_check` receipt binds its request and
 inputs to the repair session that follows; that session holds a completion
 candidate (after a tool batch, a final answer without tools, or a contract
-short-circuit) until a bound artifact's raw bytes change or a Write/Edit hands
-the decision to the repair loop's raw-byte snapshot. The same check then
-reruns inside the existing bounded repair.
+short-circuit) until a bound artifact's raw bytes change or a successful
+Write/Edit hands the decision back. Neither is a pass. The repair loop then
+compares its own raw-byte snapshot, whose candidates are not the binding: no
+change there (a same-bytes rewrite, a Write and a Write back, a write it does
+not watch) ends the attempt as `no_source_change`; a change there reruns the
+full host final acceptance, where an invalid bound artifact that is still
+invalid keeps its receipt failed.
+
+The bound-set limits are exercised at this public entry too: 127, 128, and
+129 bound names (four requests included), a target of 1,048,575, 1,048,576,
+and 1,048,577 bytes, and a bound set of 8,388,607, 8,388,608, and 8,388,609
+bytes. Over a limit the binding or the target is unknown, an edit of it is
+not a confirmed change, and the run ends as a non-success inside the
+existing iteration limit.
 
 ## Provenance
 
@@ -26,7 +37,8 @@ code, host path, or credential is stored here.
   reason `final_repair_artifact_unchanged` (reserved in
   `src/sensitive_data/fixed_identifiers.rs`) and the additive object
   `repair_binding` of target counts (`targets`, `unchanged`, `absent`,
-  `unknown`). It carries no file content.
+  `unknown`); the field and its keys are reserved there too. It carries no
+  file content.
 - The order a case proves is: repair start, the read or inspection
   (`tool:Bash:ok`), the held completion (`blocked:...`), the later Write, the
   same check (`receipt:...`), and the result.

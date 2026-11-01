@@ -52,6 +52,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "Read",
     "Write",
     "aborted",
+    "absent",
     "accounted_by",
     "accounting_record",
     "adapter",
@@ -310,6 +311,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "released",
     "remaining_iterations",
     "repair_applied",
+    "repair_binding",
     "repair_regeneration",
     "repair_start_write_guidance_queued",
     "repair_target_reclassified",
@@ -357,6 +359,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "successful_bash_since_latest_edit",
     "successful_write_count",
     "target",
+    "targets",
     "test_node_event",
     "time_profile",
     "tool",
@@ -398,6 +401,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "unavailable",
     "unchanged",
     "unconsumed",
+    "unknown",
     "unparseable",
     "unresolved",
     "unsettled",
@@ -850,5 +854,114 @@ mod budget_exhaustion_field_tests {
         assert_eq!(value["last_bash_after_last_write_succeeded"], json!(null));
         assert_eq!(value["write_failure_after_last_write"], false);
         assert_eq!(value["reason"], "model_stagnation:no_progress_recorded");
+    }
+}
+
+/// Issue #956: the held-completion reason, the additive `repair_binding`
+/// field, and its count keys are fixed identifiers, so a credential equal to
+/// one of them or to a fragment of one is refused at registration instead of
+/// turning a field name into a marker.
+#[cfg(test)]
+mod repair_binding_field_tests {
+    use serde_json::json;
+
+    use super::{FIXED_IDENTIFIERS, collides_with_fixed_identifier, is_fixed_identifier};
+    use crate::sensitive_data::{RegistrationRefusal, ReservedKind, SecretCatalog};
+
+    const NAMES: [&str; 6] = [
+        "final_repair_artifact_unchanged",
+        "repair_binding",
+        "targets",
+        "unchanged",
+        "absent",
+        "unknown",
+    ];
+
+    #[test]
+    fn each_name_is_reserved_once_in_name_order() {
+        for name in NAMES {
+            assert!(is_fixed_identifier(name), "{name}");
+            assert_eq!(
+                FIXED_IDENTIFIERS
+                    .iter()
+                    .filter(|fixed| **fixed == name)
+                    .count(),
+                1,
+                "{name}"
+            );
+            let at = FIXED_IDENTIFIERS
+                .iter()
+                .position(|fixed| *fixed == name)
+                .unwrap();
+            assert!(FIXED_IDENTIFIERS[at - 1] < name, "{name}");
+            assert!(name < FIXED_IDENTIFIERS[at + 1], "{name}");
+        }
+    }
+
+    #[test]
+    fn a_credential_equal_to_a_name_or_a_fragment_of_it_is_refused_unnamed() {
+        let fragments = [
+            "repair_bind",
+            "air_bindi",
+            "artifact_unch",
+            "arget",
+            "nknow",
+        ];
+        for value in NAMES.into_iter().chain(fragments) {
+            assert!(collides_with_fixed_identifier(value), "{value}");
+            let mut catalog = SecretCatalog::new();
+            if value.chars().count() < crate::sensitive_data::MIN_GENERIC_SECRET_LEN {
+                // Shorter than any credential: refused before the identifier check.
+                let error = catalog
+                    .register_credential("COMPAT_API_KEY", value)
+                    .unwrap_err();
+                assert_eq!(
+                    error,
+                    RegistrationRefusal::TooShort {
+                        name: "COMPAT_API_KEY".to_string()
+                    }
+                );
+                assert!(catalog.is_empty());
+                continue;
+            }
+            let error = catalog
+                .register_credential("COMPAT_API_KEY", value)
+                .unwrap_err();
+            assert_eq!(
+                error,
+                RegistrationRefusal::Reserved {
+                    name: "COMPAT_API_KEY".to_string(),
+                    kind: ReservedKind::FixedIdentifier,
+                }
+            );
+            assert!(catalog.is_empty());
+            for text in [error.to_string(), format!("{error:?}")] {
+                assert!(!text.contains(value), "the refusal names the value");
+            }
+        }
+    }
+
+    #[test]
+    fn a_normal_credential_leaves_the_event_keys_and_values_unchanged() {
+        let credential = "fake-credential-956-not-a-real-key";
+        let mut catalog = SecretCatalog::new();
+        catalog
+            .register_credential("COMPAT_API_KEY", credential)
+            .unwrap();
+        let mut value = json!({
+            "event": "step_completion_blocked",
+            "reason": "final_repair_artifact_unchanged",
+            "step_kind": "implement",
+            "phase_scope": format!("echo {credential}"),
+            "repair_binding": {"targets": 2, "unchanged": 1, "absent": 0, "unknown": 1},
+        });
+        catalog.scrub_value_lenient(&mut value);
+        assert!(!value.to_string().contains(credential), "{value}");
+        assert_eq!(value["reason"], "final_repair_artifact_unchanged");
+        assert_eq!(
+            value["repair_binding"],
+            json!({"targets": 2, "unchanged": 1, "absent": 0, "unknown": 1})
+        );
+        assert_eq!(value.as_object().unwrap().len(), 5, "{value}");
     }
 }

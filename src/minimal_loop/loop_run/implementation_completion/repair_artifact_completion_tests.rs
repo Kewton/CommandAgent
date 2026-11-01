@@ -2,7 +2,7 @@
 //! bounds, and the refusals of the host-bound final-repair obligation. Every
 //! file lives in a temporary directory; no provider, model, or network.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::path::Path;
 
 use clap::Parser;
@@ -16,6 +16,21 @@ use crate::minimal_loop::stagnation_carryover::{EscalationCarryoverHandle, attac
 thread_local! {
     /// Targets the bounded reader visited on this thread.
     pub(super) static TARGET_VISITS: Cell<usize> = const { Cell::new(0) };
+    /// A one-shot action run between the open of a target and its read.
+    static READ_SEAM: RefCell<Option<SeamAction>> = const { RefCell::new(None) };
+}
+
+type SeamAction = Box<dyn FnOnce(&Path)>;
+
+/// Called by the reader after it opened a target and before it reads it.
+pub(super) fn read_seam(relative: &Path) {
+    if let Some(action) = READ_SEAM.with(|seam| seam.borrow_mut().take()) {
+        action(relative);
+    }
+}
+
+fn on_read(action: impl FnOnce(&Path) + 'static) {
+    READ_SEAM.with(|seam| *seam.borrow_mut() = Some(Box::new(action)));
 }
 
 fn visits() -> usize {
@@ -406,7 +421,7 @@ fn escapes_credentials_symlinks_and_special_files_are_refused_unread() {
         ("../outside.json", "escape"),
         ("/etc/hosts", "escape"),
         ("", "escape"),
-        ("./contract/terms.json", "escape"),
+        ("contract/../contract/terms.json", "escape"),
         (".env", "sensitive"),
         ("inside-link.json", "symlink"),
         ("outside-link.json", "escape"),
@@ -534,4 +549,189 @@ fn a_refused_binding_never_falls_back_to_the_legacy_reader() {
         "unknown:too_many_targets"
     );
     assert_eq!(visits(), 0);
+}
+
+// --- identity (review B3) -------------------------------------------------------
+
+/// Repeated separators and `.` components name the same target; a trim, a
+/// backslash, or a `..` never does.
+#[test]
+fn spellings_of_one_lexical_path_name_the_same_target() {
+    for (a, b, same) in [
+        ("contract//terms.json", "contract/terms.json", true),
+        ("./contract/terms.json", "contract/terms.json", true),
+        ("contract/./terms.json", "contract/terms.json", true),
+        ("contract/terms.json ", "contract/terms.json", false),
+        ("contract\\terms.json", "contract/terms.json", false),
+        (
+            "contract/../contract/terms.json",
+            "contract/terms.json",
+            false,
+        ),
+    ] {
+        assert_eq!(
+            super::identity(a).is_some() && super::identity(a) == super::identity(b),
+            same,
+            "{a} / {b}"
+        );
+    }
+}
+
+/// A binding spelled `contract//terms.json` and a step path spelled
+/// `contract/terms.json` are one target: capture, hashes, the placeholder
+/// check, merge, and the event all use the bounded reader, so an oversized
+/// or FIFO target is never read whole or blocked on through the other
+/// spelling.
+#[cfg(unix)]
+#[test]
+fn another_spelling_of_a_bound_target_never_reaches_the_legacy_reader() {
+    let dir = workspace();
+    let root = dir.path();
+    let config = config(root);
+    let paths = vec![TARGET.to_string()];
+    for binding in ["contract//terms.json", "./contract/./terms.json"] {
+        write(root, TARGET, &vec![b'a'; 1_048_577]);
+        let options = final_repair(&[binding]);
+        reset_visits();
+        let implementation = ImplementationCompletion::capture(&config, &options, &paths);
+        assert_eq!(visits(), 1, "{binding}: capture");
+        let event = implementation.event(&config, &options, false);
+        let hash = &event["expected_path_hashes"][0];
+        assert_eq!(hash["path"], TARGET, "the step spelling is kept");
+        assert_eq!(hash["before_sha256"], "unknown:over_limit", "{binding}");
+        assert_eq!(hash["after_sha256"], "unknown:over_limit", "{binding}");
+        assert!(visits() > 1, "{binding}: event");
+        // An oversized target is unknown, never a change.
+        write(root, TARGET, &vec![b'b'; 1_048_577]);
+        assert!(implementation.feedback(&config, &options, false).is_some());
+        let mut changed = Vec::new();
+        implementation.merge_changes(root, &mut changed);
+        assert!(changed.is_empty(), "{binding}: {changed:?}");
+        // A FIFO under the other spelling returns at once.
+        std::fs::remove_file(root.join(TARGET)).unwrap();
+        let fifo = std::ffi::CString::new(root.join(TARGET).to_string_lossy().as_bytes()).unwrap();
+        // SAFETY: a valid NUL-terminated path inside the temporary directory.
+        assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+        let started = std::time::Instant::now();
+        assert!(implementation.feedback(&config, &options, false).is_some());
+        let event = implementation.event(&config, &options, false);
+        assert_eq!(
+            event["expected_path_hashes"][0]["after_sha256"],
+            "unknown:special_file"
+        );
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+        std::fs::remove_file(root.join(TARGET)).unwrap();
+    }
+}
+
+// --- replacement while reading (review B2) --------------------------------------
+
+/// A parent directory swapped for a symlink to outside the workspace after
+/// the `lstat` checks is refused by the fd walk: the outside bytes are never
+/// adopted.
+#[cfg(unix)]
+#[test]
+fn a_parent_swapped_for_an_outside_symlink_is_refused() {
+    let dir = workspace();
+    let root = dir.path().to_path_buf();
+    let outside = tempfile::tempdir().unwrap();
+    write(outside.path(), "terms.json", FIXED);
+    let outside_dir = outside.path().to_path_buf();
+    let swap_root = root.clone();
+    let mut swapped = false;
+    let _reset = crate::tools::dir_fd::test_hook::install(move |component| {
+        if !swapped && component.file_name().is_some_and(|name| name == "contract") {
+            swapped = true;
+            std::fs::rename(swap_root.join("contract"), swap_root.join("moved")).unwrap();
+            std::os::unix::fs::symlink(&outside_dir, swap_root.join("contract")).unwrap();
+        }
+    });
+    let read = super::read_set(&root, &[TARGET.to_string()], true);
+    assert_eq!(read.items[0].fingerprint, Fingerprint::Unknown("replaced"));
+    assert!(read.items[0].bytes.is_none());
+    assert_eq!(read.bytes_read, 0);
+}
+
+/// A leaf swapped for a symlink between the `lstat` and the open is refused.
+#[cfg(unix)]
+#[test]
+fn a_leaf_swapped_for_a_symlink_before_the_open_is_refused() {
+    let dir = workspace();
+    let root = dir.path().to_path_buf();
+    let outside = tempfile::tempdir().unwrap();
+    write(outside.path(), "terms.json", FIXED);
+    let outside_file = outside.path().join("terms.json");
+    let swap_root = root.clone();
+    let mut swapped = false;
+    let _reset = crate::tools::dir_fd::test_hook::install(move |component| {
+        if !swapped
+            && component
+                .file_name()
+                .is_some_and(|name| name == "terms.json")
+        {
+            swapped = true;
+            std::fs::remove_file(swap_root.join(TARGET)).unwrap();
+            std::os::unix::fs::symlink(&outside_file, swap_root.join(TARGET)).unwrap();
+        }
+    });
+    let read = super::read_set(&root, &[TARGET.to_string()], false);
+    assert_eq!(read.items[0].fingerprint, Fingerprint::Unknown("replaced"));
+    assert_eq!(read.bytes_read, 0);
+}
+
+/// A leaf replaced by another file while it is read is unknown: the second
+/// fd walk reaches another identity.
+#[cfg(unix)]
+#[test]
+fn a_leaf_replaced_while_it_is_read_is_unknown() {
+    let dir = workspace();
+    let root = dir.path().to_path_buf();
+    write(&root, "contract/next.json", FIXED);
+    let swap_root = root.clone();
+    on_read(move |_| {
+        std::fs::rename(swap_root.join("contract/next.json"), swap_root.join(TARGET)).unwrap();
+    });
+    let read = super::read_set(&root, &[TARGET.to_string()], false);
+    assert_eq!(read.items[0].fingerprint, Fingerprint::Unknown("replaced"));
+    // The same reader without a swap adopts the current bytes.
+    let read = super::read_set(&root, &[TARGET.to_string()], false);
+    assert!(matches!(read.items[0].fingerprint, Fingerprint::Digest(_)));
+}
+
+/// A leaf that grows after its open is unknown, and the read stops at the
+/// file bound plus one probe byte.
+#[cfg(unix)]
+#[test]
+fn a_leaf_that_grows_while_it_is_read_is_unknown() {
+    use std::io::Write as _;
+    let dir = workspace();
+    let root = dir.path().to_path_buf();
+    let grow_root = root.clone();
+    on_read(move |_| {
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(grow_root.join(TARGET))
+            .unwrap();
+        file.write_all(b"{\"more\": true}\n").unwrap();
+    });
+    let read = super::read_set(&root, &[TARGET.to_string()], false);
+    assert_eq!(
+        read.items[0].fingerprint,
+        Fingerprint::Unknown("changed_during_read")
+    );
+    let grow_root = root.clone();
+    write(&root, TARGET, &vec![b'a'; 1_048_000]);
+    on_read(move |_| {
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(grow_root.join(TARGET))
+            .unwrap();
+        file.write_all(&[b'b'; 4096]).unwrap();
+    });
+    let read = super::read_set(&root, &[TARGET.to_string()], false);
+    assert_eq!(
+        read.items[0].fingerprint,
+        Fingerprint::Unknown("over_limit")
+    );
+    assert_eq!(read.bytes_read, 1_048_577);
 }

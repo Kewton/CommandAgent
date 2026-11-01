@@ -277,6 +277,7 @@ pub(crate) fn run_final_acceptance_repair_with_carryover(
     ui: &dyn InteractionUi,
     carryover: EscalationCarryoverHandle,
 ) -> anyhow::Result<RunSessionOutcome> {
+    let _unbind = UnbindOnExit(carryover.clone());
     run_session_with_outcome_with_options(
         execution,
         ultra_session,
@@ -286,6 +287,18 @@ pub(crate) fn run_final_acceptance_repair_with_carryover(
         ui,
         attach_to_options(RunSessionOptions::final_acceptance_repair(), carryover),
     )
+}
+
+/// Issue #956: discards a binding the session never took (an error before
+/// its capture, or a panic), so no later session of the handle inherits it.
+struct UnbindOnExit(EscalationCarryoverHandle);
+
+impl Drop for UnbindOnExit {
+    fn drop(&mut self) {
+        if let Ok(mut state) = self.0.state.lock() {
+            state.repair_targets = None;
+        }
+    }
 }
 
 fn strongest(
@@ -743,5 +756,64 @@ mod tests {
                     && message.content.contains("target.txt")
             })
         }));
+    }
+
+    /// Issue #956 (N1): a session that fails before it takes its binding
+    /// leaves none on the handle, so a later session of the same handle is
+    /// not bound by it.
+    #[test]
+    fn a_session_failing_before_its_capture_leaves_no_binding() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("target.txt"), "old\n").unwrap();
+        std::fs::write(dir.path().join("contract.json"), "not json").unwrap();
+        let mut cfg = config(dir.path().to_path_buf());
+        cfg.completion_contract_path = Some(dir.path().join("contract.json"));
+        let carryover = EscalationCarryoverHandle::new();
+        carryover.bind_repair_targets(&["target.txt".to_string()]);
+        let mut client = RecordingFake::new(Vec::new());
+        let result = run_final_acceptance_repair_with_carryover(
+            &mut client,
+            &mut SessionSnapshot::new(),
+            "Repair target.txt",
+            &["target.txt".to_string()],
+            &cfg,
+            &NOOP_UI,
+            carryover.clone(),
+        );
+        assert!(result.is_err());
+        assert!(client.requests().is_empty(), "failed before any request");
+        assert_eq!(carryover.take_repair_targets(), None);
+    }
+
+    /// Issue #956 (N1): a session that is not eligible (here a Verify step)
+    /// takes the binding too, and it never reaches the next session.
+    #[test]
+    fn a_session_that_is_not_eligible_still_consumes_the_binding() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("target.txt"), "old\n").unwrap();
+        let cfg = config(dir.path().to_path_buf());
+        let carryover = EscalationCarryoverHandle::new();
+        carryover.bind_repair_targets(&["target.txt".to_string()]);
+        let mut client = RecordingFake::new(vec![
+            Ok(read_reply("target.txt")),
+            Ok(AssistantReply::text("target.txt says old.".to_string())),
+            Err(anyhow::anyhow!("no more replies")),
+            Err(anyhow::anyhow!("no more replies")),
+            Err(anyhow::anyhow!("no more replies")),
+            Err(anyhow::anyhow!("no more replies")),
+        ]);
+        let _ = run_session_with_outcome_with_options(
+            &mut client,
+            &mut SessionSnapshot::new(),
+            "Inspect target.txt",
+            &["target.txt".to_string()],
+            &cfg,
+            &NOOP_UI,
+            attach_to_options(
+                RunSessionOptions::plan_step(RunSessionStepKind::Verify),
+                carryover.clone(),
+            ),
+        );
+        assert_eq!(carryover.take_repair_targets(), None);
     }
 }
