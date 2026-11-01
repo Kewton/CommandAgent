@@ -687,8 +687,16 @@ where
         native_tools_enabled: bool,
     ) -> anyhow::Result<AssistantReply> {
         self.dispatched.store(true, Ordering::SeqCst);
-        self.inner
-            .chat(model, messages, tools, native_tools_enabled)
+        // Called only from inside the provider call, which handed this client
+        // over; the forwarding form matches the other wrappers
+        // (`src/planner/pipeline.rs`).
+        ChatClient::chat(
+            &mut *self.inner,
+            model,
+            messages,
+            tools,
+            native_tools_enabled,
+        )
     }
 }
 

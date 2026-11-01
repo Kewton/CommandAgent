@@ -10,7 +10,9 @@
 
 use std::cell::Cell;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::Duration;
 
 use clap::Parser;
 use commandagent::cli::Cli;
@@ -19,6 +21,7 @@ use commandagent::config::{
     PromptLayout, Provider,
 };
 use commandagent::minimal_loop::loop_run::{RunStopReason, run_session_with_outcome_with_ui};
+use commandagent::providers::streaming::CancelToken;
 use commandagent::providers::{AssistantReply, ChatClient};
 use commandagent::state::{ConversationMessage, SessionSnapshot, ToolCall};
 use commandagent::tools::registry::ToolSpec;
@@ -40,6 +43,23 @@ const DEFERRAL_MARKER: &str = "失敗した確認または書込みが残って�
 const EDIT_PROMPT: &str = "Write the notes file and check it with shell commands.";
 const QUESTION_PROMPT: &str = "Report what the shell says about the notes file.";
 const NUM_PREDICT: usize = 100;
+
+/// The event numbers the digest does not compare, by exact key: wall-clock
+/// values (`occurred_at_epoch_ms`, `duration_ms`, `elapsed_ms`), the
+/// provider-turn prompt size estimate, which counts the system prompt that
+/// names the temporary root and so changes with the root's length (it
+/// differs between runs and platforms), and the stable-prefix estimate,
+/// which is measured against the previous request kept in a process-wide
+/// cache and so depends on the tests that ran before in the same binary.
+/// The prompt size is checked separately: every provider turn must report a
+/// positive value ([`assert_size_estimates_reported`]).
+const NORMALIZED_NUMBER_FIELDS: [&str; 5] = [
+    "occurred_at_epoch_ms",
+    "duration_ms",
+    "elapsed_ms",
+    "estimated_prompt_tokens_sent",
+    "estimated_stable_prefix_chars",
+];
 
 /// Every env mutation in this binary happens while this lock is held.
 static ENV_LOCK: Mutex<()> = Mutex::new(());
@@ -66,6 +86,11 @@ struct ScriptedClient {
     native: bool,
     replies: Arc<Mutex<Vec<AssistantReply>>>,
     requests: Arc<Mutex<Vec<Vec<ConversationMessage>>>>,
+    /// When set, a request carrying the notice raises this flag (the UI then
+    /// reports an interrupt) and the call waits until the provider call
+    /// cancels it, so the request is interrupted after it reached the client.
+    abort_on_notice: Option<Arc<AtomicBool>>,
+    cancel: Option<CancelToken>,
 }
 
 impl ChatClient for ScriptedClient {
@@ -89,11 +114,31 @@ impl ChatClient for ScriptedClient {
         _native_tools_enabled: bool,
     ) -> anyhow::Result<AssistantReply> {
         self.requests.lock().unwrap().push(messages.to_vec());
+        if let Some(flag) = &self.abort_on_notice
+            && messages
+                .iter()
+                .any(|message| message.content.contains(NOTICE_MARKER))
+        {
+            flag.store(true, Ordering::SeqCst);
+            // Wait for the provider call to give up on this request; it
+            // cancels the token on every exit. The bound only keeps a broken
+            // run from hanging the test.
+            let token = self.cancel.clone().expect("the provider call sets a token");
+            let started = std::time::Instant::now();
+            while !token.is_cancelled() && started.elapsed() < Duration::from_secs(60) {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            anyhow::bail!("scripted request interrupted");
+        }
         let mut replies = self.replies.lock().unwrap();
         if replies.is_empty() {
             anyhow::bail!("scripted client exhausted");
         }
         Ok(replies.remove(0))
+    }
+
+    fn set_cancel_token(&mut self, token: CancelToken) {
+        self.cancel = Some(token);
     }
 }
 
@@ -102,6 +147,8 @@ impl ChatClient for ScriptedClient {
 struct CancelAtModelCall {
     calls: Cell<usize>,
     cancel_at: usize,
+    /// Raised by the client once it holds the notice request.
+    received_notice: Option<Arc<AtomicBool>>,
 }
 
 impl InteractionUi for CancelAtModelCall {
@@ -118,6 +165,10 @@ impl InteractionUi for CancelAtModelCall {
 
     fn interrupted(&self) -> bool {
         self.calls.get() >= self.cancel_at
+            || self
+                .received_notice
+                .as_ref()
+                .is_some_and(|flag| flag.load(Ordering::SeqCst))
     }
 }
 
@@ -290,11 +341,10 @@ impl Trace {
             .collect()
     }
 
-    /// One digest per event line: the whole payload, with only wall-clock
-    /// values, generated ids, and the temporary root normalized. The
-    /// provider-turn size estimates count the system prompt, which names the
-    /// temporary root, so their numbers depend on the root's length; the
-    /// request digests already pin the requests those estimates describe.
+    /// One digest over every event line in order. Only the numbers of
+    /// [`NORMALIZED_NUMBER_FIELDS`] are replaced, plus the temporary root,
+    /// generated ids, and `elapsed_ms: N` inside strings; every other key and
+    /// value, configuration numbers included, is compared as written.
     fn event_digest(&self) -> String {
         let lines = self.normalized_events_without(None).join("\n");
         Sha256::digest(lines.as_bytes())
@@ -319,12 +369,9 @@ impl Trace {
                 object
                     .iter()
                     .map(|(key, value)| {
-                        let timed = key.ends_with("_ms")
-                            || key.ends_with("_seconds")
-                            || key.contains("duration")
-                            || key.contains("per_second")
-                            || key.starts_with("estimated_");
-                        let value = if timed && value.is_number() {
+                        let value = if NORMALIZED_NUMBER_FIELDS.contains(&key.as_str())
+                            && value.is_number()
+                        {
                             json!("<N>")
                         } else {
                             self.normalize_event(value)
@@ -447,10 +494,14 @@ fn run_with(row: &Value, setting: Option<&str>, review: Option<&str>) -> Trace {
                 .collect()
         })
         .unwrap_or_default();
+    let received_notice =
+        (row["abort_on_notice"] == true).then(|| Arc::new(AtomicBool::new(false)));
     let mut client = ScriptedClient {
         native: row["native"].as_bool().unwrap_or(true),
         replies: Arc::new(Mutex::new(replies(row["script"].as_array().unwrap()))),
         requests: Arc::new(Mutex::new(Vec::new())),
+        abort_on_notice: received_notice.clone(),
+        cancel: None,
     };
     let prompt = match row["prompt"].as_str().unwrap() {
         "edit" => EDIT_PROMPT,
@@ -462,6 +513,7 @@ fn run_with(row: &Value, setting: Option<&str>, review: Option<&str>) -> Trace {
         cancel_at: row["cancel_at_request"]
             .as_u64()
             .map_or(usize::MAX, |value| value as usize),
+        received_notice,
     };
     let result = run_session_with_outcome_with_ui(
         &mut client,
@@ -574,12 +626,31 @@ fn notice_request(row: &Value) -> usize {
     iteration_limit(row) - 2
 }
 
+/// The prompt size estimate the event digest leaves out is still reported:
+/// every provider turn that carried a request has a positive value, and the
+/// stable-prefix estimate is a number.
+fn assert_size_estimates_reported(trace: &Trace) {
+    for event in &trace.events {
+        if event["event"] != "provider_turn_duration" {
+            continue;
+        }
+        assert!(
+            event["estimated_prompt_tokens_sent"]
+                .as_u64()
+                .is_some_and(|value| value > 0),
+            "{event}"
+        );
+        assert!(event["estimated_stable_prefix_chars"].is_u64(), "{event}");
+    }
+}
+
 /// Unset, empty, and `off` reproduce what the base commit recorded.
 fn assert_off_matches_base(row: &Value) {
     let id = row["id"].as_str().unwrap();
     assert_eq!(row["base"]["source"], "c141d740", "{id}");
     for setting in [None, Some(""), Some("off")] {
         let trace = run(row, setting);
+        assert_size_estimates_reported(&trace);
         assert_eq!(trace.base_summary(), row["base"], "{id} {setting:?}");
         assert!(trace.closing_events().is_empty(), "{id} {setting:?}");
         assert!(trace.requests_with(NOTICE_MARKER).is_empty(), "{id}");
@@ -592,6 +663,7 @@ fn assert_off_matches_base(row: &Value) {
 fn run_once(row: &Value) -> Trace {
     let id = row["id"].as_str().unwrap();
     let trace = run(row, Some("once"));
+    assert_size_estimates_reported(&trace);
     let notice = notice_request(row);
     assert_eq!(trace.requests_with(NOTICE_MARKER), vec![notice], "{id}");
     let base_digests = row["base"]["request_digests"].as_array().unwrap();
@@ -1159,6 +1231,32 @@ fn a_cancel_before_the_notice_request_reaches_the_client_records_no_notice() {
             .iter()
             .any(|event| event["event"] == "provider_turn_aborted_by_user")
     );
+}
+
+#[test]
+fn an_interruption_after_the_notice_request_reached_the_client_records_the_notice() {
+    let mut row = row("cancel-before-notice-request");
+    row.as_object_mut().unwrap().remove("cancel_at_request");
+    row["abort_on_notice"] = json!(true);
+    let trace = run(&row, Some("once"));
+    let notice = notice_request(&row);
+    // The client received the notice request, then the call was interrupted.
+    assert_eq!(trace.requests.len(), notice);
+    assert_eq!(trace.requests_with(NOTICE_MARKER), vec![notice]);
+    assert!(
+        trace
+            .events
+            .iter()
+            .any(|event| event["event"] == "provider_turn_aborted_by_user")
+    );
+    // The existing interruption error, the notice, and no terminal phase.
+    assert_eq!(trace.outcome(), row["base"]["outcome"]);
+    assert_eq!(trace.phases(), ["notice"]);
+    assert_eq!(trace.closing_events()[0]["iteration"], notice);
+    // Without the variable the same client is never interrupted.
+    let off = run(&row, None);
+    assert!(off.requests_with(NOTICE_MARKER).is_empty());
+    assert!(off.closing_events().is_empty());
 }
 
 #[test]

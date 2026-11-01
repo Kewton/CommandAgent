@@ -409,8 +409,8 @@ request（各 turn、tool 呼び出し後の turn、空応答の fresh retry、n
   確認を 1 回実行する。確認が成功したら tool を呼ばずに、変えた file・実行した確認・その結果を報告して終える。
   失敗した、または実行できなかったときは成功と書かず、残っている問題を報告する」です。その request の既存の
   feedback は残り、案内はその後ろに付きます。空応答の後の fresh-session retry では案内だけが feedback になり、
-  retry は従来どおり過去の履歴を送りません。案内は、送った request に含まれ、その provider の呼出しが client に
-  届く前に中断されなかったときだけ記録されます（呼出しの途中の中断でも記録されず、run はその中断で止まります）。
+  retry は従来どおり過去の履歴を送りません。案内は、送った request に含まれ、その request が client に渡された
+  ときだけ記録されます（渡した後に中断されても記録され、client を呼ぶ前の cancel では記録されません）。
   run に 1 回までで、
   反復の上限が 3 以下なら出ません。tool と権限は変わりません。
 - 台帳：host は run の開始から、未解決の失敗を memory に保持します。実行された（policy で拒否・置換されて
@@ -420,8 +420,9 @@ request（各 turn、tool 呼び出し後の turn、空応答の fresh retry、n
   Edit の `new_string` を含み `old_string` を含まなくなった内容の、同じ path への Write です（`new_string` が
   `old_string` を含む Edit は Write では解除されません）。path は tools の正規化の後に成分から組み直して比べるので、
   `a//b`・`a/./b`・`a/b` は同じ対象です。`..` は解決しません。tool の層が実行前に拒否した Bash（engine 専用や
-  秘密の path、引数の欠落、path・confinement・command の policy など）は失敗ではなく拒否として数えます。timeout など、
-  実行された可能性のある command の error は失敗のままです。無関係な command・別の path への書込み・同じ file の別の
+  秘密の path、引数の欠落、path の confinement、保護された path。error の型か、message の先頭の host 自身の語で
+  判定します）は失敗ではなく拒否として数えます。timeout など、実行された可能性のある command の error は、command や
+  出力に何が書かれていても失敗のままです。無関係な command・別の path への書込み・同じ file の別の
   Edit・Read・後に書込みがあることだけ・model の発言（「直した」「未完了」を含む）では何も解除されません。
   特定できない失敗は未解決のままです。policy で拒否された Bash は失敗にも成功にも数えず、件数だけを残します。
 - guard：案内の後、既存の確認（required path・action prompt の確認・相対 import・完了前の見直し）をすべて

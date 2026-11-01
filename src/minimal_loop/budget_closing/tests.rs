@@ -100,7 +100,7 @@ fn provider_call(closing: &mut BudgetClosing, reaches_client: bool) {
         let mut call = closing.watch(&mut client);
         if reaches_client {
             let mut clone = call.client().boxed_clone();
-            let _ = clone.chat("m", &[], &[], true);
+            let _ = ChatClient::chat(clone.as_mut(), "m", &[], &[], true);
         }
     }
     closing.note_provider_call();
@@ -292,9 +292,9 @@ fn only_the_notice_request_goes_through_the_dispatch_watch() {
     assert!(watched.supports_native_tools("m"));
     let mut clone = watched.boxed_clone();
     let messages = [ConversationMessage::user("hello")];
-    let reply = clone.chat("m", &messages, &[], true).unwrap();
+    let reply = ChatClient::chat(clone.as_mut(), "m", &messages, &[], true).unwrap();
     assert_eq!(reply.content, "plain");
-    assert!(clone.chat("m", &messages, &[], true).is_err());
+    assert!(ChatClient::chat(clone.as_mut(), "m", &messages, &[], true).is_err());
     drop(call);
     assert_eq!(client.requests.lock().unwrap().len(), 2);
     assert_eq!(client.requests.lock().unwrap()[0], messages.to_vec());

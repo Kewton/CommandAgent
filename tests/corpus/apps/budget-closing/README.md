@@ -19,11 +19,17 @@ Each row's `base` was recorded from the base commit
 outcome (stop reason and final text, or the error text), the request digests
 (SHA-256 of the serialized request messages, first 8 bytes, workspace root
 and elapsed milliseconds normalized), the event-name sequence, one digest of
-every event payload in order (`event_digest`; only wall-clock numbers, keys
-ending in `_ms` or `_seconds` or naming a duration or rate, generated ids,
-the temporary root, and the provider-turn `estimated_*` sizes, which count
-the system prompt that names the root, are normalized), and the number of
-unused replies. The five rows added in the review round
+every event payload in order (`event_digest`), and the number of unused
+replies. The digest compares every key and value as written except: the
+numbers of exactly five keys (`occurred_at_epoch_ms`, `duration_ms`,
+`elapsed_ms`, the provider-turn `estimated_prompt_tokens_sent`, which counts
+the system prompt that names the temporary root and so changes with its
+length, and `estimated_stable_prefix_chars`, which is measured against the
+previous request in a process-wide cache and so depends on the tests that
+ran before), the temporary root, generated ids, and `elapsed_ms: N` inside
+strings. The test separately requires every provider turn to report a
+positive prompt size estimate. It is therefore not a proof that every payload
+byte is unchanged; it pins everything except those values. The five rows added in the review round
 (`unchanged-write-after-ambiguous-edit`, `hidden-path-bash-rejected`,
 `cancel-before-notice-request`, `post-write-read-after-failed-write`,
 `post-write-read-accepted`) and the `event_digest` of every row were recorded
@@ -49,7 +55,7 @@ contract, and only with `once`.
 
 | Phase | When | `guard_reason` |
 |---|---|---|
-| `notice` | the request sent with three calls left, counting itself, carried the notice and its provider call was not aborted before reaching the client; 0 or 1 per run, never when the limit is 3 or less | `remaining_calls_reached` |
+| `notice` | the request sent with three calls left, counting itself, carried the notice and was handed to the client (also when the call was interrupted afterwards); 0 or 1 per run, never when the limit is 3 or less | `remaining_calls_reached` |
 | `final_deferred` | after the notice, a normal final passed every existing check, or the existing post-write read confirmation was about to end the run, while an unresolved failure remained; 0 or more | `unresolved_failure` |
 | `final_accepted` | after the notice, the same with no unresolved failure; at most once, and the run ends with it | `no_unresolved_failure` |
 | `exhausted_after_notice` | after the notice, the run reached the existing iteration-budget exit; at most once | `iteration_budget_exhausted` |
@@ -90,7 +96,14 @@ command, path, content, model text, tool output, or secret is copied.
   notice while a failure remains (`post-write-read-after-failed-write`);
   without one it completes as before (`post-write-read-accepted`).
 - A cancel before the notice request reaches the client records no notice
-  (`cancel-before-notice-request`).
+  (`cancel-before-notice-request`); the same script interrupted after the
+  client received it records the notice and no terminal phase (the test
+  derives that variant from this row).
+- A recoverable Bash error is a refusal only when it is a typed
+  engine-private or sensitive path refusal or starts with the host's own
+  refusal words; a timeout whose command or output contains those words is
+  an executed failure (leaf tests; the tool's 180-second timeout cannot be
+  reached from a scripted run).
 - Failures before the notice count (`failure-before-notice`), and a run
   without writes is guarded too (`no-write-bash-failure`).
 - A Bash call refused by policy is not a failure; only its count is kept

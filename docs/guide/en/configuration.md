@@ -470,10 +470,9 @@ effect.
   feedback for that request stays and the notice follows it. On an
   empty-response fresh-session retry the notice is the only feedback and the
   retry still sends no earlier history. The notice is recorded only when a
-  sent request carries it and its provider call was not aborted before
-  reaching the client (a cancel during that call also leaves it
-  unrecorded; the run then stops with the interruption), at most once per
-  run, and never when the
+  sent request carries it and that request was handed to the client (also
+  when the call is interrupted afterwards; a cancel before the client is
+  called records nothing), at most once per run, and never when the
   iteration limit is three or less. Tools and permissions do not change.
 - Ledger: from the start of the run the host keeps unresolved failures in
   memory. A Bash call that ran (not refused or replaced by policy) and that
@@ -486,11 +485,12 @@ effect.
   contains its `old_string` (never when `new_string` contains `old_string`).
   Paths are compared after the tools' normalization and rebuilt from their
   components, so `a//b`, `a/./b`, and `a/b` are one target; `..` is not
-  resolved. A Bash call the tool layer refuses before running it (for
-  example an engine-private or sensitive path, a missing argument, or a
-  path, confinement, or command policy) is counted as refused, not as a
-  failure; a timeout or any other error of a command that may have run stays
-  a failure. An unrelated command, a
+  resolved. A Bash call the tool layer refuses before running it (an
+  engine-private or sensitive path, a missing argument, a path confinement
+  refusal, or a protected path, recognized by the error's type or by the
+  host's own words at the start of the message) is counted as refused, not
+  as a failure; a timeout or any other error of a command that may have run
+  stays a failure, whatever its command or output says. An unrelated command, a
   write to another path, another edit of the same file, a read, a later write
   alone, or anything the model says (including "fixed" or "not finished")
   resolves nothing. A failure that cannot be identified stays unresolved.
