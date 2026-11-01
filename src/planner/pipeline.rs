@@ -9,31 +9,51 @@
 //! failed prefetch left no usage record at all.
 //!
 //! - **Pairing.** The worker drives a `RecordingClient` around its client
-//!   clone. Each physical `chat`/`chat_stream` call appends one
-//!   `PrefetchCallRecord` (1-based `call_index`) to a log shared by all
-//!   clones and settles it with that same call's `take_response_timing` and
-//!   `take_response_metadata`. A clone starts with no stored timing or
-//!   metadata, so no call inherits another call's values.
-//! - **Replay vs. real call.** On adoption the reply is paired with the record
-//!   of the worker's last started call (the planner retry loop returns on its
-//!   first success, so that call produced the reply), and only when that record
-//!   settled `ok` with an equal reply. `PrefetchedPlanner` replays the reply
-//!   once; the instance that replayed answers `take_response_*` with the paired
-//!   values, which stay `None` when the provider reported none, and never asks
-//!   the fallback. A fallback call answers with the fallback's own values.
-//! - **Counting once.** The replayed call is counted by the single
-//!   `provider_turn_duration` the replay emits on the main thread, which now
-//!   carries the real response's metadata. Every physical prefetch call also
-//!   gets exactly one additive `speculative_phase_plan_provider_call` event:
-//!   `disposition = "replayed"` with `accounting_record: false` (counted by the
-//!   turn), `"unconsumed"` with `accounting_record: true` (settled but never
-//!   replayed: discarded, superseded, stale, a failed attempt, the pipeline
-//!   dropped, or adopted and never replayed), or `"unsettled"` with
-//!   `accounting_record: true` (started but without an outcome when the
-//!   pipeline stopped waiting; its usage is unknown and stays absent). Hence
-//!   physical calls = `provider_turn_duration` count + the count of
-//!   `accounting_record: true` events, per `ChatClient` call (a provider's own
-//!   transport retries inside one call are not visible here).
+//!   clone. Every `RecordingClient` instance takes the next client generation
+//!   from a log shared by all of them when it is created, and each physical
+//!   `chat`/`chat_stream` call appends one `PrefetchCallRecord` (1-based
+//!   `call_index`, the generation of the instance that made it) and settles it
+//!   with that same call's `take_response_timing` and `take_response_metadata`.
+//!   A clone starts with no stored timing or metadata, so no call inherits
+//!   another call's values.
+//! - **Which call produced the reply.** The worker thread makes its provider
+//!   calls one after another, and each `provider_call` clones the worker
+//!   client once, on the worker thread, before it starts its call. The adopted
+//!   reply came out of the worker's last `provider_call`, so it was produced by
+//!   the call of the latest generation, which settled `ok` before its reply was
+//!   handed back. The pairing uses that identity, never the start order of the
+//!   calls (an abandoned attempt's thread can start late) or the reply text.
+//! - **Closing the log.** Once the worker thread is joined, the log is closed
+//!   under its lock and its records are read in the same step. A call that
+//!   begins after that (the thread of an abandoned attempt that `provider_call`
+//!   no longer waits for) starts no provider call and records nothing, so no
+//!   physical call goes unaccounted. A call that began before the close and
+//!   settles after it stays `unsettled`.
+//! - **Replay.** `PrefetchedPlanner` replays the reply once; the instance that
+//!   replayed answers `take_response_*` with the paired values, which stay
+//!   `None` when the provider reported none, and never asks the fallback. A
+//!   fallback call answers with the fallback's own values.
+//! - **Counting.** Every physical prefetch call gets exactly one additive
+//!   `speculative_phase_plan_provider_call` event, so the number of physical
+//!   prefetch `ChatClient` calls equals the number of these events (a
+//!   provider's own transport retries inside one call are not visible here).
+//!   Each call's usage is counted exactly once: by its own event when
+//!   `accounting_record` is `true`, or, for `disposition = "replayed"` with
+//!   `accounting_record: false`, by the `provider_turn_duration` that carried
+//!   the replayed response (same `provider_response_id` when one was
+//!   reported). `"unconsumed"` (`accounting_record: true`) is a call that
+//!   settled but was never replayed: discarded, superseded, stale, a failed
+//!   attempt, the pipeline dropped, or adopted and never replayed, including a
+//!   main-path `provider_call` cancelled before it asked for the reply.
+//!   `"unsettled"` (`accounting_record: true`) is a call that started but had
+//!   no outcome when the log was closed; its usage is unknown and stays
+//!   absent. A main-path `provider_turn_duration` that is `aborted_by_user` or
+//!   `timed_out` carries no usage, and when it ended before the replay it
+//!   made no physical call. Known gap: when the replay was handed to
+//!   `provider_call`'s worker but that call is cancelled or reaches its
+//!   deadline before it receives the worker's result, the turn is an abort
+//!   without usage while the call event already says `replayed`; closing it
+//!   needs `provider_call` to report whether the turn carried the response.
 //! - **Fields.** `current_phase_id`, `next_phase_id`, `reason` (the pipeline
 //!   reason, plus `pipeline_dropped` and `adopted_unreplayed`), `call_index`,
 //!   `disposition`, `accounting_record`, and `ok` once settled. Accounting
@@ -46,12 +66,12 @@
 //!   missing value is never written as `0`. The replayed record carries only
 //!   `provider_response_id` for correlation and `accounted_by`. No payload,
 //!   prompt, reply text, key, or header is written.
-//! - **Cancel/join.** Cancellation and joining are unchanged. Records are read
-//!   after the worker thread is joined, so they reflect every call that settled
-//!   by then. The existing `speculative_phase_plan_*` events keep their exact
-//!   bytes; the call events follow them (on adoption, discard, failure, and
-//!   pipeline drop) or are written at replay or when an adopted reply is
-//!   dropped unreplayed.
+//! - **Cancel/join.** Cancellation and joining are unchanged; only the worker
+//!   thread is joined, never a `provider_call` thread that stopped waiting.
+//!   Records are read when the log is closed after that join. The existing
+//!   `speculative_phase_plan_*` events keep their exact bytes; the call events
+//!   follow them (on adoption, discard, failure, and pipeline drop) or are
+//!   written at replay or when an adopted reply is dropped unreplayed.
 
 use std::path::PathBuf;
 use std::sync::{
@@ -280,13 +300,31 @@ impl PhasePlanPipeline {
         next_phase_id: &str,
         next_phase_prompt: &str,
     ) {
+        self.start_with_log(
+            planner,
+            config,
+            current_phase_id,
+            next_phase_id,
+            next_phase_prompt,
+            SharedCallLog::default(),
+        );
+    }
+
+    fn start_with_log(
+        &mut self,
+        planner: &dyn ChatClient,
+        config: &Config,
+        current_phase_id: &str,
+        next_phase_id: &str,
+        next_phase_prompt: &str,
+        calls: SharedCallLog,
+    ) {
         self.cancel_and_discard(config, "superseded");
         if !model_plan_has_provider_work(config, next_phase_prompt) {
             return;
         }
 
         let key = PhasePlanKey::new(next_phase_id, next_phase_prompt);
-        let calls = SharedCallLog::default();
         let mut worker_client: Box<dyn ChatClient> =
             Box::new(RecordingClient::new(planner.boxed_clone(), calls.clone()));
         let mut worker_config = config.clone();
@@ -348,7 +386,7 @@ impl PhasePlanPipeline {
                 &account.next_phase_id,
                 "stale_input",
             );
-            account.emit_records("stale_input", &calls.snapshot(), None);
+            account.emit_records("stale_input", &calls.close().records, None);
             return None;
         }
 
@@ -361,11 +399,11 @@ impl PhasePlanPipeline {
                     &account.next_phase_id,
                     "gate_passed",
                 );
-                let records = calls.snapshot();
-                let paired = pair_adopted_call(&records, &reply);
+                let log = calls.close();
+                let paired = log.adopted_call();
                 account.emit_records(
                     "gate_passed",
-                    &records,
+                    &log.records,
                     paired.as_ref().map(|record| record.call_index),
                 );
                 Some(Box::new(PrefetchedPlanner::adopted(
@@ -384,7 +422,7 @@ impl PhasePlanPipeline {
                     &account.next_phase_id,
                     "prefetch_failed",
                 );
-                account.emit_records("prefetch_failed", &calls.snapshot(), None);
+                account.emit_records("prefetch_failed", &calls.close().records, None);
                 None
             }
         }
@@ -403,7 +441,7 @@ impl PhasePlanPipeline {
             &account.next_phase_id,
             reason,
         );
-        account.emit_records(reason, &pending.calls.snapshot(), None);
+        account.emit_records(reason, &pending.calls.close().records, None);
     }
 }
 
@@ -412,7 +450,7 @@ impl Drop for PhasePlanPipeline {
         if let Some(pending) = self.pending.take() {
             let account = pending.account(pending.events_path.clone());
             pending.reply.cancel_and_join();
-            account.emit_records("pipeline_dropped", &pending.calls.snapshot(), None);
+            account.emit_records("pipeline_dropped", &pending.calls.close().records, None);
         }
     }
 }
@@ -531,35 +569,107 @@ struct SettledCall {
 #[derive(Debug, Clone, PartialEq)]
 struct PrefetchCallRecord {
     call_index: usize,
+    /// The generation of the `RecordingClient` instance that made the call.
+    client_generation: usize,
     settled: Option<SettledCall>,
 }
 
+#[derive(Default)]
+struct CallLogState {
+    records: Vec<PrefetchCallRecord>,
+    latest_generation: usize,
+    closed: bool,
+    #[cfg(test)]
+    refused_begins: usize,
+}
+
+/// The records of a closed log and the generation of the latest client.
+struct ClosedCallLog {
+    records: Vec<PrefetchCallRecord>,
+    latest_generation: usize,
+}
+
+impl ClosedCallLog {
+    /// The call that produced the adopted reply: the call made by the latest
+    /// client generation, which settled `ok` before handing the reply back.
+    fn adopted_call(&self) -> Option<PrefetchCallRecord> {
+        self.records
+            .iter()
+            .find(|record| {
+                record.client_generation == self.latest_generation
+                    && record.settled.as_ref().is_some_and(|settled| settled.ok)
+            })
+            .cloned()
+    }
+}
+
+/// Test-only hook run before a call begins, with the caller's generation.
+#[cfg(test)]
+type BeforeBegin = Arc<dyn Fn(usize) + Send + Sync>;
+
 #[derive(Clone, Default)]
-struct SharedCallLog(Arc<Mutex<Vec<PrefetchCallRecord>>>);
+struct SharedCallLog {
+    state: Arc<Mutex<CallLogState>>,
+    #[cfg(test)]
+    before_begin: Option<BeforeBegin>,
+}
 
 impl SharedCallLog {
-    fn lock(&self) -> MutexGuard<'_, Vec<PrefetchCallRecord>> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    fn lock(&self) -> MutexGuard<'_, CallLogState> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn begin(&self) -> usize {
-        let mut calls = self.lock();
-        let call_index = calls.len() + 1;
-        calls.push(PrefetchCallRecord {
+    /// The generation of a newly created client instance.
+    fn next_generation(&self) -> usize {
+        let mut state = self.lock();
+        state.latest_generation += 1;
+        state.latest_generation
+    }
+
+    /// Record the start of a call, or `None` once the log is closed, in which
+    /// case the caller must not start a provider call.
+    fn begin(&self, client_generation: usize) -> Option<usize> {
+        #[cfg(test)]
+        if let Some(before_begin) = &self.before_begin {
+            before_begin(client_generation);
+        }
+        let mut state = self.lock();
+        if state.closed {
+            #[cfg(test)]
+            {
+                state.refused_begins += 1;
+            }
+            return None;
+        }
+        let call_index = state.records.len() + 1;
+        state.records.push(PrefetchCallRecord {
             call_index,
+            client_generation,
             settled: None,
         });
-        call_index
+        Some(call_index)
     }
 
     fn settle(&self, call_index: usize, settled: SettledCall) {
-        if let Some(record) = self.lock().get_mut(call_index - 1) {
+        if let Some(record) = self.lock().records.get_mut(call_index - 1) {
             record.settled = Some(settled);
         }
     }
 
+    /// Close the log and read its records in the same step, so every call
+    /// either is in the returned records or never starts.
+    fn close(&self) -> ClosedCallLog {
+        let mut state = self.lock();
+        state.closed = true;
+        ClosedCallLog {
+            records: state.records.clone(),
+            latest_generation: state.latest_generation,
+        }
+    }
+
+    #[cfg(test)]
     fn snapshot(&self) -> Vec<PrefetchCallRecord> {
-        self.lock().clone()
+        self.lock().records.clone()
     }
 }
 
@@ -568,15 +678,18 @@ impl SharedCallLog {
 struct RecordingClient {
     inner: Box<dyn ChatClient>,
     calls: SharedCallLog,
+    generation: usize,
     timing: Option<ResponseTiming>,
     metadata: Option<ProviderResponseMetadata>,
 }
 
 impl RecordingClient {
     fn new(inner: Box<dyn ChatClient>, calls: SharedCallLog) -> Self {
+        let generation = calls.next_generation();
         Self {
             inner,
             calls,
+            generation,
             timing: None,
             metadata: None,
         }
@@ -586,7 +699,13 @@ impl RecordingClient {
         &mut self,
         call: impl FnOnce(&mut dyn ChatClient) -> anyhow::Result<AssistantReply>,
     ) -> anyhow::Result<AssistantReply> {
-        let call_index = self.calls.begin();
+        self.timing = None;
+        self.metadata = None;
+        let Some(call_index) = self.calls.begin(self.generation) else {
+            anyhow::bail!(
+                "the speculative phase-plan prefetch is already accounted; no provider call started"
+            );
+        };
         let result = call(self.inner.as_mut());
         self.timing = self.inner.take_response_timing();
         self.metadata = self.inner.take_response_metadata();
@@ -805,17 +924,6 @@ fn insert_reported<T: serde::Serialize>(
     if let Some(field) = field {
         value[key] = serde_json::json!(field);
     }
-}
-
-/// The record of the call that produced the adopted reply: the worker's last
-/// started call, when it settled `ok` with that same reply.
-fn pair_adopted_call(
-    records: &[PrefetchCallRecord],
-    reply: &AssistantReply,
-) -> Option<PrefetchCallRecord> {
-    let last = records.last()?;
-    let settled = last.settled.as_ref()?;
-    (settled.ok && settled.reply.as_ref() == Some(reply)).then(|| last.clone())
 }
 
 struct PrefetchedReply {

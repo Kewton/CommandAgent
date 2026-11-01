@@ -9,9 +9,9 @@
     "cases": "hand-authored from the #948 design in the src/planner/pipeline.rs module doc: fake_client cases use invented response ids, token counts, cache counts, and ResponseTiming durations; local_http cases are served by a throwaway 127.0.0.1 OpenAI-compatible stand-in with a synthetic key",
     "excluded": "no live model, real key, external provider, benchmark task, grader input, expected answer, generated code, run record, or host path is stored here"
   },
-  "derived_fixture": "fixtures/events.json is read by src/planner/pipeline/usage_tests.rs, which runs each case through the product pipeline and provider_call path and checks the emitted events and the physical-call reconciliation against it",
+  "derived_fixture": "fixtures/events.json is read by src/planner/pipeline/usage_tests.rs, which runs each case through the product pipeline and provider_call path and checks the emitted events against it; each case reconciles the physical calls (one call event per physical prefetch call) and the prompt tokens of every known reply (counted exactly once by a turn or an accounting_record true event)",
   "regenerate_digests": "shasum -a 256 fixtures/events.json",
   "fixture_sha256": {
-    "events.json": "e9887637e074308e386b2043bc911a893c79881720e932fd77ca76619e9140b6"
+    "events.json": "a68b50feac7c4bc072caabb94bfb658f5d1cf8613c9cc5cfdfaeac7ab0093d65"
   }
 }

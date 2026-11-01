@@ -11,7 +11,7 @@ use std::collections::VecDeque;
 use std::io::{Read as _, Write as _};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -101,6 +101,7 @@ struct Scripted {
 struct ScriptedClient {
     script: Arc<Mutex<VecDeque<Scripted>>>,
     calls: Arc<AtomicUsize>,
+    paid: Arc<AtomicU64>,
     timing: Option<ResponseTiming>,
     metadata: Option<ProviderResponseMetadata>,
 }
@@ -110,9 +111,15 @@ impl ScriptedClient {
         Self {
             script: Arc::new(Mutex::new(script.into())),
             calls: Arc::new(AtomicUsize::new(0)),
+            paid: Arc::new(AtomicU64::new(0)),
             timing: None,
             metadata: None,
         }
+    }
+
+    /// The prompt tokens of every reply this client (and its clones) returned.
+    fn paid(&self) -> u64 {
+        self.paid.load(Ordering::SeqCst)
     }
 
     fn holding_stale(mut self) -> Self {
@@ -162,6 +169,10 @@ impl ChatClient for ScriptedClient {
         }
         self.timing = next.timing;
         self.metadata = next.metadata;
+        if let Ok(reply) = &next.result {
+            self.paid
+                .fetch_add(reply.prompt_tokens.unwrap_or(0), Ordering::SeqCst);
+        }
         next.result.map_err(|message| anyhow::anyhow!(message))
     }
 }
@@ -252,6 +263,37 @@ fn started(planner: &dyn ChatClient, config: &Config) -> PhasePlanPipeline {
     pipeline
 }
 
+/// A call log whose calls made by client `generation` stop before they begin
+/// until released. The worker client is generation 1 and each
+/// `provider_call` clones it, so its first call is made by generation 2.
+fn log_holding_generation(generation: usize) -> (SharedCallLog, Receiver<()>, mpsc::Sender<()>) {
+    let (reached_tx, reached_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel::<()>();
+    let reached_tx = Mutex::new(reached_tx);
+    let release_rx = Mutex::new(release_rx);
+    let log = SharedCallLog {
+        before_begin: Some(Arc::new(move |caller| {
+            if caller == generation {
+                let _ = reached_tx.lock().unwrap().send(());
+                let _ = release_rx.lock().unwrap().recv_timeout(DEADLINE);
+            }
+        })),
+        ..SharedCallLog::default()
+    };
+    (log, reached_rx, release_tx)
+}
+
+fn started_with_log(
+    planner: &dyn ChatClient,
+    config: &Config,
+    log: &SharedCallLog,
+) -> PhasePlanPipeline {
+    let mut pipeline = PhasePlanPipeline::new();
+    pipeline.start_with_log(planner, config, CURRENT, NEXT, PROMPT, log.clone());
+    assert!(pipeline.pending.is_some());
+    pipeline
+}
+
 fn pending_calls(pipeline: &PhasePlanPipeline) -> Vec<PrefetchCallRecord> {
     pipeline.pending.as_ref().unwrap().calls.snapshot()
 }
@@ -287,10 +329,12 @@ fn fixture_case(id: &str) -> Value {
         .clone()
 }
 
-/// Check the emitted events against the fixture case and reconcile physical
-/// calls with accounting events: every call is either a
-/// `provider_turn_duration` or an `accounting_record: true` call event.
-fn assert_case(id: &str, config: &Config, physical_calls: usize) {
+/// Check the emitted events against the fixture case and reconcile them with
+/// what the provider actually did: every physical prefetch call has exactly one
+/// call event, and the prompt tokens of every known reply are counted exactly
+/// once, either by a `provider_turn_duration` or by an `accounting_record: true`
+/// call event.
+fn assert_case(id: &str, config: &Config, physical_calls: usize, paid_prompt_tokens: u64) {
     let case = fixture_case(id);
     let fixture = fixture();
     let lines = event_lines(config);
@@ -347,19 +391,29 @@ fn assert_case(id: &str, config: &Config, physical_calls: usize) {
         }
     }
 
-    let accounting_records = call_events
-        .iter()
-        .filter(|value| value[fixture["accounting_flag"].as_str().unwrap()] == true)
-        .count();
     assert_eq!(
         physical_calls,
         case["physical_calls"].as_u64().unwrap() as usize,
         "{id}: physical calls"
     );
+    let prefetch_calls = case["prefetch_calls"].as_u64().unwrap() as usize;
     assert_eq!(
-        physical_calls,
-        turns.len() + accounting_records,
-        "{id}: every physical call must be counted exactly once"
+        call_events.len(),
+        prefetch_calls,
+        "{id}: every physical prefetch call must have exactly one call event"
+    );
+    assert!(prefetch_calls <= physical_calls, "{id}: prefetch calls");
+
+    let prompt_tokens = |value: &Value| value["prompt_eval_count"].as_u64().unwrap_or(0);
+    let counted = turns.iter().map(prompt_tokens).sum::<u64>()
+        + call_events
+            .iter()
+            .filter(|value| value[fixture["accounting_flag"].as_str().unwrap()] == true)
+            .map(prompt_tokens)
+            .sum::<u64>();
+    assert_eq!(
+        counted, paid_prompt_tokens,
+        "{id}: the usage of every known reply must be counted exactly once"
     );
 }
 
@@ -374,6 +428,7 @@ fn paired(
         call: Some(PairedCall {
             record: PrefetchCallRecord {
                 call_index: 1,
+                client_generation: 1,
                 settled: Some(SettledCall {
                     ok: true,
                     reply: Some(reply),
@@ -537,7 +592,7 @@ fn adopted_prefetch_is_counted_once_by_its_replayed_turn() {
     drop(adopted);
     drop(pipeline);
 
-    assert_case("adopted-replayed", &config, planner.calls());
+    assert_case("adopted-replayed", &config, planner.calls(), planner.paid());
 }
 
 #[test]
@@ -554,7 +609,12 @@ fn discarded_prefetch_keeps_the_usage_of_its_paid_reply() {
     let stale = PhasePlanKey::new(NEXT, "a prompt changed at the gate");
     assert!(pipeline.take_planner(&stale, &planner, &config).is_none());
 
-    assert_case("discarded-settled", &config, planner.calls());
+    assert_case(
+        "discarded-settled",
+        &config,
+        planner.calls(),
+        planner.paid(),
+    );
 }
 
 #[test]
@@ -572,7 +632,9 @@ fn cancelled_in_flight_prefetch_is_recorded_with_unknown_usage() {
     pipeline.cancel_and_discard(&config, "verification_failed");
     let _ = release.send(());
 
-    assert_case("cancelled-unsettled", &config, planner.calls());
+    // The held call had no outcome when the log closed, so none of its usage
+    // is known: nothing may be counted for it.
+    assert_case("cancelled-unsettled", &config, planner.calls(), 0);
 }
 
 #[test]
@@ -584,7 +646,7 @@ fn failed_prefetch_attempts_each_leave_one_record() {
 
     assert!(pipeline.take_planner(&key(), &planner, &config).is_none());
 
-    assert_case("failed-attempts", &config, planner.calls());
+    assert_case("failed-attempts", &config, planner.calls(), planner.paid());
 }
 
 #[test]
@@ -598,7 +660,12 @@ fn adopted_reply_dropped_unreplayed_is_still_accounted() {
     assert!(adopted.is_some());
     drop(adopted);
 
-    assert_case("adopted-unreplayed", &config, planner.calls());
+    assert_case(
+        "adopted-unreplayed",
+        &config,
+        planner.calls(),
+        planner.paid(),
+    );
 }
 
 #[test]
@@ -611,7 +678,120 @@ fn dropped_pipeline_keeps_the_usage_of_a_settled_prefetch() {
 
     drop(pipeline);
 
-    assert_case("pipeline-dropped", &config, planner.calls());
+    assert_case("pipeline-dropped", &config, planner.calls(), planner.paid());
+}
+
+/// B1 (adoption side): the main path's `provider_call` is cancelled before it
+/// asks for the reply. Its turn is an abort without usage and without a
+/// physical call, and the adopted call is counted once by its own record.
+#[test]
+fn adopted_reply_cancelled_before_its_replay_is_counted_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = test_config(dir.path());
+    let planner = ScriptedClient::new(vec![ok("prefetched", "resp-precancelled", Some(40))]);
+    let mut pipeline = started(&planner, &config);
+    let mut adopted = pipeline
+        .take_planner(&key(), &planner, &config)
+        .expect("the prefetched reply is adopted");
+
+    let interrupted = CancellationUi(Arc::new(AtomicBool::new(true)));
+    let result = planner_chat_for_step_plan_attempt(
+        adopted.as_mut(),
+        &config,
+        model_for(&config, true),
+        &step_plan_messages("synthetic step plan request"),
+        &interrupted,
+        PlannerSessionMode::Standard,
+    );
+    assert!(result.is_err(), "the cancelled call returns no reply");
+    drop(adopted);
+    drop(pipeline);
+
+    assert_case(
+        "adopted-precancelled",
+        &config,
+        planner.calls(),
+        planner.paid(),
+    );
+}
+
+/// B2: the `provider_call` thread is held before its call begins while the
+/// pipeline cancels, joins the worker, and closes the log. Released afterwards,
+/// it starts no provider call, so no physical call is left without a record.
+#[test]
+fn a_call_that_begins_after_the_discard_starts_no_provider_call() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = test_config(dir.path());
+    let (log, reached, release) = log_holding_generation(2);
+    let planner = ScriptedClient::new(vec![ok("late", "resp-never", Some(40))]);
+    let mut pipeline = started_with_log(&planner, &config, &log);
+    reached
+        .recv_timeout(DEADLINE)
+        .expect("the provider_call thread reached its call");
+
+    pipeline.cancel_and_discard(&config, "verification_failed");
+    release.send(()).unwrap();
+    let deadline = Instant::now() + DEADLINE;
+    while log.lock().refused_begins == 0 {
+        assert!(Instant::now() < deadline, "the late call never began");
+        std::thread::yield_now();
+    }
+
+    assert_eq!(planner.calls(), 0, "no provider call after the log closed");
+    assert!(log.snapshot().is_empty());
+    assert_case(
+        "late-begin-refused",
+        &config,
+        planner.calls(),
+        planner.paid(),
+    );
+}
+
+/// B2: the first attempt's thread is held before its call begins until that
+/// attempt reaches its deadline and the second attempt has answered. It then
+/// begins last, yet the adopted reply stays paired with the second attempt's
+/// call, and the late call is counted once by its own record.
+#[test]
+fn an_earlier_attempt_that_begins_late_never_takes_the_later_reply() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut config = test_config(dir.path());
+    config.chat_timeout_secs = 1;
+    let (log, reached, release) = log_holding_generation(2);
+    let planner = ScriptedClient::new(vec![
+        ok("later", "resp-later", None),
+        ok("earlier-late", "resp-earlier-late", None),
+    ]);
+    let mut pipeline = started_with_log(&planner, &config, &log);
+    reached
+        .recv_timeout(DEADLINE)
+        .expect("the first attempt's thread reached its call");
+
+    wait_for_calls(&pipeline, 1, true);
+    release.send(()).unwrap();
+    wait_for_calls(&pipeline, 2, true);
+    let records = pending_calls(&pipeline);
+    assert_eq!(
+        records[0].client_generation, 3,
+        "the second attempt began first"
+    );
+    assert_eq!(
+        records[1].client_generation, 2,
+        "the first attempt began last"
+    );
+
+    let mut adopted = pipeline
+        .take_planner(&key(), &planner, &config)
+        .expect("the second attempt's reply is adopted");
+    assert_eq!(planner_call(adopted.as_mut(), &config).content, "later");
+    drop(adopted);
+    drop(pipeline);
+
+    assert_case(
+        "late-earlier-attempt",
+        &config,
+        planner.calls(),
+        planner.paid(),
+    );
 }
 
 #[test]
@@ -775,11 +955,8 @@ fn local_http_posts_match_accounting_events_for_an_adopted_prefetch() {
     drop(adopted);
     drop(pipeline);
 
-    assert_case(
-        "http-adopted-replayed",
-        &config,
-        server.posts.load(Ordering::SeqCst),
-    );
+    let posts = server.posts.load(Ordering::SeqCst);
+    assert_case("http-adopted-replayed", &config, posts, posts as u64 * 100);
 }
 
 #[test]
@@ -793,10 +970,12 @@ fn local_http_posts_match_accounting_events_for_a_discarded_prefetch() {
 
     pipeline.cancel_and_discard(&config, "verification_failed");
 
+    let posts = server.posts.load(Ordering::SeqCst);
     assert_case(
         "http-discarded-missing-cache",
         &config,
-        server.posts.load(Ordering::SeqCst),
+        posts,
+        posts as u64 * 100,
     );
 }
 

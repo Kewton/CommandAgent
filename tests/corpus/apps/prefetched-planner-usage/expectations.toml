@@ -1,5 +1,5 @@
 case_id = "prefetched-planner-usage"
-source = "Issue #948: the speculative next-phase planner pairs each physical prefetch call with its own timing and response metadata; the replayed reply's provider_turn_duration carries that call's metadata and counts it once; every prefetch call also gets one additive speculative_phase_plan_provider_call event, with accounting_record false when replayed and true when unconsumed (discarded, stale, failed, dropped, or adopted unreplayed) or unsettled; unreported values stay absent and an explicit zero stays 0; the existing speculative_phase_plan_* events keep their base bytes"
+source = "Issue #948: the speculative next-phase planner pairs each physical prefetch call with its own timing and response metadata, and pairs the adopted reply with the call of the latest client generation rather than the latest started call; the replayed reply's provider_turn_duration carries that call's metadata and counts it once; every physical prefetch call gets exactly one additive speculative_phase_plan_provider_call event, with accounting_record false when replayed and true when unconsumed (discarded, stale, failed, dropped, adopted unreplayed, or cancelled before the replay) or unsettled; a call that would begin after the log closed starts no provider call; unreported values stay absent and an explicit zero stays 0; the existing speculative_phase_plan_* events keep their base bytes"
 required_paths = []
 verify_commands = []
 required_capabilities = []
@@ -37,6 +37,10 @@ fixtures/events.json = [
   "\"id\": \"failed-attempts\"",
   "\"id\": \"adopted-unreplayed\"",
   "\"id\": \"pipeline-dropped\"",
+  "\"id\": \"adopted-precancelled\"",
+  "\"id\": \"late-begin-refused\"",
+  "\"id\": \"late-earlier-attempt\"",
+  "\"prefetch_calls\": 0",
   "\"id\": \"http-adopted-replayed\"",
   "\"id\": \"http-discarded-missing-cache\"",
   "\"disposition\": \"replayed\"",
