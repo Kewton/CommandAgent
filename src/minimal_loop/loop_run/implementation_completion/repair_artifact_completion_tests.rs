@@ -23,6 +23,21 @@ thread_local! {
     /// A one-shot action run after the legacy reader opened a step path and
     /// before it checks the bound names.
     static ALIAS_SEAM: RefCell<Option<SeamAction>> = const { RefCell::new(None) };
+    /// A one-shot action run after the legacy reader read a step path and
+    /// before it checks the bound names again.
+    static AFTER_READ_SEAM: RefCell<Option<SeamAction>> = const { RefCell::new(None) };
+}
+
+/// Called by the bound-session legacy reader between its read and its
+/// second check of the bound names.
+pub(super) fn after_read_seam(resolved: &Path) {
+    if let Some(action) = AFTER_READ_SEAM.with(|seam| seam.borrow_mut().take()) {
+        action(resolved);
+    }
+}
+
+fn on_after_read(action: impl FnOnce(&Path) + 'static) {
+    AFTER_READ_SEAM.with(|seam| *seam.borrow_mut() = Some(Box::new(action)));
 }
 
 /// Called by the bound-session legacy reader after its open.
@@ -1055,4 +1070,81 @@ fn an_alias_is_not_read_when_the_bound_name_moves_while_it_is_open() {
     // Without a binding nothing here is consulted.
     let unbound = capture(&root, &RunSessionOptions::final_acceptance_repair());
     assert_eq!(unbound.legacy_read(&root, "sub/contract/terms.json"), None);
+}
+
+/// The bound name moves after the first check passed and after the read,
+/// before the second check: the bytes already read are not returned. The
+/// step path is a different regular file (so the first check passes) under
+/// the root-prefixed spelling and, where the filesystem folds case, an
+/// upper-case one; only the second check can refuse it.
+#[cfg(unix)]
+#[test]
+fn bytes_read_are_dropped_when_the_bound_name_moves_before_the_second_check() {
+    use std::os::unix::fs::MetadataExt;
+    let dir = workspace();
+    let root = dir.path().to_path_buf();
+    let other = "sub/contract/terms.json";
+    write(&root, other, BROKEN);
+    let completion = capture(&root, &final_repair(&[TARGET]));
+    let mut spellings = vec![format!(
+        "{}/{other}",
+        root.canonicalize()
+            .unwrap()
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+    )];
+    let upper = other.to_uppercase();
+    let real = std::fs::metadata(root.join(other)).unwrap();
+    let folds = std::fs::metadata(root.join(&upper))
+        .is_ok_and(|meta| meta.dev() == real.dev() && meta.ino() == real.ino());
+    if folds {
+        spellings.push(upper);
+    } else {
+        assert!(std::fs::metadata(root.join(&upper)).is_err());
+    }
+    type Swap = fn(&Path);
+    let swaps: [(&str, Swap); 2] = [
+        ("rename", |root| {
+            std::fs::rename(root.join(TARGET), root.join("moved.json")).unwrap();
+        }),
+        ("unlink", |root| {
+            // The inode is kept under another name so it can come back.
+            std::fs::hard_link(root.join(TARGET), root.join("moved.json")).unwrap();
+            std::fs::remove_file(root.join(TARGET)).unwrap();
+        }),
+    ];
+    for spelling in &spellings {
+        // Control: with the binding stable, the first check and the second
+        // pass and the file is read within the bound.
+        reset_legacy_bytes();
+        assert_eq!(
+            completion.legacy_read(&root, spelling),
+            Some(super::LegacyRead::Bytes(BROKEN.to_vec())),
+            "{spelling}"
+        );
+        assert_eq!(legacy_bytes(), BROKEN.len() as u64);
+        for (label, swap) in swaps {
+            let swap_root = root.clone();
+            let swapped = std::rc::Rc::new(Cell::new(false));
+            let seen = swapped.clone();
+            on_after_read(move |_| {
+                swap(&swap_root);
+                seen.set(true);
+            });
+            reset_legacy_bytes();
+            let read = completion.legacy_read(&root, spelling).unwrap();
+            assert!(swapped.get(), "{label}: the read reached the second check");
+            assert_eq!(
+                read,
+                super::LegacyRead::Unknown("alias"),
+                "{label}: {spelling}"
+            );
+            // The read happened, within the file bound, and nothing of it
+            // is returned.
+            assert_eq!(legacy_bytes(), BROKEN.len() as u64, "{label}");
+            assert!(legacy_bytes() <= MAX_FILE_BYTES + 1);
+            std::fs::rename(root.join("moved.json"), root.join(TARGET)).unwrap();
+        }
+    }
 }

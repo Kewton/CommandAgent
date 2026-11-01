@@ -478,6 +478,8 @@ fn read_unless_bound(root: &Path, resolved: &Path, names: &[&Name]) -> LegacyRea
     if bytes.len() as u64 > MAX_FILE_BYTES {
         return LegacyRead::Unknown("over_limit");
     }
+    #[cfg(test)]
+    tests::after_read_seam(resolved);
     if !names.iter().all(|name| name.excludes(root, opened)) {
         return LegacyRead::Unknown("alias");
     }
