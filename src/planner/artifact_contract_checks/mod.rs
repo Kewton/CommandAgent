@@ -927,9 +927,11 @@ fn names_registered_inputs(descriptor: &Descriptor, request: &protocol::Request)
     declared == requested
 }
 
-/// Workspace paths each admitted check last named (Issue #949): its request
-/// and, when the request binds to the operator's input IDs, every input that
-/// passes the path guard. Only names are kept, keyed by canonical workspace.
+/// Workspace names each admitted check last recorded (Issue #949), before
+/// `bind_inputs`: the declared request, plus, when the request parses and
+/// names exactly the operator's input IDs, every input that passes the
+/// lexical guard, whether or not it then binds. Names are kept verbatim and
+/// keyed by canonical workspace; see `final_acceptance::artifact_repair_paths`.
 type BoundPaths = BTreeMap<PathBuf, BTreeMap<(String, String), Vec<String>>>;
 static BOUND_PATHS: Mutex<BoundPaths> = Mutex::new(BTreeMap::new());
 const MAX_REMEMBERED_WORKSPACES: usize = 64;

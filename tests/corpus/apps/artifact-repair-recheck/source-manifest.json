@@ -8,6 +8,6 @@
   "derived_fixture": "fixtures/events.json lists hand-authored synthetic cases only. Each names the test that builds it at run time: generic draft profiles, a POSIX shell adapter run by the operator-pinned /bin/sh, and scripted fake planner and executor clients, all in temporary directories. No external smoke task, grader input, expected value, model output, generated code, host path, or credential is stored or copied here.",
   "regenerate_digests": "shasum -a 256 fixtures/events.json",
   "fixture_sha256": {
-    "events.json": "2686a7b90dd44b50bd15def3b56da740beebed4616968053e80df946e7494907"
+    "events.json": "fa02b0011e31c97dbcbf05c046b80fd5d2fb5d0022c900903c690821fddf4b55"
   }
 }

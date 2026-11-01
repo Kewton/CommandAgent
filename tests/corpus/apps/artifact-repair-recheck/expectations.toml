@@ -38,6 +38,11 @@ fixtures/events.json = [
   "\"id\": \"split-declared-1\"",
   "\"id\": \"split-bound-1\"",
   "\"id\": \"split-unrelated-1\"",
+  "\"id\": \"space-real-1\"",
+  "\"id\": \"space-decoy-1\"",
+  "\"id\": \"backslash-real-1\"",
+  "\"id\": \"backslash-decoy-1\"",
+  "\"repair_complete:1:[data/terms.json ]\"",
   "\"exhausted:bounded_repair_exhausted\"",
   "\"repair_start:max=2\""
 ]

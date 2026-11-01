@@ -3,14 +3,83 @@
 //! synthetic markers, never a real project's files or credentials.
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
+
+use serde_json::json;
+use sha2::{Digest, Sha256};
 
 use super::super::changed_snapshot_paths;
 use super::super::repair_workspace_snapshot::{capture, capture_with_artifacts};
 use super::{artifact_candidates, artifact_repair_candidates};
+use crate::planner::artifact_contract_checks::{bound_workspace_paths, run_check};
+use crate::planner::capability_catalog::artifact::ArtifactContractCheck;
 
 type Snapshot = BTreeMap<String, Option<Vec<u8>>>;
+
+const REQUEST: &str = "check/request.json";
+
+/// An operator registry with one adapter that exits 1 at once; the input
+/// `terms` is pinned to `pin` when given.
+struct Registry {
+    _dir: tempfile::TempDir,
+    config: PathBuf,
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+fn registry(pin: Option<&str>) -> Registry {
+    let dir = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(dir.path()).unwrap();
+    let tooling = root.join("tooling");
+    let config = root.join("config");
+    std::fs::create_dir_all(&tooling).unwrap();
+    std::fs::create_dir_all(config.join("adapters")).unwrap();
+    std::fs::write(tooling.join("gate.sh"), "exit 1\n").unwrap();
+    let shell = std::fs::canonicalize("/bin/sh").unwrap();
+    let mut input = json!({"input_id": "terms"});
+    if let Some(pin) = pin {
+        input["sha256"] = json!(pin);
+    }
+    let descriptor = json!({
+        "protocol": "artifact-contract.adapter/v1",
+        "adapter_id": "gate",
+        "executable": {"path": shell, "sha256": sha256_hex(&std::fs::read(&shell).unwrap())},
+        "tooling_root": tooling,
+        "entrypoint": "gate.sh",
+        "members": {"gate.sh": sha256_hex(b"exit 1\n")},
+        "required": [{"check_id": "terms/state", "targets": []}],
+        "inputs": [input],
+    });
+    std::fs::write(
+        config.join("adapters/gate.json"),
+        serde_json::to_vec(&descriptor).unwrap(),
+    )
+    .unwrap();
+    Registry { _dir: dir, config }
+}
+
+fn request(input_id: &str, path: &str) -> String {
+    json!({
+        "protocol": "artifact-contract.request/v1",
+        "request_id": "r-1",
+        "inputs": [{"input_id": input_id, "path": path}],
+    })
+    .to_string()
+}
+
+/// Run the check once in `root` and return the names it recorded there.
+fn recorded(registry: &Registry, adapter: &str, root: &Path) -> Vec<String> {
+    let check = ArtifactContractCheck {
+        adapter_id: adapter.to_string(),
+        request: REQUEST.to_string(),
+    };
+    let receipt = run_check(root, &check, Some(&registry.config), || false);
+    assert!(!receipt.native_passed);
+    bound_workspace_paths(root)
+}
 
 fn write(root: &Path, rel: &str, content: &str) {
     let path = root.join(rel);
@@ -374,4 +443,146 @@ fn an_unreadable_artifact_is_unknown() {
         ),
         ["contract/terms.yaml"]
     );
+}
+
+/// B3: a bound name is compared verbatim. With a trailing-space input and a
+/// look-alike file without the space side by side, only the real input's
+/// change counts.
+#[test]
+fn a_trailing_space_bound_name_is_compared_verbatim() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write(root, "data/terms.json ", "{\"state\": \"draft\"}\n");
+    write(root, "data/terms.json", "{\"state\": \"draft\"}\n");
+    let bound = [REQUEST, "data/terms.json "];
+    let before = snap(root, &[], &bound, &[]);
+    assert!(before.contains_key("data/terms.json "), "{before:?}");
+    assert!(!before.contains_key("data/terms.json"), "{before:?}");
+    write(root, "data/terms.json", "{\"state\": \"ready\"}\n");
+    assert_eq!(
+        changed_snapshot_paths(&before, &snap(root, &[], &bound, &[])),
+        Vec::<String>::new()
+    );
+    write(root, "data/terms.json ", "{\"state\": \"ready\"}\n");
+    assert_eq!(
+        changed_snapshot_paths(&before, &snap(root, &[], &bound, &[])),
+        ["data/terms.json "]
+    );
+}
+
+/// B3: on POSIX `\` is part of a file name, never a separator.
+#[cfg(unix)]
+#[test]
+fn a_backslash_bound_name_is_not_turned_into_a_separator() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write(root, "data\\terms.json", "{\"state\": \"draft\"}\n");
+    write(root, "data/terms.json", "{\"state\": \"draft\"}\n");
+    let bound = [REQUEST, "data\\terms.json"];
+    let before = snap(root, &[], &bound, &[]);
+    assert!(before.contains_key("data\\terms.json"), "{before:?}");
+    assert!(!before.contains_key("data/terms.json"), "{before:?}");
+    write(root, "data/terms.json", "{\"state\": \"ready\"}\n");
+    assert_eq!(
+        changed_snapshot_paths(&before, &snap(root, &[], &bound, &[])),
+        Vec::<String>::new()
+    );
+    write(root, "data\\terms.json", "{\"state\": \"ready\"}\n");
+    assert_eq!(
+        changed_snapshot_paths(&before, &snap(root, &[], &bound, &[])),
+        ["data\\terms.json"]
+    );
+}
+
+#[test]
+fn verbatim_bound_names_still_refuse_escape_hidden_runtime_and_credentials() {
+    let bound = strings(&[
+        "../outside.json",
+        "/etc/terms.json",
+        "./data/terms.json",
+        "data/../terms.json",
+        "data/.hidden.json",
+        ".anvil/runs/r.json",
+        "pkg/node_modules/x.json",
+        "keys/service-account-x.json",
+        "",
+        "data/terms.json ",
+    ]);
+    assert_eq!(artifact_candidates(&[], &bound), ["data/terms.json "]);
+}
+
+/// N1: what one admitted run records, by how far the request got.
+#[test]
+fn recorded_names_follow_the_request_and_operator_input_ids() {
+    let registry = registry(None);
+    let cases = [
+        (
+            "unparsable request",
+            Some("{not json".to_string()),
+            vec![REQUEST],
+        ),
+        ("missing request", None, vec![REQUEST]),
+        (
+            "input ID differs from the operator's",
+            Some(request("other", "data/terms.json")),
+            vec![REQUEST],
+        ),
+        (
+            "missing input",
+            Some(request("terms", "data/terms.json")),
+            vec![REQUEST, "data/terms.json"],
+        ),
+    ];
+    for (label, body, expected) in cases {
+        let dir = tempfile::tempdir().unwrap();
+        if let Some(body) = body {
+            write(dir.path(), REQUEST, &body);
+        }
+        assert_eq!(recorded(&registry, "gate", dir.path()), expected, "{label}");
+    }
+}
+
+/// N1: an input that fails its operator pin is still a named repair
+/// candidate, so repairing it reruns the check, which keeps failing until the
+/// bytes match the pin.
+#[test]
+fn an_input_failing_its_operator_pin_stays_a_candidate() {
+    let registry = registry(Some(&"0".repeat(64)));
+    let dir = tempfile::tempdir().unwrap();
+    write(dir.path(), REQUEST, &request("terms", "data/terms.json"));
+    write(dir.path(), "data/terms.json", "{}\n");
+    let check = ArtifactContractCheck {
+        adapter_id: "gate".to_string(),
+        request: REQUEST.to_string(),
+    };
+    let receipt = run_check(dir.path(), &check, Some(&registry.config), || false);
+    assert_eq!(receipt.stopped_at, "input");
+    assert_eq!(
+        bound_workspace_paths(dir.path()),
+        [REQUEST, "data/terms.json"]
+    );
+}
+
+/// N1: a registry stop records nothing, so the snapshot stays legacy.
+#[test]
+fn an_unregistered_adapter_records_nothing() {
+    let registry = registry(None);
+    let dir = tempfile::tempdir().unwrap();
+    write(dir.path(), REQUEST, &request("terms", "data/terms.json"));
+    assert!(recorded(&registry, "absent", dir.path()).is_empty());
+    assert!(artifact_repair_candidates(dir.path(), "generic", "goal").is_empty());
+}
+
+/// N1: an input the binding refuses lexically (a credential name) is never
+/// recorded, even though the request names the operator's input ID.
+#[test]
+fn a_credential_input_name_is_never_recorded() {
+    let registry = registry(None);
+    let dir = tempfile::tempdir().unwrap();
+    write(
+        dir.path(),
+        REQUEST,
+        &request("terms", "keys/service-account-x.json"),
+    );
+    assert_eq!(recorded(&registry, "gate", dir.path()), [REQUEST]);
 }

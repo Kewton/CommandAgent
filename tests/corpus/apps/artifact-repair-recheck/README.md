@@ -12,6 +12,9 @@ of an artifact an admitted `artifact_contract_check` inspected.
 - A same-bytes rewrite, an mtime-only touch, and a report-only change are no
   change: those cases keep the develop `4edfc5a7` sequence and their repair
   events stay byte-identical to the events observed there.
+- A bound input name is compared verbatim: a trailing-space name and a
+  POSIX name holding `\` stay distinct from the look-alike `data/terms.json`
+  beside them, so only the real input's change reruns the check.
 - A rerun that still fails (invalid content, adapter exit without an envelope,
   adapter timeout, a required row `unresolved` or `not_run`) stays a native
   failure, and no case exceeds the existing two repair attempts.

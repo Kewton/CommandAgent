@@ -110,6 +110,50 @@
         "final_acceptance_repair_complete": {"attempt":1,"changed_path_count":0,"changed_paths":[],"cycle_index":1,"event":"final_acceptance_repair_complete","iterations":1,"lifecycle_stage":"final_acceptance_repair","max_attempts":2,"repair_session_mode":"appended","repair_target":"implementation","reported_changed_path_count":1,"reported_changed_paths":["notes/unrelated.json"],"route_bound_changed_paths":[],"route_bound_source_changed":false,"schema_version":"1","session_message_count":8,"shared_execution_session":true,"tool_calls":1},
         "final_acceptance_repair_no_source_change": {"attempt":1,"cycle_index":1,"event":"final_acceptance_repair_no_source_change","evidence_no_source_change_count":0,"failure_kind":"final_acceptance_repair_no_source_change","lifecycle_stage":"final_acceptance_repair","max_attempts":2,"repair_session_mode":"appended","repair_target":"implementation","reported_changed_paths":["notes/unrelated.json"],"reprobe_skipped":true,"route_bound_changed_paths":[],"schema_version":"1"}
       }
+    },
+    {
+      "id": "space-real-1",
+      "kind": "synthetic",
+      "test": "a_repaired_trailing_space_input_reruns_the_check",
+      "change": "the bound input `data/terms.json ` (trailing space) draft -> ready; the look-alike `data/terms.json` is untouched",
+      "outcome": "passed",
+      "receipts": 2,
+      "repair_attempts": 1,
+      "base_sequence": ["receipt:failed:verified", "repair_start:max=2", "repair_complete:1:[]", "no_source_change:1", "exhausted:final_acceptance_repair_no_source_change", "stop:false"],
+      "sequence": ["receipt:failed:verified", "repair_start:max=2", "repair_complete:1:[data/terms.json ]", "receipt:passed:verified", "cycle_complete:true", "stop:true"]
+    },
+    {
+      "id": "space-decoy-1",
+      "kind": "synthetic",
+      "test": "a_repaired_look_alike_of_a_trailing_space_input_does_not_recheck",
+      "change": "only the look-alike `data/terms.json` changes; the bound input `data/terms.json ` is untouched",
+      "outcome": "failed",
+      "receipts": 1,
+      "repair_attempts": 1,
+      "base_sequence": ["receipt:failed:verified", "repair_start:max=2", "repair_complete:1:[]", "no_source_change:1", "exhausted:final_acceptance_repair_no_source_change", "stop:false"],
+      "sequence": ["receipt:failed:verified", "repair_start:max=2", "repair_complete:1:[]", "no_source_change:1", "exhausted:final_acceptance_repair_no_source_change", "stop:false"]
+    },
+    {
+      "id": "backslash-real-1",
+      "kind": "synthetic",
+      "test": "a_repaired_backslash_input_reruns_the_check",
+      "change": "the bound POSIX input `data\\terms.json` (one name with a backslash) draft -> ready; the look-alike `data/terms.json` is untouched",
+      "outcome": "passed",
+      "receipts": 2,
+      "repair_attempts": 1,
+      "base_sequence": ["receipt:failed:verified", "repair_start:max=2", "repair_complete:1:[]", "no_source_change:1", "exhausted:final_acceptance_repair_no_source_change", "stop:false"],
+      "sequence": ["receipt:failed:verified", "repair_start:max=2", "repair_complete:1:[data\\terms.json]", "receipt:passed:verified", "cycle_complete:true", "stop:true"]
+    },
+    {
+      "id": "backslash-decoy-1",
+      "kind": "synthetic",
+      "test": "a_repaired_look_alike_of_a_backslash_input_does_not_recheck",
+      "change": "only the look-alike `data/terms.json` changes; the bound input `data\\terms.json` is untouched",
+      "outcome": "failed",
+      "receipts": 1,
+      "repair_attempts": 1,
+      "base_sequence": ["receipt:failed:verified", "repair_start:max=2", "repair_complete:1:[]", "no_source_change:1", "exhausted:final_acceptance_repair_no_source_change", "stop:false"],
+      "sequence": ["receipt:failed:verified", "repair_start:max=2", "repair_complete:1:[]", "no_source_change:1", "exhausted:final_acceptance_repair_no_source_change", "stop:false"]
     }
   ]
 }

@@ -45,6 +45,13 @@ nonce=$(field nonce)
 workspace=$(field workspace)
 path=$(field path)
 sha=$(field sha256)
+raw=$path; path=""
+while :; do
+  case $raw in
+    *'\\'*) path="$path${raw%%\\\\*}\\"; raw=${raw#*\\\\} ;;
+    *) path="$path$raw"; break ;;
+  esac
+done
 printf '%s\n' "$request_id" >> "$1/calls"
 verdict=failed
 while IFS= read -r line || [ -n "$line" ]; do
@@ -222,8 +229,9 @@ fn render(events: &[Value]) -> String {
 }
 
 fn request(request_id: &str, input: &str) -> String {
+    let input = serde_json::to_string(input).unwrap();
     format!(
-        r#"{{"protocol":"artifact-contract.request/v1","request_id":"{request_id}","inputs":[{{"input_id":"terms","path":"{input}"}}]}}"#
+        r#"{{"protocol":"artifact-contract.request/v1","request_id":"{request_id}","inputs":[{{"input_id":"terms","path":{input}}}]}}"#
     )
 }
 
@@ -646,6 +654,69 @@ fn a_changed_bound_input_outside_the_declared_artifacts_reruns_the_check() {
         strings(&complete["reported_changed_paths"]).contains(&"notes/unrelated.json".to_string()),
         "{complete}"
     );
+}
+
+/// B3: the check's input and a look-alike file it does not read lie side by
+/// side; the input name is compared verbatim.
+fn look_alike_case(id: &'static str, input: &'static str, repaired: &'static str) -> Case {
+    Case {
+        id,
+        profile: SPLIT_PROFILE,
+        input,
+        initial: vec![
+            ("contract/schema.yaml", "version: 1\n"),
+            (input, "{\"state\": \"draft\"}\n"),
+            ("data/terms.json", "{\"state\": \"draft\"}\n"),
+        ],
+        repairs: vec![vec![(repaired, "{\"state\": \"ready\"}\n")]],
+    }
+}
+
+fn assert_look_alike_untouched(case: &Case, run: &Run) {
+    if case.input != "data/terms.json" {
+        assert_eq!(
+            std::fs::read_to_string(run.workspace.path().join("data/terms.json")).unwrap(),
+            "{\"state\": \"draft\"}\n",
+            "{}",
+            case.id
+        );
+    }
+}
+
+#[test]
+fn a_repaired_trailing_space_input_reruns_the_check() {
+    let case = look_alike_case("space-real-1", "data/terms.json ", "data/terms.json ");
+    let run = run(&case);
+    assert_case(&case, &run);
+    assert_last_receipt_binds_final_bytes(&case, &run);
+    assert_look_alike_untouched(&case, &run);
+}
+
+#[test]
+fn a_repaired_look_alike_of_a_trailing_space_input_does_not_recheck() {
+    let case = look_alike_case("space-decoy-1", "data/terms.json ", "data/terms.json");
+    let run = run(&case);
+    assert_case(&case, &run);
+    assert_last_receipt_binds_final_bytes(&case, &run);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_repaired_backslash_input_reruns_the_check() {
+    let case = look_alike_case("backslash-real-1", "data\\terms.json", "data\\terms.json");
+    let run = run(&case);
+    assert_case(&case, &run);
+    assert_last_receipt_binds_final_bytes(&case, &run);
+    assert_look_alike_untouched(&case, &run);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_repaired_look_alike_of_a_backslash_input_does_not_recheck() {
+    let case = look_alike_case("backslash-decoy-1", "data\\terms.json", "data/terms.json");
+    let run = run(&case);
+    assert_case(&case, &run);
+    assert_last_receipt_binds_final_bytes(&case, &run);
 }
 
 /// A report-only change to a JSON no check reads, with the inspected input
