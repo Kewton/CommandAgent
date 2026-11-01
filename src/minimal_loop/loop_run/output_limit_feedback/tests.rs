@@ -5,18 +5,22 @@
 
 use std::borrow::Cow;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Condvar, Mutex, mpsc};
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
 use super::super::{RunSessionOptions, run_session_with_outcome_with_options};
-use super::OutputLimitFeedback;
+use super::{OutputLimitFeedback, lock};
 use crate::config::{
     Action, Config, ConfigFieldSources, NarrationMode, OllamaThink, OpenAiApi, PlanPreset,
     PromptLayout, Provider,
 };
+use crate::provider_call::{ProviderCallOutcome, ProviderCallScope, ProviderChatRequest};
+use crate::providers::streaming::CancelToken;
 use crate::providers::{
-    AssistantReply, ChatClient, ProviderResponseMetadata, ToolArgumentsParseError,
+    AssistantReply, ChatClient, ProviderResponseMetadata, ResponseTiming, ToolArgumentsParseError,
     ToolArgumentsParseFailure,
 };
 use crate::state::{ConversationMessage, SessionSnapshot, ToolCall};
@@ -548,6 +552,553 @@ fn the_reasoning_count_comes_from_the_turn_that_hit_the_limit_only() {
                 "{key}"
             );
         }
+    }
+}
+
+// ---- the dispatch state against a late provider-call worker ----------------
+
+/// Holds a provider-call worker right before the dispatch decision (the
+/// watch's, or a bare [`Probe`]'s), and reports the decision.
+#[derive(Debug)]
+pub(super) struct DispatchGate {
+    reached: AtomicBool,
+    released: (Mutex<bool>, Condvar),
+    decided: Mutex<mpsc::Sender<bool>>,
+}
+
+impl DispatchGate {
+    fn new() -> (Arc<Self>, mpsc::Receiver<bool>) {
+        let (sender, receiver) = mpsc::channel();
+        let gate = Self {
+            reached: AtomicBool::new(false),
+            released: (Mutex::new(false), Condvar::new()),
+            decided: Mutex::new(sender),
+        };
+        (Arc::new(gate), receiver)
+    }
+
+    pub(super) fn hold(&self) {
+        self.reached.store(true, Ordering::SeqCst);
+        let (lock, condvar) = &self.released;
+        let mut released = lock.lock().unwrap();
+        while !*released {
+            released = condvar.wait(released).unwrap();
+        }
+    }
+
+    pub(super) fn decided(&self, proceeded: bool) {
+        let _ = self.decided.lock().unwrap().send(proceeded);
+    }
+
+    fn release(&self) {
+        let (lock, condvar) = &self.released;
+        *lock.lock().unwrap() = true;
+        condvar.notify_all();
+    }
+}
+
+fn wait_decided(decided: &mpsc::Receiver<bool>) -> bool {
+    decided
+        .recv_timeout(Duration::from_secs(60))
+        .expect("the worker decides once released")
+}
+
+/// A client that counts the requests it receives, reports its reasoning
+/// count in the metadata, and signals when a worker took that metadata.
+/// `hold` keeps a request open until the provider call gives up on it (the
+/// call cancels the token on every exit); `gate` holds a bare client's
+/// worker the way the watch's gate holds a watched one.
+#[derive(Clone)]
+struct Probe {
+    calls: Arc<Mutex<usize>>,
+    reasoning: Option<u64>,
+    metadata: Option<ProviderResponseMetadata>,
+    token: Option<CancelToken>,
+    hold: bool,
+    gate: Option<Arc<DispatchGate>>,
+    taken: Arc<Mutex<mpsc::Sender<()>>>,
+}
+
+impl Probe {
+    fn new(reasoning: Option<u64>) -> (Self, mpsc::Receiver<()>) {
+        let (sender, receiver) = mpsc::channel();
+        let probe = Self {
+            calls: Arc::default(),
+            reasoning,
+            metadata: None,
+            token: None,
+            hold: false,
+            gate: None,
+            taken: Arc::new(Mutex::new(sender)),
+        };
+        (probe, receiver)
+    }
+
+    fn calls(&self) -> usize {
+        *self.calls.lock().unwrap()
+    }
+}
+
+impl ChatClient for Probe {
+    fn label(&self) -> &str {
+        "probe"
+    }
+
+    fn boxed_clone(&self) -> Box<dyn ChatClient> {
+        Box::new(self.clone())
+    }
+
+    fn set_cancel_token(&mut self, token: CancelToken) {
+        self.token = Some(token);
+    }
+
+    fn take_response_metadata(&mut self) -> Option<ProviderResponseMetadata> {
+        let metadata = self.metadata.take();
+        let _ = self.taken.lock().unwrap().send(());
+        metadata
+    }
+
+    fn chat(
+        &mut self,
+        _model: &str,
+        _messages: &[ConversationMessage],
+        _tools: &[ToolSpec],
+        _native_tools_enabled: bool,
+    ) -> anyhow::Result<AssistantReply> {
+        if let Some(gate) = &self.gate {
+            gate.hold();
+            gate.decided(true);
+        }
+        *self.calls.lock().unwrap() += 1;
+        if self.hold {
+            let token = self.token.clone().expect("the provider call sets a token");
+            let started = Instant::now();
+            while !token.is_cancelled() && started.elapsed() < Duration::from_secs(60) {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            anyhow::bail!("held request interrupted");
+        }
+        self.metadata = Some(ProviderResponseMetadata {
+            reasoning_tokens: self.reasoning,
+            ..ProviderResponseMetadata::default()
+        });
+        Ok(reply(Some(1), Vec::new()))
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Interrupt {
+    Cancel,
+    Timeout,
+}
+
+const INTERRUPTS: [Interrupt; 2] = [Interrupt::Cancel, Interrupt::Timeout];
+
+fn request(messages: &[ConversationMessage]) -> ProviderChatRequest<'_> {
+    ProviderChatRequest {
+        scope: ProviderCallScope::Executor,
+        model: "m",
+        messages,
+        tools: &[],
+        native_tools_enabled: true,
+    }
+}
+
+fn call_config(root: &Path, timeout_secs: u64) -> Config {
+    let mut config = config(root);
+    config.chat_timeout_secs = timeout_secs;
+    config
+}
+
+/// One provider call the way the loop makes it: through the watch, then
+/// `settle`.
+fn provider_call(
+    leaf: &mut OutputLimitFeedback,
+    client: &mut Probe,
+    root: &Path,
+    timeout_secs: u64,
+    is_cancelled: impl Fn() -> bool,
+) -> ProviderCallOutcome {
+    let config = call_config(root, timeout_secs);
+    let messages = [ConversationMessage::user("hello")];
+    let outcome = crate::provider_call::chat_with_cancel_and_stream(
+        &mut leaf.watch(&mut *client),
+        &config,
+        request(&messages),
+        is_cancelled,
+        &mut |_| Ok(()),
+    );
+    leaf.settle();
+    outcome
+}
+
+/// The provider call's own result for `interrupt`: whether it timed out,
+/// whether the user aborted it, and its error text.
+fn interrupted(outcome: &ProviderCallOutcome, interrupt: Interrupt) -> (bool, bool, String) {
+    let error = format!("{:#}", outcome.result.as_ref().unwrap_err());
+    match interrupt {
+        Interrupt::Cancel => assert!(error.contains("aborted_by_user"), "{error}"),
+        Interrupt::Timeout => assert!(
+            error.ends_with("provider call exceeded configured deadline of 1s"),
+            "{error}"
+        ),
+    }
+    let seen = (outcome.timed_out, outcome.aborted_by_user, error);
+    assert_eq!(
+        (seen.0, seen.1),
+        (
+            matches!(interrupt, Interrupt::Timeout),
+            matches!(interrupt, Interrupt::Cancel)
+        ),
+        "{seen:?}"
+    );
+    seen
+}
+
+/// Ends a call through the watch with `interrupt` while its worker is held
+/// right before the dispatch decision, then settles. The gate stays closed.
+fn held_call(
+    leaf: &mut OutputLimitFeedback,
+    client: &mut Probe,
+    root: &Path,
+    interrupt: Interrupt,
+) -> (ProviderCallOutcome, Arc<DispatchGate>, mpsc::Receiver<bool>) {
+    let (gate, decided) = DispatchGate::new();
+    leaf.dispatch_gate = Some(Arc::clone(&gate));
+    let held = Arc::clone(&gate);
+    let outcome = match interrupt {
+        Interrupt::Cancel => provider_call(leaf, client, root, 30, move || {
+            held.reached.load(Ordering::SeqCst)
+        }),
+        Interrupt::Timeout => provider_call(leaf, client, root, 1, || false),
+    };
+    leaf.dispatch_gate = None;
+    (outcome, gate, decided)
+}
+
+#[test]
+fn a_late_worker_never_sends_the_sentence_and_the_next_request_carries_it() {
+    for interrupt in INTERRUPTS {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("events.jsonl");
+        let mut leaf = OutputLimitFeedback::new(Some(&path));
+        let (mut client, _taken) = Probe::new(Some(40));
+        // The turn that hits the limit reports 40 reasoning tokens.
+        let first = provider_call(&mut leaf, &mut client, dir.path(), 30, || false);
+        assert!(first.result.is_ok());
+        leaf.observe_reply(&reply(Some(100), Vec::new()), LIMIT);
+        // Request A carries the sentence. Its worker is held right before
+        // the dispatch decision while the call ends and is settled.
+        assert_eq!(
+            composed(&mut leaf, Some("A")),
+            Some(format!("A\n\n{NO_TOOL_SENTENCE}"))
+        );
+        client.reasoning = Some(999);
+        let (outcome, gate, decided) = held_call(&mut leaf, &mut client, dir.path(), interrupt);
+        interrupted(&outcome, interrupt);
+        assert!(feedback_events(&path).is_empty(), "{interrupt:?}");
+        // Released afterwards, the worker finds A closed and never asks the
+        // client; nothing is written.
+        gate.release();
+        assert!(!wait_decided(&decided), "{interrupt:?}: A must not be sent");
+        assert_eq!(client.calls(), 1, "{interrupt:?}: the client never saw A");
+        assert!(feedback_events(&path).is_empty(), "{interrupt:?}");
+        // Request B carries the sentence once; its dispatch is attempt 1 and
+        // keeps the reasoning count of the turn that hit the limit.
+        assert_eq!(
+            composed(&mut leaf, Some("B")),
+            Some(format!("B\n\n{NO_TOOL_SENTENCE}")),
+            "{interrupt:?}"
+        );
+        client.reasoning = Some(55);
+        let second = provider_call(&mut leaf, &mut client, dir.path(), 30, || false);
+        assert!(second.result.is_ok());
+        assert_eq!(client.calls(), 2, "{interrupt:?}");
+        let written = feedback_events(&path);
+        assert_eq!(written.len(), 1, "{interrupt:?}: {written:?}");
+        assert_eq!(written[0]["attempt"], 1, "{interrupt:?}");
+        assert_eq!(written[0]["provider_reasoning_tokens"], 40, "{interrupt:?}");
+        assert_eq!(composed(&mut leaf, Some("C")), Some("C".into()));
+    }
+}
+
+#[test]
+fn a_sentence_request_that_reached_the_client_is_recorded_even_if_the_call_then_stops() {
+    for interrupt in INTERRUPTS {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("events.jsonl");
+        let mut leaf = OutputLimitFeedback::new(Some(&path));
+        leaf.observe_reply(&reply(Some(100), Vec::new()), LIMIT);
+        assert_eq!(composed(&mut leaf, None), Some(NO_TOOL_SENTENCE.into()));
+        // The client receives the request, then the call is interrupted.
+        let (mut client, _taken) = Probe::new(Some(12));
+        client.hold = true;
+        let calls = Arc::clone(&client.calls);
+        let outcome = match interrupt {
+            Interrupt::Cancel => provider_call(&mut leaf, &mut client, dir.path(), 30, move || {
+                *calls.lock().unwrap() > 0
+            }),
+            Interrupt::Timeout => provider_call(&mut leaf, &mut client, dir.path(), 1, || false),
+        };
+        interrupted(&outcome, interrupt);
+        assert_eq!(client.calls(), 1, "{interrupt:?}");
+        let written = feedback_events(&path);
+        assert_eq!(written.len(), 1, "{interrupt:?}: {written:?}");
+        assert_eq!(written[0]["attempt"], 1, "{interrupt:?}");
+        assert!(written[0].get("provider_reasoning_tokens").is_none());
+        assert_eq!(
+            composed(&mut leaf, None),
+            None,
+            "{interrupt:?}: a sent sentence is not armed again"
+        );
+    }
+}
+
+/// The provider call's result and the client's request count for a late
+/// worker of a request without the sentence, through the watch or with the
+/// bare client.
+fn late_worker_without_sentence(
+    interrupt: Interrupt,
+    through_watch: bool,
+) -> ((bool, bool, String), usize) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("events.jsonl");
+    let mut leaf = OutputLimitFeedback::new(Some(&path));
+    let (mut client, taken) = Probe::new(Some(77));
+    let (outcome, gate, decided) = if through_watch {
+        held_call(&mut leaf, &mut client, dir.path(), interrupt)
+    } else {
+        let (gate, decided) = DispatchGate::new();
+        client.gate = Some(Arc::clone(&gate));
+        let held = Arc::clone(&gate);
+        let (timeout_secs, cancel) = match interrupt {
+            Interrupt::Cancel => (30, true),
+            Interrupt::Timeout => (1, false),
+        };
+        let config = call_config(dir.path(), timeout_secs);
+        let messages = [ConversationMessage::user("hello")];
+        let outcome = crate::provider_call::chat_with_cancel_and_stream(
+            &mut client,
+            &config,
+            request(&messages),
+            move || cancel && held.reached.load(Ordering::SeqCst),
+            &mut |_| Ok(()),
+        );
+        (outcome, gate, decided)
+    };
+    let seen = interrupted(&outcome, interrupt);
+    let late_record = Arc::clone(&leaf.call);
+    gate.release();
+    assert!(
+        wait_decided(&decided),
+        "{interrupt:?}: the late worker goes on"
+    );
+    taken
+        .recv_timeout(Duration::from_secs(60))
+        .expect("the late worker finishes");
+    let calls = client.calls();
+    assert!(feedback_events(&path).is_empty());
+    if through_watch {
+        // The late worker's reasoning count stays in its own call's record
+        // (written right after the metadata is taken).
+        let started = Instant::now();
+        while lock(&late_record).reasoning_tokens != Some(77) {
+            assert!(started.elapsed() < Duration::from_secs(60));
+            std::thread::yield_now();
+        }
+        // A later limit turn without a count records none, and the request
+        // after it reports none either.
+        client.gate = None;
+        client.reasoning = None;
+        assert!(
+            provider_call(&mut leaf, &mut client, dir.path(), 30, || false)
+                .result
+                .is_ok()
+        );
+        leaf.observe_reply(&reply(Some(100), Vec::new()), LIMIT);
+        assert!(composed(&mut leaf, None).is_some());
+        client.reasoning = Some(3);
+        assert!(
+            provider_call(&mut leaf, &mut client, dir.path(), 30, || false)
+                .result
+                .is_ok()
+        );
+        let written = feedback_events(&path);
+        assert_eq!(written.len(), 1, "{written:?}");
+        assert!(written[0].get("provider_reasoning_tokens").is_none());
+    }
+    (seen, calls)
+}
+
+#[test]
+fn a_request_without_the_sentence_lets_a_late_worker_ask_the_client_as_before() {
+    for interrupt in INTERRUPTS {
+        let bare = late_worker_without_sentence(interrupt, false);
+        let watched = late_worker_without_sentence(interrupt, true);
+        assert_eq!(watched, bare, "{interrupt:?}");
+        assert_eq!(
+            watched.1, 1,
+            "{interrupt:?}: the late worker asked the client"
+        );
+    }
+}
+
+/// Logs every method the watch must forward and answers with fixed values,
+/// streaming two chunks.
+#[derive(Clone, Default)]
+struct Spy {
+    log: Arc<Mutex<Vec<String>>>,
+}
+
+impl Spy {
+    fn note(&self, entry: impl Into<String>) {
+        self.log.lock().unwrap().push(entry.into());
+    }
+}
+
+impl ChatClient for Spy {
+    fn label(&self) -> &str {
+        "spy"
+    }
+
+    fn boxed_clone(&self) -> Box<dyn ChatClient> {
+        self.note("boxed_clone");
+        Box::new(self.clone())
+    }
+
+    fn supports_native_tools(&self, model: &str) -> bool {
+        self.note(format!("native {model}"));
+        model == "native"
+    }
+
+    fn allows_xml_fallback(&self) -> bool {
+        self.note("xml_fallback");
+        true
+    }
+
+    fn parses_xml_tool_calls_before_host(&self) -> bool {
+        self.note("xml_before_host");
+        true
+    }
+
+    fn supports_ollama_think(&self) -> bool {
+        self.note("ollama_think");
+        true
+    }
+
+    fn take_response_timing(&mut self) -> Option<ResponseTiming> {
+        self.note("timing");
+        Some(ResponseTiming {
+            total_duration: Some(7),
+            ..ResponseTiming::default()
+        })
+    }
+
+    fn take_response_metadata(&mut self) -> Option<ProviderResponseMetadata> {
+        self.note("metadata");
+        Some(ProviderResponseMetadata {
+            response_id: Some("r".to_string()),
+            reasoning_tokens: Some(21),
+            ..ProviderResponseMetadata::default()
+        })
+    }
+
+    fn set_cancel_token(&mut self, token: CancelToken) {
+        self.note(format!("cancel {}", token.is_cancelled()));
+    }
+
+    fn provider_turn_carried_result(&mut self) {
+        self.note("carried");
+    }
+
+    fn supports_streaming(&self) -> bool {
+        self.note("streaming");
+        true
+    }
+
+    fn supports_streaming_for_model(&self, model: &str) -> bool {
+        self.note(format!("streaming {model}"));
+        model == "stream"
+    }
+
+    fn chat_stream(
+        &mut self,
+        model: &str,
+        messages: &[ConversationMessage],
+        _tools: &[ToolSpec],
+        native_tools_enabled: bool,
+        on_chunk: &mut dyn FnMut(&str) -> anyhow::Result<()>,
+    ) -> anyhow::Result<AssistantReply> {
+        self.note(format!(
+            "chat_stream {model} {} {native_tools_enabled}",
+            messages.len()
+        ));
+        on_chunk("a")?;
+        on_chunk("b")?;
+        Ok(reply(Some(2), Vec::new()))
+    }
+
+    fn chat(
+        &mut self,
+        model: &str,
+        messages: &[ConversationMessage],
+        _tools: &[ToolSpec],
+        native_tools_enabled: bool,
+    ) -> anyhow::Result<AssistantReply> {
+        self.note(format!(
+            "chat {model} {} {native_tools_enabled}",
+            messages.len()
+        ));
+        Ok(reply(Some(3), Vec::new()))
+    }
+}
+
+/// Every method the way a provider call uses it; the answers, the chunks,
+/// and the log the client kept.
+fn exercise(client: &mut dyn ChatClient, spy: &Spy) -> Vec<String> {
+    let messages = [ConversationMessage::user("hello")];
+    let mut seen = vec![
+        client.label().to_string(),
+        format!("{}", client.supports_native_tools("native")),
+        format!("{}", client.allows_xml_fallback()),
+        format!("{}", client.parses_xml_tool_calls_before_host()),
+        format!("{}", client.supports_ollama_think()),
+        format!("{}", client.supports_streaming()),
+        format!("{}", client.supports_streaming_for_model("stream")),
+    ];
+    let mut worker = client.boxed_clone();
+    worker.set_cancel_token(CancelToken::default());
+    let answered = ChatClient::chat(worker.as_mut(), "plain", &messages, &[], false);
+    seen.push(format!("{answered:?}"));
+    let mut chunks = Vec::new();
+    let streamed = worker.chat_stream("stream", &messages, &[], true, &mut |chunk| {
+        chunks.push(chunk.to_string());
+        Ok(())
+    });
+    seen.push(format!("{streamed:?} {chunks:?}"));
+    seen.push(format!("{:?}", worker.take_response_timing()));
+    seen.push(format!("{:?}", worker.take_response_metadata()));
+    client.provider_turn_carried_result();
+    seen.extend(spy.log.lock().unwrap().iter().cloned());
+    seen
+}
+
+#[test]
+fn the_watch_forwards_streaming_cancel_timing_metadata_and_the_carried_result() {
+    let bare_spy = Spy::default();
+    let bare = exercise(&mut bare_spy.clone(), &bare_spy);
+    for guarded in [false, true] {
+        let mut leaf = OutputLimitFeedback::new(None);
+        if guarded {
+            leaf.observe_reply(&reply(Some(100), Vec::new()), LIMIT);
+            assert!(composed(&mut leaf, None).is_some());
+        }
+        let spy = Spy::default();
+        let mut inner = spy.clone();
+        let watched = exercise(&mut leaf.watch(&mut inner), &spy);
+        assert_eq!(watched, bare, "guarded {guarded}");
+        assert_eq!(lock(&leaf.call).reasoning_tokens, Some(21));
+        leaf.settle();
     }
 }
 

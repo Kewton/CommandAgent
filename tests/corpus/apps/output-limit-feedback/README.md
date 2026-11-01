@@ -102,3 +102,26 @@ No sentence and no event follow a reply after which no request is sent: the
 last iteration, a max-length guard stop, an exhausted malformed retry that
 ends the run without XML fallback, or an accepted final. A reply with a tool
 call never gets the sentence.
+
+## Dispatch and late workers
+
+The request that carries the sentence and the run share one dispatch state
+per provider call that moves once: the provider call's worker dispatches it
+right before it asks the client, or the run closes it once the call
+returned. A request dispatched and then cancelled or timed out still writes
+its event, and the sentence is not armed again. A call that returned first
+writes nothing and arms the sentence again for the next request, which then
+carries it once and writes the event as attempt 1; a worker that reaches the
+client after the call already returned (cancelled or timed out) does not
+send that request and returns the interruption error instead (leaf tests
+hold the worker at that point with a test-only gate). That is the only
+cancel and timeout behavior that changes, and only for the request that
+carries the sentence. Every other request is forwarded as before, a late
+worker included, with the same provider-call result (leaf test against the
+bare client, for both a cancel and a timeout).
+
+`tests/output_limit_feedback.rs` also runs one script with Issue #957's
+`COMMANDAGENT_BUDGET_CLOSING=once` (not a fixture row, since every row's
+base runs without it): the request that leaves three calls follows the
+reply at the limit, and carries the existing feedback, the #957 notice,
+and the sentence in that order, each once, with one event from each.

@@ -24,6 +24,19 @@
 //! ends the run without XML fallback, an accepted final), nothing is added
 //! and nothing is written.
 //!
+//! The request that carries the sentence has one dispatch state per provider
+//! call, which moves once: `Pending → Dispatched` (the watch, right before it
+//! asks the client) or `Pending → Closed` (the run, once the provider call
+//! returned). The event is written exactly when the request was dispatched,
+//! including a call interrupted after that; a call that returned first
+//! writes nothing and arms the sentence again for the next request.
+//!
+//! Cancel and timeout behavior change, limited to the request that carries
+//! the sentence: when the provider call has already returned (cancelled or
+//! timed out) before its worker reaches the client, the worker no longer
+//! sends that request late; it returns the interruption error instead.
+//! Every other request behaves exactly as before, a late worker included.
+//!
 //! The event carries only counts and fixed words: `kind`, `attempt` (the
 //! requests of that kind actually sent), `num_predict`, `completion_tokens`,
 //! `prompt_version`, and `provider_reasoning_tokens` when the provider
@@ -90,12 +103,29 @@ fn guidance(observation: &Observation) -> String {
     )
 }
 
+/// Whether the request that carries the sentence reached the client. It
+/// moves once, either `Pending → Dispatched` (the watch, right before it
+/// asks the client) or `Pending → Closed` ([`OutputLimitFeedback::settle`],
+/// once the provider call returned).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum Dispatch {
+    #[default]
+    Pending,
+    Dispatched,
+    Closed,
+}
+
 /// What the client saw during one provider call.
 #[derive(Debug, Default)]
 struct CallState {
-    dispatched: bool,
+    dispatch: Dispatch,
     reasoning_tokens: Option<u64>,
 }
+
+/// The error a watch returns instead of asking the client once the run has
+/// closed the request that carries the sentence; it is the provider call's
+/// own interruption text, the same one `budget_closing` returns.
+const CLOSED_ERROR: &str = "aborted_by_user: interrupted by user";
 
 type SharedCall = Arc<Mutex<CallState>>;
 
@@ -109,6 +139,8 @@ pub(super) struct OutputLimitFeedback {
     staged: Option<Observation>,
     call: SharedCall,
     attempts: [u64; 2],
+    #[cfg(test)]
+    dispatch_gate: Option<Arc<tests::DispatchGate>>,
 }
 
 impl OutputLimitFeedback {
@@ -119,6 +151,8 @@ impl OutputLimitFeedback {
             staged: None,
             call: SharedCall::default(),
             attempts: [0; 2],
+            #[cfg(test)]
+            dispatch_gate: None,
         }
     }
 
@@ -179,25 +213,37 @@ impl OutputLimitFeedback {
     }
 
     /// The client for the next provider call. Each call gets a fresh record,
-    /// so a late worker of an earlier call can never write into it.
+    /// so a late worker of an earlier call can never write into it. Only the
+    /// request that carries the sentence is guarded by the dispatch state.
     pub(super) fn watch<C>(&mut self, inner: C) -> OutputLimitWatch<C> {
         self.call = SharedCall::default();
         OutputLimitWatch {
             inner,
             call: Arc::clone(&self.call),
+            guarded: self.staged.is_some(),
+            #[cfg(test)]
+            gate: self.dispatch_gate.clone(),
         }
     }
 
-    /// After the provider call returned: a staged sentence whose request
-    /// reached the client is recorded; one whose request never did is armed
-    /// again for the next request.
+    /// After the provider call returned. For the request that carries the
+    /// sentence, the call's dispatch state moves once: when the watch has
+    /// already taken it to dispatched, the sentence is recorded (also for a
+    /// call interrupted after that); otherwise this closes it, the sentence
+    /// is armed again for the next request, and a worker that reaches the
+    /// watch later returns the interruption error without asking the client.
     pub(super) fn settle(&mut self) {
         let Some(observation) = self.staged.take() else {
             return;
         };
-        if !lock(&self.call).dispatched {
-            self.pending = Some(observation);
-            return;
+        {
+            let mut call = lock(&self.call);
+            if call.dispatch == Dispatch::Pending {
+                call.dispatch = Dispatch::Closed;
+                drop(call);
+                self.pending = Some(observation);
+                return;
+            }
         }
         let attempt = &mut self.attempts[observation.kind.index()];
         *attempt += 1;
@@ -224,16 +270,41 @@ fn reached(completion_tokens: Option<u64>, num_predict: usize) -> Option<u64> {
 /// The client handed to one provider call. It forwards every method and
 /// notes, in the call's own record, that the request reached the client and
 /// the reasoning count of that call's metadata.
+///
+/// For the request that carries the sentence (`guarded`), `chat` and
+/// `chat_stream` first take the dispatch state from pending to dispatched;
+/// when [`OutputLimitFeedback::settle`] already closed it, they return the
+/// interruption error without asking the client. Every other request is
+/// forwarded exactly as before, a late worker included.
 pub(super) struct OutputLimitWatch<C> {
     inner: C,
     call: SharedCall,
+    guarded: bool,
+    #[cfg(test)]
+    gate: Option<Arc<tests::DispatchGate>>,
 }
 
 impl<C> OutputLimitWatch<C> {
-    fn dispatched(&self) {
-        let mut call = lock(&self.call);
-        call.dispatched = true;
-        call.reasoning_tokens = None;
+    /// False only for a guarded request the run already closed.
+    fn dispatch(&self) -> bool {
+        #[cfg(test)]
+        if let Some(gate) = &self.gate {
+            gate.hold();
+        }
+        let proceed = {
+            let mut call = lock(&self.call);
+            let proceed = !self.guarded || call.dispatch != Dispatch::Closed;
+            if proceed {
+                call.dispatch = Dispatch::Dispatched;
+                call.reasoning_tokens = None;
+            }
+            proceed
+        };
+        #[cfg(test)]
+        if let Some(gate) = &self.gate {
+            gate.decided(proceed);
+        }
+        proceed
     }
 }
 
@@ -250,6 +321,9 @@ where
         Box::new(OutputLimitWatch {
             inner: self.inner.boxed_clone(),
             call: Arc::clone(&self.call),
+            guarded: self.guarded,
+            #[cfg(test)]
+            gate: self.gate.clone(),
         })
     }
 
@@ -305,7 +379,9 @@ where
         native_tools_enabled: bool,
         on_chunk: &mut dyn FnMut(&str) -> anyhow::Result<()>,
     ) -> anyhow::Result<AssistantReply> {
-        self.dispatched();
+        if !self.dispatch() {
+            anyhow::bail!(CLOSED_ERROR);
+        }
         self.inner
             .chat_stream(model, messages, tools, native_tools_enabled, on_chunk)
     }
@@ -317,7 +393,9 @@ where
         tools: &[ToolSpec],
         native_tools_enabled: bool,
     ) -> anyhow::Result<AssistantReply> {
-        self.dispatched();
+        if !self.dispatch() {
+            anyhow::bail!(CLOSED_ERROR);
+        }
         // Called only from inside the provider call, which handed this client
         // over; the forwarding form matches the other wrappers
         // (`src/minimal_loop/budget_closing.rs`).

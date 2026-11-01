@@ -20,8 +20,8 @@
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, PoisonError, RwLock};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -226,7 +226,33 @@ struct Trace {
     events: Vec<Value>,
 }
 
+/// Issue #957's opt-in switch, read by the loop on every run.
+const CLOSING_ENV: &str = "COMMANDAGENT_BUDGET_CLOSING";
+/// The opening sentence of the #957 closing notice.
+const NOTICE_MARKER: &str = "残りの呼出しは現在の回を含めて3回です。";
+
+/// Every run reads [`CLOSING_ENV`] under this lock; only a run that sets it
+/// holds it for writing, so no other run in this binary sees the setting.
+static ENV_LOCK: RwLock<()> = RwLock::new(());
+
 fn run(row: &Value) -> Trace {
+    let _env = ENV_LOCK.read().unwrap_or_else(PoisonError::into_inner);
+    run_unlocked(row)
+}
+
+/// A run with [`CLOSING_ENV`] set to `setting` for its duration.
+fn run_with_closing(row: &Value, setting: &str) -> Trace {
+    let _env = ENV_LOCK.write().unwrap_or_else(PoisonError::into_inner);
+    // SAFETY: every run in this test binary holds `ENV_LOCK` (this one for
+    // writing), and nothing else in it reads the environment.
+    unsafe { std::env::set_var(CLOSING_ENV, setting) };
+    let trace = run_unlocked(row);
+    // SAFETY: as above.
+    unsafe { std::env::remove_var(CLOSING_ENV) };
+    trace
+}
+
+fn run_unlocked(row: &Value) -> Trace {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().to_path_buf();
     std::fs::write(root.join("seed.md"), "seed notes\n").unwrap();
@@ -661,6 +687,71 @@ fn malformed_reasoning_counts_stay_unreported() {
 #[test]
 fn the_event_never_borrows_another_turns_reasoning_count() {
     check("reasoning-other-turn");
+}
+
+/// With Issue #957's `COMMANDAGENT_BUDGET_CLOSING=once`, `--max-iterations 2`
+/// leaves three calls at the third request, right after the reply at the
+/// limit: that one request carries the existing feedback, then the #957
+/// notice, then the sentence, each once, and each leaf writes its own event
+/// once. Not a fixture row: the base of this file's rows runs without the
+/// setting.
+#[test]
+fn with_the_closing_notice_the_sentence_follows_it_in_the_same_request() {
+    let row = json!({
+        "id": "closing-notice-and-sentence",
+        "prompt": "Write the notes file.",
+        "required_paths": ["notes.md"],
+        "num_predict": 100,
+        "max_iterations": 2,
+        "script": [
+            {"function": {"name": "Read", "arguments": "{\"path\":\"seed.md\"}"}, "completion": 20},
+            {"content": "I will plan the notes first.", "completion": 100, "reasoning": 96},
+            {"function": {"name": "Write", "arguments": "{\"path\":\"notes.md\",\"content\":\"notes\\n\"}"}, "completion": 20},
+            {"content": "The notes file is written.", "completion": 8},
+        ],
+    });
+    let sentence = sentence("no_tool_call_at_output_limit", 100);
+    let trace = run_with_closing(&row, "once");
+    let last_contents: Vec<String> = trace
+        .requests
+        .iter()
+        .map(|request| {
+            let messages = request["messages"].as_array().unwrap();
+            messages.last().unwrap()["content"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        })
+        .collect();
+    for (index, content) in last_contents.iter().enumerate() {
+        let (notices, sentences) = (
+            content.matches(NOTICE_MARKER).count(),
+            content.matches(&sentence).count(),
+        );
+        let wanted = usize::from(index == 2);
+        assert_eq!((notices, sentences), (wanted, wanted), "request {index}");
+    }
+    let shared = &last_contents[2];
+    let notice_at = shared.find(NOTICE_MARKER).unwrap();
+    assert!(notice_at > 0, "the existing feedback comes first: {shared}");
+    assert!(shared[..notice_at].ends_with("\n\n"), "{shared}");
+    assert!(shared.ends_with(&format!("\n\n{sentence}")), "{shared}");
+    let named = |name: &str| -> Vec<&Value> {
+        trace
+            .events
+            .iter()
+            .filter(|event| event["event"] == name)
+            .collect()
+    };
+    let notices: Vec<&Value> = named("budget_closing")
+        .into_iter()
+        .filter(|event| event["phase"] == "notice")
+        .collect();
+    assert_eq!(notices.len(), 1, "{notices:?}");
+    let feedback = named(EVENT);
+    assert_eq!(feedback.len(), 1, "{feedback:?}");
+    assert_eq!(feedback[0]["attempt"], 1);
+    assert_eq!(feedback[0][REASONING_FIELD], 96);
 }
 
 #[test]
