@@ -318,7 +318,7 @@ mod billed_cost_tests {
         }
         let kept = cost(Some(&usage_with_cost("0.012345"))).unwrap();
         assert_eq!(kept.as_decimal_str(), "0.012345");
-        assert_eq!(kept.to_event_value().to_string(), r#""0.012345""#);
+        assert_eq!(kept.event_value(None).unwrap().to_string(), r#""0.012345""#);
     }
 
     #[test]
@@ -327,7 +327,7 @@ mod billed_cost_tests {
             assert_eq!(cost_text(sent).as_deref(), Some(sent), "{sent}");
         }
         let kept = cost(Some(&usage_with_cost("1e-400"))).unwrap();
-        assert_eq!(kept.to_event_value().to_string(), r#""1e-400""#);
+        assert_eq!(kept.event_value(None).unwrap().to_string(), r#""1e-400""#);
     }
 
     #[test]
@@ -336,7 +336,7 @@ mod billed_cost_tests {
             assert_eq!(cost_text(sent).as_deref(), Some(sent), "{sent}");
         }
         let zero = cost(Some(&usage_with_cost("0"))).unwrap();
-        assert_eq!(zero.to_event_value().to_string(), r#""0""#);
+        assert_eq!(zero.event_value(None).unwrap().to_string(), r#""0""#);
     }
 
     #[test]
@@ -471,6 +471,41 @@ mod billed_cost_tests {
             without_cost.billed_cost_usd = None;
             assert_eq!(without_cost, legacy_metadata, "cost {sent}");
         }
+    }
+
+    #[test]
+    fn an_amount_overlapping_a_registered_secret_is_left_out_of_the_event() {
+        use crate::sensitive_data::{SecretCatalog, install_scope, set_current};
+
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join("events.jsonl");
+        let mut catalog = SecretCatalog::new();
+        // Fake credentials only: one equal to an amount, one inside another.
+        catalog
+            .register_credential("COMPAT_API_KEY", "0.012345")
+            .unwrap();
+        catalog
+            .register_credential("OTHER_API_KEY", "12345678")
+            .unwrap();
+        install_scope(catalog, None, Some(&events));
+        set_current(None);
+        let amount = |sent: &str| cost(Some(&usage_with_cost(sent))).unwrap();
+        for sent in ["0.012345", "0.12345678", "12345678", "1.123456789e-3"] {
+            assert_eq!(amount(sent).event_value(Some(&events)), None, "{sent}");
+        }
+        for (sent, kept) in [("0.000123", r#""0.000123""#), ("0", r#""0""#)] {
+            let value = amount(sent).event_value(Some(&events)).unwrap();
+            assert_eq!(value.to_string(), kept, "{sent}");
+        }
+        let other = dir.path().join("other-events.jsonl");
+        assert_eq!(
+            amount("0.012345")
+                .event_value(Some(&other))
+                .unwrap()
+                .to_string(),
+            r#""0.012345""#,
+            "a run without that secret keeps the amount"
+        );
     }
 
     #[test]

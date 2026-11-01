@@ -1186,9 +1186,15 @@ fn emit_provider_turn_duration(config: &Config, telemetry: ProviderTurnTelemetry
         // sent (e.g. "0.012345"); an aggregator reads it as a decimal, never
         // a float. The same turn's provider_response repeats it, so an
         // aggregator counts it once per turn from this event and never adds
-        // the two. It is never a price computed from token counts.
-        if let Some(cost) = &metadata.billed_cost_usd {
-            value["provider_billed_cost_usd"] = cost.to_event_value();
+        // the two. It is never a price computed from token counts. An amount
+        // that overlaps a registered secret is left out (unreported) rather
+        // than scrubbed into a marker.
+        if let Some(cost) = metadata
+            .billed_cost_usd
+            .as_ref()
+            .and_then(|cost| cost.event_value(config.eval_events_path.as_deref()))
+        {
+            value["provider_billed_cost_usd"] = cost;
         }
     }
     eval_events::emit(config.eval_events_path.as_deref(), value);

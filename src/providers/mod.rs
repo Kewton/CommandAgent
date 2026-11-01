@@ -47,6 +47,8 @@ pub struct ProviderResponseMetadata {
     /// string `provider_billed_cost_usd` (the decimal text the provider sent,
     /// e.g. `"0.012345"`); an aggregator reads it as a decimal, never as a
     /// float, and counts it once per turn, never the two events added together.
+    /// When the amount text equals or contains a registered secret value, both
+    /// events leave the field out, exactly as for an unreported amount.
     pub billed_cost_usd: Option<BilledCostUsd>,
 }
 
@@ -80,10 +82,17 @@ impl BilledCostUsd {
         &self.0
     }
 
-    /// The amount as written to events: the decimal text in a JSON string,
-    /// e.g. `"0.012345"`, for an aggregator to read as a decimal.
-    pub fn to_event_value(&self) -> serde_json::Value {
-        serde_json::Value::String(self.0.clone())
+    /// The amount as written to an event bound for `events_path`: the decimal
+    /// text in a JSON string, e.g. `"0.012345"`, for an aggregator to read as a
+    /// decimal. `None` (the field is left out, as for an unreported amount)
+    /// when the redaction context that `eval_events::emit` applies to that
+    /// event would rewrite any part of the text, because the amount equals or
+    /// contains a registered secret value; a marker never reaches the field,
+    /// and the original text is never restored past the scrub.
+    pub fn event_value(&self, events_path: Option<&std::path::Path>) -> Option<serde_json::Value> {
+        let overlaps_a_secret = crate::sensitive_data::active_for(events_path)
+            .is_some_and(|context| context.scrub_text(&self.0) != self.0);
+        (!overlaps_a_secret).then(|| serde_json::Value::String(self.0.clone()))
     }
 }
 

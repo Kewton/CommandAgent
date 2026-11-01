@@ -390,8 +390,14 @@ impl LmStudioClient {
         // decimal text the provider sent (e.g. "0.012345") for an aggregator
         // to read as a decimal. The turn's provider_turn_duration carries the
         // same amount; count it once per turn, never the two added together.
-        if let Some(cost) = &metadata.billed_cost_usd {
-            event["provider_billed_cost_usd"] = cost.to_event_value();
+        // An amount that overlaps a registered secret is left out (unreported)
+        // rather than scrubbed into a marker.
+        if let Some(cost) = metadata
+            .billed_cost_usd
+            .as_ref()
+            .and_then(|cost| cost.event_value(self.eval_events_path.as_deref()))
+        {
+            event["provider_billed_cost_usd"] = cost;
         }
         eval_events::emit(self.eval_events_path.as_deref(), event);
     }
@@ -1145,8 +1151,20 @@ mod billed_cost_telemetry_tests {
         model: &str,
         bodies: Vec<String>,
     ) -> (Vec<[String; 2]>, Vec<String>) {
+        run_turns_with_secrets(path, model, bodies, &[])
+    }
+
+    /// [`run_turns`] with `secrets` (fake credential values only) registered
+    /// in the redaction scope of the run's events path, the same scope
+    /// `eval_events::emit` scrubs every event with.
+    fn run_turns_with_secrets(
+        path: Path947,
+        model: &str,
+        bodies: Vec<String>,
+        secrets: &[&str],
+    ) -> (Vec<[String; 2]>, Vec<String>) {
         let turns = bodies.len();
-        let (results, text, heads) = run_raw_turns(path, model, bodies);
+        let (results, text, heads) = run_raw_turns(path, model, bodies, secrets);
         for (turn, result) in results.into_iter().enumerate() {
             let content =
                 result.unwrap_or_else(|error| panic!("{path:?} turn {turn} failed: {error}"));
@@ -1179,12 +1197,22 @@ mod billed_cost_telemetry_tests {
         path: Path947,
         model: &str,
         bodies: Vec<String>,
+        secrets: &[&str],
     ) -> (Vec<Result<String, String>>, String, Vec<String>) {
         let dir = tempfile::tempdir().expect("tempdir");
         let turns = bodies.len();
         let server = Server::spawn(bodies);
         let config = config_for(server.address, dir.path(), model);
         let events_path = config.eval_events_path.clone().expect("events path");
+        if !secrets.is_empty() {
+            let mut catalog = crate::sensitive_data::SecretCatalog::new();
+            for (index, secret) in secrets.iter().enumerate() {
+                catalog
+                    .register_credential(&format!("FAKE_KEY_{index}"), secret)
+                    .expect("fake credential");
+            }
+            crate::sensitive_data::install_scope(catalog, Some(dir.path()), Some(&events_path));
+        }
         let planner = matches!(path, Path947::Planner);
         let mut client: Box<dyn ChatClient> = client_from_config(&config, planner).expect("client");
         let (scope, native_tools_enabled) = match path {
@@ -1215,6 +1243,9 @@ mod billed_cost_telemetry_tests {
             );
         }
         let heads = server.finish();
+        if !secrets.is_empty() {
+            crate::sensitive_data::set_current(None);
+        }
         let text = std::fs::read_to_string(&events_path).unwrap_or_default();
         (results, text, heads)
     }
@@ -1252,7 +1283,14 @@ mod billed_cost_telemetry_tests {
         let corpus = corpus();
         assert_eq!(corpus["event_field"], FIELD);
         assert_eq!(corpus["event_type"], "string");
-        let cases = corpus["cases"].as_array().unwrap();
+        // The credential-overlap cases need a redaction scope; they run in
+        // credential_overlap_cases_leave_the_amount_out_on_both_paths.
+        let cases = corpus["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|case| case.get("fake_credential").is_none())
+            .collect::<Vec<_>>();
         let bodies = cases
             .iter()
             .map(|case| response_body(&case["usage"], case["cost_token"].as_str()))
@@ -1300,6 +1338,88 @@ mod billed_cost_telemetry_tests {
             }
         }
         assert_eq!(reported, 10, "five reported cases on each of two paths");
+    }
+
+    #[test]
+    fn credential_overlap_cases_leave_the_amount_out_on_both_paths() {
+        let corpus = corpus();
+        let overlap = corpus["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|case| case.get("fake_credential").is_some())
+            .collect::<Vec<_>>();
+        assert_eq!(overlap.len(), 2, "an equal and a contained fake credential");
+        let secrets = overlap
+            .iter()
+            .map(|case| case["fake_credential"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        // Turn 0 only settles the stable-prefix estimate; then each overlap
+        // case; then amounts that overlap no registered secret.
+        let mut bodies = vec![response_body(&tokens_usage(), None)];
+        bodies.extend(
+            overlap
+                .iter()
+                .map(|case| response_body(&case["usage"], case["cost_token"].as_str())),
+        );
+        let kept = ["0.000123", "0", "1e-400"];
+        bodies.extend(
+            kept.iter()
+                .map(|sent| response_body(&tokens_usage(), Some(sent))),
+        );
+        // Its own model keeps the process-wide stable-prefix estimate of the
+        // corpus model untouched; the request model is mapped back to the
+        // corpus model before the base comparison.
+        const OVERLAP_MODEL: &str = "compatible-model-947-secret";
+        for path in [Path947::Executor, Path947::Planner] {
+            let (pairs, heads) =
+                run_turns_with_secrets(path, OVERLAP_MODEL, bodies.clone(), &secrets);
+            assert_no_credential_sent(&heads, bodies.len());
+            let base = &corpus["base_events"][path.key()];
+            for (case, pair) in overlap.iter().zip(&pairs[1..]) {
+                let id = case["id"].as_str().unwrap();
+                assert!(case["expected_provider_billed_cost_usd"].is_null(), "{id}");
+                for (index, line) in pair.iter().enumerate() {
+                    let line = normalize(line).replace(
+                        &format!("\"model\":\"{OVERLAP_MODEL}\""),
+                        &format!("\"model\":\"{MODEL}\""),
+                    );
+                    assert!(!line.contains(FIELD), "{path:?} {id}: {line}");
+                    assert_eq!(
+                        Some(line.as_str()),
+                        base[id][index].as_str(),
+                        "{path:?} {id} event {index}: a left-out amount changes no other byte"
+                    );
+                }
+            }
+            for (sent, pair) in kept.iter().zip(&pairs[1 + overlap.len()..]) {
+                for line in pair {
+                    assert_eq!(
+                        line.matches(&format!("\"{FIELD}\":\"{sent}\"")).count(),
+                        1,
+                        "{path:?} {sent}: {line}"
+                    );
+                }
+            }
+            // Every stored amount is a validated decimal string or absent: no
+            // secret, no marker inside an amount, no made-up zero.
+            for line in pairs.iter().flatten() {
+                let event: Value = serde_json::from_str(line).unwrap();
+                if let Some(amount) = event.get(FIELD) {
+                    let text = amount.as_str().expect("the amount is a JSON string");
+                    let parsed = crate::providers::BilledCostUsd::from_json_token(text);
+                    assert_eq!(
+                        parsed.as_ref().map(|cost| cost.as_decimal_str()),
+                        Some(text)
+                    );
+                    assert!(kept.contains(&text), "{path:?}: {line}");
+                }
+                for secret in &secrets {
+                    assert!(!line.contains(secret), "{path:?}: {line}");
+                }
+                assert!(!line.contains("redacted"), "{path:?}: {line}");
+            }
+        }
     }
 
     #[test]
@@ -1353,6 +1473,7 @@ mod billed_cost_telemetry_tests {
                 path,
                 "compatible-model-947-beyond",
                 vec![response_body(&tokens_usage(), Some("1e400"))],
+                &[],
             );
             let error = results[0]
                 .as_ref()
