@@ -1,0 +1,16 @@
+{
+  "issue": "#952",
+  "owner": "src/planner/verify_command_shape.rs prose shape of a verify line, through planner admission and the public --validate-plan",
+  "base_sha": "04e262c8bedc25bfbb033509eac7a368debc3339",
+  "origin": "synthetic",
+  "synthetic_source": {
+    "cases": "hand-written sentences, deferrals, commands, and paths; none is copied from a run, a benchmark task, or an issue evidence file",
+    "base_observation": "at base_sha the public --validate-plan, with PATH pinned to an empty directory, accepted every negative case whose first word has an ASCII letter and rejected the Japanese ones; the planner_error keys and the lint message shape were captured from the base run of a Japanese case",
+    "excluded": "no live model, real key, external provider, benchmark task, grader input, expected answer, generated code, run record, or host path is stored here"
+  },
+  "derived_fixture": "fixtures/events.json is read by tests/verify_command_admission.rs, which runs each case through the public --validate-plan and the scripted planner",
+  "regenerate_digests": "shasum -a 256 fixtures/events.json",
+  "fixture_sha256": {
+    "events.json": "623ed42fd9fd1dcadf729d253bd42cd3758a1b2877807ae5f67a3922a0179dd8"
+  }
+}

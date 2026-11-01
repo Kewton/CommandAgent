@@ -1,10 +1,25 @@
 //! A verify command whose shape cannot execute as written is a lint error.
 //!
-//! Two narrow shapes are rejected: a first word that reads as prose (no shell
-//! builtin, no command on the planning PATH, no workspace path, and not one
-//! ASCII letter, digit, `.`, `/`, `_`, or `-`), and a `test` / `[` unary file
-//! operator whose operand is missing or comes before it, or a `[` without its
-//! closing `]`. Anything that may execute is left to the existing gates.
+//! Two narrow shapes are rejected: a line that reads as prose, and a `test` /
+//! `[` unary file operator whose operand is missing or comes before it, or a
+//! `[` without its closing `]`. Anything that may execute is left to the
+//! existing gates.
+//!
+//! A line reads as prose only when its first word is no shell builtin, no
+//! command on the planning PATH, no existing or declared workspace path, and
+//! no `#` comment, and then one of two shapes holds:
+//!
+//! - the first word has no ASCII letter, digit, `.`, `/`, `_`, or `-`, so it
+//!   cannot be a command name; or
+//! - the line is a sentence: it has at least three words, every raw word (as
+//!   written, before quotes are removed or fragments joined) is made of
+//!   letters only, and the last word closes with `.`, `!`, `?`, `。`, `！`, or
+//!   `？`. A quote, glob character, digit, flag, path, `~`, `=`, `$`,
+//!   backslash, comma, or operator anywhere keeps a line out of that shape.
+//!
+//! Every other line is left to the runtime gate, which fails it there when it
+//! cannot run; an unknown or not-yet-installed command name alone never makes
+//! a line prose. Nothing is executed, installed, or fetched to decide.
 use std::collections::BTreeSet;
 use std::ffi::OsStr;
 use std::path::Path;
@@ -110,7 +125,7 @@ fn shape_defect(command: &str, context: &Resolve<'_>) -> Option<String> {
         .map(|word| word.value)
         .collect::<Vec<_>>();
     let first = words.first()?;
-    if is_prose_word(first, context) {
+    if reads_as_prose(command, first, context) {
         return Some(format!(
             "`{first}` is not a shell builtin, a command on PATH, or a workspace path"
         ));
@@ -118,15 +133,50 @@ fn shape_defect(command: &str, context: &Resolve<'_>) -> Option<String> {
     test_operand_defect(&words)
 }
 
-fn is_prose_word(word: &str, context: &Resolve<'_>) -> bool {
+/// `line` is the command as written; `first` is its first shell word.
+fn reads_as_prose(line: &str, first: &str, context: &Resolve<'_>) -> bool {
     // A word starting with `#` begins a shell comment, which runs as a no-op.
-    !word.starts_with('#')
-        && !word
-            .chars()
-            .any(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '/' | '_' | '-'))
-        && !SHELL_BUILTINS.contains(&word)
-        && !resolves_on_path(word, context.path_var)
-        && !is_workspace_path(word, context)
+    if first.starts_with('#')
+        || SHELL_BUILTINS.contains(&first)
+        || resolves_on_path(first, context.path_var)
+        || is_workspace_path(first, context)
+    {
+        return false;
+    }
+    has_no_command_character(first) || reads_as_sentence(line)
+}
+
+/// No ASCII letter, digit, `.`, `/`, `_`, or `-`: no command name looks so.
+fn has_no_command_character(word: &str) -> bool {
+    !word
+        .chars()
+        .any(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '/' | '_' | '-'))
+}
+
+/// Sentence punctuation that may close the last word.
+const SENTENCE_END: &[char] = &['.', '!', '?', '。', '！', '？'];
+/// A sentence has at least this many words.
+const MIN_SENTENCE_WORDS: usize = 3;
+
+/// Reads the raw words as written, so quoted data, globs, and joined
+/// fragments never pass as letters: every word is letters only, at least
+/// three words, and the last one closes with sentence punctuation.
+fn reads_as_sentence(line: &str) -> bool {
+    let raw = line.split_whitespace().collect::<Vec<_>>();
+    let Some((last, rest)) = raw.split_last() else {
+        return false;
+    };
+    let Some(closed) = last
+        .strip_suffix(SENTENCE_END)
+        .filter(|_| raw.len() >= MIN_SENTENCE_WORDS)
+    else {
+        return false;
+    };
+    rest.iter().all(|word| is_letters(word)) && is_letters(closed)
+}
+
+fn is_letters(word: &str) -> bool {
+    !word.is_empty() && word.chars().all(char::is_alphabetic)
 }
 
 fn resolves_on_path(word: &str, path_var: Option<&OsStr>) -> bool {

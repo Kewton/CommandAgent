@@ -226,3 +226,385 @@ fn unquoted_subshell_is_not_rejected() {
     assert!(!report.has_category(CATEGORY), "{report:?}");
     assert_negatives_still_rejected(dir.path());
 }
+
+// Issue #952 positive cases. They were written and run on the base before the
+// prose check changed; none of them may become a lint error.
+
+fn ordered_plan(steps: Vec<PlanStep>) -> StepPlan {
+    StepPlan {
+        goal: "Create the artifact.".into(),
+        steps,
+    }
+}
+
+#[cfg(unix)]
+fn marker_executable(dir: &Path, name: &str, marker: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let path = dir.join(name);
+    std::fs::write(
+        &path,
+        format!("#!/bin/sh\necho ran > '{}'\n", marker.display()),
+    )
+    .unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+#[test]
+fn issue952_builtins_are_accepted_without_a_path() {
+    let dir = tempfile::tempdir().unwrap();
+    for command in [
+        "test -s out.txt",
+        "[ -f out.txt ]",
+        "printf done",
+        "command -v sh",
+        ": placeholder",
+        "cd sub",
+    ] {
+        let found = offenses(&verify_plan(&["out.txt"], command), dir.path(), None);
+        assert!(found.is_empty(), "{command}: {found:?}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn issue952_pinned_path_executables_are_accepted() {
+    let dir = tempfile::tempdir().unwrap();
+    let bin = tempfile::tempdir().unwrap();
+    fake_executable(bin.path(), "checker");
+    fake_executable(bin.path(), "Postpone");
+    let path_var = Some(bin.path().as_os_str());
+    for command in [
+        "checker --strict out.txt",
+        "checker",
+        // The same first word as a synthetic sentence, but it names a command
+        // on the pinned PATH, so it is left to the runtime gate.
+        "Postpone the format review until the final checker runs.",
+        "Postpone",
+    ] {
+        let found = offenses(&verify_plan(&["out.txt"], command), dir.path(), path_var);
+        assert!(found.is_empty(), "{command}: {found:?}");
+    }
+}
+
+#[test]
+fn issue952_relative_absolute_and_non_ascii_paths_are_accepted() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("run_checks.sh"), "#!/bin/sh\n").unwrap();
+    std::fs::create_dir_all(dir.path().join("検査")).unwrap();
+    std::fs::write(dir.path().join("検査/確かめる"), "#!/bin/sh\n").unwrap();
+    for command in [
+        "./run_checks.sh",
+        "./run_checks.sh --all",
+        "/opt/tools/verify-output --strict out.txt",
+        "./検査/確かめる",
+        "検査/確かめる --all",
+        "tools/not-yet-built --check",
+    ] {
+        let found = offenses(&verify_plan(&["out.txt"], command), dir.path(), None);
+        assert!(found.is_empty(), "{command}: {found:?}");
+    }
+}
+
+#[test]
+fn issue952_same_step_and_earlier_producers_are_accepted() {
+    let dir = tempfile::tempdir().unwrap();
+    let same = ordered_plan(vec![step(
+        "make",
+        "implement",
+        &["Postpone", "tools/check_output.sh"],
+        &["Postpone the format review.", "sh tools/check_output.sh"],
+    )]);
+    assert!(offenses(&same, dir.path(), None).is_empty());
+    let earlier = ordered_plan(vec![
+        step("make", "implement", &["Postpone", "確認"], &[]),
+        step(
+            "check",
+            "verify",
+            &[],
+            &["Postpone the format review.", "確認"],
+        ),
+    ]);
+    assert!(offenses(&earlier, dir.path(), None).is_empty());
+}
+
+#[test]
+fn issue952_earlier_setup_tool_is_accepted_and_later_setup_is_an_order_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let command = "npx --no-install eslint .";
+    let setup = || step("setup", "setup", &["package.json"], &["npm install"]);
+    let check = || step("check", "verify", &[], &[command]);
+    let before = ordered_plan(vec![setup(), check()]);
+    // The shape verdict uses a pinned (absent) PATH; the order lint never
+    // reads PATH.
+    assert!(offenses(&before, dir.path(), None).is_empty());
+    let report = lint_plan_for_execution(&before, Some(dir.path()));
+    assert!(!report.has_category("dependency_order"), "{report:?}");
+    let after = ordered_plan(vec![check(), setup()]);
+    let report = lint_plan_for_execution(&after, Some(dir.path()));
+    assert!(report.has_category("dependency_order"), "{report:?}");
+}
+
+#[test]
+fn issue952_later_producer_is_an_order_error_and_earlier_is_not() {
+    let dir = tempfile::tempdir().unwrap();
+    let make = || step("make", "implement", &["tools/check_output.sh"], &[]);
+    let check = || step("check", "verify", &[], &["sh tools/check_output.sh"]);
+    let before = ordered_plan(vec![make(), check()]);
+    assert!(offenses(&before, dir.path(), None).is_empty());
+    let report = lint_plan_for_execution(&before, Some(dir.path()));
+    assert!(!report.has_category("verify_semantics"), "{report:?}");
+    let report = lint_plan_for_execution(&ordered_plan(vec![check(), make()]), Some(dir.path()));
+    assert!(report.has_category("verify_semantics"), "{report:?}");
+    assert!(
+        report
+            .errors
+            .iter()
+            .any(|e| e.message.contains("only produced by a later step")),
+        "{report:?}"
+    );
+}
+
+#[test]
+fn issue952_catalog_check_id_is_accepted() {
+    let dir = tempfile::tempdir().unwrap();
+    let id = crate::planner::profiles::data::manifest::check_ids()
+        .into_iter()
+        .next()
+        .expect("the data catalog has a bound check id");
+    let command = crate::planner::profiles::data::step_policy::catalog_check_command(&id);
+    assert!(
+        crate::planner::profiles::data::step_policy::catalog_check_id(&command).is_some(),
+        "{command}"
+    );
+    assert!(offenses(&verify_plan(&["out.txt"], &command), dir.path(), None).is_empty());
+}
+
+#[test]
+fn issue952_commands_absent_from_path_and_workspace_are_left_to_runtime() {
+    let dir = tempfile::tempdir().unwrap();
+    let empty = tempfile::tempdir().unwrap();
+    for path_var in [None, Some(empty.path().as_os_str())] {
+        for command in [
+            "lint-output --strict report.json",
+            "postpone report.txt",
+            "mytool run fast",
+            "Rscript analysis.R",
+            "eslint .",
+            "pytest -q",
+            "python3 check.py",
+            "README",
+        ] {
+            let found = offenses(&verify_plan(&["out.txt"], command), dir.path(), path_var);
+            assert!(found.is_empty(), "{command}: {found:?}");
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn issue952_lint_never_runs_the_command() {
+    let dir = tempfile::tempdir().unwrap();
+    let bin = tempfile::tempdir().unwrap();
+    let markers = tempfile::tempdir().unwrap();
+    let path_marker = markers.path().join("path-ran");
+    let script_marker = markers.path().join("script-ran");
+    marker_executable(bin.path(), "Postpone", &path_marker);
+    marker_executable(dir.path(), "check.sh", &script_marker);
+    let path_var = Some(bin.path().as_os_str());
+    for command in [
+        "Postpone the format review until the final checker runs.",
+        "./check.sh",
+        "sh check.sh",
+    ] {
+        let plan = verify_plan(&["out.txt"], command);
+        assert!(
+            offenses(&plan, dir.path(), path_var).is_empty(),
+            "{command}"
+        );
+        let _ = lint_plan_for_execution(&plan, Some(dir.path()));
+    }
+    assert!(!path_marker.exists());
+    assert!(!script_marker.exists());
+}
+
+// Issue #952 negative cases: synthetic sentences and deferrals that a static
+// check can call prose are rejected with an empty pinned PATH and no
+// workspace file. The ASCII ones have three or more letters-only words and
+// close with sentence punctuation; the Japanese ones have a first word that
+// cannot be a command name. Two share the shape of the smoke5 failures (a
+// `Deferred` and a `Validate` sentence) without copying their text.
+const ISSUE952_PROSE: &[&str] = &[
+    "Postpone the format review until the final checker runs.",
+    "Deferred until the final checker runs.",
+    "Validate the vocabulary file after all steps.",
+    "Confirmed by the host review!",
+    "Is the report ready?",
+    "出力の形式は最終工程でまとめて確かめる",
+    "後続の検査で確認予定。",
+];
+
+// Lines that read as prose to a person but that the static rule does not
+// call prose. Issue #952 asked for these to be lint errors; under the PM
+// decision (plan A) they pass lint and fail at runtime instead (exit 127,
+// existing classification). That gap is a known limit, not a success.
+const ISSUE952_LEFT_TO_RUNTIME: &[&str] = &[
+    // No closing sentence punctuation.
+    "Later steps will confirm the report format",
+    // A comma makes a word non-letters.
+    "Review manually, then record the outcome",
+    // Two words only.
+    "Report の形式は後で確かめる。",
+    // One mixed-script word with an ASCII letter.
+    "JSONの整形は最後に確かめる",
+];
+
+// Valid command shapes that an earlier draft rejected; none is on the planning
+// PATH or in the workspace.
+const ISSUE952_FALSE_POSITIVES: &[&str] = &[
+    "Checker inspect input output",
+    "checker fixture?",
+    "checker \"ready.\"",
+    "checker alpha, beta",
+    "café",
+    "check日本語",
+    "checker 'fixture?'",
+    "R'script' analyze input output",
+    "checker \"the report is ready.\"",
+    "checker some\\ thing done.",
+    "checker the $value ready.",
+    "checker the ~ ready.",
+    "checker key=value is ready.",
+    "checker the 2 files ready.",
+    "checker the -q flag.",
+    "checker the out/report ready.",
+    "checker report.txt is ready.",
+    "checker the *.txt ready.",
+];
+
+#[test]
+fn issue952_false_positive_shapes_are_left_to_runtime() {
+    let dir = tempfile::tempdir().unwrap();
+    let empty = tempfile::tempdir().unwrap();
+    for path_var in [None, Some(empty.path().as_os_str())] {
+        for command in ISSUE952_FALSE_POSITIVES {
+            let found = offenses(&verify_plan(&["out.txt"], command), dir.path(), path_var);
+            assert!(found.is_empty(), "{command}: {found:?}");
+        }
+    }
+}
+
+// Known limit of plan A: these pass lint; the runtime gate fails them.
+#[test]
+fn issue952_limit_prose_without_the_static_shape_passes_lint() {
+    let dir = tempfile::tempdir().unwrap();
+    let empty = tempfile::tempdir().unwrap();
+    for command in ISSUE952_LEFT_TO_RUNTIME {
+        let found = offenses(
+            &verify_plan(&["out.txt"], command),
+            dir.path(),
+            Some(empty.path().as_os_str()),
+        );
+        assert!(found.is_empty(), "{command}: {found:?}");
+    }
+}
+
+#[test]
+fn issue952_sentences_in_any_script_are_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let empty = tempfile::tempdir().unwrap();
+    for path_var in [None, Some(empty.path().as_os_str())] {
+        for command in ISSUE952_PROSE {
+            let found = offenses(&verify_plan(&["out.txt"], command), dir.path(), path_var);
+            assert_eq!(found.len(), 1, "{command}: {found:?}");
+            assert!(found[0].contains("step check"), "{found:?}");
+            assert!(found[0].contains(command), "{found:?}");
+            assert!(found[0].contains("python3 <script> <args>"), "{found:?}");
+        }
+    }
+}
+
+#[test]
+fn issue952_ascii_first_word_sentences_are_rejected() {
+    // The first word of each has an ASCII letter, which used to exempt it.
+    let dir = tempfile::tempdir().unwrap();
+    let empty = tempfile::tempdir().unwrap();
+    let ascii = ISSUE952_PROSE
+        .iter()
+        .filter(|c| c.chars().next().is_some_and(|ch| ch.is_ascii()))
+        .collect::<Vec<_>>();
+    assert_eq!(ascii.len(), 5);
+    for command in ascii {
+        let found = offenses(
+            &verify_plan(&["out.txt"], command),
+            dir.path(),
+            Some(empty.path().as_os_str()),
+        );
+        assert_eq!(found.len(), 1, "{command}: {found:?}");
+    }
+}
+
+#[test]
+fn issue952_sentence_shapes_are_judged_by_shape_not_by_words() {
+    let dir = tempfile::tempdir().unwrap();
+    // The same words with a flag, a path, a digit, a quote, fewer than three
+    // words, or no closing mark are not sentences; they may name a tool and
+    // are left to the runtime gate.
+    for command in [
+        "postpone the format review",
+        "Postpone --until final.",
+        "Postpone the review in out/report.txt.",
+        "Later steps 2 confirm the format.",
+        "Later steps.",
+        "Review.",
+        "Postpone the format review now",
+        "Postpone \"the format\" review.",
+        "mytool 確認",
+        "確認するReport",
+    ] {
+        let found = offenses(&verify_plan(&["out.txt"], command), dir.path(), None);
+        assert!(found.is_empty(), "{command}: {found:?}");
+    }
+    for command in [
+        "postpone the format review.",
+        "Postpone the format review now!",
+        "Postpone the format review now?",
+        "postpone the review。",
+        "Prüfe die Ausgabe später.",
+    ] {
+        let found = offenses(&verify_plan(&["out.txt"], command), dir.path(), None);
+        assert_eq!(found.len(), 1, "{command}: {found:?}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn issue952_resolved_first_word_wins_over_sentence_shape() {
+    let dir = tempfile::tempdir().unwrap();
+    let bin = tempfile::tempdir().unwrap();
+    for command in ISSUE952_PROSE {
+        let first = command.split_whitespace().next().unwrap();
+        fake_executable(bin.path(), first);
+        let found = offenses(
+            &verify_plan(&["out.txt"], command),
+            dir.path(),
+            Some(bin.path().as_os_str()),
+        );
+        assert!(found.is_empty(), "{command}: {found:?}");
+        let declared = offenses(&verify_plan(&["out.txt", first], command), dir.path(), None);
+        assert!(declared.is_empty(), "{command}: {declared:?}");
+    }
+}
+
+#[test]
+fn issue952_host_declared_sentences_stay_with_their_own_gate() {
+    let dir = tempfile::tempdir().unwrap();
+    for command in ISSUE952_PROSE {
+        let found = diagnose_with_path(
+            &verify_plan(&["out.txt"], command),
+            Some(dir.path()),
+            &[command.to_string()],
+            None,
+        );
+        assert!(found.is_empty(), "{command}: {found:?}");
+    }
+}
