@@ -473,6 +473,11 @@ fn run_session_planned(
         options.scope == RunSessionScope::MinimalLoop,
         completion_contract.is_some(),
     )?;
+    let mut budget_closing = super::budget_closing::BudgetClosing::start(
+        config,
+        &options,
+        completion_contract.is_some(),
+    )?;
     plan.start(
         config,
         &options,
@@ -671,6 +676,13 @@ fn run_session_planned(
             Vec::new()
         };
         let empty_fresh_retry_active = empty_fresh_retry_pending;
+        let request_feedback = budget_closing.request_feedback(
+            remaining_iterations,
+            iteration_limit,
+            pending_feedback
+                .as_deref()
+                .filter(|_| !empty_fresh_retry_active),
+        );
         let fresh_retry_messages;
         let mut request_messages = if empty_fresh_retry_active {
             empty_fresh_retry_pending = false;
@@ -690,7 +702,7 @@ fn run_session_planned(
                 &fresh_retry_messages,
                 &specs,
                 &config.workspace_root,
-                None,
+                request_feedback.as_deref(),
                 options.prompt_guidance(profile_guidance.as_deref()),
                 if native_tools_enabled {
                     ToolPromptMode::Native
@@ -703,7 +715,7 @@ fn run_session_planned(
                 &session.messages,
                 &specs,
                 &config.workspace_root,
-                pending_feedback.as_deref(),
+                request_feedback.as_deref(),
                 options.prompt_guidance(profile_guidance.as_deref()),
                 if native_tools_enabled {
                     ToolPromptMode::Native
@@ -717,6 +729,7 @@ fn run_session_planned(
             &session.messages,
             remaining_iterations,
         );
+        budget_closing.note_request(&request_messages);
         let label = format!("{} {}", client.label(), config.model);
         let call_scope = provider_call_scope_for_options(&options, pending_feedback.as_deref());
         let mut turn_events =
@@ -1260,6 +1273,15 @@ fn run_session_planned(
                 pending_feedback = Some(review.to_string());
                 continue;
             }
+            if let Some(feedback) =
+                budget_closing.before_normal_final(iterations_used, remaining_iterations)
+            {
+                session.messages.pop();
+                last_blocking_reason =
+                    Some(super::budget_closing::DEFERRAL_BLOCKING_REASON.to_string());
+                pending_feedback = Some(feedback.to_string());
+                continue;
+            }
             return Ok(RunSessionOutcome {
                 final_text: reply.content,
                 stop_reason: RunStopReason::AssistantFinal,
@@ -1368,6 +1390,7 @@ fn run_session_planned(
                 batch_had_recoverable_tool_error = true;
                 post_write_completion_tracker.note_recoverable_tool_error(&call.name);
                 budget_observation.note_tool_error(&call.name);
+                budget_closing.note_write_failure(&call.name, &call.arguments);
                 last_blocking_reason = Some(READ_ONLY_STAGNATION_REASON.to_string());
                 let feedback = rejection.feedback.clone();
                 let selected_targets = write_required_state.selected_targets().to_vec();
@@ -1445,6 +1468,7 @@ fn run_session_planned(
                 if decision.blocked {
                     batch_had_recoverable_tool_error = true;
                     post_write_completion_tracker.note_recoverable_tool_error(&call.name);
+                    budget_closing.note_bash_rejected(&call.name);
                     let policy_error =
                         anyhow::anyhow!("{}: {}", decision.policy_error_kind, decision.reason);
                     let repeats = recoverable_tool_error_state.record(&call.name, &policy_error);
@@ -1603,6 +1627,7 @@ fn run_session_planned(
                         write_or_edit_seen = true;
                         budget_observation.note_successful_write();
                         obligation_review.note_successful_edit();
+                        budget_closing.note_write_success(&call.name, &call.arguments);
                         max_length_guard.write_or_edit_succeeded();
                         turn_events.write_or_edit_succeeded();
                         pressure_inputs.read_only_streak = 0;
@@ -1643,6 +1668,7 @@ fn run_session_planned(
                     batch_had_recoverable_tool_error = true;
                     post_write_completion_tracker.note_recoverable_tool_error(&call.name);
                     budget_observation.note_tool_error(&call.name);
+                    budget_closing.note_write_failure(&call.name, &call.arguments);
                     let kind = tool_error_kind(&err);
                     let err_text = err.to_string();
                     let repeats = recoverable_tool_error_state.record(&call.name, &err);
@@ -1795,6 +1821,10 @@ fn run_session_planned(
             });
             if let Some(execution_progress) = execution_progress {
                 budget_observation.note_bash(execution_progress);
+                budget_closing.note_bash(
+                    recovered_bash_command(&call.name, &call.arguments).as_deref(),
+                    execution_progress,
+                );
                 obligation_review
                     .note_bash_result(execution_progress != ExecutionProgress::NotSuccessful);
                 post_write_completion_tracker.note_bash_result(
@@ -2245,6 +2275,7 @@ fn run_session_planned(
         }
     }
     plan.note_budget_exhausted();
+    budget_closing.note_budget_exhausted();
     let mut missing = missing_paths(&config.workspace_root, &required_paths);
     if last_blocking_reason.is_none() {
         last_blocking_reason = post_write_completion_tracker.environment_failure_reason();

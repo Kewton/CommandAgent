@@ -72,6 +72,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "blocked_by_dependency_setup",
     "browser_interaction_probe",
     "browser_probe",
+    "budget_closing",
     "budget_exhausted",
     "build_pass",
     "call_index",
@@ -133,6 +134,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "error",
     "escalation_carryover",
     "example_count",
+    "exhausted_after_notice",
     "expected_fail_python_traceback_observed",
     "extension_tool_call",
     "extension_tool_rejected",
@@ -150,6 +152,9 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "final_acceptance_repair_failed",
     "final_acceptance_repair_no_source_change",
     "final_acceptance_repair_start",
+    "final_accepted",
+    "final_deferrals",
+    "final_deferred",
     "final_repair_artifact_unchanged",
     "first_request",
     "fix_evidence_recorded",
@@ -163,6 +168,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "future_phase_annotation",
     "generic_contract_bound",
     "groups",
+    "guard_reason",
     "gui_trial_stop_completed",
     "gui_trial_stop_requested",
     "h05_collision",
@@ -207,11 +213,13 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "no_progress_feedback",
     "no_provider_request",
     "no_successful_edit",
+    "no_unresolved_failure",
     "normal_final_after_successful_edit",
     "normal_marker",
     "not_provided",
     "not_run",
     "note_chars",
+    "notice",
     "obligation_count",
     "observed",
     "ok",
@@ -246,6 +254,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "planner_quality_warning",
     "planner_raw_output_shape",
     "planner_verify_command_normalized",
+    "policy_rejected_bash",
     "preclosure_verifier_replacements_validated",
     "preset_step_converted",
     "preset_ultra_plan_used",
@@ -309,6 +318,8 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "recovery_verifier_plan_return_rejected",
     "recovery_verifier_repairability",
     "released",
+    "remaining_calls",
+    "remaining_calls_reached",
     "remaining_iterations",
     "repair_applied",
     "repair_binding",
@@ -324,6 +335,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "request_pattern_resolved",
     "requested",
     "requirement_plan",
+    "resolved_failures",
     "resume_start",
     "resumed_conversation",
     "route_confirmed",
@@ -404,6 +416,9 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "unknown",
     "unparseable",
     "unresolved",
+    "unresolved_bash_failures",
+    "unresolved_failure",
+    "unresolved_write_failures",
     "unsettled",
     "unsuccessful_bash_after_prompt",
     "user_update",
@@ -963,5 +978,131 @@ mod repair_binding_field_tests {
             json!({"targets": 2, "unchanged": 1, "absent": 0, "unknown": 1})
         );
         assert_eq!(value.as_object().unwrap().len(), 5, "{value}");
+    }
+}
+
+/// Issue #957: the `budget_closing` event name, its phases, guard reasons,
+/// and field names are fixed identifiers, so a credential equal to one of
+/// them or to a fragment of one is refused at registration.
+#[cfg(test)]
+mod budget_closing_field_tests {
+    use serde_json::json;
+
+    use super::{FIXED_IDENTIFIERS, collides_with_fixed_identifier, is_fixed_identifier};
+    use crate::sensitive_data::{
+        MIN_GENERIC_SECRET_LEN, RegistrationRefusal, ReservedKind, SecretCatalog,
+    };
+
+    const WORDS: [&str; 19] = [
+        "budget_closing",
+        "notice",
+        "final_accepted",
+        "final_deferred",
+        "exhausted_after_notice",
+        "remaining_calls_reached",
+        "no_unresolved_failure",
+        "unresolved_failure",
+        "iteration_budget_exhausted",
+        "guard_reason",
+        "prompt_version",
+        "iteration",
+        "iteration_limit",
+        "remaining_calls",
+        "unresolved_bash_failures",
+        "unresolved_write_failures",
+        "resolved_failures",
+        "policy_rejected_bash",
+        "final_deferrals",
+    ];
+
+    #[test]
+    fn each_word_is_reserved_once_in_name_order() {
+        for word in WORDS {
+            assert!(is_fixed_identifier(word), "{word}");
+            assert_eq!(
+                FIXED_IDENTIFIERS
+                    .iter()
+                    .filter(|fixed| **fixed == word)
+                    .count(),
+                1,
+                "{word}"
+            );
+            let at = FIXED_IDENTIFIERS
+                .iter()
+                .position(|fixed| *fixed == word)
+                .unwrap();
+            assert!(FIXED_IDENTIFIERS[at - 1] < word, "{word}");
+            assert!(word < FIXED_IDENTIFIERS[at + 1], "{word}");
+        }
+    }
+
+    #[test]
+    fn a_credential_equal_to_a_word_or_a_fragment_of_it_is_refused_unnamed() {
+        let fragments = [
+            "get_closi",
+            "_after_noti",
+            "al_deferr",
+            "calls_reach",
+            "unresolved_fail",
+            "rd_reas",
+            "bash_failur",
+            "write_failures",
+            "olved_failures",
+            "rejected_ba",
+            "deferrals",
+        ];
+        for value in WORDS.into_iter().chain(fragments) {
+            assert!(collides_with_fixed_identifier(value), "{value}");
+            if value.len() < MIN_GENERIC_SECRET_LEN {
+                // Shorter values are refused as too short before the check.
+                continue;
+            }
+            let mut catalog = SecretCatalog::new();
+            let error = catalog
+                .register_credential("COMPAT_API_KEY", value)
+                .unwrap_err();
+            assert_eq!(
+                error,
+                RegistrationRefusal::Reserved {
+                    name: "COMPAT_API_KEY".to_string(),
+                    kind: ReservedKind::FixedIdentifier,
+                }
+            );
+            assert!(catalog.is_empty());
+            for text in [error.to_string(), format!("{error:?}")] {
+                assert!(!text.contains(value), "the refusal names the value");
+            }
+        }
+    }
+
+    #[test]
+    fn a_normal_credential_leaves_the_event_words_unchanged() {
+        let credential = "fake-credential-957-not-a-real-key";
+        let mut catalog = SecretCatalog::new();
+        catalog
+            .register_credential("COMPAT_API_KEY", credential)
+            .unwrap();
+        let mut value = json!({
+            "event": "budget_closing",
+            "phase": "final_deferred",
+            "guard_reason": "unresolved_failure",
+            "prompt_version": 1,
+            "iteration": 14,
+            "iteration_limit": 15,
+            "remaining_calls": 2,
+            "unresolved_bash_failures": 1,
+            "unresolved_write_failures": 0,
+            "resolved_failures": 0,
+            "policy_rejected_bash": 1,
+            "final_deferrals": 1,
+            "note": format!("echo {credential}"),
+        });
+        catalog.scrub_value_lenient(&mut value);
+        assert!(!value.to_string().contains(credential), "{value}");
+        assert_eq!(value["event"], "budget_closing");
+        assert_eq!(value["phase"], "final_deferred");
+        assert_eq!(value["guard_reason"], "unresolved_failure");
+        assert_eq!(value["remaining_calls"], 2);
+        assert_eq!(value["final_deferrals"], 1);
     }
 }
