@@ -1,12 +1,111 @@
+//! Speculative next-phase planning (Issue #242) and the accounting of the
+//! provider calls it makes (Issue #948).
+//!
+//! # Provider-call accounting design (Issue #948)
+//!
+//! The prefetch worker runs with eval events disabled, so before #948 a real
+//! prefetch call emitted no `provider_turn_duration`, the adopted reply was
+//! replayed with the *fallback's* timing and metadata, and a discarded or
+//! failed prefetch left no usage record at all.
+//!
+//! - **Pairing.** The worker drives a `RecordingClient` around its client
+//!   clone. Every `RecordingClient` instance takes the next client generation
+//!   from a log shared by all of them when it is created, and each physical
+//!   `chat`/`chat_stream` call appends one `PrefetchCallRecord` (1-based
+//!   `call_index`, the generation of the instance that made it) and settles it
+//!   with that same call's `take_response_timing` and `take_response_metadata`.
+//!   A clone starts with no stored timing or metadata, so no call inherits
+//!   another call's values.
+//! - **Which call produced the reply.** The worker thread makes its provider
+//!   calls one after another, and each `provider_call` clones the worker
+//!   client once, on the worker thread, before it starts its call. The adopted
+//!   reply came out of the worker's last `provider_call`, so it was produced by
+//!   the call of the latest generation, which settled `ok` before its reply was
+//!   handed back. The pairing uses that identity, never the start order of the
+//!   calls (an abandoned attempt's thread can start late) or the reply text.
+//! - **Closing the log.** Once the worker thread is joined, the log is closed
+//!   under its lock and its records are read in the same step. A call that
+//!   begins after that (the thread of an abandoned attempt that `provider_call`
+//!   no longer waits for) starts no provider call and records nothing, so no
+//!   physical call goes unaccounted. A call that began before the close and
+//!   settles after it stays `unsettled`.
+//! - **Replay.** `PrefetchedPlanner` replays the reply once; the instance that
+//!   replayed answers `take_response_*` with the paired values, which stay
+//!   `None` when the provider reported none, and never asks the fallback. A
+//!   fallback call answers with the fallback's own values.
+//! - **Counting.** Every physical prefetch call gets exactly one additive
+//!   `speculative_phase_plan_provider_call` event, so the number of physical
+//!   prefetch `ChatClient` calls equals the number of these events (a
+//!   provider's own transport retries inside one call are not visible here).
+//!   Each call's usage is counted exactly once: by its own event when
+//!   `accounting_record` is `true`, or, for `disposition = "replayed"` with
+//!   `accounting_record: false`, by the `provider_turn_duration` that carried
+//!   the replayed response (same `provider_response_id` when one was
+//!   reported). `"unconsumed"` (`accounting_record: true`) is a call that
+//!   settled but could not hand its accounting to a turn: discarded,
+//!   superseded, stale, a failed attempt, the pipeline dropped, adopted and
+//!   never replayed (including a main-path `provider_call` cancelled before it
+//!   asked for the reply), or replayed into a turn that ended without the
+//!   result (`replay_turn_unrecorded`, below).
+//!   `"unsettled"` (`accounting_record: true`) is a call that started but had
+//!   no outcome when the log was closed; its usage is unknown and stays
+//!   absent. A main-path `provider_turn_duration` that is `aborted_by_user` or
+//!   `timed_out` carries no usage, and when it ended before the replay it
+//!   made no physical call.
+//! - **Billed amount.** The provider-reported `provider_billed_cost_usd`
+//!   (Issue #947) follows the same rule and is counted exactly once per
+//!   physical call: for a `replayed` call by the `provider_turn_duration` that
+//!   carried it (the replayed record never carries it), and for an
+//!   `unconsumed` call by its own accounting record. An `unsettled` call has
+//!   no known amount. It is written only when reported, as the provider's
+//!   decimal text in a JSON string (an explicit zero is `"0"`), and an
+//!   aggregator reads it as a decimal, never as a float. An amount that
+//!   overlaps a registered secret is left out, as for an unreported one.
+//! - **Handing the replayed call to its turn.** Replaying the reply does not
+//!   yet count it. The instance that replayed holds the paired call until
+//!   `provider_call` writes the turn that carried the worker's result and then
+//!   calls `provider_turn_carried_result` on the client it was given; only
+//!   then, and only when that client's latest clone is the instance that
+//!   replayed, is the `replayed` event written. When the `provider_call` is
+//!   cancelled or reaches its deadline before it receives the result, its turn
+//!   is an abort or timeout without usage, no such call arrives, and the
+//!   paired call is written as `unconsumed` with `accounting_record: true` and
+//!   reason `replay_turn_unrecorded`, with its known usage. Remaining limit:
+//!   that record is written when the last `PrefetchedPlanner` instance is
+//!   dropped, which can happen on the `provider_call` worker thread after the
+//!   main thread moved on, so its thread and its position among the events are
+//!   not fixed; it is written exactly once.
+//! - **Fields.** `current_phase_id`, `next_phase_id`, `reason` (the pipeline
+//!   reason, plus `pipeline_dropped`, `adopted_unreplayed`, and
+//!   `replay_turn_unrecorded`), `call_index`,
+//!   `disposition`, `accounting_record`, and `ok` once settled. Accounting
+//!   records add, each only when the provider reported it, `prompt_eval_count`
+//!   and `eval_count` (reply token counts), `provider_response_id`,
+//!   `provider_model_id`, `provider_service_tier`,
+//!   `provider_cached_input_tokens`, `provider_reasoning_tokens`,
+//!   `provider_total_tokens`, `provider_billed_cost_usd`, and the
+//!   `ResponseTiming` durations, with the same
+//!   names as `provider_turn_duration`. An explicit zero is written as `0`; a
+//!   missing value is never written as `0`. The replayed record carries only
+//!   `provider_response_id` for correlation and `accounted_by`. No payload,
+//!   prompt, reply text, key, or header is written.
+//! - **Cancel/join.** Cancellation and joining are unchanged; only the worker
+//!   thread is joined, never a `provider_call` thread that stopped waiting.
+//!   Records are read when the log is closed after that join. The existing
+//!   `speculative_phase_plan_*` events keep their exact bytes; the call events
+//!   follow them (on adoption, discard, failure, and pipeline drop) or are
+//!   written at replay or when an adopted reply is dropped unreplayed.
+
+use std::path::PathBuf;
 use std::sync::{
-    Arc, Mutex,
+    Arc, Mutex, MutexGuard, PoisonError,
     atomic::{AtomicBool, Ordering},
 };
 use std::thread::{self, JoinHandle};
 
 use crate::config::Config;
 use crate::eval_events;
-use crate::providers::{AssistantReply, ChatClient};
+use crate::providers::{AssistantReply, ChatClient, ProviderResponseMetadata, ResponseTiming};
 use crate::state::ConversationMessage;
 use crate::tools::registry::ToolSpec;
 use crate::tui::status::UiStatus;
@@ -132,7 +231,7 @@ impl std::ops::DerefMut for PhaseRun {
 }
 
 struct PhasePlanPipeline {
-    pending: Option<PendingReply>,
+    pending: Option<PendingPrefetch>,
 }
 
 impl PhasePlanPipeline {
@@ -224,13 +323,33 @@ impl PhasePlanPipeline {
         next_phase_id: &str,
         next_phase_prompt: &str,
     ) {
+        self.start_with_log(
+            planner,
+            config,
+            current_phase_id,
+            next_phase_id,
+            next_phase_prompt,
+            SharedCallLog::default(),
+        );
+    }
+
+    fn start_with_log(
+        &mut self,
+        planner: &dyn ChatClient,
+        config: &Config,
+        current_phase_id: &str,
+        next_phase_id: &str,
+        next_phase_prompt: &str,
+        calls: SharedCallLog,
+    ) {
         self.cancel_and_discard(config, "superseded");
         if !model_plan_has_provider_work(config, next_phase_prompt) {
             return;
         }
 
         let key = PhasePlanKey::new(next_phase_id, next_phase_prompt);
-        let mut worker_client = planner.boxed_clone();
+        let mut worker_client: Box<dyn ChatClient> =
+            Box::new(RecordingClient::new(planner.boxed_clone(), calls.clone()));
         let mut worker_config = config.clone();
         worker_config.eval_events_path = None;
         let prompt = next_phase_prompt.to_string();
@@ -252,12 +371,16 @@ impl PhasePlanPipeline {
             );
             return;
         };
-        self.pending = Some(PendingReply {
-            key,
-            current_phase_id: current_phase_id.to_string(),
-            next_phase_id: next_phase_id.to_string(),
-            cancel,
-            handle: Some(handle),
+        self.pending = Some(PendingPrefetch {
+            reply: PendingReply {
+                key,
+                current_phase_id: current_phase_id.to_string(),
+                next_phase_id: next_phase_id.to_string(),
+                cancel,
+                handle: Some(handle),
+            },
+            calls,
+            events_path: config.eval_events_path.clone(),
         });
         emit_pipeline_event(
             config,
@@ -275,39 +398,54 @@ impl PhasePlanPipeline {
         config: &Config,
     ) -> Option<Box<dyn ChatClient>> {
         let pending = self.pending.take()?;
-        let current_phase_id = pending.current_phase_id.clone();
-        let next_phase_id = pending.next_phase_id.clone();
-        if pending.key != *key {
-            pending.cancel_and_join();
+        let account = pending.account(config.eval_events_path.clone());
+        let PendingPrefetch { reply, calls, .. } = pending;
+        if reply.key != *key {
+            reply.cancel_and_join();
             emit_pipeline_event(
                 config,
                 "speculative_phase_plan_discarded",
-                &current_phase_id,
-                &next_phase_id,
+                &account.current_phase_id,
+                &account.next_phase_id,
                 "stale_input",
             );
+            account.emit_records("stale_input", &calls.close().records, None);
             return None;
         }
 
-        match pending.join() {
+        match reply.join() {
             Ok(reply) => {
                 emit_pipeline_event(
                     config,
                     "speculative_phase_plan_adopted",
-                    &current_phase_id,
-                    &next_phase_id,
+                    &account.current_phase_id,
+                    &account.next_phase_id,
                     "gate_passed",
                 );
-                Some(Box::new(PrefetchedPlanner::new(fallback, reply)))
+                let log = calls.close();
+                let paired = log.adopted_call();
+                account.emit_records(
+                    "gate_passed",
+                    &log.records,
+                    paired.as_ref().map(|record| record.call_index),
+                );
+                Some(Box::new(PrefetchedPlanner::adopted(
+                    fallback,
+                    PrefetchedReply {
+                        reply,
+                        call: paired.map(|record| PairedCall { record, account }),
+                    },
+                )))
             }
             Err(_) => {
                 emit_pipeline_event(
                     config,
                     "speculative_phase_plan_discarded",
-                    &current_phase_id,
-                    &next_phase_id,
+                    &account.current_phase_id,
+                    &account.next_phase_id,
                     "prefetch_failed",
                 );
+                account.emit_records("prefetch_failed", &calls.close().records, None);
                 None
             }
         }
@@ -317,23 +455,25 @@ impl PhasePlanPipeline {
         let Some(pending) = self.pending.take() else {
             return;
         };
-        let current_phase_id = pending.current_phase_id.clone();
-        let next_phase_id = pending.next_phase_id.clone();
-        pending.cancel_and_join();
+        let account = pending.account(config.eval_events_path.clone());
+        pending.reply.cancel_and_join();
         emit_pipeline_event(
             config,
             "speculative_phase_plan_discarded",
-            &current_phase_id,
-            &next_phase_id,
+            &account.current_phase_id,
+            &account.next_phase_id,
             reason,
         );
+        account.emit_records(reason, &pending.calls.close().records, None);
     }
 }
 
 impl Drop for PhasePlanPipeline {
     fn drop(&mut self) {
         if let Some(pending) = self.pending.take() {
-            pending.cancel_and_join();
+            let account = pending.account(pending.events_path.clone());
+            pending.reply.cancel_and_join();
+            account.emit_records("pipeline_dropped", &pending.calls.close().records, None);
         }
     }
 }
@@ -419,21 +559,516 @@ impl InteractionUi for CancellationUi {
     }
 }
 
-struct PrefetchedPlanner {
-    first_reply: Arc<Mutex<Option<AssistantReply>>>,
-    fallback: Box<dyn ChatClient>,
+/// A running prefetch together with the log of the provider calls its worker
+/// has made so far.
+struct PendingPrefetch {
+    reply: PendingReply,
+    calls: SharedCallLog,
+    events_path: Option<PathBuf>,
 }
 
-impl PrefetchedPlanner {
-    fn new(fallback: &dyn ChatClient, reply: AssistantReply) -> Self {
-        Self {
-            first_reply: Arc::new(Mutex::new(Some(reply))),
-            fallback: fallback.boxed_clone(),
+impl PendingPrefetch {
+    fn account(&self, events_path: Option<PathBuf>) -> CallAccount {
+        CallAccount {
+            events_path,
+            current_phase_id: self.reply.current_phase_id.clone(),
+            next_phase_id: self.reply.next_phase_id.clone(),
+        }
+    }
+}
+
+/// The outcome of one physical prefetch call, read from the client that made
+/// it right after the call returned.
+#[derive(Debug, Clone, PartialEq)]
+struct SettledCall {
+    ok: bool,
+    reply: Option<AssistantReply>,
+    timing: Option<ResponseTiming>,
+    metadata: Option<ProviderResponseMetadata>,
+}
+
+/// One physical prefetch call. `settled` stays `None` while the call has no
+/// outcome, so its usage is unknown rather than zero.
+#[derive(Debug, Clone, PartialEq)]
+struct PrefetchCallRecord {
+    call_index: usize,
+    /// The generation of the `RecordingClient` instance that made the call.
+    client_generation: usize,
+    settled: Option<SettledCall>,
+}
+
+#[derive(Default)]
+struct CallLogState {
+    records: Vec<PrefetchCallRecord>,
+    latest_generation: usize,
+    closed: bool,
+    #[cfg(test)]
+    refused_begins: usize,
+}
+
+/// The records of a closed log and the generation of the latest client.
+struct ClosedCallLog {
+    records: Vec<PrefetchCallRecord>,
+    latest_generation: usize,
+}
+
+impl ClosedCallLog {
+    /// The call that produced the adopted reply: the call made by the latest
+    /// client generation, which settled `ok` before handing the reply back.
+    fn adopted_call(&self) -> Option<PrefetchCallRecord> {
+        self.records
+            .iter()
+            .find(|record| {
+                record.client_generation == self.latest_generation
+                    && record.settled.as_ref().is_some_and(|settled| settled.ok)
+            })
+            .cloned()
+    }
+}
+
+/// Test-only hook run before a call begins, with the caller's generation.
+#[cfg(test)]
+type BeforeBegin = Arc<dyn Fn(usize) + Send + Sync>;
+
+#[derive(Clone, Default)]
+struct SharedCallLog {
+    state: Arc<Mutex<CallLogState>>,
+    #[cfg(test)]
+    before_begin: Option<BeforeBegin>,
+}
+
+impl SharedCallLog {
+    fn lock(&self) -> MutexGuard<'_, CallLogState> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The generation of a newly created client instance.
+    fn next_generation(&self) -> usize {
+        let mut state = self.lock();
+        state.latest_generation += 1;
+        state.latest_generation
+    }
+
+    /// Record the start of a call, or `None` once the log is closed, in which
+    /// case the caller must not start a provider call.
+    fn begin(&self, client_generation: usize) -> Option<usize> {
+        #[cfg(test)]
+        if let Some(before_begin) = &self.before_begin {
+            before_begin(client_generation);
+        }
+        let mut state = self.lock();
+        if state.closed {
+            #[cfg(test)]
+            {
+                state.refused_begins += 1;
+            }
+            return None;
+        }
+        let call_index = state.records.len() + 1;
+        state.records.push(PrefetchCallRecord {
+            call_index,
+            client_generation,
+            settled: None,
+        });
+        Some(call_index)
+    }
+
+    fn settle(&self, call_index: usize, settled: SettledCall) {
+        if let Some(record) = self.lock().records.get_mut(call_index - 1) {
+            record.settled = Some(settled);
         }
     }
 
-    fn take_first_reply(&self) -> Option<AssistantReply> {
-        self.first_reply.lock().ok()?.take()
+    /// Close the log and read its records in the same step, so every call
+    /// either is in the returned records or never starts.
+    fn close(&self) -> ClosedCallLog {
+        let mut state = self.lock();
+        state.closed = true;
+        ClosedCallLog {
+            records: state.records.clone(),
+            latest_generation: state.latest_generation,
+        }
+    }
+
+    #[cfg(test)]
+    fn snapshot(&self) -> Vec<PrefetchCallRecord> {
+        self.lock().records.clone()
+    }
+}
+
+/// The prefetch worker's client. It forwards every capability to the wrapped
+/// clone and logs each physical call with that call's own timing and metadata.
+struct RecordingClient {
+    inner: Box<dyn ChatClient>,
+    calls: SharedCallLog,
+    generation: usize,
+    timing: Option<ResponseTiming>,
+    metadata: Option<ProviderResponseMetadata>,
+}
+
+impl RecordingClient {
+    fn new(inner: Box<dyn ChatClient>, calls: SharedCallLog) -> Self {
+        let generation = calls.next_generation();
+        Self {
+            inner,
+            calls,
+            generation,
+            timing: None,
+            metadata: None,
+        }
+    }
+
+    fn record(
+        &mut self,
+        call: impl FnOnce(&mut dyn ChatClient) -> anyhow::Result<AssistantReply>,
+    ) -> anyhow::Result<AssistantReply> {
+        self.timing = None;
+        self.metadata = None;
+        let Some(call_index) = self.calls.begin(self.generation) else {
+            anyhow::bail!(
+                "the speculative phase-plan prefetch is already accounted; no provider call started"
+            );
+        };
+        let result = call(self.inner.as_mut());
+        self.timing = self.inner.take_response_timing();
+        self.metadata = self.inner.take_response_metadata();
+        self.calls.settle(
+            call_index,
+            SettledCall {
+                ok: result.is_ok(),
+                reply: result.as_ref().ok().cloned(),
+                timing: self.timing.clone(),
+                metadata: self.metadata.clone(),
+            },
+        );
+        result
+    }
+}
+
+impl ChatClient for RecordingClient {
+    fn label(&self) -> &str {
+        self.inner.label()
+    }
+
+    fn boxed_clone(&self) -> Box<dyn ChatClient> {
+        Box::new(Self::new(self.inner.boxed_clone(), self.calls.clone()))
+    }
+
+    fn supports_native_tools(&self, model: &str) -> bool {
+        self.inner.supports_native_tools(model)
+    }
+
+    fn allows_xml_fallback(&self) -> bool {
+        self.inner.allows_xml_fallback()
+    }
+
+    fn parses_xml_tool_calls_before_host(&self) -> bool {
+        self.inner.parses_xml_tool_calls_before_host()
+    }
+
+    fn supports_ollama_think(&self) -> bool {
+        self.inner.supports_ollama_think()
+    }
+
+    fn take_response_timing(&mut self) -> Option<ResponseTiming> {
+        self.timing.take()
+    }
+
+    fn take_response_metadata(&mut self) -> Option<ProviderResponseMetadata> {
+        self.metadata.take()
+    }
+
+    fn set_cancel_token(&mut self, token: crate::providers::streaming::CancelToken) {
+        self.inner.set_cancel_token(token);
+    }
+
+    fn supports_streaming(&self) -> bool {
+        self.inner.supports_streaming()
+    }
+
+    fn supports_streaming_for_model(&self, model: &str) -> bool {
+        self.inner.supports_streaming_for_model(model)
+    }
+
+    fn chat_stream(
+        &mut self,
+        model: &str,
+        messages: &[ConversationMessage],
+        tools: &[ToolSpec],
+        native_tools_enabled: bool,
+        on_chunk: &mut dyn FnMut(&str) -> anyhow::Result<()>,
+    ) -> anyhow::Result<AssistantReply> {
+        self.record(|inner| {
+            inner.chat_stream(model, messages, tools, native_tools_enabled, on_chunk)
+        })
+    }
+
+    fn chat(
+        &mut self,
+        model: &str,
+        messages: &[ConversationMessage],
+        tools: &[ToolSpec],
+        native_tools_enabled: bool,
+    ) -> anyhow::Result<AssistantReply> {
+        self.record(|inner| ChatClient::chat(inner, model, messages, tools, native_tools_enabled))
+    }
+}
+
+/// Where and under which phase pair a prefetch's call events are written.
+struct CallAccount {
+    events_path: Option<PathBuf>,
+    current_phase_id: String,
+    next_phase_id: String,
+}
+
+impl CallAccount {
+    /// Write one accounting event per record, except the replayed call, whose
+    /// usage the replay's `provider_turn_duration` counts.
+    fn emit_records(&self, reason: &str, records: &[PrefetchCallRecord], replayed: Option<usize>) {
+        for record in records
+            .iter()
+            .filter(|record| Some(record.call_index) != replayed)
+        {
+            self.emit(reason, record, false);
+        }
+    }
+
+    fn emit(&self, reason: &str, record: &PrefetchCallRecord, replayed: bool) {
+        eval_events::emit(
+            self.events_path.as_deref(),
+            provider_call_event(self, reason, record, replayed),
+        );
+    }
+}
+
+fn provider_call_event(
+    account: &CallAccount,
+    reason: &str,
+    record: &PrefetchCallRecord,
+    replayed: bool,
+) -> serde_json::Value {
+    let disposition = if replayed {
+        "replayed"
+    } else if record.settled.is_some() {
+        "unconsumed"
+    } else {
+        "unsettled"
+    };
+    let mut value = serde_json::json!({
+        "event": PROVIDER_CALL_EVENT,
+        "current_phase_id": account.current_phase_id,
+        "next_phase_id": account.next_phase_id,
+        "reason": reason,
+        "call_index": record.call_index,
+        "disposition": disposition,
+        "accounting_record": !replayed,
+    });
+    let Some(settled) = &record.settled else {
+        return value;
+    };
+    value["ok"] = serde_json::json!(settled.ok);
+    let metadata = settled.metadata.as_ref();
+    insert_reported(
+        &mut value,
+        "provider_response_id",
+        metadata.and_then(|metadata| metadata.response_id.clone()),
+    );
+    if replayed {
+        value["accounted_by"] = serde_json::json!("provider_turn_duration");
+        return value;
+    }
+    let reply = settled.reply.as_ref();
+    let timing = settled.timing.as_ref();
+    insert_reported(
+        &mut value,
+        "prompt_eval_count",
+        reply.and_then(|reply| reply.prompt_tokens),
+    );
+    insert_reported(
+        &mut value,
+        "eval_count",
+        reply.and_then(|reply| reply.completion_tokens),
+    );
+    insert_reported(
+        &mut value,
+        "provider_model_id",
+        metadata.and_then(|metadata| metadata.model_id.clone()),
+    );
+    insert_reported(
+        &mut value,
+        "provider_service_tier",
+        metadata.and_then(|metadata| metadata.service_tier.clone()),
+    );
+    insert_reported(
+        &mut value,
+        "provider_cached_input_tokens",
+        metadata.and_then(|metadata| metadata.cached_input_tokens),
+    );
+    insert_reported(
+        &mut value,
+        "provider_reasoning_tokens",
+        metadata.and_then(|metadata| metadata.reasoning_tokens),
+    );
+    insert_reported(
+        &mut value,
+        "provider_total_tokens",
+        metadata.and_then(|metadata| metadata.total_tokens),
+    );
+    // Issue #947: the provider-reported billed amount, only when reported, as
+    // the verified decimal text in a JSON string; an amount that overlaps a
+    // registered secret is left out as unreported. A replayed call never gets
+    // here: its turn carries the amount.
+    if let Some(cost) = metadata
+        .and_then(|metadata| metadata.billed_cost_usd.as_ref())
+        .and_then(|cost| cost.event_value(account.events_path.as_deref()))
+    {
+        value["provider_billed_cost_usd"] = cost;
+    }
+    insert_reported(
+        &mut value,
+        "prompt_eval_duration",
+        timing.and_then(|timing| timing.prompt_eval_duration),
+    );
+    insert_reported(
+        &mut value,
+        "eval_duration",
+        timing.and_then(|timing| timing.eval_duration),
+    );
+    insert_reported(
+        &mut value,
+        "load_duration",
+        timing.and_then(|timing| timing.load_duration),
+    );
+    insert_reported(
+        &mut value,
+        "total_duration",
+        timing.and_then(|timing| timing.total_duration),
+    );
+    value
+}
+
+/// Write a provider-reported value; an unreported one stays absent instead of
+/// becoming zero.
+fn insert_reported<T: serde::Serialize>(
+    value: &mut serde_json::Value,
+    key: &str,
+    field: Option<T>,
+) {
+    if let Some(field) = field {
+        value[key] = serde_json::json!(field);
+    }
+}
+
+struct PrefetchedReply {
+    reply: AssistantReply,
+    call: Option<PairedCall>,
+}
+
+struct PairedCall {
+    record: PrefetchCallRecord,
+    account: CallAccount,
+}
+
+/// Holds the adopted reply until it is replayed, then the paired call until
+/// `provider_call` reports that the replay's turn carried it. Dropping it with
+/// the reply unreplayed, or with the replay never carried by a turn (the
+/// `provider_call` was cancelled or reached its deadline first), writes the
+/// paired call as an accounting record, so its usage is counted once.
+#[derive(Default)]
+struct ReplaySlot {
+    reply: Option<PrefetchedReply>,
+    /// The instance that replayed the reply, and the paired call.
+    awaiting_turn: Option<(u64, PairedCall)>,
+    /// Each instance's latest clone, by instance id.
+    latest_clone: std::collections::BTreeMap<u64, u64>,
+    next_id: u64,
+}
+
+impl Drop for ReplaySlot {
+    fn drop(&mut self) {
+        if let Some(PrefetchedReply {
+            call: Some(call), ..
+        }) = self.reply.take()
+        {
+            call.account.emit("adopted_unreplayed", &call.record, false);
+        }
+        if let Some((_, call)) = self.awaiting_turn.take() {
+            call.account
+                .emit("replay_turn_unrecorded", &call.record, false);
+        }
+    }
+}
+
+/// What this instance's last chat call was, so `take_response_*` answers for
+/// that call only.
+enum LastCall {
+    NoCall,
+    Replayed(Box<ReplayedCall>),
+    Fallback,
+}
+
+/// The timing and metadata of the call whose reply was replayed, each taken
+/// once.
+struct ReplayedCall {
+    timing: Option<ResponseTiming>,
+    metadata: Option<ProviderResponseMetadata>,
+}
+
+struct PrefetchedPlanner {
+    id: u64,
+    first_reply: Arc<Mutex<ReplaySlot>>,
+    fallback: Box<dyn ChatClient>,
+    last_call: LastCall,
+}
+
+impl PrefetchedPlanner {
+    #[cfg(test)]
+    fn new(fallback: &dyn ChatClient, reply: AssistantReply) -> Self {
+        Self::adopted(fallback, PrefetchedReply { reply, call: None })
+    }
+
+    fn adopted(fallback: &dyn ChatClient, reply: PrefetchedReply) -> Self {
+        Self {
+            id: 0,
+            first_reply: Arc::new(Mutex::new(ReplaySlot {
+                reply: Some(reply),
+                awaiting_turn: None,
+                latest_clone: std::collections::BTreeMap::new(),
+                next_id: 1,
+            })),
+            fallback: fallback.boxed_clone(),
+            last_call: LastCall::NoCall,
+        }
+    }
+
+    fn slot(&self) -> MutexGuard<'_, ReplaySlot> {
+        self.first_reply
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Replay the adopted reply once, with the timing and metadata of the call
+    /// that produced it. The paired call waits for the replay's turn.
+    fn replay(&mut self) -> Option<AssistantReply> {
+        let mut slot = self.slot();
+        let PrefetchedReply { reply, call } = slot.reply.take()?;
+        let (timing, metadata) = match call {
+            Some(call) => {
+                let values = call
+                    .record
+                    .settled
+                    .as_ref()
+                    .map_or((None, None), |settled| {
+                        (settled.timing.clone(), settled.metadata.clone())
+                    });
+                slot.awaiting_turn = Some((self.id, call));
+                values
+            }
+            None => (None, None),
+        };
+        drop(slot);
+        self.last_call = LastCall::Replayed(Box::new(ReplayedCall { timing, metadata }));
+        Some(reply)
     }
 }
 
@@ -443,10 +1078,34 @@ impl ChatClient for PrefetchedPlanner {
     }
 
     fn boxed_clone(&self) -> Box<dyn ChatClient> {
+        let id = {
+            let mut slot = self.slot();
+            let id = slot.next_id;
+            slot.next_id += 1;
+            slot.latest_clone.insert(self.id, id);
+            id
+        };
         Box::new(Self {
+            id,
             first_reply: Arc::clone(&self.first_reply),
             fallback: self.fallback.boxed_clone(),
+            last_call: LastCall::NoCall,
         })
+    }
+
+    fn provider_turn_carried_result(&mut self) {
+        let mut slot = self.slot();
+        let Some(clone) = slot.latest_clone.remove(&self.id) else {
+            return;
+        };
+        if slot
+            .awaiting_turn
+            .as_ref()
+            .is_some_and(|(replayer, _)| *replayer == clone)
+            && let Some((_, call)) = slot.awaiting_turn.take()
+        {
+            call.account.emit("gate_passed", &call.record, true);
+        }
     }
 
     fn supports_native_tools(&self, model: &str) -> bool {
@@ -461,11 +1120,17 @@ impl ChatClient for PrefetchedPlanner {
         self.fallback.supports_ollama_think()
     }
 
-    fn take_response_timing(&mut self) -> Option<crate::providers::ResponseTiming> {
+    fn take_response_timing(&mut self) -> Option<ResponseTiming> {
+        if let LastCall::Replayed(call) = &mut self.last_call {
+            return call.timing.take();
+        }
         self.fallback.take_response_timing()
     }
 
-    fn take_response_metadata(&mut self) -> Option<crate::providers::ProviderResponseMetadata> {
+    fn take_response_metadata(&mut self) -> Option<ProviderResponseMetadata> {
+        if let LastCall::Replayed(call) = &mut self.last_call {
+            return call.metadata.take();
+        }
         self.fallback.take_response_metadata()
     }
 
@@ -489,9 +1154,10 @@ impl ChatClient for PrefetchedPlanner {
         native_tools_enabled: bool,
         on_chunk: &mut dyn FnMut(&str) -> anyhow::Result<()>,
     ) -> anyhow::Result<AssistantReply> {
-        if let Some(reply) = self.take_first_reply() {
+        if let Some(reply) = self.replay() {
             return Ok(reply);
         }
+        self.last_call = LastCall::Fallback;
         self.fallback
             .chat_stream(model, messages, tools, native_tools_enabled, on_chunk)
     }
@@ -503,9 +1169,10 @@ impl ChatClient for PrefetchedPlanner {
         tools: &[ToolSpec],
         native_tools_enabled: bool,
     ) -> anyhow::Result<AssistantReply> {
-        if let Some(reply) = self.take_first_reply() {
+        if let Some(reply) = self.replay() {
             return Ok(reply);
         }
+        self.last_call = LastCall::Fallback;
         ChatClient::chat(
             self.fallback.as_mut(),
             model,
@@ -515,6 +1182,9 @@ impl ChatClient for PrefetchedPlanner {
         )
     }
 }
+
+/// One event per physical prefetch provider call (Issue #948).
+const PROVIDER_CALL_EVENT: &str = "speculative_phase_plan_provider_call";
 
 fn emit_pipeline_event(
     config: &Config,
@@ -743,3 +1413,7 @@ mod tests {
         assert!(recorded[0].is_cancelled(), "a different token arrived");
     }
 }
+
+#[cfg(test)]
+#[path = "pipeline/usage_tests.rs"]
+mod usage_tests;
