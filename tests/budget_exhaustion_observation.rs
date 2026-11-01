@@ -410,10 +410,77 @@ fn check_budget_row(row: &Value) -> Map<String, Value> {
     expected.clone()
 }
 
+/// Issue #958: the fixed recovery sentence (prompt version 1) the minimal loop
+/// appends to the request after a tool-less reply at the output limit, here
+/// with this file's `NUM_PREDICT`. Kept as the exact text, never a pattern.
+const OUTPUT_LIMIT_SENTENCE: &str = "Your previous response reached the output limit (100 tokens) before any tool call arrived. Keep your reasoning short, start your next response with one tool call, and write a large file in smaller parts.";
+/// The one row whose second request follows a tool-less reply at the limit.
+const OUTPUT_LIMIT_SENTENCE_ROW: &str = "other-site-max-length";
+
+/// Takes the #958 sentence back out of the requests of
+/// [`OUTPUT_LIMIT_SENTENCE_ROW`]: it must appear exactly once in the whole run,
+/// at the end of the last message of its request, after `"\n\n"` or as the
+/// whole message, the same two forms the loop composes. Every other row must
+/// carry no sentence at all. The digests are then compared with the base
+/// unchanged.
+fn without_output_limit_sentence(id: &str, requests: &mut [Vec<ConversationMessage>]) {
+    let count: usize = requests
+        .iter()
+        .flatten()
+        .map(|message| message.content.matches(OUTPUT_LIMIT_SENTENCE).count())
+        .sum();
+    if id != OUTPUT_LIMIT_SENTENCE_ROW {
+        assert_eq!(count, 0, "{id}: unexpected #958 sentence");
+        return;
+    }
+    assert_eq!(count, 1, "{id}: the #958 sentence must appear exactly once");
+    let suffix = format!("\n\n{OUTPUT_LIMIT_SENTENCE}");
+    let mut removed = 0usize;
+    for messages in requests.iter_mut() {
+        let Some(last) = messages.last_mut() else {
+            continue;
+        };
+        if last.content == OUTPUT_LIMIT_SENTENCE {
+            messages.pop();
+            removed += 1;
+        } else if let Some(kept) = last.content.strip_suffix(&suffix) {
+            last.content = kept.to_string();
+            removed += 1;
+        }
+    }
+    assert_eq!(removed, 1, "{id}: the #958 sentence must end a request");
+}
+
+/// Takes the one #958 `output_limit_feedback` event that records the sentence
+/// sent in [`OUTPUT_LIMIT_SENTENCE_ROW`] back out of the event lines; every
+/// other row must have none. The event sequence is then compared with the
+/// base unchanged.
+fn without_output_limit_event(id: &str, lines: &mut Vec<String>) {
+    let is_event = |line: &String| {
+        serde_json::from_str::<Value>(line).unwrap()["event"] == "output_limit_feedback"
+    };
+    let events: Vec<Value> = lines
+        .iter()
+        .filter(|line| is_event(line))
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    if id != OUTPUT_LIMIT_SENTENCE_ROW {
+        assert!(events.is_empty(), "{id}: unexpected #958 event {events:?}");
+        return;
+    }
+    assert_eq!(events.len(), 1, "{id}: {events:?}");
+    assert_eq!(events[0]["kind"], "no_tool_call_at_output_limit", "{id}");
+    assert_eq!(events[0]["attempt"], 1, "{id}");
+    assert_eq!(events[0]["num_predict"], NUM_PREDICT, "{id}");
+    lines.retain(|line| !is_event(line));
+}
+
 fn check_other_site_row(row: &Value) {
     let id = row["id"].as_str().unwrap();
     assert!(row["expect"]["budget_fields"].is_null(), "{id}");
-    let trace = run(row);
+    let mut trace = run(row);
+    without_output_limit_sentence(id, &mut trace.requests);
+    without_output_limit_event(id, &mut trace.lines);
     assert_base_behavior(row, &trace);
     let object = budget_object(row, &trace);
     for field in BUDGET_FIELDS {

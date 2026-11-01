@@ -486,6 +486,22 @@ fn check(id: &str) {
             assert!(last.ends_with("tool call, and write a large file in smaller parts."));
         }
     }
+    // The request the loop sends after switching to XML fallback carries no
+    // native tool schemas, and the requests before it do.
+    if let Some(index) = row["expect"]["xml_fallback_request"].as_u64() {
+        let index = index as usize;
+        for (at, request) in trace.requests.iter().enumerate() {
+            assert_eq!(
+                request.get("tools").is_some(),
+                at < index,
+                "{id}: request {at} tools"
+            );
+        }
+        let system = trace.requests[index]["messages"][0]["content"]
+            .as_str()
+            .unwrap();
+        assert!(system.contains("XML fallback"), "{id}: {system}");
+    }
     for entry in row["expect"]["contains"].as_array().into_iter().flatten() {
         let index = entry["request"].as_u64().unwrap() as usize;
         let text = entry["text"].as_str().unwrap();
@@ -617,9 +633,19 @@ fn non_object_arguments_at_the_limit_keep_only_the_malformed_feedback() {
     check("non-object-at-limit");
 }
 
+/// Two native retries, then the third cut-off error switches the loop to XML
+/// fallback; the XML fallback request carries the malformed feedback and the
+/// sentence once each, and its event is the third attempt.
 #[test]
-fn an_exhausted_malformed_retry_sends_no_sentence_for_its_last_error() {
+fn the_xml_fallback_request_after_an_exhausted_retry_carries_the_sentence() {
     check("truncated-retry-exhausted");
+}
+
+/// The same sequence below the limit: the XML fallback request keeps only
+/// the malformed feedback.
+#[test]
+fn the_xml_fallback_request_below_the_limit_gets_no_sentence() {
+    check("truncated-below-limit-xml-fallback");
 }
 
 #[test]

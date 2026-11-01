@@ -252,6 +252,41 @@ fn limit_text(reasoning: Option<u64>) -> Step {
 
 // ---- the leaf alone -------------------------------------------------------
 
+/// The leaf is private to the loop, so the integration tests write the
+/// sentence out themselves. This pins the leaf's text and those copies to
+/// each other: changing either side alone fails here.
+#[test]
+fn the_sentence_matches_the_copies_in_the_integration_tests() {
+    let observation = |kind| super::Observation {
+        kind,
+        num_predict: LIMIT,
+        completion_tokens: 100,
+        reasoning_tokens: None,
+    };
+    assert_eq!(
+        super::guidance(&observation(super::Kind::NoToolCall)),
+        NO_TOOL_SENTENCE
+    );
+    assert_eq!(
+        super::guidance(&observation(super::Kind::ToolArgumentsTruncated)),
+        TRUNCATED_SENTENCE
+    );
+    // `tests/budget_exhaustion_observation.rs` keeps the no-tool sentence at
+    // its own limit of 100 as one exact literal.
+    let budget = include_str!("../../../../tests/budget_exhaustion_observation.rs");
+    assert!(budget.contains(&format!("\"{NO_TOOL_SENTENCE}\"")));
+    // `tests/output_limit_feedback.rs` builds it from the limit and one
+    // clause per kind around the same fixed text.
+    let public = include_str!("../../../../tests/output_limit_feedback.rs");
+    for clause in [
+        "\"before any tool call arrived\"",
+        "\"and its tool call arguments were cut off\"",
+        "\"Your previous response reached the output limit ({num_predict} tokens) {what}. Keep your reasoning short, start your next response with one tool call, and write a large file in smaller parts.\"",
+    ] {
+        assert!(public.contains(clause), "{clause}");
+    }
+}
+
 #[test]
 fn a_tool_less_reply_at_the_limit_is_appended_once_after_the_existing_feedback() {
     let mut leaf = OutputLimitFeedback::new(None);

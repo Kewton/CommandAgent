@@ -850,6 +850,7 @@ fn run_session_planned(
                 native_tools_enabled = false;
                 session.native_tools_disabled = true;
                 pending_feedback = Some(super::feedback::malformed_tool_call(&err.to_string()));
+                output_limit.observe_malformed(&err, config.num_predict);
                 continue;
             }
             Err(err) => {
