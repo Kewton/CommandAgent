@@ -647,6 +647,7 @@ where
                         response_metadata,
                     ),
                 );
+                client.provider_turn_carried_result();
                 record_provider_trace(
                     config,
                     scope,

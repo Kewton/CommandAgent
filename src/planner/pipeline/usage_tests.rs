@@ -1022,6 +1022,7 @@ const CALL_EVENT_WORDS: &[&str] = &[
     "call_index",
     "disposition",
     "pipeline_dropped",
+    "replay_turn_unrecorded",
     "replayed",
     "unconsumed",
     "unsettled",
@@ -1119,4 +1120,189 @@ fn call_events_keep_their_schema_under_a_registered_credential() {
         catalog.scrub_value_lenient(&mut scrubbed);
         assert_eq!(scrubbed, event, "the scrub changed a call event");
     }
+}
+
+// B1: the replayed call is handed to its turn only when the turn carries it.
+
+fn replay_with_account(config: &Config) -> PrefetchedReply {
+    let mut prefetched = paired(
+        "prefetched",
+        Some(timing(1100, 2200)),
+        Some(metadata("resp-prefetch", Some(40))),
+    );
+    prefetched.call.as_mut().unwrap().account.events_path = config.eval_events_path.clone();
+    prefetched
+}
+
+/// Drive one planner-step `provider_call` with the given cancel check.
+fn replay_turn(
+    planner: &mut PrefetchedPlanner,
+    config: &Config,
+    is_cancelled: impl Fn() -> bool,
+) -> crate::provider_call::ProviderCallOutcome {
+    let messages = step_plan_messages("synthetic step plan request");
+    crate::provider_call::chat_with_cancel_and_stream(
+        planner,
+        config,
+        crate::provider_call::ProviderChatRequest {
+            scope: crate::provider_call::ProviderCallScope::PlannerStep,
+            model: "m",
+            messages: &messages,
+            tools: &[],
+            native_tools_enabled: false,
+        },
+        is_cancelled,
+        &mut |_| Ok(()),
+    )
+}
+
+/// Drop the test's handle last, once the `provider_call` thread has dropped
+/// its clone, so the slot's final accounting runs now.
+fn release_slot(slot: Arc<Mutex<super::ReplaySlot>>) {
+    let deadline = Instant::now() + DEADLINE;
+    while Arc::strong_count(&slot) > 1 {
+        assert!(Instant::now() < deadline, "a clone was never dropped");
+        std::thread::yield_now();
+    }
+    drop(slot);
+}
+
+fn wait_until_replayed(slot: &Arc<Mutex<super::ReplaySlot>>) {
+    let deadline = Instant::now() + DEADLINE;
+    while slot.lock().unwrap().reply.is_some() {
+        assert!(Instant::now() < deadline, "the replay never happened");
+        std::thread::yield_now();
+    }
+}
+
+/// The replay turn ended without the worker's result: one abort or timeout
+/// turn without usage, and the replayed call counted once by its own record.
+fn assert_replay_counted_by_its_record(config: &Config, turn_flag: &str) {
+    let lines = event_lines(config)
+        .iter()
+        .map(|line| parse(line))
+        .collect::<Vec<_>>();
+    let turns = lines
+        .iter()
+        .filter(|value| event_name(value) == "provider_turn_duration")
+        .collect::<Vec<_>>();
+    assert_eq!(turns.len(), 1, "{turns:?}");
+    assert_eq!(turns[0][turn_flag], true);
+    assert!(turns[0]["prompt_eval_count"].is_null());
+    assert!(turns[0].get("provider_response_id").is_none());
+    let calls = lines
+        .iter()
+        .filter(|value| event_name(value) == PROVIDER_CALL_EVENT)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        calls.len(),
+        1,
+        "one physical call, one call event: {calls:?}"
+    );
+    assert_eq!(calls[0]["disposition"], "unconsumed");
+    assert_eq!(calls[0]["accounting_record"], true);
+    assert_eq!(calls[0]["reason"], "replay_turn_unrecorded");
+    assert_eq!(calls[0]["prompt_eval_count"], 100);
+    assert_eq!(calls[0]["provider_cached_input_tokens"], 40);
+    assert_eq!(calls[0]["provider_response_id"], "resp-prefetch");
+}
+
+#[test]
+fn replay_cancelled_before_its_result_is_received_is_counted_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = test_config(dir.path());
+    let fallback = ScriptedClient::new(Vec::new());
+    let mut planner = PrefetchedPlanner::adopted(&fallback, replay_with_account(&config));
+    let slot = Arc::clone(&planner.first_reply);
+    let checks = std::cell::Cell::new(0);
+
+    // The first check is the one before the worker starts; every later check
+    // runs before the loop receives a message, so cancelling once the slot is
+    // consumed makes the cancel win over the queued result.
+    let outcome = replay_turn(&mut planner, &config, || {
+        checks.set(checks.get() + 1);
+        if checks.get() == 1 {
+            return false;
+        }
+        wait_until_replayed(&slot);
+        true
+    });
+    assert!(outcome.aborted_by_user);
+    drop(planner);
+    release_slot(slot);
+
+    assert_replay_counted_by_its_record(&config, "aborted_by_user");
+    assert_eq!(fallback.calls(), 0);
+}
+
+#[test]
+fn replay_reaching_its_deadline_before_its_result_is_received_is_counted_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut config = test_config(dir.path());
+    config.chat_timeout_secs = 1;
+    let fallback = ScriptedClient::new(Vec::new());
+    let mut planner = PrefetchedPlanner::adopted(&fallback, replay_with_account(&config));
+    let slot = Arc::clone(&planner.first_reply);
+    let started = Instant::now();
+    let checks = std::cell::Cell::new(0);
+
+    let outcome = replay_turn(&mut planner, &config, || {
+        checks.set(checks.get() + 1);
+        if checks.get() == 1 {
+            return false;
+        }
+        wait_until_replayed(&slot);
+        while started.elapsed() < Duration::from_millis(1100) {
+            std::thread::yield_now();
+        }
+        false
+    });
+    assert!(outcome.timed_out);
+    drop(planner);
+    release_slot(slot);
+
+    assert_replay_counted_by_its_record(&config, "timed_out");
+    assert_eq!(fallback.calls(), 0);
+}
+
+#[test]
+fn replay_whose_turn_carried_it_is_counted_by_the_turn() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = test_config(dir.path());
+    let fallback = ScriptedClient::new(Vec::new());
+    let mut planner = PrefetchedPlanner::adopted(&fallback, replay_with_account(&config));
+
+    let outcome = replay_turn(&mut planner, &config, || false);
+    assert!(outcome.result.is_ok());
+    drop(planner);
+
+    let lines = event_lines(&config)
+        .iter()
+        .map(|line| parse(line))
+        .collect::<Vec<_>>();
+    let names = lines.iter().map(event_name).collect::<Vec<_>>();
+    let turn = names
+        .iter()
+        .position(|name| *name == "provider_turn_duration");
+    let call = names.iter().position(|name| *name == PROVIDER_CALL_EVENT);
+    assert!(
+        turn.is_some() && call > turn,
+        "the call event follows its turn: {names:?}"
+    );
+    let call = &lines[call.unwrap()];
+    assert_eq!(call["disposition"], "replayed");
+    assert_eq!(call["accounting_record"], false);
+    assert_eq!(lines[turn.unwrap()]["provider_cached_input_tokens"], 40);
+    assert_eq!(
+        names
+            .iter()
+            .filter(|name| **name == PROVIDER_CALL_EVENT)
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn replay_turn_unrecorded_reason_is_reserved() {
+    assert!(is_fixed_identifier("replay_turn_unrecorded"));
 }

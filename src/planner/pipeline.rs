@@ -49,13 +49,24 @@
 //!   no outcome when the log was closed; its usage is unknown and stays
 //!   absent. A main-path `provider_turn_duration` that is `aborted_by_user` or
 //!   `timed_out` carries no usage, and when it ended before the replay it
-//!   made no physical call. Known gap: when the replay was handed to
-//!   `provider_call`'s worker but that call is cancelled or reaches its
-//!   deadline before it receives the worker's result, the turn is an abort
-//!   without usage while the call event already says `replayed`; closing it
-//!   needs `provider_call` to report whether the turn carried the response.
+//!   made no physical call.
+//! - **Handing the replayed call to its turn.** Replaying the reply does not
+//!   yet count it. The instance that replayed holds the paired call until
+//!   `provider_call` writes the turn that carried the worker's result and then
+//!   calls `provider_turn_carried_result` on the client it was given; only
+//!   then, and only when that client's latest clone is the instance that
+//!   replayed, is the `replayed` event written. When the `provider_call` is
+//!   cancelled or reaches its deadline before it receives the result, its turn
+//!   is an abort or timeout without usage, no such call arrives, and the
+//!   paired call is written as `unconsumed` with `accounting_record: true` and
+//!   reason `replay_turn_unrecorded`, with its known usage. Remaining limit:
+//!   that record is written when the last `PrefetchedPlanner` instance is
+//!   dropped, which can happen on the `provider_call` worker thread after the
+//!   main thread moved on, so its thread and its position among the events are
+//!   not fixed; it is written exactly once.
 //! - **Fields.** `current_phase_id`, `next_phase_id`, `reason` (the pipeline
-//!   reason, plus `pipeline_dropped` and `adopted_unreplayed`), `call_index`,
+//!   reason, plus `pipeline_dropped`, `adopted_unreplayed`, and
+//!   `replay_turn_unrecorded`), `call_index`,
 //!   `disposition`, `accounting_record`, and `ok` once settled. Accounting
 //!   records add, each only when the provider reported it, `prompt_eval_count`
 //!   and `eval_count` (reply token counts), `provider_response_id`,
@@ -936,17 +947,32 @@ struct PairedCall {
     account: CallAccount,
 }
 
-/// Holds the adopted reply until it is replayed. Dropping it unreplayed writes
-/// the paired call as an accounting record, so its usage is not lost.
-struct ReplaySlot(Option<PrefetchedReply>);
+/// Holds the adopted reply until it is replayed, then the paired call until
+/// `provider_call` reports that the replay's turn carried it. Dropping it with
+/// the reply unreplayed, or with the replay never carried by a turn (the
+/// `provider_call` was cancelled or reached its deadline first), writes the
+/// paired call as an accounting record, so its usage is counted once.
+#[derive(Default)]
+struct ReplaySlot {
+    reply: Option<PrefetchedReply>,
+    /// The instance that replayed the reply, and the paired call.
+    awaiting_turn: Option<(u64, PairedCall)>,
+    /// Each instance's latest clone, by instance id.
+    latest_clone: std::collections::BTreeMap<u64, u64>,
+    next_id: u64,
+}
 
 impl Drop for ReplaySlot {
     fn drop(&mut self) {
         if let Some(PrefetchedReply {
             call: Some(call), ..
-        }) = self.0.take()
+        }) = self.reply.take()
         {
             call.account.emit("adopted_unreplayed", &call.record, false);
+        }
+        if let Some((_, call)) = self.awaiting_turn.take() {
+            call.account
+                .emit("replay_turn_unrecorded", &call.record, false);
         }
     }
 }
@@ -967,6 +993,7 @@ struct ReplayedCall {
 }
 
 struct PrefetchedPlanner {
+    id: u64,
     first_reply: Arc<Mutex<ReplaySlot>>,
     fallback: Box<dyn ChatClient>,
     last_call: LastCall,
@@ -980,25 +1007,44 @@ impl PrefetchedPlanner {
 
     fn adopted(fallback: &dyn ChatClient, reply: PrefetchedReply) -> Self {
         Self {
-            first_reply: Arc::new(Mutex::new(ReplaySlot(Some(reply)))),
+            id: 0,
+            first_reply: Arc::new(Mutex::new(ReplaySlot {
+                reply: Some(reply),
+                awaiting_turn: None,
+                latest_clone: std::collections::BTreeMap::new(),
+                next_id: 1,
+            })),
             fallback: fallback.boxed_clone(),
             last_call: LastCall::NoCall,
         }
     }
 
+    fn slot(&self) -> MutexGuard<'_, ReplaySlot> {
+        self.first_reply
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
     /// Replay the adopted reply once, with the timing and metadata of the call
-    /// that produced it.
+    /// that produced it. The paired call waits for the replay's turn.
     fn replay(&mut self) -> Option<AssistantReply> {
-        let PrefetchedReply { reply, call } = self.first_reply.lock().ok()?.0.take()?;
+        let mut slot = self.slot();
+        let PrefetchedReply { reply, call } = slot.reply.take()?;
         let (timing, metadata) = match call {
             Some(call) => {
-                call.account.emit("gate_passed", &call.record, true);
-                call.record
+                let values = call
+                    .record
                     .settled
-                    .map_or((None, None), |settled| (settled.timing, settled.metadata))
+                    .as_ref()
+                    .map_or((None, None), |settled| {
+                        (settled.timing.clone(), settled.metadata.clone())
+                    });
+                slot.awaiting_turn = Some((self.id, call));
+                values
             }
             None => (None, None),
         };
+        drop(slot);
         self.last_call = LastCall::Replayed(Box::new(ReplayedCall { timing, metadata }));
         Some(reply)
     }
@@ -1010,11 +1056,34 @@ impl ChatClient for PrefetchedPlanner {
     }
 
     fn boxed_clone(&self) -> Box<dyn ChatClient> {
+        let id = {
+            let mut slot = self.slot();
+            let id = slot.next_id;
+            slot.next_id += 1;
+            slot.latest_clone.insert(self.id, id);
+            id
+        };
         Box::new(Self {
+            id,
             first_reply: Arc::clone(&self.first_reply),
             fallback: self.fallback.boxed_clone(),
             last_call: LastCall::NoCall,
         })
+    }
+
+    fn provider_turn_carried_result(&mut self) {
+        let mut slot = self.slot();
+        let Some(clone) = slot.latest_clone.remove(&self.id) else {
+            return;
+        };
+        if slot
+            .awaiting_turn
+            .as_ref()
+            .is_some_and(|(replayer, _)| *replayer == clone)
+            && let Some((_, call)) = slot.awaiting_turn.take()
+        {
+            call.account.emit("gate_passed", &call.record, true);
+        }
     }
 
     fn supports_native_tools(&self, model: &str) -> bool {

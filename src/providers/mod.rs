@@ -222,6 +222,10 @@ pub trait ChatClient: Send {
     /// Receive the cancel signal for the next call. Clients that own their HTTP
     /// transport close the connection when it fires; others may ignore it.
     fn set_cancel_token(&mut self, _token: streaming::CancelToken) {}
+    /// Called by `provider_call` on the client it was given, after the
+    /// `provider_turn_duration` of the call made by this client's latest clone
+    /// carried that call's result. Clients that do not care ignore it.
+    fn provider_turn_carried_result(&mut self) {}
     fn supports_streaming(&self) -> bool {
         false
     }
