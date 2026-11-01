@@ -4,6 +4,9 @@ use crate::tools::sensitive_path::path_is_sensitive;
 #[path = "final_acceptance/compile_rollback_verification.rs"]
 mod compile_rollback_verification;
 
+#[path = "final_acceptance/artifact_repair_paths.rs"]
+mod artifact_repair_paths;
+
 #[path = "final_acceptance/repair_workspace_snapshot.rs"]
 mod repair_workspace_snapshot;
 

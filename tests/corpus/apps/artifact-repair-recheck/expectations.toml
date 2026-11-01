@@ -1,0 +1,56 @@
+case_id = "artifact-repair-recheck"
+source = "Issue #949: when a final-acceptance repair changes the raw bytes of an artifact the profile declares or an admitted artifact_contract_check bound, the same check reruns inside the existing bounded repair (two attempts); same-bytes rewrites, mtime-only touches, and report-only changes add no rerun; a rerun that still fails, times out, or reports a required row unresolved or not_run stays a native failure"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[json_fields]
+fixtures/events.json:kind = "synthetic"
+fixtures/events.json:base_sha = "4edfc5a726feb5fa468b4a24bc9de29f41c6b1bc"
+source-manifest.json:kind = "synthetic"
+source-manifest.json:base_sha = "4edfc5a726feb5fa468b4a24bc9de29f41c6b1bc"
+
+[fixture_contains]
+fixtures/events.json = [
+  "\"id\": \"json-ready-1\"",
+  "\"id\": \"yaml-ready-1\"",
+  "\"id\": \"json-same-bytes-1\"",
+  "\"id\": \"json-still-failing-1\"",
+  "\"id\": \"json-crash-unresolved-1\"",
+  "\"id\": \"json-timeout-not-run-1\"",
+  "\"id\": \"split-declared-1\"",
+  "\"id\": \"split-bound-1\"",
+  "\"id\": \"split-unrelated-1\"",
+  "\"exhausted:bounded_repair_exhausted\"",
+  "\"repair_start:max=2\""
+]
+
+[fixture_ordered]
+fixtures/events.json = [
+  "\"id\": \"json-ready-1\"",
+  "\"receipt:failed:verified\"",
+  "\"repair_complete:1:[contract/terms.json]\"",
+  "\"receipt:passed:verified\"",
+  "\"stop:true\"",
+  "\"id\": \"json-still-failing-1\"",
+  "\"repair_complete:2:[contract/terms.json]\"",
+  "\"exhausted:bounded_repair_exhausted\"",
+  "\"stop:false\""
+]
