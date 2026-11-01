@@ -30,6 +30,9 @@ use crate::config::{
 };
 use crate::providers::openai::OpenAiClient;
 use crate::providers::{AssistantReply, ChatClient, ProviderResponseMetadata, ResponseTiming};
+use crate::sensitive_data::{
+    RegistrationRefusal, ReservedKind, SecretCatalog, is_fixed_identifier,
+};
 use crate::state::ConversationMessage;
 use crate::tools::registry::ToolSpec;
 
@@ -1006,4 +1009,114 @@ fn corpus_manifest_pins_the_fixture_and_its_synthetic_origin() {
         );
     }
     assert_eq!(fixture()["event"], PROVIDER_CALL_EVENT);
+}
+
+/// The fixed schema words the call event added (Issue #948). The event name is
+/// emitted through a constant, so the source scan of the existing completeness
+/// test does not see it; this list is checked against the fixture below.
+const CALL_EVENT_WORDS: &[&str] = &[
+    PROVIDER_CALL_EVENT,
+    "accounted_by",
+    "accounting_record",
+    "adopted_unreplayed",
+    "call_index",
+    "disposition",
+    "pipeline_dropped",
+    "replayed",
+    "unconsumed",
+    "unsettled",
+];
+
+/// Keys the call event shares with events that existed before it.
+const PRE_EXISTING_KEYS: &[&str] = &[
+    "event",
+    "schema_version",
+    "current_phase_id",
+    "next_phase_id",
+    "reason",
+    "ok",
+    "prompt_eval_count",
+    "eval_count",
+    "provider_response_id",
+    "provider_model_id",
+    "provider_service_tier",
+    "provider_cached_input_tokens",
+    "provider_reasoning_tokens",
+    "provider_total_tokens",
+    "prompt_eval_duration",
+    "eval_duration",
+    "load_duration",
+    "total_duration",
+];
+
+fn fixture_call_events() -> Vec<Value> {
+    fixture()["cases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|case| case["provider_call_events"].as_array().unwrap().clone())
+        .collect()
+}
+
+#[test]
+fn call_event_schema_words_are_reserved_fixed_identifiers() {
+    for word in CALL_EVENT_WORDS {
+        assert!(is_fixed_identifier(word), "{word} is not reserved");
+    }
+
+    let base_lines = fixture()["base_pipeline_lines"].to_string();
+    for event in fixture_call_events() {
+        for (key, value) in event.as_object().unwrap() {
+            if !PRE_EXISTING_KEYS.contains(&key.as_str()) {
+                assert!(CALL_EVENT_WORDS.contains(&key.as_str()), "new key {key}");
+            }
+            let Some(text) = value.as_str() else {
+                continue;
+            };
+            let new_reason =
+                key == "reason" && !base_lines.contains(&format!("\\\"reason\\\":\\\"{text}\\\""));
+            if matches!(key.as_str(), "event" | "disposition" | "accounted_by") || new_reason {
+                assert!(
+                    is_fixed_identifier(text),
+                    "{key} value {text} is not reserved"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn a_credential_equal_to_a_call_event_word_is_refused_without_naming_it() {
+    for word in CALL_EVENT_WORDS {
+        let mut catalog = SecretCatalog::new();
+        let refusal = catalog
+            .register_credential("SYNTHETIC_API_KEY", word)
+            .expect_err("a credential equal to a schema word must be refused");
+        assert!(
+            matches!(
+                refusal,
+                RegistrationRefusal::Reserved {
+                    kind: ReservedKind::FixedIdentifier,
+                    ..
+                }
+            ),
+            "unexpected refusal kind"
+        );
+        assert!(!refusal.to_string().contains(word), "the refusal names it");
+        assert!(catalog.is_empty());
+    }
+}
+
+#[test]
+fn call_events_keep_their_schema_under_a_registered_credential() {
+    let mut catalog = SecretCatalog::new();
+    catalog
+        .register_credential("SYNTHETIC_API_KEY", "synthetic-credential-0123456789")
+        .expect("an ordinary credential registers");
+
+    for event in fixture_call_events() {
+        let mut scrubbed = event.clone();
+        catalog.scrub_value_lenient(&mut scrubbed);
+        assert_eq!(scrubbed, event, "the scrub changed a call event");
+    }
 }
