@@ -18,6 +18,30 @@ thread_local! {
     pub(super) static TARGET_VISITS: Cell<usize> = const { Cell::new(0) };
     /// A one-shot action run between the open of a target and its read.
     static READ_SEAM: RefCell<Option<SeamAction>> = const { RefCell::new(None) };
+    /// Bytes the bound-session legacy reader read on this thread.
+    pub(super) static LEGACY_BYTES: Cell<u64> = const { Cell::new(0) };
+    /// A one-shot action run after the legacy reader opened a step path and
+    /// before it checks the bound names.
+    static ALIAS_SEAM: RefCell<Option<SeamAction>> = const { RefCell::new(None) };
+}
+
+/// Called by the bound-session legacy reader after its open.
+pub(super) fn alias_seam(resolved: &Path) {
+    if let Some(action) = ALIAS_SEAM.with(|seam| seam.borrow_mut().take()) {
+        action(resolved);
+    }
+}
+
+fn on_alias(action: impl FnOnce(&Path) + 'static) {
+    ALIAS_SEAM.with(|seam| *seam.borrow_mut() = Some(Box::new(action)));
+}
+
+fn legacy_bytes() -> u64 {
+    LEGACY_BYTES.with(Cell::get)
+}
+
+fn reset_legacy_bytes() {
+    LEGACY_BYTES.with(|total| total.set(0));
 }
 
 type SeamAction = Box<dyn FnOnce(&Path)>;
@@ -889,4 +913,146 @@ fn an_unverifiable_target_gets_its_own_fixed_feedback() {
         super::super::ImplementationCompletion::blocking_reason(&feedback),
         "final_repair_artifact_unchanged"
     );
+}
+
+// --- the bound name changes under an alias (recheck 2, B3) ----------------------
+
+#[cfg(unix)]
+fn prefixed_target(root: &Path) -> String {
+    format!(
+        "{}/{TARGET}",
+        root.canonicalize()
+            .unwrap()
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+    )
+}
+
+/// The other spellings of the bound target that reach it on this
+/// filesystem: the root-prefixed one always, the upper-case one only where
+/// the filesystem folds case (asserted, not skipped, either way).
+#[cfg(unix)]
+fn alias_spellings(root: &Path) -> Vec<String> {
+    use std::os::unix::fs::MetadataExt;
+    let upper = "CONTRACT/TERMS.JSON".to_string();
+    let target = std::fs::metadata(root.join(TARGET)).unwrap();
+    let folds = std::fs::metadata(root.join(&upper))
+        .is_ok_and(|meta| meta.dev() == target.dev() && meta.ino() == target.ino());
+    let mut spellings = vec![prefixed_target(root)];
+    if folds {
+        spellings.push(upper);
+    } else {
+        assert!(std::fs::metadata(root.join(&upper)).is_err());
+    }
+    spellings
+}
+
+/// After the binding, the bound name becomes a symlink to a large file in
+/// the workspace. The alias now resolves to that file, but a bound name that
+/// is a symlink cannot be told apart from it: every path of the step reports
+/// it unknown and reads none of its bytes.
+#[cfg(unix)]
+#[test]
+fn an_alias_is_not_read_once_the_bound_name_is_a_symlink() {
+    let dir = workspace();
+    let root = dir.path();
+    let config = config(root);
+    write(root, "payload.bin", &vec![b'p'; 2 * 1_048_576]);
+    let spellings = alias_spellings(root);
+    let options = final_repair(&[TARGET]);
+    let implementation = ImplementationCompletion::capture(&config, &options, &spellings);
+    std::fs::remove_file(root.join(TARGET)).unwrap();
+    std::os::unix::fs::symlink(root.join("payload.bin"), root.join(TARGET)).unwrap();
+    reset_legacy_bytes();
+    let event = implementation.event(&config, &options, false);
+    for spelling in &spellings {
+        assert_eq!(hash_of(&event, spelling)["after_sha256"], "unknown:alias");
+    }
+    assert!(
+        event["scaffold_placeholder_paths"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(event["changed_paths"].as_array().unwrap().is_empty());
+    let mut changed = Vec::new();
+    implementation.merge_changes(root, &mut changed);
+    assert!(changed.is_empty(), "{changed:?}");
+    let feedback = implementation.feedback(&config, &options, false).unwrap();
+    assert!(
+        feedback.starts_with(super::UNVERIFIABLE_PREFIX),
+        "{feedback}"
+    );
+    assert_eq!(legacy_bytes(), 0, "no byte of the payload was read");
+}
+
+/// The bound name is renamed away, unlinked, or renamed away and back after
+/// the alias was opened and before the names are checked: the alias is
+/// unknown and none of its bytes is read. A different regular file under a
+/// renamed binding is unknown too (no exclusion is possible), and read
+/// within the file bound when the binding is stable.
+#[cfg(unix)]
+#[test]
+fn an_alias_is_not_read_when_the_bound_name_moves_while_it_is_open() {
+    let dir = workspace();
+    let root = dir.path().to_path_buf();
+    write(&root, "sub/contract/terms.json", BROKEN);
+    let completion = capture(&root, &final_repair(&[TARGET]));
+    let spellings = alias_spellings(&root);
+    type Swap = fn(&Path);
+    let swaps: [(&str, Swap); 3] = [
+        ("rename", |root| {
+            std::fs::rename(root.join(TARGET), root.join("moved.json")).unwrap();
+        }),
+        ("unlink", |root| {
+            // The inode is kept under another name so it can come back.
+            std::fs::hard_link(root.join(TARGET), root.join("moved.json")).unwrap();
+            std::fs::remove_file(root.join(TARGET)).unwrap();
+        }),
+        ("rename back", |root| {
+            std::fs::rename(root.join(TARGET), root.join("moved.json")).unwrap();
+            std::fs::rename(root.join("moved.json"), root.join(TARGET)).unwrap();
+        }),
+    ];
+    for path in spellings
+        .iter()
+        .chain(["sub/contract/terms.json".to_string()].iter())
+    {
+        for (label, swap) in swaps {
+            let swap_root = root.clone();
+            on_alias(move |_| swap(&swap_root));
+            reset_legacy_bytes();
+            let read = completion.legacy_read(&root, path).unwrap();
+            if path.starts_with("sub/") && label == "rename back" {
+                // The binding is as it was, and this is another file.
+                assert_eq!(read, super::LegacyRead::Bytes(BROKEN.to_vec()));
+                assert_eq!(legacy_bytes(), BROKEN.len() as u64);
+            } else {
+                assert_eq!(read, super::LegacyRead::Unknown("alias"), "{label}: {path}");
+                assert_eq!(legacy_bytes(), 0, "{label}: {path}");
+            }
+            if root.join("moved.json").exists() {
+                std::fs::rename(root.join("moved.json"), root.join(TARGET)).unwrap();
+            }
+        }
+    }
+    // With the binding stable, a different regular file is read as before,
+    // and only within the file bound.
+    reset_legacy_bytes();
+    assert_eq!(
+        completion.legacy_read(&root, "sub/contract/terms.json"),
+        Some(super::LegacyRead::Bytes(BROKEN.to_vec()))
+    );
+    assert_eq!(legacy_bytes(), BROKEN.len() as u64);
+    write(&root, "sub/contract/terms.json", &vec![b'a'; 2 * 1_048_576]);
+    reset_legacy_bytes();
+    assert_eq!(
+        completion.legacy_read(&root, "sub/contract/terms.json"),
+        Some(super::LegacyRead::Unknown("over_limit"))
+    );
+    assert_eq!(legacy_bytes(), 1_048_577);
+    // Without a binding nothing here is consulted.
+    let unbound = capture(&root, &RunSessionOptions::final_acceptance_repair());
+    assert_eq!(unbound.legacy_read(&root, "sub/contract/terms.json"), None);
 }

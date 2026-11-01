@@ -42,12 +42,17 @@
 //!   letting the legacy reader read a step path is decided apart from it. In
 //!   a bound session every step path the bound names do not spell is
 //!   resolved as the legacy reader resolves it (root-prefix salvage and a
-//!   case-insensitive filesystem included) and opened without blocking;
-//!   when the open file is not a regular file, or is the same `(st_dev,
-//!   st_ino)` as a bound name's current `lstat`, it is unknown (`alias`) and
-//!   its bytes are never read. Only a different regular file is read, from
-//!   that same fd, so no swap after the check reaches the bytes. Such an
-//!   alias is never a bound target: it neither releases nor holds anything.
+//!   case-insensitive filesystem included), refused before any open when it
+//!   is not a regular file, and opened by the same no-follow, non-blocking
+//!   fd walk. It is read only when every bound name is shown not to be the
+//!   opened file: the name's `lstat` now equals its `lstat` at the binding,
+//!   is no symlink and no error, and is not the opened `(st_dev, st_ino)`;
+//!   that is checked before the read and again after it, and the read stops
+//!   at the file bound plus one probe byte. Anything else is unknown
+//!   (`alias`, `special_file`, `over_limit`, `replaced`) and no bytes are
+//!   kept, so a name turned into a symlink, renamed, or unlinked never lets
+//!   an alias be read without bound. Such an alias is never a bound target:
+//!   it neither releases nor holds anything.
 //! - Limits and guards. At most [`MAX_TARGETS`] targets; each adopted content
 //!   at most [`MAX_FILE_BYTES`], the set at most [`MAX_TOTAL_BYTES`]. One set
 //!   read reads at most one probe byte more per file, so at most
@@ -151,17 +156,62 @@ pub(crate) fn identity(name: &str) -> Option<PathBuf> {
     (!out.as_os_str().is_empty()).then_some(out)
 }
 
-/// A bound name and its identity.
+/// What a name's `lstat` showed: a regular file's `(st_dev, st_ino)`, no
+/// regular file (absent, a directory, a special file), or nothing safe to
+/// compare (`Err`: a symlink, an error, or no such metadata on this
+/// platform).
+type FileId = Result<Option<(u64, u64)>, ()>;
+
+#[cfg(unix)]
+fn file_id(path: &Path) -> FileId {
+    use std::os::unix::fs::MetadataExt;
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) if meta.file_type().is_symlink() => Err(()),
+        Ok(meta) if meta.file_type().is_file() => Ok(Some((meta.dev(), meta.ino()))),
+        Ok(_) => Ok(None),
+        Err(err) if err.kind() == ErrorKind::NotFound => Ok(None),
+        Err(_) => Err(()),
+    }
+}
+
+#[cfg(not(unix))]
+fn file_id(_path: &Path) -> FileId {
+    Err(())
+}
+
+/// A bound name, its identity, and what its `lstat` showed at the binding.
 #[derive(Debug)]
 struct Name {
     spelling: String,
     identity: Option<PathBuf>,
+    captured: FileId,
 }
 
 impl Name {
-    fn new(spelling: String) -> Self {
+    fn new(root: &Path, spelling: String) -> Self {
         let identity = identity(&spelling);
-        Self { spelling, identity }
+        let captured = match &identity {
+            Some(relative) => file_id(&root.join(relative)),
+            None => Ok(None),
+        };
+        Self {
+            spelling,
+            identity,
+            captured,
+        }
+    }
+
+    /// Whether this name is shown, now as at the binding, not to be the
+    /// regular file `opened`. A name that is or was a symlink, whose
+    /// `lstat` fails, or whose file changed since the binding cannot be
+    /// told apart from `opened`, so it is not.
+    fn excludes(&self, root: &Path, opened: (u64, u64)) -> bool {
+        let Some(relative) = &self.identity else {
+            // An escape never resolves inside the workspace.
+            return true;
+        };
+        let current = file_id(&root.join(relative));
+        current.is_ok() && current == self.captured && current != Ok(Some(opened))
     }
 
     /// Whether `path` names the same target.
@@ -231,7 +281,7 @@ impl RepairArtifactCompletion {
         }
         let mut targets: Vec<Name> = Vec::new();
         for spelling in bound {
-            let name = Name::new(spelling);
+            let name = Name::new(root, spelling);
             if !targets.iter().any(|target| target.names(&name.spelling)) {
                 targets.push(name);
             }
@@ -381,16 +431,30 @@ pub(crate) enum LegacyRead {
     Bytes(Vec<u8>),
 }
 
+/// The step path the legacy resolver reached, read in a bound session: an
+/// `lstat` refuses a special file before any open; the open walks from the
+/// workspace root without following a link and does not block
+/// (`tools::dir_fd::open_read_file`); every bound name must be shown not to
+/// be the opened file both before and after the read; and the read stops at
+/// the file bound plus one probe byte (over it, unknown).
 #[cfg(unix)]
 fn read_unless_bound(root: &Path, resolved: &Path, names: &[&Name]) -> LegacyRead {
     use std::io::Read as _;
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-    let Ok(file) = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NONBLOCK)
-        .open(resolved)
-    else {
-        return LegacyRead::Absent;
+    use std::os::unix::fs::MetadataExt;
+    let Ok(canonical_root) = root.canonicalize() else {
+        return LegacyRead::Unknown("unreadable");
+    };
+    let Ok(relative) = resolved.strip_prefix(&canonical_root) else {
+        return LegacyRead::Unknown("escape");
+    };
+    match std::fs::symlink_metadata(resolved) {
+        Ok(meta) if meta.file_type().is_file() => {}
+        Ok(_) => return LegacyRead::Unknown("special_file"),
+        Err(err) if err.kind() == ErrorKind::NotFound => return LegacyRead::Absent,
+        Err(_) => return LegacyRead::Unknown("unreadable"),
+    }
+    let Ok(file) = crate::tools::dir_fd::open_read_file(&canonical_root, relative) else {
+        return LegacyRead::Unknown("replaced");
     };
     let Ok(opened) = file.metadata() else {
         return LegacyRead::Unknown("unreadable");
@@ -398,20 +462,26 @@ fn read_unless_bound(root: &Path, resolved: &Path, names: &[&Name]) -> LegacyRea
     if !opened.is_file() {
         return LegacyRead::Unknown("special_file");
     }
-    let bound = names.iter().any(|name| {
-        name.identity
-            .as_ref()
-            .and_then(|relative| std::fs::symlink_metadata(root.join(relative)).ok())
-            .is_some_and(|meta| meta.dev() == opened.dev() && meta.ino() == opened.ino())
-    });
-    if bound {
+    let opened = (opened.dev(), opened.ino());
+    #[cfg(test)]
+    tests::alias_seam(resolved);
+    if !names.iter().all(|name| name.excludes(root, opened)) {
         return LegacyRead::Unknown("alias");
     }
     let mut bytes = Vec::new();
-    match (&file).read_to_end(&mut bytes) {
-        Ok(_) => LegacyRead::Bytes(bytes),
-        Err(_) => LegacyRead::Unknown("unreadable"),
+    let read = (&file).take(MAX_FILE_BYTES + 1).read_to_end(&mut bytes);
+    #[cfg(test)]
+    tests::LEGACY_BYTES.with(|total| total.set(total.get() + bytes.len() as u64));
+    if read.is_err() {
+        return LegacyRead::Unknown("unreadable");
     }
+    if bytes.len() as u64 > MAX_FILE_BYTES {
+        return LegacyRead::Unknown("over_limit");
+    }
+    if !names.iter().all(|name| name.excludes(root, opened)) {
+        return LegacyRead::Unknown("alias");
+    }
+    LegacyRead::Bytes(bytes)
 }
 
 #[cfg(not(unix))]
