@@ -162,22 +162,29 @@ pub(crate) fn parse_response(
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_string();
+    let usage = value.get("usage");
+    let completion_tokens = usage
+        .and_then(|usage| usage.get("completion_tokens"))
+        .and_then(Value::as_u64);
     let tool_calls = message
         .get("tool_calls")
         .and_then(Value::as_array)
-        .map(|calls| calls.iter().map(parse_tool_call).collect())
-        .transpose()?
+        .map(|calls| {
+            calls
+                .iter()
+                .map(|call| parse_tool_call(call, completion_tokens))
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .transpose()
+        .map_err(anyhow::Error::new)?
         .unwrap_or_default();
-    let usage = value.get("usage");
     let reply = AssistantReply {
         content,
         tool_calls,
         prompt_tokens: usage
             .and_then(|usage| usage.get("prompt_tokens"))
             .and_then(Value::as_u64),
-        completion_tokens: usage
-            .and_then(|usage| usage.get("completion_tokens"))
-            .and_then(Value::as_u64),
+        completion_tokens,
     };
     let metadata = ProviderResponseMetadata {
         response_id: optional_string(&value, "id"),
@@ -186,7 +193,7 @@ pub(crate) fn parse_response(
         created_epoch: value.get("created").and_then(Value::as_i64),
         service_tier: optional_string(&value, "service_tier"),
         cached_input_tokens: cached_input_tokens(usage, reply.prompt_tokens),
-        reasoning_tokens: None,
+        reasoning_tokens: reasoning_tokens(usage, reply.completion_tokens),
         total_tokens: None,
         billed_cost_usd: billed_cost_usd(body),
     };
@@ -225,28 +232,134 @@ fn cached_input_tokens(usage: Option<&Value>, prompt_tokens: Option<u64>) -> Opt
     }
 }
 
+/// Issue #958: the provider-reported reasoning share of the completion
+/// (`usage.completion_tokens_details.reasoning_tokens`), already included in
+/// `completion_tokens`. The same rule as the cached count (#928): only an
+/// unsigned integer that fits in `u64` is kept, an explicit zero stays
+/// `Some(0)`, and a missing, null, negative, fractional, string, or
+/// out-of-range count, or one above a known completion total, is unreported
+/// (`None`). Nothing is clamped or estimated, and no value fails the parse.
+fn reasoning_tokens(usage: Option<&Value>, completion_tokens: Option<u64>) -> Option<u64> {
+    let reasoning = usage?
+        .get("completion_tokens_details")?
+        .get("reasoning_tokens")?
+        .as_u64()?;
+    match completion_tokens {
+        Some(total) if reasoning > total => None,
+        _ => Some(reasoning),
+    }
+}
+
 fn optional_string(value: &Value, key: &str) -> Option<String> {
     value.get(key).and_then(Value::as_str).map(str::to_string)
 }
 
-fn parse_tool_call(value: &Value) -> anyhow::Result<ToolCall> {
+/// Issue #958: how the parse of one native tool call failed. Only a JSON
+/// syntax error that `serde_json` classifies as the input ending early is
+/// [`Self::EndOfInput`]; every other failure (another syntax error, a missing
+/// `function`, `function.name`, or `function.arguments`, arguments that are
+/// not an object) is [`Self::Other`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ToolArgumentsParseFailure {
+    EndOfInput,
+    Other,
+}
+
+/// Issue #958: the error a Chat Completions body fails with when one of its
+/// native tool calls does not parse. It displays exactly the message the
+/// parser always used, so the failure, its text, and whether the loop retries
+/// it stay as before; it adds, as typed context, the response's
+/// `usage.completion_tokens` when the body reported it and the
+/// [`ToolArgumentsParseFailure`]. Nothing is read back out of the message,
+/// and the broken arguments are neither repaired nor kept.
+#[derive(Debug)]
+pub(crate) struct ToolArgumentsParseError {
+    message: String,
+    completion_tokens: Option<u64>,
+    failure: ToolArgumentsParseFailure,
+}
+
+impl ToolArgumentsParseError {
+    fn new(
+        message: String,
+        completion_tokens: Option<u64>,
+        failure: ToolArgumentsParseFailure,
+    ) -> Self {
+        Self {
+            message,
+            completion_tokens,
+            failure,
+        }
+    }
+
+    /// A context with any message, for tests of its consumers outside this
+    /// module.
+    #[cfg(test)]
+    pub(crate) fn for_test(
+        message: &str,
+        completion_tokens: Option<u64>,
+        failure: ToolArgumentsParseFailure,
+    ) -> Self {
+        Self::new(message.to_string(), completion_tokens, failure)
+    }
+
+    /// The response's `usage.completion_tokens`, when it was reported.
+    pub(crate) fn completion_tokens(&self) -> Option<u64> {
+        self.completion_tokens
+    }
+
+    pub(crate) fn failure(&self) -> ToolArgumentsParseFailure {
+        self.failure
+    }
+}
+
+impl std::fmt::Display for ToolArgumentsParseError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for ToolArgumentsParseError {}
+
+fn parse_tool_call(
+    value: &Value,
+    completion_tokens: Option<u64>,
+) -> Result<ToolCall, ToolArgumentsParseError> {
+    let other = |message: &str| {
+        ToolArgumentsParseError::new(
+            message.to_string(),
+            completion_tokens,
+            ToolArgumentsParseFailure::Other,
+        )
+    };
     let function = value
         .get("function")
-        .ok_or_else(|| anyhow::anyhow!("OpenAI chat tool_call missing function"))?;
+        .ok_or_else(|| other("OpenAI chat tool_call missing function"))?;
     let name = function
         .get("name")
         .and_then(Value::as_str)
-        .ok_or_else(|| anyhow::anyhow!("OpenAI chat tool_call missing function.name"))?
+        .ok_or_else(|| other("OpenAI chat tool_call missing function.name"))?
         .to_string();
     let raw_arguments = function
         .get("arguments")
         .and_then(Value::as_str)
-        .ok_or_else(|| anyhow::anyhow!("OpenAI chat tool_call missing function.arguments"))?;
+        .ok_or_else(|| other("OpenAI chat tool_call missing function.arguments"))?;
     let arguments: Value = serde_json::from_str(raw_arguments).map_err(|error| {
-        anyhow::anyhow!("OpenAI chat tool_call arguments are not valid JSON: {error}")
+        let failure = if error.classify() == serde_json::error::Category::Eof {
+            ToolArgumentsParseFailure::EndOfInput
+        } else {
+            ToolArgumentsParseFailure::Other
+        };
+        ToolArgumentsParseError::new(
+            format!("OpenAI chat tool_call arguments are not valid JSON: {error}"),
+            completion_tokens,
+            failure,
+        )
     })?;
     if !arguments.is_object() {
-        anyhow::bail!("OpenAI chat tool_call arguments must decode to object");
+        return Err(other(
+            "OpenAI chat tool_call arguments must decode to object",
+        ));
     }
     Ok(ToolCall {
         id: value
@@ -518,6 +631,187 @@ mod billed_cost_tests {
         assert_eq!(first, same);
         assert_ne!(first, other);
         assert_ne!(beyond_f64, one);
+    }
+}
+
+/// Issue #958: `usage.completion_tokens_details.reasoning_tokens` reaches
+/// `ProviderResponseMetadata.reasoning_tokens` under the #928 rule, and a
+/// value that is not kept changes nothing else.
+#[cfg(test)]
+mod reasoning_usage_tests {
+    use super::parse_response;
+    use crate::providers::{AssistantReply, ProviderResponseMetadata};
+
+    fn body(details: Option<&str>) -> String {
+        let details = details.map_or_else(String::new, |raw| {
+            format!(r#","completion_tokens_details":{raw}"#)
+        });
+        format!(
+            r#"{{"id":"chatcmpl-958","model":"compatible-model","created":1790000000,"choices":[{{"message":{{"content":"reading","tool_calls":[{{"id":"call-958","type":"function","function":{{"name":"Read","arguments":"{{\"path\":\"notes.md\"}}"}}}}]}}}}],"usage":{{"prompt_tokens":40,"completion_tokens":120,"prompt_tokens_details":{{"cached_tokens":8}}{details}}}}}"#
+        )
+    }
+
+    fn parse(details: Option<&str>) -> (AssistantReply, ProviderResponseMetadata) {
+        parse_response(&body(details)).expect("a reasoning value never fails the parse")
+    }
+
+    fn reasoning(raw: &str) -> Option<u64> {
+        parse(Some(&format!(r#"{{"reasoning_tokens":{raw}}}"#)))
+            .1
+            .reasoning_tokens
+    }
+
+    #[test]
+    fn unsigned_counts_up_to_the_completion_total_are_kept() {
+        assert_eq!(reasoning("96"), Some(96));
+        assert_eq!(reasoning("0"), Some(0), "an explicit zero is a value");
+        assert_eq!(reasoning("120"), Some(120), "equal to the completion total");
+    }
+
+    #[test]
+    fn missing_or_malformed_counts_are_unreported() {
+        assert_eq!(parse(None).1.reasoning_tokens, None, "no details");
+        assert_eq!(parse(Some("{}")).1.reasoning_tokens, None, "no count");
+        assert_eq!(parse(Some("null")).1.reasoning_tokens, None, "details null");
+        for raw in [
+            "null",
+            "-1",
+            "1.5",
+            "96.0",
+            r#""96""#,
+            "true",
+            "[96]",
+            "18446744073709551616",
+            "1e3",
+            "121",
+        ] {
+            assert_eq!(reasoning(raw), None, "{raw}");
+        }
+    }
+
+    #[test]
+    fn a_count_above_an_unknown_total_is_kept_without_a_completion_total() {
+        let body = r#"{"choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":4,"completion_tokens_details":{"reasoning_tokens":7}}}"#;
+        let (reply, metadata) = parse_response(body).unwrap();
+        assert_eq!(reply.completion_tokens, None);
+        assert_eq!(metadata.reasoning_tokens, Some(7));
+    }
+
+    #[test]
+    fn the_reply_and_other_metadata_do_not_depend_on_the_count() {
+        let (base_reply, base_metadata) = parse(None);
+        assert_eq!(base_metadata.reasoning_tokens, None);
+        assert_eq!(base_metadata.cached_input_tokens, Some(8));
+        assert_eq!(base_reply.completion_tokens, Some(120));
+        assert_eq!(base_reply.prompt_tokens, Some(40));
+        for raw in [
+            "96",
+            "0",
+            "-1",
+            "1.5",
+            r#""96""#,
+            "121",
+            "18446744073709551616",
+        ] {
+            let (reply, metadata) = parse(Some(&format!(r#"{{"reasoning_tokens":{raw}}}"#)));
+            assert_eq!(reply, base_reply, "{raw}");
+            let mut without = metadata.clone();
+            without.reasoning_tokens = None;
+            assert_eq!(without, base_metadata, "{raw}");
+        }
+    }
+}
+
+/// Issue #958: a tool call that does not parse fails the body with the
+/// message it always had, now carrying the typed context: the reported
+/// completion count and whether the arguments ended early.
+#[cfg(test)]
+mod tool_arguments_context_tests {
+    use super::{ToolArgumentsParseError, ToolArgumentsParseFailure, parse_response};
+
+    fn body(function: &str, usage: &str) -> String {
+        format!(
+            r#"{{"choices":[{{"message":{{"content":"","tool_calls":[{{"id":"call-958","type":"function","function":{function}}}]}}}}]{usage}}}"#
+        )
+    }
+
+    fn failure(function: &str, usage: &str) -> (String, Option<u64>, ToolArgumentsParseFailure) {
+        let error = parse_response(&body(function, usage)).expect_err("the body fails");
+        let context = error
+            .downcast_ref::<ToolArgumentsParseError>()
+            .expect("typed context");
+        (
+            error.to_string(),
+            context.completion_tokens(),
+            context.failure(),
+        )
+    }
+
+    const USAGE: &str = r#","usage":{"prompt_tokens":10,"completion_tokens":100,"completion_tokens_details":{"reasoning_tokens":90}}"#;
+
+    #[test]
+    fn arguments_cut_off_are_classified_as_end_of_input_with_the_count() {
+        let (message, completion, kind) = failure(
+            r#"{"name":"Write","arguments":"{\"path\":\"notes.md\",\"content\":\"abc"}"#,
+            USAGE,
+        );
+        assert_eq!(
+            message,
+            "OpenAI chat tool_call arguments are not valid JSON: EOF while parsing a string at line 1 column 33"
+        );
+        assert_eq!(completion, Some(100));
+        assert_eq!(kind, ToolArgumentsParseFailure::EndOfInput);
+        let (_, completion, kind) = failure(r#"{"name":"Write","arguments":"{\"path\":"}"#, "");
+        assert_eq!(completion, None, "no usage, no count");
+        assert_eq!(kind, ToolArgumentsParseFailure::EndOfInput);
+    }
+
+    #[test]
+    fn every_other_failure_keeps_its_message_and_is_classified_other() {
+        for (function, message) in [
+            (
+                r#"{"name":"Write","arguments":"{\"path\":}"}"#,
+                "OpenAI chat tool_call arguments are not valid JSON: expected value at line 1 column 9",
+            ),
+            (
+                r#"{"arguments":"{}"}"#,
+                "OpenAI chat tool_call missing function.name",
+            ),
+            (
+                r#"{"name":"Write"}"#,
+                "OpenAI chat tool_call missing function.arguments",
+            ),
+            (
+                r#"{"name":"Write","arguments":"[1,2]"}"#,
+                "OpenAI chat tool_call arguments must decode to object",
+            ),
+            (
+                r#"{"name":"Write","arguments":"\"text\""}"#,
+                "OpenAI chat tool_call arguments must decode to object",
+            ),
+        ] {
+            let (shown, completion, kind) = failure(function, USAGE);
+            assert_eq!(shown, message, "{function}");
+            assert_eq!(completion, Some(100), "{function}");
+            assert_eq!(kind, ToolArgumentsParseFailure::Other, "{function}");
+        }
+        let missing_function = r#"{"choices":[{"message":{"content":"","tool_calls":[{"id":"c"}]}}],"usage":{"completion_tokens":100}}"#;
+        let error = parse_response(missing_function).unwrap_err();
+        assert_eq!(error.to_string(), "OpenAI chat tool_call missing function");
+        assert_eq!(
+            error
+                .downcast_ref::<ToolArgumentsParseError>()
+                .map(ToolArgumentsParseError::failure),
+            Some(ToolArgumentsParseFailure::Other)
+        );
+    }
+
+    #[test]
+    fn a_failure_outside_the_tool_calls_has_no_tool_context() {
+        for broken in ["{", r#"{"choices":[]}"#] {
+            let error = parse_response(broken).unwrap_err();
+            assert!(error.downcast_ref::<ToolArgumentsParseError>().is_none());
+        }
     }
 }
 

@@ -15,6 +15,8 @@ pub mod streaming;
 pub mod xml_fallback;
 pub(crate) mod xml_repair;
 
+pub(crate) use openai_chat_completions::{ToolArgumentsParseError, ToolArgumentsParseFailure};
+
 use anyhow::bail;
 use serde::{Deserialize, Serialize};
 

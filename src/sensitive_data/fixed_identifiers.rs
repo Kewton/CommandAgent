@@ -62,6 +62,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "artifact-check-diagnostics",
     "artifact_contract_check_result",
     "artifact_stagnation_feedback",
+    "attempt",
     "bash_failures_after_last_write",
     "bash_path_confinement_rejected",
     "bash_results_after_last_write",
@@ -110,6 +111,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "completion_contract_bound",
     "completion_contract_command_observation",
     "completion_obligation_review",
+    "completion_tokens",
     "completion_verify",
     "context_truncation_suspected",
     "contract_attribute_repair_guidance",
@@ -213,6 +215,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "no_progress_feedback",
     "no_provider_request",
     "no_successful_edit",
+    "no_tool_call_at_output_limit",
     "no_unresolved_failure",
     "normal_final_after_successful_edit",
     "normal_marker",
@@ -220,12 +223,14 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "not_run",
     "note_chars",
     "notice",
+    "num_predict",
     "obligation_count",
     "observed",
     "ok",
     "omitted",
     "openrouter_provider_observed",
     "other_path",
+    "output_limit_feedback",
     "oversize",
     "owner",
     "pack_check_result",
@@ -270,6 +275,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "provider_billed_cost_usd",
     "provider_error",
     "provider_parse_error",
+    "provider_reasoning_tokens",
     "provider_request",
     "provider_response",
     "provider_retry",
@@ -380,6 +386,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "tool_args_path_normalized",
     "tool_args_path_salvaged",
     "tool_args_recovered",
+    "tool_arguments_truncated_at_output_limit",
     "tool_call",
     "tool_call_raw",
     "tool_execute",
@@ -1104,5 +1111,119 @@ mod budget_closing_field_tests {
         assert_eq!(value["guard_reason"], "unresolved_failure");
         assert_eq!(value["remaining_calls"], 2);
         assert_eq!(value["final_deferrals"], 1);
+    }
+}
+
+/// Issue #958: the `output_limit_feedback` event name, its two `kind`
+/// values, its field names, and the already emitted but unreserved
+/// `provider_reasoning_tokens` are fixed identifiers, so a credential equal
+/// to one of them or to a fragment of one is refused at registration.
+#[cfg(test)]
+mod output_limit_feedback_field_tests {
+    use serde_json::json;
+
+    use super::{FIXED_IDENTIFIERS, collides_with_fixed_identifier, is_fixed_identifier};
+    use crate::sensitive_data::{
+        MIN_GENERIC_SECRET_LEN, RegistrationRefusal, ReservedKind, SecretCatalog,
+    };
+
+    /// `kind` itself is a fixed schema key ([`super::FIXED_SCHEMA_KEYS`]),
+    /// whose values must be fixed identifiers to survive the scrub.
+    const WORDS: [&str; 8] = [
+        "output_limit_feedback",
+        "no_tool_call_at_output_limit",
+        "tool_arguments_truncated_at_output_limit",
+        "provider_reasoning_tokens",
+        "attempt",
+        "num_predict",
+        "completion_tokens",
+        "prompt_version",
+    ];
+
+    #[test]
+    fn each_word_is_reserved_once_in_name_order() {
+        assert!(super::FIXED_SCHEMA_KEYS.contains(&"kind"));
+        for word in WORDS {
+            assert!(is_fixed_identifier(word), "{word}");
+            assert_eq!(
+                FIXED_IDENTIFIERS
+                    .iter()
+                    .filter(|fixed| **fixed == word)
+                    .count(),
+                1,
+                "{word}"
+            );
+            let at = FIXED_IDENTIFIERS
+                .iter()
+                .position(|fixed| *fixed == word)
+                .unwrap();
+            assert!(FIXED_IDENTIFIERS[at - 1] < word, "{word}");
+            assert!(word < FIXED_IDENTIFIERS[at + 1], "{word}");
+        }
+    }
+
+    #[test]
+    fn a_credential_equal_to_a_word_or_a_fragment_of_it_is_refused_unnamed() {
+        let fragments = [
+            "limit_feedba",
+            "tool_call_at_outp",
+            "arguments_truncat",
+            "reasoning_tok",
+            "der_reasoni",
+            "num_predi",
+            "letion_toke",
+        ];
+        for value in WORDS.into_iter().chain(fragments) {
+            assert!(collides_with_fixed_identifier(value), "{value}");
+            if value.len() < MIN_GENERIC_SECRET_LEN {
+                // Shorter values are refused as too short before the check.
+                continue;
+            }
+            let mut catalog = SecretCatalog::new();
+            let error = catalog
+                .register_credential("COMPAT_API_KEY", value)
+                .unwrap_err();
+            assert_eq!(
+                error,
+                RegistrationRefusal::Reserved {
+                    name: "COMPAT_API_KEY".to_string(),
+                    kind: ReservedKind::FixedIdentifier,
+                }
+            );
+            assert!(catalog.is_empty());
+            for text in [error.to_string(), format!("{error:?}")] {
+                assert!(!text.contains(value), "the refusal names the value");
+            }
+        }
+    }
+
+    #[test]
+    fn a_normal_credential_leaves_the_event_words_unchanged() {
+        let credential = "fake-credential-958-not-a-real-key";
+        let mut catalog = SecretCatalog::new();
+        catalog
+            .register_credential("COMPAT_API_KEY", credential)
+            .unwrap();
+        for kind in [
+            "no_tool_call_at_output_limit",
+            "tool_arguments_truncated_at_output_limit",
+        ] {
+            let mut value = json!({
+                "event": "output_limit_feedback",
+                "kind": kind,
+                "attempt": 1,
+                "num_predict": 100,
+                "completion_tokens": 100,
+                "prompt_version": 1,
+                "provider_reasoning_tokens": 96,
+                "note": format!("echo {credential}"),
+            });
+            catalog.scrub_value_lenient(&mut value);
+            assert!(!value.to_string().contains(credential), "{value}");
+            assert_eq!(value["event"], "output_limit_feedback");
+            assert_eq!(value["kind"], kind);
+            assert_eq!(value["attempt"], 1);
+            assert_eq!(value["provider_reasoning_tokens"], 96);
+        }
     }
 }
