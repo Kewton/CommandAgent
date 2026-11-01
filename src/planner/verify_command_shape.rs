@@ -1,10 +1,20 @@
 //! A verify command whose shape cannot execute as written is a lint error.
 //!
-//! Two narrow shapes are rejected: a first word that reads as prose (no shell
-//! builtin, no command on the planning PATH, no workspace path, and not one
-//! ASCII letter, digit, `.`, `/`, `_`, or `-`), and a `test` / `[` unary file
-//! operator whose operand is missing or comes before it, or a `[` without its
-//! closing `]`. Anything that may execute is left to the existing gates.
+//! Two narrow shapes are rejected: a line that reads as prose, and a `test` /
+//! `[` unary file operator whose operand is missing or comes before it, or a
+//! `[` without its closing `]`. Anything that may execute is left to the
+//! existing gates.
+//!
+//! A line reads as prose only when its first word is no shell builtin, no
+//! command on the planning PATH, and no existing or declared workspace path,
+//! and the line has the shape of a sentence in any language: the first word
+//! has no ASCII letter, digit, `.`, `/`, `_`, or `-`; or every word is made of
+//! letters only and the line ends like a sentence, joins clauses with a comma,
+//! mixes scripts inside its first word, or starts with a capitalized word
+//! followed by at least three lowercase words. Flags, paths, digits, quoting
+//! with spaces, and operators all keep a line out of that shape, and an
+//! unknown or not-yet-installed command name alone never makes a line prose.
+//! Nothing is executed, installed, or fetched to decide.
 use std::collections::BTreeSet;
 use std::ffi::OsStr;
 use std::path::Path;
@@ -110,7 +120,7 @@ fn shape_defect(command: &str, context: &Resolve<'_>) -> Option<String> {
         .map(|word| word.value)
         .collect::<Vec<_>>();
     let first = words.first()?;
-    if is_prose_word(first, context) {
+    if reads_as_prose(&words, context) {
         return Some(format!(
             "`{first}` is not a shell builtin, a command on PATH, or a workspace path"
         ));
@@ -118,15 +128,98 @@ fn shape_defect(command: &str, context: &Resolve<'_>) -> Option<String> {
     test_operand_defect(&words)
 }
 
-fn is_prose_word(word: &str, context: &Resolve<'_>) -> bool {
+fn reads_as_prose(words: &[String], context: &Resolve<'_>) -> bool {
+    let Some(first) = words.first() else {
+        return false;
+    };
     // A word starting with `#` begins a shell comment, which runs as a no-op.
-    !word.starts_with('#')
-        && !word
-            .chars()
-            .any(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '/' | '_' | '-'))
-        && !SHELL_BUILTINS.contains(&word)
-        && !resolves_on_path(word, context.path_var)
-        && !is_workspace_path(word, context)
+    if first.starts_with('#')
+        || SHELL_BUILTINS.contains(&first.as_str())
+        || resolves_on_path(first, context.path_var)
+        || is_workspace_path(first, context)
+    {
+        return false;
+    }
+    has_no_command_character(first) || reads_as_sentence(words)
+}
+
+/// No ASCII letter, digit, `.`, `/`, `_`, or `-`: no command name looks so.
+fn has_no_command_character(word: &str) -> bool {
+    !word
+        .chars()
+        .any(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '/' | '_' | '-'))
+}
+
+/// Sentence punctuation that may close a plain word.
+const SENTENCE_END: &[char] = &['.', '!', '?', '。', '！', '？'];
+const CLAUSE_JOIN: &[char] = &[',', '、', '，'];
+const TRAILING: &[char] = &[
+    '.', '!', '?', '。', '！', '？', ',', '、', '，', ':', '：', ';',
+];
+/// A capitalized first word needs this many lowercase words after it.
+const MIN_WORDS_AFTER_CAPITAL: usize = 3;
+
+struct PlainWord<'a> {
+    letters: &'a str,
+    trailing: Option<char>,
+}
+
+/// Letters only (any script), optionally joined by an inner `'` or `-`, with
+/// at most one closing punctuation mark. Anything else is not plain.
+fn plain_word(word: &str) -> Option<PlainWord<'_>> {
+    let (letters, trailing) = match word.chars().last() {
+        Some(last) if TRAILING.contains(&last) => {
+            (&word[..word.len() - last.len_utf8()], Some(last))
+        }
+        _ => (word, None),
+    };
+    let first = letters.chars().next()?;
+    let last = letters.chars().last()?;
+    let joined = letters
+        .chars()
+        .all(|ch| ch.is_alphabetic() || matches!(ch, '\'' | '’' | '-'));
+    (joined && first.is_alphabetic() && last.is_alphabetic())
+        .then_some(PlainWord { letters, trailing })
+}
+
+fn reads_as_sentence(words: &[String]) -> bool {
+    let Some(plain) = words
+        .iter()
+        .map(|word| plain_word(word))
+        .collect::<Option<Vec<_>>>()
+    else {
+        return false;
+    };
+    let Some((first, rest)) = plain.split_first() else {
+        return false;
+    };
+    let ends_like_a_sentence = plain
+        .last()
+        .and_then(|word| word.trailing)
+        .is_some_and(|mark| SENTENCE_END.contains(&mark));
+    let joins_clauses = plain[..plain.len() - 1].iter().any(|word| {
+        word.trailing
+            .is_some_and(|mark| CLAUSE_JOIN.contains(&mark))
+    });
+    (!rest.is_empty() && (ends_like_a_sentence || joins_clauses))
+        || mixes_scripts(first.letters)
+        || (is_capitalized(first.letters)
+            && rest.len() >= MIN_WORDS_AFTER_CAPITAL
+            && rest
+                .iter()
+                .all(|word| !word.letters.chars().any(char::is_uppercase)))
+}
+
+fn mixes_scripts(letters: &str) -> bool {
+    letters.chars().any(|ch| ch.is_ascii_alphabetic()) && !letters.is_ascii()
+}
+
+/// One uppercase letter followed only by lowercase letters, as in `Later`.
+fn is_capitalized(letters: &str) -> bool {
+    let mut chars = letters.chars();
+    chars.next().is_some_and(char::is_uppercase)
+        && letters.chars().count() > 1
+        && chars.all(char::is_lowercase)
 }
 
 fn resolves_on_path(word: &str, path_var: Option<&OsStr>) -> bool {
