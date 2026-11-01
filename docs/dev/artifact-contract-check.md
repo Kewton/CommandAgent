@@ -268,14 +268,36 @@ verdict.
   backtick are written as `&amp;`, `&lt;`, `&gt;`, and `&#96;`. Nothing is cut
   or stripped before the scrub. A secret split across several fields is not
   reassembled; the guarantee is per field.
+- **Ownership display.** The source is a fixed string chosen by the caller
+  (`draft_profile` or `local_pack`); a draft profile's owner is its registered
+  profile ID and its adapter a validated slug; a local pack's owner is its
+  validated `id@version`; the request ID is a validated opaque ID; the request
+  is the declared workspace path. After scrub and encoding, each ownership
+  string keeps at most 256 bytes. A longer one is cut on a whole encoded
+  character (never inside an `&...;` entity or a `\u{..}` sequence), and its
+  field name is listed in the group's `truncated` array, which is absent when
+  nothing was cut and whose bytes count toward the bound. Two values that
+  differ only after the cut can therefore look alike; `truncated` says the
+  displayed value is a prefix.
 - **Receipt.** `artifact_contract_check_result` gains one additive field,
   `adapter_diagnostics`: `{source, owner, adapter, request, request_id,
-  items: [{check, target?, row_status, code, message}], omitted}`. It is
+  truncated?, items: [{check, target?, row_status, code, message}],
+  omitted}`. It is
   absent when there is nothing to carry, so such an event keeps its earlier
   shape byte for byte. Its `"adapter_diagnostics":{...}` member holds at most
   16 items and 8,192 serialized UTF-8 bytes (keys, ownership, `omitted`, and
   escapes included). The same projection is used for the local pack check.
   Existing fields, reasons, counts, and the summary line are unchanged.
+  Every fixed key and fixed value of this projection and of the repair
+  block (`adapter_diagnostics`, `artifact-check-diagnostics`, `groups`,
+  `items`, `omitted`, `source`, `owner`, `adapter`, `request`,
+  `request_id`, `truncated`, `check`, `target`, `row_status`, `code`,
+  `message`, the row status words, `draft_profile`, `local_pack`) is a reserved
+  fixed identifier, so a credential equal to one or to a fragment of one is
+  refused at registration and the scrubs that run before an event is written
+  or a request is sent cannot rewrite the schema or grow it past the bound.
+  The dynamic values (check, target, code, message, ownership) are never
+  exempt from the scrub.
 - **Repair context.** The manifest-driven profile returns the receipt's
   projection in `VerificationReport::artifact_diagnostics` (one group per
   receipt), report merging appends groups without deduplication, and the

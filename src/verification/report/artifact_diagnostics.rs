@@ -12,13 +12,14 @@
 //!   module only holds, merges, and bounds them; it knows no domain field
 //!   name, adapter, or profile.
 //! - Ownership. A group is one receipt: its source, owner, adapter, request,
-//!   and request ID stay attached to its items. Groups are never merged or
-//!   deduplicated, so equal check/target names from two receipts stay two
-//!   entries.
+//!   and request ID stay attached to its items, and `truncated` names the
+//!   ownership fields the producer cut at their display bound. Groups are
+//!   never merged or deduplicated, so equal check/target names from two
+//!   receipts stay two entries.
 //! - Bounds. One unit holds at most [`MAX_DIAGNOSTICS`] items and
 //!   [`MAX_BYTES`] serialized UTF-8 bytes, keys, ownership, omitted counts,
 //!   and escapes included. Bounding drops whole items from the end and counts
-//!   each dropped item as omitted; strings are never cut, so only well-formed
+//!   each dropped item as omitted; this module never cuts a string, so only well-formed
 //!   data remains. Omitted counts only grow: a merge or a re-projection keeps
 //!   every earlier omitted count.
 
@@ -49,6 +50,10 @@ pub struct ArtifactDiagnosticGroup {
     pub adapter: String,
     pub request: String,
     pub request_id: Option<String>,
+    /// Ownership fields cut at their display bound, in field order; absent
+    /// from the serialized form when nothing was cut.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub truncated: Vec<&'static str>,
     pub items: Vec<ArtifactDiagnostic>,
     /// Items of this receipt that a bound left out.
     pub omitted: usize,
@@ -175,6 +180,7 @@ mod tests {
             adapter: adapter.to_string(),
             request: "check/request.json".to_string(),
             request_id: Some(request_id.to_string()),
+            truncated: Vec::new(),
             items,
             omitted: 0,
         }

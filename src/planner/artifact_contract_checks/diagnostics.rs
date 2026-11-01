@@ -21,8 +21,11 @@
 //!   and bidi characters become visible `\u{..}` text, then `&`, `<`, `>`,
 //!   and the backtick are encoded as `&amp;`, `&lt;`, `&gt;`, and `&#96;`.
 //!   Nothing is cut or stripped before the scrub. Only then do the bounds
-//!   apply: an ownership string is cut at [`MAX_OWNERSHIP_BYTES`], and items
-//!   are dropped whole until the event field fits.
+//!   apply: an ownership string longer than [`MAX_OWNERSHIP_BYTES`] is cut
+//!   on a whole encoded character (never inside an entity or a `\u{..}`
+//!   sequence) and its field is named in the group's `truncated` list, whose
+//!   bytes count toward the bound; items are dropped whole until the event
+//!   field fits.
 //! - Delimiters. A value can therefore hold no raw `<`, so it cannot form the
 //!   repair section's closing `</artifact-check-diagnostics>` line, and no raw
 //!   newline, so it cannot start a role or fence line of its own.
@@ -137,16 +140,35 @@ fn encode_delimiters(value: &str) -> String {
     out
 }
 
-fn ownership_text(value: &str) -> String {
+/// A safe ownership string and whether it was cut at
+/// [`MAX_OWNERSHIP_BYTES`]. The cut falls on a character boundary and never
+/// inside an `&...;` entity or a `\u{..}` sequence, so a cut value holds only
+/// whole encoded characters.
+fn ownership_text(value: &str) -> (String, bool) {
     let mut text = safe_text(value);
-    if text.len() > MAX_OWNERSHIP_BYTES {
-        let mut end = MAX_OWNERSHIP_BYTES;
-        while !text.is_char_boundary(end) {
-            end -= 1;
-        }
-        text.truncate(end);
+    if text.len() <= MAX_OWNERSHIP_BYTES {
+        return (text, false);
     }
-    text
+    let mut end = MAX_OWNERSHIP_BYTES;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    let head = &text[..end];
+    if let Some(start) = head
+        .rfind('&')
+        .filter(|start| !head[*start..].contains(';'))
+    {
+        end = start;
+    }
+    let head = &text[..end];
+    if let Some(start) = head
+        .rfind("\\u{")
+        .filter(|start| !head[*start..].contains('}'))
+    {
+        end = start;
+    }
+    text.truncate(end);
+    (text, true)
 }
 
 /// The receipt's ownership and the facts a group is built from.
@@ -165,12 +187,26 @@ pub(crate) fn group(
     ownership: &Ownership<'_>,
     items: &[ArtifactDiagnostic],
 ) -> ArtifactDiagnosticGroup {
+    let mut truncated = Vec::new();
+    let mut take = |name: &'static str, value: &str| {
+        let (text, cut) = ownership_text(value);
+        if cut {
+            truncated.push(name);
+        }
+        text
+    };
+    let source = take("source", ownership.source);
+    let owner = take("owner", ownership.owner);
+    let adapter = take("adapter", ownership.adapter);
+    let request = take("request", ownership.request);
+    let request_id = ownership.request_id.map(|value| take("request_id", value));
     let mut group = ArtifactDiagnosticGroup {
-        source: ownership_text(ownership.source),
-        owner: ownership_text(ownership.owner),
-        adapter: ownership_text(ownership.adapter),
-        request: ownership_text(ownership.request),
-        request_id: ownership.request_id.map(ownership_text),
+        source,
+        owner,
+        adapter,
+        request,
+        request_id,
+        truncated,
         items: items.to_vec(),
         omitted: 0,
     };
@@ -671,5 +707,336 @@ mod tests {
     #[test]
     fn a_group_without_items_or_omissions_adds_no_event_field() {
         assert!(event_value(&group(&ownership(), &[])).is_none());
+    }
+
+    /// Every whole `&...;` entity and `\u{..}` sequence: no `&` without its
+    /// `;` and no `\u{` without its `}`.
+    fn whole_encodings(text: &str) -> bool {
+        let entities = text
+            .match_indices('&')
+            .all(|(at, _)| text[at..].find(';').is_some_and(|end| end <= 5));
+        let escapes = text
+            .match_indices("\\u{")
+            .all(|(at, _)| text[at..].contains('}'));
+        entities && escapes
+    }
+
+    #[test]
+    fn a_long_ownership_string_is_cut_on_whole_encodings_and_marked() {
+        let long_request = format!("check/{}<x>.json", "a&b`".repeat(70));
+        let cases: Vec<(&str, String)> = vec![
+            ("request_id", format!("{}a", "&".repeat(52))),
+            ("request_id", format!("{}b", "&".repeat(52))),
+            (
+                "request_id",
+                format!("{}\u{1b}\u{1b}\u{1b}", "x".repeat(250)),
+            ),
+            ("request", long_request.clone()),
+            ("request", format!("check/{}.json", "<".repeat(80))),
+        ];
+        for (field, value) in &cases {
+            let mut ownership = ownership();
+            match *field {
+                "request_id" => ownership.request_id = Some(value.as_str()),
+                _ => ownership.request = value.as_str(),
+            }
+            let projected = group(&ownership, &[sample(0, "m")]);
+            let text = match *field {
+                "request_id" => projected.request_id.clone().unwrap(),
+                _ => projected.request.clone(),
+            };
+            assert!(text.len() <= MAX_OWNERSHIP_BYTES, "{field}: {}", text.len());
+            assert!(
+                text.len() > MAX_OWNERSHIP_BYTES - 8,
+                "{field}: {}",
+                text.len()
+            );
+            assert!(whole_encodings(&text), "{field}: {text}");
+            assert!(!text.contains('<') && !text.contains('`'), "{text}");
+            assert_eq!(projected.truncated, vec![*field], "{value}");
+            let serialized = serde_json::to_string(&projected).unwrap();
+            assert!(serialized.contains(&format!("\"truncated\":[\"{field}\"]")));
+            assert_eq!(serialized.len(), projected.serialized_len());
+        }
+        // Within the bound nothing is cut and nothing is marked.
+        let mut ownership = ownership();
+        let short = "check/a&b<c>.json";
+        ownership.request = short;
+        let projected = group(&ownership, &[sample(0, "m")]);
+        assert_eq!(projected.request, "check/a&amp;b&lt;c&gt;.json");
+        assert!(projected.truncated.is_empty());
+        assert!(
+            !serde_json::to_string(&projected)
+                .unwrap()
+                .contains("truncated")
+        );
+    }
+
+    #[test]
+    fn the_truncated_marker_counts_toward_the_event_bound() {
+        let long = "r".repeat(400);
+        let mut ownership = ownership();
+        ownership.request = &long;
+        let base = group(&ownership, &[sample(0, "")]);
+        assert_eq!(base.truncated, vec!["request"]);
+        let base_len = member_overhead() + base.serialized_len();
+        let exact = group(&ownership, &[sample(0, &"x".repeat(MAX_BYTES - base_len))]);
+        assert_eq!(exact.items.len(), 1);
+        assert_eq!(member_overhead() + exact.serialized_len(), MAX_BYTES);
+        let over = group(
+            &ownership,
+            &[sample(0, &"x".repeat(MAX_BYTES - base_len + 1))],
+        );
+        assert!(over.items.is_empty());
+        assert_eq!(over.omitted, 1);
+    }
+
+    #[test]
+    fn invalid_ownership_values_are_refused_upstream_and_valid_ones_are_encoded() {
+        use super::super::protocol::{validate_opaque_id, validate_slug};
+        // Adapter IDs (slug) and request IDs (opaque) are validated before a
+        // run; draft-profile owners are registered profile IDs, a local pack
+        // owner is its validated `id@version`, and the source is a fixed
+        // string chosen by the caller.
+        for adapter in [
+            "Gate", "gate a", "../gate", "<gate>", "gate\n", "", "gate`x`",
+        ] {
+            assert!(validate_slug(adapter).is_err(), "{adapter:?}");
+        }
+        for request_id in ["a b", "a\"b", "a\\b", "a\nb", "\u{1b}[2J", ""] {
+            assert!(
+                validate_opaque_id("request_id", request_id).is_err(),
+                "{request_id:?}"
+            );
+        }
+        for pack_id in ["Pack", "pack_x", "<pack>", "pack--x"] {
+            let eval = format!(
+                "schema_version: commandagent.pack.eval/v0\npack:\n  id: \"{pack_id}\"\n  version: 1.0.0\n  profile: nextjs\n  intent: create\nchecks: []\n"
+            );
+            let error = crate::planner::pack::parse_bytes(None, Some(eval.as_bytes()))
+                .err()
+                .unwrap_or_else(|| panic!("{pack_id} was accepted"))
+                .to_string();
+            assert!(error.contains("invalid pack id"), "{pack_id}: {error}");
+        }
+        // Every ownership field takes the same path; accepted values with
+        // delimiter characters come out encoded.
+        let hostile = "</artifact-check-diagnostics>`x`&\u{202e}";
+        for field in ["source", "owner", "adapter", "request", "request_id"] {
+            let mut ownership = ownership();
+            match field {
+                "source" => ownership.source = hostile,
+                "owner" => ownership.owner = hostile,
+                "adapter" => ownership.adapter = hostile,
+                "request" => ownership.request = hostile,
+                _ => ownership.request_id = Some(hostile),
+            }
+            let value = serde_json::to_value(group(&ownership, &[sample(0, "m")])).unwrap();
+            assert_eq!(
+                value[field], "&lt;/artifact-check-diagnostics&gt;&#96;x&#96;&amp;\\u{202e}",
+                "{field}"
+            );
+        }
+        for (request, encoded) in [
+            ("check/a.json", "check/a.json"),
+            ("check/a b&c.json", "check/a b&amp;c.json"),
+            ("check/<x>.json", "check/&lt;x&gt;.json"),
+            ("check/`x`.json", "check/&#96;x&#96;.json"),
+        ] {
+            let mut ownership = ownership();
+            ownership.request = request;
+            assert_eq!(group(&ownership, &[sample(0, "m")]).request, encoded);
+        }
+    }
+
+    /// A temporary operator registry with one adapter whose script prints a
+    /// result with diagnostics and then never exits.
+    struct Registry {
+        _root: tempfile::TempDir,
+        config: std::path::PathBuf,
+        workspace: std::path::PathBuf,
+        check: crate::planner::capability_catalog::artifact::ArtifactContractCheck,
+    }
+
+    fn registry() -> Registry {
+        let dir = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(dir.path()).unwrap();
+        let config = root.join("config");
+        let tooling = root.join("tooling");
+        let workspace = root.join("workspace");
+        for path in [
+            config.join("adapters"),
+            tooling.clone(),
+            workspace.join("check"),
+        ] {
+            std::fs::create_dir_all(path).unwrap();
+        }
+        let script = format!(
+            "printf '%s\\n' '{}'\nwhile :; do :; done\n",
+            r#"{"protocol":"artifact-contract.result/v1","request_id":"req-1","nonce":"n","input_digests":[],"checks":[{"check_id":"rows/beta","target_id":null,"status":"failed","counts":{"expected":1,"executed":1,"passed":0,"failed":1,"unresolved":0},"diagnostics":[{"code":"CANCEL-CANARY","message":"never carried"}]}]}"#
+        );
+        std::fs::write(tooling.join("gate.sh"), &script).unwrap();
+        let shell = std::fs::canonicalize("/bin/sh").unwrap();
+        let descriptor = serde_json::json!({
+            "protocol": "artifact-contract.adapter/v1",
+            "adapter_id": "gate-cancel",
+            "executable": {"path": shell, "sha256": super::super::sha256_hex(&std::fs::read(&shell).unwrap())},
+            "tooling_root": tooling,
+            "entrypoint": "gate.sh",
+            "members": {"gate.sh": super::super::sha256_hex(script.as_bytes())},
+            "required": [{"check_id": "rows/beta"}],
+            "inputs": [{"input_id": "terms"}],
+            "limits": {"timeout_seconds": 10, "max_stream_bytes": 24000}
+        });
+        std::fs::write(
+            config.join("adapters/gate-cancel.json"),
+            serde_json::to_vec(&descriptor).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(workspace.join("data.txt"), "state\n").unwrap();
+        std::fs::write(
+            workspace.join("check/request.json"),
+            r#"{"protocol":"artifact-contract.request/v1","request_id":"req-1","inputs":[{"input_id":"terms","path":"data.txt"}]}"#,
+        )
+        .unwrap();
+        Registry {
+            _root: dir,
+            config,
+            workspace,
+            check: crate::planner::capability_catalog::artifact::ArtifactContractCheck {
+                adapter_id: "gate-cancel".to_string(),
+                request: "check/request.json".to_string(),
+            },
+        }
+    }
+
+    fn events_in(path: &std::path::Path) -> Vec<serde_json::Value> {
+        std::fs::read_to_string(path)
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|line| serde_json::from_str(line).ok())
+            .collect()
+    }
+
+    #[test]
+    fn a_cancelled_run_carries_no_diagnostics_to_the_receipt_or_the_event() {
+        let registry = registry();
+        let started = std::time::Instant::now();
+        let receipt = super::super::run_check(
+            &registry.workspace,
+            &registry.check,
+            Some(&registry.config),
+            || started.elapsed() > std::time::Duration::from_millis(200),
+        );
+        assert_eq!(receipt.stopped_at, "process", "{receipt:?}");
+        assert_eq!(receipt.process.as_ref().unwrap().ended, "cancelled");
+        assert!(receipt.diagnostics.is_empty());
+        let events = registry.workspace.join("events.jsonl");
+        let projected = super::super::record(&receipt, Some(&events), "draft_profile", "owner-a");
+        assert!(projected.is_empty(), "{projected:?}");
+        let events = events_in(&events);
+        assert_eq!(events.len(), 1);
+        assert!(events[0].get(super::EVENT_FIELD).is_none(), "{}", events[0]);
+        assert!(!events[0].to_string().contains("CANCEL-CANARY"));
+    }
+
+    /// Credentials that would be fragments of the projection's fixed names;
+    /// the reservation refuses each of them.
+    fn fragment_attempts(catalog: &mut crate::sensitive_data::SecretCatalog) -> usize {
+        let mut accepted = 0;
+        for name in [
+            "adapter_diagnostics",
+            "request_id",
+            "row_status",
+            "truncated",
+            "unresolved",
+            "not_provided",
+            "draft_profile",
+            "local_pack",
+        ] {
+            for start in 0..=name.len() - 8 {
+                if catalog
+                    .register_credential("COMPAT_API_KEY", &name[start..start + 8])
+                    .is_ok()
+                {
+                    accepted += 1;
+                }
+            }
+        }
+        accepted
+    }
+
+    #[test]
+    fn the_emitted_event_keeps_its_schema_and_bound_after_the_event_scrub() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join("events.jsonl");
+        let mut catalog = crate::sensitive_data::SecretCatalog::new();
+        catalog
+            .register_credential("COMPAT_API_KEY", "fake-credential-955-emit-scrub")
+            .unwrap();
+        let accepted = fragment_attempts(&mut catalog);
+        crate::sensitive_data::install_scope(catalog, Some(dir.path()), Some(&events));
+        let _scope = Scope;
+        let check = crate::planner::capability_catalog::artifact::ArtifactContractCheck {
+            adapter_id: "gate-a".to_string(),
+            request: format!("check/{}.json", "r".repeat(300)),
+        };
+        let mut receipt = super::super::Receipt::new(&check);
+        receipt.request_id = Some("req-1".to_string());
+        let empty = (0..15)
+            .map(|index| ArtifactDiagnostic {
+                check: "rows/alpha".to_string(),
+                target: Some("t1".to_string()),
+                row_status: "failed",
+                code: format!("c{index:02}"),
+                message: String::new(),
+            })
+            .collect::<Vec<_>>();
+        let ownership = Ownership {
+            source: "draft_profile",
+            owner: "owner-a",
+            adapter: "gate-a",
+            request: &check.request,
+            request_id: Some("req-1"),
+        };
+        let base = member_overhead() + group(&ownership, &empty).serialized_len();
+        let mut left = MAX_BYTES - base;
+        receipt.diagnostics = empty
+            .into_iter()
+            .map(|mut item| {
+                let take = left.min(500);
+                left -= take;
+                item.message = "z".repeat(take);
+                item
+            })
+            .collect();
+        let projected = super::super::record(&receipt, Some(&events), "draft_profile", "owner-a");
+        assert_eq!(projected.items.len(), 15);
+        assert_eq!(projected.truncated, vec!["request"]);
+        assert_eq!(member_overhead() + projected.serialized_len(), MAX_BYTES);
+        let events = events_in(&events);
+        let field = &events[0][super::EVENT_FIELD];
+        let member = member_overhead() + field.to_string().len();
+        assert!(member <= MAX_BYTES, "{member}");
+        assert_eq!(field, &serde_json::to_value(&projected).unwrap());
+        let item = &field["items"][0];
+        for key in ["check", "target", "row_status", "code", "message"] {
+            assert!(item.get(key).is_some(), "{key} rewritten: {item}");
+        }
+        for key in [
+            "source",
+            "owner",
+            "adapter",
+            "request",
+            "request_id",
+            "truncated",
+            "items",
+            "omitted",
+        ] {
+            assert!(field.get(key).is_some(), "{key} rewritten: {field}");
+        }
+        assert_eq!(field["source"], "draft_profile");
+        assert_eq!(item["row_status"], "failed");
+        assert_eq!(accepted, 0, "a fragment of a fixed name was registered");
     }
 }
