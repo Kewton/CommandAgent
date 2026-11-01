@@ -1,0 +1,881 @@
+{
+  "kind": "synthetic",
+  "issue": "#955",
+  "base_sha": "20b549fc6269217bd0161d2038326480c7605d5f",
+  "note": "Every base_sequence and base_events entry was observed by running tests/artifact_check_diagnostics.rs against the unchanged sources of develop 20b549fc. sequence is what the change must produce; it equals base_sequence for every case because diagnostics add no receipt, attempt, or provider call.",
+  "cases": [
+    {
+      "id": "reach-stable-1",
+      "test": "accepted_diagnostics_reach_the_repair_request_in_both_layouts",
+      "base_sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[data/terms.txt]",
+        "receipt:diag-gate-a:passed:verified",
+        "cycle_complete:true",
+        "stop:true"
+      ],
+      "sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[data/terms.txt]",
+        "receipt:diag-gate-a:passed:verified",
+        "cycle_complete:true",
+        "stop:true"
+      ],
+      "receipts": 2,
+      "repair_attempts": 1,
+      "outcome": "passed"
+    },
+    {
+      "id": "reach-legacy-1",
+      "test": "accepted_diagnostics_reach_the_repair_request_in_both_layouts",
+      "base_sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[data/terms.txt]",
+        "receipt:diag-gate-a:passed:verified",
+        "cycle_complete:true",
+        "stop:true"
+      ],
+      "sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[data/terms.txt]",
+        "receipt:diag-gate-a:passed:verified",
+        "cycle_complete:true",
+        "stop:true"
+      ],
+      "receipts": 2,
+      "repair_attempts": 1,
+      "outcome": "passed"
+    },
+    {
+      "id": "reach-plain-1",
+      "test": "accepted_diagnostics_reach_the_repair_request_in_both_layouts",
+      "base_sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[data/terms.txt]",
+        "receipt:diag-gate-a:passed:verified",
+        "cycle_complete:true",
+        "stop:true"
+      ],
+      "sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[data/terms.txt]",
+        "receipt:diag-gate-a:passed:verified",
+        "cycle_complete:true",
+        "stop:true"
+      ],
+      "receipts": 2,
+      "repair_attempts": 1,
+      "outcome": "passed"
+    },
+    {
+      "id": "reach-plain-legacy-1",
+      "test": "accepted_diagnostics_reach_the_repair_request_in_both_layouts",
+      "base_sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[data/terms.txt]",
+        "receipt:diag-gate-a:passed:verified",
+        "cycle_complete:true",
+        "stop:true"
+      ],
+      "sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[data/terms.txt]",
+        "receipt:diag-gate-a:passed:verified",
+        "cycle_complete:true",
+        "stop:true"
+      ],
+      "receipts": 2,
+      "repair_attempts": 1,
+      "outcome": "passed"
+    },
+    {
+      "id": "plain-base-1",
+      "test": "a_run_without_diagnostics_keeps_the_base_event_and_request",
+      "base_sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "receipts": 1,
+      "repair_attempts": 1,
+      "outcome": "failed",
+      "base_events": {
+        "artifact_contract_check_result": "{\"adapter_id\":\"diag-gate-a\",\"check_id\":\"artifact_contract_check\",\"child_env_keys\":[\"LANG\",\"TZ\",\"COMMANDAGENT_ADAPTER_TOOL_ROOT\"],\"domain_cap\":\"partial\",\"domain_cap_applied\":false,\"domain_verdict\":\"none\",\"event\":\"artifact_contract_check_result\",\"input_digests\":{\"terms\":\"06ad21fb951fc0056079b3ed4f6cc0ca43ae9023da316668fb98cf7aad46a1c4\"},\"known_mismatch\":true,\"native_effect\":\"failure_only\",\"network_isolation\":\"not_provided\",\"optional_missing\":3,\"optional_unverified\":true,\"owner_id\":\"diag-one\",\"process\":{\"ended\":\"exited\",\"exit_code\":1,\"group_stopped\":true,\"reaped\":true,\"stderr_bytes\":0,\"stdin_complete\":true,\"stdout_bytes\":547},\"reasons\":[\"row `rows/alpha`/`t1` is failed\",\"row `rows/beta` is failed\"],\"request\":\"check/a.json\",\"request_id\":\"plain-base-1\",\"required_not_run\":false,\"required_rows_passed\":0,\"required_unresolved\":false,\"rows\":2,\"schema_version\":\"1\",\"source\":\"draft_profile\",\"status\":\"failed\",\"stopped_at\":\"verified\"}",
+        "repair_prompt_sha256": "88f38db4cfb5d93c4fac28046a24901f55a8b6cead095053ebbd6f9f0e7f0288"
+      }
+    },
+    {
+      "id": "refuse-nonce-1",
+      "test": "refused_results_carry_no_diagnostics",
+      "base_sequence": [
+        "receipt:diag-gate-a:failed:envelope",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "sequence": [
+        "receipt:diag-gate-a:failed:envelope",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "receipts": 1,
+      "repair_attempts": 1,
+      "outcome": "failed"
+    },
+    {
+      "id": "refuse-digest-1",
+      "test": "refused_results_carry_no_diagnostics",
+      "base_sequence": [
+        "receipt:diag-gate-a:failed:envelope",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "sequence": [
+        "receipt:diag-gate-a:failed:envelope",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "receipts": 1,
+      "repair_attempts": 1,
+      "outcome": "failed"
+    },
+    {
+      "id": "refuse-duplicate-1",
+      "test": "refused_results_carry_no_diagnostics",
+      "base_sequence": [
+        "receipt:diag-gate-a:failed:envelope",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "sequence": [
+        "receipt:diag-gate-a:failed:envelope",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "receipts": 1,
+      "repair_attempts": 1,
+      "outcome": "failed"
+    },
+    {
+      "id": "refuse-missing-1",
+      "test": "refused_results_carry_no_diagnostics",
+      "base_sequence": [
+        "receipt:diag-gate-a:failed:envelope",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "sequence": [
+        "receipt:diag-gate-a:failed:envelope",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "receipts": 1,
+      "repair_attempts": 1,
+      "outcome": "failed"
+    },
+    {
+      "id": "refuse-counts-1",
+      "test": "refused_results_carry_no_diagnostics",
+      "base_sequence": [
+        "receipt:diag-gate-a:failed:envelope",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "sequence": [
+        "receipt:diag-gate-a:failed:envelope",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "receipts": 1,
+      "repair_attempts": 1,
+      "outcome": "failed"
+    },
+    {
+      "id": "refuse-unknown-1",
+      "test": "refused_results_carry_no_diagnostics",
+      "base_sequence": [
+        "receipt:diag-gate-a:failed:envelope",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "sequence": [
+        "receipt:diag-gate-a:failed:envelope",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "receipts": 1,
+      "repair_attempts": 1,
+      "outcome": "failed"
+    },
+    {
+      "id": "refuse-exit-1",
+      "test": "refused_results_carry_no_diagnostics",
+      "base_sequence": [
+        "receipt:diag-gate-a:failed:envelope",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "sequence": [
+        "receipt:diag-gate-a:failed:envelope",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "receipts": 1,
+      "repair_attempts": 1,
+      "outcome": "failed"
+    },
+    {
+      "id": "refuse-wire-row-1",
+      "test": "refused_results_carry_no_diagnostics",
+      "base_sequence": [
+        "receipt:diag-gate-a:failed:envelope",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "sequence": [
+        "receipt:diag-gate-a:failed:envelope",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "receipts": 1,
+      "repair_attempts": 1,
+      "outcome": "failed"
+    },
+    {
+      "id": "refuse-wire-message-1",
+      "test": "refused_results_carry_no_diagnostics",
+      "base_sequence": [
+        "receipt:diag-gate-a:failed:envelope",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "sequence": [
+        "receipt:diag-gate-a:failed:envelope",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "receipts": 1,
+      "repair_attempts": 1,
+      "outcome": "failed"
+    },
+    {
+      "id": "refuse-stream-1",
+      "test": "refused_results_carry_no_diagnostics",
+      "base_sequence": [
+        "receipt:diag-gate-a:failed:process",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "sequence": [
+        "receipt:diag-gate-a:failed:process",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "receipts": 1,
+      "repair_attempts": 1,
+      "outcome": "failed"
+    },
+    {
+      "id": "refuse-timeout-1",
+      "test": "refused_results_carry_no_diagnostics",
+      "base_sequence": [
+        "receipt:diag-gate-a:failed:process",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "sequence": [
+        "receipt:diag-gate-a:failed:process",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "receipts": 1,
+      "repair_attempts": 1,
+      "outcome": "failed"
+    },
+    {
+      "id": "refuse-tooling-1",
+      "test": "refused_results_carry_no_diagnostics",
+      "base_sequence": [
+        "receipt:diag-gate-t:failed:binding",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "sequence": [
+        "receipt:diag-gate-t:failed:binding",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "receipts": 1,
+      "repair_attempts": 1,
+      "outcome": "failed"
+    },
+    {
+      "id": "variants-required-1",
+      "test": "rows_without_a_failure_reason_add_nothing_and_the_verdict_holds",
+      "base_sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "receipts": 1,
+      "repair_attempts": 1,
+      "outcome": "failed"
+    },
+    {
+      "id": "variants-passing-1",
+      "test": "rows_without_a_failure_reason_add_nothing_and_the_verdict_holds",
+      "base_sequence": [
+        "receipt:diag-gate-a:passed:verified",
+        "stop:true"
+      ],
+      "sequence": [
+        "receipt:diag-gate-a:passed:verified",
+        "stop:true"
+      ],
+      "receipts": 1,
+      "repair_attempts": 0,
+      "outcome": "passed"
+    },
+    {
+      "id": "cycle-two-1",
+      "test": "each_cycle_repairs_with_its_own_receipts_only",
+      "base_sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "receipt:diag-gate-b:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[data/other.txt,data/terms.txt]",
+        "receipt:diag-gate-a:failed:verified",
+        "receipt:diag-gate-b:passed:verified",
+        "cycle_complete:false",
+        "repair_start:max=2",
+        "repair_complete:2:[data/terms.txt]",
+        "receipt:diag-gate-a:passed:verified",
+        "receipt:diag-gate-b:passed:verified",
+        "cycle_complete:true",
+        "stop:true"
+      ],
+      "sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "receipt:diag-gate-b:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[data/other.txt,data/terms.txt]",
+        "receipt:diag-gate-a:failed:verified",
+        "receipt:diag-gate-b:passed:verified",
+        "cycle_complete:false",
+        "repair_start:max=2",
+        "repair_complete:2:[data/terms.txt]",
+        "receipt:diag-gate-a:passed:verified",
+        "receipt:diag-gate-b:passed:verified",
+        "cycle_complete:true",
+        "stop:true"
+      ],
+      "receipts": 6,
+      "repair_attempts": 2,
+      "outcome": "passed"
+    },
+    {
+      "id": "forged-1",
+      "test": "a_workspace_report_is_never_a_source",
+      "base_sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "receipts": 1,
+      "repair_attempts": 1,
+      "outcome": "failed"
+    },
+    {
+      "id": "inject-1",
+      "test": "injected_text_stays_inside_the_data_block",
+      "base_sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[data/terms.txt]",
+        "receipt:diag-gate-a:passed:verified",
+        "cycle_complete:true",
+        "stop:true"
+      ],
+      "sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[data/terms.txt]",
+        "receipt:diag-gate-a:passed:verified",
+        "cycle_complete:true",
+        "stop:true"
+      ],
+      "receipts": 2,
+      "repair_attempts": 1,
+      "outcome": "passed"
+    },
+    {
+      "id": "inject-plain-1",
+      "test": "injected_text_stays_inside_the_data_block",
+      "base_sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[data/terms.txt]",
+        "receipt:diag-gate-a:passed:verified",
+        "cycle_complete:true",
+        "stop:true"
+      ],
+      "sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[data/terms.txt]",
+        "receipt:diag-gate-a:passed:verified",
+        "cycle_complete:true",
+        "stop:true"
+      ],
+      "receipts": 2,
+      "repair_attempts": 1,
+      "outcome": "passed"
+    },
+    {
+      "id": "secret-1",
+      "test": "registered_and_secret_like_values_never_leave_the_run",
+      "base_sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "receipts": 1,
+      "repair_attempts": 1,
+      "outcome": "failed"
+    },
+    {
+      "id": "count-event-15",
+      "test": "item_bounds_hold_for_each_event_and_for_the_section",
+      "base_sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "receipts": 1,
+      "repair_attempts": 1,
+      "outcome": "failed"
+    },
+    {
+      "id": "count-event-16",
+      "test": "item_bounds_hold_for_each_event_and_for_the_section",
+      "base_sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "receipts": 1,
+      "repair_attempts": 1,
+      "outcome": "failed"
+    },
+    {
+      "id": "count-event-17",
+      "test": "item_bounds_hold_for_each_event_and_for_the_section",
+      "base_sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "receipts": 1,
+      "repair_attempts": 1,
+      "outcome": "failed"
+    },
+    {
+      "id": "count-section-15",
+      "test": "item_bounds_hold_for_each_event_and_for_the_section",
+      "base_sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "receipt:diag-gate-b:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "receipt:diag-gate-b:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "receipts": 2,
+      "repair_attempts": 1,
+      "outcome": "failed"
+    },
+    {
+      "id": "count-section-16",
+      "test": "item_bounds_hold_for_each_event_and_for_the_section",
+      "base_sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "receipt:diag-gate-b:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "receipt:diag-gate-b:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "receipts": 2,
+      "repair_attempts": 1,
+      "outcome": "failed"
+    },
+    {
+      "id": "count-section-17",
+      "test": "item_bounds_hold_for_each_event_and_for_the_section",
+      "base_sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "receipt:diag-gate-b:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "receipt:diag-gate-b:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "receipts": 2,
+      "repair_attempts": 1,
+      "outcome": "failed"
+    },
+    {
+      "id": "byte-event-below",
+      "test": "byte_bounds_hold_for_each_event_and_for_the_section",
+      "base_sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "receipts": 1,
+      "repair_attempts": 1,
+      "outcome": "failed"
+    },
+    {
+      "id": "byte-event-exact",
+      "test": "byte_bounds_hold_for_each_event_and_for_the_section",
+      "base_sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "receipts": 1,
+      "repair_attempts": 1,
+      "outcome": "failed"
+    },
+    {
+      "id": "byte-event-above",
+      "test": "byte_bounds_hold_for_each_event_and_for_the_section",
+      "base_sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "receipts": 1,
+      "repair_attempts": 1,
+      "outcome": "failed"
+    },
+    {
+      "id": "byte-section-below",
+      "test": "byte_bounds_hold_for_each_event_and_for_the_section",
+      "base_sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "receipt:diag-gate-b:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "receipt:diag-gate-b:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "receipts": 2,
+      "repair_attempts": 1,
+      "outcome": "failed"
+    },
+    {
+      "id": "byte-section-exact",
+      "test": "byte_bounds_hold_for_each_event_and_for_the_section",
+      "base_sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "receipt:diag-gate-b:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "receipt:diag-gate-b:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "receipts": 2,
+      "repair_attempts": 1,
+      "outcome": "failed"
+    },
+    {
+      "id": "byte-section-above",
+      "test": "byte_bounds_hold_for_each_event_and_for_the_section",
+      "base_sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "receipt:diag-gate-b:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "receipt:diag-gate-b:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "receipts": 2,
+      "repair_attempts": 1,
+      "outcome": "failed"
+    },
+    {
+      "id": "claims-1",
+      "test": "a_message_never_lifts_the_verdict_or_the_budget",
+      "base_sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "sequence": [
+        "receipt:diag-gate-a:failed:verified",
+        "repair_start:max=2",
+        "repair_complete:1:[]",
+        "no_source_change:1",
+        "exhausted:final_acceptance_repair_no_source_change",
+        "stop:false"
+      ],
+      "receipts": 1,
+      "repair_attempts": 1,
+      "outcome": "failed"
+    }
+  ]
+}

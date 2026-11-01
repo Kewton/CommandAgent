@@ -7,6 +7,9 @@ mod compile_rollback_verification;
 #[path = "final_acceptance/artifact_repair_paths.rs"]
 mod artifact_repair_paths;
 
+#[path = "final_acceptance/artifact_diagnostics.rs"]
+mod artifact_diagnostics;
+
 #[path = "final_acceptance/repair_workspace_snapshot.rs"]
 mod repair_workspace_snapshot;
 
@@ -1317,7 +1320,7 @@ Missing paths:\n{missing}\n\n\
 Dependency failures:\n{dependencies}\n\n\
 Compile errors:\n{compile_errors}\n\n\
 Command failures:\n{command_failures}\n\n\
-Profile failures:\n{profile_failures}\n\n\
+Profile failures:\n{profile_failures}\n\n{artifact_diagnostics}\
 {behavioral_probe_context}\
 {restart_attachment_guidance}\
 {adherence_guidance}\
@@ -1343,6 +1346,7 @@ Final acceptance failure:\n\
         compile_errors = compile_errors,
         command_failures = command_failures,
         profile_failures = profile_failures,
+        artifact_diagnostics = artifact_diagnostics::repair_section(report),
         behavioral_probe_context = behavioral_probe_context,
         restart_attachment_guidance = restart_attachment_guidance,
         adherence_guidance = adherence_guidance,
@@ -1426,7 +1430,7 @@ Missing paths:\n{missing}\n\n\
 Dependency failures:\n{dependencies}\n\n\
 Compile errors:\n{compile_errors}\n\n\
 Command failures:\n{command_failures}\n\n\
-Profile failures:\n{profile_failures}\n\n\
+Profile failures:\n{profile_failures}\n\n{artifact_diagnostics}\
 {behavioral_probe_context}\
 {restart_attachment_guidance}\
 {adherence_guidance}\
@@ -1452,6 +1456,7 @@ Bounded repair rules:\n\
         compile_errors = compile_errors,
         command_failures = command_failures,
         profile_failures = profile_failures,
+        artifact_diagnostics = artifact_diagnostics::repair_section(report),
         behavioral_probe_context = behavioral_probe_context,
         restart_attachment_guidance = restart_attachment_guidance,
         adherence_guidance = adherence_guidance,

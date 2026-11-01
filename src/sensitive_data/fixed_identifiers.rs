@@ -54,8 +54,11 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "aborted",
     "accounted_by",
     "accounting_record",
+    "adapter",
+    "adapter_diagnostics",
     "adopted_unreplayed",
     "anchor_stagnation_interlock",
+    "artifact-check-diagnostics",
     "artifact_contract_check_result",
     "artifact_stagnation_feedback",
     "bash_path_confinement_rejected",
@@ -70,7 +73,9 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "build_pass",
     "call_index",
     "captured",
+    "check",
     "closed",
+    "code",
     "command_timeout_repetition",
     "commandagent.eval.score/v0",
     "commandagent.extensions/v1",
@@ -116,6 +121,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "dev_server_port_in_use_retry",
     "disposition",
     "draft",
+    "draft_profile",
     "edit_anchor_recovery",
     "edit_anchor_salvaged",
     "edits_after_prompt",
@@ -152,6 +158,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "function",
     "future_phase_annotation",
     "generic_contract_bound",
+    "groups",
     "gui_trial_stop_completed",
     "gui_trial_stop_requested",
     "h05_collision",
@@ -177,9 +184,12 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "invalid",
     "investigation_adjudicated",
     "investigation_plan_synthesized",
+    "items",
     "iteration",
     "legacy_detail",
+    "local_pack",
     "loop_stop",
+    "message",
     "min_remaining_iterations",
     "missing",
     "native_tool_parse_retry_feedback",
@@ -190,14 +200,17 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "no_successful_edit",
     "normal_final_after_successful_edit",
     "normal_marker",
+    "not_provided",
     "not_run",
     "note_chars",
     "obligation_count",
     "observed",
     "ok",
+    "omitted",
     "openrouter_provider_observed",
     "other_path",
     "oversize",
+    "owner",
     "pack_check_result",
     "pack_injected",
     "panic_caught",
@@ -296,6 +309,8 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "replay_turn_unrecorded",
     "replayed",
     "reported",
+    "request",
+    "request_id",
     "request_pattern_resolved",
     "requested",
     "requirement_plan",
@@ -304,6 +319,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "route_confirmed",
     "route_proposed",
     "route_unbound_recovery",
+    "row_status",
     "run_completed",
     "run_failed",
     "run_interrupted",
@@ -317,6 +333,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "setup_scaffold_completed",
     "side_effect_path_dropped",
     "skipped",
+    "source",
     "speculative_phase_plan_provider_call",
     "state_binding_diagnosis",
     "step_capability_evidence_check",
@@ -330,6 +347,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "success",
     "successful_bash_after_prompt",
     "successful_bash_since_latest_edit",
+    "target",
     "test_node_event",
     "time_profile",
     "tool",
@@ -347,6 +365,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "tool_validation_error",
     "triggered",
     "triggered_iteration",
+    "truncated",
     "tui_command_start",
     "tui_command_stop",
     "ultra_context_initialized",
@@ -371,6 +390,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "unchanged",
     "unconsumed",
     "unparseable",
+    "unresolved",
     "unsettled",
     "unsuccessful_bash_after_prompt",
     "user_update",
@@ -523,5 +543,192 @@ mod billed_cost_field_tests {
             assert!(object.contains_key(FIELD), "{value}");
             assert_eq!(object.len(), 4, "{value}");
         }
+    }
+}
+
+/// Issue #955: every fixed key and fixed value of the accepted-diagnostics
+/// projection (the receipt field `adapter_diagnostics` and the repair block,
+/// delimited by `artifact-check-diagnostics`) is a fixed identifier, so a
+/// credential equal to one or to a fragment of one is refused and the event
+/// scrub never rewrites the schema. The dynamic values under those keys stay
+/// subject to the scrub.
+#[cfg(test)]
+mod artifact_diagnostics_field_tests {
+    use serde_json::{Value, json};
+
+    use super::{FIXED_IDENTIFIERS, collides_with_fixed_identifier, is_fixed_identifier};
+    use crate::planner::artifact_contract_checks::diagnostics::status_word;
+    use crate::planner::artifact_contract_checks::protocol::RowStatus;
+    use crate::sensitive_data::{MIN_GENERIC_SECRET_LEN, SecretCatalog};
+    use crate::verification::report::artifact_diagnostics::{
+        ArtifactDiagnostic, ArtifactDiagnosticGroup, ArtifactDiagnostics,
+    };
+
+    /// Every name the projection writes itself.
+    const NAMES: [&str; 20] = [
+        "adapter_diagnostics",
+        "artifact-check-diagnostics",
+        "groups",
+        "items",
+        "omitted",
+        "source",
+        "owner",
+        "adapter",
+        "request",
+        "request_id",
+        "truncated",
+        "check",
+        "target",
+        "row_status",
+        "code",
+        "message",
+        "unresolved",
+        "not_provided",
+        "draft_profile",
+        "local_pack",
+    ];
+
+    /// A projection with every optional part present.
+    fn full() -> Value {
+        let group = ArtifactDiagnosticGroup {
+            source: "draft_profile".to_string(),
+            owner: "o".to_string(),
+            adapter: "a".to_string(),
+            request: "r".to_string(),
+            request_id: Some("i".to_string()),
+            truncated: vec!["source", "owner", "adapter", "request", "request_id"],
+            items: vec![ArtifactDiagnostic {
+                check: "c".to_string(),
+                target: Some("t".to_string()),
+                row_status: "failed",
+                code: "k".to_string(),
+                message: "m".to_string(),
+            }],
+            omitted: 1,
+        };
+        serde_json::to_value(ArtifactDiagnostics {
+            groups: vec![group],
+            omitted: 1,
+        })
+        .unwrap()
+    }
+
+    fn keys(value: &Value, out: &mut Vec<String>) {
+        match value {
+            Value::Object(map) => {
+                for (key, child) in map {
+                    out.push(key.clone());
+                    keys(child, out);
+                }
+            }
+            Value::Array(items) => items.iter().for_each(|child| keys(child, out)),
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn every_fixed_key_and_value_of_the_projection_is_reserved() {
+        let mut names = Vec::new();
+        keys(&full(), &mut names);
+        names.extend(
+            full()["groups"][0]["truncated"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|name| name.as_str().unwrap().to_string()),
+        );
+        for status in [
+            RowStatus::Failed,
+            RowStatus::Unresolved,
+            RowStatus::NotRun,
+            RowStatus::NotProvided,
+        ] {
+            names.push(status_word(status).to_string());
+        }
+        names.extend(["draft_profile", "local_pack"].map(str::to_string));
+        for name in &names {
+            assert!(is_fixed_identifier(name), "{name} is not reserved");
+        }
+        let mut written = Vec::new();
+        keys(&full(), &mut written);
+        for key in written {
+            assert!(NAMES.contains(&key.as_str()), "{key} is missing from NAMES");
+        }
+    }
+
+    #[test]
+    fn the_names_are_reserved_once_in_name_order() {
+        for name in NAMES {
+            assert!(is_fixed_identifier(name), "{name}");
+            let at = FIXED_IDENTIFIERS
+                .iter()
+                .position(|fixed| *fixed == name)
+                .unwrap();
+            assert_eq!(
+                FIXED_IDENTIFIERS
+                    .iter()
+                    .filter(|fixed| **fixed == name)
+                    .count(),
+                1,
+                "{name}"
+            );
+            assert!(FIXED_IDENTIFIERS[at - 1] < name, "{name}");
+            assert!(name < FIXED_IDENTIFIERS[at + 1], "{name}");
+        }
+    }
+
+    #[test]
+    fn every_registrable_fragment_of_a_name_is_refused() {
+        for name in NAMES {
+            if name.len() < MIN_GENERIC_SECRET_LEN {
+                // Too short for any credential to be a fragment of it.
+                continue;
+            }
+            for len in MIN_GENERIC_SECRET_LEN..=name.len() {
+                for start in 0..=name.len() - len {
+                    let value = &name[start..start + len];
+                    assert!(collides_with_fixed_identifier(value), "{value}");
+                    let mut catalog = SecretCatalog::new();
+                    assert!(
+                        catalog
+                            .register_credential("COMPAT_API_KEY", value)
+                            .is_err(),
+                        "{value}"
+                    );
+                    assert!(catalog.is_empty(), "{value}");
+                }
+            }
+        }
+        for value in ["row_stat", "ow_statu", "request_", "unresolv", "not_prov"] {
+            let mut catalog = SecretCatalog::new();
+            assert!(
+                catalog
+                    .register_credential("COMPAT_API_KEY", value)
+                    .is_err(),
+                "{value}"
+            );
+        }
+    }
+
+    #[test]
+    fn values_under_the_field_are_still_scrubbed() {
+        let credential = "fake-credential-955-not-a-real-key";
+        let mut catalog = SecretCatalog::new();
+        catalog
+            .register_credential("COMPAT_API_KEY", credential)
+            .unwrap();
+        let mut value = json!({
+            "event": "artifact_contract_check_result",
+            "adapter_diagnostics": {
+                "items": [{"check": "rows/alpha", "row_status": "failed", "code": credential, "message": format!("x {credential}")}],
+                "omitted": 0,
+            },
+        });
+        catalog.scrub_value_lenient(&mut value);
+        assert!(value.get("adapter_diagnostics").is_some(), "{value}");
+        assert!(!value.to_string().contains(credential), "{value}");
+        let item = &value["adapter_diagnostics"]["items"][0];
+        assert_eq!(item["check"], "rows/alpha");
+        assert_eq!(item["row_status"], "failed");
     }
 }

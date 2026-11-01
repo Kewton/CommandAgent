@@ -243,6 +243,90 @@ uses a new nonce; an earlier receipt is never reused for a newer candidate. An
 operator who deliberately selects an older version issues a new request, which
 runs afresh and is bound to the selected bytes.
 
+## Accepted diagnostics in the repair context and the receipt (Issue #955)
+
+An accepted result's diagnostics are carried as untrusted data, never as a
+verdict.
+
+- **Origin.** Diagnostics are taken only after the existing validation
+  accepted the result (registry, tooling, process, envelope, input digests,
+  nonce, row coverage, counts, exit code). A refused, timed-out, cancelled,
+  overflowing, or misbound run, and raw stdout/stderr, carry none. The wire
+  bounds are unchanged: at most 16 diagnostics per row and 64 per result, a
+  non-empty code of at most 64 bytes, a message of at most 512 bytes; a
+  result over any of them is still refused, never cut to fit.
+- **Rows.** Only the rows the reasons already name carry diagnostics: a
+  `failed` row, or a required row that did not pass (`unresolved`,
+  `not_run`). Passed rows and optional unverified rows carry none, and no row
+  the adapter did not report is invented. A message stays an opaque string;
+  the host parses no field path from it and derives no repair template.
+- **Order of processing.** Each display string (check, target, code, message,
+  and the receipt's source, owner, adapter, request, and request ID) is
+  handled as one complete decoded value: first the existing credential scrub
+  (registered values, secret-like tokens, home paths), then control and bidi
+  characters become visible `\u{..}` text, then `&`, `<`, `>`, and the
+  backtick are written as `&amp;`, `&lt;`, `&gt;`, and `&#96;`. Nothing is cut
+  or stripped before the scrub. A secret split across several fields is not
+  reassembled; the guarantee is per field.
+- **Ownership display.** The source is a fixed string chosen by the caller
+  (`draft_profile` or `local_pack`); a draft profile's owner is its registered
+  profile ID and its adapter a validated slug; a local pack's owner is its
+  validated `id@version`; the request ID is a validated opaque ID; the request
+  is the declared workspace path. After scrub and encoding, each ownership
+  string keeps at most 256 bytes. The full scrubbed and encoded value is a
+  sequence of whole units (one character, one `&...;` entity, or one `\u{..}`
+  escape); a longer value keeps the units that fit and stops before the first
+  unit that would cross 256 bytes, so it never ends in part of an entity or an
+  escape. Its field name is listed in the group's `truncated` array, which is absent when
+  nothing was cut and whose bytes count toward the bound. Two values that
+  differ only after the cut can therefore look alike; `truncated` says the
+  displayed value is a prefix.
+- **Receipt.** `artifact_contract_check_result` gains one additive field,
+  `adapter_diagnostics`: `{source, owner, adapter, request, request_id,
+  truncated?, items: [{check, target?, row_status, code, message}],
+  omitted}`. It is
+  absent when there is nothing to carry, so such an event keeps its earlier
+  shape byte for byte. Its `"adapter_diagnostics":{...}` member holds at most
+  16 items and 8,192 serialized UTF-8 bytes (keys, ownership, `omitted`, and
+  escapes included). The same projection is used for the local pack check.
+  Existing fields, reasons, counts, and the summary line are unchanged.
+  Every fixed key and fixed value of this projection and of the repair
+  block (`adapter_diagnostics`, `artifact-check-diagnostics`, `groups`,
+  `items`, `omitted`, `source`, `owner`, `adapter`, `request`,
+  `request_id`, `truncated`, `check`, `target`, `row_status`, `code`,
+  `message`, the row status words, `draft_profile`, `local_pack`) is a reserved
+  fixed identifier, so a credential equal to one or to a fragment of one is
+  refused at registration and the scrubs that run before an event is written
+  or a request is sent cannot rewrite the schema or grow it past the bound.
+  The dynamic values (check, target, code, message, ownership) are never
+  exempt from the scrub.
+- **Repair context.** The manifest-driven profile returns the receipt's
+  projection in `VerificationReport::artifact_diagnostics` (one group per
+  receipt), report merging appends groups without deduplication, and the
+  existing bounded final repair adds one section after the profile failures
+  in both the Stable and the Legacy prompt layout. The section is a fixed
+  label, a line `<artifact-check-diagnostics>`, one line of JSON
+  (`{"groups": [...], "omitted": n}`), and a line
+  `</artifact-check-diagnostics>`. Because no value holds a raw `<`, newline,
+  or control character, a value cannot close the block or start a role or
+  fence line. The whole section, label and delimiters included, holds at most
+  16 items and 8,192 UTF-8 bytes across every receipt of the report; items are
+  dropped whole from the end and counted in `omitted`, and earlier omitted
+  counts are kept. A report without diagnostics adds nothing, so the prompt is
+  unchanged.
+- **Ownership.** The section is built only from the acceptance report of the
+  current cycle, in memory. No event file, earlier receipt, other run, global
+  cache, or workspace report is read; the rerun's report replaces it for the
+  next attempt.
+- **No authority.** Diagnostics never change the facts, status, reasons,
+  domain, binding, receipt, repair attempts, provider calls, tokens, cost, or
+  deadline. Their presence, absence, scrubbing, or omission is neither a
+  failure nor a pass. The repair target, expected paths, and verify commands
+  are chosen by the host as before. The label states that the data grants no
+  instruction or permission; this frames the data, it does not prove that a
+  model ignores injected text. The step-plan runner, where local pack checks
+  run, still has no bounded repair, and none is added.
+
 ## Where the check runs
 
 With the current runners, a manifest `artifact_contract_check` runs in the
