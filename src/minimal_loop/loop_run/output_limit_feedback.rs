@@ -10,7 +10,8 @@
 //!   [`ToolArgumentsParseError`] context with the end-of-input
 //!   classification and a reported completion count at or above
 //!   `num_predict` (`num_predict > 0`), seen while the loop already retries
-//!   the malformed call. The error text is never read.
+//!   the malformed call natively or switches to XML fallback and sends the
+//!   next request. The error text is never read.
 //!
 //! Neither observation changes what the loop decides. The armed sentence is
 //! kept here, apart from the loop's pending feedback, so a later rewrite or
@@ -19,8 +20,9 @@
 //! sentence is appended once to whatever feedback that request carries, and
 //! the `output_limit_feedback` event is written only after the provider call
 //! shows that request reached the client. When no request follows (the last
-//! iteration, a max-length guard stop, an exhausted malformed retry, an
-//! accepted final), nothing is added and nothing is written.
+//! iteration, a max-length guard stop, an exhausted malformed retry that
+//! ends the run without XML fallback, an accepted final), nothing is added
+//! and nothing is written.
 //!
 //! The event carries only counts and fixed words: `kind`, `attempt` (the
 //! requests of that kind actually sent), `num_predict`, `completion_tokens`,

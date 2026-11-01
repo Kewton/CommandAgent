@@ -41,6 +41,8 @@ fixtures/events.jsonl = [
   "\"id\":\"num-predict-zero\"",
   "\"id\":\"reasoning-malformed-values\"",
   "\"id\":\"reasoning-other-turn\"",
+  "\"id\":\"truncated-below-limit-xml-fallback\"",
+  "\"xml_fallback_request\":3",
   "\"kind\":\"no_tool_call_at_output_limit\"",
   "\"kind\":\"tool_arguments_truncated_at_output_limit\"",
   "\"provider_reasoning_tokens\":0",

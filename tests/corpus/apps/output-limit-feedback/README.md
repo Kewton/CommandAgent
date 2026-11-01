@@ -90,11 +90,15 @@ It holds no prompt, model text, tool arguments, or path.
 - `no_tool_call_at_output_limit`: a reply without tool calls with
   `completion_tokens >= num_predict` and `num_predict > 0`.
 - `tool_arguments_truncated_at_output_limit`: a native tool-call parse error
-  the loop retries, whose typed context says the arguments ended early and
-  whose reported completion count is at least `num_predict > 0`. Another
-  syntax error, a missing name or arguments, non-object arguments, or a count
-  below the limit keep only the existing malformed-call feedback.
+  after which the loop sends another request (a native retry, or the switch
+  to XML fallback once the native retries are spent), whose typed context
+  says the arguments ended early and whose reported completion count is at
+  least `num_predict > 0`. Another syntax error, a missing name or
+  arguments, non-object arguments, or a count below the limit keep only the
+  existing malformed-call feedback (row `truncated-below-limit-xml-fallback`
+  is the control for the XML fallback request).
 
 No sentence and no event follow a reply after which no request is sent: the
-last iteration, a max-length guard stop, an exhausted malformed retry, or an
-accepted final. A reply with a tool call never gets the sentence.
+last iteration, a max-length guard stop, an exhausted malformed retry that
+ends the run without XML fallback, or an accepted final. A reply with a tool
+call never gets the sentence.
