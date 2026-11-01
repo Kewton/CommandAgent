@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 use super::*;
 
 mod repair_artifact_completion;
-use repair_artifact_completion::RepairArtifactCompletion;
+use repair_artifact_completion::{LegacyRead, RepairArtifactCompletion};
 
 impl RunSessionOptions {
     pub(crate) fn final_acceptance_repair() -> Self {
@@ -49,7 +49,7 @@ impl ImplementationCompletion {
             .map(|path| {
                 let hash = match repair.initial(path) {
                     Some(fingerprint) => fingerprint.hash_hex(),
-                    None => source_hash(root, path),
+                    None => legacy_hash(&repair, root, path),
                 };
                 (path.clone(), hash)
             })
@@ -88,7 +88,7 @@ impl ImplementationCompletion {
             .map(|(path, reading)| {
                 let hash = match reading {
                     Reading::Bound(hash, _) => hash,
-                    Reading::Legacy => source_hash(root, &path),
+                    Reading::Legacy => legacy_hash(&self.repair, root, &path),
                 };
                 (path, hash)
             })
@@ -103,9 +103,13 @@ impl ImplementationCompletion {
                     Reading::Bound(_, bytes) => bytes
                         .as_ref()
                         .and_then(|bytes| String::from_utf8(bytes.clone()).ok()),
-                    Reading::Legacy => resolve_existing(root, path)
-                        .ok()
-                        .and_then(|full| std::fs::read_to_string(full).ok()),
+                    Reading::Legacy => match self.repair.legacy_read(root, path) {
+                        None => resolve_existing(root, path)
+                            .ok()
+                            .and_then(|full| std::fs::read_to_string(full).ok()),
+                        Some(LegacyRead::Bytes(bytes)) => String::from_utf8(bytes).ok(),
+                        Some(_) => None,
+                    },
                 };
                 content.is_some_and(|content| {
                     crate::planner::profiles::nextjs::is_engine_owned_scaffold_page(path, &content)
@@ -225,6 +229,18 @@ enum Reading {
     Bound(Option<String>, Option<Vec<u8>>),
     /// Any other step path, read as before.
     Legacy,
+}
+
+/// A step path's hash outside the bound names: as before without a binding;
+/// in a bound session through `legacy_read`, which never reads a bound target
+/// under another spelling or blocks on a special file.
+fn legacy_hash(repair: &RepairArtifactCompletion, root: &Path, path: &str) -> Option<String> {
+    match repair.legacy_read(root, path) {
+        None => source_hash(root, path),
+        Some(LegacyRead::Absent) => None,
+        Some(LegacyRead::Unknown(reason)) => Some(format!("unknown:{reason}")),
+        Some(LegacyRead::Bytes(bytes)) => Some(format!("{:x}", Sha256::digest(bytes))),
+    }
 }
 
 fn source_hash(root: &Path, path: &str) -> Option<String> {

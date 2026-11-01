@@ -735,3 +735,158 @@ fn a_leaf_that_grows_while_it_is_read_is_unknown() {
     );
     assert_eq!(read.bytes_read, 1_048_577);
 }
+
+// --- legacy aliases of a bound target (recheck B3) -------------------------------
+
+fn hash_of<'a>(event: &'a serde_json::Value, path: &str) -> &'a serde_json::Value {
+    event["expected_path_hashes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|hash| hash["path"] == path)
+        .unwrap_or_else(|| panic!("{path}: {event}"))
+}
+
+/// Spellings the lexical identity keeps apart but the legacy resolver takes
+/// to the bound target (the workspace directory's own name as a prefix, and
+/// on a case-insensitive filesystem another case) are never read by the
+/// legacy reader: capture, hashes, the placeholder check, merge, and the
+/// event see them as `unknown:alias`, an oversized or FIFO target included,
+/// and they never release the obligation. A different file under a
+/// different path is still read as before and never releases it either.
+#[cfg(unix)]
+#[test]
+fn legacy_aliases_of_a_bound_target_are_unknown_and_never_read() {
+    use std::os::unix::fs::MetadataExt;
+    let dir = workspace();
+    let root = dir.path();
+    let config = config(root);
+    write(root, TARGET, &vec![b'a'; 1_048_577]);
+    write(root, "sub/contract/terms.json", BROKEN);
+    let prefixed = format!(
+        "{}/{TARGET}",
+        root.canonicalize()
+            .unwrap()
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+    );
+    let upper = "CONTRACT/TERMS.JSON".to_string();
+    let target_meta = std::fs::metadata(root.join(TARGET)).unwrap();
+    let case_insensitive = std::fs::metadata(root.join(&upper))
+        .is_ok_and(|meta| meta.dev() == target_meta.dev() && meta.ino() == target_meta.ino());
+    let options = final_repair(&[TARGET]);
+    let paths = vec![
+        prefixed.clone(),
+        upper.clone(),
+        "sub/contract/terms.json".to_string(),
+    ];
+    reset_visits();
+    let implementation = ImplementationCompletion::capture(&config, &options, &paths);
+    // Only the bound name itself went through the bounded reader.
+    assert_eq!(visits(), 1);
+    let event = implementation.event(&config, &options, false);
+    for key in ["before_sha256", "after_sha256"] {
+        assert_eq!(hash_of(&event, &prefixed)[key], "unknown:alias", "{key}");
+        if case_insensitive {
+            assert_eq!(hash_of(&event, &upper)[key], "unknown:alias", "{key}");
+        } else {
+            // A case-sensitive filesystem has no such file: the legacy
+            // reader finds nothing, as before.
+            assert_eq!(hash_of(&event, &upper)[key], serde_json::Value::Null);
+        }
+    }
+    let other = {
+        use sha2::Digest;
+        format!("{:x}", sha2::Sha256::digest(BROKEN))
+    };
+    assert_eq!(
+        hash_of(&event, "sub/contract/terms.json")["before_sha256"],
+        other
+    );
+    assert!(implementation.feedback(&config, &options, false).is_some());
+    // A change of the oversized target is unknown; a change of the other
+    // file is no bound change: neither releases, and no alias merges.
+    write(root, TARGET, &vec![b'b'; 1_048_577]);
+    write(root, "sub/contract/terms.json", FIXED);
+    assert!(implementation.feedback(&config, &options, false).is_some());
+    let mut changed = Vec::new();
+    implementation.merge_changes(root, &mut changed);
+    assert_eq!(changed, vec!["sub/contract/terms.json".to_string()]);
+    // The target replaced by a FIFO: every alias returns at once.
+    std::fs::remove_file(root.join(TARGET)).unwrap();
+    let fifo = std::ffi::CString::new(root.join(TARGET).to_string_lossy().as_bytes()).unwrap();
+    // SAFETY: a valid NUL-terminated path inside the temporary directory.
+    assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+    let started = std::time::Instant::now();
+    assert!(implementation.feedback(&config, &options, false).is_some());
+    let event = implementation.event(&config, &options, false);
+    assert_eq!(
+        hash_of(&event, &prefixed)["after_sha256"],
+        "unknown:special_file"
+    );
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+}
+
+/// Without a binding the same spellings keep the legacy reading.
+#[test]
+fn without_a_binding_aliases_keep_the_legacy_reading() {
+    let dir = workspace();
+    let root = dir.path();
+    let config = config(root);
+    let prefixed = format!(
+        "{}/{TARGET}",
+        root.canonicalize()
+            .unwrap()
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+    );
+    let options = RunSessionOptions::final_acceptance_repair();
+    let implementation =
+        ImplementationCompletion::capture(&config, &options, std::slice::from_ref(&prefixed));
+    let event = implementation.event(&config, &options, false);
+    let legacy = {
+        use sha2::Digest;
+        format!("{:x}", sha2::Sha256::digest(BROKEN))
+    };
+    assert_eq!(hash_of(&event, &prefixed)["before_sha256"], legacy);
+}
+
+// --- the feedback of a held completion (F1) -------------------------------------
+
+/// Known, unchanged targets keep the unchanged feedback; a target that
+/// cannot be verified (over the file bound) gets the fixed unverifiable
+/// feedback instead, which names only bound paths, never content or sizes.
+#[test]
+fn an_unverifiable_target_gets_its_own_fixed_feedback() {
+    let dir = workspace();
+    let root = dir.path();
+    let unchanged = capture(root, &final_repair(&[TARGET]))
+        .held(root, false)
+        .unwrap()
+        .feedback;
+    assert_eq!(
+        unchanged,
+        format!(
+            "{}{}",
+            "Final repair is incomplete: the failing artifact (contract/terms.json) is byte-for-byte unchanged since this repair started. ",
+            "Reading it, listing it, or re-running a check does not repair it. Change the failing artifact; the same host check then runs again."
+        )
+    );
+    write(root, OTHER, &vec![b'a'; 1_048_577]);
+    let completion = capture(root, &final_repair(&[TARGET, OTHER]));
+    write(root, OTHER, &vec![b'b'; 1_048_577]);
+    let feedback = completion.held(root, false).unwrap().feedback;
+    assert!(
+        feedback.starts_with(super::UNVERIFIABLE_PREFIX),
+        "{feedback}"
+    );
+    assert!(feedback.contains("(contract/schema.yaml)"), "{feedback}");
+    assert!(!feedback.contains("byte-for-byte unchanged"), "{feedback}");
+    assert!(!feedback.contains("1048577") && !feedback.contains("1,048,577"));
+    assert_eq!(
+        super::super::ImplementationCompletion::blocking_reason(&feedback),
+        "final_repair_artifact_unchanged"
+    );
+}

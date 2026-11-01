@@ -38,6 +38,16 @@
 //!   target. A name with a `..`, root, or prefix component is an escape and
 //!   matches only its own spelling. The original spelling is what callers
 //!   show.
+//! - Other spellings. Releasing the obligation needs that lexical identity;
+//!   letting the legacy reader read a step path is decided apart from it. In
+//!   a bound session every step path the bound names do not spell is
+//!   resolved as the legacy reader resolves it (root-prefix salvage and a
+//!   case-insensitive filesystem included) and opened without blocking;
+//!   when the open file is not a regular file, or is the same `(st_dev,
+//!   st_ino)` as a bound name's current `lstat`, it is unknown (`alias`) and
+//!   its bytes are never read. Only a different regular file is read, from
+//!   that same fd, so no swap after the check reaches the bytes. Such an
+//!   alias is never a bound target: it neither releases nor holds anything.
 //! - Limits and guards. At most [`MAX_TARGETS`] targets; each adopted content
 //!   at most [`MAX_FILE_BYTES`], the set at most [`MAX_TOTAL_BYTES`]. One set
 //!   read reads at most one probe byte more per file, so at most
@@ -72,6 +82,14 @@ use super::super::{RunSessionOptions, RunSessionScope, RunSessionStepKind};
 #[cfg(test)]
 #[path = "repair_artifact_completion_tests.rs"]
 mod tests;
+
+/// The fixed feedback of a held completion: every bound target is known and
+/// unchanged, or at least one cannot be verified (over a bound, refused, or
+/// replaced). Only bound names fill the parentheses; no content or size.
+const UNCHANGED_PREFIX: &str = "Final repair is incomplete: the failing artifact";
+const UNCHANGED_REST: &str = " is byte-for-byte unchanged since this repair started. Reading it, listing it, or re-running a check does not repair it. Change the failing artifact; the same host check then runs again.";
+const UNVERIFIABLE_PREFIX: &str = "Final repair is incomplete: the changed target";
+const UNVERIFIABLE_REST: &str = " could not be verified because it exceeds the verification size limit or cannot be read safely. A change to it is not confirmed, so this repair is not complete; reading it or re-running a check does not confirm it either.";
 
 pub(crate) const MAX_TARGETS: usize = 128;
 pub(crate) const MAX_FILE_BYTES: u64 = 1_048_576;
@@ -270,6 +288,20 @@ impl RepairArtifactCompletion {
         }
     }
 
+    /// The legacy reading of a step path the bound names do not spell; `None`
+    /// when no binding is active (the caller keeps its own reading).
+    pub(crate) fn legacy_read(&self, root: &Path, path: &str) -> Option<LegacyRead> {
+        let names = match &self.state {
+            State::Inactive => return None,
+            State::Unbindable(_, names) => names.iter().collect::<Vec<_>>(),
+            State::Bound(targets) => targets.iter().map(|(name, _)| name).collect(),
+        };
+        let Ok(resolved) = crate::tools::path_guard::resolve_existing(root, path) else {
+            return Some(LegacyRead::Absent);
+        };
+        Some(read_unless_bound(root, &resolved, &names))
+    }
+
     /// `None` when the completion may go on to the existing checks.
     pub(crate) fn held(&self, root: &Path, write_or_edit_seen: bool) -> Option<Held> {
         if write_or_edit_seen {
@@ -300,27 +332,91 @@ impl RepairArtifactCompletion {
                     unknown: 0,
                 };
                 let mut named = Vec::new();
+                let mut unverifiable = Vec::new();
+                let mut any_unknown = false;
                 for ((name, before), after) in targets.iter().zip(&now.items) {
                     if after.fingerprint.changed_from(before) {
                         return None;
                     }
+                    let shown = after.fingerprint != Fingerprint::Unknown("sensitive")
+                        && before != &Fingerprint::Unknown("sensitive");
                     match &after.fingerprint {
                         Fingerprint::Absent => held.absent += 1,
                         Fingerprint::Unknown(_) => held.unknown += 1,
                         Fingerprint::Digest(_) => held.unchanged += 1,
                     }
-                    if after.fingerprint != Fingerprint::Unknown("sensitive") {
+                    let unknown = matches!(after.fingerprint, Fingerprint::Unknown(_))
+                        || matches!(before, Fingerprint::Unknown(_));
+                    any_unknown |= unknown;
+                    if shown {
                         named.push(name.spelling.as_str());
+                        if unknown {
+                            unverifiable.push(name.spelling.as_str());
+                        }
                     }
                 }
-                held.feedback = format!(
-                    "Final repair is incomplete: the failing artifact ({}) is byte-for-byte unchanged since this repair started. Reading it, listing it, or re-running a check does not repair it. Change the failing artifact; the same host check then runs again.",
-                    named.join(", ")
-                );
+                held.feedback = if any_unknown {
+                    format!(
+                        "{UNVERIFIABLE_PREFIX} ({}){UNVERIFIABLE_REST}",
+                        unverifiable.join(", ")
+                    )
+                } else {
+                    format!("{UNCHANGED_PREFIX} ({}){UNCHANGED_REST}", named.join(", "))
+                };
                 Some(held)
             }
         }
     }
+}
+
+/// The legacy reading of a step path in a bound session.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum LegacyRead {
+    /// The legacy resolver does not reach a file.
+    Absent,
+    /// Not read: a special file, a bound target under another spelling, or
+    /// nothing safe to read on this platform.
+    Unknown(&'static str),
+    /// The bytes of a regular file that is no bound target.
+    Bytes(Vec<u8>),
+}
+
+#[cfg(unix)]
+fn read_unless_bound(root: &Path, resolved: &Path, names: &[&Name]) -> LegacyRead {
+    use std::io::Read as _;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+    let Ok(file) = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(resolved)
+    else {
+        return LegacyRead::Absent;
+    };
+    let Ok(opened) = file.metadata() else {
+        return LegacyRead::Unknown("unreadable");
+    };
+    if !opened.is_file() {
+        return LegacyRead::Unknown("special_file");
+    }
+    let bound = names.iter().any(|name| {
+        name.identity
+            .as_ref()
+            .and_then(|relative| std::fs::symlink_metadata(root.join(relative)).ok())
+            .is_some_and(|meta| meta.dev() == opened.dev() && meta.ino() == opened.ino())
+    });
+    if bound {
+        return LegacyRead::Unknown("alias");
+    }
+    let mut bytes = Vec::new();
+    match (&file).read_to_end(&mut bytes) {
+        Ok(_) => LegacyRead::Bytes(bytes),
+        Err(_) => LegacyRead::Unknown("unreadable"),
+    }
+}
+
+#[cfg(not(unix))]
+fn read_unless_bound(_root: &Path, _resolved: &Path, _names: &[&Name]) -> LegacyRead {
+    LegacyRead::Unknown("unsupported_platform")
 }
 
 /// Reads `paths` within the set bounds. More than [`MAX_TARGETS`] paths read

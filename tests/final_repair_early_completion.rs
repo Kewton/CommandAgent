@@ -395,6 +395,8 @@ struct Run {
     adapter_calls: usize,
     workspace: tempfile::TempDir,
     elapsed: Duration,
+    /// The text of each executor request, in order.
+    requests: Vec<String>,
 }
 
 fn run(case: Case) -> Run {
@@ -471,6 +473,11 @@ fn run_seeded(case: Case, seed: Seed) -> Run {
     let mut replies = vec![initial(), initial()];
     replies.extend(case.repairs);
     let mut execution = FakeClient::new("execution", replies);
+    // The watchdog of `run_within` counts from here: after the runner lock
+    // and the fixture, right before the public entry.
+    if let Some(entered) = ENTERED.with(|slot| slot.borrow_mut().take()) {
+        let _ = entered.send(());
+    }
     let started = Instant::now();
     let output = commandagent::tui::slash::handle_command(
         "/run-ultra-plan ultra.yaml",
@@ -493,7 +500,26 @@ fn run_seeded(case: Case, seed: Seed) -> Run {
         adapter_calls,
         workspace: dir,
         elapsed,
+        requests: execution.requests.lock().unwrap().clone(),
     }
+}
+
+thread_local! {
+    /// Set by `run_within` on the thread that runs a case.
+    static ENTERED: std::cell::RefCell<Option<std::sync::mpsc::Sender<()>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+const UNCHANGED_FEEDBACK: &str = "is byte-for-byte unchanged since this repair started";
+const UNVERIFIABLE_FEEDBACK: &str =
+    "could not be verified because it exceeds the verification size limit or cannot be read safely";
+
+/// Whether any executor request after the plan phases carries `text`.
+fn repair_requests_contain(run: &Run, text: &str) -> bool {
+    run.requests
+        .iter()
+        .skip(2)
+        .any(|request| request.contains(text))
 }
 
 fn corpus_case(id: &str) -> Value {
@@ -605,6 +631,9 @@ fn a_bash_cat_before_the_write_keeps_the_next_request() {
     });
     assert_case("bash-cat-then-write-1", &run);
     assert_eq!(target(&run), FIXED);
+    // The model is told the artifact is unchanged, not that it is unverifiable.
+    assert!(repair_requests_contain(&run, UNCHANGED_FEEDBACK));
+    assert!(!repair_requests_contain(&run, UNVERIFIABLE_FEEDBACK));
 }
 
 /// A passing inspection (`test -f`, `ls`) is not a repair either.
@@ -761,9 +790,16 @@ fn a_fifo_artifact_is_refused_and_the_entry_returns() {
 fn run_within(case: Case, limit: Duration) -> Run {
     let id = case.id;
     let (sender, receiver) = std::sync::mpsc::channel();
+    let (entered, entered_receiver) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
+        ENTERED.with(|slot| *slot.borrow_mut() = Some(entered));
         let _ = sender.send(run(case));
     });
+    // Waiting for the runner lock and the fixture is not the case's time:
+    // the limit starts when the run enters the public entry.
+    if entered_receiver.recv().is_err() {
+        panic!("{id}: the run ended before the public entry");
+    }
     match receiver.recv_timeout(limit) {
         Ok(run) => run,
         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
@@ -1001,6 +1037,11 @@ fn a_target_of_1048577_bytes_is_unknown_and_ends_as_a_non_success() {
     let run = file_case("file-1048577-1", 1_048_577);
     assert_case("file-1048577-1", &run);
     assert_binding("file-1048577-1", &run);
+    // The model is told the change cannot be verified, never that the
+    // artifact is unchanged, and no size is shown.
+    assert!(repair_requests_contain(&run, UNVERIFIABLE_FEEDBACK));
+    assert!(!repair_requests_contain(&run, UNCHANGED_FEEDBACK));
+    assert!(!repair_requests_contain(&run, "1048577"));
 }
 
 fn set_case(id: &'static str, total: usize) -> Run {
@@ -1164,6 +1205,8 @@ struct FakeClient {
     label: &'static str,
     replies: Arc<Mutex<Vec<AssistantReply>>>,
     calls: Arc<AtomicUsize>,
+    /// The text of every message of every request, in order.
+    requests: Arc<Mutex<Vec<String>>>,
 }
 
 impl FakeClient {
@@ -1172,6 +1215,7 @@ impl FakeClient {
             label,
             replies: Arc::new(Mutex::new(replies)),
             calls: Arc::new(AtomicUsize::new(0)),
+            requests: Arc::new(Mutex::new(Vec::new())),
         }
     }
 }
@@ -1192,11 +1236,18 @@ impl ChatClient for FakeClient {
     fn chat(
         &mut self,
         _model: &str,
-        _messages: &[ConversationMessage],
+        messages: &[ConversationMessage],
         _tools: &[ToolSpec],
         _native_tools_enabled: bool,
     ) -> anyhow::Result<AssistantReply> {
         self.calls.fetch_add(1, Ordering::SeqCst);
+        self.requests.lock().unwrap().push(
+            messages
+                .iter()
+                .map(|message| message.content.as_str())
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
         let mut replies = self.replies.lock().unwrap();
         if replies.is_empty() {
             anyhow::bail!("{} fake replies exhausted", self.label);
