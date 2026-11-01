@@ -66,6 +66,7 @@ mod implementation_completion;
 #[path = "loop_run/inspect_tool_policy.rs"]
 mod inspect_tool_policy;
 mod max_length_guard;
+mod output_limit_feedback;
 mod recoverable_tool_errors;
 mod repair_start_feedback;
 mod repair_turn_observation;
@@ -533,6 +534,8 @@ fn run_session_planned(
     let mut route_unbound_recovery_state =
         super::route_unbound_recovery::RouteUnboundRecoveryState::default();
     let mut malformed_native_tool_feedbacks = 0usize;
+    let mut output_limit =
+        output_limit_feedback::OutputLimitFeedback::new(config.eval_events_path.as_deref());
     let step_capability_gate = StepCapabilityGate::from_prompt(user_prompt, &options);
     let step_started = Instant::now();
     let step_wall_clock_cap = step_wall_clock_cap(&options);
@@ -683,6 +686,7 @@ fn run_session_planned(
                 .as_deref()
                 .filter(|_| !empty_fresh_retry_active),
         );
+        let request_feedback = output_limit.compose(request_feedback);
         let fresh_retry_messages;
         let mut request_messages = if empty_fresh_retry_active {
             empty_fresh_retry_pending = false;
@@ -737,7 +741,7 @@ fn run_session_planned(
         let chat_outcome = {
             let mut guard = ui.before_model_call(&label);
             let mut outcome = budget_closing.chat_with_cancel_and_stream(
-                &mut *client,
+                &mut output_limit.watch(&mut *client),
                 config,
                 provider_call::ProviderChatRequest {
                     scope: call_scope,
@@ -756,6 +760,7 @@ fn run_session_planned(
             }
             outcome
         };
+        output_limit.settle();
         let provider_turn_elapsed = chat_outcome.elapsed;
         record_time_sink(
             &mut time_sinks,
@@ -824,6 +829,7 @@ fn run_session_planned(
                     }),
                 );
                 pending_feedback = Some(super::feedback::malformed_tool_call(&err.to_string()));
+                output_limit.observe_malformed(&err, config.num_predict);
                 continue;
             }
             Err(err)
@@ -904,6 +910,7 @@ fn run_session_planned(
             drop(turn_events);
             return Err(max_length_guard.stop(config, &options, user_prompt, &changed_paths));
         }
+        output_limit.observe_reply(&reply, config.num_predict);
         if plan_only_turn {
             continue;
         }
