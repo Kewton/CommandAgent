@@ -1304,6 +1304,352 @@ fn a_directive_dispatch_does_nothing_to_the_workspace_before_a_refusal() {
     assert_all_routes(vec![outcome]);
 }
 
+const OWN_PROCESS_ENV: &str = "COMMANDAGENT_TEST_972_OWN_PROCESS";
+
+/// Runs `test` alone in its own process with these variables, because what it installs
+/// (a workflow's sandbox, a fake on `PATH`) is process-wide. Returns true in the child.
+fn in_own_process(test: &str, environment: &[(&str, &std::ffi::OsStr)]) -> bool {
+    if std::env::var_os(OWN_PROCESS_ENV).is_some() {
+        return true;
+    }
+    let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+    command
+        .args(["--exact", test, "--nocapture"])
+        .env(OWN_PROCESS_ENV, "1");
+    for (name, value) in environment {
+        command.env(name, value);
+    }
+    let status = command.status().unwrap();
+    assert!(status.success(), "{status}");
+    false
+}
+
+const REPRODUCER_MARKER: &str = "reproducer-ran";
+
+/// An origin whose first reproducer candidate leaves a marker when a host runs it, and
+/// the workflow around it. Returns the origin and the definition.
+fn workflow_origin(root: &Path) -> (PathBuf, PathBuf) {
+    let origin = root.join("origin");
+    let run_dir = origin.join(".anvil/runs/origin-run");
+    std::fs::create_dir_all(&run_dir).unwrap();
+    std::fs::create_dir_all(origin.join(".anvil/plans")).unwrap();
+    std::fs::create_dir_all(origin.join("pipeline")).unwrap();
+    std::fs::write(
+        run_dir.join("events.jsonl"),
+        concat!(
+            r#"{"event":"run_start","action":"Prompt(\"origin goal\")"}"#,
+            "\n",
+            r#"{"event":"run_stop","status":"failed"}"#,
+            "\n"
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        origin.join(".anvil/plans/recovery-origin.yaml"),
+        "version: 1\n",
+    )
+    .unwrap();
+    std::fs::write(
+        origin.join("pipeline/main.py"),
+        format!("open(\"{REPRODUCER_MARKER}\", \"w\").close()\nraise SystemExit(1)\n"),
+    )
+    .unwrap();
+    let definition = root.join("workflow.yaml");
+    std::fs::write(
+        &definition,
+        "workflow: outer-profile\nversion: 0.2\nentry: create\nnodes:\n  create: { intent: create, profile: generic }\n  rebuild: { intent: create, profile: generic }\nroutes:\n  - { from: create, on: failed, when: recovery_yaml_present, to: rebuild, carry: [workspace, recovery_yaml] }\nterminal: {}\n",
+    )
+    .unwrap();
+    (origin, definition)
+}
+
+#[test]
+fn the_library_workflow_entry_refuses_before_the_origin_reproducer_runs() {
+    let private = tempfile::tempdir().unwrap();
+    let home = private.path().join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    if !in_own_process(
+        "the_library_workflow_entry_refuses_before_the_origin_reproducer_runs",
+        &[("HOME", home.as_os_str())],
+    ) {
+        return;
+    }
+    let _guard = lock();
+    extension();
+    let registry = operator_registry();
+    set_env(REGISTRY_ENV, registry.path().to_str());
+
+    let refused_root = std::fs::canonicalize(private.path()).unwrap();
+    let (origin, definition) = workflow_origin(&refused_root);
+    let before = workspace_digest(&origin);
+    let fixture = fixture();
+    let provider = CountingEndpoint::start();
+    let mut refused = refused_config(&fixture);
+    refused.ollama_host = provider.url.clone();
+    let error = commandagent::workflow::orchestrator::run_workflow(&refused, &definition, &origin)
+        .unwrap_err();
+    assert!(
+        format!("{error:#}").contains("profile_tool_refused: unknown_tool_id"),
+        "{error:#}"
+    );
+    assert_eq!(provider.finish(), 0);
+    assert!(!origin.join(REPRODUCER_MARKER).exists());
+    assert!(!origin.join("evidence/workflow-events.jsonl").exists());
+    assert_eq!(workspace_digest(&origin), before);
+    assert_no_events("run_workflow", &fixture);
+
+    // The marker is a real witness: with no declaration the same call runs it.
+    let open = tempfile::tempdir().unwrap();
+    let open_root = std::fs::canonicalize(open.path()).unwrap();
+    let (origin, definition) = workflow_origin(&open_root);
+    let fixture = self::fixture();
+    let provider = CountingEndpoint::start();
+    let mut off = config(&fixture.root, &fixture.evidence, OFF_DRAFT);
+    off.ollama_host = provider.url.clone();
+    let _ = commandagent::workflow::orchestrator::run_workflow(&off, &definition, &origin);
+    provider.finish();
+    assert!(origin.join(REPRODUCER_MARKER).exists());
+    assert!(origin.join("evidence/workflow-events.jsonl").exists());
+    set_env(REGISTRY_ENV, None);
+}
+
+/// Everything a `--workflow` run shows, with only what differs by construction made
+/// the same: its private directories, port, ids, build stamp, and measured times.
+fn workflow_cli_observation(binary: &Path, profile: &str) -> BTreeMap<String, String> {
+    let private = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(private.path()).unwrap();
+    let (origin, definition) = workflow_origin(&root);
+    let (outer, home) = (root.join("outer"), root.join("home"));
+    std::fs::create_dir_all(&outer).unwrap();
+    std::fs::create_dir_all(&home).unwrap();
+    let registry = operator_registry();
+    let provider = CountingEndpoint::start();
+    let output = std::process::Command::new(binary)
+        .arg("--extension-root")
+        .arg(&extension().root)
+        .args(["--ollama-host", &provider.url, "--model", "m"])
+        .args(["--profile", profile, "--workflow"])
+        .arg(&definition)
+        .arg("--origin")
+        .arg(&origin)
+        .current_dir(&outer)
+        .env_clear()
+        .env("HOME", &home)
+        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+        .env(REGISTRY_ENV, registry.path())
+        .output()
+        .unwrap();
+    let provider_url = provider.url.clone();
+    let provider_calls = provider.finish();
+    let volatile = regex::Regex::new(concat!(
+        r#"("(?:build_commit|build_dirty|build_timestamp|epoch|pid|[a-z_]*_at|[a-z_]*_epoch_ms|"#,
+        r#"[a-z_]*duration_ms|[a-z_]*elapsed_ms|builds_ms|executor_ms|installs_ms|latency_ms|"#,
+        r#"other_ms|planner_ms|planner_step_ms|planner_ultra_ms|probe_ms|provider_ms|repair_ms|"#,
+        r#"time_profile_[a-z_]*ms|total_ms)":\s*)("[^"]*"|[a-z0-9.]+)"#,
+    ))
+    .unwrap();
+    let identifier =
+        regex::Regex::new(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}").unwrap();
+    let reported_time = regex::Regex::new(r"elapsed_ms: [0-9]+").unwrap();
+    let stable = |text: &str| {
+        let text = text
+            .replace(&root.display().to_string(), "<ROOT>")
+            .replace(&registry.path().display().to_string(), "<REGISTRY>")
+            .replace(&extension().root.display().to_string(), "<EXTENSION>")
+            .replace(&provider_url, "<PROVIDER>");
+        let text = volatile.replace_all(&text, "${1}<V>");
+        let text = reported_time.replace_all(&text, "elapsed_ms: <V>");
+        identifier.replace_all(&text, "<ID>").into_owned()
+    };
+    let mut seen = BTreeMap::new();
+    seen.insert("code".to_string(), format!("{:?}", output.status.code()));
+    seen.insert(
+        "stdout".to_string(),
+        stable(&String::from_utf8_lossy(&output.stdout)),
+    );
+    seen.insert(
+        "stderr".to_string(),
+        stable(&String::from_utf8_lossy(&output.stderr)),
+    );
+    seen.insert("provider_calls".to_string(), provider_calls.to_string());
+    let mut pending = vec![root.clone()];
+    while let Some(directory) = pending.pop() {
+        for entry in std::fs::read_dir(directory).unwrap().flatten() {
+            let path = entry.path();
+            let relative = path.strip_prefix(&root).unwrap().display().to_string();
+            if path.is_dir() {
+                pending.push(path);
+            } else if !relative.starts_with("home/") && !relative.ends_with(".pyc") {
+                let bytes = std::fs::read(&path).unwrap();
+                seen.insert(
+                    format!("file {}", stable(&relative)),
+                    stable(&String::from_utf8_lossy(&bytes)),
+                );
+            }
+        }
+    }
+    seen
+}
+
+fn assert_same_observation(
+    label: &str,
+    left: &BTreeMap<String, String>,
+    right: &BTreeMap<String, String>,
+) {
+    let keys = left
+        .keys()
+        .chain(right.keys())
+        .collect::<std::collections::BTreeSet<_>>();
+    for key in keys {
+        assert_eq!(left.get(key), right.get(key), "{label}: {key}");
+    }
+}
+
+/// `--workflow` is admitted at `src/lib.rs:139` and again by `run_workflow`. The second
+/// admission adds nothing: a refusal is reported once, by the first, with no event; an
+/// off run reaches the reproducer and shows the same bytes each time.
+#[test]
+fn the_workflow_cli_path_is_admitted_twice_with_one_refusal_and_a_stable_off_run() {
+    let binary = PathBuf::from(env!("CARGO_BIN_EXE_commandagent"));
+    extension();
+    let refused = workflow_cli_observation(&binary, REFUSED);
+    assert_eq!(refused["code"], "Some(2)", "{}", refused["stderr"]);
+    assert_eq!(refused["provider_calls"], "0");
+    assert_eq!(refused["stdout"], "");
+    assert_eq!(
+        refused["stderr"].matches("profile_tool_refused").count(),
+        1,
+        "{}",
+        refused["stderr"]
+    );
+    for (key, value) in &refused {
+        assert!(
+            !key.contains(REPRODUCER_MARKER) && !key.contains("evidence/"),
+            "{key}"
+        );
+        if key.starts_with("file ") {
+            assert!(!value.contains("profile_tool_refused"), "{key}");
+        }
+    }
+    assert_same_observation(
+        "refused",
+        &refused,
+        &workflow_cli_observation(&binary, REFUSED),
+    );
+
+    // The OS sandbox refuses the reproducer's write outside the outer workspace, so here
+    // what shows it ran is the recorded prevalidation.
+    let off = workflow_cli_observation(&binary, OFF_DRAFT);
+    assert!(
+        off["file origin/evidence/workflow-events.jsonl"]
+            .contains("workflow_reproducer_prevalidated"),
+        "{:?}",
+        off.keys().collect::<Vec<_>>()
+    );
+    assert!(
+        off.values()
+            .all(|value| !value.contains("profile_tool_refused")),
+        "an off run recorded a refusal"
+    );
+    assert_same_observation("off", &off, &workflow_cli_observation(&binary, OFF_DRAFT));
+}
+
+/// A selected pack can declare tools for a profile with a port, which is what brings
+/// a port preflight into a slash command. The preflight runs `lsof`, here a fake that
+/// leaves a marker, and only `run_command`'s own refusal comes before it.
+#[cfg(unix)]
+#[test]
+fn a_slash_refusal_comes_before_the_port_preflight() {
+    use std::os::unix::fs::PermissionsExt;
+    let private = tempfile::tempdir().unwrap();
+    let bin = private.path().join("bin");
+    let marker = private.path().join("lsof-ran");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::write(
+        bin.join("lsof"),
+        format!("#!/bin/sh\n: > '{}'\nexit 1\n", marker.display()),
+    )
+    .unwrap();
+    std::fs::set_permissions(bin.join("lsof"), std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut path = std::ffi::OsString::from(&bin);
+    path.push(":");
+    path.push(std::env::var_os("PATH").unwrap_or_default());
+    let marker_env = marker.as_os_str().to_os_string();
+    if !in_own_process(
+        "a_slash_refusal_comes_before_the_port_preflight",
+        &[
+            ("PATH", path.as_os_str()),
+            ("COMMANDAGENT_TEST_972_LSOF_MARKER", marker_env.as_os_str()),
+        ],
+    ) {
+        return;
+    }
+    let marker = PathBuf::from(std::env::var_os("COMMANDAGENT_TEST_972_LSOF_MARKER").unwrap());
+    let _guard = lock();
+    let registry = operator_registry();
+    set_env(REGISTRY_ENV, registry.path().to_str());
+    let packs = tempfile::tempdir().unwrap();
+    let eval = "schema_version: commandagent.pack.eval/v0\npack:\n  id: nextjs-declares\n  version: 1.0.0\n  profile: nextjs\n  intent: create\nprofile_tools:\n  schema_version: profile-tool.declaration/v1\n  builtin_tools: [Read]\n  tools:\n    - id: never-registered\n      effect: read\n";
+    let hash = exact_byte_hash(None, Some(eval.as_bytes()));
+    std::fs::write(packs.path().join("eval.yaml"), eval).unwrap();
+    std::fs::write(packs.path().join("pack.sha256"), format!("{hash}\n")).unwrap();
+
+    // The preflight asks `lsof` who owns a port only when the port is busy.
+    let busy = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = busy.local_addr().unwrap().port();
+    for name in ["/plan-run", "/ultra-plan-run"] {
+        let command = format!("{name} Write the notes on port {port}");
+        let command = command.as_str();
+        let selection = [
+            packs.path().to_str().unwrap(),
+            "nextjs-declares",
+            "1.0.0",
+            hash.as_str(),
+        ];
+        for (name, value) in PACK_ENVS.iter().zip(selection) {
+            set_env(name, Some(value));
+        }
+        let fixture = fixture();
+        let before = workspace_digest(&fixture.root);
+        let mut planner = ScriptedClient::new(Vec::new());
+        let mut execution = ScriptedClient::new(Vec::new());
+        let result = handle_command(
+            command,
+            &config(&fixture.root, &fixture.evidence, "nextjs"),
+            &mut planner,
+            &mut execution,
+            &NOOP_UI,
+        )
+        .map_err(|error| format!("{error:#}"));
+        assert!(!marker.exists(), "{command}: the preflight ran lsof");
+        assert_all_routes(vec![assert_refused_without_side_effects(
+            command,
+            &fixture,
+            &before,
+            planner.calls() + execution.calls(),
+            result,
+        )]);
+
+        // The marker is a real witness: with no selection the same command reaches it.
+        for name in PACK_ENVS {
+            set_env(name, None);
+        }
+        let open = self::fixture();
+        let mut planner = ScriptedClient::new(Vec::new());
+        let mut execution = ScriptedClient::new(Vec::new());
+        let _ = handle_command(
+            command,
+            &config(&open.root, &open.evidence, "nextjs"),
+            &mut planner,
+            &mut execution,
+            &NOOP_UI,
+        );
+        assert!(marker.exists(), "{command}: lsof was not reached");
+        std::fs::remove_file(&marker).unwrap();
+    }
+    set_env(REGISTRY_ENV, None);
+}
+
 /// `--run-plan` through the binary, against a counting provider.
 fn binary_run_plan(fixture: &Fixture, registry: &Path, profile: &str) -> (Option<i32>, String) {
     let provider = CountingEndpoint::start();

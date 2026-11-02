@@ -72,6 +72,7 @@ Every refusal below happens before the first provider call, with the message
 | An UltraPlan as a library call (`generate_ultra_plan`, `generate_and_run_ultra_plan`, `run_ultra_plan`, `run_ultra_plan_file`, and each `_with_ui`) | Before a prebuilt plan, a plan file, an event, and a provider call | The call returns the refusal |
 | A direct prompt as a library call (`run_direct_prompt_with`, `run_direct_prompt_with_common`) | Before the classifier, `request_pattern_resolved`, and a provider call | The call returns the refusal |
 | A model probe as a library call (`run_configured`, `run_with_output_dir`) | Before its scratch workspace, its output directory, and a provider call | The call returns the refusal |
+| A workflow as a library call (`run_workflow`) | Before the origin reproducer, `evidence/workflow-events.jsonl`, and a provider call | The call returns the refusal |
 | A session or planner call | Before that call's provider request | The call fails |
 
 A pack that fails to resolve is not known to declare anything, so at the CLI gate its
@@ -84,12 +85,27 @@ command) is admitted by the TUI command's check, with the effective profile.
 
 ### Known limits
 
-- Admission is decided at the entry a caller uses. The parts below an entry, and the parts
-  that do not take a profile, are not gated: `request_pattern::resolve`, `JevClassifier`,
-  each `ChatClient` client, the tools (`execute`, Bash, Write, Edit), `provider_call`,
+- **The verification, repair, process, and storage parts below an agent run** are not
+  gated: admission is decided at the entry a caller uses, and some of these parts take a
+  profile for other reasons (`planner/profile.rs`, `verifier_env.rs`). They are each
+  `ChatClient` client, the tools (`execute`, Bash, Write, Edit), `provider_call`,
   `bounded_process`, the verify, probe, and save helpers, `doctor`, `preflight`,
-  `repair_target`, and `hook_snapshot`. A caller that uses one directly has chosen no
-  profile for it to check.
+  `repair_target`, `hook_snapshot`, `planner::profiles::python_cli::argv_probe::run`,
+  `tui::history::prepare_workspace_history_path`,
+  `BoundaryShell::prepare_confirmed_continuation`, and `workflow::runner::verify_origin` and
+  `verify_origin_from_events`, which guarantee neither admission nor what their callback does.
+- `request_pattern::resolve` and `JevClassifier` are not run APIs that have been through
+  admission. A product run uses them only after its guard; a caller that uses one alone
+  is responsible for that itself.
+- `BoundaryShell::dispatch` and `dispatch_directive` are control parts that hand execution
+  to a closure, and do not guarantee admission themselves. What is guarded is the REPL's
+  path, whose closure uses `handle_command`.
+- `repl::run_repl` and `tui::repl::run`: starting the binary is guarded at `src/lib.rs:139`.
+  As library entries they have no guard up to initializing the UI and preparing the
+  history directory; a command that executes something is refused by `handle_command`.
+- `run_workflow` admits the profile in its own config. A node that names another profile is
+  admitted when that child runs, so a reproducer derived from the origin can run first if
+  only the node's profile is refused.
 - The TUI classifier for an Ambiguous route (`src/tui/boundary_shell/ambiguity.rs`) runs
   before a profile is chosen and cannot dispatch, so its classification call is not
   gated.
