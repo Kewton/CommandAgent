@@ -23,9 +23,10 @@ use commandagent::minimal_loop::request_pattern::{
 };
 use commandagent::planner::pack::exact_byte_hash;
 use commandagent::planner::runner::{
-    generate_and_run_ultra_plan, generate_and_run_ultra_plan_with_ui, generate_ultra_plan,
-    generate_ultra_plan_with_ui, run_ultra_plan, run_ultra_plan_file, run_ultra_plan_file_with_ui,
-    run_ultra_plan_with_ui,
+    generate_and_run_step_plan, generate_and_run_step_plan_with_ui, generate_and_run_ultra_plan,
+    generate_and_run_ultra_plan_with_ui, generate_ultra_plan, generate_ultra_plan_with_ui,
+    run_step_plan, run_step_plan_with_ui, run_ultra_plan, run_ultra_plan_file,
+    run_ultra_plan_file_with_ui, run_ultra_plan_with_ui,
 };
 use commandagent::planner::step_plan::{PlanStep, StepPlan, render_step_plan};
 use commandagent::planner::ultra_plan::{UltraPhase, UltraPlan, render_ultra_plan};
@@ -37,6 +38,7 @@ use commandagent::tui::boundary_shell::ambiguity::{
     ClassifierProvenance, ProposalStatus, RouteProposal,
 };
 use commandagent::tui::boundary_shell::confirmation::{ExecutionPins, PackSelection};
+use commandagent::tui::boundary_shell::directive::DirectiveContinuation;
 use commandagent::tui::boundary_shell::route::{
     DeterministicResolution, ExplicitRouteBinding, RouteRequest, deterministic_route,
 };
@@ -1056,6 +1058,250 @@ fn the_ultra_plan_run_entries_refuse_before_anything_runs() {
     }
     set_env(REGISTRY_ENV, None);
     assert_all_routes(outcomes);
+}
+
+const MODEL_PROBE_CHILD_ENV: &str = "COMMANDAGENT_TEST_972_MODEL_PROBE_CHILD";
+
+/// A probe's scratch workspace goes below the temporary directory and is removed when
+/// it ends, and `run_configured` writes below `HOME`. So this runs alone in its own
+/// process with both private: nothing it does reaches the real ones, and a scratch
+/// that came and went still changes the temporary directory's modification time.
+#[test]
+fn the_model_probe_library_entries_refuse_before_any_scratch_or_output() {
+    if std::env::var_os(MODEL_PROBE_CHILD_ENV).is_none() {
+        let private = tempfile::tempdir().unwrap();
+        let (home, temporary) = (private.path().join("home"), private.path().join("tmp"));
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(&temporary).unwrap();
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "the_model_probe_library_entries_refuse_before_any_scratch_or_output",
+                "--nocapture",
+            ])
+            .env(MODEL_PROBE_CHILD_ENV, "1")
+            .env("HOME", &home)
+            .env("TMPDIR", &temporary)
+            .status()
+            .unwrap();
+        assert!(status.success(), "{status}");
+        return;
+    }
+    let _guard = lock();
+    extension();
+    let registry = operator_registry();
+    set_env(REGISTRY_ENV, registry.path().to_str());
+    let home = PathBuf::from(std::env::var_os("HOME").unwrap());
+    let mut outcomes = Vec::new();
+    for entry in ["run_configured", "run_with_output_dir"] {
+        let fixture = fixture();
+        let before = workspace_digest(&fixture.root);
+        let home_before = workspace_digest(&home);
+        let output = fixture.evidence.join("probe-output");
+        let refused = refused_config(&fixture);
+        let temporary_before = std::fs::metadata(std::env::temp_dir())
+            .unwrap()
+            .modified()
+            .unwrap();
+        let mut planner = ScriptedClient::new(Vec::new());
+        let mut execution = ScriptedClient::new(Vec::new());
+        let result = match entry {
+            "run_configured" => {
+                commandagent::model_probe::run_configured(&refused, &mut planner, &mut execution)
+            }
+            _ => commandagent::model_probe::run_with_output_dir(
+                &refused,
+                &mut planner,
+                &mut execution,
+                output.clone(),
+            ),
+        }
+        .map(|_| String::new())
+        .map_err(|error| format!("{error:#}"));
+        assert_eq!(
+            std::fs::metadata(std::env::temp_dir())
+                .unwrap()
+                .modified()
+                .unwrap(),
+            temporary_before,
+            "{entry}: a scratch workspace was made"
+        );
+        assert!(!output.exists(), "{entry}: the output directory was made");
+        assert_eq!(workspace_digest(&home), home_before, "{entry}");
+        assert_no_events(entry, &fixture);
+        outcomes.push(assert_refused_without_side_effects(
+            entry,
+            &fixture,
+            &before,
+            planner.calls() + execution.calls(),
+            result,
+        ));
+    }
+    set_env(REGISTRY_ENV, None);
+    assert_all_routes(outcomes);
+}
+
+#[test]
+fn the_step_plan_run_library_entries_refuse_before_a_host_command() {
+    let _guard = lock();
+    extension();
+    let registry = operator_registry();
+    set_env(REGISTRY_ENV, registry.path().to_str());
+    let mut outcomes = Vec::new();
+    for entry in ["run_step_plan", "run_step_plan_with_ui"] {
+        let fixture = fixture();
+        let before = workspace_digest(&fixture.root);
+        // A verify step with an expected path runs its command before any session.
+        let plan = StepPlan {
+            goal: "Check the settings".to_string(),
+            steps: vec![step("verify", &["settings.json"])],
+        };
+        let refused = refused_config(&fixture);
+        let mut client = ScriptedClient::new(Vec::new());
+        let result = match entry {
+            "run_step_plan" => run_step_plan(&mut client, &plan, &refused),
+            _ => run_step_plan_with_ui(&mut client, &plan, &refused, &NOOP_UI),
+        }
+        .map_err(|error| format!("{error:#}"));
+        assert_no_events(entry, &fixture);
+        outcomes.push(assert_refused_without_side_effects(
+            entry,
+            &fixture,
+            &before,
+            client.calls(),
+            result,
+        ));
+    }
+    set_env(REGISTRY_ENV, None);
+    assert_all_routes(outcomes);
+}
+
+#[test]
+fn the_generate_and_run_step_plan_entries_refuse_before_any_plan_exists() {
+    let _guard = lock();
+    extension();
+    let registry = operator_registry();
+    set_env(REGISTRY_ENV, registry.path().to_str());
+    let mut outcomes = Vec::new();
+    for entry in [
+        "generate_and_run_step_plan",
+        "generate_and_run_step_plan_with_ui",
+    ] {
+        let fixture = fixture();
+        let before = workspace_digest(&fixture.root);
+        let refused = refused_config(&fixture);
+        let mut planner = ScriptedClient::new(Vec::new());
+        let mut execution = ScriptedClient::new(Vec::new());
+        let goal = "Check the settings";
+        let result = match entry {
+            "generate_and_run_step_plan" => {
+                generate_and_run_step_plan(&mut planner, &mut execution, goal, &refused)
+            }
+            _ => generate_and_run_step_plan_with_ui(
+                &mut planner,
+                &mut execution,
+                goal,
+                &refused,
+                &NOOP_UI,
+            ),
+        }
+        .map_err(|error| format!("{error:#}"));
+        outcomes.push(assert_refused_without_side_effects(
+            entry,
+            &fixture,
+            &before,
+            planner.calls() + execution.calls(),
+            result,
+        ));
+    }
+    set_env(REGISTRY_ENV, None);
+    assert_all_routes(outcomes);
+}
+
+/// The Gate 4 continuation, through the real shell: a failed run, a confirmed
+/// directive, and the command `src/tui/repl.rs` runs inside `dispatch_directive`.
+#[test]
+fn a_directive_dispatch_does_nothing_to_the_workspace_before_a_refusal() {
+    let _guard = lock();
+    extension();
+    let registry = operator_registry();
+    set_env(REGISTRY_ENV, registry.path().to_str());
+    let fixture = fixture();
+    let before = workspace_digest(&fixture.root);
+    let audit = fixture.evidence.join("boundary-events.jsonl");
+    let mut shell = BoundaryShell::new(fixture.evidence.join("confirmations"), Some(audit.clone()));
+    let identity = shell
+        .begin_gate_one(
+            gate_one_proposal(&fixture.root),
+            "Write the notes",
+            &fixture.root,
+            ExecutionPins {
+                planner_provider: "ollama".to_string(),
+                planner_model: "m".to_string(),
+                executor_provider: "ollama".to_string(),
+                executor_model: "m".to_string(),
+                preset: "profile".to_string(),
+                think: None,
+            },
+            PackSelection::None,
+        )
+        .unwrap()
+        .clone();
+    shell.confirm(&identity.card_hash().unwrap()).unwrap();
+    shell.dispatch(|_| Ok("failed".to_string())).unwrap();
+    shell
+        .present_terminal(
+            "# sheet\n\n## 5. Stop reason\nfailed".to_string(),
+            false,
+            Some("failed".to_string()),
+        )
+        .unwrap();
+    commandagent::eval_events::emit(
+        Some(&audit),
+        json!({
+            "event": "tui_command_stop",
+            "ok": false,
+            "status": "failed",
+            "stop_reason": "fixture failure",
+        }),
+    );
+    let directive = shell
+        .begin_directive("Repair the notes", "run-001", 1)
+        .unwrap()
+        .clone();
+    let continuation = DirectiveContinuation {
+        plan_path: fixture.root.join("ultra.yaml"),
+        plan_workspace_path: "ultra.yaml".to_string(),
+        target_run_id: "run-001".to_string(),
+        directive_round: 1,
+        directive_hash: directive.hash().to_string(),
+        regression_freeze: None,
+    };
+    shell.confirm_directive(directive.hash()).unwrap();
+    let command = format!("/run-ultra-plan {}", continuation.plan_workspace_path);
+    let dispatch_config = refused_config(&fixture);
+    let mut planner = ScriptedClient::new(Vec::new());
+    let mut execution = ScriptedClient::new(Vec::new());
+    let result = shell
+        .dispatch_directive(&continuation, || {
+            handle_command(
+                &command,
+                &dispatch_config,
+                &mut planner,
+                &mut execution,
+                &NOOP_UI,
+            )
+        })
+        .map_err(|error| format!("{error:#}"));
+    let outcome = assert_refused_without_side_effects(
+        "dispatch_directive",
+        &fixture,
+        &before,
+        planner.calls() + execution.calls(),
+        result,
+    );
+    set_env(REGISTRY_ENV, None);
+    assert_all_routes(vec![outcome]);
 }
 
 /// `--run-plan` through the binary, against a counting provider.

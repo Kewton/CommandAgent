@@ -71,6 +71,7 @@ Every refusal below happens before the first provider call, with the message
 | An UltraPlan run through `auto_recovery` as a library call (`generate_and_run_with_ui`, `run_file_with_ui`, `run_plan_with_ui`) | Before the first planner call and any recovery file | The call returns the refusal |
 | An UltraPlan as a library call (`generate_ultra_plan`, `generate_and_run_ultra_plan`, `run_ultra_plan`, `run_ultra_plan_file`, and each `_with_ui`) | Before a prebuilt plan, a plan file, an event, and a provider call | The call returns the refusal |
 | A direct prompt as a library call (`run_direct_prompt_with`, `run_direct_prompt_with_common`) | Before the classifier, `request_pattern_resolved`, and a provider call | The call returns the refusal |
+| A model probe as a library call (`run_configured`, `run_with_output_dir`) | Before its scratch workspace, its output directory, and a provider call | The call returns the refusal |
 | A session or planner call | Before that call's provider request | The call fails |
 
 A pack that fails to resolve is not known to declare anything, so at the CLI gate its
@@ -83,6 +84,12 @@ command) is admitted by the TUI command's check, with the effective profile.
 
 ### Known limits
 
+- Admission is decided at the entry a caller uses. The parts below an entry, and the parts
+  that do not take a profile, are not gated: `request_pattern::resolve`, `JevClassifier`,
+  each `ChatClient` client, the tools (`execute`, Bash, Write, Edit), `provider_call`,
+  `bounded_process`, the verify, probe, and save helpers, `doctor`, `preflight`,
+  `repair_target`, and `hook_snapshot`. A caller that uses one directly has chosen no
+  profile for it to check.
 - The TUI classifier for an Ambiguous route (`src/tui/boundary_shell/ambiguity.rs`) runs
   before a profile is chosen and cannot dispatch, so its classification call is not
   gated.
