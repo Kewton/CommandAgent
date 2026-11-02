@@ -835,6 +835,65 @@ fn the_auto_recovery_library_entries_refuse_before_anything_runs() {
     assert_all_routes(outcomes);
 }
 
+/// With recovery runs configured, `auto_recovery` records its configuration and starts
+/// the recovery authority before anything below it could refuse. A refusal comes first.
+#[test]
+fn the_auto_recovery_entries_refuse_before_recording_their_recovery_configuration() {
+    use commandagent::planner::auto_recovery::{
+        generate_and_run_with_ui, run_file_with_ui, run_plan_with_ui,
+    };
+    let _guard = lock();
+    extension();
+    let registry = operator_registry();
+    set_env(REGISTRY_ENV, registry.path().to_str());
+    let mut outcomes = Vec::new();
+    for entry in [
+        "generate_and_run_with_ui",
+        "run_file_with_ui",
+        "run_plan_with_ui",
+    ] {
+        let fixture = fixture();
+        let before = workspace_digest(&fixture.root);
+        let mut refused = refused_config(&fixture);
+        assert!(refused.eval_events_path.is_some());
+        refused.recovery_plan_auto_runs = 1;
+        let plan = commandagent::planner::ultra_plan::parse_ultra_plan(
+            &std::fs::read_to_string(fixture.root.join("ultra.yaml")).unwrap(),
+        )
+        .unwrap();
+        let mut planner = ScriptedClient::new(Vec::new());
+        let mut execution = ScriptedClient::new(Vec::new());
+        let result = match entry {
+            "generate_and_run_with_ui" => generate_and_run_with_ui(
+                &mut planner,
+                &mut execution,
+                "Write the notes",
+                &refused,
+                &NOOP_UI,
+            ),
+            "run_file_with_ui" => run_file_with_ui(
+                &mut planner,
+                &mut execution,
+                Path::new("ultra.yaml"),
+                &refused,
+                &NOOP_UI,
+            ),
+            _ => run_plan_with_ui(&mut planner, &mut execution, &plan, &refused, &NOOP_UI),
+        }
+        .map_err(|error| format!("{error:#}"));
+        assert_no_events(entry, &fixture);
+        outcomes.push(assert_refused_without_side_effects(
+            entry,
+            &fixture,
+            &before,
+            planner.calls() + execution.calls(),
+            result,
+        ));
+    }
+    set_env(REGISTRY_ENV, None);
+    assert_all_routes(outcomes);
+}
+
 /// A refused public entry leaves no event at all, so no `request_pattern_resolved`.
 fn assert_no_events(label: &str, fixture: &Fixture) {
     let events = std::fs::read_to_string(fixture.evidence.join("events.jsonl")).unwrap_or_default();
