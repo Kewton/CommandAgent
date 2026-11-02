@@ -482,8 +482,8 @@ mod text_reply_tests {
         }
     }
 
-    #[test]
-    fn a_schema_session_refuses_any_text_reply_whole_and_makes_no_call() {
+    /// One schema tool `T`, adopted from a workspace with no declared input.
+    pub(super) fn schema_state() -> ReceiveState {
         let workspace = tempfile::tempdir().unwrap();
         let root = std::fs::canonicalize(workspace.path()).unwrap();
         let schema = json!({
@@ -509,6 +509,12 @@ mod text_reply_tests {
             RegistryBinding::unreachable_for_test(),
             "pin",
         );
+        state
+    }
+
+    #[test]
+    fn a_schema_session_refuses_any_text_reply_whole_and_makes_no_call() {
+        let state = schema_state();
         let specs = [tool_spec("T"), tool_spec("Read"), tool_spec("Bash")];
 
         // Off: the same text reaches the parser, which is what the refusal stands in front of.
@@ -531,5 +537,145 @@ mod text_reply_tests {
             assert_eq!(reply.content, form, "the reply was parsed");
             assert!(state.shared.take("T").is_none(), "{form}: a receipt exists");
         }
+    }
+}
+
+/// The last comparison before a request leaves. Each entry's scrub and sanitizer run
+/// earlier and give this the same schema, so only a direct call can show that it looks.
+#[cfg(test)]
+mod send_tests {
+    use std::sync::Arc;
+
+    use serde_json::{Value, json};
+
+    use super::text_reply_tests::schema_state;
+    use super::{ReceiveState, check_send, enter_session};
+    use crate::providers::profile_tool_schema::ProfileToolSchemaWire;
+    use crate::providers::{AssistantReply, ChatClient};
+    use crate::state::ConversationMessage;
+    use crate::tools::registry::{FunctionSpec, ToolSpec};
+
+    struct WireClient(ProfileToolSchemaWire);
+
+    impl ChatClient for WireClient {
+        fn label(&self) -> &str {
+            "wire"
+        }
+
+        fn boxed_clone(&self) -> Box<dyn ChatClient> {
+            Box::new(Self(self.0))
+        }
+
+        fn profile_tool_schema_wire(&self) -> ProfileToolSchemaWire {
+            self.0
+        }
+
+        fn chat(
+            &mut self,
+            _model: &str,
+            _messages: &[ConversationMessage],
+            _tools: &[ToolSpec],
+            _native_tools_enabled: bool,
+        ) -> anyhow::Result<AssistantReply> {
+            unreachable!("the check never sends")
+        }
+    }
+
+    fn spec(name: &str, parameters: Value) -> ToolSpec {
+        ToolSpec {
+            kind: "function".to_string(),
+            function: FunctionSpec {
+                name: name.to_string(),
+                description: "d".to_string(),
+                parameters,
+            },
+        }
+    }
+
+    fn adopted(state: &ReceiveState) -> Value {
+        state.guards["T"].published_schema().clone()
+    }
+
+    fn refusal(tools: &[ToolSpec], client: Option<&dyn ChatClient>) -> String {
+        check_send(tools, client).unwrap_err().to_string()
+    }
+
+    #[test]
+    fn a_schema_other_than_the_adopted_one_is_refused_right_before_the_send() {
+        let state = Arc::new(schema_state());
+        let same = adopted(&state);
+        let mut with_a_description = same.clone();
+        with_a_description["properties"]["s"]["description"] = json!("added on the way out");
+        let mut with_another_type = same.clone();
+        with_another_type["properties"]["s"]["type"] = json!("number");
+        let mut with_a_property_gone = same.clone();
+        with_a_property_gone["properties"] = json!({});
+        let changed = [
+            with_a_description,
+            with_another_type,
+            with_a_property_gone,
+            json!({}),
+        ];
+
+        // Off: no session, and nothing compares.
+        for parameters in &changed {
+            check_send(&[spec("T", parameters.clone())], None).unwrap();
+        }
+
+        let _scope = enter_session(state);
+        check_send(&[spec("T", same.clone())], None).unwrap();
+        for parameters in &changed {
+            let error = refusal(&[spec("T", parameters.clone())], None);
+            assert!(
+                error.starts_with("profile_tool_refused: schema_scrubbed:"),
+                "{parameters}: {error}"
+            );
+            assert!(error.contains("`T`"), "{error}");
+            assert!(!error.contains("added on the way out"), "{error}");
+
+            // Behind an unchanged tool and a tool the session does not guard, too.
+            let error = refusal(
+                &[
+                    spec("Read", json!({"anything": true})),
+                    spec("T", same.clone()),
+                    spec("T", parameters.clone()),
+                ],
+                None,
+            );
+            assert!(error.starts_with("profile_tool_refused: schema_scrubbed:"));
+        }
+        check_send(&[spec("Read", json!({"anything": true}))], None).unwrap();
+    }
+
+    #[test]
+    fn a_client_replaced_for_one_call_must_carry_the_wire() {
+        let state = Arc::new(schema_state());
+        let same = adopted(&state);
+        let carrying = WireClient(ProfileToolSchemaWire::ChatCompletions);
+        let _scope = enter_session(state);
+        let tool = [spec("T", same)];
+
+        check_send(&tool, None).unwrap();
+        check_send(&tool, Some(&carrying)).unwrap();
+        for wire in [
+            ProfileToolSchemaWire::Responses,
+            ProfileToolSchemaWire::Undeclared,
+        ] {
+            let client = WireClient(wire);
+            let error = refusal(&tool, Some(&client));
+            assert!(
+                error.starts_with("profile_tool_refused: schema_unsupported:"),
+                "{wire:?}: {error}"
+            );
+            // A call that carries no schema tool is not this check's to refuse.
+            check_send(&[spec("Read", json!({}))], Some(&client)).unwrap();
+        }
+
+        // A changed schema is refused on a carrying client as well.
+        let changed = [spec("T", json!({}))];
+        assert!(
+            refusal(&changed, Some(&carrying))
+                .starts_with("profile_tool_refused: schema_scrubbed:")
+        );
     }
 }

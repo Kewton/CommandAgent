@@ -141,7 +141,7 @@ command) is admitted by the TUI command's check, with the effective profile.
 | `registry_unavailable` | The operator root is unset or cannot be resolved |
 | `unavailable` | A required capability below is not available |
 | `selected_pack_invalid` | The selected pack does not verify, or targets another profile |
-| `schema_unsupported` | A schema outside the subset below, a client that cannot carry it, or a schema the provider sanitizer would change |
+| `schema_unsupported` | A schema outside the subset below, a client that cannot carry it, the text tool protocol, or a schema the provider sanitizer would change |
 | `schema_limit_exceeded` | A schema over a limit below, or an operator limit wider than the opening one |
 | `schema_scrubbed` | The secret scrub would change the schema |
 | `schema_mismatch` | The compiler no longer gives the adopted schema from the adopted bytes, or a later admission finds another descriptor than the adopted one |
@@ -291,13 +291,13 @@ which providers qualify. These were decided with the project manager's approval.
   narrowing, and XML support moved to #978. The text tool protocol, the Responses API, both
   Gemini APIs, and Ollama are refused as `schema_unsupported` before any provider call, in
   `schema/invocation.rs` and `src/providers/profile_tool_schema.rs`, with those clients and the
-  XML parser unchanged. Support is
-  declared by the client (`ChatClient::profile_tool_schema_wire`). An entry that holds no
-  session client (a planner call, a workflow) asks the configuration what the executor role
-  would build, including the `openai_compatible` override. Nothing reads a label. An injected
-  client declares nothing and is refused; it is not assumed to qualify. A role that never
-  carries a schema tool, such as a classifier, does not decide; a call whose client is
-  replaced for that call by a classifier override is compared right before it is sent.
+  XML parser unchanged. Support is declared by the client
+  (`ChatClient::profile_tool_schema_wire`). An entry that holds no session client (a planner
+  call, a workflow) asks the configuration what the executor role would build, including the
+  `openai_compatible` override. Nothing reads a label. An injected client declares nothing and
+  is refused; it is not assumed to qualify. A role that never carries a schema tool, such as a
+  classifier, does not decide; a call whose client is replaced for that call by a classifier
+  override is compared right before it is sent.
 - **Where a dynamic schema comes from.** The descriptor declares a static `root` and `inputs`,
   workspace-relative paths read without following a symlink: at most 64, 1 MiB each, 8 MiB in
   all. A compiler the operator registered in the process (`register_schema_compiler`, by ID,
@@ -320,13 +320,13 @@ which providers qualify. These were decided with the project manager's approval.
 
 Each entry in the table above also refuses, before its first provider, classifier, or Jev
 call: the text tool protocol (use the native protocol instead), a client that cannot carry the
-tool, a schema a shared step on the way out would change,
-a schema over a limit, and an input that cannot be adopted. The provider sanitizer and the
-secret scrub are not changed for this. Each adopted schema is compared with its copy after the
-sanitizer and after the scrub, and again right before a request leaves; a difference is a
-refusal. A secret equal to a property name, an enum value, or a pattern is `schema_scrubbed`
-with the value not repeated. There is no fallback to plain text or Bash. A selected schema tool
-also keeps a session from starting the native-to-XML fallback, whatever caused the parse error.
+tool, a schema a shared step on the way out would change, a schema over a limit, and an input
+that cannot be adopted. The provider sanitizer and the secret scrub are not changed for this.
+Each adopted schema is compared with its copy after the sanitizer and after the scrub, and
+again right before a request leaves; a difference is a refusal. A secret equal to a property
+name, an enum value, or a pattern is `schema_scrubbed` with the value not repeated. There is no
+fallback to plain text or Bash. A selected schema tool also keeps a session from starting the
+native-to-XML fallback, whatever caused the parse error.
 
 ### On receipt
 

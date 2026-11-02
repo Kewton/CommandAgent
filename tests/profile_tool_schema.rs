@@ -1120,7 +1120,8 @@ mod repl_order {
 
     use super::{
         CONFIG_PROFILE, Env, FLAT_PROFILE, FakeHttp, REGISTRY_ENV, ToolProtocol, base_config,
-        closed, extension, flat_registry, install_reader, json, lock, set_env, text_reply,
+        closed, extension, flat_registry, install_reader, json, lock, set_env, test_child,
+        text_reply,
     };
 
     const CHILD_ENV: &str = "COMMANDAGENT_TEST_973_REPL_CHILD";
@@ -1407,8 +1408,7 @@ mod repl_order {
     fn a_killed_test_process_leaves_no_child() {
         let private = tempfile::tempdir().unwrap();
         let pid_file = private.path().join("child.pid");
-        let status = Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", "repl_order::repl_parent_process", "--nocapture"])
+        let status = test_child("repl_order::repl_parent_process")
             .env(PARENT_ENV, &pid_file)
             .env("TMPDIR", private.path())
             .stdin(Stdio::null())
@@ -3831,19 +3831,77 @@ fn workflow_origin(root: &Path, child_profile: &str) -> (PathBuf, PathBuf) {
 
 const OWN_PROCESS_ENV: &str = "COMMANDAGENT_TEST_973_OWN_PROCESS";
 
+/// This test binary again, started without `LOCK`. While a test holds the lock, the
+/// process's environment has what that test set, so a child gets only these.
+fn test_child(test: &str) -> std::process::Command {
+    let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+    command.args(["--exact", test, "--nocapture"]).env_clear();
+    for name in ["PATH", "TMPDIR", "RUST_BACKTRACE"] {
+        if let Some(value) = std::env::var_os(name) {
+            command.env(name, value);
+        }
+    }
+    command
+}
+
 /// What a workflow installs (its sandbox) is process-wide, so this runs alone.
 fn in_own_process(test: &str, home: &Path) -> bool {
     if std::env::var_os(OWN_PROCESS_ENV).is_some() {
         return true;
     }
-    let status = std::process::Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", test, "--nocapture"])
+    let output = test_child(test)
         .env(OWN_PROCESS_ENV, "1")
         .env("HOME", home)
-        .status()
+        .output()
         .unwrap();
-    assert!(status.success(), "{status}");
+    assert!(
+        output.status.success(),
+        "{test} in its own process: {}\n--- stdout\n{}\n--- stderr\n{}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
     false
+}
+
+/// Fails only as a child, for the test below.
+#[test]
+fn a_child_that_fails() {
+    assert!(
+        std::env::var_os(OWN_PROCESS_ENV).is_none(),
+        "the child's own words"
+    );
+}
+
+#[test]
+fn a_failed_child_leaves_its_words_in_the_parent_assertion() {
+    let home = tempfile::tempdir().unwrap();
+    let panic =
+        std::panic::catch_unwind(|| in_own_process("a_child_that_fails", home.path())).unwrap_err();
+    let message = panic.downcast_ref::<String>().unwrap();
+    assert!(message.contains("the child's own words"), "{message}");
+    assert!(message.contains("a_child_that_fails"), "{message}");
+}
+
+/// What the tests that hold `LOCK` set is in this process's environment at that moment,
+/// and a child is started without the lock. A selected pack is what stopped one: it names
+/// another profile, so the child's own run answered `selected_pack_invalid`.
+#[test]
+fn a_test_child_takes_no_variable_another_test_holds() {
+    let private = tempfile::tempdir().unwrap();
+    let home = private.path().join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let _guard = lock();
+    let _pack = SelectedPack::new();
+    set_env(REGISTRY_ENV, Some("/nonexistent/profile-tool-registry"));
+    for test in [
+        "the_cli_flag_refuses_a_schema_tool_on_the_text_tool_protocol",
+        "a_library_workflow_child_delivers_a_call_on_the_native_wire",
+        "a_library_workflow_refuses_on_its_origin_and_its_workspace_before_the_reproducer",
+    ] {
+        assert!(!in_own_process(test, &home), "{test}");
+    }
+    set_env(REGISTRY_ENV, None);
 }
 
 #[test]
