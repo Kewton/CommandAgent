@@ -7,6 +7,8 @@ use anyhow::{Context, bail};
 use serde_json::{Map, Value, json};
 
 use super::path_guard::{normalize_workspace_path, resolve_existing};
+use super::profile_tools::schema::invocation::SchemaGuard;
+use super::profile_tools::{ProfileToolRefusal, RefusalKind};
 use super::registry::{FunctionSpec, ToolContext, ToolSpec};
 use super::workspace_policy::ensure_tool_path_allowed;
 
@@ -104,6 +106,9 @@ pub struct ExtensionTool {
     arguments: BTreeMap<String, ExtensionArgument>,
     network_access: ExtensionNetworkAccess,
     executor: Arc<dyn ExtensionExecutor>,
+    /// A G2 tool: the adopted schema is published, and takes the place of the flat
+    /// argument checks. `None` keeps those checks exactly as they are.
+    schema_guard: Option<Arc<SchemaGuard>>,
 }
 
 impl ExtensionTool {
@@ -145,7 +150,16 @@ impl ExtensionTool {
             arguments: by_name,
             network_access,
             executor,
+            schema_guard: None,
         })
+    }
+
+    pub(crate) fn with_schema_guard(mut self, guard: Option<Arc<SchemaGuard>>) -> Self {
+        if let Some(guard) = &guard {
+            self.spec.function.parameters = guard.published_schema().clone();
+        }
+        self.schema_guard = guard;
+        self
     }
 
     pub fn name(&self) -> &str {
@@ -166,6 +180,9 @@ impl ExtensionTool {
             Ok(prepared) => prepared,
             Err(error) => {
                 emit_rejection(context, self, arguments, &error);
+                if ends_the_run(&error) {
+                    return Err(error);
+                }
                 bail!("extension_tool_rejected: `{}`: {error}", self.name());
             }
         };
@@ -202,6 +219,10 @@ impl ExtensionTool {
                 "offline_policy_blocked: extension tool `{}` requires network access",
                 self.name()
             );
+        }
+        if let Some(guard) = &self.schema_guard {
+            guard.check_received(arguments)?;
+            return Ok(arguments.clone());
         }
         let supplied = arguments
             .as_object()
@@ -242,6 +263,14 @@ impl ExtensionTool {
         }
         Ok(Value::Object(prepared))
     }
+}
+
+/// A model can correct an argument, so that refusal goes back to it as data. A pin or
+/// revision that no longer holds cannot be corrected by retrying.
+fn ends_the_run(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<ProfileToolRefusal>()
+        .is_some_and(|refusal| refusal.kind != RefusalKind::SchemaViolation)
 }
 
 fn validate_identifier(kind: &str, value: &str) -> anyhow::Result<()> {

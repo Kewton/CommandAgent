@@ -76,7 +76,15 @@ Do not claim completion until requested files and evidence are present.",
     if mode == ToolPromptMode::XmlFallback {
         let tools = tools
             .iter()
-            .map(|tool| format!("- {}: {}", tool.function.name, tool.function.description))
+            .map(|tool| {
+                let schema = crate::tools::profile_tools::schema::invocation::xml_prompt_note(
+                    &tool.function.name,
+                );
+                format!(
+                    "- {}: {}{schema}",
+                    tool.function.name, tool.function.description
+                )
+            })
             .collect::<Vec<_>>()
             .join("\n");
         prompt.push_str("\nTools:\n");

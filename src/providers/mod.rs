@@ -10,6 +10,7 @@ pub mod openai_compatible;
 mod openai_responses;
 pub(crate) mod openrouter_routing;
 pub mod parsing;
+pub mod profile_tool_schema;
 pub(crate) mod startup;
 pub mod streaming;
 pub mod xml_fallback;
@@ -214,6 +215,11 @@ pub trait ChatClient: Send {
     }
     fn supports_ollama_think(&self) -> bool {
         false
+    }
+    /// Issue #973: whether this client can carry a G2 schema tool. A client declares
+    /// it; one that does not is refused before the run starts.
+    fn profile_tool_schema_wire(&self) -> profile_tool_schema::ProfileToolSchemaWire {
+        profile_tool_schema::ProfileToolSchemaWire::Undeclared
     }
     fn take_response_timing(&mut self) -> Option<ResponseTiming> {
         None

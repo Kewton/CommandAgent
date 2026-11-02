@@ -52,6 +52,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "Read",
     "Write",
     "aborted",
+    "above_maximum",
     "absent",
     "accounted_by",
     "accounting_record",
@@ -59,6 +60,9 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "adapter_diagnostics",
     "adopted_unreplayed",
     "anchor_stagnation_interlock",
+    "arguments_too_deep",
+    "arguments_too_large",
+    "arguments_without_receipt",
     "artifact-check-diagnostics",
     "artifact_contract_check_result",
     "artifact_stagnation_feedback",
@@ -69,6 +73,8 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "bash_results_after_prompt",
     "bash_sandbox_status",
     "bash_sandbox_unavailable",
+    "before_execution",
+    "below_minimum",
     "blocked",
     "blocked_by_dependency_setup",
     "browser_interaction_probe",
@@ -129,11 +135,13 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "disposition",
     "draft",
     "draft_profile",
+    "duplicate_key",
     "edit_anchor_recovery",
     "edit_anchor_salvaged",
     "edits_after_prompt",
     "empty_response_escalation",
     "empty_response_recovered",
+    "enum_mismatch",
     "error",
     "escalation_carryover",
     "example_count",
@@ -189,6 +197,8 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "ingest_candidate_ids_injected",
     "ingest_plan_synthesized",
     "ingest_snapshot_structure_injected",
+    "input_revision_mismatch",
+    "input_revision_unavailable",
     "inspect_command_normalized",
     "inspect_mutation_tool_rejected",
     "insufficient_remaining_iterations",
@@ -209,9 +219,12 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "legacy_detail",
     "local_pack",
     "loop_stop",
+    "lossy_number",
+    "malformed_json",
     "message",
     "min_remaining_iterations",
     "missing",
+    "missing_required",
     "name_collision",
     "native_tool_parse_retry_feedback",
     "next_action_selected",
@@ -244,6 +257,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "pass",
     "passed",
     "path_fallback_evaluated",
+    "pattern_mismatch",
     "pending",
     "phase_verification_result",
     "pipeline_dropped",
@@ -268,6 +282,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "preset_step_converted",
     "preset_ultra_plan_used",
     "probe_preflight",
+    "profile-tool.schema/v1",
     "profile_behavior_probe",
     "profile_inferred",
     "profile_invariant_repair",
@@ -294,6 +309,9 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "read_only_stagnation_feedback",
     "read_only_tool_rejected",
     "ready",
+    "received_call",
+    "received_native",
+    "received_xml",
     "recovery_boundary_snapshot",
     "recovery_candidate_completion_requirements_bound",
     "recovery_candidate_verify_commands_bound",
@@ -362,6 +380,11 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "run_stop",
     "running",
     "runtime_bash_policy",
+    "schema_limit_exceeded",
+    "schema_mismatch",
+    "schema_scrubbed",
+    "schema_unsupported",
+    "schema_violation",
     "scope_exit_before_next_final",
     "score_checkpoint",
     "selected_pack_invalid",
@@ -380,14 +403,20 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "step_short_circuited",
     "step_verify_failure",
     "step_verify_repair",
+    "string_too_long",
+    "string_too_short",
     "success",
     "successful_bash_after_prompt",
     "successful_bash_since_latest_edit",
     "successful_write_count",
+    "tag_inside_arguments",
     "target",
     "targets",
     "test_node_event",
     "time_profile",
+    "too_few_items",
+    "too_many_elements",
+    "too_many_items",
     "tool",
     "tool_args_path_malformed",
     "tool_args_path_near_root_corruption",
@@ -398,10 +427,12 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "tool_call",
     "tool_call_raw",
     "tool_execute",
+    "tool_name_not_exact",
     "tool_parse_failure",
     "tool_policy_error",
     "tool_read_unchanged",
     "tool_validation_error",
+    "trailing_data",
     "triggered",
     "triggered_iteration",
     "truncated",
@@ -428,7 +459,9 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "unavailable",
     "unchanged",
     "unconsumed",
+    "union_no_match",
     "unknown",
+    "unknown_key",
     "unknown_tool_id",
     "unparseable",
     "unresolved",
@@ -460,8 +493,10 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "workflow_started",
     "workspace_cd_stripped",
     "workspace_descriptor",
+    "wrapper_not_exact",
     "write_failure_after_last_write",
     "write_required_off_target_write_allowed",
+    "wrong_type",
 ];
 
 /// Whether `key` is a schema key whose value is a fixed identifier.
@@ -495,6 +530,80 @@ pub fn collides_with_fixed_identifier(value: &str) -> bool {
     FIXED_IDENTIFIERS
         .iter()
         .any(|fixed| *fixed == value || fixed.contains(value))
+}
+
+/// Issue #973: the words the G2 schema protocol owns: its protocol ID, refusal
+/// kinds, receipt stages, and diagnostic codes. A property name or an enum value an
+/// operator chooses is not here: a scrub that changes one refuses the schema instead.
+#[cfg(test)]
+mod profile_tool_schema_tests {
+    use super::{collides_with_fixed_identifier, is_fixed_identifier};
+    use crate::sensitive_data::SecretCatalog;
+
+    const WORDS: [&str; 35] = [
+        "profile-tool.schema/v1",
+        "schema_unsupported",
+        "schema_limit_exceeded",
+        "schema_scrubbed",
+        "schema_mismatch",
+        "input_revision_unavailable",
+        "input_revision_mismatch",
+        "schema_violation",
+        "received_call",
+        "received_native",
+        "received_xml",
+        "before_execution",
+        "arguments_too_deep",
+        "arguments_too_large",
+        "arguments_without_receipt",
+        "too_many_elements",
+        "duplicate_key",
+        "malformed_json",
+        "trailing_data",
+        "lossy_number",
+        "tool_name_not_exact",
+        "wrapper_not_exact",
+        "tag_inside_arguments",
+        "missing_required",
+        "unknown_key",
+        "wrong_type",
+        "enum_mismatch",
+        "union_no_match",
+        "string_too_short",
+        "string_too_long",
+        "pattern_mismatch",
+        "below_minimum",
+        "above_maximum",
+        "too_few_items",
+        "too_many_items",
+    ];
+
+    #[test]
+    fn each_word_is_reserved_and_a_credential_equal_to_one_is_refused() {
+        for word in WORDS {
+            assert!(is_fixed_identifier(word), "{word}");
+            assert!(collides_with_fixed_identifier(word), "{word}");
+            assert!(
+                SecretCatalog::new()
+                    .register_credential("DUMMY_API_KEY", word)
+                    .is_err(),
+                "{word}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_normal_credential_leaves_the_words_unchanged() {
+        let credential = "fake-credential-973-not-a-real-key";
+        let mut catalog = SecretCatalog::new();
+        catalog
+            .register_credential("DUMMY_API_KEY", credential)
+            .unwrap();
+        for word in WORDS {
+            let text = format!("{word} {credential}");
+            assert_eq!(catalog.scrub(&text), format!("{word} <redacted>"));
+        }
+    }
 }
 
 /// Issue #947 (review B2): the event field `provider_billed_cost_usd` is a

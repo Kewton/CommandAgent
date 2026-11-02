@@ -18,6 +18,8 @@ use super::descriptor::{
     self, Descriptor, DirectoryIdentity, EFFECT_READ, LoadedDescriptor, RUNTIME_IN_PROCESS,
     RegistryBinding,
 };
+use super::schema::binding::{self as schema_binding, ToolPins};
+use super::schema::invocation::{self, ReceiveState, SchemaGuard};
 use super::selection::{self, DeclaredTool, PackSource, SelectedTools};
 use super::{ProfileToolRefusal, RefusalKind};
 use crate::tools::extension::{ExtensionExecutor, ExtensionNetworkAccess, ExtensionTool};
@@ -77,9 +79,19 @@ pub struct AdmittedToolBinding {
     effect: String,
     max_input_bytes: usize,
     max_output_bytes: usize,
+    input_revision: Option<String>,
+    adopted_schema_sha256: Option<String>,
 }
 
 impl AdmittedToolBinding {
+    /// The host-adopted digest of the declared inputs. `None` without a G2 schema.
+    pub fn input_revision(&self) -> Option<&str> {
+        self.input_revision.as_deref()
+    }
+    /// The digest of the adopted, compiled schema. `None` without a G2 schema.
+    pub fn adopted_schema_sha256(&self) -> Option<&str> {
+        self.adopted_schema_sha256.as_deref()
+    }
     pub fn run_id(&self) -> Option<&str> {
         self.run_id.as_deref()
     }
@@ -130,9 +142,26 @@ pub struct AdmittedProfileTools {
     builtin_tools: Vec<String>,
     tools: Vec<ExtensionTool>,
     receipts: Receipts,
+    schema_tools: Arc<ReceiveState>,
 }
 
 impl AdmittedProfileTools {
+    /// Off for every set without a schema tool.
+    pub(crate) fn preflight_schema_tools(
+        &self,
+        config: &crate::config::Config,
+        wire: crate::providers::profile_tool_schema::ProfileToolSchemaWire,
+    ) -> Result<(), ProfileToolRefusal> {
+        self.schema_tools.preflight(config, wire)
+    }
+
+    /// Installs this set on the session's thread. `None` for a set without a schema
+    /// tool, which leaves every parser on its existing path.
+    pub(crate) fn enter_session(&self) -> Option<invocation::SessionScope> {
+        (!self.schema_tools.is_empty())
+            .then(|| invocation::enter_session(self.schema_tools.clone()))
+    }
+
     pub fn bindings(&self) -> &[AdmittedToolBinding] {
         &self.bindings
     }
@@ -191,11 +220,14 @@ fn admit(
     let receipts: Receipts = Arc::new(Mutex::new(Vec::new()));
     let mut bindings = Vec::with_capacity(selected.tools.len());
     let mut tools = Vec::with_capacity(selected.tools.len());
+    let mut schema_tools = ReceiveState::default();
     for (tool_id, declared) in &selected.tools {
         let loaded = descriptor::load(tool_id, workspace)?;
         let executor = admit_one(&loaded.descriptor, declared)?;
-        let binding = binding(&loaded, declared, profile, run_id.clone())?;
+        let mut binding = binding(&loaded, declared, profile, run_id.clone())?;
         let arguments = descriptor::closed_arguments(&loaded.descriptor)?;
+        let schema_guard =
+            admit_schema(&loaded, &mut binding, workspace, profile, &mut schema_tools)?;
         let pinned = PinnedReadExecutor {
             binding: binding.clone(),
             descriptor: loaded.descriptor.clone(),
@@ -204,6 +236,7 @@ fn admit(
             workspace: workspace.to_path_buf(),
             inner: executor,
             receipts: receipts.clone(),
+            schema_guard: schema_guard.clone(),
         };
         let tool = ExtensionTool::read_only(
             loaded.descriptor.name.clone(),
@@ -212,6 +245,7 @@ fn admit(
             ExtensionNetworkAccess::None,
             Arc::new(pinned),
         )
+        .map(|tool| tool.with_schema_guard(schema_guard))
         .map_err(|error| {
             ProfileToolRefusal::new(RefusalKind::InvalidDescriptor, error.to_string())
         })?;
@@ -223,7 +257,38 @@ fn admit(
         builtin_tools: selected.builtin_tools.into_iter().collect(),
         tools,
         receipts,
+        schema_tools: Arc::new(schema_tools),
     })
+}
+
+/// Adopts a G2 tool's inputs and schema. Runs after `admit_one`, so a tool whose
+/// effect, feature, or runtime is unavailable stays refused whatever its schema says.
+fn admit_schema(
+    loaded: &LoadedDescriptor,
+    binding: &mut AdmittedToolBinding,
+    workspace: &Path,
+    profile: &str,
+    schema_tools: &mut ReceiveState,
+) -> Result<Option<Arc<SchemaGuard>>, ProfileToolRefusal> {
+    let Some(schema) = &loaded.descriptor.schema else {
+        return Ok(None);
+    };
+    let pins = ToolPins {
+        tool_id: &binding.tool_id,
+        version: &binding.version,
+        descriptor_sha256: &binding.descriptor_sha256,
+        max_input_bytes: binding.max_input_bytes,
+    };
+    let adoption = schema_binding::adopt(schema, &pins, workspace, profile)?;
+    binding.input_revision = Some(adoption.input_revision().to_string());
+    binding.adopted_schema_sha256 = Some(adoption.schema().sha256().to_string());
+    Ok(Some(schema_tools.add(
+        &binding.name,
+        &loaded.descriptor.description,
+        adoption,
+        loaded.registry.clone(),
+        &binding.descriptor_sha256,
+    )))
 }
 
 /// The effect, required features, and runtime. A requested effect or feature
@@ -315,6 +380,8 @@ fn binding(
             descriptor.limits.max_output_bytes,
             "max_output_bytes",
         )?,
+        input_revision: None,
+        adopted_schema_sha256: None,
     })
 }
 
@@ -327,6 +394,7 @@ struct PinnedReadExecutor {
     workspace: PathBuf,
     inner: Arc<dyn ProfileToolReadExecutor>,
     receipts: Receipts,
+    schema_guard: Option<Arc<SchemaGuard>>,
 }
 
 impl fmt::Debug for PinnedReadExecutor {
@@ -364,6 +432,9 @@ impl PinnedReadExecutor {
                 ),
             )
             .into());
+        }
+        if let Some(guard) = &self.schema_guard {
+            guard.check_before_execution(arguments)?;
         }
         let input_bytes = serde_json::to_vec(arguments)?.len();
         if input_bytes > self.binding.max_input_bytes {

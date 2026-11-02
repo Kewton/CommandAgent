@@ -129,6 +129,11 @@ pub(super) fn parse_tool_call(
     default_name: Option<&str>,
     allowed_tools: &[String],
 ) -> anyhow::Result<ToolCall> {
+    if let Some(call) =
+        crate::tools::profile_tools::schema::invocation::receive_xml(raw, default_name)
+    {
+        return Ok(call);
+    }
     let value = parse_json_relaxed(raw)?;
     let object = value
         .as_object()

@@ -291,7 +291,7 @@ pub fn run_with_output_dir(
     execution: &mut dyn ChatClient,
     output_dir: PathBuf,
 ) -> anyhow::Result<ModelProbeOutput> {
-    crate::tools::profile_tools::refuse_before_provider(&config.workspace_root, &config.profile)?;
+    crate::tools::profile_tools::refuse_for_client(config, &*execution)?;
     let mut scratch = ScratchWorkspace::create()?;
     seed_scratch_workspace(&scratch.path)?;
     fs::create_dir_all(&output_dir)

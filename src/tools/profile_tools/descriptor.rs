@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use super::schema::admission;
 use super::{ProfileToolRefusal, RefusalKind};
 use crate::planner::artifact_contract_checks::protocol;
 use crate::planner::artifact_contract_checks::{CONFIG_ROOT_ENV, config_root_from_environment};
@@ -39,6 +40,10 @@ pub struct Descriptor {
     pub description: String,
     pub effect: String,
     pub parameters: Vec<Parameter>,
+    /// The G2 nested schema declaration. With it, `parameters` must be empty and
+    /// `schema_sha256` pins this value instead.
+    #[serde(default)]
+    pub schema: Option<serde_json::Value>,
     pub schema_sha256: String,
     pub runtime: Runtime,
     #[serde(default)]
@@ -168,7 +173,11 @@ impl RegistryBinding {
 
 /// Read a regular file through the no-follow walk, with the bound applied to the
 /// bytes read. The walk's own message names host paths, so it is not repeated.
-fn read_without_following(root: &Path, path: &Path, limit: u64) -> Result<Vec<u8>, String> {
+pub(super) fn read_without_following(
+    root: &Path,
+    path: &Path,
+    limit: u64,
+) -> Result<Vec<u8>, String> {
     let file = crate::tools::dir_fd::open_read_file(root, path)
         .map_err(|_| "cannot be opened as a regular file without a symlink".to_string())?;
     let mut bytes = Vec::new();
@@ -248,14 +257,21 @@ pub(super) fn load(
             format!("tool `{tool_id}` descriptor {reason}"),
         )
     })?;
-    protocol::check_json_depth(&bytes)
-        .map_err(|reason| refusal(RefusalKind::InvalidDescriptor, reason))?;
+    // The v1 depth limit stays as it is. Only a G2 schema is read deeper, through
+    // its own bounded decode.
+    if !admission::descriptor_carries_schema(&bytes, MAX_DESCRIPTOR_BYTES as usize) {
+        protocol::check_json_depth(&bytes)
+            .map_err(|reason| refusal(RefusalKind::InvalidDescriptor, reason))?;
+    }
     let descriptor: Descriptor = serde_json::from_slice(&bytes).map_err(|error| {
         refusal(
             RefusalKind::InvalidDescriptor,
             format!("tool `{tool_id}` descriptor is invalid: {error}"),
         )
     })?;
+    if descriptor.schema.is_some() {
+        refuse_repeated_keys(&bytes, tool_id)?;
+    }
     validate(&descriptor, tool_id)?;
     let dependency_directories = verify_dependencies(&descriptor, workspace)?;
     Ok(LoadedDescriptor {
@@ -264,6 +280,21 @@ pub(super) fn load(
         registry,
         dependency_directories,
     })
+}
+
+/// `serde_json` would keep the last of a repeated key inside `schema`, so the text
+/// the digest covers and the value in force could disagree.
+fn refuse_repeated_keys(bytes: &[u8], tool_id: &str) -> Result<(), ProfileToolRefusal> {
+    std::str::from_utf8(bytes)
+        .ok()
+        .filter(|text| admission::decode_descriptor(text, MAX_DESCRIPTOR_BYTES as usize).is_ok())
+        .map(drop)
+        .ok_or_else(|| {
+            refusal(
+                RefusalKind::InvalidDescriptor,
+                format!("tool `{tool_id}` descriptor repeats a key or is not strict JSON"),
+            )
+        })
 }
 
 fn validate(descriptor: &Descriptor, tool_id: &str) -> Result<(), ProfileToolRefusal> {
@@ -306,13 +337,28 @@ fn validate(descriptor: &Descriptor, tool_id: &str) -> Result<(), ProfileToolRef
     }
     protocol::validate_sha256("schema_sha256", &descriptor.schema_sha256)
         .map_err(|reason| refusal(RefusalKind::InvalidPin, reason))?;
-    if schema_pin(&descriptor.parameters) != descriptor.schema_sha256 {
+    if declared_pin(descriptor, tool_id)? != descriptor.schema_sha256 {
         return Err(refusal(
             RefusalKind::InvalidPin,
             format!("tool `{tool_id}` schema does not match schema_sha256"),
         ));
     }
     Ok(())
+}
+
+fn declared_pin(descriptor: &Descriptor, tool_id: &str) -> Result<String, ProfileToolRefusal> {
+    let Some(schema) = &descriptor.schema else {
+        return Ok(schema_pin(&descriptor.parameters));
+    };
+    if !descriptor.parameters.is_empty() {
+        return Err(refusal(
+            RefusalKind::InvalidDescriptor,
+            format!(
+                "tool `{tool_id}` descriptor is invalid: `parameters` must be empty next to `schema`"
+            ),
+        ));
+    }
+    Ok(sha256_hex(&serde_json::to_vec(schema).unwrap_or_default()))
 }
 
 /// The digest `schema_sha256` pins: the compact JSON of the parameter list, its

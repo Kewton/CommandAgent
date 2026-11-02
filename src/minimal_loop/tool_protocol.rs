@@ -1,6 +1,7 @@
 use crate::config::ToolProtocol;
 use crate::providers::AssistantReply;
 use crate::providers::xml_repair::ToolCallRepair;
+use crate::tools::profile_tools::schema::invocation;
 use crate::tools::registry::ToolSpec;
 
 /// Resolve the declared capability without inspecting a model name. Absence
@@ -32,8 +33,11 @@ pub(crate) fn normalize_text_reply(
         .map(|tool| tool.function.name.clone())
         .collect::<Vec<_>>();
     let original = reply.content.clone();
+    invocation::check_xml_reply(&original)?;
     let strict = crate::providers::xml_fallback::extract_tool_calls(&original, &allowed_tools);
-    if let Some(candidate) = crate::providers::xml_repair::candidate(&original, &allowed_tools)
+    // A reply that names a schema tool takes no repair: its arguments pass as sent.
+    if !invocation::reply_names_schema_tool(&original)
+        && let Some(candidate) = crate::providers::xml_repair::candidate(&original, &allowed_tools)
         && let Ok((tool_calls, content)) =
             crate::providers::xml_fallback::extract_tool_calls(&candidate.response, &allowed_tools)
         && validate_tool_calls(&tool_calls, tools).is_ok()

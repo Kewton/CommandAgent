@@ -16,12 +16,15 @@
 //! No declaration means off: the session keeps the default registry and nothing
 //! here reads a file, starts a process, or emits an event.
 //!
-//! Nested argument schemas (G2) and `propose-artifacts` (G3) are refused as
-//! unavailable. Nothing here reports them, or an unknown cost, as a success.
+//! A descriptor that declares a `schema` takes nested arguments through
+//! [`schema`] (G2). The flat `object` and `array` parameter kinds stay refused as
+//! unavailable, and so does `propose-artifacts` (G3). Nothing here reports them,
+//! or an unknown cost, as a success.
 
 pub mod admission;
 pub mod descriptor;
 pub(crate) mod pre_run;
+pub mod schema;
 pub mod selection;
 
 use std::fmt;
@@ -30,6 +33,9 @@ use std::path::Path;
 pub use admission::{
     AdmittedProfileTools, AdmittedToolBinding, ProfileToolReadExecutor, ReadToolOutput,
     ToolExecutionReceipt, ToolUsage, admit_selected, register_read_executor,
+};
+pub use schema::{
+    ProfileToolSchemaCompiler, SchemaCompileInput, SchemaInput, register_schema_compiler,
 };
 pub use selection::{DeclaredTool, ProfileToolDeclaration};
 
@@ -47,6 +53,13 @@ pub enum RefusalKind {
     RegistryUnavailable,
     Unavailable,
     SelectedPackInvalid,
+    SchemaUnsupported,
+    SchemaLimitExceeded,
+    SchemaScrubbed,
+    SchemaMismatch,
+    InputRevisionUnavailable,
+    InputRevisionMismatch,
+    SchemaViolation,
 }
 
 impl RefusalKind {
@@ -61,6 +74,13 @@ impl RefusalKind {
             Self::RegistryUnavailable => "registry_unavailable",
             Self::Unavailable => "unavailable",
             Self::SelectedPackInvalid => "selected_pack_invalid",
+            Self::SchemaUnsupported => "schema_unsupported",
+            Self::SchemaLimitExceeded => "schema_limit_exceeded",
+            Self::SchemaScrubbed => "schema_scrubbed",
+            Self::SchemaMismatch => "schema_mismatch",
+            Self::InputRevisionUnavailable => "input_revision_unavailable",
+            Self::InputRevisionMismatch => "input_revision_mismatch",
+            Self::SchemaViolation => "schema_violation",
         }
     }
 }
@@ -93,9 +113,36 @@ impl fmt::Display for ProfileToolRefusal {
 
 impl std::error::Error for ProfileToolRefusal {}
 
-/// The planner's pre-provider check. It keeps nothing: every session admits its
-/// own set. Off returns without reading anything.
-pub(crate) fn refuse_before_provider(workspace: &Path, profile: &str) -> anyhow::Result<()> {
-    admit_selected(workspace, profile, None)?;
+/// The pre-provider check for an entry that holds the client its sessions will use.
+/// It keeps nothing but a schema tool's adoption: every session admits its own set.
+/// Off returns without reading anything.
+pub(crate) fn refuse_for_client(
+    config: &crate::config::Config,
+    client: &dyn crate::providers::ChatClient,
+) -> anyhow::Result<()> {
+    if let Some(admitted) = admit_selected(&config.workspace_root, &config.profile, None)? {
+        admitted.preflight_schema_tools(config, client.profile_tool_schema_wire())?;
+    }
     Ok(())
+}
+
+/// The same check for an entry that holds no session client: a planner call, or a
+/// workflow. The executor role of the configuration says what its sessions will use.
+pub(crate) fn refuse_before_provider(
+    workspace: &Path,
+    config: &crate::config::Config,
+) -> anyhow::Result<()> {
+    if let Some(admitted) = admit_selected(workspace, &config.profile, None)? {
+        admitted.preflight_schema_tools(config, configured_wire(config))?;
+    }
+    Ok(())
+}
+
+fn configured_wire(
+    config: &crate::config::Config,
+) -> crate::providers::profile_tool_schema::ProfileToolSchemaWire {
+    crate::providers::profile_tool_schema::wire_for_role(
+        config,
+        crate::config::ProviderRole::Executor,
+    )
 }

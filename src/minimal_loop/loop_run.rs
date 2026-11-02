@@ -459,7 +459,7 @@ fn run_session_planned(
     // scope during config resolution; direct minimal-loop callers get it here.
     // A source refusal is propagated so the run refuses honestly.
     crate::config::install_run_secret_scope(config)?;
-    let registry = profile_tool_runtime::session_registry(config)?;
+    let (registry, _schema_tools) = profile_tool_runtime::session_registry(config, &*client)?;
     let mut native_tools_enabled = super::tool_protocol::native_tools_enabled(
         config.tool_protocol,
         client.supports_native_tools(&config.model),
@@ -837,6 +837,7 @@ fn run_session_planned(
             Err(err)
                 if native_tools_enabled
                     && client.allows_xml_fallback()
+                    && !profile_tool_runtime::blocks_xml_fallback()
                     && provider_error_allows_xml_fallback(&err) =>
             {
                 eval_events::emit(
@@ -928,7 +929,8 @@ fn run_session_planned(
                     "arguments": raw_shape,
                 }),
             );
-            let recovered = recover_tool_arguments(&call.name, call.arguments.clone());
+            let recovered =
+                profile_tool_runtime::recover_tool_arguments(&call.name, call.arguments.clone());
             if recovered.changed {
                 eval_events::emit(
                     config.eval_events_path.as_deref(),

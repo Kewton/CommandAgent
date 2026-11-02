@@ -1,0 +1,54 @@
+{
+  "issue": "#973",
+  "kind": "synthetic",
+  "accepted": [
+    {"id": "config-object-profile", "kind": "synthetic", "profile": "schema-config", "tool": "SubmitConfig", "wires": ["native", "xml"], "raw": "{\"mode\":\"fast\",\"limits\":{\"retries\":3,\"ratio\":0.5},\"targets\":[{\"host\":\"ab\",\"port\":1},null],\"name\":\"n\",\"tool\":\"t\",\"path\":\"a/../b\",\"arguments\":{\"name\":\"inner\",\"args\":\"it's\"},\"enabled\":false}"},
+    {"id": "document-index-profile", "kind": "synthetic", "profile": "schema-index", "tool": "SubmitIndex", "wires": ["native", "xml"], "raw": "{\"documents\":[{\"id\":\"doc-a\",\"refs\":[\"doc-b\"]},{\"id\":\"doc-b\",\"refs\":[]}]}"}
+  ],
+  "rejected": [
+    {"id": "nested missing key", "raw": "{\"mode\":\"fast\",\"limits\":{},\"targets\":[null]}", "code": "missing_required"},
+    {"id": "top-level missing key", "raw": "{\"mode\":\"fast\",\"limits\":{\"retries\":1}}", "code": "missing_required"},
+    {"id": "nested extra key", "raw": "{\"mode\":\"fast\",\"limits\":{\"retries\":1,\"x\":1},\"targets\":[null]}", "code": "unknown_key"},
+    {"id": "top-level extra key", "raw": "{\"mode\":\"fast\",\"limits\":{\"retries\":1},\"targets\":[null],\"x\":1}", "code": "unknown_key"},
+    {"id": "wrong enum", "raw": "{\"mode\":\"slow\",\"limits\":{\"retries\":1},\"targets\":[null]}", "code": "enum_mismatch"},
+    {"id": "wrong type", "raw": "{\"mode\":\"fast\",\"limits\":{\"retries\":\"1\"},\"targets\":[null]}", "code": "wrong_type"},
+    {"id": "null for a string", "raw": "{\"mode\":null,\"limits\":{\"retries\":1},\"targets\":[null]}", "code": "wrong_type"},
+    {"id": "integer written as a float", "raw": "{\"mode\":\"fast\",\"limits\":{\"retries\":1.0},\"targets\":[null]}", "code": "wrong_type"},
+    {"id": "union no branch", "raw": "{\"mode\":\"fast\",\"limits\":{\"retries\":1},\"targets\":[7]}", "code": "union_no_match"},
+    {"id": "union nested extra key", "raw": "{\"mode\":\"fast\",\"limits\":{\"retries\":1},\"targets\":[{\"host\":\"ab\",\"x\":1}]}", "code": "union_no_match"},
+    {"id": "integer below", "raw": "{\"mode\":\"fast\",\"limits\":{\"retries\":0},\"targets\":[null]}", "code": "below_minimum"},
+    {"id": "integer above", "raw": "{\"mode\":\"fast\",\"limits\":{\"retries\":4},\"targets\":[null]}", "code": "above_maximum"},
+    {"id": "number below", "raw": "{\"mode\":\"fast\",\"limits\":{\"retries\":1,\"ratio\":0.49},\"targets\":[null]}", "code": "below_minimum"},
+    {"id": "number above", "raw": "{\"mode\":\"fast\",\"limits\":{\"retries\":1,\"ratio\":1.51},\"targets\":[null]}", "code": "above_maximum"},
+    {"id": "too few items", "raw": "{\"mode\":\"fast\",\"limits\":{\"retries\":1},\"targets\":[]}", "code": "too_few_items"},
+    {"id": "too many items", "raw": "{\"mode\":\"fast\",\"limits\":{\"retries\":1},\"targets\":[null,null,null]}", "code": "too_many_items"},
+    {"id": "repeated top-level key", "raw": "{\"mode\":\"slow\",\"mode\":\"fast\",\"limits\":{\"retries\":1},\"targets\":[null]}", "code": "duplicate_key"},
+    {"id": "repeated nested key", "raw": "{\"mode\":\"fast\",\"limits\":{\"retries\":9,\"retries\":1},\"targets\":[null]}", "code": "duplicate_key"},
+    {"id": "repeated key written with an escape", "raw": "{\"mode\":\"slow\",\"\\u006dode\":\"fast\",\"limits\":{\"retries\":1},\"targets\":[null]}", "code": "duplicate_key"},
+    {"id": "repeated key inside an array", "raw": "{\"mode\":\"fast\",\"limits\":{\"retries\":1},\"targets\":[{\"host\":\"ab\",\"host\":\"cd\"}]}", "code": "duplicate_key"},
+    {"id": "truncated JSON", "raw": "{\"mode\":\"fast\",\"limits\":{\"retries\":1},\"targets\":[null]", "code": "malformed_json"},
+    {"id": "single quotes", "raw": "{'mode':'fast','limits':{'retries':1},'targets':[null]}", "code": "malformed_json"},
+    {"id": "trailing comma", "raw": "{\"mode\":\"fast\",\"limits\":{\"retries\":1},\"targets\":[null],}", "code": "malformed_json"},
+    {"id": "bare keys", "raw": "{mode:\"fast\",limits:{retries:1},targets:[null]}", "code": "malformed_json"},
+    {"id": "garbage after the object", "raw": "{\"mode\":\"fast\",\"limits\":{\"retries\":1},\"targets\":[null]} garbage", "code": "trailing_data"},
+    {"id": "a second object", "raw": "{\"mode\":\"fast\",\"limits\":{\"retries\":1},\"targets\":[null]}{\"mode\":\"safe\"}", "code": "trailing_data"},
+    {"id": "a number an f64 cannot hold", "raw": "{\"mode\":\"fast\",\"limits\":{\"retries\":18446744073709551616},\"targets\":[null]}", "code": "lossy_number"}
+  ],
+  "refused_before_start": [
+    {"id": "unsupported keyword", "refusal": "schema_unsupported"},
+    {"id": "computation too large", "refusal": "schema_limit_exceeded"},
+    {"id": "a sanitizer would change it", "refusal": "schema_unsupported"},
+    {"id": "a scrub would change it", "refusal": "schema_scrubbed"},
+    {"id": "input revision cannot be adopted", "refusal": "input_revision_unavailable"},
+    {"id": "an injected client declares no wire", "refusal": "schema_unsupported"}
+  ],
+  "off": [
+    {"id": "chat-native-recovery-and-last-value", "kind": "synthetic", "profile": "generic"},
+    {"id": "text-xml-positive", "kind": "synthetic", "profile": "generic"},
+    {"id": "text-xml-relaxed-and-repaired", "kind": "synthetic", "profile": "generic"},
+    {"id": "text-xml-negative", "kind": "synthetic", "profile": "generic"},
+    {"id": "flat-extension-positive", "kind": "synthetic", "profile": "schema-off-flat"},
+    {"id": "flat-extension-negative", "kind": "synthetic", "profile": "schema-off-flat"},
+    {"id": "dummy-secret-next-to-reserved-words", "kind": "synthetic", "profile": "generic"}
+  ]
+}

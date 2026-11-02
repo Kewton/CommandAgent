@@ -3,6 +3,7 @@ use serde_json::{Value, json};
 use crate::providers::{AssistantReply, BilledCostUsd, ProviderResponseMetadata};
 use crate::state::{ConversationMessage, ToolCall};
 use crate::tools::args_recovery::recover_tool_arguments;
+use crate::tools::profile_tools::schema::invocation;
 use crate::tools::registry::ToolSpec;
 
 use super::parsing::sanitize_schema;
@@ -166,13 +167,14 @@ pub(crate) fn parse_response(
     let completion_tokens = usage
         .and_then(|usage| usage.get("completion_tokens"))
         .and_then(Value::as_u64);
+    let envelope_clean = invocation::envelope_is_clean(body);
     let tool_calls = message
         .get("tool_calls")
         .and_then(Value::as_array)
         .map(|calls| {
             calls
                 .iter()
-                .map(|call| parse_tool_call(call, completion_tokens))
+                .map(|call| parse_tool_call(call, completion_tokens, envelope_clean))
                 .collect::<Result<Vec<_>, _>>()
         })
         .transpose()
@@ -324,6 +326,7 @@ impl std::error::Error for ToolArgumentsParseError {}
 fn parse_tool_call(
     value: &Value,
     completion_tokens: Option<u64>,
+    envelope_clean: bool,
 ) -> Result<ToolCall, ToolArgumentsParseError> {
     let other = |message: &str| {
         ToolArgumentsParseError::new(
@@ -340,6 +343,14 @@ fn parse_tool_call(
         .and_then(Value::as_str)
         .ok_or_else(|| other("OpenAI chat tool_call missing function.name"))?
         .to_string();
+    if let Some(call) = invocation::receive_native(
+        &name,
+        || tool_call_id(value),
+        function.get("arguments"),
+        envelope_clean,
+    ) {
+        return Ok(call);
+    }
     let raw_arguments = function
         .get("arguments")
         .and_then(Value::as_str)
@@ -362,14 +373,18 @@ fn parse_tool_call(
         ));
     }
     Ok(ToolCall {
-        id: value
-            .get("id")
-            .and_then(Value::as_str)
-            .map(str::to_string)
-            .unwrap_or_else(|| uuid::Uuid::now_v7().to_string()),
+        id: tool_call_id(value),
         name: name.clone(),
         arguments: recover_tool_arguments(&name, arguments).arguments,
     })
+}
+
+fn tool_call_id(value: &Value) -> String {
+    value
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| uuid::Uuid::now_v7().to_string())
 }
 
 #[cfg(test)]
