@@ -403,6 +403,18 @@ where
         scrub_conversation(context, &mut messages);
         scrub_tool_specs(context, &mut tools);
     }
+    if let Err(error) = crate::tools::profile_tools::schema::invocation::check_send(
+        &tools,
+        overrides.map(|_| worker_client.as_ref()),
+    ) {
+        return ProviderCallOutcome {
+            result: Err(error),
+            elapsed: Duration::ZERO,
+            timed_out: false,
+            aborted_by_user: false,
+        };
+    }
+    let schema_tools = crate::tools::profile_tools::schema::invocation::for_provider_worker();
     let worker_model = model.clone();
     let worker_redaction = redaction.clone();
     let (tx, rx) = mpsc::sync_channel(1);
@@ -414,6 +426,7 @@ where
         // Provider worker threads have no thread-local scope; install the
         // captured one so snippets they build are scrubbed before truncation.
         crate::sensitive_data::set_current(worker_redaction);
+        crate::tools::profile_tools::schema::invocation::install_on_provider_worker(schema_tools);
         let worker_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let result = if stream {
                 worker_client.chat_stream(

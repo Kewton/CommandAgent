@@ -85,7 +85,7 @@ pub fn generate_ultra_plan_with_ui(
     config: &Config,
     ui: &dyn InteractionUi,
 ) -> anyhow::Result<UltraPlan> {
-    crate::tools::profile_tools::refuse_before_provider(&config.workspace_root, &config.profile)?;
+    crate::tools::profile_tools::refuse_before_provider(&config.workspace_root, config)?;
     if ui.interrupted() {
         anyhow::bail!("interrupted by user");
     }
@@ -275,6 +275,7 @@ pub fn generate_and_run_ultra_plan_with_ui(
     config: &Config,
     ui: &dyn InteractionUi,
 ) -> anyhow::Result<String> {
+    crate::tools::profile_tools::refuse_for_client(config, &*execution)?;
     let plan = generate_ultra_plan_with_ui(planner, goal, config, ui)?;
     save_ultra_plan(&config.workspace_root, &plan)?;
     run_ultra_plan_with_ui(planner, execution, &plan, config, ui)
@@ -296,7 +297,7 @@ pub fn run_ultra_plan_with_ui(
     config: &Config,
     ui: &dyn InteractionUi,
 ) -> anyhow::Result<String> {
-    crate::tools::profile_tools::refuse_before_provider(&config.workspace_root, &config.profile)?;
+    crate::tools::profile_tools::refuse_for_client(config, &*execution)?;
     let preset_plan = crate::planner::ultra_preset::is_profile_preset_plan(config, plan);
     let mut active_plan = plan.clone();
     let mut active_config = config.clone();

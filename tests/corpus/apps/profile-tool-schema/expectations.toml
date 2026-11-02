@@ -1,0 +1,58 @@
+case_id = "profile-tool-schema"
+source = "Issue #973 (G2): synthetic runs of the real Chat Completions client against a disposable 127.0.0.1 fake, for an operator's explicit schema; the off rows were recorded from the production code of base 29d4d369536eda948a226a1af74d6038a2203389 before the feature existed; not a model-capability or bench measurement"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[json_fields]
+fixtures/cases.json:issue = "#973"
+fixtures/cases.json:kind = "synthetic"
+fixtures/off-golden.json:issue = "#973"
+fixtures/off-golden.json:kind = "synthetic"
+fixtures/off-golden.json:source = "29d4d369"
+source-manifest.json:base_sha = "29d4d369536eda948a226a1af74d6038a2203389"
+source-manifest.json:origin = "synthetic"
+
+[fixture_contains]
+fixtures/cases.json = [
+  "\"id\": \"config-object-profile\"",
+  "\"id\": \"document-index-profile\"",
+  "\"wires\": [\"native\"]",
+  "\"id\": \"the text tool protocol\"",
+  "\"id\": \"repeated nested key\"",
+  "\"id\": \"union nested extra key\"",
+  "\"id\": \"garbage after the object\"",
+  "\"id\": \"unsupported keyword\"",
+  "\"id\": \"a scrub would change it\"",
+  "\"refusal\": \"schema_unsupported\"",
+  "\"refusal\": \"schema_limit_exceeded\"",
+  "\"refusal\": \"schema_scrubbed\"",
+  "\"refusal\": \"input_revision_unavailable\"",
+  "\"code\": \"duplicate_key\""
+]
+fixtures/off-golden.json = [
+  "\"id\": \"chat-native-recovery-and-last-value\"",
+  "\"id\": \"text-xml-positive\"",
+  "\"id\": \"text-xml-relaxed-and-repaired\"",
+  "\"id\": \"text-xml-negative\"",
+  "\"id\": \"flat-extension-positive\"",
+  "\"id\": \"flat-extension-negative\"",
+  "\"id\": \"dummy-secret-next-to-reserved-words\""
+]

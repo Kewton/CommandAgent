@@ -6,6 +6,7 @@ use rustyline::error::ReadlineError;
 
 use crate::config::Config;
 use crate::planner::pack::catalog::PackLocator;
+use crate::tools::profile_tools::pre_run::refused_before_gate_one;
 use crate::tui::editor::{PromptInterruptAction, ReplEditor, normalize_multiline_input};
 use crate::tui::markdown::TerminalMarkdownRenderer;
 use crate::tui::{InteractionUi, OutputRenderer, TerminalUi};
@@ -497,6 +498,11 @@ Confirm with `/confirm-directive {}` before continuation dispatch.",
             continue;
         }
         if !line.starts_with('/') {
+            if let Some(refused) = refused_before_gate_one(&config, &*execution) {
+                render_and_remember(&renderer, &mut last_result, refused)?;
+                ui.reset_interrupt();
+                continue;
+            }
             let parsed_request = match crate::tui::slash::parse_inline_request(line) {
                 Ok(parsed) => parsed,
                 Err(error) => {

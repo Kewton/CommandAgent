@@ -27,6 +27,7 @@ pub(crate) fn normalize_text_reply(
     reply: &mut AssistantReply,
     tools: &[ToolSpec],
 ) -> anyhow::Result<Vec<ToolCallRepair>> {
+    crate::tools::profile_tools::schema::invocation::refuse_text_reply_in_schema_session()?;
     let allowed_tools = tools
         .iter()
         .map(|tool| tool.function.name.clone())

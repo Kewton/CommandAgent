@@ -385,6 +385,10 @@ impl ChatClient for OpenAiClient {
         true
     }
 
+    fn profile_tool_schema_wire(&self) -> super::profile_tool_schema::ProfileToolSchemaWire {
+        super::profile_tool_schema::ProfileToolSchemaWire::for_api(self.api)
+    }
+
     fn chat(
         &mut self,
         model: &str,

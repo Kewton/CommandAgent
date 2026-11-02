@@ -1,0 +1,17 @@
+{
+  "issue": "#973",
+  "owner": "src/tools/profile_tools/schema/ the bounded schema subset, its raw decode, its one validator, and the host's input revision and schema binding, through the public session, planner, TUI, probe, and workflow entries",
+  "base_sha": "29d4d369536eda948a226a1af74d6038a2203389",
+  "origin": "synthetic",
+  "synthetic_source": {
+    "cases": "hand-written generic profiles (a settings object and a document index), operator descriptors, and raw replies; none is copied from a run, a benchmark task, or an issue evidence file",
+    "base_observation": "fixtures/off-golden.json was written by running the public session against the production code of base_sha with a recorder test that does not remain in this repository; the expectations of the off rows therefore do not come from the new implementation",
+    "excluded": "no live model, real key, external provider, Jev call, benchmark task, grader input, expected answer, generated code, run record, or host path is stored here"
+  },
+  "derived_fixture": "tests/profile_tool_schema.rs reads fixtures/cases.json and fixtures/off-golden.json",
+  "regenerate_digests": "shasum -a 256 fixtures/cases.json fixtures/off-golden.json",
+  "fixture_sha256": {
+    "cases.json": "aa1bcbd77c8ff1860ea4897d4c3a18b7c8c5175fa9b2a859d0f2790ed222a258",
+    "off-golden.json": "d989bdbae00deb29e6ded274543603cbd3f842081b5f35200a83d07d87ffde06"
+  }
+}

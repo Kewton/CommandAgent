@@ -108,7 +108,7 @@ command) is admitted by the TUI command's check, with the effective profile.
   reproducer derived from the origin can run first if only the node's profile is refused.
 - The TUI classifier for an Ambiguous route (`src/tui/boundary_shell/ambiguity.rs`) runs
   before a profile is chosen and cannot dispatch, so its classification call is not
-  gated.
+  gated by these G1 refusals. A G2 schema tool's reasons stop it; see the G2 known limits.
 - A TUI refusal is not exit 2. The command ends with `TASK FAILED` and the REPL goes on.
   Before the refusal the command has recorded `tui_command_start`, and nothing else of
   the command: no `ultra_plan_generation_attempt`, provider call, host verify command,
@@ -141,13 +141,20 @@ command) is admitted by the TUI command's check, with the effective profile.
 | `registry_unavailable` | The operator root is unset or cannot be resolved |
 | `unavailable` | A required capability below is not available |
 | `selected_pack_invalid` | The selected pack does not verify, or targets another profile |
+| `schema_unsupported` | A schema outside the subset below, a client that cannot carry it, the text tool protocol, or a schema the provider sanitizer would change |
+| `schema_limit_exceeded` | A schema over a limit below, or an operator limit wider than the opening one |
+| `schema_scrubbed` | The secret scrub would change the schema |
+| `schema_mismatch` | The compiler no longer gives the adopted schema from the adopted bytes, or a later admission finds another descriptor than the adopted one |
+| `input_revision_unavailable` | A declared input cannot be read when it would be adopted |
+| `input_revision_mismatch` | A declared input no longer holds the adopted revision |
+| `schema_violation` | An argument failed the validator. The reason is bounded data, returned to the model |
 
 ## What G1 does not provide
 
 These are refused as `unavailable`. None has a stub that reports success.
 
 - Effects other than `read`, including `propose-artifacts` (G3).
-- `object` and `array` parameters (G2).
+- `object` and `array` flat parameters. A nested argument takes a schema, below.
 - Any runtime kind other than `in_process`, and an in-process runtime nobody
   registered. The `commandagent` binary registers none in G1, so through the CLI a
   declaration can narrow builtin tools but a tool ID is refused until a later stage
@@ -198,10 +205,195 @@ kind are reserved in `src/sensitive_data/fixed_identifiers.rs`, so a credential 
 one or to a fragment of one is refused at registration. A later stage that adds an
 identifier reserves it there too.
 
-## For G2 and G3
+## Nested arguments: the G2 schema
+
+Issue #973 (G2). A descriptor can declare a `schema` instead of flat `parameters`, which
+must then be empty, and `schema_sha256` pins the compact JSON of `schema` with its keys
+sorted. A profile or pack still names only a tool ID: it cannot supply a schema, a
+compiler, an input list, or an expected hash. Nothing below applies to a tool without a
+`schema`.
+
+```json
+"parameters": [],
+"schema": {
+  "protocol": "profile-tool.schema/v1",
+  "root": {"type": "object", "additionalProperties": false, "required": ["input_revision", "id"], "properties": {"input_revision": {"type": "string"}}},
+  "inputs": ["config/allowed-ids.txt"],
+  "compiler": "<registered compiler>",
+  "revision_argument": "input_revision",
+  "limits": {"max_argument_bytes": 4096}
+}
+```
+
+### The subset
+
+The vocabulary is closed. A keyword outside it, a keyword on a type it does not apply to,
+any `$ref` or `$schema`, and any combination not listed here are `schema_unsupported`,
+never ignored.
+
+| `type` | Keywords allowed next to it |
+| --- | --- |
+| `object` | `properties` and `additionalProperties: false` (both required), `required` |
+| `array` | `items` (required), `minItems`, `maxItems` |
+| `string` | `enum`, or any of `minLength`, `maxLength`, `pattern` |
+| `integer`, `number` | `enum`, or any of `minimum`, `maximum` |
+| `boolean` | `enum` |
+| `null` | None |
+
+- `anyOf` is a node of its own, a non-empty array, with no other keyword beside it.
+- `type` is one name, so a nullable value is an `anyOf`. The root is a `type: object`.
+- `required` names only declared keys, once each. A minimum is at most its maximum.
+- `enum` holds distinct scalars of the node's type, and excludes a length, bound, or pattern.
+- An `integer` takes only an integer token: `1.0` is a `number`. A string length counts
+  Unicode scalar values.
+- A `number` is compared as an `f64`. Its `minimum`, `maximum`, and `enum` values must stay within
+  2^53, and an integer argument past 2^53 on a `number` is `lossy_number`, so nothing rounds into a
+  bound. An `integer` compares exactly, across the whole `i64` and `u64` range.
+- A fractional token is rounded by the standard library and must equal the shortest decimal of that
+  `f64`, which is the value kept. `1.0000000000000001` would become `1.0`, so it is `lossy_number`.
+- A `pattern` is unanchored and runs on the `regex` crate, with no backtracking. It may not
+  use `\d`, `\w`, `\s`, `\b`, a flag, a lookaround, or a backreference, because those read
+  differently on a provider's engine. `(?:…)`, classes, and `\n`, `\t`, `\r`, and an escaped
+  punctuation mark are allowed.
+
+### Limits
+
+These are this protocol's own. The artifact-contract v1 limits are unchanged. An operator's
+`limits` can only narrow: a value above an opening limit or of 0 is `schema_limit_exceeded`.
+
+| Limit | Opening value | How it counts |
+| --- | --- | --- |
+| Argument bytes | 64 KiB | The raw text received; the compact JSON for a value without raw text. The tool's input limit also narrows this |
+| Depth | 32 | Containers nested in a document: `{}` is 1 and a scalar adds none. In a schema, the document depth it describes: `anyOf` adds none |
+| Elements in arguments | 512 | Every JSON value, including the root and each container. A key is part of its member |
+| Elements in a schema | 512 | Every schema node, each `enum` value, each `required` name |
+| Schema bytes | 256 KiB | The compact JSON of the effective schema |
+
+| Computation limit | Value |
+| --- | --- |
+| Branches of one `anyOf` | 16 |
+| Product of the `anyOf` branches along any path | 4096. With 512 elements, validation visits at most 512 × 4096 schema nodes. It is checked at admission, so a schema over it never starts |
+| A schema's own JSON nesting | 96 levels |
+| `pattern` source | 512 bytes |
+| Compiled `pattern` | 1 MiB, the `regex` crate's size limit |
+| An `enum` string | 1024 bytes |
+| Diagnostics of one refusal | 8, each with a path of at most 128 bytes and a fixed code: at most about 2 KiB |
+
+### Decisions the issue body left open
+
+The body of #973 does not define where a dynamic schema comes from, what a revision is, or
+which providers qualify. These were decided with the project manager's approval.
+
+- **Providers.** Reception and sending cover native tool calls on the Chat Completions wire
+  (OpenAI chat, LM Studio, OpenAI-compatible). This was narrowed from the first decision,
+  which also covered explicit text (XML): the XML parser reads on from text it has closed up,
+  so it cannot show that a call's arguments are what the reply held. The user approved the
+  narrowing, and XML support moved to #978. The text tool protocol, the Responses API, both
+  Gemini APIs, and Ollama are refused as `schema_unsupported` before any provider call, in
+  `schema/invocation.rs` and `src/providers/profile_tool_schema.rs`, with those clients and the
+  XML parser unchanged. Support is declared by the client
+  (`ChatClient::profile_tool_schema_wire`). An entry that holds no session client (a planner
+  call, a workflow) asks the configuration what the executor role would build, including the
+  `openai_compatible` override. Nothing reads a label. An injected client declares nothing and
+  is refused; it is not assumed to qualify. A role that never carries a schema tool, such as a
+  classifier, does not decide; a call whose client is replaced for that call by a classifier
+  override is compared right before it is sent.
+- **Where a dynamic schema comes from.** The descriptor declares a static `root` and `inputs`,
+  workspace-relative paths read without following a symlink: at most 64, 1 MiB each, 8 MiB in
+  all. A compiler the operator registered in the process (`register_schema_compiler`, by ID,
+  as `register_read_executor`) returns the schema from the adopted bytes. It must be
+  deterministic and must not call a model. The host admits the result like any other schema
+  and hashes it.
+- **The revision.** The input revision is a SHA-256 over the declared inputs in order: path, a
+  NUL, the length in decimal, a NUL, and the bytes. The first admission in a process adopts
+  it, which is before the first provider call, because every entry admits first. Each receipt
+  and execution compares with it. A difference is refused and never adopted: not in a repair,
+  not in a later session, and not on `/resume` in the same process. Restoring the bytes
+  restores the run.
+- **The expectation is the host's.** `revision_argument` names a required top-level property
+  that is exactly `{"type": "string"}`, and the host narrows it to the adopted revision, so a
+  call echoing another revision fails the same validator. A revision or hash a model sends, or
+  a history holds, is compared and never taken as the expectation. A property named `accepted`
+  or `schema_sha256` is data if the schema declares it and does nothing.
+
+### Before the start
+
+Each entry in the table above also refuses, before its first provider, classifier, or Jev
+call: the text tool protocol (use the native protocol instead), a client that cannot carry the
+tool, a schema a shared step on the way out would change, a schema over a limit, and an input
+that cannot be adopted. The provider sanitizer and the secret scrub are not changed for this.
+Each adopted schema is compared with its copy after the sanitizer and after the scrub, and
+again right before a request leaves; a difference is a refusal. A secret equal to a property
+name, an enum value, or a pattern is `schema_scrubbed` with the value not repeated. There is no
+fallback to plain text or Bash. A selected schema tool also keeps a session from starting the
+native-to-XML fallback, whatever caused the parse error.
+
+### On receipt
+
+The raw arguments are decoded by `schema/raw_json.rs`, only for a schema tool. A repeated key,
+malformed JSON, trailing data, or a number an `f64` cannot hold is refused. This happens where
+the arguments are still text, and a key repeated around them in the same body is refused too. A
+refusal does not fail the parse, because a parse error is what starts a fallback.
+
+A value is never changed to pass: no string conversion, no `null` filled in, no number
+coerced, no ID corrected, no key removed. A schema tool's arguments skip the shared recovery,
+which reshapes `name`, `tool`, and wrapper keys. Tag-like text in a string of native arguments is
+part of the string: it is delivered as it is and creates no call.
+
+A session with a schema tool never reads a reply as XML. If such a session reaches the XML
+parser anyway, the whole reply is refused as `schema_unsupported` before anything is parsed, so
+no call exists and nothing runs.
+
+An argument the validator refuses returns to the model as data, in the existing recoverable
+feedback: `{"stage": …, "violations": [{"path": …, "code": …}]}`. A path can hold a key the
+model sent, so it is bounded and is not read as an instruction. A pin, revision, or schema
+that no longer holds ends the run, because retrying cannot correct it.
+
+### Right before an execution
+
+`PinnedReadExecutor` runs the same validator and compares the binding, on top of the descriptor,
+dependency, directory, and input-size checks of G1, which stay. This holds for a provider that
+ignored the schema and for a direct call of the public `ToolRegistry::execute`. A direct call
+gives a value, so it cannot show that raw text had no repeated key. In a session, a value with
+no matching receipt is refused.
+
+A valid schema does not make a tool available: an effect, feature, or runtime that is not
+available stays `unavailable`, including `requires = ["os_sandbox"]`. Passing the validator
+does not satisfy an artifact or a stage, and an unreported usage stays `None`.
+
+### Known limits
+
+- The text (XML) tool protocol does not carry a schema tool. A run that selects both is refused
+  as `schema_unsupported` before its first provider call; use the native protocol. XML support
+  is a separate issue, #978. A session without a schema tool keeps the XML parser and repair as
+  they were.
+- The adoption lasts for the process, keyed by workspace, profile, and tool, and nothing persists
+  it, because a record in the workspace would not be trusted and `.anvil/` is not widened. This has
+  two approved consequences:
+  - **A long-lived REPL whose inputs were edited** refuses every later command and free text with
+    `input_revision_mismatch` (`schema_mismatch` for a replaced descriptor or compiler). To recover,
+    put the input bytes back, or restart the process, which adopts the current bytes.
+  - **A `/resume` in a new process** adopts the current bytes and compares with nothing from the old
+    process. No refusal appears if the inputs changed in between. Before resuming, check yourself
+    that the inputs are the ones the earlier run used.
+- A REPL's free text is checked before its route is proposed, against the REPL's current
+  profile, executor client, and inputs, and refused with the `TASK FAILED` block; the REPL goes on.
+  It records no event at this point. When no profile was named, the classifier may still propose a
+  different profile, which is admitted when its command is dispatched. A schema tool of a pack chosen
+  by `--pack` in the free text is also judged at dispatch, not before the classifier. Another refusal
+  of a selected set, such as `unknown_tool_id`, keeps its place at the dispatched command.
+- The binary registers no runtime and no compiler, so through the CLI a schema tool is refused
+  as `unavailable`. Success runs go through the library entries.
+- A provider's own acceptance of this subset is not measured. Nothing here calls a live service.
+- The `dir_fd` limit above still applies. G3 takes it up, and a schema check does not resolve it.
+- The receiving context is a thread-local, which `provider_call` hands to its worker, as with the
+  secret scope. A custom client that parses on another thread produces no receipt, so its calls
+  are refused rather than trusted.
+
+## For G3
 
 `admit_selected` returns `AdmittedProfileTools`. Each `AdmittedToolBinding` holds the
-run, profile, and tool identity, the schema and descriptor pins, the effect, and the
-effective limits, with private fields and read-only accessors. Admission of a new tool
-does not change a profile's admission or assurance: an extension profile stays a draft
-with the `static` ceiling.
+run, profile, and tool identity, the schema and descriptor pins, the effect, the effective
+limits, and for a schema tool the input revision and the adopted schema's digest, with private
+fields and read-only accessors. Admission of a new tool does not change a profile's admission
+or assurance: an extension profile stays a draft with the `static` ceiling.
