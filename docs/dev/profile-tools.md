@@ -249,8 +249,8 @@ never ignored.
 - A `number` is compared as an `f64`. Its `minimum`, `maximum`, and `enum` values must stay within
   2^53, and an integer argument past 2^53 on a `number` is `lossy_number`, so nothing rounds into a
   bound. An `integer` compares exactly, across the whole `i64` and `u64` range.
-- A fractional token must equal the shortest decimal of the `f64` it became. `1.0000000000000001`
-  would become `1.0`, so it is `lossy_number`.
+- A fractional token is rounded by the standard library and must equal the shortest decimal of that
+  `f64`, which is the value kept. `1.0000000000000001` would become `1.0`, so it is `lossy_number`.
 - A `pattern` is unanchored and runs on the `regex` crate, with no backtracking. It may not
   use `\d`, `\w`, `\s`, `\b`, a flag, a lookaround, or a backreference, because those read
   differently on a provider's engine. `(?:…)`, classes, and `\n`, `\t`, `\r`, and an escaped
@@ -338,8 +338,10 @@ XML, a named tag's body is the arguments, and a plain tag holds exactly
 `{"name": …, "arguments": …}`. These checks read the name of the call the parser produced,
 after JSON decoding, so a name written with an escape counts the same. A repair candidate that
 produces a schema call is discarded, whatever its spelling. In a reply that produced a schema
-call, a `<think>` block other than complete ones ahead of everything else, a tool tag inside a
-tool tag, or a `<requirement_plan>` block the plan took out before the parse refuses the reply,
+call, a `<think>` block other than complete ones ahead of everything else, a tool tag opened
+while another is open, a closing tag of another kind than the open one (`<function=` and
+`<function name=` are one kind, `<function_call>` another; a closing tag with nothing open is
+plain text), or a `<requirement_plan>` block the plan took out before the parse refuses the reply,
 because each can change a string in the arguments. A builtin and a flat tool in the same session
 keep every existing path.
 
@@ -379,8 +381,9 @@ does not satisfy an artifact or a stage, and an unreported usage stays `None`.
 - A REPL's free text is checked before its route is proposed, against the REPL's current
   profile, executor client, and inputs, and refused with the `TASK FAILED` block; the REPL goes on.
   It records no event at this point. When no profile was named, the classifier may still propose a
-  different profile, which is admitted when its command is dispatched. Another refusal of a selected
-  set, such as `unknown_tool_id`, keeps its place at the dispatched command.
+  different profile, which is admitted when its command is dispatched. A schema tool of a pack chosen
+  by `--pack` in the free text is also judged at dispatch, not before the classifier. Another refusal
+  of a selected set, such as `unknown_tool_id`, keeps its place at the dispatched command.
 - The binary registers no runtime and no compiler, so through the CLI a schema tool is refused
   as `unavailable`. Success runs go through the library entries.
 - A provider's own acceptance of this subset is not measured. Nothing here calls a live service.

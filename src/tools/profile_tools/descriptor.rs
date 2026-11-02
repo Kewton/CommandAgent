@@ -11,6 +11,7 @@ use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use super::schema::admission;
@@ -263,14 +264,14 @@ pub(super) fn load(
         protocol::check_json_depth(&bytes)
             .map_err(|reason| refusal(RefusalKind::InvalidDescriptor, reason))?;
     }
-    let descriptor: Descriptor = serde_json::from_slice(&bytes).map_err(|error| {
+    let mut descriptor: Descriptor = serde_json::from_slice(&bytes).map_err(|error| {
         refusal(
             RefusalKind::InvalidDescriptor,
             format!("tool `{tool_id}` descriptor is invalid: {error}"),
         )
     })?;
     if descriptor.schema.is_some() {
-        refuse_repeated_keys(&bytes, tool_id)?;
+        descriptor.schema = strict_schema(&bytes, tool_id)?;
     }
     validate(&descriptor, tool_id)?;
     let dependency_directories = verify_dependencies(&descriptor, workspace)?;
@@ -282,13 +283,14 @@ pub(super) fn load(
     })
 }
 
-/// `serde_json` would keep the last of a repeated key inside `schema`, so the text
-/// the digest covers and the value in force could disagree.
-fn refuse_repeated_keys(bytes: &[u8], tool_id: &str) -> Result<(), ProfileToolRefusal> {
+/// `schema` as the strict decode reads it. `serde_json` would keep the last of a repeated
+/// key, and can land a bound one step off, so the text and the value in force could
+/// disagree.
+fn strict_schema(bytes: &[u8], tool_id: &str) -> Result<Option<Value>, ProfileToolRefusal> {
     std::str::from_utf8(bytes)
         .ok()
-        .filter(|text| admission::decode_descriptor(text, MAX_DESCRIPTOR_BYTES as usize).is_ok())
-        .map(drop)
+        .and_then(|text| admission::decode_descriptor(text, MAX_DESCRIPTOR_BYTES as usize).ok())
+        .map(|document| document.get("schema").cloned())
         .ok_or_else(|| {
             refusal(
                 RefusalKind::InvalidDescriptor,

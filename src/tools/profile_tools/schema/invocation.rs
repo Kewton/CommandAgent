@@ -549,7 +549,7 @@ pub(crate) fn check_xml_reply(text: &str, calls: &[ToolCall]) -> anyhow::Result<
 
 fn reply_text_can_change(text: &str) -> bool {
     let rest = after_leading_think_blocks(text);
-    rest.contains("<think>") || open_tag_depth_exceeds_one(&rest.to_ascii_lowercase())
+    rest.contains("<think>") || tool_tags_overlap(&rest.to_ascii_lowercase())
 }
 
 fn after_leading_think_blocks(text: &str) -> &str {
@@ -563,29 +563,37 @@ fn after_leading_think_blocks(text: &str) -> &str {
     rest
 }
 
-fn open_tag_depth_exceeds_one(lower: &str) -> bool {
-    const OPEN: [&str; 4] = [
-        "<anvil_tool_call",
-        "<tool_call",
-        "<function_call",
-        "<function",
+fn tool_tags_overlap(lower: &str) -> bool {
+    // The forms `xml_fallback` reads, with the kind each belongs to. It extracts one kind
+    // at a time, so any overlap between two kinds cuts a call out of another's string.
+    const OPEN: [(&str, u8); 6] = [
+        ("<anvil_tool_call>", 0),
+        ("<anvil_tool_call name=\"", 0),
+        ("<tool_call>", 1),
+        ("<function_call>", 2),
+        ("<function name=\"", 3),
+        ("<function=", 3),
     ];
-    const CLOSE: [&str; 4] = [
-        "</anvil_tool_call",
-        "</tool_call",
-        "</function_call",
-        "</function",
+    const CLOSE: [(&str, u8); 4] = [
+        ("</anvil_tool_call>", 0),
+        ("</tool_call>", 1),
+        ("</function_call>", 2),
+        ("</function>", 3),
     ];
-    let mut depth = 0usize;
+    let mut open = None;
     for (index, _) in lower.match_indices('<') {
         let rest = &lower[index..];
-        if OPEN.iter().any(|tag| rest.starts_with(tag)) {
-            depth += 1;
-            if depth > 1 {
+        if let Some((_, kind)) = OPEN.iter().find(|(tag, _)| rest.starts_with(tag)) {
+            if open.is_some() {
                 return true;
             }
-        } else if CLOSE.iter().any(|tag| rest.starts_with(tag)) {
-            depth = depth.saturating_sub(1);
+            open = Some(*kind);
+        } else if let Some((_, kind)) = CLOSE.iter().find(|(tag, _)| rest.starts_with(tag)) {
+            // A closing tag with nothing open is ordinary text to the parser.
+            if open.is_some_and(|open| open != *kind) {
+                return true;
+            }
+            open = None;
         }
     }
     false
@@ -606,6 +614,8 @@ mod tests {
             "<tool_call>{}</tool_call>",
             "  <think>a</think>\n<think>b</think> <tool_call>{}</tool_call>",
             "<function=T>{}</function><tool_call>{}</tool_call>",
+            "</tool_call>stray<function_call>{}</function_call>",
+            "<function_call>{}</function_call><function name=\"T\">{}</function>",
         ] {
             assert!(!reply_text_can_change(text), "{text}");
         }
@@ -616,6 +626,10 @@ mod tests {
             "<think>a</think><think>never closed",
             "<anvil_tool_call name=\"T\">{\"s\":\"<tool_call>\"}</anvil_tool_call>",
             "<TOOL_CALL><tool_call></tool_call></TOOL_CALL>",
+            "<tool_call>a</anvil_tool_call>b</tool_call>",
+            "<function=T>a</function_call>b</function>",
+            "<function name=\"T\">a</tool_call>b</function>",
+            "<function_call>a</function>b</function_call>",
         ] {
             assert!(reply_text_can_change(text), "{text}");
         }

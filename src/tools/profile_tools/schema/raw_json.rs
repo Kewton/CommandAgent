@@ -202,25 +202,31 @@ impl Decoder<'_> {
             .ok_or(DecodeError::Malformed)?;
         let number = serde_json::from_str::<serde_json::Number>(token)
             .map_err(|_| DecodeError::Malformed)?;
-        if self.limits.lossless_numbers && !holds_exactly(token, &number) {
-            return Err(DecodeError::LossyNumber);
+        if !self.limits.lossless_numbers {
+            return Ok(Value::Number(number));
         }
-        Ok(Value::Number(number))
+        exact_number(token, number)
+            .map(Value::Number)
+            .ok_or(DecodeError::LossyNumber)
     }
 }
 
-/// An integer token must stay an integer. A fractional token must read back, digit
-/// for digit, from the shortest decimal of the `f64` it became: no count of digits
-/// can promise that, because a decimal is only certain to survive up to 15 of them.
-fn holds_exactly(token: &str, number: &serde_json::Number) -> bool {
+/// `serde_json` has already accepted the grammar. An integer token must stay an
+/// integer. A fractional token is rounded by the standard library, because
+/// `serde_json` without `float_roundtrip` can land one step off, and must read back,
+/// digit for digit, from the shortest decimal of that value: no count of digits can
+/// promise that, because a decimal is only certain to survive up to 15 of them. The
+/// value compared is the value kept.
+fn exact_number(token: &str, number: serde_json::Number) -> Option<serde_json::Number> {
     if !token.contains(['.', 'e', 'E']) {
-        return number.is_i64() || number.is_u64();
+        return (number.is_i64() || number.is_u64()).then_some(number);
     }
-    let Some(value) = number.as_f64() else {
-        return false;
-    };
-    let kept = decimal_value(&format!("{value:e}"));
-    kept.is_some() && kept == decimal_value(token)
+    let value = token.parse::<f64>().ok()?;
+    let kept = decimal_value(&format!("{value:e}"))?;
+    if decimal_value(token)? != kept {
+        return None;
+    }
+    serde_json::Number::from_f64(value)
 }
 
 /// A decimal's significant digits and the power of ten of the last one, so that two
@@ -324,9 +330,11 @@ mod tests {
             "1.000000000000000001",
             "1.0000000000000001",
             "0.30000000000000000001",
+            "9007199254740993.0",
         ] {
             assert_eq!(decode(raw, LIMITS), Err(DecodeError::LossyNumber), "{raw}");
         }
+        assert_eq!(decode("1e400", LIMITS), Err(DecodeError::Malformed));
         for raw in [
             "18446744073709551615",
             "-9223372036854775808",
@@ -343,5 +351,30 @@ mod tests {
         ] {
             assert!(decode(raw, LIMITS).is_ok(), "{raw}");
         }
+    }
+
+    /// A correctly rounded double keeps its value, also where `serde_json`'s fast path
+    /// would land one step off. The expectation is the standard library's parse.
+    #[test]
+    fn a_correctly_rounded_double_passes_as_that_value() {
+        let failures = [
+            "14.700000000000001",
+            "0.9242829794947799",
+            "398.91571404865124",
+            "1.602176634e-19",
+            "5e-324",
+            "1.7976931348623157e308",
+            "3.141592653589793",
+            "1e23",
+        ]
+        .into_iter()
+        .filter(|raw| {
+            decode(raw, LIMITS)
+                .ok()
+                .and_then(|value| value.as_f64())
+                .is_none_or(|value| Some(value) != raw.parse::<f64>().ok())
+        })
+        .collect::<Vec<_>>();
+        assert_eq!(failures, Vec::<&str>::new());
     }
 }
