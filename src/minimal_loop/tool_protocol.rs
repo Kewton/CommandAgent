@@ -1,7 +1,6 @@
 use crate::config::ToolProtocol;
 use crate::providers::AssistantReply;
 use crate::providers::xml_repair::ToolCallRepair;
-use crate::tools::profile_tools::schema::invocation;
 use crate::tools::registry::ToolSpec;
 
 /// Resolve the declared capability without inspecting a model name. Absence
@@ -28,37 +27,25 @@ pub(crate) fn normalize_text_reply(
     reply: &mut AssistantReply,
     tools: &[ToolSpec],
 ) -> anyhow::Result<Vec<ToolCallRepair>> {
+    crate::tools::profile_tools::schema::invocation::refuse_text_reply_in_schema_session()?;
     let allowed_tools = tools
         .iter()
         .map(|tool| tool.function.name.clone())
         .collect::<Vec<_>>();
     let original = reply.content.clone();
-    let strict = crate::providers::xml_fallback::extract_located(&original, &allowed_tools);
-    if let Ok((located, _)) = &strict {
-        invocation::check_xml_reply(&original, located)?;
-    }
-    let strict_has_schema_call = strict
-        .as_ref()
-        .is_ok_and(|(located, _)| invocation::has_schema_call(located.iter().map(|at| &at.call)));
-    // A repair never carries a schema tool: its arguments pass as sent or not at all.
-    if !strict_has_schema_call
-        && let Some(candidate) = crate::providers::xml_repair::candidate(&original, &allowed_tools)
+    let strict = crate::providers::xml_fallback::extract_tool_calls(&original, &allowed_tools);
+    if let Some(candidate) = crate::providers::xml_repair::candidate(&original, &allowed_tools)
         && let Ok((tool_calls, content)) =
             crate::providers::xml_fallback::extract_tool_calls(&candidate.response, &allowed_tools)
-        && !invocation::has_schema_call(&tool_calls)
         && validate_tool_calls(&tool_calls, tools).is_ok()
     {
-        invocation::forget_receipts();
         reply.content = content;
         reply.tool_calls = tool_calls;
         return Ok(vec![candidate.repair]);
     }
-    if !strict_has_schema_call {
-        invocation::forget_receipts();
-    }
-    let (located, content) = strict?;
+    let (tool_calls, content) = strict?;
     reply.content = content;
-    reply.tool_calls = located.into_iter().map(|at| at.call).collect();
+    reply.tool_calls = tool_calls;
     Ok(Vec::new())
 }
 

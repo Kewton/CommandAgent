@@ -311,7 +311,6 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "ready",
     "received_call",
     "received_native",
-    "received_xml",
     "recovery_boundary_snapshot",
     "recovery_candidate_completion_requirements_bound",
     "recovery_candidate_verify_commands_bound",
@@ -409,7 +408,6 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "successful_bash_after_prompt",
     "successful_bash_since_latest_edit",
     "successful_write_count",
-    "tag_inside_arguments",
     "target",
     "targets",
     "test_node_event",
@@ -427,7 +425,6 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "tool_call",
     "tool_call_raw",
     "tool_execute",
-    "tool_name_not_exact",
     "tool_parse_failure",
     "tool_policy_error",
     "tool_read_unchanged",
@@ -493,7 +490,6 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "workflow_started",
     "workspace_cd_stripped",
     "workspace_descriptor",
-    "wrapper_not_exact",
     "write_failure_after_last_write",
     "write_required_off_target_write_allowed",
     "wrong_type",
@@ -540,7 +536,7 @@ mod profile_tool_schema_tests {
     use super::{collides_with_fixed_identifier, is_fixed_identifier};
     use crate::sensitive_data::SecretCatalog;
 
-    const WORDS: [&str; 35] = [
+    const WORDS: [&str; 31] = [
         "profile-tool.schema/v1",
         "schema_unsupported",
         "schema_limit_exceeded",
@@ -551,7 +547,6 @@ mod profile_tool_schema_tests {
         "schema_violation",
         "received_call",
         "received_native",
-        "received_xml",
         "before_execution",
         "arguments_too_deep",
         "arguments_too_large",
@@ -561,9 +556,6 @@ mod profile_tool_schema_tests {
         "malformed_json",
         "trailing_data",
         "lossy_number",
-        "tool_name_not_exact",
-        "wrapper_not_exact",
-        "tag_inside_arguments",
         "missing_required",
         "unknown_key",
         "wrong_type",

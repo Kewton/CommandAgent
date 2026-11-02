@@ -147,7 +147,7 @@ command) is admitted by the TUI command's check, with the effective profile.
 | `schema_mismatch` | The compiler no longer gives the adopted schema from the adopted bytes, or a later admission finds another descriptor than the adopted one |
 | `input_revision_unavailable` | A declared input cannot be read when it would be adopted |
 | `input_revision_mismatch` | A declared input no longer holds the adopted revision |
-| `schema_violation` | An argument failed the validator. The reason is bounded data, returned to the model; the exception under On receipt ends the run |
+| `schema_violation` | An argument failed the validator. The reason is bounded data, returned to the model |
 
 ## What G1 does not provide
 
@@ -284,10 +284,14 @@ These are this protocol's own. The artifact-contract v1 limits are unchanged. An
 The body of #973 does not define where a dynamic schema comes from, what a revision is, or
 which providers qualify. These were decided with the project manager's approval.
 
-- **Providers.** Reception and sending cover the Chat Completions wire (OpenAI chat, LM
-  Studio, OpenAI-compatible) and explicit text (XML) on the same client. The Responses API,
-  both Gemini APIs, and Ollama are refused as `schema_unsupported` before any provider call,
-  in `src/providers/profile_tool_schema.rs`, with those clients unchanged. Support is
+- **Providers.** Reception and sending cover native tool calls on the Chat Completions wire
+  (OpenAI chat, LM Studio, OpenAI-compatible). This was narrowed from the first decision,
+  which also covered explicit text (XML): the XML parser reads on from text it has closed up,
+  so it cannot show that a call's arguments are what the reply held. The user approved the
+  narrowing, and XML support moved to #978. The text tool protocol, the Responses API, both
+  Gemini APIs, and Ollama are refused as `schema_unsupported` before any provider call, in
+  `schema/invocation.rs` and `src/providers/profile_tool_schema.rs`, with those clients and the
+  XML parser unchanged. Support is
   declared by the client (`ChatClient::profile_tool_schema_wire`). An entry that holds no
   session client (a planner call, a workflow) asks the configuration what the executor role
   would build, including the `openai_compatible` override. Nothing reads a label. An injected
@@ -315,7 +319,8 @@ which providers qualify. These were decided with the project manager's approval.
 ### Before the start
 
 Each entry in the table above also refuses, before its first provider, classifier, or Jev
-call: a client that cannot carry the tool, a schema a shared step on the way out would change,
+call: the text tool protocol (use the native protocol instead), a client that cannot carry the
+tool, a schema a shared step on the way out would change,
 a schema over a limit, and an input that cannot be adopted. The provider sanitizer and the
 secret scrub are not changed for this. Each adopted schema is compared with its copy after the
 sanitizer and after the scrub, and again right before a request leaves; a difference is a
@@ -326,39 +331,23 @@ also keeps a session from starting the native-to-XML fallback, whatever caused t
 ### On receipt
 
 The raw arguments are decoded by `schema/raw_json.rs`, only for a schema tool. A repeated key,
-malformed JSON, trailing data, or a number an `f64` cannot hold is refused. On the native wire
-this happens where the arguments are still text, and a key repeated around them in the same
-body is refused too. A refusal does not fail the parse, because a parse error is what starts a
-fallback.
+malformed JSON, trailing data, or a number an `f64` cannot hold is refused. This happens where
+the arguments are still text, and a key repeated around them in the same body is refused too. A
+refusal does not fail the parse, because a parse error is what starts a fallback.
 
 A value is never changed to pass: no string conversion, no `null` filled in, no number
 coerced, no ID corrected, no key removed. A schema tool's arguments skip the shared recovery,
-which reshapes `name`, `tool`, and wrapper keys, the relaxed XML JSON, and the XML repair. On
-XML, a named tag's body is the arguments, and a plain tag holds exactly
-`{"name": …, "arguments": …}`. These checks read the name of the call the parser produced,
-after JSON decoding, so a name written with an escape counts the same. A repair candidate that
-produces a schema call is discarded, whatever its spelling.
+which reshapes `name`, `tool`, and wrapper keys. Tag-like text in a string of native arguments is
+part of the string: it is delivered as it is and creates no call.
 
-The XML parser removes each call and each `<think>` block as it goes, and reads on from the text
-closed up, so a body can be different from anything the reply held, and a tag can appear that the
-reply never held. The parser records this, and the invariant reads its record: **in a reply that
-produced a schema call, every call, a builtin's too, was read from consecutive text of the reply.
-The parser removed nothing between the start of its tag and the end.** A reply that breaks this is
-refused as `tag_inside_arguments`. A tag in a string that does not disturb the parse stays part
-of the string and is delivered as it is, such as `</function>` inside a `<tool_call>`. Two more
-things refuse such a reply: a `<think>` block other than complete ones ahead of everything else,
-and a `<requirement_plan>` block the plan took out before the parse. A builtin and a flat tool in
-a reply without a schema call keep every existing path.
+A session with a schema tool never reads a reply as XML. If such a session reaches the XML
+parser anyway, the whole reply is refused as `schema_unsupported` before anything is parsed, so
+no call exists and nothing runs.
 
 An argument the validator refuses returns to the model as data, in the existing recoverable
 feedback: `{"stage": …, "violations": [{"path": …, "code": …}]}`. A path can hold a key the
 model sent, so it is bounded and is not read as an instruction. A pin, revision, or schema
 that no longer holds ends the run, because retrying cannot correct it.
-
-There is one exception among `schema_violation` refusals. `tag_inside_arguments` ends the run
-instead of returning as data: the whole reply is refused at the XML parse, before any call
-exists to answer. Nothing runs. Likewise, a reply whose XML cannot be parsed at all, or whose only
-reading is a discarded repair, ends the run as any such reply does.
 
 ### Right before an execution
 
@@ -374,6 +363,10 @@ does not satisfy an artifact or a stage, and an unreported usage stays `None`.
 
 ### Known limits
 
+- The text (XML) tool protocol does not carry a schema tool. A run that selects both is refused
+  as `schema_unsupported` before its first provider call; use the native protocol. XML support
+  is a separate issue, #978. A session without a schema tool keeps the XML parser and repair as
+  they were.
 - The adoption lasts for the process, keyed by workspace, profile, and tool, and nothing persists
   it, because a record in the workspace would not be trusted and `.anvil/` is not widened. This has
   two approved consequences:

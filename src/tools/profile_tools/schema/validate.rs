@@ -1,5 +1,5 @@
-//! The one validator of the G2 protocol. Native and XML receipt, and the check
-//! right before an execution, all call [`validate`]. It only answers: it never
+//! The one validator of the G2 protocol. Receipt and the check right before an
+//! execution both call [`validate`]. It only answers: it never
 //! changes, fills in, or removes a value.
 
 use serde_json::Value;

@@ -13,7 +13,7 @@ use super::parsing::sanitize_schema;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProfileToolSchemaWire {
-    /// The Chat Completions request and parser, and explicit text on the same client.
+    /// The Chat Completions request and parser, on the native tool protocol.
     ChatCompletions,
     /// A client that has the Responses API selected.
     Responses,

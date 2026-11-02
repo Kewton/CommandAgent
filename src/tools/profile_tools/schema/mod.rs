@@ -3,9 +3,9 @@
 //!
 //! - [`admission`] compiles the closed subset and refuses what it does not define.
 //! - [`raw_json`] decodes raw argument text, where a repeated key still exists.
-//! - [`validate`] is the one validator native and XML receipt share.
+//! - [`validate`] is the one validator receipt and the execution boundary share.
 //! - [`binding`] adopts a tool's inputs and schema once and compares them after.
-//! - [`invocation`] carries what a session admitted to the receiving parsers.
+//! - [`invocation`] carries what a session admitted to the receiving parser.
 //!
 //! All of this applies only to a descriptor that declares `schema`. Without one,
 //! nothing here reads a file, decodes a reply, or changes a value.

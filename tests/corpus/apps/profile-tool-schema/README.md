@@ -17,10 +17,10 @@ fake executors, and a temporary workspace.
 
 ## Files
 
-- `fixtures/cases.json`: the accepted rows, each on the native and the XML wire; the
-  rejected rows, which run on both wires with the same expected code and must reach zero
-  executions; the rows refused before the start, which every public entry must refuse with
-  zero provider, classifier, and Jev calls; and the off rows.
+- `fixtures/cases.json`: the accepted rows, on the native wire; the rejected rows, which
+  run on the native wire and must reach zero executions; the rows refused before the start,
+  which every public entry must refuse with zero provider, classifier, and Jev calls,
+  including a schema tool selected on the text tool protocol; and the off rows.
   `tests/profile_tool_schema.rs` asserts these rows are the ones it runs.
 - `fixtures/off-golden.json`: the off control, recorded by running the public session
   against the base commit's production code with a recorder that does not remain in this
@@ -43,6 +43,9 @@ Nothing is left out. Inside the recording, exactly these are replaced by a place
 
 ## Known limits
 
+- A schema tool runs on Chat Completions native tool calls only. On the text (XML) tool
+  protocol it is refused before the start as `schema_unsupported`; XML support is #978. The
+  XML rows in the off recording are the old parser's control, with no schema tool, and stay.
 - The binary registers no in-process runtime or compiler, as in G1, so through the CLI a
   schema tool is refused as `unavailable`. Success rows run through the library entries.
 - The mutation rows named in the issue's dispatch are measured by the leader, not here.

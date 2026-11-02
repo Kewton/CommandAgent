@@ -2,8 +2,8 @@
   "issue": "#973",
   "kind": "synthetic",
   "accepted": [
-    {"id": "config-object-profile", "kind": "synthetic", "profile": "schema-config", "tool": "SubmitConfig", "wires": ["native", "xml"], "raw": "{\"mode\":\"fast\",\"limits\":{\"retries\":3,\"ratio\":0.5},\"targets\":[{\"host\":\"ab\",\"port\":1},null],\"name\":\"n\",\"tool\":\"t\",\"path\":\"a/../b\",\"arguments\":{\"name\":\"inner\",\"args\":\"it's\"},\"enabled\":false}"},
-    {"id": "document-index-profile", "kind": "synthetic", "profile": "schema-index", "tool": "SubmitIndex", "wires": ["native", "xml"], "raw": "{\"documents\":[{\"id\":\"doc-a\",\"refs\":[\"doc-b\"]},{\"id\":\"doc-b\",\"refs\":[]}]}"}
+    {"id": "config-object-profile", "kind": "synthetic", "profile": "schema-config", "tool": "SubmitConfig", "wires": ["native"], "raw": "{\"mode\":\"fast\",\"limits\":{\"retries\":3,\"ratio\":0.5},\"targets\":[{\"host\":\"ab\",\"port\":1},null],\"name\":\"n\",\"tool\":\"t\",\"path\":\"a/../b\",\"arguments\":{\"name\":\"inner\",\"args\":\"it's\"},\"enabled\":false}"},
+    {"id": "document-index-profile", "kind": "synthetic", "profile": "schema-index", "tool": "SubmitIndex", "wires": ["native"], "raw": "{\"documents\":[{\"id\":\"doc-a\",\"refs\":[\"doc-b\"]},{\"id\":\"doc-b\",\"refs\":[]}]}"}
   ],
   "rejected": [
     {"id": "nested missing key", "raw": "{\"mode\":\"fast\",\"limits\":{},\"targets\":[null]}", "code": "missing_required"},
@@ -41,7 +41,8 @@
     {"id": "a sanitizer would change it", "refusal": "schema_unsupported"},
     {"id": "a scrub would change it", "refusal": "schema_scrubbed"},
     {"id": "input revision cannot be adopted", "refusal": "input_revision_unavailable"},
-    {"id": "an injected client declares no wire", "refusal": "schema_unsupported"}
+    {"id": "an injected client declares no wire", "refusal": "schema_unsupported"},
+    {"id": "the text tool protocol", "refusal": "schema_unsupported", "tool_protocol": "text", "provider_calls": 0}
   ],
   "off": [
     {"id": "chat-native-recovery-and-last-value", "kind": "synthetic", "profile": "generic"},

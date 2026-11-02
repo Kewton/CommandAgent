@@ -34,7 +34,8 @@ source-manifest.json:origin = "synthetic"
 fixtures/cases.json = [
   "\"id\": \"config-object-profile\"",
   "\"id\": \"document-index-profile\"",
-  "\"wires\": [\"native\", \"xml\"]",
+  "\"wires\": [\"native\"]",
+  "\"id\": \"the text tool protocol\"",
   "\"id\": \"repeated nested key\"",
   "\"id\": \"union nested extra key\"",
   "\"id\": \"garbage after the object\"",

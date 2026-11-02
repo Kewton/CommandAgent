@@ -1,13 +1,12 @@
 //! Binds a session to the tool set its selected profile and pack admitted
 //! (Issue #972). Off keeps the default registry; a refusal stops the session
 //! before its first provider call. A set with a G2 schema tool (Issue #973) also
-//! returns the scope the receiving parsers read; without one there is no scope.
+//! returns the scope the receiving parser reads; without one there is no scope.
 
 use std::path::Path;
 
 use crate::config::Config;
-use crate::minimal_loop::requirement_plan::RequirementPlan;
-use crate::providers::{AssistantReply, ChatClient};
+use crate::providers::ChatClient;
 use crate::tools::profile_tools::admit_selected;
 use crate::tools::profile_tools::schema::invocation::{self, SessionScope};
 use crate::tools::registry::ToolRegistry;
@@ -28,21 +27,6 @@ pub(super) fn session_registry(
         }
         None => Ok((ToolRegistry::default(), None)),
     }
-}
-
-/// The requirement plan takes its block out of the reply before the XML parse. In a
-/// session with a schema tool that is noted, because a string in the arguments can
-/// hold the block. Otherwise this is only the capture.
-pub(super) fn capture_requirement_plan(
-    plan: &mut RequirementPlan,
-    reply: &mut AssistantReply,
-) -> bool {
-    let before = invocation::watches_reply_text().then(|| reply.content.clone());
-    let plan_only = plan.capture_reply(reply);
-    if before.is_some_and(|before| before != reply.content) {
-        invocation::note_reply_cut_before_parse();
-    }
-    plan_only
 }
 
 /// The run's evidence directory name, when the run records one. A run without

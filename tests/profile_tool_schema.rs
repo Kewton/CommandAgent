@@ -69,6 +69,9 @@ const DUMMY_SECRET: &str = "fake-dummy-credential-973-not-a-real-key";
 const FLAT_PARAMETERS: &str = r#"[{"name":"path","kind":"workspace_path","required":true,"description":"Workspace-relative file."}]"#;
 const CONFIG_PROFILE: &str = "schema-config";
 const INDEX_PROFILE: &str = "schema-index";
+/// A profile with no declaration of its own, and a pack that declares the schema tool.
+const PACK_HOST: &str = "schema-pack-host";
+const SCHEMA_PACK: &str = "schema-pack";
 const CONFIG_TOOL_ID: &str = "config-submit";
 const INDEX_TOOL_ID: &str = "index-submit";
 const CONFIG_TOOL: &str = "SubmitConfig";
@@ -223,19 +226,14 @@ fn tool_reply(calls: &[(&str, &str)]) -> String {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Wire {
     Native,
+    /// The text tool protocol. A schema tool is refused on it before the start.
     Xml,
 }
 
-const WIRES: [Wire; 2] = [Wire::Native, Wire::Xml];
+/// The wires a schema tool runs on.
+const WIRES: [Wire; 1] = [Wire::Native];
 
 impl Wire {
-    fn stage(self) -> &'static str {
-        match self {
-            Self::Native => "received_native",
-            Self::Xml => "received_xml",
-        }
-    }
-
     fn call(self, tool: &str, raw: &str) -> String {
         match self {
             Self::Native => tool_reply(&[(tool, raw)]),
@@ -482,6 +480,7 @@ fn extension() -> &'static Path {
             (FLAT_PROFILE, declaration(r#""Read", "Write""#, FLAT_TOOL)),
             (CONFIG_PROFILE, declaration(r#""Read""#, CONFIG_TOOL_ID)),
             (INDEX_PROFILE, declaration(r#""Read""#, INDEX_TOOL_ID)),
+            (PACK_HOST, String::new()),
         ] {
             let directory = root.join(format!("profiles/{profile}"));
             std::fs::create_dir_all(&directory).unwrap();
@@ -491,6 +490,20 @@ fn extension() -> &'static Path {
             )
             .unwrap();
         }
+        let eval = format!(
+            "schema_version: commandagent.pack.eval/v0\npack:\n  id: {SCHEMA_PACK}\n  version: 1.0.0\n  profile: {PACK_HOST}\n  intent: create\nprofile_tools:\n  schema_version: profile-tool.declaration/v1\n  builtin_tools: [Read]\n  tools:\n    - id: {CONFIG_TOOL_ID}\n      effect: read\n"
+        );
+        let pack = root.join(format!("packs/{SCHEMA_PACK}/1.0.0"));
+        std::fs::create_dir_all(&pack).unwrap();
+        std::fs::write(pack.join("eval.yaml"), &eval).unwrap();
+        std::fs::write(
+            pack.join("pack.sha256"),
+            format!(
+                "{}\n",
+                commandagent::planner::pack::exact_byte_hash(None, Some(eval.as_bytes()))
+            ),
+        )
+        .unwrap();
         commandagent::planner::extension_profiles::register(&root).unwrap();
         register_read_executor(FLAT_RUNTIME, Arc::new(FlatReader));
         root
@@ -666,9 +679,11 @@ fn assert_rejected(env: &Env, wire: Wire, run: &SessionRun, code: &str, label: &
     );
     assert_eq!(run.requests.len(), 2, "{label}: {:?}", run.result);
     let feedback = run.last_message(1);
-    let stage = format!("\"stage\":\"{}\"", wire.stage());
     assert!(feedback.contains("schema_violation"), "{label}: {feedback}");
-    assert!(feedback.contains(&stage), "{label}: {feedback}");
+    assert!(
+        feedback.contains("\"stage\":\"received_native\""),
+        "{label}: {feedback}"
+    );
     assert!(
         feedback.contains(&format!("\"code\":\"{code}\"")),
         "{label}: {feedback}"
@@ -682,11 +697,11 @@ fn assert_rejected(env: &Env, wire: Wire, run: &SessionRun, code: &str, label: &
 }
 
 // ---------------------------------------------------------------------------
-// Acceptance 1: the same validator on both wires, with values untouched.
+// Acceptance 1: the validator on the native wire, with values untouched.
 // ---------------------------------------------------------------------------
 
 #[test]
-fn a_valid_nested_object_array_and_union_reach_the_executor_unchanged_on_both_wires() {
+fn a_valid_nested_object_array_and_union_reach_the_executor_unchanged_on_the_native_wire() {
     let _guard = lock();
     for wire in WIRES {
         let env = Env::with_config_tool();
@@ -699,32 +714,6 @@ fn a_valid_nested_object_array_and_union_reach_the_executor_unchanged_on_both_wi
         assert_eq!(run.result.as_deref(), Ok("done"), "{wire:?}");
         assert_eq!(run.executed, vec![parsed(VALID_CONFIG)], "{wire:?}");
         assert!(!env.events().contains("tool_args_recovered"), "{wire:?}");
-    }
-    set_env(REGISTRY_ENV, None);
-}
-
-#[test]
-fn every_xml_framing_carries_the_arguments_unchanged() {
-    let _guard = lock();
-    for content in [
-        format!("<anvil_tool_call name=\"{CONFIG_TOOL}\">{VALID_CONFIG}</anvil_tool_call>"),
-        format!("<function name=\"{CONFIG_TOOL}\">{VALID_CONFIG}</function>"),
-        format!("<function={CONFIG_TOOL}>{VALID_CONFIG}</function>"),
-        format!(
-            "<tool_call>{{\"name\":\"{CONFIG_TOOL}\",\"arguments\":{VALID_CONFIG}}}</tool_call>"
-        ),
-        format!(
-            "<anvil_tool_call>{{\"arguments\":{VALID_CONFIG},\"name\":\"{CONFIG_TOOL}\"}}</anvil_tool_call>"
-        ),
-    ] {
-        let env = Env::with_config_tool();
-        let run = session(
-            &env,
-            Wire::Xml,
-            vec![text_reply(&content), text_reply("done")],
-            None,
-        );
-        assert_eq!(run.executed, vec![parsed(VALID_CONFIG)], "{content}");
     }
     set_env(REGISTRY_ENV, None);
 }
@@ -874,7 +863,7 @@ const REJECTED: &[(&str, &str, &str)] = &[
 ];
 
 #[test]
-fn every_rejected_argument_runs_nothing_and_returns_bounded_data_on_both_wires() {
+fn every_rejected_argument_runs_nothing_and_returns_bounded_data_on_the_native_wire() {
     let _guard = lock();
     for wire in WIRES {
         for (label, raw, code) in REJECTED {
@@ -916,256 +905,10 @@ fn a_shape_the_shared_recovery_would_repair_stays_refused() {
     set_env(REGISTRY_ENV, None);
 }
 
-#[test]
-fn an_xml_repair_never_rescues_a_schema_tool() {
-    let _guard = lock();
-    let cases = [
-        (
-            format!(
-                "<anvil_tool_call name=\"{}\">```json\n{VALID_CONFIG}\n```</anvil_tool_call>",
-                CONFIG_TOOL
-            ),
-            "malformed_json",
-        ),
-        (
-            format!(
-                "<tool_call>{{\"name\":\"{CONFIG_TOOL}\",\"arguments\":{VALID_CONFIG}}} trailing</tool_call>"
-            ),
-            "trailing_data",
-        ),
-        (
-            format!(
-                "<tool_call>{{\"name\":\"{CONFIG_TOOL}\",\"arguments\":{VALID_CONFIG},\"extra\":1}}</tool_call>"
-            ),
-            "wrapper_not_exact",
-        ),
-        (
-            format!(
-                "<tool_call>{{\"tool\":\"{CONFIG_TOOL}\",\"args\":{VALID_CONFIG}}}</tool_call>"
-            ),
-            "wrapper_not_exact",
-        ),
-        (
-            format!(
-                "<anvil_tool_call name=\"{}\">{VALID_CONFIG}</anvil_tool_call>",
-                CONFIG_TOOL.to_ascii_lowercase()
-            ),
-            "tool_name_not_exact",
-        ),
-    ];
-    for (content, code) in cases {
-        let env = Env::with_config_tool();
-        let run = session(
-            &env,
-            Wire::Xml,
-            vec![text_reply(&content), text_reply("done")],
-            None,
-        );
-        assert_rejected(&env, Wire::Xml, &run, code, &content);
-        assert!(!env.events().contains("repair_applied"), "{content}");
-    }
-    // Without a closing tag and with a value the plain parser would take, the first
-    // JSON value is still all there is; nothing is appended or cut.
-    let env = Env::with_config_tool();
-    let content = format!("<anvil_tool_call name=\"{CONFIG_TOOL}\">{VALID_CONFIG}");
-    let run = session(&env, Wire::Xml, vec![text_reply(&content)], None);
-    assert_eq!(run.executed, Vec::<Value>::new());
-    assert!(run.result.is_err(), "{:?}", run.result);
-    assert!(!env.events().contains("repair_applied"));
-    set_env(REGISTRY_ENV, None);
-}
-
-/// The XML parser removes `<think>` blocks and pulls out inner tags before it reads a
-/// body. Either would change a string inside the arguments, so the reply is refused.
-#[test]
-fn a_tag_inside_xml_arguments_does_not_silently_change_a_string() {
-    let _guard = lock();
-    for name in [
-        "a<think>hidden</think>b",
-        "<tool_call>{'name':'Read'}</tool_call>",
-    ] {
-        let env = Env::with_config_tool();
-        let raw =
-            json!({"mode": "fast", "limits": {"retries": 1}, "targets": [null], "name": name})
-                .to_string();
-        let run = session(
-            &env,
-            Wire::Xml,
-            vec![Wire::Xml.call(CONFIG_TOOL, &raw)],
-            None,
-        );
-        assert_eq!(run.executed, Vec::<Value>::new(), "{name}");
-        let error = run.result.unwrap_err();
-        assert!(error.contains("schema_violation"), "{error}");
-        assert!(error.contains("tag_inside_arguments"), "{error}");
-    }
-    set_env(REGISTRY_ENV, None);
-}
-
-/// `SubmitConfig` with its first letter as a JSON escape: the decoded name is the tool's,
-/// and the raw text does not contain it.
-const ESCAPED_CONFIG_TOOL: &str = "\\u0053ubmitConfig";
-
-fn with_string(value: &str) -> String {
-    json!({"mode": "fast", "limits": {"retries": 1}, "targets": [null], "name": value}).to_string()
-}
-
-/// The checks read the decoded name of the call the parser made, not the raw text, so
-/// neither the order of the keys nor an escape in the name gets past them.
-#[test]
-fn an_xml_reply_cannot_hide_a_schema_call_from_the_think_and_repair_checks() {
-    let _guard = lock();
-    let think = with_string("a<think>hidden</think>b");
-    let cases = [
-        (
-            "arguments first, with a think block in a string",
-            format!("<tool_call>{{\"arguments\":{think},\"name\":\"{CONFIG_TOOL}\"}}</tool_call>"),
-            Some("tag_inside_arguments"),
-        ),
-        (
-            "an escaped name, with trailing garbage",
-            format!(
-                "<tool_call>{{\"name\":\"{ESCAPED_CONFIG_TOOL}\",\"arguments\":{VALID_CONFIG}}} trailing</tool_call>"
-            ),
-            None,
-        ),
-        (
-            "an escaped name, with a think block in a string",
-            format!(
-                "<tool_call>{{\"name\":\"{ESCAPED_CONFIG_TOOL}\",\"arguments\":{think}}}</tool_call>"
-            ),
-            Some("tag_inside_arguments"),
-        ),
-        (
-            "an escaped name, with a tag in a string",
-            format!(
-                "<tool_call>{{\"name\":\"{ESCAPED_CONFIG_TOOL}\",\"arguments\":{}}}</tool_call>",
-                with_string("<tool_call>{'name':'Read'}</tool_call>")
-            ),
-            // The inner closing tag ends the outer call early, so the reply does not parse.
-            None,
-        ),
-        (
-            "an escaped name, with a think block after the call",
-            format!(
-                "<tool_call>{{\"name\":\"{ESCAPED_CONFIG_TOOL}\",\"arguments\":{VALID_CONFIG}}}</tool_call><think>later</think>"
-            ),
-            Some("tag_inside_arguments"),
-        ),
-    ];
-    for (label, content, code) in cases {
-        let env = Env::with_config_tool();
-        let run = session(&env, Wire::Xml, vec![text_reply(&content)], None);
-        assert_eq!(run.executed, Vec::<Value>::new(), "{label}");
-        let error = run.result.unwrap_err();
-        if let Some(code) = code {
-            assert!(error.contains(code), "{label}: {error}");
-        }
-        assert!(!env.events().contains("repair_applied"), "{label}");
-    }
-    set_env(REGISTRY_ENV, None);
-}
-
-/// An escaped name in a shape the old parser would have accepted gets a refusal for the
-/// tool, not a relaxed reading.
-#[test]
-fn an_escaped_name_in_an_unexact_wrapper_is_refused_for_the_tool() {
-    let _guard = lock();
-    for content in [
-        format!(
-            "<tool_call>{{\"tool\":\"{ESCAPED_CONFIG_TOOL}\",\"args\":{VALID_CONFIG}}}</tool_call>"
-        ),
-        // A trailing comma the relaxed parser would remove. No apostrophe, which it would
-        // otherwise rewrite and fail on before it read the name.
-        format!(
-            "<tool_call>{{\"name\":\"{ESCAPED_CONFIG_TOOL}\",\"arguments\":{{\"mode\":\"fast\",\"limits\":{{\"retries\":1}},\"targets\":[null]}},}}</tool_call>"
-        ),
-    ] {
-        let env = Env::with_config_tool();
-        let run = session(
-            &env,
-            Wire::Xml,
-            vec![text_reply(&content), text_reply("done")],
-            None,
-        );
-        assert_rejected(&env, Wire::Xml, &run, "wrapper_not_exact", &content);
-    }
-    set_env(REGISTRY_ENV, None);
-}
-
-/// What the checks must not refuse: the same escaped name as a clean call, complete think
-/// blocks ahead of it, and a builtin's repair in a reply without a schema call.
-#[test]
-fn a_clean_reply_and_a_builtin_repair_still_pass_in_a_schema_session() {
-    let _guard = lock();
-    for content in [
-        format!(
-            "<tool_call>{{\"name\":\"{ESCAPED_CONFIG_TOOL}\",\"arguments\":{VALID_CONFIG}}}</tool_call>"
-        ),
-        format!(
-            "<think>one</think>\n<think>two</think>\n<anvil_tool_call name=\"{CONFIG_TOOL}\">{VALID_CONFIG}</anvil_tool_call>"
-        ),
-    ] {
-        let env = Env::with_config_tool();
-        let run = session(
-            &env,
-            Wire::Xml,
-            vec![text_reply(&content), text_reply("done")],
-            None,
-        );
-        assert_eq!(run.executed, vec![parsed(VALID_CONFIG)], "{content}");
-    }
-    let env = Env::with_config_tool();
-    std::fs::write(env.root.join("notes.txt"), "text").unwrap();
-    let run = session(
-        &env,
-        Wire::Xml,
-        vec![
-            text_reply(
-                "<anvil_tool_call>{\"name\":\"Read\",\"arguments\":{\"path\":\"notes.txt\"}} trailing</anvil_tool_call>",
-            ),
-            text_reply("done"),
-        ],
-        None,
-    );
-    assert_eq!(run.result.as_deref(), Ok("done"));
-    assert!(
-        env.events().contains("repair_applied"),
-        "the builtin's repair went away"
-    );
-    set_env(REGISTRY_ENV, None);
-}
-
-/// The requirement plan runs only on the `generic` profile, which cannot select a schema
-/// tool: it has no manifest, and a pack cannot target it. So on a schema profile the plan
-/// skips, and a block in a string reaches the executor unchanged. If the plan ever applied
-/// here, this fails, or the reply is refused by the check unit-tested in `invocation.rs`.
-#[test]
-fn a_requirement_plan_block_in_a_string_stays_unchanged_because_the_plan_skips() {
-    let _guard = lock();
-    const PLAN_ENV: &str = "COMMANDAGENT_REQUIREMENT_PLAN";
-    set_env(PLAN_ENV, Some("once"));
-    let raw = with_string("a<requirement_plan>{}</requirement_plan>b");
-    let env = Env::with_config_tool();
-    let run = session(
-        &env,
-        Wire::Xml,
-        vec![Wire::Xml.call(CONFIG_TOOL, &raw), text_reply("done")],
-        None,
-    );
-    set_env(PLAN_ENV, None);
-    assert_eq!(run.executed, vec![parsed(&raw)]);
-    assert!(
-        env.events().contains("requirement_plan"),
-        "the plan was not armed"
-    );
-    set_env(REGISTRY_ENV, None);
-}
-
 /// A `number` is compared as an `f64`, so an integer past 2^53 would round into its bound,
 /// and a fraction past an `f64`'s reach would change on the way to the executor.
 #[test]
-fn a_number_an_f64_would_change_never_passes_a_bound_on_both_wires() {
+fn a_number_an_f64_would_change_never_passes_a_bound_on_the_native_wire() {
     let _guard = lock();
     let schema = schema_declaration(closed(json!({
         "n": {"type": "number", "maximum": 9_007_199_254_740_992_u64},
@@ -1233,7 +976,7 @@ const CORRECTLY_ROUNDED: [&str; 4] = [
 ];
 
 #[test]
-fn a_correctly_rounded_double_reaches_the_executor_as_that_value_on_both_wires() {
+fn a_correctly_rounded_double_reaches_the_executor_as_that_value_on_the_native_wire() {
     let _guard = lock();
     let schema = schema_declaration(closed(json!({"n": {"type": "number"}})));
     for wire in WIRES {
@@ -1297,79 +1040,6 @@ fn a_correctly_rounded_bound_holds_at_its_exact_value() {
     set_env(REGISTRY_ENV, None);
 }
 
-/// A closing tag of another kind in a string used to read as closing the outer call, so a
-/// call could be cut out of the string, and a second call made from what the model wrote
-/// as data. Nothing runs: neither the schema tool nor the builtin.
-#[test]
-fn a_closing_tag_of_another_kind_in_a_string_runs_nothing() {
-    let _guard = lock();
-    let read = "{'name':'Read','arguments':{'path':'notes.txt'}}";
-    let cases = [
-        format!(
-            "<tool_call>{{\"name\":\"{CONFIG_TOOL}\",\"arguments\":{{\"s\":\"a</anvil_tool_call><anvil_tool_call>{read}</anvil_tool_call>b\"}}}}</tool_call>"
-        ),
-        format!(
-            "<function={CONFIG_TOOL}>{{\"s\":\"a</tool_call><tool_call>{read}</tool_call>b\"}}</function>"
-        ),
-        format!(
-            "<function={CONFIG_TOOL}>{{\"s\":\"a</function_call><function_call>{read}</function_call>b\"}}</function>"
-        ),
-        // The parser's tags are case-sensitive, so these capitals are plain text to it, and
-        // must not read as closing the outer call.
-        format!(
-            "<tool_call>{{\"name\":\"{CONFIG_TOOL}\",\"arguments\":{{\"s\":\"a</TOOL_CALL><anvil_tool_call>{read}</anvil_tool_call>b\"}}}}</tool_call>"
-        ),
-        format!(
-            "<function={CONFIG_TOOL}>{{\"s\":\"a</FUNCTION><tool_call>{read}</tool_call>b\"}}</function>"
-        ),
-        format!(
-            "<function_call>{{\"name\":\"{CONFIG_TOOL}\",\"arguments\":{{\"s\":\"a</Function_Call><tool_call>{read}</tool_call>b\"}}}}</function_call>"
-        ),
-        // The parser closes the gap a call leaves and reads on, so a tag can appear that the
-        // reply never held, and a string can lose a part.
-        format!(
-            "<to<anvil_tool_call>{read}</anvil_tool_call>ol_call>{{\"name\":\"{CONFIG_TOOL}\",\"arguments\":{{\"s\":\"a<anvil_tool_call>{read}</anvil_tool_call>b\"}}}}</tool_call>"
-        ),
-        format!(
-            "<func<anvil_tool_call>{read}</anvil_tool_call>tion={CONFIG_TOOL}>{{\"s\":\"a<anvil_tool_call>{read}</anvil_tool_call>b\"}}</function>"
-        ),
-        // The same with one cut, where the value stays whole: a tag the reply never held.
-        format!(
-            "<to<anvil_tool_call>{read}</anvil_tool_call>ol_call>{{\"name\":\"{CONFIG_TOOL}\",\"arguments\":{{\"s\":\"a\"}}}}</tool_call>"
-        ),
-        // A schema call cut out of a builtin's string: every call is held to it.
-        format!(
-            "<tool_call>{{\"name\":\"Read\",\"arguments\":{{\"path\":\"notes<anvil_tool_call>{{\"name\":\"{CONFIG_TOOL}\",\"arguments\":{{\"s\":\"a\"}}}}</anvil_tool_call>.txt\"}}}}</tool_call>"
-        ),
-    ];
-    let mut failures = Vec::new();
-    for content in cases {
-        let env = Env::new();
-        env.write_tool(schema_declaration(closed(json!({"s": {"type": "string"}}))));
-        std::fs::write(env.root.join("notes.txt"), "text").unwrap();
-        let run = session(
-            &env,
-            Wire::Xml,
-            vec![text_reply(&content), text_reply("done")],
-            None,
-        );
-        let refused = run
-            .result
-            .as_ref()
-            .err()
-            .is_some_and(|error| error.contains("tag_inside_arguments"));
-        let read_ran = env.events().contains("tool_execute");
-        if !run.executed.is_empty() || read_ran || !refused {
-            failures.push(format!(
-                "{content}\n  executed={:?} tool_execute={read_ran} result={:?}",
-                run.executed, run.result
-            ));
-        }
-    }
-    set_env(REGISTRY_ENV, None);
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
-}
-
 /// `serde` also reads a descriptor written as an array of its fields, where a lookup by
 /// key finds no `schema`. Such a tool must not quietly become one without a schema.
 #[test]
@@ -1405,97 +1075,6 @@ fn a_descriptor_that_is_not_a_json_object_is_refused() {
             .starts_with("profile_tool_refused: invalid_descriptor:"),
         "{error}"
     );
-    set_env(REGISTRY_ENV, None);
-}
-
-/// A tag in a string that does not disturb the parse is part of the string. The value is
-/// delivered as the reply holds it, and no other call is made out of it.
-#[test]
-fn a_tag_in_a_string_the_parse_leaves_alone_is_delivered_as_written() {
-    let _guard = lock();
-    let schema = schema_declaration(closed(json!({"s": {"type": "string"}})));
-    let read = "{'name':'Read','arguments':{'path':'notes.txt'}}";
-    let cases = [
-        (
-            format!(
-                "<tool_call>{{\"name\":\"{CONFIG_TOOL}\",\"arguments\":{{\"s\":\"a</anvil_tool_call>b\"}}}}</tool_call>"
-            ),
-            "a</anvil_tool_call>b".to_string(),
-        ),
-        (
-            format!("<function={CONFIG_TOOL}>{{\"s\":\"a</function_call>b\"}}</function>"),
-            "a</function_call>b".to_string(),
-        ),
-        (
-            format!("<function name=\"{CONFIG_TOOL}\">{{\"s\":\"a</tool_call>b\"}}</function>"),
-            "a</tool_call>b".to_string(),
-        ),
-        (
-            format!(
-                "<function_call>{{\"name\":\"{CONFIG_TOOL}\",\"arguments\":{{\"s\":\"a</function>b\"}}}}</function_call>"
-            ),
-            "a</function>b".to_string(),
-        ),
-        // The outer kind is read first, so the inner tag is never looked at.
-        (
-            format!(
-                "<anvil_tool_call>{{\"name\":\"{CONFIG_TOOL}\",\"arguments\":{{\"s\":\"<tool_call>{read}</tool_call>\"}}}}</anvil_tool_call>"
-            ),
-            format!("<tool_call>{read}</tool_call>"),
-        ),
-    ];
-    for (content, value) in cases {
-        let env = Env::new();
-        env.write_tool(schema.clone());
-        let run = session(
-            &env,
-            Wire::Xml,
-            vec![text_reply(&content), text_reply("done")],
-            None,
-        );
-        assert_eq!(run.result.as_deref(), Ok("done"), "{content}");
-        assert_eq!(run.executed, vec![json!({"s": value})], "{content}");
-        assert_eq!(
-            env.events().matches("\"name\":\"Read\"").count(),
-            0,
-            "{content}"
-        );
-    }
-    set_env(REGISTRY_ENV, None);
-}
-
-/// The control: calls side by side are not inside one another, of one kind or of two.
-#[test]
-fn sibling_calls_still_run_in_a_schema_session() {
-    let _guard = lock();
-    let schema = schema_declaration(closed(json!({"s": {"type": "string"}})));
-    let (first, second) = (r#"{"s":"one"}"#, r#"{"s":"two"}"#);
-    for content in [
-        format!(
-            "<tool_call>{{\"name\":\"{CONFIG_TOOL}\",\"arguments\":{first}}}</tool_call><tool_call>{{\"name\":\"{CONFIG_TOOL}\",\"arguments\":{second}}}</tool_call>"
-        ),
-        format!(
-            "<anvil_tool_call name=\"{CONFIG_TOOL}\">{first}</anvil_tool_call>\n<function={CONFIG_TOOL}>{second}</function>"
-        ),
-        format!(
-            "</tool_call>stray<tool_call>{{\"name\":\"{CONFIG_TOOL}\",\"arguments\":{first}}}</tool_call><function name=\"{CONFIG_TOOL}\">{second}</function>"
-        ),
-    ] {
-        let env = Env::new();
-        env.write_tool(schema.clone());
-        let run = session(
-            &env,
-            Wire::Xml,
-            vec![text_reply(&content), text_reply("done")],
-            None,
-        );
-        assert_eq!(run.result.as_deref(), Ok("done"), "{content}");
-        assert_eq!(
-            run.executed,
-            vec![parsed(first), parsed(second)],
-            "{content}"
-        );
-    }
     set_env(REGISTRY_ENV, None);
 }
 
@@ -1540,11 +1119,12 @@ mod repl_order {
     use std::time::{Duration, Instant};
 
     use super::{
-        CONFIG_PROFILE, Env, FLAT_PROFILE, FakeHttp, REGISTRY_ENV, base_config, closed, extension,
-        flat_registry, install_reader, json, lock, set_env, text_reply,
+        CONFIG_PROFILE, Env, FLAT_PROFILE, FakeHttp, REGISTRY_ENV, ToolProtocol, base_config,
+        closed, extension, flat_registry, install_reader, json, lock, set_env, text_reply,
     };
 
     const CHILD_ENV: &str = "COMMANDAGENT_TEST_973_REPL_CHILD";
+    const TEXT_PROTOCOL_ENV: &str = "COMMANDAGENT_TEST_973_REPL_TEXT_PROTOCOL";
     const ROOT_ENV: &str = "COMMANDAGENT_TEST_973_REPL_ROOT";
     const EVIDENCE_ENV: &str = "COMMANDAGENT_TEST_973_REPL_EVIDENCE";
     const PROFILE_ENV: &str = "COMMANDAGENT_TEST_973_REPL_PROFILE";
@@ -1575,6 +1155,9 @@ mod repl_order {
         config.profile_explicit = false;
         // `/provider ollama` builds a client from this: it must name the fake too.
         config.ollama_host = var(URL_ENV);
+        if std::env::var_os(TEXT_PROTOCOL_ENV).is_some() {
+            config.tool_protocol = Some(ToolProtocol::Text);
+        }
         exit_when_abandoned();
         commandagent::tui::repl::run(config).unwrap();
     }
@@ -1638,8 +1221,15 @@ mod repl_order {
 
     impl Repl {
         fn start(env: &Env, profile: &str, url: &str, home: &Path) -> Self {
+            Self::start_on(env, profile, url, home, false)
+        }
+
+        fn start_on(env: &Env, profile: &str, url: &str, home: &Path, text_protocol: bool) -> Self {
             let (master, slave) = open_pty();
             let mut command = Command::new(std::env::current_exe().unwrap());
+            if text_protocol {
+                command.env(TEXT_PROTOCOL_ENV, "1");
+            }
             command
                 .args(["--exact", "repl_order::repl_child_process", "--nocapture"])
                 .env(CHILD_ENV, "1")
@@ -1887,6 +1477,37 @@ mod repl_order {
         set_env(REGISTRY_ENV, None);
     }
 
+    /// The witness that the same text reaches the classifier on the native protocol is
+    /// the test above. No provider change makes the text protocol carry the tool.
+    #[test]
+    fn a_repl_on_the_text_tool_protocol_refuses_free_text_before_its_classifier() {
+        let _guard = lock();
+        let env = Env::with_config_tool();
+        let home = tempfile::tempdir().unwrap();
+        let http = classifier_fake();
+        let mut repl = Repl::start_on(&env, CONFIG_PROFILE, &http.url, home.path(), true);
+        for provider in [None, Some("/provider ollama"), Some("/provider lm-studio")] {
+            if let Some(provider) = provider {
+                repl.run_line(provider, "Executor provider set");
+            }
+            let before = http.requests.lock().unwrap().len();
+            let shown = repl.run_line(FREE_TEXT, REFUSED);
+            assert!(
+                shown.contains("schema_unsupported"),
+                "{provider:?}: {shown}"
+            );
+            assert_eq!(
+                http.requests.lock().unwrap().len(),
+                before,
+                "{provider:?}: a provider call ran before the refusal"
+            );
+        }
+        assert_eq!(classifier_calls(&http), 0);
+        repl.finish();
+        http.finish();
+        set_env(REGISTRY_ENV, None);
+    }
+
     #[test]
     fn a_repl_refuses_free_text_after_an_input_edit_before_its_classifier() {
         let _guard = lock();
@@ -2009,7 +1630,7 @@ fn nested_raw(depth: usize) -> String {
 }
 
 #[test]
-fn the_depth_limit_holds_at_its_edge_on_both_wires() {
+fn the_depth_limit_holds_at_its_edge_on_the_native_wire() {
     let _guard = lock();
     for wire in WIRES {
         let env = Env::new();
@@ -2037,7 +1658,7 @@ fn the_depth_limit_holds_at_its_edge_on_both_wires() {
 }
 
 #[test]
-fn the_size_limit_holds_at_its_edge_on_both_wires() {
+fn the_size_limit_holds_at_its_edge_on_the_native_wire() {
     let _guard = lock();
     let schema = schema_declaration(closed(json!({"s": {"type": "string"}})));
     let raw_of = |bytes: usize| format!(r#"{{"s":"{}"}}"#, "a".repeat(bytes - r#"{"s":""}"#.len()));
@@ -2071,7 +1692,7 @@ fn the_size_limit_holds_at_its_edge_on_both_wires() {
 }
 
 #[test]
-fn the_element_limit_holds_at_its_edge_on_both_wires() {
+fn the_element_limit_holds_at_its_edge_on_the_native_wire() {
     let _guard = lock();
     let schema = schema_declaration(closed(json!({
         "a": {"type": "array", "items": {"type": "integer"}},
@@ -2545,7 +2166,7 @@ fn the_public_registry_refuses_a_changed_input_tool_pin_or_compiler_at_the_execu
     set_env(REGISTRY_ENV, None);
 }
 
-/// The swaps a run can meet between its request and the reply, on both wires.
+/// The swaps a run can meet between its request and the reply.
 #[test]
 fn a_tool_pin_or_compiler_swapped_during_a_run_is_refused_at_receipt() {
     let _guard = lock();
@@ -3032,6 +2653,8 @@ fn write_with_property(env: &Env, property: Value) {
     env.write_tool(schema_declaration(closed(json!({"a": property}))));
 }
 
+const TEXT_PROTOCOL_ROW: &str = "the text tool protocol";
+
 const START_REFUSALS: &[StartRefusal] = &[
     StartRefusal {
         label: "unsupported keyword",
@@ -3080,6 +2703,11 @@ const START_REFUSALS: &[StartRefusal] = &[
         kind: "schema_unsupported",
         prepare: |env| env.write_tool(schema_declaration(config_root())),
     },
+    StartRefusal {
+        label: TEXT_PROTOCOL_ROW,
+        kind: "schema_unsupported",
+        prepare: |env| env.write_tool(schema_declaration(config_root())),
+    },
 ];
 
 fn install_dummy_secret(root: &Path, config: &Config) {
@@ -3107,6 +2735,9 @@ fn every_entry_refuses_before_any_provider_classifier_or_event() {
             // so the row about a client that declares nothing has that configuration.
             if injected {
                 config.provider = Provider::Ollama;
+            }
+            if refusal.label == TEXT_PROTOCOL_ROW {
+                Wire::Xml.configure(&mut config);
             }
             let mut fake_planner = InjectedClient::default();
             let mut fake_execution = InjectedClient::default();
@@ -3160,6 +2791,271 @@ fn the_session_judges_the_client_it_was_given() {
         "{error:#}"
     );
     assert_eq!(injected.calls(), 0);
+    set_env(REGISTRY_ENV, None);
+}
+
+// ---------------------------------------------------------------------------
+// Acceptance 1: the text tool protocol carries no schema tool (XML moved to #978).
+// ---------------------------------------------------------------------------
+
+const QUOTED_READ: &str = "{'name':'Read','arguments':{'path':'notes.txt'}}";
+
+/// What a string in the arguments can hold to end one tag and open another. Each is
+/// `(opening, closing, inner)`: on XML the three together are a reply.
+fn interleaved_tags() -> [(String, &'static str, String); 6] {
+    let plain = |name: &str| format!("{{\"name\":\"{name}\",\"arguments\":{{\"s\":\"a");
+    let anvil = format!("<anvil_tool_call>{QUOTED_READ}</anvil_tool_call>");
+    let call = format!("<tool_call>{QUOTED_READ}</tool_call>");
+    [
+        (
+            format!("<tool_call>{}", plain(CONFIG_TOOL)),
+            "b\"}}</tool_call>",
+            format!("</tool_call>{call}"),
+        ),
+        (
+            format!("<tool_call>{}", plain(CONFIG_TOOL)),
+            "b\"}}</tool_call>",
+            format!("</tool_call>{anvil}"),
+        ),
+        (
+            format!("<anvil_tool_call name=\"{CONFIG_TOOL}\">{{\"s\":\"a"),
+            "b\"}</anvil_tool_call>",
+            format!("</anvil_tool_call>{anvil}"),
+        ),
+        (
+            format!("<function={CONFIG_TOOL}>{{\"s\":\"a"),
+            "b\"}</function>",
+            "</function><function=Bash>{'command':'x'}</function>".to_string(),
+        ),
+        (
+            format!("<function={CONFIG_TOOL}>{{\"s\":\"a"),
+            "b\"}</function>",
+            format!("</function>{call}"),
+        ),
+        (
+            format!("<function_call>{}", plain(CONFIG_TOOL)),
+            "b\"}}</function_call>",
+            format!("</function_call>{call}"),
+        ),
+    ]
+}
+
+/// A provider that answers in text anyway is never asked: every reply below stays unread.
+#[test]
+fn the_text_tool_protocol_refuses_a_schema_tool_with_no_request_and_no_execution() {
+    let _guard = lock();
+    let mut replies = vec![Wire::Xml.call(CONFIG_TOOL, VALID_CONFIG)];
+    replies.extend(
+        interleaved_tags()
+            .into_iter()
+            .map(|(open, close, inner)| text_reply(&format!("{open}{inner}{close}"))),
+    );
+    for reply in replies {
+        let env = Env::with_config_tool();
+        std::fs::write(env.root.join("notes.txt"), "text").unwrap();
+        let run = session(&env, Wire::Xml, vec![reply.clone()], None);
+        assert_eq!(run.requests, Vec::<String>::new(), "{reply}");
+        assert_eq!(run.executed, Vec::<Value>::new(), "{reply}");
+        let error = run.result.unwrap_err();
+        assert!(
+            error.contains("profile_tool_refused: schema_unsupported"),
+            "{reply}: {error}"
+        );
+        assert!(error.contains("native tool protocol"), "{reply}: {error}");
+        assert!(!env.events().contains("tool_execute"), "{reply}");
+    }
+    set_env(REGISTRY_ENV, None);
+}
+
+/// On the native wire the same text is data: it arrives as the string it is, makes no call,
+/// and in a reply's content it is not read as a call either.
+#[test]
+fn tags_in_native_arguments_are_a_string_and_make_no_call() {
+    let _guard = lock();
+    let schema = schema_declaration(closed(json!({"s": {"type": "string"}})));
+    for (_, _, inner) in interleaved_tags() {
+        let value = format!("a{inner}b");
+        let raw = json!({"s": value}).to_string();
+        let env = Env::new();
+        env.write_tool(schema.clone());
+        std::fs::write(env.root.join("notes.txt"), "text").unwrap();
+        let run = session(
+            &env,
+            Wire::Native,
+            vec![Wire::Native.call(CONFIG_TOOL, &raw), text_reply("done")],
+            None,
+        );
+        assert_eq!(run.result.as_deref(), Ok("done"), "{inner}");
+        assert_eq!(run.executed, vec![json!({"s": value})], "{inner}");
+        assert_eq!(
+            env.events().matches("\"name\":\"Read\"").count(),
+            0,
+            "{inner}"
+        );
+    }
+    let env = Env::new();
+    env.write_tool(schema);
+    std::fs::write(env.root.join("notes.txt"), "text").unwrap();
+    let content = format!("<tool_call>{QUOTED_READ}</tool_call>");
+    let run = session(&env, Wire::Native, vec![text_reply(&content)], None);
+    assert_eq!(run.executed, Vec::<Value>::new());
+    assert_eq!(env.events().matches("\"name\":\"Read\"").count(), 0);
+    set_env(REGISTRY_ENV, None);
+}
+
+/// Without a schema tool, the text tool protocol keeps its XML parser and its repair.
+#[test]
+fn the_text_tool_protocol_without_a_schema_tool_keeps_xml_and_its_repair() {
+    let _guard = lock();
+    let flat = flat_registry();
+    let env = Env::new();
+    set_env(REGISTRY_ENV, flat.path().to_str());
+    std::fs::write(env.root.join("notes.txt"), "file-body").unwrap();
+    let mut config = base_config(&env.root, &env.evidence, FLAT_PROFILE, "http://unused");
+    Wire::Xml.configure(&mut config);
+    let (_, requests, result) = run_with_config(
+        &config,
+        vec![
+            text_reply("<anvil_tool_call name=\"Read\">{\"path\":\"notes.txt\"}</anvil_tool_call>"),
+            text_reply(
+                "<anvil_tool_call>{\"name\":\"Read\",\"arguments\":{\"path\":\"notes.txt\"}} trailing</anvil_tool_call>",
+            ),
+            text_reply("<function=ReadFlatConfig>{\"path\":\"notes.txt\"}</function>"),
+            text_reply("done"),
+        ],
+        None,
+    );
+    assert_eq!(result.as_deref(), Ok("done"));
+    assert_eq!(requests.len(), 4);
+    assert!(requests[1].contains("file-body"), "{}", requests[1]);
+    assert!(requests[3].contains("flat read of"), "{}", requests[3]);
+    assert!(env.events().contains("repair_applied"));
+    let body: Value = serde_json::from_str(&requests[0]).unwrap();
+    assert!(body.get("tools").is_none(), "{body}");
+    set_env(REGISTRY_ENV, None);
+}
+
+/// Names a pack through the variables the pack runtime reads, and takes them back.
+struct SelectedPack;
+
+const PACK_ENVS: [&str; 4] = [
+    "COMMANDAGENT_PACK_DIRECTORY",
+    "COMMANDAGENT_PACK_ID",
+    "COMMANDAGENT_PACK_VERSION",
+    "COMMANDAGENT_PACK_HASH",
+];
+
+impl SelectedPack {
+    fn new() -> Self {
+        let directory = extension().join(format!("packs/{SCHEMA_PACK}/1.0.0"));
+        let loaded = commandagent::planner::pack::load_directory(&directory).unwrap();
+        let values = [
+            directory.to_str().unwrap(),
+            SCHEMA_PACK,
+            "1.0.0",
+            &loaded.hash,
+        ];
+        for (name, value) in PACK_ENVS.into_iter().zip(values) {
+            set_env(name, Some(value));
+        }
+        Self
+    }
+}
+
+impl Drop for SelectedPack {
+    fn drop(&mut self) {
+        for name in PACK_ENVS {
+            set_env(name, None);
+        }
+    }
+}
+
+/// A tool a pack contributes is refused the same way, and the same tool runs on native.
+#[test]
+fn a_schema_tool_from_a_pack_is_refused_on_the_text_tool_protocol() {
+    let _guard = lock();
+    let _pack = SelectedPack::new();
+    let env = Env::with_config_tool();
+    let config = base_config(&env.root, &env.evidence, PACK_HOST, "http://unused");
+    let (reader, _, result) = run_with_config(
+        &config,
+        vec![
+            Wire::Native.call(CONFIG_TOOL, VALID_CONFIG),
+            text_reply("done"),
+        ],
+        None,
+    );
+    assert_eq!(result.as_deref(), Ok("done"));
+    assert_eq!(*reader.calls.lock().unwrap(), vec![parsed(VALID_CONFIG)]);
+
+    let env = Env::with_config_tool();
+    let mut config = base_config(&env.root, &env.evidence, PACK_HOST, "http://unused");
+    Wire::Xml.configure(&mut config);
+    let (reader, requests, result) = run_with_config(
+        &config,
+        vec![Wire::Xml.call(CONFIG_TOOL, VALID_CONFIG)],
+        None,
+    );
+    let error = result.unwrap_err();
+    assert!(
+        error.contains("profile_tool_refused: schema_unsupported"),
+        "{error}"
+    );
+    assert_eq!(requests, Vec::<String>::new());
+    assert_eq!(reader.calls.lock().unwrap().len(), 0);
+    set_env(REGISTRY_ENV, None);
+}
+
+/// The binary registers no runtime, so it answers `unavailable` first. Here the CLI's own
+/// parsing and entry run in a process with a fake runtime registered, which reaches the
+/// protocol's refusal: `--tool-protocol text`, with a profile's tool and with a pack's.
+#[test]
+fn the_cli_flag_refuses_a_schema_tool_on_the_text_tool_protocol() {
+    let private = tempfile::tempdir().unwrap();
+    let home = private.path().join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    if !in_own_process(
+        "the_cli_flag_refuses_a_schema_tool_on_the_text_tool_protocol",
+        &home,
+    ) {
+        return;
+    }
+    let _guard = lock();
+    let pack = format!("{SCHEMA_PACK}@1.0.0");
+    for selection in [
+        vec!["--profile", CONFIG_PROFILE],
+        vec!["--profile", PACK_HOST, "--pack", &pack],
+    ] {
+        let env = Env::with_config_tool();
+        let endpoint = CountingEndpoint::start();
+        let mut arguments = vec![
+            "commandagent",
+            "--cwd",
+            env.root.to_str().unwrap(),
+            "--extension-root",
+            extension().to_str().unwrap(),
+            "--provider",
+            "lm-studio",
+            "--lm-studio-host",
+            &endpoint.url,
+            "--model",
+            "m",
+            "--tool-protocol",
+            "text",
+            "--prompt",
+            "Submit the object.",
+        ];
+        arguments.extend(&selection);
+        let cli = commandagent::provider_cli::parse_from(arguments).unwrap();
+        let error = commandagent::run_with_provider_options(cli.cli, cli.provider_options)
+            .map(|()| "the run went on".to_string())
+            .unwrap_or_else(|error| format!("{error:#}"));
+        assert!(
+            error.contains("profile_tool_refused: schema_unsupported"),
+            "{selection:?}: {error}"
+        );
+        assert_eq!(endpoint.finish(), 0, "{selection:?}");
+    }
     set_env(REGISTRY_ENV, None);
 }
 
@@ -3535,7 +3431,7 @@ fn a_schema_session_never_falls_back_to_xml() {
 }
 
 #[test]
-fn each_wire_carries_the_adopted_schema_where_that_wire_reads_it() {
+fn the_native_request_carries_the_adopted_schema() {
     let _guard = lock();
     let env = Env::with_config_tool();
     let run = session(&env, Wire::Native, vec![text_reply("done")], None);
@@ -3554,16 +3450,6 @@ fn each_wire_carries_the_adopted_schema_where_that_wire_reads_it() {
         .map(|tool| tool["function"]["name"].as_str().unwrap())
         .collect::<Vec<_>>();
     assert_eq!(names, vec!["Read", CONFIG_TOOL]);
-    let system = body["messages"][0]["content"].as_str().unwrap();
-    assert!(!system.contains("Arguments schema"), "{system}");
-
-    let env = Env::with_config_tool();
-    let run = session(&env, Wire::Xml, vec![text_reply("done")], None);
-    let body: Value = serde_json::from_str(&run.requests[0]).unwrap();
-    assert!(body.get("tools").is_none(), "{body}");
-    let system = body["messages"][0]["content"].as_str().unwrap();
-    let note = format!("Arguments schema: {}", config_root());
-    assert!(system.contains(&note), "{system}");
     set_env(REGISTRY_ENV, None);
 }
 
@@ -3646,7 +3532,7 @@ fn a_tool_that_reports_no_usage_stays_unknown() {
 }
 
 // ---------------------------------------------------------------------------
-// The public entries that run a session, on both wires.
+// The public entries that run a session, on the native wire.
 // ---------------------------------------------------------------------------
 
 /// Answers a planner with the plan, the first request that can carry the tool with its
@@ -3655,8 +3541,7 @@ fn entry_responder(wire: Wire, raw: String, first_plan: Option<String>) -> Respo
     let sent = Arc::new(AtomicBool::new(false));
     let first_plan = Mutex::new(first_plan);
     Arc::new(move |_, body| {
-        let carries = body.contains(&format!("\"name\":\"{CONFIG_TOOL}\""))
-            || body.contains("Arguments schema");
+        let carries = body.contains(&format!("\"name\":\"{CONFIG_TOOL}\""));
         Some(if !carries {
             // The first planner answer of a generating entry, then each phase's steps.
             let plan = first_plan.lock().unwrap().take();
@@ -3680,7 +3565,7 @@ fn entry_plan(entry: &str) -> Option<String> {
 /// A probe's sessions send the tool. Its JSON and classifier parts stay without it, and
 /// what they conclude from these replies is their own: only the call is measured here.
 #[test]
-fn a_model_probe_session_delivers_a_call_on_both_wires() {
+fn a_model_probe_session_delivers_a_call_on_the_native_wire() {
     let _guard = lock();
     for wire in WIRES {
         let env = Env::with_config_tool();
@@ -3736,12 +3621,12 @@ fn two_calls_in_one_reply_keep_their_own_receipts() {
 
 /// A workflow's node runs its session in this process and receives the same way.
 #[test]
-fn a_library_workflow_child_delivers_a_call_on_both_wires() {
+fn a_library_workflow_child_delivers_a_call_on_the_native_wire() {
     let private = tempfile::tempdir().unwrap();
     let home = private.path().join("home");
     std::fs::create_dir_all(&home).unwrap();
     if !in_own_process(
-        "a_library_workflow_child_delivers_a_call_on_both_wires",
+        "a_library_workflow_child_delivers_a_call_on_the_native_wire",
         &home,
     ) {
         return;
@@ -4501,7 +4386,7 @@ fn off_takes_no_read_of_a_registry_variable_that_names_nothing() {
     set_env(REGISTRY_ENV, None);
 }
 
-/// A flat tool keeps every old path next to a selected schema tool's: the old parser's
+/// A builtin keeps every old native path next to a selected schema tool: the old parser's
 /// last value, and the recovery, reach it. Only the schema tool's name is strict.
 #[test]
 fn a_builtin_in_a_schema_session_keeps_the_existing_parser() {
@@ -4527,23 +4412,6 @@ fn a_builtin_in_a_schema_session_keeps_the_existing_parser() {
         run.last_message(2)
     );
     assert_eq!(run.executed, Vec::<Value>::new());
-
-    let env = Env::with_config_tool();
-    std::fs::write(env.root.join("notes.txt"), "text").unwrap();
-    let run = session(
-        &env,
-        Wire::Xml,
-        vec![
-            text_reply("<anvil_tool_call name=\"Read\">{'path':'notes.txt',}</anvil_tool_call>"),
-            text_reply("done"),
-        ],
-        None,
-    );
-    assert_eq!(
-        run.result.as_deref(),
-        Ok("done"),
-        "the relaxed parser went away"
-    );
     set_env(REGISTRY_ENV, None);
 }
 
@@ -4636,6 +4504,9 @@ fn the_corpus_names_what_this_binary_runs() {
     }
     assert_eq!(cases["accepted"][0]["raw"], VALID_CONFIG);
     assert_eq!(cases["accepted"][1]["raw"], VALID_INDEX);
+    for row in cases["accepted"].as_array().unwrap() {
+        assert_eq!(row["wires"], json!(["native"]), "{row}");
+    }
     let refusals = cases["refused_before_start"]
         .as_array()
         .unwrap()

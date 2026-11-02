@@ -1,117 +1,25 @@
-use std::ops::Range;
-
 use serde_json::Value;
 
 use crate::state::ToolCall;
 use crate::tools::args_recovery::recover_tool_arguments;
 
-/// The text the parser reads, which it closes up as it removes `<think>` blocks and calls,
-/// with where each remaining part lay in the original.
-struct RemainingText {
-    text: String,
-    /// In order: the original offset and the length of each contiguous part.
-    parts: Vec<(usize, usize)>,
-}
-
-impl RemainingText {
-    fn new(input: &str) -> Self {
-        Self {
-            text: input.to_string(),
-            parts: vec![(0, input.len())],
-        }
-    }
-
-    fn strip_think_tags(&mut self) {
-        while let Some(start) = self.text.find("<think>") {
-            let Some(end_rel) = self.text[start..].find("</think>") else {
-                break;
-            };
-            self.remove(start..start + end_rel + "</think>".len());
-        }
-    }
-
-    fn remove(&mut self, range: Range<usize>) {
-        self.text.replace_range(range.clone(), "");
-        let mut parts = Vec::with_capacity(self.parts.len() + 1);
-        let mut at = 0;
-        for &(original, length) in &self.parts {
-            let kept_before = range.start.saturating_sub(at).min(length);
-            if kept_before > 0 {
-                parts.push((original, kept_before));
-            }
-            let dropped = range.end.saturating_sub(at).min(length);
-            if dropped < length {
-                parts.push((original + dropped, length - dropped));
-            }
-            at += length;
-        }
-        self.parts = parts;
-    }
-
-    /// Where `range` of the current text came from, and whether something between its ends
-    /// has been removed.
-    fn locate(&self, range: &Range<usize>) -> (Range<usize>, bool) {
-        let (first_part, start) = self.original_of(range.start);
-        let (last_part, last) = self.original_of(range.end.saturating_sub(1).max(range.start));
-        (start..last + 1, first_part != last_part)
-    }
-
-    fn original_of(&self, offset: usize) -> (usize, usize) {
-        let mut at = 0;
-        for (index, &(original, length)) in self.parts.iter().enumerate() {
-            if offset < at + length {
-                return (index, original + offset - at);
-            }
-            at += length;
-        }
-        (self.parts.len(), offset)
-    }
-
-    /// Takes one parsed call out of the text.
-    fn take(&mut self, call: ToolCall, range: Range<usize>, calls: &mut Vec<LocatedToolCall>) {
-        let (span, spliced) = self.locate(&range);
-        calls.push(LocatedToolCall {
-            call,
-            span,
-            spliced,
-        });
-        self.remove(range);
-    }
-}
-
-/// One call and the tag it was read from.
-#[derive(Debug, Clone, PartialEq)]
-pub struct LocatedToolCall {
-    pub call: ToolCall,
-    /// From the start of the tag to its end, in the original text.
-    pub span: Range<usize>,
-    /// Whether the parser removed something inside `span` before it read this call. The body
-    /// it read is then not consecutive text of the original.
-    pub spliced: bool,
-}
-
 pub fn strip_think_tags(input: &str) -> String {
-    let mut remaining = RemainingText::new(input);
-    remaining.strip_think_tags();
-    remaining.text
+    let mut out = input.to_string();
+    while let Some(start) = out.find("<think>") {
+        let Some(end_rel) = out[start..].find("</think>") else {
+            break;
+        };
+        let end = start + end_rel + "</think>".len();
+        out.replace_range(start..end, "");
+    }
+    out
 }
 
 pub fn extract_tool_calls(
     input: &str,
     allowed_tools: &[String],
 ) -> anyhow::Result<(Vec<ToolCall>, String)> {
-    let (located, content) = extract_located(input, allowed_tools)?;
-    let calls = located.into_iter().map(|located| located.call).collect();
-    Ok((calls, content))
-}
-
-/// [`extract_tool_calls`], with where each call was read from.
-pub fn extract_located(
-    input: &str,
-    allowed_tools: &[String],
-) -> anyhow::Result<(Vec<LocatedToolCall>, String)> {
-    let mut remaining = RemainingText::new(input);
-    remaining.strip_think_tags();
+    let mut remaining = strip_think_tags(input);
     let mut calls = Vec::new();
     for tag in ["anvil_tool_call", "tool_call", "function_call"] {
         extract_plain_tag_calls(&mut remaining, tag, allowed_tools, &mut calls)?;
@@ -120,98 +28,98 @@ pub fn extract_located(
         extract_named_tag_calls(&mut remaining, tag, allowed_tools, &mut calls)?;
     }
     extract_function_equals_calls(&mut remaining, allowed_tools, &mut calls)?;
-    Ok((calls, remaining.text.trim().to_string()))
+    Ok((calls, remaining.trim().to_string()))
 }
 
 fn extract_plain_tag_calls(
-    remaining: &mut RemainingText,
+    remaining: &mut String,
     tag: &str,
     allowed_tools: &[String],
-    calls: &mut Vec<LocatedToolCall>,
+    calls: &mut Vec<ToolCall>,
 ) -> anyhow::Result<()> {
     loop {
         let open = format!("<{tag}>");
         let close = format!("</{tag}>");
-        let Some(start) = remaining.text.find(&open) else {
+        let Some(start) = remaining.find(&open) else {
             break;
         };
         let json_start = start + open.len();
-        let Some(end_rel) = remaining.text[json_start..].find(&close) else {
-            let raw = remaining.text[json_start..].trim();
+        let Some(end_rel) = remaining[json_start..].find(&close) else {
+            let raw = remaining[json_start..].trim();
             if json_looks_closed(raw) {
-                let call = parse_tool_call(raw, None, allowed_tools)?;
-                let end = remaining.text.len();
-                remaining.take(call, start..end, calls);
+                calls.push(parse_tool_call(raw, None, allowed_tools)?);
+                remaining.replace_range(start..remaining.len(), "");
                 continue;
             }
             return Err(anyhow::anyhow!("malformed XML tool call"));
         };
         let json_end = json_start + end_rel;
-        let raw = remaining.text[json_start..json_end].trim();
-        let call = parse_tool_call(raw, None, allowed_tools)?;
-        remaining.take(call, start..json_end + close.len(), calls);
+        let raw = remaining[json_start..json_end].trim();
+        calls.push(parse_tool_call(raw, None, allowed_tools)?);
+        let end = json_end + close.len();
+        remaining.replace_range(start..end, "");
     }
     Ok(())
 }
 
 fn extract_named_tag_calls(
-    remaining: &mut RemainingText,
+    remaining: &mut String,
     tag: &str,
     allowed_tools: &[String],
-    calls: &mut Vec<LocatedToolCall>,
+    calls: &mut Vec<ToolCall>,
 ) -> anyhow::Result<()> {
     let open_prefix = format!("<{tag} name=\"");
     let close = format!("</{tag}>");
-    while let Some(start) = remaining.text.find(&open_prefix) {
-        let text = &remaining.text;
+    while let Some(start) = remaining.find(&open_prefix) {
         let name_start = start + open_prefix.len();
-        let Some(name_end_rel) = text[name_start..].find('"') else {
+        let Some(name_end_rel) = remaining[name_start..].find('"') else {
             return Err(anyhow::anyhow!("malformed XML tool call"));
         };
         let name_end = name_start + name_end_rel;
-        let name = text[name_start..name_end].to_string();
+        let name = remaining[name_start..name_end].to_string();
         let after_name = name_end + 1;
-        let Some(gt_rel) = text[after_name..].find('>') else {
+        let Some(gt_rel) = remaining[after_name..].find('>') else {
             return Err(anyhow::anyhow!("malformed XML tool call"));
         };
         let body_start = after_name + gt_rel + 1;
-        let Some(end_rel) = text[body_start..].find(&close) else {
+        let Some(end_rel) = remaining[body_start..].find(&close) else {
             return Err(anyhow::anyhow!("malformed XML tool call"));
         };
         let body_end = body_start + end_rel;
-        let raw = text[body_start..body_end].trim();
-        let call = parse_tool_call(raw, Some(&name), allowed_tools)?;
-        remaining.take(call, start..body_end + close.len(), calls);
+        let raw = remaining[body_start..body_end].trim();
+        calls.push(parse_tool_call(raw, Some(&name), allowed_tools)?);
+        let end = body_end + close.len();
+        remaining.replace_range(start..end, "");
     }
     Ok(())
 }
 
 fn extract_function_equals_calls(
-    remaining: &mut RemainingText,
+    remaining: &mut String,
     allowed_tools: &[String],
-    calls: &mut Vec<LocatedToolCall>,
+    calls: &mut Vec<ToolCall>,
 ) -> anyhow::Result<()> {
     let open = "<function=";
     let close = "</function>";
-    while let Some(start) = remaining.text.find(open) {
-        let text = &remaining.text;
+    while let Some(start) = remaining.find(open) {
         let name_start = start + open.len();
-        let Some(gt_rel) = text[name_start..].find('>') else {
+        let Some(gt_rel) = remaining[name_start..].find('>') else {
             return Err(anyhow::anyhow!("malformed XML tool call"));
         };
         let name_end = name_start + gt_rel;
-        let name = text[name_start..name_end]
+        let name = remaining[name_start..name_end]
             .trim()
             .trim_matches('"')
             .to_string();
         let body_start = name_end + 1;
-        let Some(end_rel) = text[body_start..].find(close) else {
+        let Some(end_rel) = remaining[body_start..].find(close) else {
             return Err(anyhow::anyhow!("malformed XML tool call"));
         };
         let body_end = body_start + end_rel;
-        let raw = text[body_start..body_end].trim();
-        let call = parse_tool_call(raw, Some(&name), allowed_tools)?;
-        remaining.take(call, start..body_end + close.len(), calls);
+        let raw = remaining[body_start..body_end].trim();
+        calls.push(parse_tool_call(raw, Some(&name), allowed_tools)?);
+        let end = body_end + close.len();
+        remaining.replace_range(start..end, "");
     }
     Ok(())
 }
@@ -221,11 +129,6 @@ pub(super) fn parse_tool_call(
     default_name: Option<&str>,
     allowed_tools: &[String],
 ) -> anyhow::Result<ToolCall> {
-    if let Some(call) =
-        crate::tools::profile_tools::schema::invocation::receive_xml(raw, default_name)
-    {
-        return Ok(call);
-    }
     let value = parse_json_relaxed(raw)?;
     let object = value
         .as_object()
@@ -250,10 +153,6 @@ pub(super) fn parse_tool_call(
         .or_else(|| infer_tool_name_from_arguments(object, nested_arguments, allowed_tools))
         .ok_or_else(|| anyhow::anyhow!("tool call missing name"))?;
     let name = normalize_allowed_tool_name(&raw_name, allowed_tools)?;
-    if let Some(call) = crate::tools::profile_tools::schema::invocation::refuse_unstrict_xml(&name)
-    {
-        return Ok(call);
-    }
     let arguments = if default_name.is_some()
         && object.get("arguments").is_none()
         && object.get("args").is_none()
@@ -493,80 +392,6 @@ fn json_looks_closed(raw: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn located(text: &str) -> Vec<(String, Range<usize>, bool)> {
-        extract_located(text, &["Read".to_string()])
-            .unwrap()
-            .0
-            .into_iter()
-            .map(|at| (at.call.arguments.to_string(), at.span, at.spliced))
-            .collect()
-    }
-
-    const READ_A: &str =
-        "<anvil_tool_call>{\"name\":\"Read\",\"arguments\":{\"path\":\"a\"}}</anvil_tool_call>";
-
-    #[test]
-    fn a_call_read_from_consecutive_text_reports_where_it_was() {
-        let text = format!("hi {READ_A} there");
-        assert_eq!(
-            located(&text),
-            vec![(r#"{"path":"a"}"#.to_string(), 3..3 + READ_A.len(), false)]
-        );
-        // Its position in the original, also after earlier removals outside it.
-        let text = format!("<think>x</think>{READ_A}{READ_A}<think>y</think>");
-        let found = located(&text);
-        assert_eq!(found[0].1, 16..16 + READ_A.len());
-        assert_eq!(found[1].1, 16 + READ_A.len()..16 + 2 * READ_A.len());
-        assert!(found.iter().all(|(_, _, spliced)| !spliced));
-    }
-
-    #[test]
-    fn a_call_with_something_removed_inside_its_tag_reports_that() {
-        // A call taken out of the body.
-        let inner = format!(
-            "<tool_call>{{\"name\":\"Read\",\"arguments\":{{\"path\":\"b{READ_A}c\"}}}}</tool_call>"
-        );
-        let found = located(&inner);
-        assert_eq!(found.len(), 2);
-        assert!(!found[0].2, "the inner call");
-        assert_eq!(found[1].0, r#"{"path":"bc"}"#);
-        assert!(found[1].2, "the outer call");
-        assert_eq!(found[1].1, 0..inner.len());
-        // A call taken out of the opening tag, which only then exists.
-        let split = format!(
-            "<to{READ_A}ol_call>{{\"name\":\"Read\",\"arguments\":{{\"path\":\"b\"}}}}</tool_call>"
-        );
-        let found = located(&split);
-        assert!(found[1].2);
-        assert_eq!(found[1].1, 0..split.len());
-        // A think block removed inside the tag.
-        let think = "<tool_call>{\"name\":\"Read\",\"arguments\":{\"path\":\"b<think>x</think>c\"}}</tool_call>";
-        let found = located(think);
-        assert_eq!(found[0].0, r#"{"path":"bc"}"#);
-        assert!(found[0].2);
-    }
-
-    #[test]
-    fn a_tag_in_a_body_read_first_changes_nothing_and_reports_nothing() {
-        let text = "<anvil_tool_call>{\"name\":\"Read\",\"arguments\":{\"path\":\"<tool_call>x</tool_call>\"}}</anvil_tool_call>";
-        let found = located(text);
-        assert_eq!(found.len(), 1);
-        assert_eq!(found[0].0, r#"{"path":"<tool_call>x</tool_call>"}"#);
-        assert!(!found[0].2);
-    }
-
-    #[test]
-    fn the_wrapper_keeps_what_the_located_parse_finds() {
-        let text = format!(" <think>x</think>a{READ_A}b ");
-        let (calls, content) = extract_tool_calls(&text, &["Read".to_string()]).unwrap();
-        let (at, located_content) = extract_located(&text, &["Read".to_string()]).unwrap();
-        assert_eq!(content, "ab");
-        assert_eq!(content, located_content);
-        assert_eq!(calls[0].arguments, at[0].call.arguments);
-        assert_eq!(strip_think_tags("a<think>b</think>c<think>d"), "ac<think>d");
-        assert_eq!(strip_think_tags("<thi<think>x</think>nk>y</think>z"), "z");
-    }
 
     #[test]
     fn extracts_tool_call() {
