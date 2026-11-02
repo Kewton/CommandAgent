@@ -3099,6 +3099,134 @@ fn a_declaring_pack_with_a_symlinked_pin_is_refused_before_any_call() {
     }
 }
 
+/// `run_workflow` runs the origin's reproducer with the origin as its workspace. A
+/// registry inside the origin is inside that workspace, even when it is outside the
+/// config's. Everything else about the selection is admissible.
+#[test]
+fn a_registry_inside_the_workflow_origin_is_refused_before_its_reproducer_runs() {
+    let _guard = lock();
+    clear_selection();
+    extension();
+    install_reader("fake-config", Ok("{}"), None);
+    let (_a_dir, a) = workspace();
+    let (_b_dir, b) = workspace();
+    std::fs::create_dir_all(b.join("operator/profile-tools")).unwrap();
+    std::fs::write(
+        b.join("operator/profile-tools/config-json-read.json"),
+        serde_json::to_vec(&descriptor(
+            "config-json-read",
+            "ReadConfigObject",
+            "fake-config",
+        ))
+        .unwrap(),
+    )
+    .unwrap();
+    let run_dir = b.join(".anvil/runs/origin-run");
+    std::fs::create_dir_all(&run_dir).unwrap();
+    std::fs::create_dir_all(b.join(".anvil/plans")).unwrap();
+    std::fs::create_dir_all(b.join("pipeline")).unwrap();
+    std::fs::write(
+        run_dir.join("events.jsonl"),
+        concat!(
+            r#"{"event":"run_start","action":"Prompt(\"origin goal\")"}"#,
+            "\n",
+            r#"{"event":"run_stop","status":"failed"}"#,
+            "\n"
+        ),
+    )
+    .unwrap();
+    std::fs::write(b.join(".anvil/plans/recovery-origin.yaml"), "version: 1\n").unwrap();
+    std::fs::write(
+        b.join("pipeline/main.py"),
+        "open(\"reproducer-ran\", \"w\").close()\nraise SystemExit(1)\n",
+    )
+    .unwrap();
+    let definition_dir = tempfile::tempdir().unwrap();
+    let definition = definition_dir.path().join("workflow.yaml");
+    std::fs::write(
+        &definition,
+        "workflow: origin-registry\nversion: 0.2\nentry: create\nnodes:\n  create: { intent: create, profile: generic }\n  rebuild: { intent: create, profile: generic }\nroutes:\n  - { from: create, on: failed, when: recovery_yaml_present, to: rebuild, carry: [workspace, recovery_yaml] }\nterminal: {}\n",
+    )
+    .unwrap();
+    let origin_files = |root: &Path| {
+        let mut files = Vec::new();
+        let mut pending = vec![root.to_path_buf()];
+        while let Some(directory) = pending.pop() {
+            for entry in std::fs::read_dir(directory).unwrap().flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    pending.push(path);
+                } else {
+                    files.push((path.clone(), sha256(&std::fs::read(&path).unwrap())));
+                }
+            }
+        }
+        files.sort();
+        files
+    };
+    let before = origin_files(&b);
+
+    set_env(REGISTRY_ENV, Some(b.join("operator").to_str().unwrap()));
+    // The same selection is admissible for the config's workspace alone, and is not for
+    // the origin: only the origin's own check can tell them apart.
+    let admitted = admit_selected(&a, "tool-config-a", None)
+        .map_err(|error| error.to_string())
+        .unwrap();
+    assert!(admitted.is_some());
+    let error = admit_selected(&b, "tool-config-a", None)
+        .map(|_| ())
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("workspace_descriptor"), "{error}");
+
+    let run_refused = || {
+        let provider = CountingEndpoint::start();
+        let mut refused = config(&a, "tool-config-a");
+        refused.ollama_host = provider.url.clone();
+        let result = commandagent::workflow::orchestrator::run_workflow(&refused, &definition, &b)
+            .map_err(|error| format!("{error:#}"));
+        let provider_calls = provider.finish();
+        let error = result.unwrap_err();
+        assert!(
+            error.contains("profile_tool_refused: workspace_descriptor"),
+            "{error}"
+        );
+        assert_eq!(error.matches("profile_tool_refused").count(), 1, "{error}");
+        assert_eq!(provider_calls, 0);
+        assert!(!b.join("reproducer-ran").exists());
+        assert!(!b.join("evidence").exists());
+        assert_eq!(origin_files(&b), before);
+        assert_eq!(events(&a), Vec::<Value>::new());
+    };
+    run_refused();
+
+    // The other way round: a registry inside the config's workspace and outside the
+    // origin. Only the workspace's own check can refuse this one.
+    std::fs::rename(b.join("operator"), a.join("operator")).unwrap();
+    let before_without_registry = origin_files(&b);
+    set_env(REGISTRY_ENV, Some(a.join("operator").to_str().unwrap()));
+    let admitted = admit_selected(&b, "tool-config-a", None)
+        .map_err(|error| error.to_string())
+        .unwrap();
+    assert!(admitted.is_some());
+    let provider = CountingEndpoint::start();
+    let mut refused = config(&a, "tool-config-a");
+    refused.ollama_host = provider.url.clone();
+    let result = commandagent::workflow::orchestrator::run_workflow(&refused, &definition, &b)
+        .map_err(|error| format!("{error:#}"));
+    clear_selection();
+    set_env(REGISTRY_ENV, None);
+    let provider_calls = provider.finish();
+    let error = result.unwrap_err();
+    assert!(
+        error.contains("profile_tool_refused: workspace_descriptor"),
+        "{error}"
+    );
+    assert_eq!(provider_calls, 0);
+    assert!(!b.join("reproducer-ran").exists());
+    assert_eq!(origin_files(&b), before_without_registry);
+}
+
 #[test]
 fn the_pre_run_refusal_is_wired_before_everything_it_must_precede() {
     let source = include_str!("../src/lib.rs");

@@ -1415,11 +1415,20 @@ fn the_library_workflow_entry_refuses_before_the_origin_reproducer_runs() {
 
 /// Everything a `--workflow` run shows, with only what differs by construction made
 /// the same: its private directories, port, ids, build stamp, and measured times.
-fn workflow_cli_observation(binary: &Path, profile: &str) -> BTreeMap<String, String> {
+fn workflow_cli_observation(
+    binary: &Path,
+    profile: &str,
+    workspace_is_origin: bool,
+) -> BTreeMap<String, String> {
     let private = tempfile::tempdir().unwrap();
     let root = std::fs::canonicalize(private.path()).unwrap();
     let (origin, definition) = workflow_origin(&root);
-    let (outer, home) = (root.join("outer"), root.join("home"));
+    let outer = if workspace_is_origin {
+        origin.clone()
+    } else {
+        root.join("outer")
+    };
+    let home = root.join("home");
     std::fs::create_dir_all(&outer).unwrap();
     std::fs::create_dir_all(&home).unwrap();
     let registry = operator_registry();
@@ -1505,53 +1514,66 @@ fn assert_same_observation(
     }
 }
 
-/// `--workflow` is admitted at `src/lib.rs:139` and again by `run_workflow`. The second
-/// admission adds nothing: a refusal is reported once, by the first, with no event; an
-/// off run reaches the reproducer and shows the same bytes each time.
+/// `--workflow` is admitted at `src/lib.rs:139` and then by `run_workflow`, for its
+/// origin and its workspace. Those admissions add nothing: a refusal is reported once,
+/// by the first, with no event; an off run reaches the reproducer and shows the same
+/// bytes each time. Both with a separate workspace and with the origin as the workspace.
 #[test]
-fn the_workflow_cli_path_is_admitted_twice_with_one_refusal_and_a_stable_off_run() {
+fn the_workflow_cli_path_is_admitted_repeatedly_with_one_refusal_and_a_stable_off_run() {
     let binary = PathBuf::from(env!("CARGO_BIN_EXE_commandagent"));
     extension();
-    let refused = workflow_cli_observation(&binary, REFUSED);
-    assert_eq!(refused["code"], "Some(2)", "{}", refused["stderr"]);
-    assert_eq!(refused["provider_calls"], "0");
-    assert_eq!(refused["stdout"], "");
-    assert_eq!(
-        refused["stderr"].matches("profile_tool_refused").count(),
-        1,
-        "{}",
-        refused["stderr"]
-    );
-    for (key, value) in &refused {
-        assert!(
-            !key.contains(REPRODUCER_MARKER) && !key.contains("evidence/"),
-            "{key}"
+    for workspace_is_origin in [false, true] {
+        let refused = workflow_cli_observation(&binary, REFUSED, workspace_is_origin);
+        assert_eq!(refused["code"], "Some(2)", "{}", refused["stderr"]);
+        assert_eq!(refused["provider_calls"], "0");
+        assert_eq!(refused["stdout"], "");
+        assert_eq!(
+            refused["stderr"].matches("profile_tool_refused").count(),
+            1,
+            "{}",
+            refused["stderr"]
         );
-        if key.starts_with("file ") {
-            assert!(!value.contains("profile_tool_refused"), "{key}");
+        for (key, value) in &refused {
+            assert!(
+                !key.contains(REPRODUCER_MARKER) && !key.contains("evidence/"),
+                "{key}"
+            );
+            if key.starts_with("file ") {
+                assert!(!value.contains("profile_tool_refused"), "{key}");
+            }
         }
-    }
-    assert_same_observation(
-        "refused",
-        &refused,
-        &workflow_cli_observation(&binary, REFUSED),
-    );
+        assert_same_observation(
+            "refused",
+            &refused,
+            &workflow_cli_observation(&binary, REFUSED, workspace_is_origin),
+        );
 
-    // The OS sandbox refuses the reproducer's write outside the outer workspace, so here
-    // what shows it ran is the recorded prevalidation.
-    let off = workflow_cli_observation(&binary, OFF_DRAFT);
-    assert!(
-        off["file origin/evidence/workflow-events.jsonl"]
-            .contains("workflow_reproducer_prevalidated"),
-        "{:?}",
-        off.keys().collect::<Vec<_>>()
-    );
-    assert!(
-        off.values()
-            .all(|value| !value.contains("profile_tool_refused")),
-        "an off run recorded a refusal"
-    );
-    assert_same_observation("off", &off, &workflow_cli_observation(&binary, OFF_DRAFT));
+        // With a separate workspace the OS sandbox refuses the reproducer's write, so what
+        // shows it ran there is the recorded prevalidation. In the origin it writes.
+        let off = workflow_cli_observation(&binary, OFF_DRAFT, workspace_is_origin);
+        assert!(
+            off["file origin/evidence/workflow-events.jsonl"]
+                .contains("workflow_reproducer_prevalidated"),
+            "{:?}",
+            off.keys().collect::<Vec<_>>()
+        );
+        assert_eq!(
+            off.contains_key(&format!("file origin/{REPRODUCER_MARKER}")),
+            workspace_is_origin,
+            "{:?}",
+            off.keys().collect::<Vec<_>>()
+        );
+        assert!(
+            off.values()
+                .all(|value| !value.contains("profile_tool_refused")),
+            "an off run recorded a refusal"
+        );
+        assert_same_observation(
+            "off",
+            &off,
+            &workflow_cli_observation(&binary, OFF_DRAFT, workspace_is_origin),
+        );
+    }
 }
 
 /// A selected pack can declare tools for a profile with a port, which is what brings

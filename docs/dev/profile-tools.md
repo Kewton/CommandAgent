@@ -103,9 +103,9 @@ command) is admitted by the TUI command's check, with the effective profile.
 - `repl::run_repl` and `tui::repl::run`: starting the binary is guarded at `src/lib.rs:139`.
   As library entries they have no guard up to initializing the UI and preparing the
   history directory; a command that executes something is refused by `handle_command`.
-- `run_workflow` admits the profile in its own config. A node that names another profile is
-  admitted when that child runs, so a reproducer derived from the origin can run first if
-  only the node's profile is refused.
+- `run_workflow` admits the profile in its own config, for its origin and for its
+  workspace. A node that names another profile is admitted when that child runs, so a
+  reproducer derived from the origin can run first if only the node's profile is refused.
 - The TUI classifier for an Ambiguous route (`src/tui/boundary_shell/ambiguity.rs`) runs
   before a profile is chosen and cannot dispatch, so its classification call is not
   gated.
