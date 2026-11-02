@@ -3099,6 +3099,84 @@ fn a_declaring_pack_with_a_symlinked_pin_is_refused_before_any_call() {
     }
 }
 
+/// Every file below `root`, with a digest of its bytes.
+fn origin_files(root: &Path) -> Vec<(PathBuf, String)> {
+    let mut files = Vec::new();
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(directory) = pending.pop() {
+        for entry in std::fs::read_dir(directory).unwrap().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                pending.push(path);
+            } else {
+                files.push((path.clone(), sha256(&std::fs::read(&path).unwrap())));
+            }
+        }
+    }
+    files.sort();
+    files
+}
+
+/// An origin that does not exist cannot be resolved for a selection that declares tools,
+/// so that selection is refused before anything else. With no declaration the path is
+/// never resolved: the workflow reports the origin itself, as it did before admission.
+#[test]
+fn a_missing_workflow_origin_is_refused_only_for_a_selection_that_declares_tools() {
+    let _guard = lock();
+    clear_selection();
+    extension();
+    let operator = Operator::new();
+    operator.install();
+    install_reader("fake-config", Ok("{}"), None);
+    let (_dir, root) = workspace();
+    let holder = tempfile::tempdir().unwrap();
+    let definition = holder.path().join("workflow.yaml");
+    std::fs::write(
+        &definition,
+        "workflow: missing-origin\nversion: 0.2\nentry: create\nnodes:\n  create: { intent: create, profile: generic }\n  rebuild: { intent: create, profile: generic }\nroutes:\n  - { from: create, on: failed, when: recovery_yaml_present, to: rebuild, carry: [workspace, recovery_yaml] }\nterminal: {}\n",
+    )
+    .unwrap();
+    let before = origin_files(&root);
+
+    // Admissible for the workspace alone, so only the origin can be what refuses it.
+    assert!(
+        admit_selected(&root, "tool-config-a", None)
+            .map_err(|error| error.to_string())
+            .unwrap()
+            .is_some()
+    );
+    let origin = holder.path().join("declared-origin");
+    let provider = CountingEndpoint::start();
+    let mut declared = config(&root, "tool-config-a");
+    declared.ollama_host = provider.url.clone();
+    let error = commandagent::workflow::orchestrator::run_workflow(&declared, &definition, &origin)
+        .map(|()| String::new())
+        .unwrap_err();
+    assert_eq!(provider.finish(), 0);
+    let error = format!("{error:#}");
+    assert!(
+        error.starts_with(
+            "profile_tool_refused: registry_unavailable: workspace cannot be resolved"
+        ),
+        "{error}"
+    );
+    assert!(!origin.exists());
+    assert_eq!(origin_files(&root), before);
+
+    let origin = holder.path().join("off-origin");
+    let provider = CountingEndpoint::start();
+    let mut off = config(&root, OFF_DRAFT);
+    off.ollama_host = provider.url.clone();
+    let error = commandagent::workflow::orchestrator::run_workflow(&off, &definition, &origin)
+        .map(|()| String::new())
+        .unwrap_err();
+    assert_eq!(provider.finish(), 0);
+    assert_eq!(format!("{error:#}"), "workflow origin lacks recovery YAML");
+    assert_eq!(origin_files(&root), before);
+    clear_selection();
+    set_env(REGISTRY_ENV, None);
+}
+
 /// `run_workflow` runs the origin's reproducer with the origin as its workspace. A
 /// registry inside the origin is inside that workspace, even when it is outside the
 /// config's. Everything else about the selection is admissible.
@@ -3148,22 +3226,6 @@ fn a_registry_inside_the_workflow_origin_is_refused_before_its_reproducer_runs()
         "workflow: origin-registry\nversion: 0.2\nentry: create\nnodes:\n  create: { intent: create, profile: generic }\n  rebuild: { intent: create, profile: generic }\nroutes:\n  - { from: create, on: failed, when: recovery_yaml_present, to: rebuild, carry: [workspace, recovery_yaml] }\nterminal: {}\n",
     )
     .unwrap();
-    let origin_files = |root: &Path| {
-        let mut files = Vec::new();
-        let mut pending = vec![root.to_path_buf()];
-        while let Some(directory) = pending.pop() {
-            for entry in std::fs::read_dir(directory).unwrap().flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    pending.push(path);
-                } else {
-                    files.push((path.clone(), sha256(&std::fs::read(&path).unwrap())));
-                }
-            }
-        }
-        files.sort();
-        files
-    };
     let before = origin_files(&b);
 
     set_env(REGISTRY_ENV, Some(b.join("operator").to_str().unwrap()));
