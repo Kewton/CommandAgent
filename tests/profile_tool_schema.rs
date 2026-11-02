@@ -866,6 +866,11 @@ const REJECTED: &[(&str, &str, &str)] = &[
         r#"{"mode":"fast","limits":{"retries":18446744073709551616},"targets":[null]}"#,
         "lossy_number",
     ),
+    (
+        "a fraction an f64 would round",
+        r#"{"mode":"fast","limits":{"retries":1,"ratio":1.0000000000000001},"targets":[null]}"#,
+        "lossy_number",
+    ),
 ];
 
 #[test]
@@ -977,7 +982,7 @@ fn a_tag_inside_xml_arguments_does_not_silently_change_a_string() {
     let _guard = lock();
     for name in [
         "a<think>hidden</think>b",
-        "<tool_call>{name:Read}</tool_call>",
+        "<tool_call>{'name':'Read'}</tool_call>",
     ] {
         let env = Env::with_config_tool();
         let raw =
@@ -995,6 +1000,562 @@ fn a_tag_inside_xml_arguments_does_not_silently_change_a_string() {
         assert!(error.contains("tag_inside_arguments"), "{error}");
     }
     set_env(REGISTRY_ENV, None);
+}
+
+/// `SubmitConfig` with its first letter as a JSON escape: the decoded name is the tool's,
+/// and the raw text does not contain it.
+const ESCAPED_CONFIG_TOOL: &str = "\\u0053ubmitConfig";
+
+fn with_string(value: &str) -> String {
+    json!({"mode": "fast", "limits": {"retries": 1}, "targets": [null], "name": value}).to_string()
+}
+
+/// The checks read the decoded name of the call the parser made, not the raw text, so
+/// neither the order of the keys nor an escape in the name gets past them.
+#[test]
+fn an_xml_reply_cannot_hide_a_schema_call_from_the_think_and_repair_checks() {
+    let _guard = lock();
+    let think = with_string("a<think>hidden</think>b");
+    let cases = [
+        (
+            "arguments first, with a think block in a string",
+            format!("<tool_call>{{\"arguments\":{think},\"name\":\"{CONFIG_TOOL}\"}}</tool_call>"),
+            Some("tag_inside_arguments"),
+        ),
+        (
+            "an escaped name, with trailing garbage",
+            format!(
+                "<tool_call>{{\"name\":\"{ESCAPED_CONFIG_TOOL}\",\"arguments\":{VALID_CONFIG}}} trailing</tool_call>"
+            ),
+            None,
+        ),
+        (
+            "an escaped name, with a think block in a string",
+            format!(
+                "<tool_call>{{\"name\":\"{ESCAPED_CONFIG_TOOL}\",\"arguments\":{think}}}</tool_call>"
+            ),
+            Some("tag_inside_arguments"),
+        ),
+        (
+            "an escaped name, with a tag in a string",
+            format!(
+                "<tool_call>{{\"name\":\"{ESCAPED_CONFIG_TOOL}\",\"arguments\":{}}}</tool_call>",
+                with_string("<tool_call>{'name':'Read'}</tool_call>")
+            ),
+            // The inner closing tag ends the outer call early, so the reply does not parse.
+            None,
+        ),
+        (
+            "an escaped name, with a think block after the call",
+            format!(
+                "<tool_call>{{\"name\":\"{ESCAPED_CONFIG_TOOL}\",\"arguments\":{VALID_CONFIG}}}</tool_call><think>later</think>"
+            ),
+            Some("tag_inside_arguments"),
+        ),
+    ];
+    for (label, content, code) in cases {
+        let env = Env::with_config_tool();
+        let run = session(&env, Wire::Xml, vec![text_reply(&content)], None);
+        assert_eq!(run.executed, Vec::<Value>::new(), "{label}");
+        let error = run.result.unwrap_err();
+        if let Some(code) = code {
+            assert!(error.contains(code), "{label}: {error}");
+        }
+        assert!(!env.events().contains("repair_applied"), "{label}");
+    }
+    set_env(REGISTRY_ENV, None);
+}
+
+/// An escaped name in a shape the old parser would have accepted gets a refusal for the
+/// tool, not a relaxed reading.
+#[test]
+fn an_escaped_name_in_an_unexact_wrapper_is_refused_for_the_tool() {
+    let _guard = lock();
+    for content in [
+        format!(
+            "<tool_call>{{\"tool\":\"{ESCAPED_CONFIG_TOOL}\",\"args\":{VALID_CONFIG}}}</tool_call>"
+        ),
+        // A trailing comma the relaxed parser would remove. No apostrophe, which it would
+        // otherwise rewrite and fail on before it read the name.
+        format!(
+            "<tool_call>{{\"name\":\"{ESCAPED_CONFIG_TOOL}\",\"arguments\":{{\"mode\":\"fast\",\"limits\":{{\"retries\":1}},\"targets\":[null]}},}}</tool_call>"
+        ),
+    ] {
+        let env = Env::with_config_tool();
+        let run = session(
+            &env,
+            Wire::Xml,
+            vec![text_reply(&content), text_reply("done")],
+            None,
+        );
+        assert_rejected(&env, Wire::Xml, &run, "wrapper_not_exact", &content);
+    }
+    set_env(REGISTRY_ENV, None);
+}
+
+/// What the checks must not refuse: the same escaped name as a clean call, complete think
+/// blocks ahead of it, and a builtin's repair in a reply without a schema call.
+#[test]
+fn a_clean_reply_and_a_builtin_repair_still_pass_in_a_schema_session() {
+    let _guard = lock();
+    for content in [
+        format!(
+            "<tool_call>{{\"name\":\"{ESCAPED_CONFIG_TOOL}\",\"arguments\":{VALID_CONFIG}}}</tool_call>"
+        ),
+        format!(
+            "<think>one</think>\n<think>two</think>\n<anvil_tool_call name=\"{CONFIG_TOOL}\">{VALID_CONFIG}</anvil_tool_call>"
+        ),
+    ] {
+        let env = Env::with_config_tool();
+        let run = session(
+            &env,
+            Wire::Xml,
+            vec![text_reply(&content), text_reply("done")],
+            None,
+        );
+        assert_eq!(run.executed, vec![parsed(VALID_CONFIG)], "{content}");
+    }
+    let env = Env::with_config_tool();
+    std::fs::write(env.root.join("notes.txt"), "text").unwrap();
+    let run = session(
+        &env,
+        Wire::Xml,
+        vec![
+            text_reply(
+                "<anvil_tool_call>{\"name\":\"Read\",\"arguments\":{\"path\":\"notes.txt\"}} trailing</anvil_tool_call>",
+            ),
+            text_reply("done"),
+        ],
+        None,
+    );
+    assert_eq!(run.result.as_deref(), Ok("done"));
+    assert!(
+        env.events().contains("repair_applied"),
+        "the builtin's repair went away"
+    );
+    set_env(REGISTRY_ENV, None);
+}
+
+/// The requirement plan runs only on the `generic` profile, which cannot select a schema
+/// tool: it has no manifest, and a pack cannot target it. So on a schema profile the plan
+/// skips, and a block in a string reaches the executor unchanged. If the plan ever applied
+/// here, this fails, or the reply is refused by the check unit-tested in `invocation.rs`.
+#[test]
+fn a_requirement_plan_block_in_a_string_stays_unchanged_because_the_plan_skips() {
+    let _guard = lock();
+    const PLAN_ENV: &str = "COMMANDAGENT_REQUIREMENT_PLAN";
+    set_env(PLAN_ENV, Some("once"));
+    let raw = with_string("a<requirement_plan>{}</requirement_plan>b");
+    let env = Env::with_config_tool();
+    let run = session(
+        &env,
+        Wire::Xml,
+        vec![Wire::Xml.call(CONFIG_TOOL, &raw), text_reply("done")],
+        None,
+    );
+    set_env(PLAN_ENV, None);
+    assert_eq!(run.executed, vec![parsed(&raw)]);
+    assert!(
+        env.events().contains("requirement_plan"),
+        "the plan was not armed"
+    );
+    set_env(REGISTRY_ENV, None);
+}
+
+/// A `number` is compared as an `f64`, so an integer past 2^53 would round into its bound,
+/// and a fraction past an `f64`'s reach would change on the way to the executor.
+#[test]
+fn a_number_an_f64_would_change_never_passes_a_bound_on_both_wires() {
+    let _guard = lock();
+    let schema = schema_declaration(closed(json!({
+        "n": {"type": "number", "maximum": 9_007_199_254_740_992_u64},
+    })));
+    for wire in WIRES {
+        for raw in [
+            r#"{"n":9007199254740993}"#,
+            r#"{"n":-9007199254740993}"#,
+            r#"{"n":1.0000000000000001}"#,
+        ] {
+            let env = Env::new();
+            env.write_tool(schema.clone());
+            let run = session(
+                &env,
+                wire,
+                vec![wire.call(CONFIG_TOOL, raw), text_reply("done")],
+                None,
+            );
+            assert_rejected(&env, wire, &run, "lossy_number", raw);
+        }
+        for raw in [
+            r#"{"n":9007199254740992}"#,
+            r#"{"n":-9007199254740992}"#,
+            r#"{"n":0.30000000000000004}"#,
+            r#"{"n":1.5e0}"#,
+        ] {
+            let env = Env::new();
+            env.write_tool(schema.clone());
+            let run = session(
+                &env,
+                wire,
+                vec![wire.call(CONFIG_TOOL, raw), text_reply("done")],
+                None,
+            );
+            assert_eq!(run.executed, vec![parsed(raw)], "{wire:?} {raw}");
+        }
+    }
+    // The direct registry has only a value, and the same rule.
+    let env = Env::new();
+    env.write_tool(schema);
+    let admitted = admit_selected(&env.root, CONFIG_PROFILE, None)
+        .unwrap()
+        .unwrap();
+    let error = admitted
+        .registry()
+        .unwrap()
+        .execute(
+            CONFIG_TOOL,
+            &json!({"n": 9_007_199_254_740_993_u64}),
+            &registry_context(&env),
+        )
+        .unwrap_err();
+    assert!(format!("{error:#}").contains("lossy_number"), "{error:#}");
+    set_env(REGISTRY_ENV, None);
+}
+
+/// An `integer` compares exactly past 2^53, because it is never an `f64`.
+#[test]
+fn an_integer_past_2_to_the_53_still_compares_exactly() {
+    let _guard = lock();
+    let schema = schema_declaration(closed(json!({
+        "n": {"type": "integer", "maximum": 9_007_199_254_740_992_u64},
+    })));
+    for wire in WIRES {
+        let env = Env::new();
+        env.write_tool(schema.clone());
+        let run = session(
+            &env,
+            wire,
+            vec![
+                wire.call(CONFIG_TOOL, r#"{"n":9007199254740993}"#),
+                text_reply("done"),
+            ],
+            None,
+        );
+        assert_rejected(&env, wire, &run, "above_maximum", "integer above");
+    }
+    set_env(REGISTRY_ENV, None);
+}
+
+// ---------------------------------------------------------------------------
+// The REPL's own order, on a new pseudo-terminal: no real terminal is opened.
+// ---------------------------------------------------------------------------
+
+#[cfg(unix)]
+mod repl_order {
+    use std::fs::File;
+    use std::io::{Read as _, Write as _};
+    use std::os::fd::FromRawFd as _;
+    use std::os::unix::process::CommandExt as _;
+    use std::path::Path;
+    use std::process::{Child, Command, Stdio};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
+
+    use super::{
+        CONFIG_PROFILE, Env, FLAT_PROFILE, FakeHttp, REGISTRY_ENV, base_config, closed, extension,
+        flat_registry, install_reader, json, lock, set_env, text_reply,
+    };
+
+    const CHILD_ENV: &str = "COMMANDAGENT_TEST_973_REPL_CHILD";
+    const ROOT_ENV: &str = "COMMANDAGENT_TEST_973_REPL_ROOT";
+    const EVIDENCE_ENV: &str = "COMMANDAGENT_TEST_973_REPL_EVIDENCE";
+    const PROFILE_ENV: &str = "COMMANDAGENT_TEST_973_REPL_PROFILE";
+    const URL_ENV: &str = "COMMANDAGENT_TEST_973_REPL_URL";
+    const PROMPT: &str = "commandagent> ";
+    const FREE_TEXT: &str = "Please tidy this up";
+    const ROUTED: &str = "Route remains";
+    const REFUSED: &str = "TASK FAILED";
+    const TIMEOUT: Duration = Duration::from_secs(60);
+
+    /// The REPL itself, with its stdin on the parent's pseudo-terminal. The profile is
+    /// not explicit, which is what leaves a route ambiguous and calls the classifier.
+    #[test]
+    fn repl_child_process() {
+        if std::env::var_os(CHILD_ENV).is_none() {
+            return;
+        }
+        extension();
+        install_reader();
+        let var = |name: &str| std::env::var(name).unwrap();
+        let mut config = base_config(
+            Path::new(&var(ROOT_ENV)),
+            Path::new(&var(EVIDENCE_ENV)),
+            &var(PROFILE_ENV),
+            &var(URL_ENV),
+        );
+        config.profile_explicit = false;
+        // `/provider ollama` builds a client from this: it must name the fake too.
+        config.ollama_host = var(URL_ENV);
+        commandagent::tui::repl::run(config).unwrap();
+    }
+
+    struct Repl {
+        child: Child,
+        writer: File,
+        output: Arc<Mutex<Vec<u8>>>,
+        stop: Arc<AtomicBool>,
+    }
+
+    fn open_pty() -> (File, File) {
+        // SAFETY: each call is checked, and each descriptor is owned by one `File`.
+        unsafe {
+            let master = libc::posix_openpt(libc::O_RDWR | libc::O_NOCTTY);
+            assert!(master >= 0, "posix_openpt failed");
+            assert_eq!(libc::grantpt(master), 0);
+            assert_eq!(libc::unlockpt(master), 0);
+            let name = libc::ptsname(master);
+            assert!(!name.is_null());
+            let slave = libc::open(name, libc::O_RDWR | libc::O_NOCTTY);
+            assert!(slave >= 0, "the new pseudo-terminal did not open");
+            let size = libc::winsize {
+                ws_row: 50,
+                ws_col: 400,
+                ws_xpixel: 0,
+                ws_ypixel: 0,
+            };
+            assert_eq!(libc::ioctl(master, libc::TIOCSWINSZ as _, &size), 0);
+            (File::from_raw_fd(master), File::from_raw_fd(slave))
+        }
+    }
+
+    impl Repl {
+        fn start(env: &Env, profile: &str, url: &str, home: &Path) -> Self {
+            let (master, slave) = open_pty();
+            let mut command = Command::new(std::env::current_exe().unwrap());
+            command
+                .args(["--exact", "repl_order::repl_child_process", "--nocapture"])
+                .env(CHILD_ENV, "1")
+                .env(ROOT_ENV, &env.root)
+                .env(EVIDENCE_ENV, &env.evidence)
+                .env(PROFILE_ENV, profile)
+                .env(URL_ENV, url)
+                .env("HOME", home)
+                .env("TERM", "xterm")
+                .stdin(Stdio::from(slave.try_clone().unwrap()))
+                .stdout(Stdio::from(slave.try_clone().unwrap()))
+                .stderr(Stdio::from(slave.try_clone().unwrap()));
+            // SAFETY: only async-signal-safe calls, between fork and exec. This gives the
+            // child a new session, so it has no other controlling terminal to reach.
+            unsafe {
+                command.pre_exec(|| {
+                    if libc::setsid() < 0 || libc::ioctl(0, libc::TIOCSCTTY as _, 0) < 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    Ok(())
+                });
+            }
+            let child = command.spawn().unwrap();
+            drop(slave);
+            let output: Arc<Mutex<Vec<u8>>> = Arc::default();
+            let stop = Arc::new(AtomicBool::new(false));
+            let writer = master.try_clone().unwrap();
+            {
+                let (output, stop) = (output.clone(), stop.clone());
+                let mut answers = master.try_clone().unwrap();
+                let mut reader = master;
+                std::thread::spawn(move || {
+                    let mut chunk = [0u8; 4096];
+                    let mut answered = 0;
+                    while !stop.load(Ordering::SeqCst) {
+                        let Ok(read) = reader.read(&mut chunk) else {
+                            break;
+                        };
+                        if read == 0 {
+                            break;
+                        }
+                        let mut output = output.lock().unwrap();
+                        output.extend_from_slice(&chunk[..read]);
+                        // A line editor asks where the cursor is, and waits for the answer.
+                        let asked = output.windows(4).filter(|w| *w == b"\x1b[6n").count();
+                        for _ in answered..asked {
+                            let _ = answers.write_all(b"\x1b[1;1R");
+                        }
+                        answered = asked;
+                    }
+                });
+            }
+            let mut repl = Self {
+                child,
+                writer,
+                output,
+                stop,
+            };
+            repl.wait_for(PROMPT, 0);
+            repl
+        }
+
+        fn text(&self) -> String {
+            String::from_utf8_lossy(&self.output.lock().unwrap()).into_owned()
+        }
+
+        fn wait_for(&mut self, needle: &str, from: usize) -> usize {
+            let started = Instant::now();
+            loop {
+                let text = self.text();
+                if let Some(found) = text.get(from..).and_then(|tail| tail.find(needle)) {
+                    return from + found + needle.len();
+                }
+                if started.elapsed() > TIMEOUT {
+                    let _ = self.child.kill();
+                    panic!("no `{needle}` after byte {from}:\n{text}");
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+
+        /// One line, until `marker` and the next prompt after it. Returns what it printed.
+        fn run_line(&mut self, line: &str, marker: &str) -> String {
+            std::thread::sleep(Duration::from_millis(100));
+            let from = self.text().len();
+            self.writer.write_all(line.as_bytes()).unwrap();
+            self.writer.write_all(b"\r").unwrap();
+            let end = self.wait_for(marker, from);
+            let end = self.wait_for(PROMPT, end);
+            self.text()[from..end].to_string()
+        }
+
+        fn finish(mut self) {
+            std::thread::sleep(Duration::from_millis(100));
+            self.writer.write_all(b"/exit\r").unwrap();
+            let started = Instant::now();
+            let status = loop {
+                if let Some(status) = self.child.try_wait().unwrap() {
+                    break status;
+                }
+                if started.elapsed() > TIMEOUT {
+                    let _ = self.child.kill();
+                    panic!("the REPL did not exit:\n{}", self.text());
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            };
+            self.stop.store(true, Ordering::SeqCst);
+            assert!(status.success(), "{status}:\n{}", self.text());
+        }
+    }
+
+    /// Any reply a classifier cannot use: the route stays typed unknown, and a call to
+    /// the fake is what is measured.
+    fn classifier_fake() -> FakeHttp {
+        let reply = text_reply("not a route");
+        FakeHttp::with_responder(Vec::new(), Arc::new(move |_, _| Some(reply.clone())))
+    }
+
+    /// Named by the classifier's own prompt: the REPL makes other requests at its start.
+    fn classifier_calls(http: &FakeHttp) -> usize {
+        let requests = http.requests.lock().unwrap();
+        requests
+            .iter()
+            .filter(|body| body.contains("route proposal classifier"))
+            .count()
+    }
+
+    #[test]
+    fn a_repl_refuses_free_text_on_an_unsupported_provider_before_its_classifier() {
+        let _guard = lock();
+        let env = Env::with_config_tool();
+        let home = tempfile::tempdir().unwrap();
+        let http = classifier_fake();
+        let mut repl = Repl::start(&env, CONFIG_PROFILE, &http.url, home.path());
+
+        // The witness: on a supported client the same text reaches the classifier.
+        repl.run_line(FREE_TEXT, ROUTED);
+        assert_eq!(classifier_calls(&http), 1);
+
+        repl.run_line("/provider ollama", "Executor provider set");
+        let before = http.requests.lock().unwrap().len();
+        let shown = repl.run_line(FREE_TEXT, REFUSED);
+        assert!(shown.contains("schema_unsupported"), "{shown}");
+        assert_eq!(
+            http.requests.lock().unwrap().len(),
+            before,
+            "a provider call ran before the refusal"
+        );
+
+        // The REPL goes on, and takes the text again once the client can carry the tool.
+        repl.run_line("/provider lm-studio", "Executor provider set");
+        repl.run_line(FREE_TEXT, ROUTED);
+        assert_eq!(classifier_calls(&http), 2);
+        repl.finish();
+        http.finish();
+        set_env(REGISTRY_ENV, None);
+    }
+
+    #[test]
+    fn a_repl_refuses_free_text_after_an_input_edit_before_its_classifier() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_tool(json!({
+            "protocol": "profile-tool.schema/v1",
+            "root": closed(json!({})),
+            "inputs": ["ids.txt"],
+        }));
+        let input = env.root.join("ids.txt");
+        std::fs::write(&input, "alpha\n").unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let http = classifier_fake();
+        let mut repl = Repl::start(&env, CONFIG_PROFILE, &http.url, home.path());
+
+        repl.run_line(FREE_TEXT, ROUTED);
+        assert_eq!(classifier_calls(&http), 1);
+
+        std::fs::write(&input, "edited\n").unwrap();
+        let before = http.requests.lock().unwrap().len();
+        let shown = repl.run_line(FREE_TEXT, REFUSED);
+        assert!(shown.contains("input_revision_mismatch"), "{shown}");
+        assert_eq!(
+            http.requests.lock().unwrap().len(),
+            before,
+            "a provider call ran before the refusal"
+        );
+
+        // Restoring the bytes is the documented recovery.
+        std::fs::write(&input, "alpha\n").unwrap();
+        repl.run_line(FREE_TEXT, ROUTED);
+        assert_eq!(classifier_calls(&http), 2);
+        repl.finish();
+        http.finish();
+        set_env(REGISTRY_ENV, None);
+    }
+
+    /// With no declaration, and with a flat tool, the classifier runs as it always did,
+    /// also on a provider a schema tool could not use.
+    #[test]
+    fn a_repl_without_a_schema_tool_still_calls_its_classifier() {
+        let _guard = lock();
+        let flat = flat_registry();
+        for (profile, registry) in [
+            ("generic", "/nonexistent/profile-tool-registry"),
+            (FLAT_PROFILE, flat.path().to_str().unwrap()),
+        ] {
+            let env = Env::new();
+            set_env(REGISTRY_ENV, Some(registry));
+            let home = tempfile::tempdir().unwrap();
+            let http = classifier_fake();
+            let mut repl = Repl::start(&env, profile, &http.url, home.path());
+            let first = repl.run_line(FREE_TEXT, ROUTED);
+            assert!(!first.contains(REFUSED), "{profile}: {first}");
+            assert_eq!(classifier_calls(&http), 1, "{profile}");
+
+            repl.run_line("/provider ollama", "Executor provider set");
+            let second = repl.run_line(FREE_TEXT, ROUTED);
+            assert!(!second.contains(REFUSED), "{profile}: {second}");
+            assert_eq!(classifier_calls(&http), 2, "{profile}");
+            repl.finish();
+            http.finish();
+        }
+        set_env(REGISTRY_ENV, None);
+    }
 }
 
 /// A key repeated around the arguments is gone from a whole-body `Value` too. The body
@@ -1647,7 +2208,7 @@ fn a_replaced_descriptor_is_not_adopted_by_a_later_session() {
     assert!(
         error
             .to_string()
-            .starts_with("profile_tool_refused: invalid_pin:"),
+            .starts_with("profile_tool_refused: schema_mismatch:"),
         "{error}"
     );
     set_env(REGISTRY_ENV, None);

@@ -33,18 +33,28 @@ pub(crate) fn normalize_text_reply(
         .map(|tool| tool.function.name.clone())
         .collect::<Vec<_>>();
     let original = reply.content.clone();
-    invocation::check_xml_reply(&original)?;
     let strict = crate::providers::xml_fallback::extract_tool_calls(&original, &allowed_tools);
-    // A reply that names a schema tool takes no repair: its arguments pass as sent.
-    if !invocation::reply_names_schema_tool(&original)
+    if let Ok((calls, _)) = &strict {
+        invocation::check_xml_reply(&original, calls)?;
+    }
+    let strict_has_schema_call = strict
+        .as_ref()
+        .is_ok_and(|(calls, _)| invocation::has_schema_call(calls));
+    // A repair never carries a schema tool: its arguments pass as sent or not at all.
+    if !strict_has_schema_call
         && let Some(candidate) = crate::providers::xml_repair::candidate(&original, &allowed_tools)
         && let Ok((tool_calls, content)) =
             crate::providers::xml_fallback::extract_tool_calls(&candidate.response, &allowed_tools)
+        && !invocation::has_schema_call(&tool_calls)
         && validate_tool_calls(&tool_calls, tools).is_ok()
     {
+        invocation::forget_receipts();
         reply.content = content;
         reply.tool_calls = tool_calls;
         return Ok(vec![candidate.repair]);
+    }
+    if !strict_has_schema_call {
+        invocation::forget_receipts();
     }
     let (tool_calls, content) = strict?;
     reply.content = content;

@@ -158,6 +158,10 @@ pub(super) fn parse_tool_call(
         .or_else(|| infer_tool_name_from_arguments(object, nested_arguments, allowed_tools))
         .ok_or_else(|| anyhow::anyhow!("tool call missing name"))?;
     let name = normalize_allowed_tool_name(&raw_name, allowed_tools)?;
+    if let Some(call) = crate::tools::profile_tools::schema::invocation::refuse_unstrict_xml(&name)
+    {
+        return Ok(call);
+    }
     let arguments = if default_name.is_some()
         && object.get("arguments").is_none()
         && object.get("args").is_none()

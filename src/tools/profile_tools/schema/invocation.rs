@@ -43,6 +43,7 @@ struct Receipt {
 #[derive(Debug, Default)]
 pub(crate) struct Shared {
     in_session: AtomicBool,
+    reply_cut: AtomicBool,
     receipts: Mutex<Vec<Receipt>>,
 }
 
@@ -294,6 +295,7 @@ pub(crate) fn enter_session(state: Arc<ReceiveState>) -> SessionScope {
 pub(crate) fn for_provider_worker() -> Option<Arc<ReceiveState>> {
     let state = current()?;
     state.shared.clear();
+    state.shared.reply_cut.store(false, Ordering::SeqCst);
     Some(state)
 }
 
@@ -490,30 +492,52 @@ fn plain_tag_arguments(
     }
 }
 
-/// True when a reply names a schema tool, so its text takes no repair candidate.
-pub(crate) fn reply_names_schema_tool(text: &str) -> bool {
-    with_current(|state| state.guard_mentioned_in(text)).is_some()
+/// Whether the calls a parser produced include a schema tool. This reads the decoded
+/// names, so a name written with a JSON escape counts, and a name mentioned in text
+/// does not.
+pub(crate) fn has_schema_call(calls: &[ToolCall]) -> bool {
+    calls.iter().any(|call| is_schema_tool(&call.name))
 }
 
-/// The XML parser removes `<think>` blocks and pulls inner tags out before it reads a
-/// body, which would change a string inside a schema tool's arguments. Such a reply
-/// is refused as a whole.
-pub(crate) fn check_xml_reply(text: &str) -> anyhow::Result<()> {
-    let Some(state) = current() else {
+/// A parse that did not end in a schema call leaves nothing to execute. What it or a
+/// discarded repair candidate received must not stand in for a later call.
+pub(crate) fn forget_receipts() {
+    if let Some(state) = current() {
+        state.shared.clear();
+    }
+}
+
+/// An old-path parse named a schema tool: a body the strict decode did not take, such
+/// as an unexact wrapper whose name was written with an escape.
+pub(crate) fn refuse_unstrict_xml(name: &str) -> Option<ToolCall> {
+    let guard = with_current(|state| state.guards.get(name).cloned())?;
+    let received = guard.finish(Err(vec![violation("wrapper_not_exact")]), STAGE_XML);
+    Some(ToolCall::new(guard.name.clone(), received.arguments))
+}
+
+/// The requirement plan cut a block out of this reply's text before the XML parse, so
+/// what the parse read is not what was sent.
+pub(crate) fn note_reply_cut_before_parse() {
+    if let Some(state) = current() {
+        state.shared.reply_cut.store(true, Ordering::SeqCst);
+    }
+}
+
+pub(crate) fn watches_reply_text() -> bool {
+    current().is_some()
+}
+
+/// Everything before an XML body is read can change a string inside it: the removal
+/// of a `<think>` block, the extraction of an inner tag, and the requirement plan's
+/// cut. A reply that produced a schema call is refused as a whole if any of these
+/// touched it, apart from complete `<think>` blocks ahead of everything else.
+pub(crate) fn check_xml_reply(text: &str, calls: &[ToolCall]) -> anyhow::Result<()> {
+    if !has_schema_call(calls) {
         return Ok(());
-    };
-    let lower = text.to_ascii_lowercase();
-    let Some(first) = state
-        .guards
-        .keys()
-        .filter_map(|name| lower.find(&name.to_ascii_lowercase()))
-        .min()
-    else {
-        return Ok(());
-    };
-    let inner_tag = open_tag_depth_exceeds_one(&lower);
-    let think = lower[first..].contains("<think>");
-    if inner_tag || think {
+    }
+    let cut =
+        with_current(|state| state.shared.reply_cut.load(Ordering::SeqCst).then_some(())).is_some();
+    if cut || reply_text_can_change(text) {
         return Err(ProfileToolRefusal::new(
             RefusalKind::SchemaViolation,
             validate::render(STAGE_XML, &[violation("tag_inside_arguments")]),
@@ -521,6 +545,22 @@ pub(crate) fn check_xml_reply(text: &str) -> anyhow::Result<()> {
         .into());
     }
     Ok(())
+}
+
+fn reply_text_can_change(text: &str) -> bool {
+    let rest = after_leading_think_blocks(text);
+    rest.contains("<think>") || open_tag_depth_exceeds_one(&rest.to_ascii_lowercase())
+}
+
+fn after_leading_think_blocks(text: &str) -> &str {
+    let mut rest = text.trim_start();
+    while let Some((_, after)) = rest
+        .strip_prefix("<think>")
+        .and_then(|inner| inner.split_once("</think>"))
+    {
+        rest = after.trim_start();
+    }
+    rest
 }
 
 fn open_tag_depth_exceeds_one(lower: &str) -> bool {
@@ -554,4 +594,30 @@ fn open_tag_depth_exceeds_one(lower: &str) -> bool {
 /// What the XML prompt adds for a schema tool. Empty for every other tool.
 pub(crate) fn xml_prompt_note(name: &str) -> String {
     with_current(|state| state.guards.get(name).map(|guard| guard.xml_note())).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::reply_text_can_change;
+
+    #[test]
+    fn only_complete_think_blocks_ahead_of_everything_leave_a_reply_unchanged() {
+        for text in [
+            "<tool_call>{}</tool_call>",
+            "  <think>a</think>\n<think>b</think> <tool_call>{}</tool_call>",
+            "<function=T>{}</function><tool_call>{}</tool_call>",
+        ] {
+            assert!(!reply_text_can_change(text), "{text}");
+        }
+        for text in [
+            "<tool_call>{\"s\":\"<think>a</think>\"}</tool_call>",
+            "text <think>a</think> <tool_call>{}</tool_call>",
+            "<think>never closed <tool_call>{}</tool_call>",
+            "<think>a</think><think>never closed",
+            "<anvil_tool_call name=\"T\">{\"s\":\"<tool_call>\"}</anvil_tool_call>",
+            "<TOOL_CALL><tool_call></tool_call></TOOL_CALL>",
+        ] {
+            assert!(reply_text_can_change(text), "{text}");
+        }
+    }
 }

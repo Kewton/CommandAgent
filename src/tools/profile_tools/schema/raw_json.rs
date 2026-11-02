@@ -209,21 +209,39 @@ impl Decoder<'_> {
     }
 }
 
-/// An integer token must stay an integer, and a fractional one must fit the
-/// seventeen significant digits an `f64` round-trips and must not underflow.
+/// An integer token must stay an integer. A fractional token must read back, digit
+/// for digit, from the shortest decimal of the `f64` it became: no count of digits
+/// can promise that, because a decimal is only certain to survive up to 15 of them.
 fn holds_exactly(token: &str, number: &serde_json::Number) -> bool {
-    let fractional = token.contains(['.', 'e', 'E']);
-    if !fractional {
+    if !token.contains(['.', 'e', 'E']) {
         return number.is_i64() || number.is_u64();
     }
-    let mantissa = token.split(['e', 'E']).next().unwrap_or(token);
-    let digits = mantissa
-        .bytes()
-        .filter(u8::is_ascii_digit)
-        .skip_while(|digit| *digit == b'0')
-        .count();
-    let nonzero = mantissa.bytes().any(|digit| matches!(digit, b'1'..=b'9'));
-    digits <= 17 && (!nonzero || number.as_f64().is_some_and(|value| value != 0.0))
+    let Some(value) = number.as_f64() else {
+        return false;
+    };
+    let kept = decimal_value(&format!("{value:e}"));
+    kept.is_some() && kept == decimal_value(token)
+}
+
+/// A decimal's significant digits and the power of ten of the last one, so that two
+/// spellings of one number compare equal.
+fn decimal_value(text: &str) -> Option<(String, i64)> {
+    let text = text.strip_prefix('-').unwrap_or(text);
+    let (mantissa, exponent) = match text.split_once(['e', 'E']) {
+        Some((mantissa, exponent)) => (mantissa, exponent.parse::<i64>().ok()?),
+        None => (text, 0),
+    };
+    let (whole, fraction) = mantissa.split_once('.').unwrap_or((mantissa, ""));
+    let digits = format!("{whole}{fraction}");
+    let significant = digits.trim_start_matches('0').trim_end_matches('0');
+    if significant.is_empty() {
+        return Some((String::new(), 0));
+    }
+    let trailing = digits.len() - digits.trim_end_matches('0').len();
+    let fraction_len = i64::try_from(fraction.len()).ok()?;
+    let trailing = i64::try_from(trailing).ok()?;
+    let power = exponent.checked_sub(fraction_len)?.checked_add(trailing)?;
+    Some((significant.to_string(), power))
 }
 
 #[cfg(test)]
@@ -304,10 +322,25 @@ mod tests {
             "-0",
             "1e-400",
             "1.000000000000000001",
+            "1.0000000000000001",
+            "0.30000000000000000001",
         ] {
             assert_eq!(decode(raw, LIMITS), Err(DecodeError::LossyNumber), "{raw}");
         }
-        for raw in ["18446744073709551615", "-9223372036854775808", "0.0", "1e3"] {
+        for raw in [
+            "18446744073709551615",
+            "-9223372036854775808",
+            "0.0",
+            "-0.0",
+            "1e3",
+            "1.50",
+            "1.5e0",
+            "0.1",
+            "-2.5e-3",
+            "100.0",
+            "0.30000000000000004",
+            "1.0000000000000002",
+        ] {
             assert!(decode(raw, LIMITS).is_ok(), "{raw}");
         }
     }

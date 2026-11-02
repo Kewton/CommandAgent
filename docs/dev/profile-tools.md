@@ -108,7 +108,7 @@ command) is admitted by the TUI command's check, with the effective profile.
   reproducer derived from the origin can run first if only the node's profile is refused.
 - The TUI classifier for an Ambiguous route (`src/tui/boundary_shell/ambiguity.rs`) runs
   before a profile is chosen and cannot dispatch, so its classification call is not
-  gated.
+  gated by these G1 refusals. A G2 schema tool's reasons stop it; see the G2 known limits.
 - A TUI refusal is not exit 2. The command ends with `TASK FAILED` and the REPL goes on.
   Before the refusal the command has recorded `tui_command_start`, and nothing else of
   the command: no `ultra_plan_generation_attempt`, provider call, host verify command,
@@ -144,10 +144,10 @@ command) is admitted by the TUI command's check, with the effective profile.
 | `schema_unsupported` | A schema outside the subset below, a client that cannot carry it, or a schema the provider sanitizer would change |
 | `schema_limit_exceeded` | A schema over a limit below, or an operator limit wider than the opening one |
 | `schema_scrubbed` | The secret scrub would change the schema |
-| `schema_mismatch` | The compiler no longer gives the adopted schema from the adopted bytes |
+| `schema_mismatch` | The compiler no longer gives the adopted schema from the adopted bytes, or a later admission finds another descriptor than the adopted one |
 | `input_revision_unavailable` | A declared input cannot be read when it would be adopted |
 | `input_revision_mismatch` | A declared input no longer holds the adopted revision |
-| `schema_violation` | An argument failed the validator. The reason is bounded data |
+| `schema_violation` | An argument failed the validator. The reason is bounded data, returned to the model; the exception under On receipt ends the run |
 
 ## What G1 does not provide
 
@@ -246,6 +246,11 @@ never ignored.
 - `enum` holds distinct scalars of the node's type, and excludes a length, bound, or pattern.
 - An `integer` takes only an integer token: `1.0` is a `number`. A string length counts
   Unicode scalar values.
+- A `number` is compared as an `f64`. Its `minimum`, `maximum`, and `enum` values must stay within
+  2^53, and an integer argument past 2^53 on a `number` is `lossy_number`, so nothing rounds into a
+  bound. An `integer` compares exactly, across the whole `i64` and `u64` range.
+- A fractional token must equal the shortest decimal of the `f64` it became. `1.0000000000000001`
+  would become `1.0`, so it is `lossy_number`.
 - A `pattern` is unanchored and runs on the `regex` crate, with no backtracking. It may not
   use `\d`, `\w`, `\s`, `\b`, a flag, a lookaround, or a backreference, because those read
   differently on a provider's engine. `(?:…)`, classes, and `\n`, `\t`, `\r`, and an escaped
@@ -330,15 +335,23 @@ A value is never changed to pass: no string conversion, no `null` filled in, no 
 coerced, no ID corrected, no key removed. A schema tool's arguments skip the shared recovery,
 which reshapes `name`, `tool`, and wrapper keys, the relaxed XML JSON, and the XML repair. On
 XML, a named tag's body is the arguments, and a plain tag holds exactly
-`{"name": …, "arguments": …}`. A reply that names a schema tool takes no repair candidate. A
-`<think>` block or a tool tag inside it refuses the reply, because the parser would otherwise
-cut them out of a string. A builtin and a flat tool in the same session keep every existing
-path.
+`{"name": …, "arguments": …}`. These checks read the name of the call the parser produced,
+after JSON decoding, so a name written with an escape counts the same. A repair candidate that
+produces a schema call is discarded, whatever its spelling. In a reply that produced a schema
+call, a `<think>` block other than complete ones ahead of everything else, a tool tag inside a
+tool tag, or a `<requirement_plan>` block the plan took out before the parse refuses the reply,
+because each can change a string in the arguments. A builtin and a flat tool in the same session
+keep every existing path.
 
 An argument the validator refuses returns to the model as data, in the existing recoverable
 feedback: `{"stage": …, "violations": [{"path": …, "code": …}]}`. A path can hold a key the
 model sent, so it is bounded and is not read as an instruction. A pin, revision, or schema
 that no longer holds ends the run, because retrying cannot correct it.
+
+There is one exception among `schema_violation` refusals. `tag_inside_arguments` ends the run
+instead of returning as data: the whole reply is refused at the XML parse, before any call
+exists to answer. Nothing runs. Likewise, a reply whose XML cannot be parsed at all, or whose only
+reading is a discarded repair, ends the run as any such reply does.
 
 ### Right before an execution
 
@@ -354,10 +367,20 @@ does not satisfy an artifact or a stage, and an unreported usage stays `None`.
 
 ### Known limits
 
-- The adoption lasts for the process, keyed by workspace, profile, and tool. A long-lived REPL
-  whose inputs were edited on purpose refuses until it restarts. A new process adopts again, so a
-  `/resume` in a new process compares with nothing from the old one. Nothing here persists the
-  adoption, because a record in the workspace would not be trusted and `.anvil/` is not widened.
+- The adoption lasts for the process, keyed by workspace, profile, and tool, and nothing persists
+  it, because a record in the workspace would not be trusted and `.anvil/` is not widened. This has
+  two approved consequences:
+  - **A long-lived REPL whose inputs were edited** refuses every later command and free text with
+    `input_revision_mismatch` (`schema_mismatch` for a replaced descriptor or compiler). To recover,
+    put the input bytes back, or restart the process, which adopts the current bytes.
+  - **A `/resume` in a new process** adopts the current bytes and compares with nothing from the old
+    process. No refusal appears if the inputs changed in between. Before resuming, check yourself
+    that the inputs are the ones the earlier run used.
+- A REPL's free text is checked before its route is proposed, against the REPL's current
+  profile, executor client, and inputs, and refused with the `TASK FAILED` block; the REPL goes on.
+  It records no event at this point. When no profile was named, the classifier may still propose a
+  different profile, which is admitted when its command is dispatched. Another refusal of a selected
+  set, such as `unknown_tool_id`, keeps its place at the dispatched command.
 - The binary registers no runtime and no compiler, so through the CLI a schema tool is refused
   as `unavailable`. Success runs go through the library entries.
 - A provider's own acceptance of this subset is not measured. Nothing here calls a live service.

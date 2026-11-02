@@ -873,7 +873,7 @@ fn run_session_planned(
                 return Err(err);
             }
         };
-        let plan_only_turn = plan.capture_reply(&mut reply);
+        let plan_only_turn = profile_tool_runtime::capture_requirement_plan(plan, &mut reply);
         if config.tool_protocol == Some(crate::config::ToolProtocol::Text) {
             match super::tool_protocol::normalize_text_reply(&mut reply, &specs) {
                 Ok(repairs) => {

@@ -51,6 +51,14 @@ fn integer_value(value: &Value) -> Option<i128> {
         .or_else(|| value.as_u64().map(i128::from))
 }
 
+/// A `number` is compared as an `f64`, which holds every integer only up to 2^53. An
+/// integer token past that would round into its bound, so it is refused.
+const MAX_EXACT_FLOAT_INTEGER: i128 = 1 << 53;
+
+fn fits_exact_float_range(value: &Value) -> bool {
+    integer_value(value).is_none_or(|number| number.abs() <= MAX_EXACT_FLOAT_INTEGER)
+}
+
 impl ScalarKind {
     pub(super) fn accepts(self, value: &Value) -> bool {
         match self {
@@ -72,6 +80,9 @@ impl ScalarKind {
                 )
             }
             Self::Number { minimum, maximum } => {
+                if !fits_exact_float_range(value) {
+                    return Some("lossy_number");
+                }
                 let number = value.as_f64()?;
                 bound_code(
                     minimum.is_some_and(|minimum| number < minimum.get()),
@@ -491,9 +502,15 @@ fn number_kind(map: &Map<String, Value>, shown: &str) -> Result<ScalarKind, Prof
     let read = |key: &str| {
         map.get(key)
             .map(|value| {
-                value.as_f64().ok_or_else(|| {
+                let bound = value.as_f64().ok_or_else(|| {
                     unsupported(format!("schema `{shown}`: `{key}` must be a number"))
-                })
+                })?;
+                if !fits_exact_float_range(value) || bound.abs() > MAX_EXACT_FLOAT_INTEGER as f64 {
+                    return Err(unsupported(format!(
+                        "schema `{shown}`: `{key}` of a `number` must stay within 2^53"
+                    )));
+                }
+                Ok(bound)
             })
             .transpose()
     };
@@ -582,6 +599,9 @@ fn enum_values(
     for (index, value) in values.iter().enumerate() {
         if !kind.accepts(value) {
             return Err(invalid("holds a value of another type"));
+        }
+        if matches!(kind, ScalarKind::Number { .. }) && !fits_exact_float_range(value) {
+            return Err(invalid("holds a `number` past 2^53"));
         }
         if values[..index].contains(value) {
             return Err(invalid("repeats a value"));
@@ -735,6 +755,10 @@ mod tests {
             json!({"type": "integer", "minimum": 2, "maximum": 1}),
             json!({"type": "number", "minimum": 2.5, "maximum": 1.5}),
             json!({"type": "number", "minimum": "1"}),
+            json!({"type": "number", "maximum": 9_007_199_254_740_993_u64}),
+            json!({"type": "number", "minimum": -9_007_199_254_740_993_i64}),
+            json!({"type": "number", "maximum": 1e300}),
+            json!({"type": "number", "enum": [9_007_199_254_740_993_u64]}),
             json!({"type": "array"}),
             json!({"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 1}),
             json!({"type": "object", "properties": {}}),

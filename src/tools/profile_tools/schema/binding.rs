@@ -136,7 +136,7 @@ impl Adoption {
     fn verify_admission(&self, pins: &ToolPins<'_>) -> Result<(), ProfileToolRefusal> {
         if self.descriptor_sha256 != pins.descriptor_sha256 || self.tool_version != pins.version {
             return Err(ProfileToolRefusal::new(
-                RefusalKind::InvalidPin,
+                RefusalKind::SchemaMismatch,
                 format!(
                     "tool `{}` descriptor differs from the one its schema was adopted with",
                     self.tool_id

@@ -63,6 +63,19 @@ pub enum RefusalKind {
 }
 
 impl RefusalKind {
+    /// Only a descriptor with a G2 `schema` can produce these.
+    pub(crate) const fn is_schema_tool_reason(self) -> bool {
+        matches!(
+            self,
+            Self::SchemaUnsupported
+                | Self::SchemaLimitExceeded
+                | Self::SchemaScrubbed
+                | Self::SchemaMismatch
+                | Self::InputRevisionUnavailable
+                | Self::InputRevisionMismatch
+        )
+    }
+
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::UnknownToolId => "unknown_tool_id",

@@ -32,7 +32,8 @@
     {"id": "bare keys", "raw": "{mode:\"fast\",limits:{retries:1},targets:[null]}", "code": "malformed_json"},
     {"id": "garbage after the object", "raw": "{\"mode\":\"fast\",\"limits\":{\"retries\":1},\"targets\":[null]} garbage", "code": "trailing_data"},
     {"id": "a second object", "raw": "{\"mode\":\"fast\",\"limits\":{\"retries\":1},\"targets\":[null]}{\"mode\":\"safe\"}", "code": "trailing_data"},
-    {"id": "a number an f64 cannot hold", "raw": "{\"mode\":\"fast\",\"limits\":{\"retries\":18446744073709551616},\"targets\":[null]}", "code": "lossy_number"}
+    {"id": "a number an f64 cannot hold", "raw": "{\"mode\":\"fast\",\"limits\":{\"retries\":18446744073709551616},\"targets\":[null]}", "code": "lossy_number"},
+    {"id": "a fraction an f64 would round", "raw": "{\"mode\":\"fast\",\"limits\":{\"retries\":1,\"ratio\":1.0000000000000001},\"targets\":[null]}", "code": "lossy_number"}
   ],
   "refused_before_start": [
     {"id": "unsupported keyword", "refusal": "schema_unsupported"},
