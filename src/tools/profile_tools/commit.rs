@@ -115,13 +115,55 @@ pub(super) mod test_hook {
 }
 
 /// `(device, inode)` of what is at a workspace-relative path now, reached with no symlink.
+/// `None` only when nothing is there. A path that cannot be identified, such as a symlink, is
+/// a refusal: left out of the comparison, it would protect nothing.
 #[cfg(unix)]
-fn identity_below(root: &File, display: &Path, relative: &str) -> Option<(u64, u64)> {
+fn identity_below(
+    root: &File,
+    display: &Path,
+    relative: &str,
+) -> Result<Option<(u64, u64)>, ProfileToolRefusal> {
     use std::os::unix::fs::MetadataExt as _;
+    let unidentified = || {
+        path_refused(format!(
+            "the protected path `{relative}` cannot be identified without a symlink"
+        ))
+    };
     let parent =
-        crate::tools::dir_fd::open_parent_at(root, display, Path::new(relative), false).ok()?;
-    let metadata = parent.open_existing_leaf().ok()?.metadata().ok()?;
-    Some((metadata.dev(), metadata.ino()))
+        match crate::tools::dir_fd::open_parent_at(root, display, Path::new(relative), false) {
+            Ok(parent) => parent,
+            Err(error) if names_nothing(&error) => return Ok(None),
+            Err(_) => return Err(unidentified()),
+        };
+    let file = match parent.open_existing_leaf() {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Err(unidentified()),
+    };
+    let metadata = file.metadata().map_err(|_| unidentified())?;
+    Ok(Some((metadata.dev(), metadata.ino())))
+}
+
+#[cfg(unix)]
+fn names_nothing(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<std::io::Error>()
+        .is_some_and(|error| error.kind() == std::io::ErrorKind::NotFound)
+}
+
+#[cfg(unix)]
+fn identities_below(
+    root: &File,
+    display: &Path,
+    paths: &[String],
+) -> Result<Vec<(u64, u64)>, ProfileToolRefusal> {
+    let mut identities = Vec::with_capacity(paths.len());
+    for path in paths {
+        if let Some(identity) = identity_below(root, display, path)? {
+            identities.push(identity);
+        }
+    }
+    Ok(identities)
 }
 
 /// What is at the destination may be replaced only when it is one regular file with one
@@ -155,7 +197,35 @@ fn check_existing(
             "the destination is the same file as a protected input",
         ));
     }
-    Ok(Some(metadata.mode() & 0o7777))
+    // Only the permission bits move to the new file: never setuid, setgid, or sticky.
+    Ok(Some(metadata.mode() & 0o777))
+}
+
+/// The entry under this name is the file this descriptor holds, with one name, and that file
+/// holds exactly the checked bytes. A name alone says nothing: anything that can write in
+/// the directory can replace what it points at, or write through it.
+#[cfg(unix)]
+fn entry_holds_candidate(
+    parent: &crate::tools::dir_fd::ParentDir,
+    name: &std::ffi::CStr,
+    held: &File,
+    expected_len: usize,
+    expected_sha256: &str,
+) -> bool {
+    use std::os::unix::fs::{FileExt as _, MetadataExt as _};
+    let (Ok(entry), Ok(metadata)) = (parent.stat_name(name), held.metadata()) else {
+        return false;
+    };
+    if !entry.regular
+        || entry.links != 1
+        || (entry.device, entry.inode) != (metadata.dev(), metadata.ino())
+        || metadata.len() != expected_len as u64
+    {
+        return false;
+    }
+    let mut bytes = vec![0u8; expected_len];
+    held.read_exact_at(&mut bytes, 0).is_ok()
+        && format!("{:x}", Sha256::digest(&bytes)) == expected_sha256
 }
 
 /// Before the start: what is at the destination now must be replaceable. A parent that does
@@ -168,21 +238,12 @@ pub(super) fn preflight_destination(
     relative: &str,
     forbidden: &[String],
 ) -> Result<(), ProfileToolRefusal> {
-    let identities = forbidden
-        .iter()
-        .filter_map(|path| identity_below(root, root_display, path))
-        .collect::<Vec<_>>();
+    let identities = identities_below(root, root_display, forbidden)?;
     let parent =
         crate::tools::dir_fd::open_parent_at(root, root_display, Path::new(relative), false);
     match parent {
         Ok(parent) => check_existing(&parent, &identities).map(|_| ()),
-        Err(error)
-            if error
-                .downcast_ref::<std::io::Error>()
-                .is_some_and(|error| error.kind() == std::io::ErrorKind::NotFound) =>
-        {
-            Ok(())
-        }
+        Err(error) if names_nothing(&error) => Ok(()),
         Err(_) => Err(path_refused(
             "the destination's parent is not reached without a symlink",
         )),
@@ -238,11 +299,7 @@ pub(super) fn commit(
         return Err(cancelled());
     }
     final_check()?;
-    let forbidden = plan
-        .forbidden
-        .iter()
-        .filter_map(|path| identity_below(plan.root, plan.root_display, path))
-        .collect::<Vec<_>>();
+    let forbidden = identities_below(plan.root, plan.root_display, plan.forbidden)?;
     let relative = Path::new(plan.relative);
     if let Ok(parent) =
         crate::tools::dir_fd::open_parent_at(plan.root, plan.root_display, relative, false)
@@ -269,19 +326,29 @@ pub(super) fn commit(
         .map_err(|_| refused("the temporary file cannot be written"))?;
     #[cfg(test)]
     test_hook::fire(test_hook::Stage::AfterTempWrite);
-    file.sync_all()
-        .map_err(|_| refused("the temporary file cannot be synced"))?;
-    // The existing mode stays. A new file keeps what the umask gave it.
+    // The existing permission bits stay. A new file stays private to this user.
     if let Some(mode) = check_existing(&parent, &forbidden)? {
         file.set_permissions(std::fs::Permissions::from_mode(mode))
             .map_err(|_| refused("the temporary file's mode cannot be set"))?;
     }
-    drop(file);
+    file.sync_all()
+        .map_err(|_| refused("the temporary file cannot be synced"))?;
     final_check()?;
     #[cfg(test)]
     test_hook::fire(test_hook::Stage::BeforeRename);
     if is_cancelled() {
         return Err(cancelled());
+    }
+    if !entry_holds_candidate(
+        &parent,
+        &temporary.name,
+        &file,
+        plan.bytes.len(),
+        plan.committed_sha256,
+    ) {
+        return Err(refused(
+            "the temporary file was changed or replaced before the rename",
+        ));
     }
     parent
         .rename_to_leaf(&temporary.name)
@@ -290,6 +357,19 @@ pub(super) fn commit(
     temporary.adopted = true;
     #[cfg(test)]
     test_hook::fire(test_hook::Stage::AfterRename);
+    // What the name now holds decides what is reported. A writer in that instant has replaced
+    // the old bytes with something this host never checked, and no receipt says otherwise.
+    if !entry_holds_candidate(
+        &parent,
+        parent.leaf_name(),
+        &file,
+        plan.bytes.len(),
+        plan.committed_sha256,
+    ) {
+        return Err(refused(
+            "the rename stood, but the destination no longer holds the checked bytes",
+        ));
+    }
     #[cfg(test)]
     let synced = !test_hook::directory_sync_fails() && parent.sync_directory().is_ok();
     #[cfg(not(test))]
@@ -618,6 +698,159 @@ mod tests {
         let result = attempt(&stage, "out/settings.json");
         assert_refused_unchanged(&result, &stage);
         assert_eq!(std::fs::read(&outside).unwrap(), OLD);
+    }
+
+    /// What is at the one temporary in this directory, replaced by a test at a seam.
+    fn the_temporary(directory: &Path) -> PathBuf {
+        let names = leftovers(directory);
+        assert_eq!(names.len(), 1, "{names:?}");
+        directory.join(&names[0])
+    }
+
+    /// Whichever seam it happens at, an entry that is not the checked file is never adopted,
+    /// and the destination keeps its old bytes.
+    #[test]
+    fn a_temporary_changed_or_replaced_before_the_rename_is_not_adopted() {
+        type Change = fn(&Path, &Path);
+        let changes: [(&str, Change); 3] = [
+            ("written in place", |temporary, _| {
+                let mut file = std::fs::OpenOptions::new()
+                    .write(true)
+                    .open(temporary)
+                    .unwrap();
+                std::io::Write::write_all(&mut file, b"UNCHECKED!").unwrap();
+            }),
+            ("another regular file", |temporary, _| {
+                std::fs::remove_file(temporary).unwrap();
+                std::fs::write(temporary, NEW).unwrap();
+            }),
+            ("a symlink", |temporary, outside| {
+                std::fs::remove_file(temporary).unwrap();
+                let target = outside.join("target");
+                std::fs::write(&target, NEW).unwrap();
+                symlink(&target, temporary).unwrap();
+            }),
+        ];
+        for at in [Stage::AfterTempWrite, Stage::BeforeRename] {
+            for (label, change) in changes {
+                let stage = stage();
+                let target = stage.root.join("out/settings.json");
+                std::fs::write(&target, OLD).unwrap();
+                let (directory, outside) = (stage.root.join("out"), stage.outside.clone());
+                let _reset = test_hook::install(move |now| {
+                    if now == at {
+                        change(&the_temporary(&directory), &outside);
+                    }
+                });
+                let error = attempt(&stage, "out/settings.json").unwrap_err();
+                assert_eq!(error.kind, RefusalKind::CommitFailed, "{at:?} {label}");
+                assert_eq!(std::fs::read(&target).unwrap(), OLD, "{at:?} {label}");
+                assert!(
+                    std::fs::symlink_metadata(&target).unwrap().is_file(),
+                    "{at:?} {label}"
+                );
+                assert!(
+                    leftovers(&stage.root.join("out")).is_empty(),
+                    "{at:?} {label}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_second_name_for_the_temporary_is_not_adopted() {
+        let stage = stage();
+        let directory = stage.root.join("out");
+        let other = stage.outside.join("second-name");
+        let _reset = test_hook::install(move |now| {
+            if now == Stage::BeforeRename {
+                std::fs::hard_link(the_temporary(&directory), &other).unwrap();
+            }
+        });
+        let error = attempt(&stage, "out/settings.json").unwrap_err();
+        assert_eq!(error.kind, RefusalKind::CommitFailed);
+        assert!(!stage.root.join("out/settings.json").exists());
+    }
+
+    /// The instant after the rename: the name no longer holds what was checked. This cannot
+    /// be undone, and it is not reported as a success.
+    #[test]
+    fn a_destination_changed_right_after_the_rename_gets_no_receipt() {
+        type Change = fn(&Path);
+        let changes: [(&str, Change); 2] = [
+            ("written in place", |target| {
+                std::fs::write(target, b"UNCHECKED!").unwrap();
+            }),
+            ("replaced", |target| {
+                std::fs::remove_file(target).unwrap();
+                std::fs::write(target, NEW).unwrap();
+            }),
+        ];
+        for (label, change) in changes {
+            let stage = stage();
+            let target = stage.root.join("out/settings.json");
+            let at = target.clone();
+            let _reset = test_hook::install(move |now| {
+                if now == Stage::AfterRename {
+                    change(&at);
+                }
+            });
+            let error = attempt(&stage, "out/settings.json").unwrap_err();
+            assert_eq!(error.kind, RefusalKind::CommitFailed, "{label}");
+            assert!(error.reason.contains("rename stood"), "{label}: {error}");
+        }
+    }
+
+    #[test]
+    fn the_temporary_is_private_and_only_permission_bits_move_to_the_file() {
+        let stage = stage();
+        let directory = stage.root.join("out");
+        let _reset = test_hook::install(move |now| {
+            if now == Stage::AfterTempWrite {
+                let mode = std::fs::metadata(the_temporary(&directory)).unwrap().mode();
+                assert_eq!(mode & 0o777, 0o600);
+            }
+        });
+        let target = stage.root.join("out/settings.json");
+        std::fs::write(&target, OLD).unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o6755)).unwrap();
+        attempt(&stage, "out/settings.json").unwrap();
+        assert_eq!(std::fs::metadata(&target).unwrap().mode() & 0o7777, 0o755);
+        std::fs::remove_file(&target).unwrap();
+        attempt(&stage, "out/settings.json").unwrap();
+        assert_eq!(std::fs::metadata(&target).unwrap().mode() & 0o7777, 0o600);
+    }
+
+    #[test]
+    fn a_protected_path_that_cannot_be_identified_is_refused_and_a_missing_one_is_not() {
+        let stage = stage();
+        std::fs::write(stage.outside.join("frozen"), OLD).unwrap();
+        symlink(stage.outside.join("frozen"), stage.root.join("frozen.link")).unwrap();
+        let error = attempt_with(
+            &stage,
+            "out/settings.json",
+            &["frozen.link".to_string()],
+            &|| Ok(()),
+            &|| false,
+        )
+        .unwrap_err();
+        assert_eq!(error.kind, RefusalKind::EffectPathRefused);
+        assert!(!stage.root.join("out/settings.json").exists());
+        let refused = super::preflight_destination(
+            &stage.file,
+            &stage.root,
+            "out/settings.json",
+            &["frozen.link".to_string()],
+        );
+        assert_eq!(refused.unwrap_err().kind, RefusalKind::EffectPathRefused);
+        attempt_with(
+            &stage,
+            "out/settings.json",
+            &["absent/frozen".to_string(), "out/absent".to_string()],
+            &|| Ok(()),
+            &|| false,
+        )
+        .unwrap();
     }
 
     #[test]

@@ -37,6 +37,7 @@ pub(crate) const MAX_CHECKS: usize = 64;
 pub(crate) const MAX_DIAGNOSTICS: usize = 8;
 pub(crate) const MAX_DIAGNOSTIC_CODE_BYTES: usize = 64;
 pub(crate) const MAX_DIAGNOSTIC_MESSAGE_BYTES: usize = 512;
+pub(crate) const MAX_STDERR_TAIL_BYTES: usize = 2048;
 const MAX_RESULT_DEPTH: usize = 8;
 const MAX_RESULT_ELEMENTS: usize = 1024;
 
@@ -361,20 +362,43 @@ pub(crate) struct AcceptedResult {
     pub(crate) diagnostics: Vec<Diagnostic>,
 }
 
-/// Why a result was refused, by a fixed code, with what it said kept apart as data.
+/// Why a result was refused, by a fixed code. What it said is read apart from this.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Rejection {
     pub(crate) code: &'static str,
-    pub(crate) diagnostics: Vec<Diagnostic>,
 }
 
 impl Rejection {
     fn new(code: &'static str) -> Self {
-        Self {
-            code,
-            diagnostics: Vec::new(),
-        }
+        Self { code }
     }
+}
+
+/// The diagnostics of a document, whether or not it is accepted, within the same limits as
+/// an accepted one. Anything else holds none. Data for the record, and nothing more.
+pub(crate) fn salvage_diagnostics(stdout: &[u8]) -> Vec<Diagnostic> {
+    std::str::from_utf8(stdout)
+        .ok()
+        .and_then(|text| {
+            raw_json::decode(
+                text,
+                DecodeLimits {
+                    bytes: MAX_RESULT_BYTES,
+                    depth: MAX_RESULT_DEPTH,
+                    elements: MAX_RESULT_ELEMENTS,
+                    lossless_numbers: true,
+                },
+            )
+            .ok()
+        })
+        .and_then(|document| decode_diagnostics(document.get("diagnostics")?).ok())
+        .unwrap_or_default()
+}
+
+/// The end of stderr, which is where a failing process says why, within a bound.
+pub(crate) fn stderr_tail(stderr: &[u8]) -> String {
+    let start = stderr.len().saturating_sub(MAX_STDERR_TAIL_BYTES);
+    String::from_utf8_lossy(&stderr[start..]).into_owned()
 }
 
 const RESULT_KEYS: [&str; 9] = [
@@ -468,12 +492,8 @@ pub(crate) fn verify_result(
         }
     }
     let diagnostics = decode_diagnostics(&object["diagnostics"])?;
-    let with_diagnostics = |code: &'static str| Rejection {
-        code,
-        diagnostics: diagnostics.clone(),
-    };
-    check_statuses(&object["checks"]).map_err(with_diagnostics)?;
-    let (output_id, bytes) = decode_output(&object["outputs"], output).map_err(with_diagnostics)?;
+    check_statuses(&object["checks"]).map_err(Rejection::new)?;
+    let (output_id, bytes) = decode_output(&object["outputs"], output).map_err(Rejection::new)?;
     Ok(AcceptedResult {
         output_id,
         committed_sha256: format!("{:x}", Sha256::digest(&bytes)),
@@ -827,6 +847,23 @@ mod tests {
         assert_eq!(at(raw.len() - 1, 0), Err("result_too_large"));
         assert_eq!(at(raw.len() + 5, 5), Ok(()));
         assert_eq!(at(raw.len() + 5, 6), Err("result_too_large"));
+    }
+
+    #[test]
+    fn what_a_refused_document_said_is_kept_within_the_same_bounds() {
+        let mut result = valid();
+        result["request_id"] = json!("something-else");
+        let kept = super::salvage_diagnostics(result.to_string().as_bytes());
+        assert_eq!(kept[0].message, "run `rm -rf /` now");
+        assert!(super::salvage_diagnostics(b"not json").is_empty());
+        result["diagnostics"] = json!([{"code": "c", "message": "m".repeat(513)}]);
+        assert!(super::salvage_diagnostics(result.to_string().as_bytes()).is_empty());
+        let long = vec![b'x'; 5000];
+        assert_eq!(
+            super::stderr_tail(&long).len(),
+            super::MAX_STDERR_TAIL_BYTES
+        );
+        assert_eq!(super::stderr_tail(b"short"), "short");
     }
 
     #[test]

@@ -1545,7 +1545,113 @@ const START_REFUSALS: &[StartRefusal] = &[
             std::os::unix::fs::symlink(env.outside.join("target"), env.root.join(OUTPUT)).unwrap();
         },
     },
+    StartRefusal {
+        id: "an executable its group can write",
+        kind: "unavailable",
+        after_probe: false,
+        prepare: |env, _| {
+            let copy = env.tools.join("shell-copy");
+            std::fs::copy(pinned_shell(), &copy).unwrap();
+            set_mode(&copy, 0o775);
+            let digest = sha256(&std::fs::read(&copy).unwrap());
+            env.write_changed(&Fake::default(), &|descriptor| {
+                descriptor["process"]["executable"] = json!({"path": copy, "sha256": digest});
+            });
+        },
+    },
+    StartRefusal {
+        id: "a file in a dependency directory others can write",
+        kind: "unavailable",
+        after_probe: false,
+        prepare: |env, _| {
+            env.write_tool(&Fake::default());
+            set_mode(&env.tools.join(CONFIG_TOOL_ID).join("tool.sh"), 0o646);
+        },
+    },
 ];
+
+fn set_mode(path: &Path, mode: u32) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (path, mode);
+    }
+}
+
+/// What is running now, by its full command line.
+fn running_command_lines() -> Vec<String> {
+    if Path::new("/proc/self/cmdline").exists() {
+        return std::fs::read_dir("/proc")
+            .unwrap()
+            .flatten()
+            .filter_map(|entry| std::fs::read(entry.path().join("cmdline")).ok())
+            .map(|bytes| String::from_utf8_lossy(&bytes).replace('\0', " "))
+            .collect();
+    }
+    let listing = std::process::Command::new("/bin/ps")
+        .args(["-axo", "command"])
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&listing.stdout)
+        .lines()
+        .map(str::to_string)
+        .collect()
+}
+
+/// Watches for an operator's tool by its own script's path, from outside any policy. The
+/// strict probe's fixed child has no such path, so it is not counted. For this to see a
+/// start, the script stays running: see [`staying_fake`].
+struct LaunchWatch {
+    seen: Arc<AtomicUsize>,
+    stop: Arc<AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl LaunchWatch {
+    fn start(env: &Env) -> Self {
+        let script = env.tools.join(CONFIG_TOOL_ID).join("tool.sh");
+        let script = script.to_str().unwrap().to_string();
+        let seen = Arc::new(AtomicUsize::new(0));
+        let stop = Arc::new(AtomicBool::new(false));
+        let thread = {
+            let (seen, stop) = (seen.clone(), stop.clone());
+            std::thread::spawn(move || {
+                while !stop.load(Ordering::SeqCst) {
+                    if running_command_lines()
+                        .iter()
+                        .any(|line| line.contains(&script))
+                    {
+                        seen.fetch_add(1, Ordering::SeqCst);
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+            })
+        };
+        Self {
+            seen,
+            stop,
+            thread: Some(thread),
+        }
+    }
+
+    fn finish(mut self) -> usize {
+        self.stop.store(true, Ordering::SeqCst);
+        self.thread.take().unwrap().join().unwrap();
+        self.seen.load(Ordering::SeqCst)
+    }
+}
+
+/// A tool that stays until its clock ends, so a start of it cannot be missed.
+fn staying_fake() -> Fake {
+    Fake {
+        head: "while :; do :; done".to_string(),
+        ..Fake::default()
+    }
+}
 
 /// The kind this OS must report for this row.
 fn expected_kind(refusal: &StartRefusal) -> &'static str {
@@ -1801,8 +1907,8 @@ fn workflow_origin(root: &Path, child_profile: &str) -> (PathBuf, PathBuf) {
 fn a_binary_workflow_child_is_refused_before_its_provider_call() {
     let _guard = lock();
     let env = Env::new();
-    change_process(&env, |process| {
-        process["env"]["LD_PRELOAD"] = json!("/tmp/x.so");
+    env.write_changed(&staying_fake(), &|descriptor| {
+        descriptor["process"]["env"]["LD_PRELOAD"] = json!("/tmp/x.so");
     });
     let private = tempfile::tempdir().unwrap();
     let root = std::fs::canonicalize(private.path()).unwrap();
@@ -1812,6 +1918,7 @@ fn a_binary_workflow_child_is_refused_before_its_provider_call() {
     std::fs::create_dir_all(&home).unwrap();
     let (origin, definition) = workflow_origin(&root, CONFIG_PROFILE);
     let provider = CountingEndpoint::start();
+    let watch = LaunchWatch::start(&env);
     let output = binary_command(&outer, &env.registry, &home)
         .args(["--provider", "lm-studio", "--lm-studio-host", &provider.url])
         .arg("--workflow")
@@ -1822,6 +1929,9 @@ fn a_binary_workflow_child_is_refused_before_its_provider_call() {
         .unwrap();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
     assert_eq!(provider.finish(), 0, "{stderr}");
+    assert_eq!(watch.finish(), 0, "the tool started: {stderr}");
+    assert!(!origin.join(OUTPUT).exists(), "{stderr}");
+    assert!(!outer.join(OUTPUT).exists(), "{stderr}");
     let circle: Value = serde_json::from_str(
         &std::fs::read_to_string(origin.join("evidence/workflow-circle.json")).unwrap(),
     )
@@ -1844,13 +1954,14 @@ fn a_library_workflow_refuses_on_its_origin_before_the_reproducer() {
     }
     let _guard = lock();
     let env = Env::new();
-    change_process(&env, |process| {
-        process["limits"]["timeout_ms"] = json!(30_001);
+    env.write_changed(&staying_fake(), &|descriptor| {
+        descriptor["process"]["limits"]["timeout_ms"] = json!(30_001);
     });
     let root = std::fs::canonicalize(private.path()).unwrap();
     let (origin, definition) = workflow_origin(&root, CONFIG_PROFILE);
     let endpoint = CountingEndpoint::start();
     let config = env.config(&endpoint.url);
+    let watch = LaunchWatch::start(&env);
     let error = commandagent::workflow::orchestrator::run_workflow(&config, &definition, &origin)
         .unwrap_err();
     let error = format!("{error:#}");
@@ -1859,6 +1970,9 @@ fn a_library_workflow_refuses_on_its_origin_before_the_reproducer() {
         "{error}"
     );
     assert_eq!(endpoint.finish(), 0);
+    assert_eq!(watch.finish(), 0, "the tool started");
+    assert!(!origin.join(OUTPUT).exists());
+    assert_eq!(env.saved(), None);
     assert!(!origin.join(REPRODUCER_MARKER).exists());
     assert!(!origin.join("evidence/workflow-events.jsonl").exists());
     set_env(REGISTRY_ENV, None);
@@ -2101,17 +2215,26 @@ mod repl {
         let _guard = lock();
         type Row = (&'static str, fn(&mut serde_json::Value));
         let mut rows: Vec<Row> = vec![
-            ("effect_output_refused", |process| {
-                process["outputs"] = json!([
+            ("effect_output_refused", |descriptor| {
+                descriptor["process"]["outputs"] = json!([
                     {"id": "artifact", "path": "config/a.json"},
                     {"id": "second", "path": "config/b.json"},
                 ]);
             }),
-            ("invalid_pin", |process| {
-                process["executable"]["sha256"] = json!("0".repeat(64));
+            ("invalid_pin", |descriptor| {
+                descriptor["process"]["executable"]["sha256"] = json!("0".repeat(64));
             }),
-            ("effect_env_refused", |process| {
-                process["env"]["NODE_OPTIONS"] = json!("--inspect");
+            ("effect_env_refused", |descriptor| {
+                descriptor["process"]["env"]["NODE_OPTIONS"] = json!("--inspect");
+            }),
+            ("invalid_pin", |descriptor| {
+                descriptor["process"]["executable"]["sha256"] = json!("not-a-digest");
+            }),
+            ("invalid_pin", |descriptor| {
+                descriptor["process"]["executable"]["path"] = json!("relative/tool");
+            }),
+            ("unavailable", |descriptor| {
+                descriptor["requires"] = json!(["os_sandbox"]);
             }),
         ];
         // Where no backend exists, the descriptor with nothing wrong is what stops here.
@@ -2120,7 +2243,7 @@ mod repl {
         }
         for (kind, change) in rows {
             let env = Env::new();
-            change_process(&env, change);
+            env.write_changed(&Fake::default(), &change);
             let home = tempfile::tempdir().unwrap();
             let http = classifier_fake();
             let mut repl = Repl::start(&env, &http.url, home.path());
@@ -2892,6 +3015,163 @@ mod macos {
             assert!(failed, "{label}: {error}");
             env.assert_nothing_new_saved(label);
         }
+        set_env(REGISTRY_ENV, None);
+    }
+
+    /// The witness for the zero in the refusal tests: the same watch sees the tool when it
+    /// really starts, in the binary too.
+    #[test]
+    fn the_launch_watch_sees_a_tool_that_really_starts() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_changed(&super::staying_fake(), &|descriptor| {
+            descriptor["process"]["limits"]["timeout_ms"] = json!(1500);
+        });
+        let http = FakeHttp::with_responder(Vec::new(), entry_responder(None));
+        let home = tempfile::tempdir().unwrap();
+        let watch = super::LaunchWatch::start(&env);
+        let output = binary_command(&env.root, &env.registry, home.path())
+            .args([
+                "--provider",
+                "lm-studio",
+                "--lm-studio-host",
+                &http.url,
+                "--yes",
+            ])
+            .args([
+                "--profile",
+                CONFIG_PROFILE,
+                "--prompt",
+                "Submit the object.",
+            ])
+            .output()
+            .unwrap();
+        http.finish();
+        assert!(
+            watch.finish() > 0,
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        set_env(REGISTRY_ENV, None);
+    }
+
+    const NOISE: &str = r#"[{\"code\":\"note\",\"message\":\"said fake-dummy-env-credential-974-not-a-real-key\"}]"#;
+    const STDERR_NOISE: &str =
+        "printf 'stderr says fake-dummy-env-credential-974-not-a-real-key' >&2";
+
+    /// Through the public session, on each way of failing: bounded words on the event, the
+    /// dummy secret scrubbed, and nothing of it in the error or in what the model was sent.
+    #[test]
+    fn what_a_failed_process_said_stays_on_the_event_as_scrubbed_data() {
+        let _guard = lock();
+        let cases: Vec<(&str, Fake, u64)> = vec![
+            (
+                "a nonzero exit",
+                fake_with(|f| {
+                    f.diagnostics = NOISE.to_string();
+                    f.tail = format!("{STDERR_NOISE}\nexit 3");
+                }),
+                10_000,
+            ),
+            (
+                "a clock",
+                fake_with(|f| {
+                    f.diagnostics = NOISE.to_string();
+                    f.tail = format!("{STDERR_NOISE}\nwhile :; do :; done");
+                }),
+                500,
+            ),
+            (
+                "a binding",
+                fake_with(|f| {
+                    f.request_id = "another-request".to_string();
+                    f.diagnostics = NOISE.to_string();
+                    f.tail = STDERR_NOISE.to_string();
+                }),
+                10_000,
+            ),
+        ];
+        for (label, fake, timeout_ms) in &cases {
+            let env = Env::new();
+            env.with_old_bytes();
+            env.write_changed(fake, &|descriptor| {
+                descriptor["process"]["limits"]["timeout_ms"] = json!(*timeout_ms);
+            });
+            let config = env.config("http://unused");
+            super::install_dummy_secret(&env.root, &config);
+            let (requests, result) = run_with(&config, call(VALID));
+            let error = result.unwrap_err();
+            let events = env.events();
+            let line = events
+                .lines()
+                .find(|line| line.contains("profile_tool_effect_rejected"))
+                .unwrap_or_else(|| panic!("{label}: {events}"));
+            let event: Value = serde_json::from_str(line).unwrap();
+            assert_eq!(event["diagnostics"][0]["code"], "note", "{label}: {line}");
+            let said = event["diagnostics"][0]["message"].as_str().unwrap();
+            assert!(said.starts_with("said "), "{label}: {said}");
+            let tail = event["stderr_tail"].as_str().unwrap();
+            assert!(tail.starts_with("stderr says "), "{label}: {tail}");
+            assert!(
+                !events.contains(super::DUMMY_ENV_SECRET),
+                "{label}: not scrubbed"
+            );
+            assert!(!error.contains("said"), "{label}: {error}");
+            assert!(!error.contains("stderr says"), "{label}: {error}");
+            assert_eq!(requests.len(), 1, "{label}: nothing went back to the model");
+            env.assert_nothing_new_saved(label);
+        }
+        set_env(REGISTRY_ENV, None);
+    }
+
+    #[test]
+    fn what_a_successful_process_said_does_not_reach_the_model() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_tool(&fake_with(|f| f.diagnostics = NOISE.to_string()));
+        let config = env.config("http://unused");
+        super::install_dummy_secret(&env.root, &config);
+        let (requests, result) = run_with(&config, call(VALID));
+        assert!(result.is_ok(), "{result:?}");
+        assert!(requests[1].contains("profile-tool.commit-receipt/v1"));
+        assert!(!requests[1].contains("said "), "{}", requests[1]);
+        assert!(!requests[1].contains("\\\"diagnostics"), "{}", requests[1]);
+        let said = receipt_from_events(&env)["diagnostics"][0]["message"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(said.starts_with("said "), "{said}");
+        set_env(REGISTRY_ENV, None);
+    }
+
+    /// A dependency's file is rewritten while the process runs: the digest computed after it
+    /// ended differs from the admission's, and nothing is committed.
+    #[test]
+    fn a_dependency_rewritten_during_the_process_stops_the_commit() {
+        let _guard = lock();
+        let env = Env::new();
+        env.with_old_bytes();
+        env.write_tool(&fake_with(|f| {
+            f.head = "until [[ -e $PWD/changed ]]; do :; done".to_string();
+        }));
+        let directory = env.tools.join(super::CONFIG_TOOL_ID);
+        let script = directory.join("tool.sh").display().to_string();
+        let writer = std::thread::spawn(move || {
+            let started = Instant::now();
+            while !super::running_command_lines()
+                .iter()
+                .any(|line| line.starts_with("/bin/bash") && line.contains(&script))
+            {
+                assert!(started.elapsed() < Duration::from_secs(30));
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            std::fs::write(directory.join("changed"), "x").unwrap();
+        });
+        let (_, result) = run_with(&env.config("http://unused"), call(VALID));
+        writer.join().unwrap();
+        let error = result.unwrap_err();
+        assert!(error.contains("invalid_pin"), "{error}");
+        env.assert_nothing_new_saved("a rewritten dependency");
         set_env(REGISTRY_ENV, None);
     }
 

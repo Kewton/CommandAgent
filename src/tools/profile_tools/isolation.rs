@@ -156,9 +156,75 @@ fn sandbox_arguments(launch: &StrictLaunch<'_>) -> Vec<OsString> {
     arguments
 }
 
+/// A command only this leaf can make, so a process cannot be run any other way. The bounded
+/// runner takes nothing else.
+#[derive(Debug)]
+pub(super) struct StrictCommand {
+    command: Command,
+}
+
+impl StrictCommand {
+    pub(super) fn into_command(self) -> Command {
+        self.command
+    }
+
+    /// For a unit test of the runner itself.
+    #[cfg(test)]
+    pub(super) fn for_test(command: Command) -> Self {
+        Self { command }
+    }
+}
+
+/// Between fork and exec, only `fcntl` and the descriptor list. A descriptor the host's own
+/// caller left open would otherwise reach the child: the policy judges an open, not a read
+/// or a write on what is already open. Marking instead of closing leaves the runtime's own
+/// descriptors for the moment of the exec. Failure on an unused number is ignored.
+#[cfg(unix)]
+fn mark_inherited_descriptors_close_on_exec() {
+    fn mark(descriptor: i32) {
+        // SAFETY: `fcntl` is async-signal-safe, and this only sets a flag on a number; an
+        // unused one returns an error that does not matter.
+        unsafe {
+            libc::fcntl(descriptor, libc::F_SETFD, libc::FD_CLOEXEC);
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        const CAPACITY: usize = 4096;
+        // SAFETY: an all-zero `proc_fdinfo` is a valid value of this plain struct.
+        let mut listed: [libc::proc_fdinfo; CAPACITY] = unsafe { std::mem::zeroed() };
+        let entry = std::mem::size_of::<libc::proc_fdinfo>();
+        // SAFETY: the buffer is writable for this many bytes on this stack frame, and
+        // `getpid` has no preconditions. Both are plain system calls.
+        let written = unsafe {
+            libc::proc_pidinfo(
+                libc::getpid(),
+                libc::PROC_PIDLISTFDS,
+                0,
+                listed.as_mut_ptr().cast(),
+                (CAPACITY * entry) as i32,
+            )
+        };
+        let count = usize::try_from(written).unwrap_or(0) / entry;
+        if count > 0 && count < CAPACITY {
+            for info in &listed[..count] {
+                if info.proc_fd > 2 {
+                    mark(info.proc_fd);
+                }
+            }
+            return;
+        }
+    }
+    // SAFETY: `getdtablesize` takes no argument and only reads a limit.
+    let limit = unsafe { libc::getdtablesize() };
+    for descriptor in 3..limit {
+        mark(descriptor);
+    }
+}
+
 /// The environment is cleared on this very `Command`: the declared keys are all the child
 /// gets, and the host adds none. The new process group lets the whole group be stopped.
-fn final_command(program: &OsStr, prefix: &[OsString], launch: &StrictLaunch<'_>) -> Command {
+fn final_command(program: &OsStr, prefix: &[OsString], launch: &StrictLaunch<'_>) -> StrictCommand {
     let mut command = Command::new(program);
     command
         .args(prefix)
@@ -173,12 +239,22 @@ fn final_command(program: &OsStr, prefix: &[OsString], launch: &StrictLaunch<'_>
     {
         use std::os::unix::process::CommandExt as _;
         command.process_group(0);
+        // SAFETY: the closure makes only async-signal-safe calls, on the stack, and takes no
+        // lock and allocates nothing.
+        unsafe {
+            command.pre_exec(|| {
+                mark_inherited_descriptors_close_on_exec();
+                Ok(())
+            });
+        }
     }
-    command
+    StrictCommand { command }
 }
 
 /// The command for one launch, or a refusal. There is no unconfined form.
-pub(super) fn strict_command(launch: &StrictLaunch<'_>) -> Result<Command, ProfileToolRefusal> {
+pub(super) fn strict_command(
+    launch: &StrictLaunch<'_>,
+) -> Result<StrictCommand, ProfileToolRefusal> {
     #[cfg(test)]
     if test_hook::is_unconfined() {
         return Ok(final_command(launch.executable.as_os_str(), &[], launch));
@@ -419,6 +495,63 @@ mod tests {
         probe_strict().unwrap();
     }
 
+    /// A descriptor the caller left open, without close-on-exec, at a number this returns.
+    #[cfg(unix)]
+    fn inheritable(file: std::fs::File) -> (std::fs::File, i32) {
+        use std::os::fd::AsRawFd as _;
+        let descriptor = file.as_raw_fd();
+        // SAFETY: `file` owns this open descriptor; this only clears its close-on-exec flag.
+        assert_eq!(unsafe { libc::fcntl(descriptor, libc::F_SETFD, 0) }, 0);
+        (file, descriptor)
+    }
+
+    /// On every OS, through the same `final_command`, and what the probe uses too.
+    #[cfg(unix)]
+    #[test]
+    fn a_descriptor_the_caller_left_open_does_not_reach_the_child() {
+        use super::super::process::{RunLimits, run};
+        let temp = tempfile::tempdir().unwrap();
+        let (written, secret) = (temp.path().join("written"), temp.path().join("secret"));
+        std::fs::write(&written, "").unwrap();
+        std::fs::write(&secret, "dummy-inherited-secret\n").unwrap();
+        let (_writer, writer_fd) = inheritable(
+            std::fs::OpenOptions::new()
+                .append(true)
+                .open(&written)
+                .unwrap(),
+        );
+        let (_reader, reader_fd) = inheritable(std::fs::File::open(&secret).unwrap());
+        let script = format!(
+            "{{ echo x >&{writer_fd}; }} || echo write-refused\n{{ read -r line <&{reader_fd}; }} || echo read-refused\necho \"line=[$line]\"\n"
+        );
+        let argv = ["-c".to_string(), script];
+        let env = BTreeMap::new();
+        let launch = StrictLaunch {
+            executable: Path::new("/bin/sh"),
+            argv: &argv,
+            cwd: Path::new("/"),
+            env: &env,
+            read_directories: Vec::new(),
+            link_directories: Vec::new(),
+        };
+        let _unconfined = super::test_hook::unconfined();
+        let observation = run(
+            super::strict_command(&launch).unwrap(),
+            b"",
+            RunLimits {
+                timeout: std::time::Duration::from_secs(10),
+                max_stream_bytes: 4096,
+            },
+            &|| false,
+        )
+        .unwrap();
+        let stdout = String::from_utf8_lossy(&observation.stdout);
+        assert!(stdout.contains("write-refused"), "{stdout}");
+        assert!(stdout.contains("read-refused"), "{stdout}");
+        assert!(stdout.contains("line=[]"), "{stdout}");
+        assert_eq!(std::fs::read_to_string(&written).unwrap(), "");
+    }
+
     #[cfg(target_os = "macos")]
     mod real_isolation {
         use std::collections::BTreeMap;
@@ -547,6 +680,35 @@ mod tests {
                 listener.accept().is_err(),
                 "the connection reached the listener"
             );
+        }
+
+        /// The errno itself, under the real policy: a descriptor the caller left open is
+        /// gone at the exec, so the child's own shell reports it as bad.
+        #[test]
+        fn a_descriptor_the_caller_left_open_is_a_bad_descriptor_under_the_policy() {
+            let stage = stage();
+            let (written, secret) = (stage.outside.join("written"), stage.outside.join("secret"));
+            std::fs::write(&written, "").unwrap();
+            std::fs::write(&secret, "dummy-inherited-secret\n").unwrap();
+            let (_writer, writer_fd) = super::inheritable(
+                std::fs::OpenOptions::new()
+                    .append(true)
+                    .open(&written)
+                    .unwrap(),
+            );
+            let (_reader, reader_fd) = super::inheritable(std::fs::File::open(&secret).unwrap());
+            let observation = run(
+                &stage,
+                &format!(
+                    "{{ echo x >&{writer_fd}; }}\n{{ read -r line <&{reader_fd}; }}\nprintf 'line=[%s]\\n' \"$line\"\nexit 0\n"
+                ),
+                &BTreeMap::new(),
+            );
+            let stderr = String::from_utf8_lossy(&observation.stderr);
+            assert_eq!(stderr.matches("Bad file descriptor").count(), 2, "{stderr}");
+            let stdout = String::from_utf8_lossy(&observation.stdout);
+            assert!(stdout.contains("line=[]"), "{stdout}");
+            assert_eq!(std::fs::read_to_string(&written).unwrap(), "");
         }
 
         #[test]

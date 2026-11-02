@@ -77,6 +77,14 @@ pub enum RefusalKind {
     /// A proposal tool's runtime differs from its pin at admission. Reported as
     /// `invalid_pin`, kept apart for the same reason.
     EffectInvalidPin,
+    /// The same, for the other kinds a proposal tool's admission shares with G1. Each
+    /// reports the shared word, so only the place it stops a REPL's free text differs.
+    EffectInvalidDescriptor,
+    EffectConflictingDeclaration,
+    EffectWorkspaceDescriptor,
+    EffectUnknownToolId,
+    EffectRegistryUnavailable,
+    EffectNameCollision,
     EffectReadOnly,
     EffectLimitExceeded,
     EffectOutputRefused,
@@ -107,12 +115,34 @@ impl RefusalKind {
             self,
             Self::EffectUnavailable
                 | Self::EffectInvalidPin
+                | Self::EffectInvalidDescriptor
+                | Self::EffectConflictingDeclaration
+                | Self::EffectWorkspaceDescriptor
+                | Self::EffectUnknownToolId
+                | Self::EffectRegistryUnavailable
+                | Self::EffectNameCollision
                 | Self::EffectReadOnly
                 | Self::EffectLimitExceeded
                 | Self::EffectOutputRefused
                 | Self::EffectPathRefused
                 | Self::EffectEnvRefused
         )
+    }
+
+    /// A shared kind that came from a proposal tool's admission keeps that origin, so it
+    /// is not mistaken for a G1 refusal, whose place stays where it was.
+    pub(crate) const fn with_effect_origin(self) -> Self {
+        match self {
+            Self::Unavailable => Self::EffectUnavailable,
+            Self::InvalidPin => Self::EffectInvalidPin,
+            Self::InvalidDescriptor => Self::EffectInvalidDescriptor,
+            Self::ConflictingDeclaration => Self::EffectConflictingDeclaration,
+            Self::WorkspaceDescriptor => Self::EffectWorkspaceDescriptor,
+            Self::UnknownToolId => Self::EffectUnknownToolId,
+            Self::RegistryUnavailable => Self::EffectRegistryUnavailable,
+            Self::NameCollision => Self::EffectNameCollision,
+            other => other,
+        }
     }
 
     pub const fn as_str(self) -> &'static str {
@@ -135,6 +165,12 @@ impl RefusalKind {
             Self::SchemaViolation => "schema_violation",
             Self::EffectUnavailable => "unavailable",
             Self::EffectInvalidPin => "invalid_pin",
+            Self::EffectInvalidDescriptor => "invalid_descriptor",
+            Self::EffectConflictingDeclaration => "conflicting_declaration",
+            Self::EffectWorkspaceDescriptor => "workspace_descriptor",
+            Self::EffectUnknownToolId => "unknown_tool_id",
+            Self::EffectRegistryUnavailable => "registry_unavailable",
+            Self::EffectNameCollision => "name_collision",
             Self::EffectReadOnly => "effect_read_only",
             Self::EffectLimitExceeded => "effect_limit_exceeded",
             Self::EffectOutputRefused => "effect_output_refused",

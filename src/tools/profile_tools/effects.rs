@@ -122,7 +122,7 @@ pub(super) fn admit_process<'a>(
     }
     if let Some(feature) = descriptor.requires.iter().chain(&declared.requires).next() {
         return Err(refusal(
-            RefusalKind::Unavailable,
+            RefusalKind::EffectUnavailable,
             format!("tool `{tool}` requires `{feature}`, which is not implemented"),
         ));
     }
@@ -152,15 +152,54 @@ pub(super) fn admit_process<'a>(
             ));
         }
     }
-    let pins = descriptor::verify_process_pins(declaration, tool, workspace).map_err(|error| {
-        let kind = match error.kind {
-            RefusalKind::InvalidPin => RefusalKind::EffectInvalidPin,
-            other => other,
-        };
-        refusal(kind, error.reason)
-    })?;
+    check_input_files(workspace, &inputs, tool)?;
+    let pins = descriptor::verify_process_pins(declaration, tool, workspace)?;
     isolation::probe_strict()?;
     Ok((declaration, pins))
+}
+
+/// A refusal from a proposal tool's admission, with that origin kept.
+pub(super) fn with_effect_origin(error: ProfileToolRefusal) -> ProfileToolRefusal {
+    refusal(error.kind.with_effect_origin(), error.reason)
+}
+
+/// An input reaches the process's stdin, so one regular file with one name is required: a
+/// hard link would carry a credential's bytes under an allowed name. A file that cannot be
+/// opened is left to the G2 read, which refuses it. A `read` tool's inputs are not judged here.
+#[cfg(unix)]
+fn check_input_files(
+    workspace: &Path,
+    inputs: &[String],
+    tool: &str,
+) -> Result<(), ProfileToolRefusal> {
+    use std::os::unix::fs::MetadataExt as _;
+    for input in inputs {
+        let Ok(file) = crate::tools::dir_fd::open_read_file(workspace, Path::new(input)) else {
+            continue;
+        };
+        let holds = file
+            .metadata()
+            .is_ok_and(|metadata| metadata.is_file() && metadata.nlink() == 1);
+        if !holds {
+            return Err(refusal(
+                RefusalKind::EffectPathRefused,
+                format!("tool `{tool}` input is not one regular file with one name"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn check_input_files(
+    _workspace: &Path,
+    _inputs: &[String],
+    tool: &str,
+) -> Result<(), ProfileToolRefusal> {
+    Err(refusal(
+        RefusalKind::EffectUnavailable,
+        format!("tool `{tool}` inputs cannot be inspected on this platform"),
+    ))
 }
 
 /// One admitted proposal tool.
@@ -384,10 +423,11 @@ impl ProposalTool {
             tool,
             "output",
         )?;
-        for input in self.input_paths() {
-            judge_path(&self.workspace, &input, protected, policy, tool, "input")?;
+        let inputs = self.input_paths();
+        for input in &inputs {
+            judge_path(&self.workspace, input, protected, policy, tool, "input")?;
         }
-        Ok(())
+        check_input_files(&self.workspace, &inputs, tool)
     }
 
     /// Every authority, with the values in force now. Run before the process and again
@@ -458,7 +498,7 @@ impl ProposalTool {
             }
             Err(error) => {
                 self.record(notes.executed, false);
-                emit_rejection(context, self, &error, &notes.diagnostics);
+                emit_rejection(context, self, &error, &notes);
                 if error.kind == RefusalKind::SchemaViolation {
                     // A model can correct an argument, so this goes back to it as data.
                     anyhow::bail!("extension_tool_rejected: `{}`: {error}", self.name());
@@ -498,6 +538,11 @@ impl ProposalTool {
         let request = protocol::request_bytes(&binding, arguments, inputs, output);
         notes.executed = true;
         let observation = self.launch(&request, is_cancelled)?;
+        // What the process said is kept apart from whether it is accepted. It is data for the
+        // event, through the scrub, and stays out of every message: later steps classify a
+        // message by its words, and the model does not get it.
+        notes.diagnostics = protocol::salvage_diagnostics(&observation.stdout);
+        notes.stderr_tail = protocol::stderr_tail(&observation.stderr);
         if let Some(code) = observation.failure_code() {
             return Err(refusal(
                 RefusalKind::ProcessFailed,
@@ -512,9 +557,6 @@ impl ProposalTool {
             self.max_result_bytes,
         )
         .map_err(|rejection| {
-            // What the process said is data for the event. It stays out of the message,
-            // which later steps classify by its words.
-            notes.diagnostics = rejection.diagnostics;
             refusal(
                 RefusalKind::ResultRejected,
                 format!("tool `{}`: {}", self.tool_id, rejection.code),
@@ -540,7 +582,7 @@ impl ProposalTool {
             is_cancelled,
         )?;
         self.note_commit(context, &receipt);
-        Ok(serde_json::to_string(&receipt).unwrap_or_default())
+        Ok(receipt_for_model(&receipt))
     }
 
     fn check_arguments(&self, arguments: &Value) -> Result<(), ProfileToolRefusal> {
@@ -633,11 +675,21 @@ fn emit_call(context: &ToolContext, tool: &ProposalTool, arguments: &Value) {
     );
 }
 
+/// The tool's result, as the model gets it: the receipt without what the process said. That
+/// stays on the event and in `commit_receipts()`.
+fn receipt_for_model(receipt: &CommitReceipt) -> String {
+    let mut value = serde_json::to_value(receipt).unwrap_or(Value::Null);
+    if let Some(fields) = value.as_object_mut() {
+        fields.remove("diagnostics");
+    }
+    value.to_string()
+}
+
 fn emit_rejection(
     context: &ToolContext,
     tool: &ProposalTool,
     error: &ProfileToolRefusal,
-    diagnostics: &[Diagnostic],
+    notes: &RunNotes,
 ) {
     eval_events::emit(
         context.eval_events_path.as_deref(),
@@ -648,7 +700,8 @@ fn emit_rejection(
             "effect": EFFECT_PROPOSE_ARTIFACTS,
             "kind": error.kind.as_str(),
             "reason": eval_events::body_snippet(&error.reason),
-            "diagnostics": diagnostics,
+            "diagnostics": notes.diagnostics,
+            "stderr_tail": notes.stderr_tail,
         }),
     );
 }
@@ -708,6 +761,7 @@ pub(crate) fn config_for_test(root: &Path) -> Config {
 struct RunNotes {
     executed: bool,
     diagnostics: Vec<Diagnostic>,
+    stderr_tail: String,
 }
 
 /// The whole of one call on every platform. The launch is unconfined here, which only a
@@ -1314,6 +1368,192 @@ field() { printf '%s' "$request" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }
         let error = bench.call().unwrap_err();
         assert_eq!(kind(&error), RefusalKind::InvalidPin, "{error:#}");
         assert_eq!(bench.saved(), None);
+    }
+
+    #[test]
+    fn a_runtime_file_rewritten_during_the_process_stops_the_commit() {
+        let bench = bench(&format!("{}: > \"$PWD/tool.sh\"\n", good_script()));
+        let error = bench.call().unwrap_err();
+        assert_eq!(kind(&error), RefusalKind::InvalidPin, "{error:#}");
+        assert_eq!(bench.saved(), None);
+        assert_eq!(bench.starts(), 1);
+    }
+
+    /// Right before the exec, too: the admission's answer about who can write is not kept.
+    #[test]
+    fn a_runtime_someone_else_can_write_after_admission_never_starts() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let bench = bench(&good_script());
+        let script = bench.tool_dir.join("tool.sh");
+        for mode in [0o664, 0o646] {
+            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(mode)).unwrap();
+            let error = bench.call().unwrap_err();
+            assert_eq!(kind(&error), RefusalKind::EffectUnavailable, "{mode:o}");
+            assert_eq!(bench.starts(), 0, "{mode:o}");
+            assert_eq!(bench.saved(), None, "{mode:o}");
+        }
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o644)).unwrap();
+        std::fs::set_permissions(&bench.tool_dir, std::fs::Permissions::from_mode(0o775)).unwrap();
+        let error = bench.call().unwrap_err();
+        assert_eq!(
+            kind(&error),
+            RefusalKind::EffectUnavailable,
+            "the directory"
+        );
+        assert_eq!(bench.starts(), 0);
+    }
+
+    #[test]
+    fn a_hard_linked_input_is_refused_before_the_process() {
+        let bench = bench(&good_script());
+        std::fs::hard_link(
+            bench.workspace.join(INPUT),
+            bench.marks.join("another-name"),
+        )
+        .unwrap();
+        let error = bench.call().unwrap_err();
+        assert_eq!(kind(&error), RefusalKind::EffectPathRefused, "{error:#}");
+        assert_eq!(bench.starts(), 0);
+        let base = super::config_for_test(&bench.workspace);
+        assert_eq!(
+            bench.tool.preflight(&base).unwrap_err().kind,
+            RefusalKind::EffectPathRefused
+        );
+    }
+
+    const DUMMY: &str = "fake-unit-diagnostic-974-not-a-real-key";
+
+    /// One failing call, with its event file, and a dummy secret in the scope.
+    fn failing_call(script: &str, timeout_ms: u64) -> (Bench, Value, String) {
+        let bench = bench_with(
+            script,
+            Options {
+                timeout_ms,
+                ..Options::default()
+            },
+        );
+        let events = bench.marks.join("events.jsonl");
+        let mut catalog = crate::sensitive_data::SecretCatalog::new();
+        catalog.register_credential("DUMMY_API_KEY", DUMMY).unwrap();
+        crate::sensitive_data::install_scope(catalog, Some(&bench.workspace), Some(&events));
+        let mut context = bench.context();
+        context.eval_events_path = Some(events.clone());
+        let error = bench
+            .tool
+            .execute(&json!({"mode": "fast"}), &context, &|| false)
+            .unwrap_err();
+        let text = std::fs::read_to_string(&events).unwrap();
+        let line = text
+            .lines()
+            .find(|line| line.contains("profile_tool_effect_rejected"))
+            .unwrap_or_else(|| panic!("no rejection event: {text}"));
+        (
+            bench,
+            serde_json::from_str(line).unwrap(),
+            format!("{error:#}"),
+        )
+    }
+
+    fn noisy_result(request_id: &str) -> String {
+        let diagnostics =
+            format!(r#"[{{"code":"note","message":"said {DUMMY} and is a directory"}}]"#);
+        result_script(
+            request_id,
+            "$(field runtime_sha256)",
+            "$(field input_revision)",
+            "$(field schema_sha256)",
+            CHECKS_PASSED,
+            &good_output(),
+        )
+        .replace(
+            r#""diagnostics":[]"#,
+            &format!(r#""diagnostics":{diagnostics}"#),
+        )
+    }
+
+    /// What the process said stays as scrubbed data on the event, for each way of failing,
+    /// and never in the message, which later steps classify by its words.
+    #[test]
+    fn a_failed_process_leaves_its_words_on_the_event_and_not_in_the_message() {
+        let stderr = format!("printf 'stderr says {DUMMY}' >&2\n");
+        let cases = [
+            (
+                "a nonzero exit",
+                format!("{}{stderr}exit 3\n", noisy_result("$(field request_id)")),
+                20_000,
+                "process_failed",
+            ),
+            (
+                "a clock",
+                format!(
+                    "{}{stderr}exec sleep 30\n",
+                    noisy_result("$(field request_id)")
+                ),
+                500,
+                "process_failed",
+            ),
+            (
+                "a binding",
+                format!("{}{stderr}", noisy_result("another-request")),
+                20_000,
+                "result_rejected",
+            ),
+        ];
+        for (label, script, timeout_ms, expected) in cases {
+            let (bench, event, message) = failing_call(&script, timeout_ms);
+            assert_eq!(event["kind"], expected, "{label}");
+            assert_eq!(event["diagnostics"][0]["code"], "note", "{label}: {event}");
+            let said = event["diagnostics"][0]["message"].as_str().unwrap();
+            assert!(said.contains("said"), "{label}: {said}");
+            assert!(!said.contains(DUMMY), "{label}: not scrubbed: {said}");
+            let tail = event["stderr_tail"].as_str().unwrap();
+            assert!(tail.contains("stderr says"), "{label}: {tail}");
+            assert!(!tail.contains(DUMMY), "{label}: not scrubbed: {tail}");
+            assert!(!message.contains("said"), "{label}: {message}");
+            assert!(!message.contains("stderr says"), "{label}: {message}");
+            assert!(!message.contains(DUMMY), "{label}: {message}");
+            assert_eq!(bench.saved(), None, "{label}");
+        }
+    }
+
+    #[test]
+    fn the_stderr_on_the_event_is_bounded() {
+        let script = format!("{PRELUDE}head -c 5000 /dev/zero | tr '\\0' 'x' >&2\nexit 3\n");
+        let (_bench, event, _) = failing_call(&script, 20_000);
+        let tail = event["stderr_tail"].as_str().unwrap();
+        assert_eq!(tail.len(), 2048);
+    }
+
+    /// The model gets the receipt. What the process said stays with the host.
+    #[test]
+    fn a_success_keeps_what_the_process_said_from_the_tool_result() {
+        let bench = bench(&noisy_result("$(field request_id)"));
+        let text = bench.call().unwrap();
+        let receipt: Value = serde_json::from_str(&text).unwrap();
+        assert!(receipt.get("diagnostics").is_none(), "{text}");
+        assert!(!text.contains("said"), "{text}");
+        assert_eq!(receipt["committed"], true);
+        let commits = bench.tool.commits.lock().unwrap();
+        assert_eq!(commits[0].diagnostics[0].code, "note");
+    }
+
+    #[test]
+    fn a_shared_kind_keeps_where_it_came_from_and_its_word() {
+        for kind in [
+            RefusalKind::Unavailable,
+            RefusalKind::InvalidPin,
+            RefusalKind::InvalidDescriptor,
+            RefusalKind::ConflictingDeclaration,
+            RefusalKind::WorkspaceDescriptor,
+            RefusalKind::UnknownToolId,
+            RefusalKind::RegistryUnavailable,
+            RefusalKind::NameCollision,
+        ] {
+            let marked = super::with_effect_origin(ProfileToolRefusal::new(kind, "why"));
+            assert_eq!(marked.kind.as_str(), kind.as_str());
+            assert!(marked.kind.is_effect_tool_reason(), "{kind:?}");
+            assert!(!kind.is_effect_tool_reason(), "{kind:?}");
+        }
     }
 
     #[test]

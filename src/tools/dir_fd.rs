@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 
 #[cfg(unix)]
 mod unix_impl {
-    use std::ffi::{CString, OsStr, OsString};
+    use std::ffi::{CStr, CString, OsStr, OsString};
     use std::fs::File;
     use std::io::{self, Read as _, Write as _};
     use std::os::fd::{AsRawFd, FromRawFd};
@@ -78,11 +78,47 @@ mod unix_impl {
             openat_file(&self.dir, &self.name, flags, 0)
         }
 
-        /// Issue #974: a new name in the held directory. An existing name is an error.
+        /// Issue #974: a new name in the held directory, private to this user, on a
+        /// descriptor that can also read it back. An existing name is an error.
         pub(crate) fn create_exclusive(&self, name: &CString) -> io::Result<File> {
             let flags =
-                libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC;
-            openat_file(&self.dir, name, flags, 0o666)
+                libc::O_RDWR | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+            openat_file(&self.dir, name, flags, 0o600)
+        }
+
+        /// Issue #974: what a name in the held directory is now, without following a link
+        /// or opening it.
+        pub(crate) fn stat_name(&self, name: &CStr) -> io::Result<EntryIdentity> {
+            // SAFETY: an all-zero `stat` is a valid value of this plain struct.
+            let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+            // SAFETY: the directory fd is owned by `self`, the name is NUL-terminated, and
+            // `stat` is writable; all three outlive the call.
+            let rc = unsafe {
+                libc::fstatat(
+                    self.dir.as_raw_fd(),
+                    name.as_ptr(),
+                    &raw mut stat,
+                    libc::AT_SYMLINK_NOFOLLOW,
+                )
+            };
+            if rc != 0 {
+                return Err(io::Error::last_os_error());
+            }
+            #[allow(
+                clippy::unnecessary_cast,
+                reason = "the width of these fields differs between platforms"
+            )]
+            Ok(EntryIdentity {
+                device: stat.st_dev as u64,
+                inode: stat.st_ino as u64,
+                regular: stat.st_mode & libc::S_IFMT == libc::S_IFREG,
+                links: stat.st_nlink as u64,
+            })
+        }
+
+        /// Issue #974: the leaf's own name in the held directory.
+        pub(crate) fn leaf_name(&self) -> &CStr {
+            &self.name
         }
 
         /// Issue #974: one atomic replacement of the leaf, inside the held directory.
@@ -211,6 +247,15 @@ mod unix_impl {
             name,
             path: current.join(leaf),
         })
+    }
+
+    /// Issue #974: what `fstatat` says one directory entry is.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub(crate) struct EntryIdentity {
+        pub(crate) device: u64,
+        pub(crate) inode: u64,
+        pub(crate) regular: bool,
+        pub(crate) links: u64,
     }
 
     /// Issue #974: the identities of the directories a read walk really held.

@@ -71,6 +71,10 @@ evidence of isolation. Off macOS the same entries expect `unavailable`.
 | `macos::the_public_registry_cannot_go_around_the_guard` | Yes | No |
 | `macos::the_public_registry_delivers_a_cancel_and_keeps_a_commit_it_already_made` | Yes | No |
 | `macos::the_process_cannot_write_read_or_connect_and_only_the_host_commits` | Yes | No |
+| `macos::the_launch_watch_sees_a_tool_that_really_starts` | Yes | No |
+| `macos::what_a_failed_process_said_stays_on_the_event_as_scrubbed_data` | Yes | No |
+| `macos::what_a_successful_process_said_does_not_reach_the_model` | Yes | No |
+| `macos::a_dependency_rewritten_during_the_process_stops_the_commit` | Yes | No |
 | `macos::a_changed_env_value_after_admission_is_a_pin_mismatch` | Yes | No |
 | `macos::a_path_swapped_after_the_start_is_refused_by_the_commit` | Yes | No |
 | `macos::the_binary_commits_on_prompt_run_plan_and_each_pack_selection` | Yes | No |

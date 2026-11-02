@@ -493,6 +493,15 @@ The policy is `src/tools/profile_tools/isolation.rs`. Every location is a `-D` p
   be `stat`ed, so the existence and size of other files stay hidden.
 - Write: `/dev/null` only.
 
+A policy judges an open, not a read or a write on a descriptor that is already open, so one left open
+by whatever started the host would reach the child. Between fork and exec, the launch marks every
+descriptor from 3 up close-on-exec: the host's own, the probe's, and any inherited one. The runner
+takes only a `StrictCommand`, which this leaf alone can make, so there is no other way to start one.
+
+**The runtime's writers.** At admission and again right before each process, the executable and each
+dependency directory with everything in it must be owned by this user or root, with no group or other
+write. Otherwise the tool is `unavailable`. A symlink's own mode means nothing and it is not followed.
+
 **The probe.** Before the first provider call, every entry starts `/bin/bash` under this very
 policy: one round trip on stdin and stdout, then a write and two connections (TCP and UDP to a
 local socket the host holds open). It passes only if the round trip completes, the operating
@@ -526,9 +535,16 @@ request; at least one check, with distinct IDs, each exactly `passed` (`failed`,
 digest beside the bytes equal to the bytes. Exit 0, a success sentence, or a self-declared
 `accepted` is not evidence: an `accepted` key is an unknown field.
 
-A check that did not pass ends the run. It is not retried or returned as feedback in this version.
-Diagnostics are data: they go into the receipt or the rejection event, never into an error message
-later steps classify, and nothing runs them.
+A check that did not pass ends the run. It is not retried or returned as feedback in this version;
+a second submission is G4's.
+
+What a process said is data, kept apart from whether it is accepted. On a refusal, the
+`profile_tool_effect_rejected` event holds the kind, the diagnostics of a document that decodes
+within the limits above (whatever else is wrong with it, including a binding that does not match),
+and the last 2 KiB of stderr as `stderr_tail`, each through the existing secret scrub. On a success,
+the diagnostics are on the `profile_tool_commit` event and in `commit_receipts()`. Neither is in an
+error message, which later steps classify by its words, and neither is in the tool result the model
+gets. Nothing runs them.
 
 ### Limits
 
@@ -563,7 +579,13 @@ Refused before the start as `effect_read_only`: an `ExecutionMode::Plan` context
 without `--yes` (it could not write anyway), and an action that only plans (`Action::PlanSteps`,
 `Action::UltraPlan`). Refused as `effect_path_refused`: a destination or input that is outside the
 workspace, a credential, a hidden or engine path, or a protected path of the completion contract.
-`ToolContext.mode` is `Act` in every session, so the session leaf reads the step's kind instead.
+A declared input must also be one regular file with one name: a hard link could carry a credential's
+bytes under an allowed name. G2's read for a `read` tool is unchanged. `ToolContext.mode` is `Act` in
+every session, so the session leaf reads the step's kind instead.
+
+A refusal from this admission keeps that origin, also for a word it shares with G1 (`unavailable`,
+`invalid_pin`, and so on), so it stops a REPL's free text before the classifier. A G1 tool's refusal
+keeps its place at the dispatched command.
 
 A name equal to a builtin, removed or not, is `name_collision`: it is checked against every builtin
 before any is removed, as in G1. Write, Edit, and Bash stay removed unless declared.
@@ -587,24 +609,33 @@ before any is removed, as in G1. Write, Edit, and Bash stay removed unless decla
 from a root descriptor held since admission:
 
 1. Open the leaf without following a link and `fstat` it. If anything is there, it must be a regular
-   file with one link, and not the same device and inode as an input or a protected path.
-2. `openat(O_CREAT|O_EXCL)` a temporary in the same directory, write, `fsync`.
+   file with one link, and not the same device and inode as an input or a protected path. A protected
+   path that exists but cannot be identified, such as a symlink, is refused rather than left out.
+2. `openat(O_CREAT|O_EXCL)` a temporary, mode `0600`, in the same directory, and keep its descriptor.
+   Write. Move the old file's permission bits (`& 0o777`, never setuid, setgid, or sticky) if one was
+   there; a new file stays `0600`. `fsync`.
 3. The same `fstat`, the full judgement again, the cancel.
-4. `renameat`. **Its success is the linearization point.**
-5. `fsync` the directory.
+4. `fstatat` the temporary's name: it must be the held descriptor's device and inode, a regular file
+   with one link. Read the bytes back from the descriptor: their digest must be the candidate's.
+5. `renameat`. **Its success is the linearization point.**
+6. `fstatat` the destination's name and read back again, the same way.
+7. `fsync` the directory.
 
-Everything is checked before step 4: the runtime pin, request ID, input revision and digest, schema
-hash, the result's completeness, the candidate's digest, the limits, the cancel, the authority, and
-the path. A failure or a cancel before it leaves the old bytes in place and removes the temporary.
+Everything is checked before step 5: the runtime pin, request ID, input revision and digest, schema
+hash, the result's completeness, the candidate's digest, the limits, the cancel, the authority, the
+path, and that the entry about to be adopted is the file that holds the checked bytes. A failure or a
+cancel before it leaves the old bytes in place and removes the temporary.
 
 After it the commit stands. A later cancel does not undo it: the receipt says
 `cancelled_after_commit: true`. A failed directory `fsync` is `durable: false` on a receipt that
-still says `committed: true`, not a failed commit.
+still says `committed: true`, not a failed commit. If step 6 finds something else at the destination,
+there is no receipt: the call is `commit_failed` with a reason that says the rename stood, because the
+old bytes are gone and what is there was never checked.
 
 The receipt is `profile-tool.commit-receipt/v1`: the IDs, the path, `committed`, `durable`, the runtime,
 input, and schema digests, `result_sha256` (the raw stdout), `committed_sha256`, the byte count, and the
-diagnostics. It is the tool's result, it is on the `profile_tool_commit` event written immediately,
-and it is available from `commit_receipts()`. A session records a changed path from this receipt
+diagnostics. Without the diagnostics it is the tool's result. Whole, it is on the `profile_tool_commit`
+event written immediately, and it is available from `commit_receipts()`. A session records a changed path from this receipt
 (`ToolRegistry::take_committed_paths`), never from a tool name or arguments. A receipt satisfies no
 artifact or stage. Dependence between stages is G4's.
 
@@ -652,8 +683,22 @@ Decided with the project manager's approval. The issue body is not edited.
 - **The G1 directory race.** G3's descriptor read compares the identities of the descriptors its walk
   really held, so a registry directory swapped during the walk and put back is seen. This is closed for
   the descriptor of a G3 tool. It stays open for G1 and G2 reads, which are unchanged. A dependency
-  directory's tree digest walks by path below the pinned directory, and the process is started by path,
-  so a change between the last check and `exec` is not closed. It is compared again before the commit.
+  directory's tree digest walks by path below the pinned directory.
+- **A runtime swapped and restored.** The pins are compared before the process and again after it,
+  before the commit, so a runtime still changed then stops the commit. The process is still started by
+  path: a writer running as this same user that swaps the executable or a dependency after the first
+  comparison and restores it before the second is not detected. A writer of this same user is outside
+  what this guards; another user cannot be that writer, by the check above. Running a verified snapshot
+  is a later issue. A swapped runtime still runs under the strict policy, so it can propose bytes only
+  for the one declared output, and the host still checks the envelope.
+- **A writer of this same user and the adopted file.** Like any file, the destination can be rewritten
+  by this user's other processes after the commit. The checks close the moment around the rename, up
+  to step 6, and no further.
+- **The process table.** Under the strict policy a process can still read this user's process list and
+  each process's argv through `sysctl`. It cannot read their environment (measured). Closing `kern.proc`
+  stops a real interpreter from starting, so it stays open. A secret in another process's argv can leak
+  this way; `AGENTS.md` already says not to put one in the host's.
+- **No second submission.** A failed check ends the run. G4 takes this up.
 - **Crash.** A crash between the temporary's creation and the rename can leave a `.profile-tool-*.tmp`
   file. It is not an artifact, nothing adopts it, and nothing removes it after a restart.
 - **A directory the commit made** stays if a later step fails.

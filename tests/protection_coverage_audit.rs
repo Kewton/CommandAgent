@@ -306,6 +306,55 @@ fn profile_tool_effect_boundary_rejects_each_weakened_variant() {
             "MAX_TIMEOUT_MS: u64 = 30_000;",
             "MAX_TIMEOUT_MS: u64 = 60_000;",
         ),
+        (
+            "starts its own process in the runner",
+            1,
+            "let mut child = launch.into_command().spawn()?;",
+            "let mut child = std::process::Command::new(\"/bin/sh\").spawn()?;",
+        ),
+        (
+            "takes any command",
+            1,
+            "    launch: StrictCommand,",
+            "    launch: std::process::Command,",
+        ),
+        (
+            "keeps inherited descriptors",
+            0,
+            "mark_inherited_descriptors_close_on_exec();",
+            "",
+        ),
+        (
+            "keeps the temporary",
+            3,
+            "let _ = self.parent.unlink(&self.name);",
+            "",
+        ),
+        (
+            "claims durability",
+            3,
+            "let synced = parent.sync_directory().is_ok();",
+            "let synced = true;",
+        ),
+        (
+            "forgets a late cancel",
+            3,
+            "cancelled_after_commit: is_cancelled(),",
+            "cancelled_after_commit: false,",
+        ),
+        (
+            "drops a cancel check",
+            3,
+            "if is_cancelled() {",
+            "if false {",
+        ),
+        ("drops a final check", 3, "final_check()?;", ""),
+        (
+            "drops an identity check",
+            3,
+            "if !entry_holds_candidate(",
+            "if false && !entry_holds_candidate(",
+        ),
         ("skips the fsync", 3, "file.sync_all()", "file.flush()"),
         (
             "writes in place",
@@ -651,7 +700,14 @@ fn production_text(text: &str) -> &str {
         .map_or(text, |position| &text[..position])
 }
 
-const PROFILE_TOOL_EFFECT_REQUIRED: [(usize, &str); 33] = [
+const PROFILE_TOOL_EFFECT_REQUIRED: [(usize, &str); 40] = [
+    (0, "mark_inherited_descriptors_close_on_exec();"),
+    (0, "libc::F_SETFD, libc::FD_CLOEXEC"),
+    (1, "    launch: StrictCommand,"),
+    (3, "let _ = self.parent.unlink(&self.name);"),
+    (3, "let synced = parent.sync_directory().is_ok();"),
+    (3, "cancelled_after_commit: is_cancelled(),"),
+    (3, "if !entry_holds_candidate("),
     (0, ".env_clear()"),
     (0, ".envs(launch.env)"),
     (0, ".process_group(0)"),
@@ -740,12 +796,40 @@ fn audit_profile_tool_effect_boundary(corpus: &AuditCorpus, rule: &ProtectionRul
         (process, "verifier_env::"),
         (process, "run_with_timeout"),
         (process, "std::env::var"),
+        (process, "Command::new("),
     ] {
         if production_text(corpus.file(path)).contains(forbidden) {
             violations.push(format!("{path} uses `{forbidden}` in the launch"));
         }
     }
     let commit = production_text(corpus.file(rule.allowlist[3]));
+    // Twice each: the commit's start and right before the rename; before and after it.
+    for (token, count) in [
+        ("final_check()?;", 2),
+        ("if is_cancelled() {", 2),
+        ("if !entry_holds_candidate(", 2),
+    ] {
+        if commit.matches(token).count() != count {
+            violations.push(format!(
+                "{} must hold `{token}` {count} times",
+                rule.allowlist[3]
+            ));
+        }
+    }
+    let rename = commit.find(".rename_to_leaf(&temporary.name)");
+    let last_gate = ["final_check()?;", "if is_cancelled() {"]
+        .map(|token| commit.rfind(token))
+        .into_iter()
+        .max()
+        .flatten();
+    let first_identity = commit.find("if !entry_holds_candidate(");
+    let last_identity = commit.rfind("if !entry_holds_candidate(");
+    if !(last_gate < first_identity && first_identity < rename && rename < last_identity) {
+        violations.push(format!(
+            "{} must judge, cancel, and compare the held file before the rename, and compare it after",
+            rule.allowlist[3]
+        ));
+    }
     let order = [
         ".create_exclusive(&temporary_name)",
         "file.write_all(plan.bytes)",

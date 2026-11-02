@@ -605,7 +605,7 @@ pub fn directory_pin(directory: &Path) -> Result<String, String> {
     let mut digest = Sha256::new();
     for line in lines {
         digest.update(line.as_bytes());
-        digest.update([b'\n']);
+        digest.update(b"\n");
     }
     Ok(format!("{:x}", digest.finalize()))
 }
@@ -672,6 +672,11 @@ pub(super) fn verify_process_pins(
     };
     let executable = &declaration.executable;
     place(&executable.path, "executable")?;
+    check_runtime_writers(&executable.path, tool)?;
+    for pin in &declaration.dependency_directories {
+        place(&pin.path, "directory")?;
+        check_runtime_writers(&pin.path, tool)?;
+    }
     let (bytes, parent) = read_dependency(&executable.path)
         .map_err(|reason| invalid(format!("executable {reason}")))?;
     if sha256_hex(&bytes) != executable.sha256 {
@@ -696,6 +701,80 @@ pub(super) fn verify_process_pins(
     }
     place(&declaration.cwd, "cwd")?;
     Ok(ProcessPins { directories })
+}
+
+/// Why this entry of a runtime can be changed by someone else, or `None`. A symlink's own
+/// mode means nothing, and what it points at is not read through it.
+#[cfg(unix)]
+fn runtime_entry_refusal(
+    mode: u32,
+    owner: u32,
+    own_uid: u32,
+    symlink: bool,
+) -> Option<&'static str> {
+    if owner != own_uid && owner != 0 {
+        return Some("is owned by neither this user nor root");
+    }
+    if !symlink && mode & 0o022 != 0 {
+        return Some("is writable by group or other");
+    }
+    None
+}
+
+/// The executable, or a dependency directory and everything in it: only this user or root
+/// can change them. This narrows who can swap a runtime between the last check and the exec.
+/// It does not close that gap for this same user.
+#[cfg(unix)]
+fn check_runtime_writers(path: &Path, tool: &str) -> Result<(), ProfileToolRefusal> {
+    use std::os::unix::fs::MetadataExt as _;
+    let refused = |reason: &str| {
+        refusal(
+            RefusalKind::EffectUnavailable,
+            format!("tool `{tool}` runtime {reason}"),
+        )
+    };
+    // SAFETY: `geteuid` has no preconditions and cannot fail.
+    let own_uid = unsafe { libc::geteuid() };
+    let mut pending = vec![path.to_path_buf()];
+    while let Some(next) = pending.pop() {
+        let metadata = fs::symlink_metadata(&next).map_err(|_| refused("cannot be inspected"))?;
+        let kind = metadata.file_type();
+        if let Some(reason) =
+            runtime_entry_refusal(metadata.mode(), metadata.uid(), own_uid, kind.is_symlink())
+        {
+            return Err(refused(reason));
+        }
+        if kind.is_dir() {
+            for entry in fs::read_dir(&next).map_err(|_| refused("cannot be listed"))? {
+                pending.push(entry.map_err(|_| refused("cannot be listed"))?.path());
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn check_runtime_writers(_path: &Path, tool: &str) -> Result<(), ProfileToolRefusal> {
+    Err(refusal(
+        RefusalKind::EffectUnavailable,
+        format!("tool `{tool}` runtime cannot be inspected on this platform"),
+    ))
+}
+
+#[cfg(all(test, unix))]
+mod runtime_writer_tests {
+    use super::runtime_entry_refusal;
+
+    #[test]
+    fn only_this_user_or_root_and_no_group_or_other_write() {
+        assert_eq!(runtime_entry_refusal(0o755, 501, 501, false), None);
+        assert_eq!(runtime_entry_refusal(0o555, 0, 501, false), None);
+        assert!(runtime_entry_refusal(0o755, 502, 501, false).is_some());
+        assert!(runtime_entry_refusal(0o775, 501, 501, false).is_some());
+        assert!(runtime_entry_refusal(0o757, 501, 501, false).is_some());
+        assert_eq!(runtime_entry_refusal(0o777, 501, 501, true), None);
+        assert!(runtime_entry_refusal(0o777, 502, 501, true).is_some());
+    }
 }
 
 fn ensure_outside_workspace(

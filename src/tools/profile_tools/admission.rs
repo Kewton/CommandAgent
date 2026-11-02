@@ -213,7 +213,14 @@ impl AdmittedProfileTools {
             self.proposals.iter().cloned(),
             &self.builtin_tools,
         )
-        .map_err(|error| ProfileToolRefusal::new(RefusalKind::NameCollision, error.to_string()))
+        .map_err(|error| {
+            let kind = if self.proposals.is_empty() {
+                RefusalKind::NameCollision
+            } else {
+                RefusalKind::NameCollision.with_effect_origin()
+            };
+            ProfileToolRefusal::new(kind, error.to_string())
+        })
     }
 }
 
@@ -259,7 +266,13 @@ fn admit(
     let mut proposals = Vec::new();
     let commits: Arc<Mutex<Vec<CommitReceipt>>> = Arc::default();
     for (tool_id, declared) in &selected.tools {
-        let loaded = descriptor::load(tool_id, workspace)?;
+        let loaded = descriptor::load(tool_id, workspace).map_err(|error| {
+            if declared.effect == effects::EFFECT_PROPOSE_ARTIFACTS {
+                effects::with_effect_origin(error)
+            } else {
+                error
+            }
+        })?;
         if loaded.descriptor.effect == effects::EFFECT_PROPOSE_ARTIFACTS
             && loaded.descriptor.runtime.kind == effects::RUNTIME_PINNED_PROCESS
         {
@@ -271,7 +284,8 @@ fn admit(
                 &mut schema_tools,
                 (receipts.clone(), commits.clone()),
                 &mut bindings,
-            )?;
+            )
+            .map_err(effects::with_effect_origin)?;
             proposals.push(Arc::new(tool));
             continue;
         }

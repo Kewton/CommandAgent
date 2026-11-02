@@ -13,7 +13,6 @@
 //! descendant to find; this is what holds if that ever stops being true.
 
 use std::io::{self, Read, Write};
-use std::process::Command;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread::{self, JoinHandle};
@@ -26,6 +25,8 @@ const READ_CHUNK: usize = 8 * 1024;
 /// Scan every tick at first, when a short-lived parent can still be seen, then less often.
 const FAST_SCAN: Duration = Duration::from_millis(500);
 const SLOW_SCAN_TICKS: u32 = 10;
+
+use super::isolation::StrictCommand;
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct RunLimits {
@@ -98,13 +99,13 @@ struct StreamBudget {
 /// Run a command the isolation leaf built. `Err` means it could not be spawned.
 #[cfg(unix)]
 pub(super) fn run(
-    mut command: Command,
+    launch: StrictCommand,
     stdin: &[u8],
     limits: RunLimits,
     is_cancelled: &dyn Fn() -> bool,
 ) -> io::Result<Observation> {
     let started = Instant::now();
-    let mut child = command.spawn()?;
+    let mut child = launch.into_command().spawn()?;
     let pid = child.id();
     let mut pipe = child
         .stdin
@@ -201,7 +202,7 @@ pub(super) fn run(
 
 #[cfg(not(unix))]
 pub(super) fn run(
-    _command: Command,
+    _launch: StrictCommand,
     _stdin: &[u8],
     _limits: RunLimits,
     _is_cancelled: &dyn Fn() -> bool,
@@ -486,7 +487,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::lineage::listed_alive;
-    use super::{Ended, Observation, RunLimits, run};
+    use super::{Ended, Observation, RunLimits, StrictCommand, run};
 
     fn shell(script: &str) -> Command {
         let mut command = Command::new("/bin/sh");
@@ -513,7 +514,13 @@ mod tests {
     }
 
     fn observe(script: &str, stdin: &[u8], limit: RunLimits) -> Observation {
-        run(shell(script), stdin, limit, &|| false).unwrap()
+        run(
+            StrictCommand::for_test(shell(script)),
+            stdin,
+            limit,
+            &|| false,
+        )
+        .unwrap()
     }
 
     #[test]
@@ -546,7 +553,8 @@ mod tests {
     #[test]
     fn a_cancel_stops_and_reaps_the_leader() {
         let started = Instant::now();
-        let observation = run(shell("exec sleep 30"), b"", limits(30_000, 1024), &|| {
+        let launch = StrictCommand::for_test(shell("exec sleep 30"));
+        let observation = run(launch, b"", limits(30_000, 1024), &|| {
             started.elapsed() > Duration::from_millis(50)
         })
         .unwrap();
@@ -696,6 +704,7 @@ mod tests {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        assert!(run(command, b"", limits(100, 16), &|| false).is_err());
+        let launch = StrictCommand::for_test(command);
+        assert!(run(launch, b"", limits(100, 16), &|| false).is_err());
     }
 }
