@@ -13,11 +13,20 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use commandagent::config::{
-    Action, Config, ConfigFieldSources, NarrationMode, OllamaThink, OpenAiApi, PlanPreset,
-    PromptLayout, Provider,
+    Action, Config, ConfigFieldSources, IntentId, NarrationMode, OllamaThink, OpenAiApi,
+    PlanPreset, PromptLayout, Provider,
 };
 use commandagent::minimal_loop::loop_run::run_session_with_outcome_with_ui;
+use commandagent::minimal_loop::request_pattern::{
+    Classification, ClassifyFailure, PatternClassifier, RequestPatternMode, RequestPatternSettings,
+    run_direct_prompt_with, run_direct_prompt_with_common,
+};
 use commandagent::planner::pack::exact_byte_hash;
+use commandagent::planner::runner::{
+    generate_and_run_ultra_plan, generate_and_run_ultra_plan_with_ui, generate_ultra_plan,
+    generate_ultra_plan_with_ui, run_ultra_plan, run_ultra_plan_file, run_ultra_plan_file_with_ui,
+    run_ultra_plan_with_ui,
+};
 use commandagent::planner::step_plan::{PlanStep, StepPlan, render_step_plan};
 use commandagent::planner::ultra_plan::{UltraPhase, UltraPlan, render_ultra_plan};
 use commandagent::providers::{AssistantReply, ChatClient};
@@ -819,6 +828,231 @@ fn the_auto_recovery_library_entries_refuse_before_anything_runs() {
                 result,
             ));
         }
+    }
+    set_env(REGISTRY_ENV, None);
+    assert_all_routes(outcomes);
+}
+
+/// A refused public entry leaves no event at all, so no `request_pattern_resolved`.
+fn assert_no_events(label: &str, fixture: &Fixture) {
+    let events = std::fs::read_to_string(fixture.evidence.join("events.jsonl")).unwrap_or_default();
+    assert_eq!(events, "", "{label}");
+}
+
+/// Stands in for jev and counts what would have been a call to it.
+struct CountingClassifier {
+    calls: AtomicUsize,
+}
+
+impl PatternClassifier for CountingClassifier {
+    fn classify(&self, _request: &str) -> Result<Classification, ClassifyFailure> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Ok(Classification {
+            pattern: None,
+            confidence: 1.0,
+            model: None,
+        })
+    }
+}
+
+const JEV: RequestPatternSettings = RequestPatternSettings {
+    mode: RequestPatternMode::Jev,
+    threshold: 0.5,
+};
+
+fn direct_prompt(
+    entry: &str,
+    client: &mut ScriptedClient,
+    config: &Config,
+    classifier: &CountingClassifier,
+) -> Result<String, String> {
+    let mut session = SessionSnapshot::new();
+    match entry {
+        "run_direct_prompt_with" => run_direct_prompt_with(
+            client,
+            &mut session,
+            "Write the notes",
+            config,
+            &NOOP_UI,
+            JEV,
+            Some(classifier),
+        ),
+        _ => run_direct_prompt_with_common(
+            client,
+            &mut session,
+            "Write the notes",
+            config,
+            &NOOP_UI,
+            JEV,
+            Some(classifier),
+            Some("Common guidance."),
+        ),
+    }
+    .map(|outcome| outcome.final_text)
+    .map_err(|error| format!("{error:#}"))
+}
+
+const DIRECT_PROMPT_ENTRIES: [&str; 2] =
+    ["run_direct_prompt_with", "run_direct_prompt_with_common"];
+
+#[test]
+fn the_direct_prompt_library_entries_refuse_before_jev_and_the_provider() {
+    let _guard = lock();
+    extension();
+    let registry = operator_registry();
+    set_env(REGISTRY_ENV, registry.path().to_str());
+    let mut outcomes = Vec::new();
+    for entry in DIRECT_PROMPT_ENTRIES {
+        let fixture = fixture();
+        let before = workspace_digest(&fixture.root);
+        let mut client = ScriptedClient::new(Vec::new());
+        let classifier = CountingClassifier {
+            calls: AtomicUsize::new(0),
+        };
+        let result = direct_prompt(entry, &mut client, &refused_config(&fixture), &classifier);
+        assert_eq!(classifier.calls.load(Ordering::SeqCst), 0, "{entry}");
+        assert_no_events(entry, &fixture);
+        outcomes.push(assert_refused_without_side_effects(
+            entry,
+            &fixture,
+            &before,
+            client.calls(),
+            result,
+        ));
+
+        // The witnesses count real traffic: with no declaration the same call reaches
+        // both the classifier and the provider, and records the event.
+        let open = self::fixture();
+        let mut client = ScriptedClient::new(Vec::new());
+        let classifier = CountingClassifier {
+            calls: AtomicUsize::new(0),
+        };
+        let off = config(&open.root, &open.evidence, OFF_DRAFT);
+        let _ = direct_prompt(entry, &mut client, &off, &classifier);
+        assert_eq!(classifier.calls.load(Ordering::SeqCst), 1, "{entry}");
+        assert!(client.calls() > 0, "{entry}");
+        let events = std::fs::read_to_string(open.evidence.join("events.jsonl")).unwrap();
+        assert!(events.contains("request_pattern_resolved"), "{entry}");
+    }
+    set_env(REGISTRY_ENV, None);
+    assert_all_routes(outcomes);
+}
+
+/// Each way a plan can be generated: by the planner, and by the two prebuilt branches
+/// that never reach a planner call.
+fn generation_configs(fixture: &Fixture) -> Vec<(&'static str, Config)> {
+    let planner = refused_config(fixture);
+    let mut explicit_fix = refused_config(fixture);
+    explicit_fix.intent_override = Some(IntentId::Fix);
+    let mut profile_preset = refused_config(fixture);
+    profile_preset.plan_preset = PlanPreset::Profile;
+    vec![
+        ("planner", planner),
+        ("explicit-fix", explicit_fix),
+        ("profile-preset", profile_preset),
+    ]
+}
+
+#[test]
+fn the_ultra_plan_generation_entries_refuse_before_any_plan_exists() {
+    let _guard = lock();
+    extension();
+    let registry = operator_registry();
+    set_env(REGISTRY_ENV, registry.path().to_str());
+    let mut outcomes = Vec::new();
+    for entry in [
+        "generate_ultra_plan",
+        "generate_ultra_plan_with_ui",
+        "generate_and_run_ultra_plan",
+        "generate_and_run_ultra_plan_with_ui",
+    ] {
+        for index in 0..3 {
+            let fixture = fixture();
+            let before = workspace_digest(&fixture.root);
+            let (shape, refused) = generation_configs(&fixture).remove(index);
+            let label = format!("{entry} {shape}");
+            let mut planner = ScriptedClient::new(Vec::new());
+            let mut execution = ScriptedClient::new(Vec::new());
+            let goal = "Write the notes";
+            let result = match entry {
+                "generate_ultra_plan" => {
+                    generate_ultra_plan(&mut planner, goal, &refused).map(|plan| plan.goal)
+                }
+                "generate_ultra_plan_with_ui" => {
+                    generate_ultra_plan_with_ui(&mut planner, goal, &refused, &NOOP_UI)
+                        .map(|plan| plan.goal)
+                }
+                "generate_and_run_ultra_plan" => {
+                    generate_and_run_ultra_plan(&mut planner, &mut execution, goal, &refused)
+                }
+                _ => generate_and_run_ultra_plan_with_ui(
+                    &mut planner,
+                    &mut execution,
+                    goal,
+                    &refused,
+                    &NOOP_UI,
+                ),
+            }
+            .map_err(|error| format!("{error:#}"));
+            assert_no_events(&label, &fixture);
+            outcomes.push(assert_refused_without_side_effects(
+                &label,
+                &fixture,
+                &before,
+                planner.calls() + execution.calls(),
+                result,
+            ));
+        }
+    }
+    set_env(REGISTRY_ENV, None);
+    assert_all_routes(outcomes);
+}
+
+#[test]
+fn the_ultra_plan_run_entries_refuse_before_anything_runs() {
+    let _guard = lock();
+    extension();
+    let registry = operator_registry();
+    set_env(REGISTRY_ENV, registry.path().to_str());
+    let mut outcomes = Vec::new();
+    for entry in [
+        "run_ultra_plan",
+        "run_ultra_plan_with_ui",
+        "run_ultra_plan_file",
+        "run_ultra_plan_file_with_ui",
+    ] {
+        let fixture = fixture();
+        let before = workspace_digest(&fixture.root);
+        let refused = refused_config(&fixture);
+        // The plan the file holds: it passes its lint, so only the refusal stops it.
+        let plan = commandagent::planner::ultra_plan::parse_ultra_plan(
+            &std::fs::read_to_string(fixture.root.join("ultra.yaml")).unwrap(),
+        )
+        .unwrap();
+        let file = Path::new("ultra.yaml");
+        let mut planner = ScriptedClient::new(Vec::new());
+        let mut execution = ScriptedClient::new(Vec::new());
+        let result = match entry {
+            "run_ultra_plan" => run_ultra_plan(&mut planner, &mut execution, &plan, &refused),
+            "run_ultra_plan_with_ui" => {
+                run_ultra_plan_with_ui(&mut planner, &mut execution, &plan, &refused, &NOOP_UI)
+            }
+            "run_ultra_plan_file" => {
+                run_ultra_plan_file(&mut planner, &mut execution, file, &refused)
+            }
+            _ => {
+                run_ultra_plan_file_with_ui(&mut planner, &mut execution, file, &refused, &NOOP_UI)
+            }
+        }
+        .map_err(|error| format!("{error:#}"));
+        assert_no_events(entry, &fixture);
+        outcomes.push(assert_refused_without_side_effects(
+            entry,
+            &fixture,
+            &before,
+            planner.calls() + execution.calls(),
+            result,
+        ));
     }
     set_env(REGISTRY_ENV, None);
     assert_all_routes(outcomes);

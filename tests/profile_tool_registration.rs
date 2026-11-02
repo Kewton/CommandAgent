@@ -2800,8 +2800,32 @@ fn only_the_presence_of_time_profile_may_differ_between_two_off_runs() {
     assert!(off_run_difference(&other, &control).is_some());
 }
 
+/// The keys an off run records as measured time. A setting in the same unit, such as
+/// `timeout_ms` or `chat_timeout_secs`, is not here: it is compared.
+const MEASURED_TIME_KEYS: [&str; 19] = [
+    "builds_ms",
+    "duration_ms",
+    "executor_ms",
+    "installs_ms",
+    "latency_ms",
+    "occurred_at_epoch_ms",
+    "other_ms",
+    "planner_ms",
+    "planner_step_ms",
+    "planner_ultra_ms",
+    "probe_ms",
+    "provider_ms",
+    "repair_ms",
+    "time_profile_builds_ms",
+    "time_profile_installs_ms",
+    "time_profile_probe_ms",
+    "time_profile_provider_ms",
+    "time_profile_total_ms",
+    "total_ms",
+];
+
 /// One run with a provider that answers. Only what differs by construction between
-/// two runs is normalized: the private directories, ports, ids, and durations.
+/// two runs is normalized: the private directories, ports, ids, and measured times.
 fn off_cli_run(
     pack: &MovablePack,
     arguments: &[&str],
@@ -2842,7 +2866,11 @@ fn off_cli_run(
         "the jev call did not happen: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let durations = regex::Regex::new(r#"("[a-z_]+_(?:ms|seconds)":)[0-9.]+|\([0-9]+s\)"#).unwrap();
+    let durations = regex::Regex::new(&format!(
+        r#"("(?:{})":)[0-9.]+|\([0-9]+s\)"#,
+        MEASURED_TIME_KEYS.join("|")
+    ))
+    .unwrap();
     let stable = |text: &str| {
         let text = normalize_text(&root, text)
             .replace(&home.path().display().to_string(), "<HOME>")
