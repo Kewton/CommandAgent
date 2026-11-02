@@ -270,6 +270,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "profile_invariant_repair_build_verify",
     "profile_not_generic",
     "profile_reinferred",
+    "profile_tool",
     "prompt_version",
     "protected_path_mutation_rejected",
     "provider_billed_cost_usd",

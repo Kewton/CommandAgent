@@ -7,6 +7,7 @@
 //! descriptor a model wrote is refused whatever it says about itself.
 
 use std::fs;
+use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -14,9 +15,7 @@ use sha2::{Digest, Sha256};
 
 use super::{ProfileToolRefusal, RefusalKind};
 use crate::planner::artifact_contract_checks::protocol;
-use crate::planner::artifact_contract_checks::{
-    CONFIG_ROOT_ENV, config_root_from_environment, read_regular_file,
-};
+use crate::planner::artifact_contract_checks::{CONFIG_ROOT_ENV, config_root_from_environment};
 use crate::tools::extension::{ExtensionArgument, ExtensionArgumentKind};
 
 pub const DESCRIPTOR_PROTOCOL: &str = "profile-tool.descriptor/v1";
@@ -80,12 +79,106 @@ pub struct Limits {
 }
 
 /// A descriptor admitted from the operator registry, with the exact bytes it
-/// was admitted from recorded as a digest.
+/// was admitted from recorded as a digest, and the directories it was admitted
+/// from recorded by identity.
 #[derive(Debug, Clone)]
 pub(super) struct LoadedDescriptor {
     pub(super) descriptor: Descriptor,
     pub(super) sha256: String,
-    pub(super) path: PathBuf,
+    pub(super) registry: RegistryBinding,
+    pub(super) dependency_directories: Vec<DirectoryIdentity>,
+}
+
+/// A directory's device and inode, read from a descriptor opened on it without
+/// following a symlink. The same path holding other bytes-equal content differs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct DirectoryIdentity {
+    device: u64,
+    inode: u64,
+}
+
+#[cfg(unix)]
+fn directory_identity(path: &Path) -> Result<DirectoryIdentity, String> {
+    use std::os::unix::fs::{MetadataExt as _, OpenOptionsExt as _};
+    let metadata = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(path)
+        .and_then(|directory| directory.metadata())
+        .map_err(|_| "is not a directory reached without a symlink".to_string())?;
+    Ok(DirectoryIdentity {
+        device: metadata.dev(),
+        inode: metadata.ino(),
+    })
+}
+
+/// Nothing here can name a directory without following a link, so a run off Unix
+/// is refused rather than left unbound.
+#[cfg(not(unix))]
+fn directory_identity(_path: &Path) -> Result<DirectoryIdentity, String> {
+    Err("cannot be bound to a directory identity on this platform".to_string())
+}
+
+/// Where a descriptor was admitted from. The walk in [`crate::tools::dir_fd`]
+/// refuses every symlink below the root, and the identities refuse a root or
+/// registry directory that was replaced by another with the same bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RegistryBinding {
+    root: PathBuf,
+    root_identity: DirectoryIdentity,
+    directory_identity: DirectoryIdentity,
+    relative: PathBuf,
+}
+
+impl RegistryBinding {
+    fn capture(root: &Path, tool_id: &str) -> Result<Self, String> {
+        Ok(Self {
+            root: root.to_path_buf(),
+            root_identity: directory_identity(root)?,
+            directory_identity: directory_identity(&root.join(DESCRIPTOR_DIRECTORY))?,
+            relative: Path::new(DESCRIPTOR_DIRECTORY).join(format!("{tool_id}.json")),
+        })
+    }
+
+    fn check(&self) -> Result<(), String> {
+        let holds = |path: &Path, admitted: DirectoryIdentity| {
+            directory_identity(path).is_ok_and(|identity| identity == admitted)
+        };
+        if holds(&self.root, self.root_identity)
+            && holds(
+                &self.root.join(DESCRIPTOR_DIRECTORY),
+                self.directory_identity,
+            )
+        {
+            Ok(())
+        } else {
+            Err("is no longer reached from the directories it was admitted from".to_string())
+        }
+    }
+
+    /// The identities hold on both sides of the walk, so the walked directories
+    /// are the admitted ones even though `dir_fd` keeps its own descriptors.
+    fn read(&self) -> Result<Vec<u8>, String> {
+        self.check()?;
+        let bytes = read_without_following(&self.root, &self.relative, MAX_DESCRIPTOR_BYTES)?;
+        self.check()?;
+        Ok(bytes)
+    }
+}
+
+/// Read a regular file through the no-follow walk, with the bound applied to the
+/// bytes read. The walk's own message names host paths, so it is not repeated.
+fn read_without_following(root: &Path, path: &Path, limit: u64) -> Result<Vec<u8>, String> {
+    let file = crate::tools::dir_fd::open_read_file(root, path)
+        .map_err(|_| "cannot be opened as a regular file without a symlink".to_string())?;
+    let mut bytes = Vec::new();
+    file.take(limit.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .map_err(|_| "cannot be read".to_string())?;
+    if bytes.len() as u64 > limit {
+        return Err(format!("exceeds {limit} bytes"));
+    }
+    Ok(bytes)
 }
 
 fn refusal(kind: RefusalKind, reason: impl Into<String>) -> ProfileToolRefusal {
@@ -143,7 +236,13 @@ pub(super) fn load(
             format!("tool `{tool_id}` descriptor must be a regular file, not a symlink"),
         ));
     }
-    let bytes = read_regular_file(&path, MAX_DESCRIPTOR_BYTES).map_err(|reason| {
+    let registry = RegistryBinding::capture(&root, tool_id).map_err(|reason| {
+        refusal(
+            RefusalKind::RegistryUnavailable,
+            format!("{CONFIG_ROOT_ENV} {reason}"),
+        )
+    })?;
+    let bytes = registry.read().map_err(|reason| {
         refusal(
             RefusalKind::InvalidDescriptor,
             format!("tool `{tool_id}` descriptor {reason}"),
@@ -158,11 +257,12 @@ pub(super) fn load(
         )
     })?;
     validate(&descriptor, tool_id)?;
-    verify_dependencies(&descriptor, workspace)?;
+    let dependency_directories = verify_dependencies(&descriptor, workspace)?;
     Ok(LoadedDescriptor {
         descriptor,
         sha256: sha256_hex(&bytes),
-        path,
+        registry,
+        dependency_directories,
     })
 }
 
@@ -265,12 +365,14 @@ pub(super) fn closed_arguments(
 }
 
 /// Compare every dependency with its pin. Used at admission and again right
-/// before an execution.
+/// before an execution. Returns the identity of each dependency's directory, in
+/// order, for the execution to compare with the admission's.
 pub(super) fn verify_dependencies(
     descriptor: &Descriptor,
     workspace: &Path,
-) -> Result<(), ProfileToolRefusal> {
+) -> Result<Vec<DirectoryIdentity>, ProfileToolRefusal> {
     let tool = &descriptor.tool_id;
+    let mut directories = Vec::with_capacity(descriptor.dependencies.len());
     for dependency in &descriptor.dependencies {
         protocol::validate_sha256("dependency sha256", &dependency.sha256)
             .map_err(|reason| refusal(RefusalKind::InvalidPin, reason))?;
@@ -293,29 +395,46 @@ pub(super) fn verify_dependencies(
                 format!("tool `{tool}` dependency path must be canonical, without a symlink"),
             ));
         }
-        let bytes = read_regular_file(&canonical, MAX_DEPENDENCY_BYTES).map_err(|reason| {
+        let invalid = |reason: String| {
             refusal(
                 RefusalKind::InvalidPin,
                 format!("tool `{tool}` dependency {reason}"),
             )
-        })?;
-        if sha256_hex(&bytes) != dependency.sha256 {
+        };
+        let bytes = read_dependency(&canonical).map_err(invalid)?;
+        if sha256_hex(&bytes.0) != dependency.sha256 {
             return Err(refusal(
                 RefusalKind::InvalidPin,
                 format!("tool `{tool}` dependency does not match its pin"),
             ));
         }
+        directories.push(bytes.1);
     }
-    Ok(())
+    Ok(directories)
 }
 
-/// Compare the descriptor file with the digest recorded at admission. A file
-/// replaced after admission, including by a symlink, is refused.
+/// A canonical path has no symlink to follow, so the walk starts at the file
+/// system root. The directory's identity holds on both sides of the walk.
+fn read_dependency(canonical: &Path) -> Result<(Vec<u8>, DirectoryIdentity), String> {
+    let directory = canonical
+        .parent()
+        .ok_or_else(|| "has no parent directory".to_string())?;
+    let identity = directory_identity(directory)?;
+    let bytes = read_without_following(Path::new("/"), canonical, MAX_DEPENDENCY_BYTES)?;
+    if directory_identity(directory)? != identity {
+        return Err("directory changed while it was read".to_string());
+    }
+    Ok((bytes, identity))
+}
+
+/// Compare the descriptor with the digest recorded at admission, reached from the
+/// admitted root. A file replaced after admission, a symlink anywhere below the
+/// root, and a root or directory replaced by another are refused.
 pub(super) fn verify_descriptor_pin(
-    path: &Path,
+    registry: &RegistryBinding,
     expected_sha256: &str,
 ) -> Result<(), ProfileToolRefusal> {
-    let bytes = read_regular_file(path, MAX_DESCRIPTOR_BYTES).map_err(|reason| {
+    let bytes = registry.read().map_err(|reason| {
         refusal(
             RefusalKind::InvalidPin,
             format!("admitted descriptor {reason}"),

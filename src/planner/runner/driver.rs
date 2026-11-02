@@ -953,6 +953,7 @@ pub fn run_step_plan_with_ui(
     config: &Config,
     ui: &dyn InteractionUi,
 ) -> anyhow::Result<String> {
+    crate::tools::profile_tools::refuse_before_provider(&config.workspace_root, &config.profile)?;
     let mut session = SessionSnapshot::new();
     run_step_plan_with_session_with_ui(
         client,

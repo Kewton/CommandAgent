@@ -349,6 +349,20 @@ fn pack_eval(id: &str, profile: &str, body: &str) -> String {
     )
 }
 
+const BAD_PACK: &str = "tool-undecodable-pack";
+
+/// A declaration that does not decode: it smuggles an executable.
+fn bad_pack_eval() -> String {
+    pack_eval(
+        BAD_PACK,
+        PACK_HOST,
+        &format!(
+            "{}      executable: /bin/sh\n",
+            pack_tools("Read", "doc-index-read")
+        ),
+    )
+}
+
 fn pack_tools(builtins: &str, tool: &str) -> String {
     format!(
         "profile_tools:\n  schema_version: {SCHEMA}\n  builtin_tools: [{builtins}]\n  tools:\n    - id: {tool}\n      effect: read\n"
@@ -433,6 +447,7 @@ fn extension() -> &'static Extension {
                 &pack_tools("Read, Glob", "doc-index-read"),
             ),
         );
+        write_pack(&root, BAD_PACK, &bad_pack_eval());
         commandagent::planner::extension_profiles::register(&root).unwrap();
         Extension { root }
     })
@@ -853,25 +868,213 @@ fn a_declaring_pack_selection_must_verify_and_be_unambiguous() {
     refused("does not match pack.sha256");
     std::fs::write(&pin, original).unwrap();
     clear_selection();
+}
 
-    // Another copy of the same identity that declares something else.
-    let ambiguous = extension().root.join("packs/tool-ambiguous-pack/1.0.0");
-    let declared =
-        |tool: &str| pack_eval("tool-ambiguous-pack", PACK_HOST, &pack_tools("Read", tool));
-    std::fs::create_dir_all(&ambiguous).unwrap();
-    let selected = declared("doc-index-read");
-    std::fs::write(ambiguous.join("eval.yaml"), &selected).unwrap();
-    let hash = exact_byte_hash(None, Some(selected.as_bytes()));
-    std::fs::write(ambiguous.join("pack.sha256"), format!("{hash}\n")).unwrap();
-    commandagent::planner::pack::parse_bytes(None, Some(declared("config-json-read").as_bytes()))
-        .unwrap();
-    set_env(PACK_ENVS[0], Some(ambiguous.to_str().unwrap()));
-    set_env(PACK_ENVS[1], Some("tool-ambiguous-pack"));
+// ---------------------------------------------------------------------------
+// A pack's declaration comes from the selected, verified bytes.
+// ---------------------------------------------------------------------------
+
+const BOUND_PACK: &str = "tool-bound-pack";
+
+fn bound_undeclared() -> String {
+    pack_assist(BOUND_PACK, PACK_HOST, OFF_LITERAL)
+}
+
+fn bound_declared(tool: &str) -> String {
+    pack_eval(BOUND_PACK, PACK_HOST, &pack_tools("Read", tool))
+}
+
+/// One copy of the same id and version, in its own directory, selected by nothing
+/// yet. Returns the directory and its exact-byte hash.
+fn bound_copy(label: &str, document: &str) -> (PathBuf, String) {
+    let holder = extension().root.join(format!("bound-{label}"));
+    write_pack(&holder, BOUND_PACK, document);
+    let directory = holder.join(format!("packs/{BOUND_PACK}/1.0.0"));
+    let hash = commandagent::planner::pack::load_directory(&directory)
+        .unwrap()
+        .hash;
+    (directory, hash)
+}
+
+fn select_bound(copy: &(PathBuf, String)) {
+    set_env(PACK_ENVS[0], Some(copy.0.to_str().unwrap()));
+    set_env(PACK_ENVS[1], Some(BOUND_PACK));
     set_env(PACK_ENVS[2], Some("1.0.0"));
-    set_env(PACK_ENVS[3], Some(&hash));
-    operator.install();
-    refused("conflicting_declaration");
+    set_env(PACK_ENVS[3], Some(&copy.1));
+}
+
+/// The selected declaration's allowlist holds: the published tools are its own, and
+/// a removed Write or Bash executes nothing.
+fn assert_allowlist_holds(label: &str) {
+    let (_dir, root) = workspace();
+    let mut client = ScriptedClient::new(vec![
+        reply(vec![
+            ("Write", json!({"path": "written.txt", "content": "no"})),
+            ("Bash", json!({"command": "touch bash-ran"})),
+        ]),
+        final_text("done"),
+    ]);
+    run(&root, PACK_HOST, &mut client).unwrap();
+    assert_eq!(client.tools_of(0), ["Read", "ReadDocIndex"], "{label}");
+    for absent in ["written.txt", "bash-ran"] {
+        assert!(!root.join(absent).exists(), "{label}: {absent} was created");
+    }
+}
+
+fn assert_off(label: &str) {
+    let (_dir, root) = workspace();
+    assert!(
+        admit_selected(&root, PACK_HOST, None)
+            .map_err(|error| format!("{label}: {error}"))
+            .unwrap()
+            .is_none(),
+        "{label}"
+    );
+}
+
+#[test]
+fn an_undeclared_copy_decoded_first_does_not_turn_the_selected_allowlist_off() {
+    let _guard = lock();
     clear_selection();
+    extension();
+    let operator = Operator::new();
+    operator.install();
+    install_reader("fake-index", Ok("{}"), None);
+    let undeclared = bound_copy("first-undeclared", &bound_undeclared());
+    let declared = bound_copy("then-declared", &bound_declared("doc-index-read"));
+    assert_ne!(undeclared.1, declared.1);
+    // Decoded, and even selected and verified, under the same id and version.
+    commandagent::planner::pack::parse_bytes(Some(bound_undeclared().as_bytes()), None).unwrap();
+    select_bound(&undeclared);
+    assert_off("the undeclared copy itself");
+    select_bound(&declared);
+    assert_allowlist_holds("after an undeclared copy");
+    clear_selection();
+}
+
+#[test]
+fn a_declared_copy_decoded_first_does_not_refuse_a_selected_copy() {
+    let _guard = lock();
+    clear_selection();
+    extension();
+    let operator = Operator::new();
+    operator.install();
+    install_reader("fake-index", Ok("{}"), None);
+    let declared = bound_copy("first-declared", &bound_declared("doc-index-read"));
+    // Another declaration of the same identity, decoded and never selected.
+    commandagent::planner::pack::parse_bytes(
+        None,
+        Some(bound_declared("config-json-read").as_bytes()),
+    )
+    .unwrap();
+    select_bound(&declared);
+    assert_allowlist_holds("the declared copy");
+    let undeclared = bound_copy("then-undeclared", &bound_undeclared());
+    select_bound(&undeclared);
+    assert_off("the undeclared copy");
+    select_bound(&declared);
+    assert_allowlist_holds("the declared copy again");
+    clear_selection();
+}
+
+#[test]
+fn a_failed_decode_does_not_affect_a_later_selection() {
+    let _guard = lock();
+    clear_selection();
+    extension();
+    let operator = Operator::new();
+    operator.install();
+    install_reader("fake-index", Ok("{}"), None);
+    let undecodable = pack_eval(
+        BOUND_PACK,
+        PACK_HOST,
+        &format!(
+            "{}      executable: /bin/sh\n",
+            pack_tools("Read", "doc-index-read")
+        ),
+    );
+    assert!(commandagent::planner::pack::parse_bytes(None, Some(undecodable.as_bytes())).is_err());
+    let undeclared = bound_copy("after-failure-undeclared", &bound_undeclared());
+    select_bound(&undeclared);
+    assert_off("an undeclared copy after a failed decode");
+    let declared = bound_copy("after-failure-declared", &bound_declared("doc-index-read"));
+    select_bound(&declared);
+    assert_allowlist_holds("a declared copy after a failed decode");
+    clear_selection();
+}
+
+/// The second admission of an undeclared selection reads nothing: bytes that no
+/// longer decode are not seen. A read of them would be a refusal, as below.
+#[test]
+fn an_undeclared_selection_is_read_once_and_a_selection_that_fails_after_the_gates_is_refused() {
+    let _guard = lock();
+    clear_selection();
+    extension();
+    let operator = Operator::new();
+    operator.install();
+    let (_dir, root) = workspace();
+    let once = bound_copy(
+        "read-once",
+        &pack_assist(BOUND_PACK, PACK_HOST, &format!("{OFF_LITERAL}# once\n")),
+    );
+    select_bound(&once);
+    assert_off("the first admission");
+    std::fs::write(once.0.join("assist.yaml"), "not: [a pack").unwrap();
+    assert_off("the second admission");
+
+    // Never admitted: its bytes are read, do not decode, and are refused here. The
+    // binary's own gate is a test below: there a pack gate refuses first.
+    let unread = bound_copy(
+        "unread",
+        &pack_assist(BOUND_PACK, PACK_HOST, &format!("{OFF_LITERAL}# unread\n")),
+    );
+    select_bound(&unread);
+    std::fs::write(unread.0.join("assist.yaml"), "not: [a pack").unwrap();
+    let error = admit_selected(&root, PACK_HOST, None)
+        .map(|_| ())
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("selected_pack_invalid"), "{error}");
+
+    // A declared pack whose bytes change does not lose its allowlist.
+    let declared = bound_copy("changes", &bound_declared("doc-index-read"));
+    select_bound(&declared);
+    install_reader("fake-index", Ok("{}"), None);
+    assert_allowlist_holds("before the change");
+    std::fs::write(declared.0.join("eval.yaml"), bound_undeclared()).unwrap();
+    let error = admit_selected(&root, PACK_HOST, None)
+        .map(|_| ())
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("selected_pack_invalid"), "{error}");
+    clear_selection();
+}
+
+#[test]
+fn the_profile_tool_transport_cannot_be_registered_as_a_secret() {
+    use commandagent::sensitive_data::{
+        RegistrationRefusal, ReservedKind, SecretCatalog, collides_with_fixed_identifier,
+        is_fixed_identifier,
+    };
+    assert!(is_fixed_identifier("profile_tool"));
+    for value in ["profile_tool", "file_tool"] {
+        assert!(collides_with_fixed_identifier(value), "{value}");
+        let mut catalog = SecretCatalog::new();
+        let refusal = catalog
+            .register_credential("DUMMY_972_TOKEN", value)
+            .unwrap_err();
+        assert!(
+            matches!(
+                refusal,
+                RegistrationRefusal::Reserved {
+                    kind: ReservedKind::FixedIdentifier,
+                    ..
+                }
+            ),
+            "{value}: {refusal:?}"
+        );
+        assert!(catalog.is_empty(), "{value}");
+    }
 }
 
 fn cases() -> Value {
@@ -1342,6 +1545,161 @@ fn a_descriptor_swapped_after_admission_stops_the_call_before_it_executes() {
     clear_selection();
 }
 
+fn copy_tree(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap().flatten() {
+        let target = to.join(entry.file_name());
+        if entry.path().is_dir() {
+            copy_tree(&entry.path(), &target);
+        } else {
+            std::fs::copy(entry.path(), target).unwrap();
+        }
+    }
+}
+
+/// What a swap replaces, and with what. The bytes stay the same in every case, so
+/// a comparison of the bytes alone would pass each one.
+#[derive(Clone, Copy)]
+enum Swap {
+    RegistryToSymlinkIntoWorkspace,
+    RegistryToSameBytesDirectory,
+    RootToSameBytesDirectory,
+    RootToSymlinkToTheOriginal,
+    DependencyDirectoryToSymlinkIntoWorkspace,
+    DependencyDirectoryToSymlinkOutside,
+    DependencyDirectoryToSameBytesDirectory,
+}
+
+impl Swap {
+    fn apply(self, operator_root: &Path, workspace: &Path, holding: &Path) {
+        let registry = operator_root.join("profile-tools");
+        let dependencies = operator_root.join("deps");
+        let moved = holding.join("moved");
+        match self {
+            Self::RegistryToSymlinkIntoWorkspace => {
+                copy_tree(&registry, &workspace.join("shadow"));
+                std::fs::rename(&registry, &moved).unwrap();
+                std::os::unix::fs::symlink(workspace.join("shadow"), &registry).unwrap();
+            }
+            Self::RegistryToSameBytesDirectory => {
+                std::fs::rename(&registry, &moved).unwrap();
+                copy_tree(&moved, &registry);
+            }
+            Self::RootToSameBytesDirectory => {
+                std::fs::rename(operator_root, &moved).unwrap();
+                copy_tree(&moved, operator_root);
+            }
+            Self::RootToSymlinkToTheOriginal => {
+                std::fs::rename(operator_root, &moved).unwrap();
+                std::os::unix::fs::symlink(&moved, operator_root).unwrap();
+            }
+            Self::DependencyDirectoryToSymlinkIntoWorkspace => {
+                copy_tree(&dependencies, &workspace.join("shadow"));
+                std::fs::rename(&dependencies, &moved).unwrap();
+                std::os::unix::fs::symlink(workspace.join("shadow"), &dependencies).unwrap();
+            }
+            Self::DependencyDirectoryToSymlinkOutside => {
+                copy_tree(&dependencies, &holding.join("copy"));
+                std::fs::rename(&dependencies, &moved).unwrap();
+                std::os::unix::fs::symlink(holding.join("copy"), &dependencies).unwrap();
+            }
+            Self::DependencyDirectoryToSameBytesDirectory => {
+                std::fs::rename(&dependencies, &moved).unwrap();
+                copy_tree(&moved, &dependencies);
+            }
+        }
+    }
+}
+
+/// A swap between admission and the call stops the call. The control is the same
+/// run with no swap: the tool executes through the same bindings.
+fn run_with_swap(swap: Option<Swap>) -> (Result<String, String>, usize) {
+    let operator = Operator::new();
+    operator.install();
+    let dependency_directory = operator.root.join("deps");
+    std::fs::create_dir_all(&dependency_directory).unwrap();
+    let dependency = dependency_directory.join("runtime.bin");
+    std::fs::write(&dependency, "runtime-v1").unwrap();
+    operator.write("config-json-read", {
+        let mut value = descriptor("config-json-read", "ReadConfigObject", "fake-config");
+        value["dependencies"] = json!([{"path": dependency, "sha256": sha256(b"runtime-v1")}]);
+        value
+    });
+    let reader = install_reader("fake-config", Ok("{}"), None);
+    let (_dir, root) = workspace();
+    let holding = tempfile::tempdir().unwrap();
+    let holding_path = std::fs::canonicalize(holding.path()).unwrap();
+    let mut client = ScriptedClient::new(vec![
+        reply(vec![read_settings("ReadConfigObject")]),
+        final_text("done"),
+    ]);
+    let (operator_root, workspace_root) = (operator.root.clone(), root.clone());
+    let done = AtomicBool::new(false);
+    client.before_reply = Some(Arc::new(move |_| {
+        if let Some(swap) = swap
+            && !done.swap(true, Ordering::SeqCst)
+        {
+            swap.apply(&operator_root, &workspace_root, &holding_path);
+        }
+    }));
+    let result = run(&root, "tool-config-a", &mut client);
+    (result, reader.calls.load(Ordering::SeqCst))
+}
+
+#[test]
+fn a_directory_swapped_after_admission_stops_the_call_with_the_same_bytes() {
+    let _guard = lock();
+    clear_selection();
+    extension();
+    let (control, executions) = run_with_swap(None);
+    assert!(control.is_ok(), "{control:?}");
+    assert_eq!(executions, 1, "the control did not execute the tool");
+    const MOVED: &str = "no longer reached from the directories it was admitted from";
+    for (swap, label, expected) in [
+        (
+            Swap::RegistryToSymlinkIntoWorkspace,
+            "registry to a symlink into the workspace",
+            MOVED,
+        ),
+        (
+            Swap::RegistryToSameBytesDirectory,
+            "registry to another directory",
+            MOVED,
+        ),
+        (
+            Swap::RootToSameBytesDirectory,
+            "root to another directory",
+            MOVED,
+        ),
+        (
+            Swap::RootToSymlinkToTheOriginal,
+            "root to a symlink to the original",
+            MOVED,
+        ),
+        (
+            Swap::DependencyDirectoryToSymlinkIntoWorkspace,
+            "dependency directory to a symlink into the workspace",
+            "must lie outside the workspace",
+        ),
+        (
+            Swap::DependencyDirectoryToSymlinkOutside,
+            "dependency directory to a symlink outside",
+            "must be canonical",
+        ),
+        (
+            Swap::DependencyDirectoryToSameBytesDirectory,
+            "dependency directory to another directory",
+            "dependency directory changed since admission",
+        ),
+    ] {
+        let (result, executions) = run_with_swap(Some(swap));
+        let error = result.expect_err(label);
+        assert!(error.contains(expected), "{label}: {error}");
+        assert_eq!(executions, 0, "{label}: the executor ran");
+    }
+    clear_selection();
+}
+
 // ---------------------------------------------------------------------------
 // Acceptance 3: success and failure stay distinct; no false pass.
 // ---------------------------------------------------------------------------
@@ -1439,12 +1797,18 @@ fn a_required_os_feature_gates_admission_on_the_run_sandbox_state() {
     );
     assert_refused_before_provider(&root, "tool-os-required", "unavailable", "backend missing");
 
+    // The sandbox wraps spawned commands. An in-process executor spawns none, so
+    // a sandbox in force is not isolation for it, and nothing runs.
     install_for_test(SandboxMode::Auto, policy, SandboxAvailability::Available);
-    let admitted = admit_selected(&root, "tool-os-required", None)
-        .map_err(|error| error.to_string())
-        .unwrap()
-        .expect("a sandbox in force satisfies the requirement");
-    assert_eq!(admitted.bindings().len(), 1);
+    assert!(commandagent::tools::os_sandbox::is_applied());
+    let reader = install_reader("fake-config", Ok("{}"), None);
+    assert_refused_before_provider(&root, "tool-os-required", "unavailable", "sandbox applied");
+    let error = admit_selected(&root, "tool-os-required", None)
+        .map(|_| ())
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("in_process"), "{error}");
+    assert_eq!(reader.calls.load(Ordering::SeqCst), 0);
     reset_for_test();
     clear_selection();
 }
@@ -1768,11 +2132,18 @@ fn off_reads_no_registry_and_no_new_file() {
     }
     clear_selection();
 
-    // A selected pack without a declaration was decoded when it was selected.
-    // Admission keeps no second read of it: a copy gone since then changes
-    // nothing in the session, because nothing reopens it.
+    // A selected pack without a declaration is read once, at its first admission,
+    // which in a CLI run is the pre-run gate. Admission keeps no second read of it:
+    // a copy gone since then changes nothing in the session, because nothing
+    // reopens it.
     let holder = tempfile::tempdir().unwrap();
     let original = select_pack(OFF_PACK);
+    assert!(
+        admit_selected(extension().root.as_path(), OFF_DRAFT, None)
+            .map_err(|error| error.to_string())
+            .unwrap()
+            .is_none()
+    );
     let moved = holder.path().join("pack");
     std::fs::rename(&original, &moved).unwrap();
     let observed = record_off_row("undeclared-draft-selected-pack", OFF_DRAFT, true, false);
@@ -2074,6 +2445,58 @@ fn a_refusal_has_the_form_of_the_existing_pre_run_rejections() {
         &[],
     );
     assert_pre_run_refusal(&refused, "unknown-id");
+}
+
+/// A pack whose declaration does not decode is not known to opt in, so the existing
+/// pack gates refuse it, selected or inherited, still before any call or run_start.
+#[test]
+fn an_undecodable_declaring_pack_is_refused_by_the_existing_pack_gates() {
+    let operator = Operator::new();
+    let (_dir, root) = workspace();
+    let selected = cli_run(
+        &root,
+        &operator.root,
+        &[
+            "--profile",
+            PACK_HOST,
+            "--pack",
+            &format!("{BAD_PACK}@1.0.0"),
+            "--prompt",
+            "hi",
+        ],
+        &[],
+    );
+    let directory = extension().root.join(format!("packs/{BAD_PACK}/1.0.0"));
+    let eval = bad_pack_eval();
+    let hash = exact_byte_hash(None, Some(eval.as_bytes()));
+    let (_inherited_dir, inherited_root) = workspace();
+    let inherited = cli_run(
+        &inherited_root,
+        &operator.root,
+        &["--profile", PACK_HOST, "--prompt", "hi"],
+        &[
+            (PACK_ENVS[0], directory.to_str().unwrap()),
+            (PACK_ENVS[1], BAD_PACK),
+            (PACK_ENVS[2], "1.0.0"),
+            (PACK_ENVS[3], &hash),
+        ],
+    );
+    for (label, run) in [("selected", &selected), ("inherited", &inherited)] {
+        assert_eq!(run.code, Some(2), "{label}: {}", run.stderr);
+        assert!(run.stderr.contains("executable"), "{label}: {}", run.stderr);
+        assert!(
+            !run.stderr.contains("profile_tool_refused"),
+            "{label}: {}",
+            run.stderr
+        );
+        assert_eq!(run.provider_calls, 0, "{label}");
+        assert_eq!(run.jev_calls, 0, "{label}");
+        assert!(!run.evidence.contains("run_start"), "{label}");
+        assert!(
+            !run.evidence.contains("request_pattern_resolved"),
+            "{label}"
+        );
+    }
 }
 
 /// Without a declaration a pack that cannot resolve keeps refusing at its

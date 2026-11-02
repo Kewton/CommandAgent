@@ -66,17 +66,37 @@ Every refusal below happens before the first provider call, with the message
 | --- | --- | --- |
 | The CLI, any action | Right after the config resolves: before the request pattern settings, the OS sandbox, the artifact preflight, `run_start`, a jev call, and a provider call | Exit 2, as other pre-run rejections |
 | A workflow child node | After the sandbox reconciles with its workspace: before its artifact preflight, `run_start`, and a provider call | The node fails, as with the artifact preflight's refusal |
-| A session or planner call (also a TUI dispatch) | Before that call's provider request | The command fails |
+| A TUI command that runs under the completion guard (`/run-plan`, `/plan-run`, `/plan-steps`, `/ultra-plan`, `/ultra-plan-run`, `/run-ultra-plan`, `/resume`, `/model-probe`, `/setup-interaction-probe`; also Gate 1 and Gate 4, which dispatch these) | First in `run_command`: before its preflight, a host verify command, a plan or recovery file, and a provider call | `TASK FAILED`; the REPL continues |
+| A step plan run as a library call (`run_plan_file`, `run_step_plan`) | Before any step, including a verify-first step and a no-op report step that reach no session | The call returns the refusal |
+| A session or planner call | Before that call's provider request | The call fails |
 
-The CLI gate has to run before the OS sandbox is installed, so for `os_sandbox` it asks
-whether the backend is going to apply; the session asks the installed state again.
-A pack that fails to resolve is not known to declare anything, so its refusal stays
-at its existing place, after the request pattern settings.
+A pack that fails to resolve is not known to declare anything, so at the CLI gate its
+refusal stays at its existing place, after the request pattern settings. After the pack
+gates, a session or planner call refuses a selected pack that no longer decodes or
+verifies as `selected_pack_invalid`: it must not turn a declared allowlist off.
 
-The TUI classifier (`src/tui/boundary_shell/ambiguity.rs`) runs before a profile is
-chosen and cannot dispatch, so it is not gated. A profile chosen inside the TUI (Gate 1
-confirmation, `/profile`, `--profile` on a slash command) is admitted at the first
-session or planner call rather than at the CLI gate.
+A profile chosen inside the TUI (Gate 1 confirmation, `/profile`, `--profile` on a slash
+command) is admitted by the TUI command's check, with the effective profile.
+
+### Known limits
+
+- The TUI classifier for an Ambiguous route (`src/tui/boundary_shell/ambiguity.rs`) runs
+  before a profile is chosen and cannot dispatch, so its classification call is not
+  gated.
+- A TUI refusal is not exit 2. The command ends with `TASK FAILED` and the REPL goes on.
+  Before the refusal the command has recorded `tui_command_start`, and nothing else of
+  the command: no `ultra_plan_generation_attempt`, provider call, host verify command,
+  report step, or change in the workspace (`tests/profile_tool_registration_tui.rs`).
+- A refused workflow child is treated as the artifact preflight's refusal is: the outer
+  run records `circle_failed` with `node_failed:<node>` and exits 0. It claims no success.
+- `auto_recovery::run_file` and `run_plan` called as a library, outside the CLI and the
+  TUI, refuse at their first planner call. A failed phase can then write its recovery
+  plan and repair note below `.commandagent/`.
+- A selected pack is read once per exact selection in a process to find out whether it
+  declares tools, also when it declares none: the declaration is in its bytes, and the
+  value `cli_pack` decoded is not passed to the gate. In a CLI run the read is at the
+  pre-run gate, and the output, events, and requests stay byte-identical. With no pack
+  selected, nothing is read.
 
 | Kind | Cause |
 | --- | --- |
@@ -84,7 +104,7 @@ session or planner call rather than at the CLI gate.
 | `name_collision` | The tool name equals a builtin, removed or not, or another admitted tool |
 | `conflicting_declaration` | A tool in both profile and pack, an effect that differs from the registry, a limit wider than the registry |
 | `invalid_pin` | The schema or a dependency does not match its pin |
-| `workspace_descriptor` | The registry, a descriptor, or a dependency resolves into the workspace; a descriptor is a symlink |
+| `workspace_descriptor` | The registry, a descriptor, or a dependency resolves into the workspace; a descriptor is a symlink. (After admission a registry reached otherwise is `invalid_pin`.) |
 | `invalid_descriptor` | The descriptor does not decode or validate |
 | `registry_unavailable` | The operator root is unset or cannot be resolved |
 | `unavailable` | A required capability below is not available |
@@ -100,9 +120,10 @@ These are refused as `unavailable`. None has a stub that reports success.
   registered. The `commandagent` binary registers none in G1, so through the CLI a
   declaration can narrow builtin tools but a tool ID is refused until a later stage
   adds a runtime. Tests register fakes through `register_read_executor`.
-- `requires = ["os_sandbox"]` while the OS sandbox is not applied to this run, and
-  any other required feature. A hash pin and a cleared environment are not isolation
-  and do not stand in for it.
+- `requires = ["os_sandbox"]`, whether or not the OS sandbox is applied to this run, and
+  any other required feature. The sandbox wraps the commands a run spawns; an
+  `in_process` executor spawns none and keeps the host's authority, so the sandbox does
+  not isolate it. A hash pin and a cleared environment are not isolation either.
 
 ## At execution
 
@@ -113,6 +134,13 @@ These are refused as `unavailable`. None has a stub that reports success.
   apply to what remains. The result is the intersection: a declaration only removes.
 - The descriptor digest and dependency pins are compared again right before an
   execution. A mismatch ends the run with the tool not executed.
+- Each read, at admission and right before an execution, walks from the admitted operator
+  root to `profile-tools/<id>.json` through `src/tools/dir_fd.rs`, refusing any symlink on
+  the way. The root and the `profile-tools` directory must keep the device and inode
+  recorded at admission, so another directory holding the same bytes is refused. A
+  dependency is read the same way from `/`, and its parent directory keeps its identity.
+  The identities are read on both sides of the walk, from their own descriptors, because
+  `dir_fd` does not expose the ones it holds.
 - A tool's own failure, or an output past the limit, is `ok: false` in the existing
   `extension_tool_result` event and ends the run.
 - A tool result never satisfies an artifact or a stage. The required-path and
@@ -128,12 +156,14 @@ byte-identical, compared in `tests/profile_tool_registration.rs` with a recordin
 from the base commit. The registry root is not read. A profile's declaration is
 remembered in memory under its manifest's exact-byte hash when the manifest
 decodes, so no manifest is read again. The CLI resolves `--pack` earlier than it did and
-reports a failure at the old place, with no extra read. A selected pack decoded earlier
-in the process without a declaration is not read again. A pack selection inherited from
-the environment that this process has not decoded yet is read once to find out.
+reports a failure at the old place. A pack's declaration comes from the selected,
+verified bytes, never from another decode of the same id and version; see the known
+limit above for the one read this costs a run that selects a pack.
 
-No event name, field, or fixed identifier was added; a later stage that adds any
-reserves it in `src/sensitive_data/fixed_identifiers.rs`.
+No event name or field was added. The `transport` value `profile_tool` of the existing
+`extension_tool_result` event is reserved in `src/sensitive_data/fixed_identifiers.rs`,
+so a credential equal to it or to a fragment of it is refused at registration. A later
+stage that adds an identifier reserves it there too.
 
 ## For G2 and G3
 

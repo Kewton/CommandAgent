@@ -119,10 +119,6 @@ impl AssistPack {
             validate_point_owner(&self.pack, vocabulary.point)?;
             vocabulary.validate()?;
         }
-        crate::tools::profile_tools::selection::note_assist_pack_decoded(
-            &self.pack.id,
-            &self.pack.version,
-        );
         Ok(AssistPackDocument {
             pack: self.pack,
             inject: self.inject,
@@ -269,6 +265,13 @@ pub struct EvalPackDocument {
 }
 
 impl EvalPack {
+    /// What these exact bytes declare, read before `validate` consumes them.
+    pub(super) fn profile_tools(
+        &self,
+    ) -> Option<crate::tools::profile_tools::ProfileToolDeclaration> {
+        self.profile_tools.clone()
+    }
+
     pub(super) fn validate(self) -> Result<EvalPackDocument, String> {
         if self.schema_version != EVAL_SCHEMA_VERSION {
             return Err(format!("schema_version must be `{EVAL_SCHEMA_VERSION}`"));
@@ -299,11 +302,6 @@ impl EvalPack {
         if let Some(score) = &self.score {
             score.validate(&self.checks)?;
         }
-        crate::tools::profile_tools::selection::note_eval_pack_decoded(
-            &self.pack.id,
-            &self.pack.version,
-            self.profile_tools,
-        );
         Ok(EvalPackDocument {
             pack: self.pack,
             checks: self.checks,

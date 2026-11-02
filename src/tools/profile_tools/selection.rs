@@ -1,10 +1,9 @@
 //! The versioned opt-in declaration, and which declarations this run selected.
 //!
 //! Only the effective profile and the effective pack selection are consulted;
-//! other loaded profiles and packs never contribute. Declarations are remembered
-//! when their source is decoded, so a run without one reads nothing new: a
-//! profile's declaration is bound to the exact-byte hash of its manifest, and a
-//! pack is re-read only when a decoded copy declared tools or none was decoded.
+//! other loaded profiles and packs never contribute. A profile's declaration is
+//! bound to the exact-byte hash of its manifest. A pack's is read from the
+//! selected, verified bytes: nothing another decode saw can change the answer.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -15,7 +14,7 @@ use serde::Deserialize;
 use super::{ProfileToolRefusal, RefusalKind};
 use crate::planner::artifact_contract_checks::protocol;
 use crate::planner::artifact_contract_checks::read_regular_file;
-use crate::planner::pack::{LoadedPack, catalog, load_directory};
+use crate::planner::pack::{LoadedPack, catalog, load_declared_directory};
 use crate::planner::profile_manifest::source::{EXTENSION_MANIFEST_FILE, exact_byte_hash};
 use crate::tools::registry::ToolRegistry;
 
@@ -108,10 +107,9 @@ pub(super) struct SelectedTools {
 
 static MANIFEST_DECLARATIONS: Mutex<BTreeMap<String, ProfileToolDeclaration>> =
     Mutex::new(BTreeMap::new());
-/// By pack identity: every distinct declaration state its decoded eval documents
-/// had. An assist-only decode leaves the list empty.
-static DECODED_PACKS: Mutex<BTreeMap<String, Vec<Option<ProfileToolDeclaration>>>> =
-    Mutex::new(BTreeMap::new());
+/// Exact selections, hash included, whose verified bytes declare nothing, so the
+/// next admission of one reads nothing more. No other decode adds to this.
+static VERIFIED_UNDECLARED: Mutex<BTreeSet<PackSelection>> = Mutex::new(BTreeSet::new());
 
 /// Remember a decoded manifest's declaration under the hash extension
 /// registration records for the same bytes.
@@ -123,38 +121,14 @@ pub(crate) fn record_manifest_declaration(manifest: &str, declaration: ProfileTo
         .insert(hash, declaration);
 }
 
-/// Note that an assist document of this identity was decoded.
-pub(crate) fn note_assist_pack_decoded(id: &str, version: &str) {
-    decoded_packs().entry(pack_key(id, version)).or_default();
-}
-
-/// Note what an eval document of this identity declared. Only an identity never
-/// seen to declare can skip the verified re-read.
-pub(crate) fn note_eval_pack_decoded(
-    id: &str,
-    version: &str,
-    declaration: Option<ProfileToolDeclaration>,
-) {
-    let mut decoded = decoded_packs();
-    let states = decoded.entry(pack_key(id, version)).or_default();
-    if !states.contains(&declaration) {
-        states.push(declaration);
-    }
-}
-
-fn decoded_packs()
--> std::sync::MutexGuard<'static, BTreeMap<String, Vec<Option<ProfileToolDeclaration>>>> {
-    DECODED_PACKS
+fn verified_undeclared() -> std::sync::MutexGuard<'static, BTreeSet<PackSelection>> {
+    VERIFIED_UNDECLARED
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-fn pack_key(id: &str, version: &str) -> String {
-    format!("{id}@{version}")
-}
-
 /// The effective profile's and pack's declarations, or `None` when neither
-/// declares anything. The `None` path reads no file.
+/// declares anything. With no pack selected, the `None` path reads no file.
 pub(super) fn selected(
     profile: &str,
     pack: PackSource,
@@ -163,13 +137,16 @@ pub(super) fn selected(
     if let Some(declaration) = profile_declaration(profile) {
         sources.push(declaration);
     }
+    let gates_ran = matches!(pack, PackSource::Environment);
     let selection = match pack {
-        PackSource::Environment => pack_selection_from_environment(),
+        PackSource::Environment | PackSource::InheritedBeforeGates => {
+            pack_selection_from_environment()
+        }
         PackSource::Selected(selection) => Some(selection),
         PackSource::None => None,
     };
     if let Some(selection) = selection
-        && let Some(declaration) = pack_declaration(profile, &selection)?
+        && let Some(declaration) = pack_declaration(profile, &selection, gates_ran)?
     {
         sources.push(declaration);
     }
@@ -189,7 +166,7 @@ fn profile_declaration(profile: &str) -> Option<ProfileToolDeclaration> {
 }
 
 /// One selected pack: the variables the pack runtime reads.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct PackSelection {
     pub(super) directory: PathBuf,
     pub(super) id: String,
@@ -201,7 +178,13 @@ pub(super) struct PackSelection {
 /// selection in the environment, it passes the selection directly.
 #[derive(Debug, Clone)]
 pub(super) enum PackSource {
+    /// A session or planner call: the pack gates have run, so a selection that no
+    /// longer verifies is refused here rather than leaving the tools unrestricted.
     Environment,
+    /// The CLI gate, for a selection it inherited: a failure of a pack not known
+    /// to declare stays the pack gates' refusal, at their place in the run.
+    InheritedBeforeGates,
+    /// The CLI gate, for a selection it resolved, with the same rule.
     Selected(PackSelection),
     None,
 }
@@ -216,56 +199,38 @@ fn pack_selection_from_environment() -> Option<PackSelection> {
     })
 }
 
-fn ever_declared(key: &str) -> bool {
-    decoded_packs()
-        .get(key)
-        .is_some_and(|states| states.iter().any(Option::is_some))
-}
-
+/// What the selected, verified bytes declare. Before the pack gates, a pack that
+/// does not decode or does not declare is not known to opt in, so its failure stays
+/// their refusal to make. After them it is refused: an unreadable selection must
+/// not turn a declared allowlist off.
 fn pack_declaration(
     profile: &str,
     selection: &PackSelection,
+    gates_ran: bool,
 ) -> Result<Option<ProfileToolDeclaration>, ProfileToolRefusal> {
+    if verified_undeclared().contains(selection) {
+        return Ok(None);
+    }
     let invalid =
         |reason: String| ProfileToolRefusal::new(RefusalKind::SelectedPackInvalid, reason);
-    let key = pack_key(&selection.id, &selection.version);
-    let known_undeclared = decoded_packs()
-        .get(&key)
-        .is_some_and(|states| states.iter().all(Option::is_none));
-    if known_undeclared {
-        return Ok(None);
-    }
-    // A pack that does not decode, or that no copy shows declaring tools, is not
-    // known to opt in: its verification stays the existing pack gates' refusal to
-    // make, at their place in the run. Only a known declaration is refused here.
-    let pack = match load_directory(&selection.directory) {
-        Ok(pack) => pack,
-        Err(error) if ever_declared(&key) => {
-            return Err(invalid(format!("load selected pack: {error}")));
-        }
+    let declared = match load_declared_directory(&selection.directory) {
+        Ok(declared) => declared,
+        Err(error) if gates_ran => return Err(invalid(format!("load selected pack: {error}"))),
         Err(_) => return Ok(None),
     };
-    let loaded_key = pack_key(pack.id(), &pack.identity.version);
-    if !ever_declared(&key) && !ever_declared(&loaded_key) {
-        return Ok(None);
-    }
-    verify_selected_pack(selection, &pack).map_err(invalid)?;
-    // Decoding the verified bytes noted their declaration. A single state is
-    // therefore exactly theirs; another copy of this identity that said something
-    // else makes the answer ambiguous, and that is refused rather than guessed.
-    let states = decoded_packs().get(&key).cloned().unwrap_or_default();
-    let declaration = match states.as_slice() {
-        [] | [None] => return Ok(None),
-        [Some(declaration)] => declaration.clone(),
-        _ => {
-            return Err(ProfileToolRefusal::new(
-                RefusalKind::ConflictingDeclaration,
-                format!(
-                    "pack `{key}` was decoded with differing tool declarations in this process"
-                ),
-            ));
-        }
+    let pack = declared.pack;
+    let verified = verify_selected_pack(selection, &pack);
+    let Some(declaration) = declared.profile_tools else {
+        return match verified {
+            Ok(()) => {
+                verified_undeclared().insert(selection.clone());
+                Ok(None)
+            }
+            Err(reason) if gates_ran => Err(invalid(reason)),
+            Err(_) => Ok(None),
+        };
     };
+    verified.map_err(invalid)?;
     let expected = crate::planner::profile_descriptor::pack_profile_for_name(profile);
     if expected.as_ref() != Some(&pack.identity.profile) {
         return Err(ProfileToolRefusal::new(

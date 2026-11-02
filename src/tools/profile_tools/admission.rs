@@ -14,15 +14,18 @@ use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
 
-use super::descriptor::{self, Descriptor, EFFECT_READ, LoadedDescriptor, RUNTIME_IN_PROCESS};
+use super::descriptor::{
+    self, Descriptor, DirectoryIdentity, EFFECT_READ, LoadedDescriptor, RUNTIME_IN_PROCESS,
+    RegistryBinding,
+};
 use super::selection::{self, DeclaredTool, PackSource, SelectedTools};
 use super::{ProfileToolRefusal, RefusalKind};
 use crate::tools::extension::{ExtensionExecutor, ExtensionNetworkAccess, ExtensionTool};
 use crate::tools::registry::ToolRegistry;
 
-/// The one required feature G1 can check: the OS write sandbox is in force for
-/// this run. Every other feature is unavailable; hash pins and a cleared
-/// environment are not isolation and never stand in for it.
+/// The OS sandbox wraps the commands a run spawns. An in-process executor spawns
+/// none and runs with the host's authority, so no sandbox state satisfies this
+/// feature in G1. Hash pins and a cleared environment are not isolation either.
 const FEATURE_OS_SANDBOX: &str = "os_sandbox";
 
 /// Usage a tool reported. A field it did not report stays `None`: unknown, not
@@ -156,38 +159,7 @@ pub fn admit_selected(
     profile: &str,
     run_id: Option<String>,
 ) -> Result<Option<AdmittedProfileTools>, ProfileToolRefusal> {
-    admit_with(
-        workspace,
-        profile,
-        run_id,
-        PackSource::Environment,
-        SandboxView::InForce,
-    )
-}
-
-/// Whether a required OS sandbox holds for this admission.
-#[derive(Debug, Clone, Copy)]
-pub(super) enum SandboxView {
-    /// The run's installed state.
-    InForce,
-    /// Before the CLI installs the sandbox: whether it is going to be applied.
-    /// The session admits again against the installed state.
-    WillApply(bool),
-}
-
-impl SandboxView {
-    fn applied(self) -> bool {
-        match self {
-            Self::InForce => crate::tools::os_sandbox::is_applied(),
-            Self::WillApply(requested) => {
-                requested
-                    && matches!(
-                        crate::tools::os_sandbox::probe(),
-                        crate::tools::os_sandbox::SandboxAvailability::Available
-                    )
-            }
-        }
-    }
+    admit_with(workspace, profile, run_id, PackSource::Environment)
 }
 
 pub(super) fn admit_with(
@@ -195,7 +167,6 @@ pub(super) fn admit_with(
     profile: &str,
     run_id: Option<String>,
     pack: PackSource,
-    sandbox: SandboxView,
 ) -> Result<Option<AdmittedProfileTools>, ProfileToolRefusal> {
     let Some(selected) = selection::selected(profile, pack)? else {
         return Ok(None);
@@ -206,7 +177,7 @@ pub(super) fn admit_with(
             format!("workspace cannot be resolved: {error}"),
         )
     })?;
-    let admitted = admit(selected, &workspace, profile, run_id, sandbox)?;
+    let admitted = admit(selected, &workspace, profile, run_id)?;
     admitted.registry()?;
     Ok(Some(admitted))
 }
@@ -216,20 +187,20 @@ fn admit(
     workspace: &Path,
     profile: &str,
     run_id: Option<String>,
-    sandbox: SandboxView,
 ) -> Result<AdmittedProfileTools, ProfileToolRefusal> {
     let receipts: Receipts = Arc::new(Mutex::new(Vec::new()));
     let mut bindings = Vec::with_capacity(selected.tools.len());
     let mut tools = Vec::with_capacity(selected.tools.len());
     for (tool_id, declared) in &selected.tools {
         let loaded = descriptor::load(tool_id, workspace)?;
-        let executor = admit_one(&loaded.descriptor, declared, sandbox)?;
+        let executor = admit_one(&loaded.descriptor, declared)?;
         let binding = binding(&loaded, declared, profile, run_id.clone())?;
         let arguments = descriptor::closed_arguments(&loaded.descriptor)?;
         let pinned = PinnedReadExecutor {
             binding: binding.clone(),
             descriptor: loaded.descriptor.clone(),
-            descriptor_path: loaded.path.clone(),
+            registry: loaded.registry.clone(),
+            dependency_directories: loaded.dependency_directories.clone(),
             workspace: workspace.to_path_buf(),
             inner: executor,
             receipts: receipts.clone(),
@@ -260,7 +231,6 @@ fn admit(
 fn admit_one(
     descriptor: &Descriptor,
     declared: &DeclaredTool,
-    sandbox: SandboxView,
 ) -> Result<Arc<dyn ProfileToolReadExecutor>, ProfileToolRefusal> {
     let tool = &descriptor.tool_id;
     let unavailable = |reason: String| ProfileToolRefusal::new(RefusalKind::Unavailable, reason);
@@ -279,17 +249,14 @@ fn admit_one(
             descriptor.effect
         )));
     }
-    for feature in descriptor.requires.iter().chain(&declared.requires) {
-        if feature != FEATURE_OS_SANDBOX {
-            return Err(unavailable(format!(
-                "tool `{tool}` requires `{feature}`, which is not implemented"
-            )));
-        }
-        if !sandbox.applied() {
-            return Err(unavailable(format!(
-                "tool `{tool}` requires `{feature}`, which is not in force for this run"
-            )));
-        }
+    if let Some(feature) = descriptor.requires.iter().chain(&declared.requires).next() {
+        return Err(unavailable(if feature == FEATURE_OS_SANDBOX {
+            format!(
+                "tool `{tool}` requires `{feature}`, which cannot isolate an in_process executor: the OS sandbox wraps spawned commands only"
+            )
+        } else {
+            format!("tool `{tool}` requires `{feature}`, which is not implemented")
+        }));
     }
     if descriptor.runtime.kind != RUNTIME_IN_PROCESS {
         return Err(unavailable(format!(
@@ -355,7 +322,8 @@ fn binding(
 struct PinnedReadExecutor {
     binding: AdmittedToolBinding,
     descriptor: Descriptor,
-    descriptor_path: PathBuf,
+    registry: RegistryBinding,
+    dependency_directories: Vec<DirectoryIdentity>,
     workspace: PathBuf,
     inner: Arc<dyn ProfileToolReadExecutor>,
     receipts: Receipts,
@@ -384,8 +352,19 @@ impl PinnedReadExecutor {
     }
 
     fn check_before_execution(&self, arguments: &Value) -> anyhow::Result<()> {
-        descriptor::verify_descriptor_pin(&self.descriptor_path, &self.binding.descriptor_sha256)?;
-        descriptor::verify_dependencies(&self.descriptor, &self.workspace)?;
+        descriptor::verify_descriptor_pin(&self.registry, &self.binding.descriptor_sha256)?;
+        if descriptor::verify_dependencies(&self.descriptor, &self.workspace)?
+            != self.dependency_directories
+        {
+            return Err(ProfileToolRefusal::new(
+                RefusalKind::InvalidPin,
+                format!(
+                    "tool `{}` dependency directory changed since admission",
+                    self.binding.tool_id
+                ),
+            )
+            .into());
+        }
         let input_bytes = serde_json::to_vec(arguments)?.len();
         if input_bytes > self.binding.max_input_bytes {
             anyhow::bail!(
