@@ -21,6 +21,7 @@
 
 pub mod admission;
 pub mod descriptor;
+pub(crate) mod pre_run;
 pub mod selection;
 
 use std::fmt;

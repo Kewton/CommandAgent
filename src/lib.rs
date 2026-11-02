@@ -135,6 +135,14 @@ pub fn run_with_provider_options(
     let request_pattern = cli.request_pattern;
     let config = Config::from_cli_with_provider_options(cli, provider_options)
         .map_err(cli_argument_error)?;
+    let resolved_pack = cli_pack::resolve(&pack_cli, &config);
+    tools::profile_tools::pre_run::refuse_before_cli_run(
+        &config,
+        &resolved_pack,
+        sandbox_mode,
+        action_uses_write_sandbox(&config.action),
+    )
+    .map_err(|refusal| cli_argument_error(refusal.into()))?;
     let _request_pattern = minimal_loop::request_pattern::install(
         &config.action,
         minimal_loop::request_pattern::settings(request_pattern, &config.workspace_root)
@@ -164,7 +172,7 @@ pub fn run_with_provider_options(
             eprintln!("warning: {warning}");
         }
     }
-    let pack = cli_pack::resolve(&pack_cli, &config)?;
+    let pack = resolved_pack?;
     let _pack_environment = cli_pack::RuntimeEnvironmentGuard::install(pack.as_ref())?;
     planner::artifact_contract_checks::preflight(&config.workspace_root, &config.profile)
         .map_err(|reason| cli_argument_error(anyhow::anyhow!(reason)))?;
@@ -244,6 +252,8 @@ pub(crate) fn run_resolved_config_for_workflow(config: Config) -> anyhow::Result
     // (and `required` fails the node) instead of confining it to the wrong place.
     // When they match, this is a no-op.
     tools::os_sandbox::reconcile_workspace(&config.workspace_root);
+    tools::profile_tools::pre_run::refuse_before_workflow_node(&config)
+        .map_err(|refusal| cli_argument_error(refusal.into()))?;
     planner::artifact_contract_checks::preflight_for_workflow_node(
         &config.workspace_root,
         &config.profile,

@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 use serde_json::Value;
 
 use super::descriptor::{self, Descriptor, EFFECT_READ, LoadedDescriptor, RUNTIME_IN_PROCESS};
-use super::selection::{self, DeclaredTool, SelectedTools};
+use super::selection::{self, DeclaredTool, PackSource, SelectedTools};
 use super::{ProfileToolRefusal, RefusalKind};
 use crate::tools::extension::{ExtensionExecutor, ExtensionNetworkAccess, ExtensionTool};
 use crate::tools::registry::ToolRegistry;
@@ -156,7 +156,48 @@ pub fn admit_selected(
     profile: &str,
     run_id: Option<String>,
 ) -> Result<Option<AdmittedProfileTools>, ProfileToolRefusal> {
-    let Some(selected) = selection::selected(profile)? else {
+    admit_with(
+        workspace,
+        profile,
+        run_id,
+        PackSource::Environment,
+        SandboxView::InForce,
+    )
+}
+
+/// Whether a required OS sandbox holds for this admission.
+#[derive(Debug, Clone, Copy)]
+pub(super) enum SandboxView {
+    /// The run's installed state.
+    InForce,
+    /// Before the CLI installs the sandbox: whether it is going to be applied.
+    /// The session admits again against the installed state.
+    WillApply(bool),
+}
+
+impl SandboxView {
+    fn applied(self) -> bool {
+        match self {
+            Self::InForce => crate::tools::os_sandbox::is_applied(),
+            Self::WillApply(requested) => {
+                requested
+                    && matches!(
+                        crate::tools::os_sandbox::probe(),
+                        crate::tools::os_sandbox::SandboxAvailability::Available
+                    )
+            }
+        }
+    }
+}
+
+pub(super) fn admit_with(
+    workspace: &Path,
+    profile: &str,
+    run_id: Option<String>,
+    pack: PackSource,
+    sandbox: SandboxView,
+) -> Result<Option<AdmittedProfileTools>, ProfileToolRefusal> {
+    let Some(selected) = selection::selected(profile, pack)? else {
         return Ok(None);
     };
     let workspace = std::fs::canonicalize(workspace).map_err(|error| {
@@ -165,7 +206,7 @@ pub fn admit_selected(
             format!("workspace cannot be resolved: {error}"),
         )
     })?;
-    let admitted = admit(selected, &workspace, profile, run_id)?;
+    let admitted = admit(selected, &workspace, profile, run_id, sandbox)?;
     admitted.registry()?;
     Ok(Some(admitted))
 }
@@ -175,13 +216,14 @@ fn admit(
     workspace: &Path,
     profile: &str,
     run_id: Option<String>,
+    sandbox: SandboxView,
 ) -> Result<AdmittedProfileTools, ProfileToolRefusal> {
     let receipts: Receipts = Arc::new(Mutex::new(Vec::new()));
     let mut bindings = Vec::with_capacity(selected.tools.len());
     let mut tools = Vec::with_capacity(selected.tools.len());
     for (tool_id, declared) in &selected.tools {
         let loaded = descriptor::load(tool_id, workspace)?;
-        let executor = admit_one(&loaded.descriptor, declared)?;
+        let executor = admit_one(&loaded.descriptor, declared, sandbox)?;
         let binding = binding(&loaded, declared, profile, run_id.clone())?;
         let arguments = descriptor::closed_arguments(&loaded.descriptor)?;
         let pinned = PinnedReadExecutor {
@@ -218,6 +260,7 @@ fn admit(
 fn admit_one(
     descriptor: &Descriptor,
     declared: &DeclaredTool,
+    sandbox: SandboxView,
 ) -> Result<Arc<dyn ProfileToolReadExecutor>, ProfileToolRefusal> {
     let tool = &descriptor.tool_id;
     let unavailable = |reason: String| ProfileToolRefusal::new(RefusalKind::Unavailable, reason);
@@ -242,7 +285,7 @@ fn admit_one(
                 "tool `{tool}` requires `{feature}`, which is not implemented"
             )));
         }
-        if !crate::tools::os_sandbox::is_applied() {
+        if !sandbox.applied() {
             return Err(unavailable(format!(
                 "tool `{tool}` requires `{feature}`, which is not in force for this run"
             )));

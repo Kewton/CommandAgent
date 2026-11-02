@@ -9,7 +9,7 @@
 //! this feature existed.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use commandagent::config::{
@@ -1782,6 +1782,407 @@ fn off_reads_no_registry_and_no_new_file() {
         serde_json::to_string_pretty(&golden_row("undeclared-draft-selected-pack")).unwrap()
     );
     clear_selection();
+}
+
+// ---------------------------------------------------------------------------
+// The binary: pre-run refusal before everything else.
+// ---------------------------------------------------------------------------
+
+/// A loopback endpoint that counts connections and closes each one.
+struct CountingEndpoint {
+    url: String,
+    count: Arc<AtomicUsize>,
+    stop: Arc<AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl CountingEndpoint {
+    fn start() -> Self {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let count = Arc::new(AtomicUsize::new(0));
+        let stop = Arc::new(AtomicBool::new(false));
+        let thread = {
+            let (count, stop) = (count.clone(), stop.clone());
+            std::thread::spawn(move || {
+                while !stop.load(Ordering::SeqCst) {
+                    match listener.accept() {
+                        Ok(_) => {
+                            count.fetch_add(1, Ordering::SeqCst);
+                        }
+                        Err(_) => std::thread::sleep(std::time::Duration::from_millis(2)),
+                    }
+                }
+            })
+        };
+        Self {
+            url,
+            count,
+            stop,
+            thread: Some(thread),
+        }
+    }
+
+    fn finish(mut self) -> usize {
+        self.stop.store(true, Ordering::SeqCst);
+        self.thread.take().unwrap().join().unwrap();
+        self.count.load(Ordering::SeqCst)
+    }
+}
+
+struct CliRun {
+    code: Option<i32>,
+    stdout: String,
+    stderr: String,
+    provider_calls: usize,
+    jev_calls: usize,
+    evidence: String,
+}
+
+/// All text below `root`: run evidence, wherever the run wrote it.
+fn collect_text(root: &Path) -> String {
+    let mut text = String::new();
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(dir) = pending.pop() {
+        for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                pending.push(path);
+            } else if let Ok(content) = std::fs::read_to_string(&path) {
+                text.push_str(&content);
+                text.push('\n');
+            }
+        }
+    }
+    text
+}
+
+/// Runs the binary with `--request-pattern jev`, a dummy key, and every outbound
+/// HTTPS request sent to a counting fake proxy, so a jev call reaches only that
+/// fake. The provider is a counting fake as well.
+fn cli_run(
+    workspace: &Path,
+    registry: &Path,
+    arguments: &[&str],
+    environment: &[(&str, &str)],
+) -> CliRun {
+    let provider = CountingEndpoint::start();
+    let jev = CountingEndpoint::start();
+    let home = tempfile::tempdir().unwrap();
+    let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_commandagent"));
+    command
+        .arg("--extension-root")
+        .arg(&extension().root)
+        .args(["--ollama-host", &provider.url, "--model", "m"])
+        .args(["--request-pattern", "jev", "--chat-retries", "0"])
+        .args(arguments)
+        .current_dir(workspace)
+        .env_clear()
+        .env("HOME", home.path())
+        .env(REGISTRY_ENV, registry)
+        .env("JEV_API_KEY", "dummy-972-not-a-real-credential")
+        .env("HTTPS_PROXY", &jev.url);
+    for (name, value) in environment {
+        command.env(name, value);
+    }
+    let output = command.output().unwrap();
+    CliRun {
+        code: output.status.code(),
+        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        provider_calls: provider.finish(),
+        jev_calls: jev.finish(),
+        evidence: collect_text(workspace),
+    }
+}
+
+fn assert_pre_run_refusal(run: &CliRun, id: &str) {
+    assert_eq!(run.code, Some(2), "{id}: {}", run.stderr);
+    assert!(
+        run.stderr.starts_with("error: profile_tool_refused: "),
+        "{id}: {}",
+        run.stderr
+    );
+    assert_eq!(
+        run.stderr.trim_end().lines().count(),
+        1,
+        "{id}: {}",
+        run.stderr
+    );
+    assert_eq!(run.stdout, "", "{id}");
+    assert_eq!(run.provider_calls, 0, "{id}: provider contacted");
+    assert_eq!(run.jev_calls, 0, "{id}: jev contacted");
+    for marker in [
+        "run_start",
+        "request_pattern_resolved",
+        "bash_sandbox_status",
+    ] {
+        assert!(!run.evidence.contains(marker), "{id}: {marker} recorded");
+    }
+}
+
+#[test]
+fn every_refusal_exits_2_through_the_binary_before_jev_the_provider_and_run_start() {
+    let cases = cases();
+    for row in cases["refusals"].as_array().unwrap() {
+        let id = row["id"].as_str().unwrap();
+        let operator = Operator::new();
+        let (_dir, root) = workspace();
+        let run = cli_run(
+            &root,
+            &operator.root,
+            &[
+                "--summary-json",
+                "--profile",
+                row["profile"].as_str().unwrap(),
+                "--prompt",
+                "hi",
+            ],
+            &[],
+        );
+        assert_pre_run_refusal(&run, id);
+    }
+}
+
+#[test]
+fn a_registry_inside_the_workspace_is_refused_by_the_binary_too() {
+    let (_dir, root) = workspace();
+    std::fs::create_dir_all(root.join("operator/profile-tools")).unwrap();
+    let run = cli_run(
+        &root,
+        &root.join("operator"),
+        &["--profile", "tool-config-a", "--prompt", "hi"],
+        &[],
+    );
+    assert_pre_run_refusal(&run, "registry-in-workspace");
+    assert!(
+        run.stderr.contains("workspace_descriptor"),
+        "{}",
+        run.stderr
+    );
+}
+
+#[test]
+fn a_selected_or_inherited_declaring_pack_is_refused_by_the_binary() {
+    let operator = Operator::new();
+    let (_dir, root) = workspace();
+    let selected = cli_run(
+        &root,
+        &operator.root,
+        &[
+            "--profile",
+            PACK_HOST,
+            "--pack",
+            &format!("{TOOL_PACK}@1.0.0"),
+            "--prompt",
+            "hi",
+        ],
+        &[],
+    );
+    assert_pre_run_refusal(&selected, "selected-pack");
+
+    let directory = extension().root.join(format!("packs/{TOOL_PACK}/1.0.0"));
+    let hash = commandagent::planner::pack::load_directory(&directory)
+        .unwrap()
+        .hash;
+    let (_inherited_dir, inherited_root) = workspace();
+    let inherited = cli_run(
+        &inherited_root,
+        &operator.root,
+        &["--profile", PACK_HOST, "--prompt", "hi"],
+        &[
+            (PACK_ENVS[0], directory.to_str().unwrap()),
+            (PACK_ENVS[1], TOOL_PACK),
+            (PACK_ENVS[2], "1.0.0"),
+            (PACK_ENVS[3], &hash),
+        ],
+    );
+    assert_pre_run_refusal(&inherited, "inherited-pack");
+}
+
+/// Starting the interactive shell with a declaring profile takes the same gate.
+#[test]
+fn starting_the_repl_with_a_refused_profile_exits_2_before_it_opens() {
+    let operator = Operator::new();
+    let (_dir, root) = workspace();
+    let run = cli_run(
+        &root,
+        &operator.root,
+        &["--profile", "tool-unknown-id"],
+        &[],
+    );
+    assert_pre_run_refusal(&run, "repl-start");
+}
+
+/// The fakes count real traffic: the same command without a refusal reaches both,
+/// and records what a refusal must not.
+#[test]
+fn the_counting_fakes_see_a_run_that_is_not_refused() {
+    let operator = Operator::new();
+    for profile in [OFF_DRAFT, "tool-keeps-write"] {
+        let (_dir, root) = workspace();
+        let run = cli_run(
+            &root,
+            &operator.root,
+            &["--profile", profile, "--prompt", "hi"],
+            &[],
+        );
+        assert!(run.provider_calls > 0, "{profile}: {}", run.stderr);
+        assert_eq!(run.jev_calls, 1, "{profile}: {}", run.stderr);
+        assert!(run.evidence.contains("run_start"), "{profile}");
+        assert!(
+            run.evidence.contains("request_pattern_resolved"),
+            "{profile}"
+        );
+    }
+}
+
+/// The same exit, stream shape, and evidence as another pre-run rejection that
+/// reaches `cli_argument_error` or the pack error at its existing place.
+#[test]
+fn a_refusal_has_the_form_of_the_existing_pre_run_rejections() {
+    let operator = Operator::new();
+    let (_dir, root) = workspace();
+    let existing = cli_run(
+        &root,
+        &operator.root,
+        &["--summary-json", "--pack-hash", "x", "--prompt", "hi"],
+        &[],
+    );
+    assert_eq!(existing.code, Some(2), "{}", existing.stderr);
+    assert!(
+        existing.stderr.starts_with("error: "),
+        "{}",
+        existing.stderr
+    );
+    assert_eq!(existing.stdout, "");
+    assert_eq!(existing.provider_calls, 0);
+    assert!(!existing.evidence.contains("run_start"));
+
+    let (_refused_dir, refused_root) = workspace();
+    let refused = cli_run(
+        &refused_root,
+        &operator.root,
+        &[
+            "--summary-json",
+            "--profile",
+            "tool-unknown-id",
+            "--prompt",
+            "hi",
+        ],
+        &[],
+    );
+    assert_pre_run_refusal(&refused, "unknown-id");
+}
+
+/// Without a declaration a pack that cannot resolve keeps refusing at its
+/// existing place, after the run's pre-run setup, with its own message.
+#[test]
+fn an_off_run_keeps_the_existing_pack_rejection_message() {
+    let operator = Operator::new();
+    let (_dir, root) = workspace();
+    let run = cli_run(
+        &root,
+        &operator.root,
+        &["--pack", "no-such-pack@1.0.0", "--prompt", "hi"],
+        &[],
+    );
+    assert_eq!(run.code, Some(2), "{}", run.stderr);
+    assert!(
+        !run.stderr.contains("profile_tool_refused"),
+        "{}",
+        run.stderr
+    );
+    assert_eq!(run.provider_calls, 0);
+}
+
+#[test]
+fn the_pre_run_refusal_is_wired_before_everything_it_must_precede() {
+    let source = include_str!("../src/lib.rs");
+    let position = |needle: &str| {
+        source
+            .find(needle)
+            .unwrap_or_else(|| panic!("`{needle}` is not in src/lib.rs"))
+    };
+    let refusal = position("refuse_before_cli_run(");
+    for later in [
+        "request_pattern::install(",
+        "tools::os_sandbox::install_with(",
+        "RuntimeEnvironmentGuard::install(",
+        "artifact_contract_checks::preflight(",
+        "run_resolved_config_with_summary(config, summary_source",
+    ] {
+        assert!(refusal < position(later), "{later} runs before the refusal");
+    }
+    let node_refusal = position("refuse_before_workflow_node(");
+    assert!(
+        node_refusal < position("artifact_contract_checks::preflight_for_workflow_node("),
+        "the workflow child refuses after its artifact preflight"
+    );
+}
+
+#[test]
+fn a_workflow_child_is_refused_before_its_run_start_and_any_provider_call() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let outer = root.join("outer");
+    let origin = root.join("origin");
+    std::fs::create_dir_all(&outer).unwrap();
+    let run_dir = origin.join(".anvil/runs/origin-run");
+    std::fs::create_dir_all(&run_dir).unwrap();
+    std::fs::create_dir_all(origin.join(".anvil/plans")).unwrap();
+    std::fs::write(
+        run_dir.join("events.jsonl"),
+        concat!(
+            r#"{"event":"run_start","action":"Prompt(\"origin goal\")"}"#,
+            "\n",
+            r#"{"event":"verify_default_bound","bound_checks":["test -f marker"]}"#,
+            "\n",
+            r#"{"event":"run_stop","status":"failed"}"#,
+            "\n"
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        origin.join(".anvil/plans/recovery-origin.yaml"),
+        "version: 1\n",
+    )
+    .unwrap();
+    let existing_run_starts = collect_text(&origin).matches("\"run_start\"").count();
+    let workflow = root.join("workflow.yaml");
+    std::fs::write(
+        &workflow,
+        "workflow: profile-tool-child\nversion: 0.2\nentry: create\nnodes:\n  create: { intent: create, profile: generic }\n  rebuild: { intent: create, profile: tool-unknown-id }\nroutes:\n  - { from: create, on: failed, when: recovery_yaml_present, to: rebuild, carry: [workspace, recovery_yaml] }\nterminal: {}\n",
+    )
+    .unwrap();
+    let operator = Operator::new();
+    let run = cli_run(
+        &outer,
+        &operator.root,
+        &[
+            "--workflow",
+            workflow.to_str().unwrap(),
+            "--origin",
+            origin.to_str().unwrap(),
+        ],
+        &[],
+    );
+    let evidence = collect_text(&origin);
+    assert!(
+        evidence.contains("profile_tool_refused: unknown_tool_id"),
+        "status={:?}\nstderr={}\nevidence={evidence}",
+        run.code,
+        run.stderr
+    );
+    assert!(evidence.contains("node_failed:rebuild"), "{evidence}");
+    assert_eq!(run.provider_calls, 0, "{}", run.stderr);
+    assert_eq!(run.jev_calls, 0);
+    assert_eq!(
+        evidence.matches("\"run_start\"").count(),
+        existing_run_starts,
+        "the refused child recorded a run_start: {evidence}"
+    );
 }
 
 // ---------------------------------------------------------------------------

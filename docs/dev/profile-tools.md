@@ -59,8 +59,24 @@ set is their intersection and a tool ID in both is refused.
 
 ## When a selected set is refused
 
-Every refusal below happens before the first provider call, in the minimal loop
-and in the planner, with the message `profile_tool_refused: <kind>: <reason>`.
+Every refusal below happens before the first provider call, with the message
+`profile_tool_refused: <kind>: <reason>`.
+
+| Entry | When | How it ends |
+| --- | --- | --- |
+| The CLI, any action | Right after the config resolves: before the request pattern settings, the OS sandbox, the artifact preflight, `run_start`, a jev call, and a provider call | Exit 2, as other pre-run rejections |
+| A workflow child node | After the sandbox reconciles with its workspace: before its artifact preflight, `run_start`, and a provider call | The node fails, as with the artifact preflight's refusal |
+| A session or planner call (also a TUI dispatch) | Before that call's provider request | The command fails |
+
+The CLI gate has to run before the OS sandbox is installed, so for `os_sandbox` it asks
+whether the backend is going to apply; the session asks the installed state again.
+A pack that fails to resolve is not known to declare anything, so its refusal stays
+at its existing place, after the request pattern settings.
+
+The TUI classifier (`src/tui/boundary_shell/ambiguity.rs`) runs before a profile is
+chosen and cannot dispatch, so it is not gated. A profile chosen inside the TUI (Gate 1
+confirmation, `/profile`, `--profile` on a slash command) is admitted at the first
+session or planner call rather than at the CLI gate.
 
 | Kind | Cause |
 | --- | --- |
@@ -111,9 +127,10 @@ With no declaration on the selected profile or pack the session keeps
 byte-identical, compared in `tests/profile_tool_registration.rs` with a recording
 from the base commit. The registry root is not read. A profile's declaration is
 remembered in memory under its manifest's exact-byte hash when the manifest
-decodes, so no manifest is read again. A selected pack decoded earlier in the process
-without a declaration is not read again. A pack selection the process has not decoded
-yet, which only a direct library caller can reach, is read once to find out.
+decodes, so no manifest is read again. The CLI resolves `--pack` earlier than it did and
+reports a failure at the old place, with no extra read. A selected pack decoded earlier
+in the process without a declaration is not read again. A pack selection inherited from
+the environment that this process has not decoded yet is read once to find out.
 
 No event name, field, or fixed identifier was added; a later stage that adds any
 reserves it in `src/sensitive_data/fixed_identifiers.rs`.

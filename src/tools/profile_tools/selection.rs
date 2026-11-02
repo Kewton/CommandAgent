@@ -22,7 +22,7 @@ use crate::tools::registry::ToolRegistry;
 pub const DECLARATION_SCHEMA: &str = "profile-tool.declaration/v1";
 
 // The selection variables and pin file `planner::pack::runtime` owns. Its
-// verification is private to that module, so `verified_selected_pack` repeats it
+// verification is private to that module, so `verify_selected_pack` repeats it
 // over the same public loader and is held to it by tests.
 const PACK_DIRECTORY_ENV: &str = "COMMANDAGENT_PACK_DIRECTORY";
 const PACK_ID_ENV: &str = "COMMANDAGENT_PACK_ID";
@@ -155,12 +155,22 @@ fn pack_key(id: &str, version: &str) -> String {
 
 /// The effective profile's and pack's declarations, or `None` when neither
 /// declares anything. The `None` path reads no file.
-pub(super) fn selected(profile: &str) -> Result<Option<SelectedTools>, ProfileToolRefusal> {
+pub(super) fn selected(
+    profile: &str,
+    pack: PackSource,
+) -> Result<Option<SelectedTools>, ProfileToolRefusal> {
     let mut sources = Vec::new();
     if let Some(declaration) = profile_declaration(profile) {
         sources.push(declaration);
     }
-    if let Some(declaration) = pack_declaration(profile)? {
+    let selection = match pack {
+        PackSource::Environment => pack_selection_from_environment(),
+        PackSource::Selected(selection) => Some(selection),
+        PackSource::None => None,
+    };
+    if let Some(selection) = selection
+        && let Some(declaration) = pack_declaration(profile, &selection)?
+    {
         sources.push(declaration);
     }
     if sources.is_empty() {
@@ -178,11 +188,22 @@ fn profile_declaration(profile: &str) -> Option<ProfileToolDeclaration> {
         .cloned()
 }
 
-struct PackSelection {
-    directory: PathBuf,
-    id: String,
-    version: String,
-    hash: String,
+/// One selected pack: the variables the pack runtime reads.
+#[derive(Debug, Clone)]
+pub(super) struct PackSelection {
+    pub(super) directory: PathBuf,
+    pub(super) id: String,
+    pub(super) version: String,
+    pub(super) hash: String,
+}
+
+/// Where this admission finds the selected pack. Before the CLI installs its
+/// selection in the environment, it passes the selection directly.
+#[derive(Debug, Clone)]
+pub(super) enum PackSource {
+    Environment,
+    Selected(PackSelection),
+    None,
 }
 
 fn pack_selection_from_environment() -> Option<PackSelection> {
@@ -195,23 +216,43 @@ fn pack_selection_from_environment() -> Option<PackSelection> {
     })
 }
 
-fn pack_declaration(profile: &str) -> Result<Option<ProfileToolDeclaration>, ProfileToolRefusal> {
-    // A partial selection stays the existing pack gates' refusal to make.
-    let Some(selection) = pack_selection_from_environment() else {
-        return Ok(None);
-    };
+fn ever_declared(key: &str) -> bool {
+    decoded_packs()
+        .get(key)
+        .is_some_and(|states| states.iter().any(Option::is_some))
+}
+
+fn pack_declaration(
+    profile: &str,
+    selection: &PackSelection,
+) -> Result<Option<ProfileToolDeclaration>, ProfileToolRefusal> {
+    let invalid =
+        |reason: String| ProfileToolRefusal::new(RefusalKind::SelectedPackInvalid, reason);
     let key = pack_key(&selection.id, &selection.version);
-    let never_declared = decoded_packs()
+    let known_undeclared = decoded_packs()
         .get(&key)
         .is_some_and(|states| states.iter().all(Option::is_none));
-    if never_declared {
+    if known_undeclared {
         return Ok(None);
     }
-    // Decoding the verified bytes notes their declaration. A single state is
+    // A pack that does not decode, or that no copy shows declaring tools, is not
+    // known to opt in: its verification stays the existing pack gates' refusal to
+    // make, at their place in the run. Only a known declaration is refused here.
+    let pack = match load_directory(&selection.directory) {
+        Ok(pack) => pack,
+        Err(error) if ever_declared(&key) => {
+            return Err(invalid(format!("load selected pack: {error}")));
+        }
+        Err(_) => return Ok(None),
+    };
+    let loaded_key = pack_key(pack.id(), &pack.identity.version);
+    if !ever_declared(&key) && !ever_declared(&loaded_key) {
+        return Ok(None);
+    }
+    verify_selected_pack(selection, &pack).map_err(invalid)?;
+    // Decoding the verified bytes noted their declaration. A single state is
     // therefore exactly theirs; another copy of this identity that said something
     // else makes the answer ambiguous, and that is refused rather than guessed.
-    let pack = verified_selected_pack(&selection)
-        .map_err(|reason| ProfileToolRefusal::new(RefusalKind::SelectedPackInvalid, reason))?;
     let states = decoded_packs().get(&key).cloned().unwrap_or_default();
     let declaration = match states.as_slice() {
         [] | [None] => return Ok(None),
@@ -240,7 +281,7 @@ fn pack_declaration(profile: &str) -> Result<Option<ProfileToolDeclaration>, Pro
 
 /// Retirement, identity, exact-byte hash, and pin, as the pack runtime verifies
 /// a selection, without following a symlink for the pin.
-fn verified_selected_pack(selection: &PackSelection) -> Result<LoadedPack, String> {
+fn verify_selected_pack(selection: &PackSelection, pack: &LoadedPack) -> Result<(), String> {
     let directory: &Path = &selection.directory;
     if catalog::is_retired(directory) {
         return Err(format!(
@@ -248,7 +289,6 @@ fn verified_selected_pack(selection: &PackSelection) -> Result<LoadedPack, Strin
             selection.id, selection.version
         ));
     }
-    let pack = load_directory(directory).map_err(|error| format!("load selected pack: {error}"))?;
     if pack.id() != selection.id
         || pack.identity.version != selection.version
         || pack.hash != selection.hash
@@ -263,7 +303,7 @@ fn verified_selected_pack(selection: &PackSelection) -> Result<LoadedPack, Strin
     if String::from_utf8_lossy(&pin).trim() != selection.hash {
         return Err("selected pack hash does not match pack.sha256".to_string());
     }
-    Ok(pack)
+    Ok(())
 }
 
 fn merge(sources: &[ProfileToolDeclaration]) -> Result<SelectedTools, ProfileToolRefusal> {
