@@ -822,6 +822,7 @@ fn with_confirmed_pack<T>(
         hash: hash.clone(),
         source: crate::cli_pack::SelectionSource::Repository,
         directory,
+        declared: None,
     };
     let _pack_environment = crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&resolved))?;
     crate::eval_events::emit(

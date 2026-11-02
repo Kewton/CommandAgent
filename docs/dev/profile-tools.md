@@ -68,6 +68,7 @@ Every refusal below happens before the first provider call, with the message
 | A workflow child node | After the sandbox reconciles with its workspace: before its artifact preflight, `run_start`, and a provider call | The node fails, as with the artifact preflight's refusal |
 | A TUI command that runs under the completion guard (`/run-plan`, `/plan-run`, `/plan-steps`, `/ultra-plan`, `/ultra-plan-run`, `/run-ultra-plan`, `/resume`, `/model-probe`, `/setup-interaction-probe`; also Gate 1 and Gate 4, which dispatch these) | First in `run_command`: before its preflight, a host verify command, a plan or recovery file, and a provider call | `TASK FAILED`; the REPL continues |
 | A step plan run as a library call (`run_plan_file`, `run_step_plan`) | Before any step, including a verify-first step and a no-op report step that reach no session | The call returns the refusal |
+| An UltraPlan run through `auto_recovery` as a library call (`generate_and_run_with_ui`, `run_file_with_ui`, `run_plan_with_ui`) | Before the first planner call and any recovery file | The call returns the refusal |
 | A session or planner call | Before that call's provider request | The call fails |
 
 A pack that fails to resolve is not known to declare anything, so at the CLI gate its
@@ -89,14 +90,20 @@ command) is admitted by the TUI command's check, with the effective profile.
   report step, or change in the workspace (`tests/profile_tool_registration_tui.rs`).
 - A refused workflow child is treated as the artifact preflight's refusal is: the outer
   run records `circle_failed` with `node_failed:<node>` and exits 0. It claims no success.
-- `auto_recovery::run_file` and `run_plan` called as a library, outside the CLI and the
-  TUI, refuse at their first planner call. A failed phase can then write its recovery
-  plan and repair note below `.commandagent/`.
-- A selected pack is read once per exact selection in a process to find out whether it
-  declares tools, also when it declares none: the declaration is in its bytes, and the
-  value `cli_pack` decoded is not passed to the gate. In a CLI run the read is at the
-  pre-run gate, and the output, events, and requests stay byte-identical. With no pack
-  selected, nothing is read.
+- The directory identities are compared through their own opens on both sides of the
+  `dir_fd` walk, not on the descriptors the walk holds. A swap made during the walk and
+  put back before it ends is not detected; #974 (G3) takes this up. The bytes read are
+  still compared with their pin.
+- Off Unix a directory identity cannot be read, so every declared tool is refused. This
+  path has not been built: a Windows check stops at the C toolchain the `ring` dependency
+  needs.
+- `--pack` and a preset's pack are decoded once, by `cli_pack`, and admission uses that
+  value for the exact selection and the pack's own profile. Three paths have no such
+  value, so each admission reads the selected pack, also when it declares nothing: a
+  selection set directly in the environment by a library caller, a binary started
+  without `--pack` that inherits `COMMANDAGENT_PACK_*`, and a pack confirmed by the TUI's
+  `/pack`. The output, events, and requests stay byte-identical. With no pack selected,
+  nothing is read.
 
 | Kind | Cause |
 | --- | --- |
@@ -158,12 +165,13 @@ remembered in memory under its manifest's exact-byte hash when the manifest
 decodes, so no manifest is read again. The CLI resolves `--pack` earlier than it did and
 reports a failure at the old place. A pack's declaration comes from the selected,
 verified bytes, never from another decode of the same id and version; see the known
-limit above for the one read this costs a run that selects a pack.
+limit above for the paths where admission reads them itself.
 
 No event name or field was added. The `transport` value `profile_tool` of the existing
-`extension_tool_result` event is reserved in `src/sensitive_data/fixed_identifiers.rs`,
-so a credential equal to it or to a fragment of it is refused at registration. A later
-stage that adds an identifier reserves it there too.
+`extension_tool_result` event, the refusal prefix `profile_tool_refused`, and each refusal
+kind are reserved in `src/sensitive_data/fixed_identifiers.rs`, so a credential equal to
+one or to a fragment of one is refused at registration. A later stage that adds an
+identifier reserves it there too.
 
 ## For G2 and G3
 

@@ -755,6 +755,75 @@ fn the_same_plans_finish_through_the_library_entry_with_no_declaration() {
     }
 }
 
+/// The three library entries of automatic recovery, with recovery off and on: a
+/// refused run reaches neither client and leaves no recovery file.
+#[test]
+fn the_auto_recovery_library_entries_refuse_before_anything_runs() {
+    use commandagent::planner::auto_recovery::{
+        generate_and_run_with_ui, run_file_with_ui, run_plan_with_ui,
+    };
+    let _guard = lock();
+    extension();
+    let registry = operator_registry();
+    set_env(REGISTRY_ENV, registry.path().to_str());
+    let mut outcomes = Vec::new();
+    for auto_runs in [0, 1] {
+        for entry in [
+            "generate_and_run_with_ui",
+            "run_file_with_ui",
+            "run_plan_with_ui",
+        ] {
+            let fixture = fixture();
+            let before = workspace_digest(&fixture.root);
+            let mut planner = ScriptedClient::new(Vec::new());
+            let mut execution = ScriptedClient::new(Vec::new());
+            let mut refused = refused_config(&fixture);
+            refused.recovery_plan_auto_runs = auto_runs;
+            let plan = UltraPlan {
+                goal: "Write the notes".to_string(),
+                profile: REFUSED.to_string(),
+                style: "default".to_string(),
+                intent: "create".to_string(),
+                phases: vec![UltraPhase {
+                    id: "implementation".to_string(),
+                    prompt: "Write the notes.".to_string(),
+                }],
+            };
+            let result = match entry {
+                "generate_and_run_with_ui" => generate_and_run_with_ui(
+                    &mut planner,
+                    &mut execution,
+                    "Write the notes",
+                    &refused,
+                    &NOOP_UI,
+                ),
+                "run_file_with_ui" => run_file_with_ui(
+                    &mut planner,
+                    &mut execution,
+                    Path::new("ultra.yaml"),
+                    &refused,
+                    &NOOP_UI,
+                ),
+                _ => run_plan_with_ui(&mut planner, &mut execution, &plan, &refused, &NOOP_UI),
+            }
+            .map_err(|error| format!("{error:#}"));
+            assert!(
+                !fixture.root.join(".commandagent").exists(),
+                "{entry}: a recovery file was written"
+            );
+            outcomes.push(assert_refused_without_side_effects(
+                &format!("{entry} recovery_plan_auto_runs={auto_runs}"),
+                &fixture,
+                &before,
+                planner.calls() + execution.calls(),
+                result,
+            ));
+        }
+    }
+    set_env(REGISTRY_ENV, None);
+    assert_all_routes(outcomes);
+}
+
 /// `--run-plan` through the binary, against a counting provider.
 fn binary_run_plan(fixture: &Fixture, registry: &Path, profile: &str) -> (Option<i32>, String) {
     let provider = CountingEndpoint::start();

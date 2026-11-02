@@ -1003,24 +1003,30 @@ fn a_failed_decode_does_not_affect_a_later_selection() {
     clear_selection();
 }
 
-/// The second admission of an undeclared selection reads nothing: bytes that no
-/// longer decode are not seen. A read of them would be a refusal, as below.
+/// A selection set directly in the environment has no decoded value to use, so each
+/// admission reads it. Once its bytes fail, the next admission refuses; nothing
+/// remembered from an earlier admission turns that into off.
 #[test]
-fn an_undeclared_selection_is_read_once_and_a_selection_that_fails_after_the_gates_is_refused() {
+fn a_directly_set_selection_is_read_by_each_admission_and_refused_once_it_fails() {
     let _guard = lock();
     clear_selection();
     extension();
     let operator = Operator::new();
     operator.install();
     let (_dir, root) = workspace();
-    let once = bound_copy(
-        "read-once",
-        &pack_assist(BOUND_PACK, PACK_HOST, &format!("{OFF_LITERAL}# once\n")),
+    let each = bound_copy(
+        "read-each",
+        &pack_assist(BOUND_PACK, PACK_HOST, &format!("{OFF_LITERAL}# each\n")),
     );
-    select_bound(&once);
+    select_bound(&each);
     assert_off("the first admission");
-    std::fs::write(once.0.join("assist.yaml"), "not: [a pack").unwrap();
     assert_off("the second admission");
+    std::fs::write(each.0.join("assist.yaml"), "not: [a pack").unwrap();
+    let error = admit_selected(&root, PACK_HOST, None)
+        .map(|_| ())
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("selected_pack_invalid"), "{error}");
 
     // Never admitted: its bytes are read, do not decode, and are refused here. The
     // binary's own gate is a test below: there a pack gate refuses first.
@@ -1057,7 +1063,20 @@ fn the_profile_tool_transport_cannot_be_registered_as_a_secret() {
         is_fixed_identifier,
     };
     assert!(is_fixed_identifier("profile_tool"));
-    for value in ["profile_tool", "file_tool"] {
+    assert!(is_fixed_identifier("selected_pack_invalid"));
+    assert!(is_fixed_identifier("profile_tool_refused"));
+    assert!(is_fixed_identifier("unknown_tool_id"));
+    assert!(is_fixed_identifier("workspace_descriptor"));
+    for value in [
+        "profile_tool",
+        "file_tool",
+        "selected_pack_invalid",
+        "pack_invalid",
+        "profile_tool_refused",
+        "tool_refused",
+        "unknown_tool_id",
+        "workspace_descriptor",
+    ] {
         assert!(collides_with_fixed_identifier(value), "{value}");
         let mut catalog = SecretCatalog::new();
         let refusal = catalog
@@ -2124,34 +2143,45 @@ fn off_reads_no_registry_and_no_new_file() {
     extension();
     // A registry variable that names nothing is not even resolved.
     set_env(REGISTRY_ENV, Some("/nonexistent/profile-tool-registry"));
-    for row in OFF_ROWS
-        .iter()
-        .filter(|row| row.0 != "undeclared-draft-selected-pack")
-    {
-        assert_off_row(*row);
+    for row in OFF_ROWS {
+        clear_selection();
+        if row.0 == "undeclared-draft-selected-pack" {
+            select_pack(OFF_PACK);
+        }
+        assert_off_row(row);
     }
     clear_selection();
+}
 
-    // A selected pack without a declaration is read once, at its first admission,
-    // which in a CLI run is the pre-run gate. Admission keeps no second read of it:
-    // a copy gone since then changes nothing in the session, because nothing
-    // reopens it.
+/// The library path: the environment names the pack and nothing decoded it, so
+/// admission reads it. The read changes no byte of the run. That it is a read shows
+/// when the pack is gone. A CLI selection reads nothing here; see the binary tests.
+#[test]
+fn a_directly_set_undeclared_pack_is_read_and_changes_no_byte_of_the_run() {
+    let _guard = lock();
+    clear_selection();
+    extension();
+    select_pack(OFF_PACK);
+    let row = OFF_ROWS
+        .into_iter()
+        .find(|row| row.0 == "undeclared-draft-selected-pack")
+        .unwrap();
+    assert_off_row(row);
+    assert_off_row(row);
+
+    let copy = bound_copy(
+        "direct-read",
+        &pack_assist(BOUND_PACK, PACK_HOST, &format!("{OFF_LITERAL}# direct\n")),
+    );
+    select_bound(&copy);
+    let (_dir, root) = workspace();
     let holder = tempfile::tempdir().unwrap();
-    let original = select_pack(OFF_PACK);
-    assert!(
-        admit_selected(extension().root.as_path(), OFF_DRAFT, None)
-            .map_err(|error| error.to_string())
-            .unwrap()
-            .is_none()
-    );
-    let moved = holder.path().join("pack");
-    std::fs::rename(&original, &moved).unwrap();
-    let observed = record_off_row("undeclared-draft-selected-pack", OFF_DRAFT, true, false);
-    std::fs::rename(&moved, &original).unwrap();
-    assert_eq!(
-        serde_json::to_string_pretty(&observed).unwrap(),
-        serde_json::to_string_pretty(&golden_row("undeclared-draft-selected-pack")).unwrap()
-    );
+    std::fs::rename(&copy.0, holder.path().join("pack")).unwrap();
+    let error = admit_selected(&root, PACK_HOST, None)
+        .map(|_| ())
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("selected_pack_invalid"), "{error}");
     clear_selection();
 }
 
@@ -2518,6 +2548,407 @@ fn an_off_run_keeps_the_existing_pack_rejection_message() {
         run.stderr
     );
     assert_eq!(run.provider_calls, 0);
+}
+
+/// A provider that answers, and records what it was asked.
+struct AnsweringProvider {
+    url: String,
+    bodies: Arc<Mutex<Vec<String>>>,
+    stop: Arc<AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl AnsweringProvider {
+    fn start() -> Self {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let bodies = Arc::new(Mutex::new(Vec::new()));
+        let stop = Arc::new(AtomicBool::new(false));
+        let thread = {
+            let (bodies, stop) = (bodies.clone(), stop.clone());
+            std::thread::spawn(move || {
+                while !stop.load(Ordering::SeqCst) {
+                    let Ok((mut stream, _)) = listener.accept() else {
+                        std::thread::sleep(std::time::Duration::from_millis(2));
+                        continue;
+                    };
+                    stream.set_nonblocking(false).unwrap();
+                    Self::answer(&mut stream, &bodies);
+                }
+            })
+        };
+        Self {
+            url,
+            bodies,
+            stop,
+            thread: Some(thread),
+        }
+    }
+
+    fn answer(stream: &mut std::net::TcpStream, bodies: &Mutex<Vec<String>>) {
+        use std::io::{Read, Write};
+        let mut bytes = Vec::new();
+        let mut chunk = [0_u8; 4096];
+        let (head, length) = loop {
+            let Ok(count) = stream.read(&mut chunk) else {
+                return;
+            };
+            if count == 0 {
+                return;
+            }
+            bytes.extend_from_slice(&chunk[..count]);
+            if let Some(end) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
+                let head = String::from_utf8_lossy(&bytes[..end]).to_string();
+                let length = head
+                    .lines()
+                    .find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        name.eq_ignore_ascii_case("content-length")
+                            .then(|| value.trim().parse::<usize>().ok())?
+                    })
+                    .unwrap_or(0);
+                bytes.drain(..end + 4);
+                break (head, length);
+            }
+        };
+        while bytes.len() < length {
+            let Ok(count) = stream.read(&mut chunk) else {
+                return;
+            };
+            if count == 0 {
+                return;
+            }
+            bytes.extend_from_slice(&chunk[..count]);
+        }
+        let response = if head.starts_with("POST /api/chat ") {
+            bodies
+                .lock()
+                .unwrap()
+                .push(String::from_utf8_lossy(&bytes).to_string());
+            json!({
+                "model": "m",
+                "message": {"role": "assistant", "content": "Done."},
+                "done": true,
+            })
+            .to_string()
+        } else if head.starts_with("GET /api/tags ") {
+            json!({"models": [{"name": "m"}]}).to_string()
+        } else {
+            json!({"capabilities": ["completion", "tools"]}).to_string()
+        };
+        let _ = write!(
+            stream,
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}",
+            response.len()
+        );
+        let _ = stream.flush();
+    }
+
+    fn finish(mut self) -> Vec<String> {
+        self.stop.store(true, Ordering::SeqCst);
+        self.thread.take().unwrap().join().unwrap();
+        self.bodies.lock().unwrap().clone()
+    }
+}
+
+/// A fake proxy for the jev call. It acts while the run waits for the answer: after
+/// the pack gates and before the session's admission.
+fn jev_proxy_acting(act: Box<dyn FnOnce() + Send>) -> (String, std::thread::JoinHandle<usize>) {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let thread = std::thread::spawn(move || {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        loop {
+            if let Ok(connection) = listener.accept() {
+                act();
+                drop(connection);
+                return 1;
+            }
+            if std::time::Instant::now() > deadline {
+                return 0;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+    });
+    (url, thread)
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct OffRun {
+    code: Option<i32>,
+    stdout: String,
+    stderr: String,
+    requests: Vec<String>,
+    events: Vec<String>,
+}
+
+/// One run with a provider that answers. Everything that differs by construction
+/// between two runs is normalized: the private directories, ports, and durations.
+fn off_cli_run(
+    pack: &MovablePack,
+    arguments: &[&str],
+    environment: &[(&str, &str)],
+    settings: Option<&str>,
+    act: Box<dyn FnOnce() + Send>,
+) -> OffRun {
+    let (_dir, root) = workspace();
+    if let Some(settings) = settings {
+        let config = root.join(".commandagent/config.toml");
+        std::fs::create_dir_all(config.parent().unwrap()).unwrap();
+        std::fs::write(&config, settings).unwrap();
+    }
+    let provider = AnsweringProvider::start();
+    let (proxy, jev) = jev_proxy_acting(act);
+    let home = tempfile::tempdir().unwrap();
+    let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_commandagent"));
+    command
+        .arg("--extension-root")
+        .arg(&pack.root)
+        .args(["--ollama-host", &provider.url, "--model", "m"])
+        .args(["--request-pattern", "jev", "--chat-retries", "0"])
+        .args(arguments)
+        .current_dir(&root)
+        .env_clear()
+        .env("HOME", home.path())
+        .env("JEV_API_KEY", "dummy-972-not-a-real-credential")
+        .env("HTTPS_PROXY", &proxy);
+    for (name, value) in environment {
+        command.env(name, value);
+    }
+    let output = command.output().unwrap();
+    let provider_url = provider.url.clone();
+    let requests = provider.finish();
+    assert_eq!(
+        jev.join().unwrap(),
+        1,
+        "the jev call did not happen: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let durations =
+        regex::Regex::new(r#"("[a-z_]+_(?:ms|secs|seconds)":)[0-9.]+|\([0-9]+s\)"#).unwrap();
+    let stable = |text: &str| {
+        let text = normalize_text(&root, text)
+            .replace(&home.path().display().to_string(), "<HOME>")
+            .replace(&provider_url, "<PROVIDER>")
+            .replace(&proxy, "<PROXY>");
+        durations.replace_all(&text, "${1}<N>").into_owned()
+    };
+    let mut events = Vec::new();
+    let mut pending = vec![root.clone()];
+    while let Some(directory) = pending.pop() {
+        for entry in std::fs::read_dir(directory).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                pending.push(path);
+            } else if entry.file_name() == "events.jsonl" {
+                for line in std::fs::read_to_string(&path).unwrap().lines() {
+                    let event = normalize_event(&root, &serde_json::from_str(line).unwrap());
+                    // Recorded only when the run lasted a millisecond or more.
+                    if event["event"] != "time_profile" {
+                        events.push(stable(&event.to_string()));
+                    }
+                }
+            }
+        }
+    }
+    OffRun {
+        code: output.status.code(),
+        stdout: stable(&String::from_utf8_lossy(&output.stdout)),
+        stderr: stable(&String::from_utf8_lossy(&output.stderr)),
+        requests: requests.iter().map(|body| stable(body)).collect(),
+        events,
+    }
+}
+
+const MOVABLE_PACK: &str = "data-assist@1.0.0";
+
+/// This repository's undeclared `data-assist` pack, in an extension root private to
+/// one test, so that test may move it.
+struct MovablePack {
+    _dir: tempfile::TempDir,
+    root: PathBuf,
+    directory: PathBuf,
+    moved: PathBuf,
+    hash: String,
+}
+
+impl MovablePack {
+    fn new() -> Self {
+        fn copy(from: &Path, to: &Path) {
+            std::fs::create_dir_all(to).unwrap();
+            for entry in std::fs::read_dir(from).unwrap().flatten() {
+                let target = to.join(entry.file_name());
+                if entry.file_type().unwrap().is_dir() {
+                    copy(&entry.path(), &target);
+                } else {
+                    std::fs::copy(entry.path(), target).unwrap();
+                }
+            }
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(dir.path()).unwrap();
+        let directory = root.join("packs/data-assist/1.0.0");
+        copy(
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("packs/data-assist/1.0.0"),
+            &directory,
+        );
+        let hash = commandagent::planner::pack::load_directory(&directory)
+            .unwrap()
+            .hash;
+        Self {
+            _dir: dir,
+            moved: root.join("moved"),
+            root,
+            directory,
+            hash,
+        }
+    }
+
+    fn moving(&self) -> Box<dyn FnOnce() + Send> {
+        let (from, to) = (self.directory.clone(), self.moved.clone());
+        Box::new(move || std::fs::rename(from, to).unwrap())
+    }
+
+    fn put_back(&self) {
+        std::fs::rename(&self.moved, &self.directory).unwrap();
+    }
+}
+
+fn nothing() -> Box<dyn FnOnce() + Send> {
+    Box::new(|| {})
+}
+
+fn assert_off_run_answered(label: &str, run: &OffRun) {
+    assert_eq!(run.code, Some(0), "{label}: {}", run.stderr);
+    assert!(!run.requests.is_empty(), "{label}: no provider request");
+    assert!(
+        run.events.iter().any(|event| event.contains("run_start")),
+        "{label}: {:?}",
+        run.events
+    );
+}
+
+/// `--pack` and a preset's pack are decoded once, by the CLI. The pack can be gone
+/// when the session is admitted, and no byte of the run changes.
+#[test]
+fn a_cli_selected_off_pack_is_not_read_by_admission_and_no_byte_changes() {
+    let pack = MovablePack::new();
+    let flag = [
+        "--profile",
+        "data",
+        "--pack",
+        MOVABLE_PACK,
+        "--prompt",
+        "hi",
+    ];
+    let control = off_cli_run(&pack, &flag, &[], None, nothing());
+    assert_off_run_answered("--pack", &control);
+    let run = off_cli_run(&pack, &flag, &[], None, pack.moving());
+    pack.put_back();
+    assert_eq!(run, control);
+
+    let preset = format!("[preset.moved]\npack = \"{MOVABLE_PACK}\"\n");
+    let named = ["--profile", "data", "--preset", "moved", "--prompt", "hi"];
+    let control = off_cli_run(&pack, &named, &[], Some(&preset), nothing());
+    assert_off_run_answered("preset", &control);
+    let run = off_cli_run(&pack, &named, &[], Some(&preset), pack.moving());
+    pack.put_back();
+    assert_eq!(run, control);
+}
+
+/// A selection the process inherited was not decoded by the CLI, so admission reads
+/// it. The read changes no byte of the run. That it is a read, and that the proxy
+/// moves the pack before admission at all, shows when the same move refuses.
+#[test]
+fn an_inherited_off_pack_is_read_by_admission_and_no_byte_changes() {
+    let pack = MovablePack::new();
+    let selection = [
+        (PACK_ENVS[0], pack.directory.to_str().unwrap()),
+        (PACK_ENVS[1], "data-assist"),
+        (PACK_ENVS[2], "1.0.0"),
+        (PACK_ENVS[3], pack.hash.as_str()),
+    ];
+    let inherited = ["--profile", "data", "--prompt", "hi"];
+    let flag = [
+        "--profile",
+        "data",
+        "--pack",
+        MOVABLE_PACK,
+        "--prompt",
+        "hi",
+    ];
+    let control = off_cli_run(&pack, &flag, &[], None, nothing());
+    assert_off_run_answered("--pack", &control);
+    let run = off_cli_run(&pack, &inherited, &selection, None, nothing());
+    assert_eq!(run, control);
+
+    let refused = off_cli_run(&pack, &inherited, &selection, None, pack.moving());
+    pack.put_back();
+    assert_ne!(refused.code, Some(0), "{}", refused.stderr);
+    assert!(
+        refused.stderr.contains("selected_pack_invalid"),
+        "{}",
+        refused.stderr
+    );
+    assert_eq!(refused.requests, Vec::<String>::new());
+}
+
+/// A declaring pack whose pin is a symlink: the decode the CLI's resolution shares
+/// with admission refuses the member, before everything a refusal precedes.
+#[cfg(unix)]
+#[test]
+fn a_declaring_pack_with_a_symlinked_pin_is_refused_before_any_call() {
+    let id = "tool-symlink-pin-pack";
+    let root = &extension().root;
+    write_pack(
+        root,
+        id,
+        &pack_eval(id, PACK_HOST, &pack_tools("Read", "doc-index-read")),
+    );
+    let pin = root.join(format!("packs/{id}/1.0.0/pack.sha256"));
+    let target = root.join(format!("pin-of-{id}"));
+    std::fs::rename(&pin, &target).unwrap();
+    std::os::unix::fs::symlink(&target, &pin).unwrap();
+    let operator = Operator::new();
+    let (_dir, workspace_root) = workspace();
+    let selector = format!("{id}@1.0.0");
+    let run = cli_run(
+        &workspace_root,
+        &operator.root,
+        &[
+            "--profile",
+            PACK_HOST,
+            "--pack",
+            &selector,
+            "--prompt",
+            "hi",
+        ],
+        &[],
+    );
+    assert_eq!(run.code, Some(2), "{}", run.stderr);
+    assert!(
+        run.stderr.contains("error: load selected pack ")
+            && run.stderr.contains("is not a regular file"),
+        "{}",
+        run.stderr
+    );
+    assert!(
+        !run.stderr.contains("profile_tool_refused"),
+        "{}",
+        run.stderr
+    );
+    assert_eq!(run.stdout, "");
+    assert_eq!(run.provider_calls, 0);
+    assert_eq!(run.jev_calls, 0);
+    for marker in [
+        "run_start",
+        "request_pattern_resolved",
+        "bash_sandbox_status",
+    ] {
+        assert!(!run.evidence.contains(marker), "{marker} recorded");
+    }
 }
 
 #[test]

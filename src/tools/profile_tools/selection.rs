@@ -14,7 +14,7 @@ use serde::Deserialize;
 use super::{ProfileToolRefusal, RefusalKind};
 use crate::planner::artifact_contract_checks::protocol;
 use crate::planner::artifact_contract_checks::read_regular_file;
-use crate::planner::pack::{LoadedPack, catalog, load_declared_directory};
+use crate::planner::pack::{LoadedPack, PackProfile, catalog, load_declared_directory};
 use crate::planner::profile_manifest::source::{EXTENSION_MANIFEST_FILE, exact_byte_hash};
 use crate::tools::registry::ToolRegistry;
 
@@ -107,9 +107,10 @@ pub(super) struct SelectedTools {
 
 static MANIFEST_DECLARATIONS: Mutex<BTreeMap<String, ProfileToolDeclaration>> =
     Mutex::new(BTreeMap::new());
-/// Exact selections, hash included, whose verified bytes declare nothing, so the
-/// next admission of one reads nothing more. No other decode adds to this.
-static VERIFIED_UNDECLARED: Mutex<BTreeSet<PackSelection>> = Mutex::new(BTreeSet::new());
+/// The value the CLI decoded for the selection its environment guard installed,
+/// present only while that guard lives.
+static INSTALLED_DECLARATION: Mutex<Option<(PackSelection, ResolvedDeclaration)>> =
+    Mutex::new(None);
 
 /// Remember a decoded manifest's declaration under the hash extension
 /// registration records for the same bytes.
@@ -121,10 +122,47 @@ pub(crate) fn record_manifest_declaration(manifest: &str, declaration: ProfileTo
         .insert(hash, declaration);
 }
 
-fn verified_undeclared() -> std::sync::MutexGuard<'static, BTreeSet<PackSelection>> {
-    VERIFIED_UNDECLARED
+/// What the CLI read from the bytes it verified for a selection.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ResolvedDeclaration {
+    pub(crate) pack_profile: PackProfile,
+    pub(crate) tools: Option<ProfileToolDeclaration>,
+}
+
+/// Holds a selection's value for admission; dropping it restores what was there.
+pub(crate) struct InstalledDeclaration {
+    previous: Option<(PackSelection, ResolvedDeclaration)>,
+}
+
+pub(crate) fn install_declaration(
+    selection: PackSelection,
+    declared: Option<ResolvedDeclaration>,
+) -> InstalledDeclaration {
+    let entry = declared.map(|declared| (selection, declared));
+    InstalledDeclaration {
+        previous: std::mem::replace(&mut *installed_declaration_slot(), entry),
+    }
+}
+
+impl Drop for InstalledDeclaration {
+    fn drop(&mut self) {
+        *installed_declaration_slot() = self.previous.take();
+    }
+}
+
+fn installed_declaration_slot()
+-> std::sync::MutexGuard<'static, Option<(PackSelection, ResolvedDeclaration)>> {
+    INSTALLED_DECLARATION
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// The installed value, only for the exact selection it was decoded for.
+fn installed_declaration(selection: &PackSelection) -> Option<ResolvedDeclaration> {
+    installed_declaration_slot()
+        .as_ref()
+        .filter(|(installed, _)| installed == selection)
+        .map(|(_, declared)| declared.clone())
 }
 
 /// The effective profile's and pack's declarations, or `None` when neither
@@ -138,15 +176,21 @@ pub(super) fn selected(
         sources.push(declaration);
     }
     let gates_ran = matches!(pack, PackSource::Environment);
-    let selection = match pack {
+    let (selection, resolved) = match pack {
         PackSource::Environment | PackSource::InheritedBeforeGates => {
-            pack_selection_from_environment()
+            let selection = pack_selection_from_environment();
+            let resolved = selection.as_ref().and_then(installed_declaration);
+            (selection, resolved)
         }
-        PackSource::Selected(selection) => Some(selection),
-        PackSource::None => None,
+        PackSource::Selected {
+            selection,
+            declared,
+        } => (Some(selection), declared),
+        PackSource::None => (None, None),
     };
     if let Some(selection) = selection
-        && let Some(declaration) = pack_declaration(profile, &selection, gates_ran)?
+        && let Some(declaration) =
+            pack_declaration(profile, &selection, resolved.as_ref(), gates_ran)?
     {
         sources.push(declaration);
     }
@@ -166,12 +210,12 @@ fn profile_declaration(profile: &str) -> Option<ProfileToolDeclaration> {
 }
 
 /// One selected pack: the variables the pack runtime reads.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) struct PackSelection {
-    pub(super) directory: PathBuf,
-    pub(super) id: String,
-    pub(super) version: String,
-    pub(super) hash: String,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PackSelection {
+    pub(crate) directory: PathBuf,
+    pub(crate) id: String,
+    pub(crate) version: String,
+    pub(crate) hash: String,
 }
 
 /// Where this admission finds the selected pack. Before the CLI installs its
@@ -184,8 +228,12 @@ pub(super) enum PackSource {
     /// The CLI gate, for a selection it inherited: a failure of a pack not known
     /// to declare stays the pack gates' refusal, at their place in the run.
     InheritedBeforeGates,
-    /// The CLI gate, for a selection it resolved, with the same rule.
-    Selected(PackSelection),
+    /// The CLI gate, for a selection it resolved, with the same rule. `declared`
+    /// is what it decoded; without one, the selection is read.
+    Selected {
+        selection: PackSelection,
+        declared: Option<ResolvedDeclaration>,
+    },
     None,
 }
 
@@ -199,17 +247,22 @@ fn pack_selection_from_environment() -> Option<PackSelection> {
     })
 }
 
-/// What the selected, verified bytes declare. Before the pack gates, a pack that
-/// does not decode or does not declare is not known to opt in, so its failure stays
-/// their refusal to make. After them it is refused: an unreadable selection must
-/// not turn a declared allowlist off.
+/// What the selected, verified bytes declare. A value the CLI decoded for this pack's
+/// profile answers without a read; another profile is judged from the bytes. Before
+/// the pack gates, a pack that does not decode or does not declare is not known to opt
+/// in, so its failure stays their refusal to make. After them it is refused: an
+/// unreadable selection must not turn a declared allowlist off.
 fn pack_declaration(
     profile: &str,
     selection: &PackSelection,
+    resolved: Option<&ResolvedDeclaration>,
     gates_ran: bool,
 ) -> Result<Option<ProfileToolDeclaration>, ProfileToolRefusal> {
-    if verified_undeclared().contains(selection) {
-        return Ok(None);
+    let expected = crate::planner::profile_descriptor::pack_profile_for_name(profile);
+    if let Some(resolved) = resolved
+        && expected.as_ref() == Some(&resolved.pack_profile)
+    {
+        return Ok(resolved.tools.clone());
     }
     let invalid =
         |reason: String| ProfileToolRefusal::new(RefusalKind::SelectedPackInvalid, reason);
@@ -222,16 +275,12 @@ fn pack_declaration(
     let verified = verify_selected_pack(selection, &pack);
     let Some(declaration) = declared.profile_tools else {
         return match verified {
-            Ok(()) => {
-                verified_undeclared().insert(selection.clone());
-                Ok(None)
-            }
+            Ok(()) => Ok(None),
             Err(reason) if gates_ran => Err(invalid(reason)),
             Err(_) => Ok(None),
         };
     };
     verified.map_err(invalid)?;
-    let expected = crate::planner::profile_descriptor::pack_profile_for_name(profile);
     if expected.as_ref() != Some(&pack.identity.profile) {
         return Err(ProfileToolRefusal::new(
             RefusalKind::SelectedPackInvalid,

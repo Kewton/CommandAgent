@@ -6,7 +6,7 @@
 
 use super::ProfileToolRefusal;
 use super::admission::admit_with;
-use super::selection::{PackSelection, PackSource};
+use super::selection::PackSource;
 use crate::cli_pack::ResolvedPack;
 use crate::config::Config;
 
@@ -15,12 +15,10 @@ pub(crate) fn refuse_before_cli_run(
     resolved_pack: &anyhow::Result<Option<ResolvedPack>>,
 ) -> Result<(), ProfileToolRefusal> {
     let pack = match resolved_pack {
-        Ok(Some(pack)) => PackSource::Selected(PackSelection {
-            directory: pack.directory.clone(),
-            id: pack.id.clone(),
-            version: pack.version.clone(),
-            hash: pack.hash.clone(),
-        }),
+        Ok(Some(pack)) => PackSource::Selected {
+            selection: pack.selection(),
+            declared: pack.declared.clone(),
+        },
         Ok(None) => PackSource::InheritedBeforeGates,
         Err(_) => PackSource::None,
     };
