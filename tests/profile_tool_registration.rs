@@ -2675,17 +2675,133 @@ fn jev_proxy_acting(act: Box<dyn FnOnce() + Send>) -> (String, std::thread::Join
     (url, thread)
 }
 
-#[derive(Debug, PartialEq, Eq)]
 struct OffRun {
     code: Option<i32>,
     stdout: String,
     stderr: String,
     requests: Vec<String>,
     events: Vec<String>,
+    /// The key paths of the `time_profile` event, when the run recorded one.
+    time_profile_keys: Option<Vec<String>>,
 }
 
-/// One run with a provider that answers. Everything that differs by construction
-/// between two runs is normalized: the private directories, ports, and durations.
+/// Every key of `value`, as sorted dotted paths.
+fn key_paths(value: &Value) -> Vec<String> {
+    fn walk(value: &Value, prefix: &str, paths: &mut Vec<String>) {
+        if let Value::Object(object) = value {
+            for (key, value) in object {
+                let path = format!("{prefix}{key}");
+                walk(value, &format!("{path}."), paths);
+                paths.push(path);
+            }
+        }
+    }
+    let mut paths = Vec::new();
+    walk(value, "", &mut paths);
+    paths.sort();
+    paths
+}
+
+/// Where two runs differ. They must match byte for byte, apart from whether
+/// `time_profile` was recorded: the base records it only when `total_ms() > 0`
+/// (104a166b `src/lib.rs:645`), so the run's duration decides that. When both recorded
+/// it, it must have the same keys.
+fn off_run_difference(run: &OffRun, control: &OffRun) -> Option<String> {
+    for (name, left, right) in [
+        (
+            "code",
+            format!("{:?}", run.code),
+            format!("{:?}", control.code),
+        ),
+        ("stdout", run.stdout.clone(), control.stdout.clone()),
+        ("stderr", run.stderr.clone(), control.stderr.clone()),
+        (
+            "requests",
+            format!("{:#?}", run.requests),
+            format!("{:#?}", control.requests),
+        ),
+        (
+            "events",
+            format!("{:#?}", run.events),
+            format!("{:#?}", control.events),
+        ),
+    ] {
+        if left != right {
+            return Some(format!("{name}:\n{left}\n--- control ---\n{right}"));
+        }
+    }
+    let (Some(keys), Some(expected)) = (&run.time_profile_keys, &control.time_profile_keys) else {
+        return None;
+    };
+    if keys != expected {
+        return Some(format!("time_profile keys: {keys:?}, control {expected:?}"));
+    }
+    ["lifecycle_stage", "command", "profile"]
+        .iter()
+        .find(|key| !keys.iter().any(|path| path == *key))
+        .map(|key| format!("time_profile has no `{key}`: {keys:?}"))
+}
+
+fn assert_same_off_run(run: &OffRun, control: &OffRun) {
+    if let Some(difference) = off_run_difference(run, control) {
+        panic!("{difference}");
+    }
+}
+
+#[test]
+fn only_the_presence_of_time_profile_may_differ_between_two_off_runs() {
+    let keys = |extra: &str| {
+        let mut keys = vec![
+            "command".to_string(),
+            "event".to_string(),
+            "lifecycle_stage".to_string(),
+            "profile".to_string(),
+        ];
+        keys.push(extra.to_string());
+        Some(keys)
+    };
+    let run = |events: &[&str], time_profile_keys: Option<Vec<String>>| OffRun {
+        code: Some(0),
+        stdout: "out".to_string(),
+        stderr: "err".to_string(),
+        requests: vec!["request".to_string()],
+        events: events.iter().map(ToString::to_string).collect(),
+        time_profile_keys,
+    };
+    let control = run(&["run_start"], keys("profile.total_ms"));
+    assert_eq!(
+        off_run_difference(&run(&["run_start"], keys("profile.total_ms")), &control),
+        None
+    );
+    // Absent from either side: the duration decided that.
+    assert_eq!(
+        off_run_difference(&run(&["run_start"], None), &control),
+        None
+    );
+    assert_eq!(
+        off_run_difference(&control, &run(&["run_start"], None)),
+        None
+    );
+    // Recorded by both with other keys, or missing a key: a difference.
+    assert!(off_run_difference(&run(&["run_start"], keys("profile.other_ms")), &control).is_some());
+    let without_command = Some(vec!["event".to_string(), "profile".to_string()]);
+    assert!(
+        off_run_difference(
+            &run(&["run_start"], without_command.clone()),
+            &run(&["run_start"], without_command)
+        )
+        .is_some()
+    );
+    // Any other event is compared, whatever the time profile did.
+    assert!(off_run_difference(&run(&["run_stop"], None), &control).is_some());
+    assert!(off_run_difference(&run(&[], keys("profile.total_ms")), &control).is_some());
+    let mut other = run(&["run_start"], None);
+    other.requests.clear();
+    assert!(off_run_difference(&other, &control).is_some());
+}
+
+/// One run with a provider that answers. Only what differs by construction between
+/// two runs is normalized: the private directories, ports, ids, and durations.
 fn off_cli_run(
     pack: &MovablePack,
     arguments: &[&str],
@@ -2726,8 +2842,7 @@ fn off_cli_run(
         "the jev call did not happen: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let durations =
-        regex::Regex::new(r#"("[a-z_]+_(?:ms|secs|seconds)":)[0-9.]+|\([0-9]+s\)"#).unwrap();
+    let durations = regex::Regex::new(r#"("[a-z_]+_(?:ms|seconds)":)[0-9.]+|\([0-9]+s\)"#).unwrap();
     let stable = |text: &str| {
         let text = normalize_text(&root, text)
             .replace(&home.path().display().to_string(), "<HOME>")
@@ -2736,6 +2851,7 @@ fn off_cli_run(
         durations.replace_all(&text, "${1}<N>").into_owned()
     };
     let mut events = Vec::new();
+    let mut time_profile_keys = None;
     let mut pending = vec![root.clone()];
     while let Some(directory) = pending.pop() {
         for entry in std::fs::read_dir(directory).into_iter().flatten().flatten() {
@@ -2744,10 +2860,13 @@ fn off_cli_run(
                 pending.push(path);
             } else if entry.file_name() == "events.jsonl" {
                 for line in std::fs::read_to_string(&path).unwrap().lines() {
-                    let event = normalize_event(&root, &serde_json::from_str(line).unwrap());
-                    // Recorded only when the run lasted a millisecond or more.
-                    if event["event"] != "time_profile" {
-                        events.push(stable(&event.to_string()));
+                    let event: Value = serde_json::from_str(line).unwrap();
+                    // Only this event's presence depends on the run's duration; see
+                    // `assert_same_off_run`. Every other line is compared.
+                    if event["event"] == "time_profile" {
+                        time_profile_keys = Some(key_paths(&event));
+                    } else {
+                        events.push(stable(line));
                     }
                 }
             }
@@ -2759,6 +2878,7 @@ fn off_cli_run(
         stderr: stable(&String::from_utf8_lossy(&output.stderr)),
         requests: requests.iter().map(|body| stable(body)).collect(),
         events,
+        time_profile_keys,
     }
 }
 
@@ -2847,7 +2967,7 @@ fn a_cli_selected_off_pack_is_not_read_by_admission_and_no_byte_changes() {
     assert_off_run_answered("--pack", &control);
     let run = off_cli_run(&pack, &flag, &[], None, pack.moving());
     pack.put_back();
-    assert_eq!(run, control);
+    assert_same_off_run(&run, &control);
 
     let preset = format!("[preset.moved]\npack = \"{MOVABLE_PACK}\"\n");
     let named = ["--profile", "data", "--preset", "moved", "--prompt", "hi"];
@@ -2855,7 +2975,7 @@ fn a_cli_selected_off_pack_is_not_read_by_admission_and_no_byte_changes() {
     assert_off_run_answered("preset", &control);
     let run = off_cli_run(&pack, &named, &[], Some(&preset), pack.moving());
     pack.put_back();
-    assert_eq!(run, control);
+    assert_same_off_run(&run, &control);
 }
 
 /// A selection the process inherited was not decoded by the CLI, so admission reads
@@ -2882,7 +3002,7 @@ fn an_inherited_off_pack_is_read_by_admission_and_no_byte_changes() {
     let control = off_cli_run(&pack, &flag, &[], None, nothing());
     assert_off_run_answered("--pack", &control);
     let run = off_cli_run(&pack, &inherited, &selection, None, nothing());
-    assert_eq!(run, control);
+    assert_same_off_run(&run, &control);
 
     let refused = off_cli_run(&pack, &inherited, &selection, None, pack.moving());
     pack.put_back();
