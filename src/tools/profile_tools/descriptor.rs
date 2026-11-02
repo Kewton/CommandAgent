@@ -285,16 +285,19 @@ pub(super) fn load(
 
 /// `schema` as the strict decode reads it. `serde_json` would keep the last of a repeated
 /// key, and can land a bound one step off, so the text and the value in force could
-/// disagree.
+/// disagree. `serde` also reads an array of the fields, where no key names `schema`, so
+/// anything but an object is refused.
 fn strict_schema(bytes: &[u8], tool_id: &str) -> Result<Option<Value>, ProfileToolRefusal> {
     std::str::from_utf8(bytes)
         .ok()
         .and_then(|text| admission::decode_descriptor(text, MAX_DESCRIPTOR_BYTES as usize).ok())
-        .map(|document| document.get("schema").cloned())
+        .and_then(|document| document.as_object().map(|fields| fields.get("schema").cloned()))
         .ok_or_else(|| {
             refusal(
                 RefusalKind::InvalidDescriptor,
-                format!("tool `{tool_id}` descriptor repeats a key or is not strict JSON"),
+                format!(
+                    "tool `{tool_id}` descriptor repeats a key, is not strict JSON, or is not an object"
+                ),
             )
         })
 }

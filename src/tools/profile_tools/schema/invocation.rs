@@ -549,7 +549,7 @@ pub(crate) fn check_xml_reply(text: &str, calls: &[ToolCall]) -> anyhow::Result<
 
 fn reply_text_can_change(text: &str) -> bool {
     let rest = after_leading_think_blocks(text);
-    rest.contains("<think>") || tool_tags_overlap(&rest.to_ascii_lowercase())
+    rest.contains("<think>") || tool_tags_overlap(rest)
 }
 
 fn after_leading_think_blocks(text: &str) -> &str {
@@ -563,9 +563,10 @@ fn after_leading_think_blocks(text: &str) -> &str {
     rest
 }
 
-fn tool_tags_overlap(lower: &str) -> bool {
+fn tool_tags_overlap(text: &str) -> bool {
     // The forms `xml_fallback` reads, with the kind each belongs to. It extracts one kind
-    // at a time, so any overlap between two kinds cuts a call out of another's string.
+    // at a time, so any overlap between two kinds cuts a call out of another's string. The
+    // match is case-sensitive like the parser's: what it does not read as a tag is text.
     const OPEN: [(&str, u8); 6] = [
         ("<anvil_tool_call>", 0),
         ("<anvil_tool_call name=\"", 0),
@@ -581,8 +582,8 @@ fn tool_tags_overlap(lower: &str) -> bool {
         ("</function>", 3),
     ];
     let mut open = None;
-    for (index, _) in lower.match_indices('<') {
-        let rest = &lower[index..];
+    for (index, _) in text.match_indices('<') {
+        let rest = &text[index..];
         if let Some((_, kind)) = OPEN.iter().find(|(tag, _)| rest.starts_with(tag)) {
             if open.is_some() {
                 return true;
@@ -616,6 +617,7 @@ mod tests {
             "<function=T>{}</function><tool_call>{}</tool_call>",
             "</tool_call>stray<function_call>{}</function_call>",
             "<function_call>{}</function_call><function name=\"T\">{}</function>",
+            "<TOOL_CALL><tool_call></tool_call></TOOL_CALL>",
         ] {
             assert!(!reply_text_can_change(text), "{text}");
         }
@@ -625,7 +627,8 @@ mod tests {
             "<think>never closed <tool_call>{}</tool_call>",
             "<think>a</think><think>never closed",
             "<anvil_tool_call name=\"T\">{\"s\":\"<tool_call>\"}</anvil_tool_call>",
-            "<TOOL_CALL><tool_call></tool_call></TOOL_CALL>",
+            "<tool_call>a</TOOL_CALL><anvil_tool_call>{}</anvil_tool_call>b</tool_call>",
+            "<function=T>a</FUNCTION><tool_call>{}</tool_call>b</function>",
             "<tool_call>a</anvil_tool_call>b</tool_call>",
             "<function=T>a</function_call>b</function>",
             "<function name=\"T\">a</tool_call>b</function>",

@@ -341,7 +341,7 @@ produces a schema call is discarded, whatever its spelling. In a reply that prod
 call, a `<think>` block other than complete ones ahead of everything else, a tool tag opened
 while another is open, a closing tag of another kind than the open one (`<function=` and
 `<function name=` are one kind, `<function_call>` another; a closing tag with nothing open is
-plain text), or a `<requirement_plan>` block the plan took out before the parse refuses the reply,
+plain text, and so is any spelling the parser does not read, such as `</TOOL_CALL>`), or a `<requirement_plan>` block the plan took out before the parse refuses the reply,
 because each can change a string in the arguments. A builtin and a flat tool in the same session
 keep every existing path.
 
