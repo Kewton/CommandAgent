@@ -46,8 +46,23 @@ const PROTECTION_RULES: &[ProtectionRule] = &[
             "src/bounded_process.rs",
             "src/bin/gui_server/delegate.rs",
             "src/planner/artifact_contract_checks/process.rs",
+            "src/tools/profile_tools/process.rs",
         ],
         audit: audit_bounded_execution_chokepoints,
+    },
+    ProtectionRule {
+        category: "profile_tool_effect_boundary",
+        site_predicate: "propose-artifacts process launch, result acceptance, and host commit",
+        required_wrapper: "env_clear / deny-default isolation / bounded process / bound result / fd commit with receipt",
+        allowlist: &[
+            "src/tools/profile_tools/isolation.rs",
+            "src/tools/profile_tools/process.rs",
+            "src/tools/profile_tools/protocol.rs",
+            "src/tools/profile_tools/commit.rs",
+            "src/tools/profile_tools/effects.rs",
+            "src/tools/registry.rs",
+        ],
+        audit: audit_profile_tool_effect_boundary,
     },
     ProtectionRule {
         category: "declarative_command_check_boundary",
@@ -206,6 +221,144 @@ fn protection_coverage_table_rejects_unregistered_mock_sites() {
             && violations.contains("direct child-process invocation"),
         "old GUI process location did not trip the moved delegate guard: {violations}"
     );
+}
+
+/// Each bypass of the G3 boundary fails the rule, one file changed at a time.
+#[test]
+fn profile_tool_effect_boundary_rejects_each_weakened_variant() {
+    let real = AuditCorpus::from_manifest_dir();
+    let rule = PROTECTION_RULES
+        .iter()
+        .find(|rule| rule.category == "profile_tool_effect_boundary")
+        .unwrap();
+    assert!(
+        (rule.audit)(&real, rule).is_empty(),
+        "{:?}",
+        (rule.audit)(&real, rule)
+    );
+    for (label, index, from, to) in [
+        (
+            "inherits the environment",
+            0,
+            ".env_clear()",
+            ".env_remove(\"PATH\")",
+        ),
+        ("drops the process group", 0, ".process_group(0)", ".uid(0)"),
+        ("starts open", 0, "(deny default)", "(allow default)"),
+        (
+            "opens the network",
+            0,
+            "(deny network*)",
+            "(allow network*)",
+        ),
+        (
+            "opens every write",
+            0,
+            r#"(allow file-write-data (literal "/dev/null"))"#,
+            "(allow file-write*)",
+        ),
+        (
+            "opens fork",
+            0,
+            "(allow sysctl-read)",
+            "(allow sysctl-read)\n(allow process-fork)",
+        ),
+        (
+            "borrows the old wrapper",
+            0,
+            "use std::time::Duration;",
+            "use std::time::Duration;\nuse crate::tools::os_sandbox::wrap_command;",
+        ),
+        (
+            "starts on any OS",
+            0,
+            "return Err(no_backend());",
+            "return Ok(());",
+        ),
+        ("leaves descendants", 1, "tracker.stop_all()", "(0, 0)"),
+        (
+            "ignores a cancel",
+            1,
+            "stop = Some(Ended::Cancelled)",
+            "let _ = Ended::Cancelled",
+        ),
+        (
+            "ignores the deadline",
+            1,
+            "stop = Some(Ended::TimedOut)",
+            "let _ = Ended::TimedOut",
+        ),
+        (
+            "reads an error as an end",
+            1,
+            "budget.read_failed.store(true, Ordering::SeqCst);\n                    return kept;",
+            "return kept;",
+        ),
+        (
+            "widens the result",
+            2,
+            "MAX_RESULT_BYTES: usize = 64 * 1024;",
+            "MAX_RESULT_BYTES: usize = 128 * 1024;",
+        ),
+        (
+            "widens the clock",
+            2,
+            "MAX_TIMEOUT_MS: u64 = 30_000;",
+            "MAX_TIMEOUT_MS: u64 = 60_000;",
+        ),
+        ("skips the fsync", 3, "file.sync_all()", "file.flush()"),
+        (
+            "writes in place",
+            3,
+            ".rename_to_leaf(&temporary.name)",
+            ".write_leaf(\"\")",
+        ),
+        (
+            "allows a hard link",
+            3,
+            "metadata.nlink() != 1",
+            "metadata.nlink() == 0",
+        ),
+        (
+            "trusts the start's answer before the process",
+            4,
+            "self.judge_now(context, STAGE_PROCESS)?;",
+            "",
+        ),
+        (
+            "trusts the start's answer before the commit",
+            4,
+            "&|| self.judge_now(context, STAGE_COMMIT),",
+            "&|| Ok(()),",
+        ),
+        (
+            "skips the pins before the commit",
+            4,
+            "self.verify_pins(STAGE_COMMIT)?;",
+            "",
+        ),
+        ("authorizes as a read", 4, "\"Write\",", "\"Read\","),
+        (
+            "drops the force cancel",
+            5,
+            "is_cancelled() || is_force_cancelled()",
+            "is_cancelled()",
+        ),
+    ] {
+        let mut mutated = AuditCorpus {
+            files: real.files.clone(),
+        };
+        let path = rule.allowlist[index];
+        let text = real.file(path);
+        assert!(text.contains(from), "{label}: `{from}` is not in {path}");
+        mutated
+            .files
+            .insert(path.to_string(), text.replacen(from, to, 1));
+        assert!(
+            !(rule.audit)(&mutated, rule).is_empty(),
+            "the rule did not see: {label}"
+        );
+    }
 }
 
 #[test]
@@ -487,6 +640,131 @@ fn audit_artifact_contract_process_boundary(
                 ));
             }
         }
+    }
+    violations
+}
+
+/// The text of a file above its test module: a unit test may start what production must not.
+fn production_text(text: &str) -> &str {
+    text.find("#[cfg(test)]\nmod tests")
+        .or_else(|| text.find("#[cfg(all(test, unix))]\nmod tests"))
+        .map_or(text, |position| &text[..position])
+}
+
+const PROFILE_TOOL_EFFECT_REQUIRED: [(usize, &str); 33] = [
+    (0, ".env_clear()"),
+    (0, ".envs(launch.env)"),
+    (0, ".process_group(0)"),
+    (0, "(deny default)"),
+    (0, "(deny network*)"),
+    (0, r#"(allow process-exec (literal (param "EXE")))"#),
+    (0, r#"(allow file-write-data (literal "/dev/null"))"#),
+    (0, "return Err(no_backend());"),
+    (0, "judge_probe("),
+    (1, "terminate_process_group(&mut child)"),
+    (1, "tracker.stop_all()"),
+    (1, "budget.overflow.store(true, Ordering::SeqCst)"),
+    (
+        1,
+        "budget.read_failed.store(true, Ordering::SeqCst);\n                    return kept;",
+    ),
+    (1, "stop = Some(Ended::Cancelled)"),
+    (1, "stop = Some(Ended::TimedOut)"),
+    (1, "feed_stdin(&mut pipe"),
+    (1, "descendant_left_behind"),
+    (2, "pub(crate) const MAX_RESULT_BYTES: usize = 64 * 1024;"),
+    (2, "pub(crate) const MAX_TIMEOUT_MS: u64 = 30_000;"),
+    (2, r#"Some("passed") => {}"#),
+    (2, "request_id_mismatch"),
+    (2, "runtime_pin_mismatch"),
+    (2, "output_digest_mismatch"),
+    (3, ".create_exclusive(&temporary_name)"),
+    (3, ".sync_all()"),
+    (3, ".rename_to_leaf(&temporary.name)"),
+    (3, "temporary.adopted = true;"),
+    (3, "metadata.nlink() != 1"),
+    (4, "self.judge_now(context, STAGE_PROCESS)?;"),
+    (4, "&|| self.judge_now(context, STAGE_COMMIT),"),
+    (4, "self.verify_pins(STAGE_COMMIT)?;"),
+    (4, "\"Write\","),
+    (5, "is_cancelled() || is_force_cancelled()"),
+];
+
+fn audit_profile_tool_effect_boundary(corpus: &AuditCorpus, rule: &ProtectionRule) -> Vec<String> {
+    let mut violations = Vec::new();
+    for (index, required) in PROFILE_TOOL_EFFECT_REQUIRED {
+        let path = rule.allowlist[index];
+        if !production_text(corpus.file(path)).contains(required) {
+            violations.push(format!("{path} is missing `{required}`"));
+        }
+    }
+    let isolation = rule.allowlist[0];
+    if production_text(corpus.file(isolation))
+        .matches("return Err(no_backend());")
+        .count()
+        != 2
+    {
+        violations.push(format!(
+            "{isolation} must refuse both the probe and the launch without a backend"
+        ));
+    }
+    for forbidden in [
+        "allow default",
+        "allow network",
+        "process-fork",
+        "mach-lookup",
+        "os_sandbox::",
+        "wrap_command",
+    ] {
+        let found = production_text(corpus.file(isolation))
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("//"))
+            .any(|line| line.contains(forbidden));
+        if found {
+            violations.push(format!("{isolation} uses `{forbidden}`"));
+        }
+    }
+    let process = rule.allowlist[1];
+    if production_text(corpus.file(process))
+        .matches("tracker.stop_all()")
+        .count()
+        != 2
+    {
+        violations.push(format!(
+            "{process} must stop descendants on both ways out of a run"
+        ));
+    }
+    for (path, forbidden) in [
+        (isolation, "spawn_child("),
+        (process, "spawn_child("),
+        (process, "verifier_env::"),
+        (process, "run_with_timeout"),
+        (process, "std::env::var"),
+    ] {
+        if production_text(corpus.file(path)).contains(forbidden) {
+            violations.push(format!("{path} uses `{forbidden}` in the launch"));
+        }
+    }
+    let commit = production_text(corpus.file(rule.allowlist[3]));
+    let order = [
+        ".create_exclusive(&temporary_name)",
+        "file.write_all(plan.bytes)",
+        "file.sync_all()",
+        ".rename_to_leaf(&temporary.name)",
+        "temporary.adopted = true;",
+    ]
+    .map(|step| commit.find(step));
+    let in_order =
+        order.iter().all(Option::is_some) && order.windows(2).all(|pair| pair[0] < pair[1]);
+    if !in_order {
+        violations.push(format!(
+            "{} does not write, sync, and rename a temporary in that order",
+            rule.allowlist[3]
+        ));
+    }
+    let effects = production_text(corpus.file(rule.allowlist[4]));
+    if effects.contains("\"Read\"") || effects.contains("access\": \"read_only") {
+        violations.push(format!("{} treats the effect as a read", rule.allowlist[4]));
     }
     violations
 }

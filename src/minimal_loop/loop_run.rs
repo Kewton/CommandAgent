@@ -459,7 +459,8 @@ fn run_session_planned(
     // scope during config resolution; direct minimal-loop callers get it here.
     // A source refusal is propagated so the run refuses honestly.
     crate::config::install_run_secret_scope(config)?;
-    let (registry, _schema_tools) = profile_tool_runtime::session_registry(config, &*client)?;
+    let (registry, _schema_tools) =
+        profile_tool_runtime::session_registry(config, &*client, &options)?;
     let mut native_tools_enabled = super::tool_protocol::native_tools_enabled(
         config.tool_protocol,
         client.supports_native_tools(&config.model),
@@ -1638,6 +1639,16 @@ fn run_session_planned(
                             "status": "ok",
                         }),
                     );
+                    for path in registry.take_committed_paths() {
+                        write_or_edit_seen = true;
+                        post_write_completion_tracker.note_successful_write(&path);
+                        if !changed_paths.contains(&path) {
+                            changed_paths.push(path.clone());
+                        }
+                        if !batch_changed_paths.contains(&path) {
+                            batch_changed_paths.push(path);
+                        }
+                    }
                     if matches!(call.name.as_str(), "Write" | "Edit") {
                         write_or_edit_seen = true;
                         budget_observation.note_successful_write();

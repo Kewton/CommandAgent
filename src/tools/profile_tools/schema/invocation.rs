@@ -84,6 +84,24 @@ impl SchemaGuard {
         self.adoption.schema().source()
     }
 
+    /// G3: the adopted values a process request is bound to.
+    pub(crate) fn adopted_inputs(&self) -> &[super::SchemaInput] {
+        self.adoption.inputs()
+    }
+
+    pub(crate) fn adopted_revision(&self) -> &str {
+        self.adoption.input_revision()
+    }
+
+    pub(crate) fn adopted_schema_sha256(&self) -> &str {
+        self.adoption.schema().sha256()
+    }
+
+    /// G3: the inputs on disk and the schema still hold the adopted values.
+    pub(crate) fn verify_adopted(&self, stage: &str) -> Result<(), ProfileToolRefusal> {
+        self.adoption.verify(stage)
+    }
+
     fn limits(&self) -> DecodeLimits {
         let limits = self.adoption.schema().limits();
         DecodeLimits {

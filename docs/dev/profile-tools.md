@@ -153,7 +153,8 @@ command) is admitted by the TUI command's check, with the effective profile.
 
 These are refused as `unavailable`. None has a stub that reports success.
 
-- Effects other than `read`, including `propose-artifacts` (G3).
+- Effects other than `read`. `propose-artifacts` runs only with the `pinned_process` runtime
+  below (G3); with any other runtime it stays refused here.
 - `object` and `array` flat parameters. A nested argument takes a schema, below.
 - Any runtime kind other than `in_process`, and an in-process runtime nobody
   registered. The `commandagent` binary registers none in G1, so through the CLI a
@@ -382,18 +383,283 @@ does not satisfy an artifact or a stage, and an unreported usage stays `None`.
   different profile, which is admitted when its command is dispatched. A schema tool of a pack chosen
   by `--pack` in the free text is also judged at dispatch, not before the classifier. Another refusal
   of a selected set, such as `unknown_tool_id`, keeps its place at the dispatched command.
-- The binary registers no runtime and no compiler, so through the CLI a schema tool is refused
-  as `unavailable`. Success runs go through the library entries.
+- The binary registers no runtime and no compiler, so through the CLI a schema tool with an
+  `in_process` runtime or a compiler is refused as `unavailable`. Success runs go through the
+  library entries. A `pinned_process` tool with a static schema needs neither, and runs through
+  the binary (G3, below).
 - A provider's own acceptance of this subset is not measured. Nothing here calls a live service.
-- The `dir_fd` limit above still applies. G3 takes it up, and a schema check does not resolve it.
+- The `dir_fd` limit above still applies to G1 and G2. G3 closes it for its own reads (below),
+  and a schema check does not resolve it.
 - The receiving context is a thread-local, which `provider_call` hands to its worker, as with the
   secret scope. A custom client that parses on another thread produces no receipt, so its calls
   are refused rather than trusted.
 
-## For G3
+## Bindings
 
 `admit_selected` returns `AdmittedProfileTools`. Each `AdmittedToolBinding` holds the
 run, profile, and tool identity, the schema and descriptor pins, the effect, the effective
-limits, and for a schema tool the input revision and the adopted schema's digest, with private
-fields and read-only accessors. Admission of a new tool does not change a profile's admission
-or assurance: an extension profile stays a draft with the `static` ceiling.
+limits, for a schema tool the input revision and the adopted schema's digest, and for a G3 tool
+the digest of its process declaration, with private fields and read-only accessors. Admission of
+a new tool does not change a profile's admission or assurance: an extension profile stays a
+draft with the `static` ceiling. `commit_receipts()` returns what the commit leaf decided.
+
+## The propose-artifacts effect: G3
+
+Issue #974. A process the operator pinned proposes bytes for one declared output. Only the host,
+after checking them, adopts them. The process is not given a workspace to write in: its input
+arrives on stdin, its candidate leaves on stdout, and the operating system refuses everything
+else. A tool with this effect always has a G2 schema, so it runs on Chat Completions native tool
+calls only, and is refused on the text tool protocol before the start.
+
+### Who owns what
+
+A profile or pack still says only `{ id = "...", effect = "propose-artifacts" }` and may narrow a
+limit. The executable, argv, environment, directories, and destination are the operator's, in the
+descriptor outside the workspace. A model chooses none of them, and the process never sees the
+destination.
+
+```json
+"effect": "propose-artifacts",
+"schema": {"protocol": "profile-tool.schema/v1", "root": {"...": "..."}, "inputs": ["config/source.txt"]},
+"runtime": {"kind": "pinned_process", "id": "<operator's label>"},
+"process": {
+  "protocol": "profile-tool.process/v1",
+  "executable": {"path": "/absolute/canonical/tool", "sha256": "<sha256 of the file>"},
+  "dependency_directories": [{"path": "/absolute/canonical/dir", "sha256": "<directory pin>"}],
+  "link_directories": [{"path": "/absolute/canonical/links", "sha256": "<directory pin>"}],
+  "argv": ["/absolute/canonical/dir/serializer.js"],
+  "cwd": "/absolute/canonical/dir",
+  "env": {"TOOL_MODE": "strict"},
+  "limits": {"timeout_ms": 30000, "max_result_bytes": 65536},
+  "outputs": [{"id": "artifact", "path": "config/settings.json"}]
+}
+```
+
+The binary resolves this with no registered runtime, so the CLI runs these tools.
+
+- A **directory pin** (`directory_pin`) is the SHA-256 over one line per entry below the
+  directory, sorted: `d\0path`, `f\0path\0sha256`, or `l\0path\0target`. A symlink is recorded and
+  never followed; anything else is refused. At most 200,000 entries and 4 GiB.
+- `dependency_directories` are readable. There can be several, because a loader's libraries need
+  not live beside the executable. `link_directories` are metadata-only: a directory of links a
+  loader walks through. `cwd` lies inside a dependency directory.
+- Every pinned path is canonical, outside the workspace, and at most 32 directories.
+- `outputs` holds exactly one entry. More than one is refused before the start
+  (`effect_output_refused`): separate renames are not one atomic adoption, and this first version
+  has no staged generation. `id` is opaque to the host.
+
+### The fixed environment
+
+The final `Command` clears its environment, and then holds the declared keys and nothing else. The
+host adds **no key of its own**. Bash, a loader, or the OS may set some of their own after `exec`
+(`PWD`, `__CF_USER_TEXT_ENCODING`); no value comes from the parent.
+
+- Keys and values are literal: nothing is expanded, referenced, or inherited.
+- At most 16 keys, each key at most 128 bytes and each value at most 1024. Over that is
+  `effect_limit_exceeded`. A key is a plain identifier, and a NUL in a value is refused.
+- The declaration is part of the descriptor's bytes, so a changed value is a pin mismatch
+  (`invalid_pin`), at admission and before each stage.
+- Refused without regard to case (`effect_env_refused`), because a loader, a shell, or a runtime
+  reads them as code or as a search path:
+  `PATH`, `HOME`, `IFS`, `ENV`, `BASH_ENV`, `BASHOPTS`, `SHELLOPTS`, `CLASSPATH`, `GCONV_PATH`,
+  `JAVA_TOOL_OPTIONS`, `JDK_JAVA_OPTIONS`, `_JAVA_OPTIONS`, `NODE_OPTIONS`, `NODE_PATH`,
+  `PERL5LIB`, `PERL5OPT`, `PERLLIB`, `PYTHONHOME`, `PYTHONPATH`, `PYTHONSTARTUP`, `RUBYLIB`,
+  `RUBYOPT`; any key beginning with `BASH_FUNC_`, `COMMANDAGENT_`, `DYLD_`, or `LD_`; any key
+  ending in `_PROXY`.
+- A value or an argument the existing secret scrub would change is refused with the value not
+  repeated (`effect_env_refused`). There is no second, looser rule.
+- The Rust core names no key or value specific to one executable. Something like
+  `OPENSSL_CONF=/dev/null` for a tool that needs it is the operator's to declare.
+
+### Isolation
+
+| OS | Result |
+| --- | --- |
+| macOS, where the probe below passes | A `deny default` Seatbelt policy, through `/usr/bin/sandbox-exec` |
+| macOS, where it fails (for example under another sandbox) | `unavailable` before the start |
+| Linux, Windows, anything else | `unavailable` before the start |
+
+There is no fallback to `auto`, to no sandbox, or to `os_sandbox::wrap_command`, which returns an
+unconfined command when a backend is missing. `src/tools/os_sandbox/` is not used and is unchanged.
+
+The policy is `src/tools/profile_tools/isolation.rs`. Every location is a `-D` parameter:
+
+- `deny default`; `deny network*`, including loopback and unix sockets.
+- `process-exec` of the pinned executable alone. There is no `process-fork` and no `mach-lookup`.
+- Read: the executable, each dependency directory, `/usr/lib`, `/System`, `/private/var/db/dyld`,
+  `/Library/Apple/System`, `/dev/null`, `/dev/urandom`, `/dev/random`, and the root directory
+  itself. `sysctl-read`.
+- Metadata: each pinned path and each of its ancestors, and each link directory. Nothing else can
+  be `stat`ed, so the existence and size of other files stay hidden.
+- Write: `/dev/null` only.
+
+**The probe.** Before the first provider call, every entry starts `/bin/bash` under this very
+policy: one round trip on stdin and stdout, then a write and two connections (TCP and UDP to a
+local socket the host holds open). It passes only if the round trip completes, the operating
+system refuses each with `Operation not permitted`, and the file and the connection did not
+happen. A timeout or an unreachable address is not evidence, and the policy is never loosened to
+pass. Nothing in production can ask for a different result.
+
+### The envelopes
+
+`profile-tool.request/v1`, one line of compact JSON on stdin: `request_id` (new per call), the tool
+ID, version, descriptor digest, `runtime_sha256` (the digest of the process declaration),
+`input_revision`, `schema_sha256`, the validated `arguments`, each adopted input as `path`,
+`sha256`, and `bytes_base64`, and `outputs` (the opaque ID). Inputs are the bytes G2 adopted, never
+read again from a path. A declared input is judged by the credential, workspace-policy, and
+protected-path rules before it is read. G2's read for a `read` tool stays as it was.
+
+`profile-tool.result/v1`, one JSON document on stdout, read by the strict decoder of G2:
+
+```json
+{"protocol": "profile-tool.result/v1", "request_id": "...", "tool_id": "...",
+ "runtime_sha256": "...", "input_revision": "...", "schema_sha256": "...",
+ "checks": [{"id": "shape", "status": "passed"}],
+ "outputs": [{"id": "artifact", "sha256": "...", "bytes_base64": "..."}],
+ "diagnostics": [{"code": "note", "message": "bounded data"}]}
+```
+
+Accepted only if: exit 0 on its own, the whole request taken, every stream read to its end, nothing
+left behind; no field unknown, none missing, no key repeated; each binding field equal to the
+request; at least one check, with distinct IDs, each exactly `passed` (`failed`, `not_run`,
+`unknown`, and anything else refuse); exactly the declared output, once; canonical base64; and the
+digest beside the bytes equal to the bytes. Exit 0, a success sentence, or a self-declared
+`accepted` is not evidence: an `accepted` key is an unknown field.
+
+A check that did not pass ends the run. It is not retried or returned as feedback in this version.
+Diagnostics are data: they go into the receipt or the rejection event, never into an error message
+later steps classify, and nothing runs them.
+
+### Limits
+
+| Limit | Value | How it counts |
+| --- | --- | --- |
+| Arguments | 64 KiB, depth 32, 512 elements | As in G2, on the raw text received |
+| Schema | 256 KiB | As in G2 |
+| The whole result | 64 KiB | Stdout plus stderr, as read, one shared budget stopped at its edge. Reading past it stops the process. It covers the diagnostics, which are inside stdout |
+| Expanded candidate | Within the same budget | The bytes after decoding are shorter than their base64 inside stdout, so they cannot exceed it |
+| One process | 30 s | Wall clock from spawn, through the feed of stdin. Stopping and reaping take at most a further 2.5 s, plus the process group's existing grace |
+| Diagnostics | 8, code 64 bytes, message 512 bytes | Inside the result |
+| Checks | 64 | Inside the result |
+| Env | 16 keys, 128 and 1024 bytes | Above |
+| Argv | 64 entries, 4096 bytes each | |
+
+`limits` in `process` can only narrow: a value of 0 or above an opening value is
+`effect_limit_exceeded`. `max_output_bytes` of the descriptor or the declaration narrows the result
+too. The request is not limited by these: it holds the adopted inputs, already bounded by G2 at
+1 MiB each and 8 MiB in all, and a process that does not take it all is refused. The artifact-contract
+v1 limits are unchanged.
+
+### Permissions
+
+The authority is the Write target of the existing allow policy (`AllowTarget::Write`), not the Read
+branch of `ExtensionTool`. A proposal tool is not an extension: it has its own entry in the registry,
+behind the same allowlist. It does not record `access=read_only`. The same judgement runs three
+times, with the values in force each time: before the start, right before the process, and right
+before the rename.
+
+Refused before the start as `effect_read_only`: an `ExecutionMode::Plan` context, a step of kind
+`inspect`, a recovery inspection with scoped reads, an allow policy without `write`, a legacy run
+without `--yes` (it could not write anyway), and an action that only plans (`Action::PlanSteps`,
+`Action::UltraPlan`). Refused as `effect_path_refused`: a destination or input that is outside the
+workspace, a credential, a hidden or engine path, or a protected path of the completion contract.
+`ToolContext.mode` is `Act` in every session, so the session leaf reads the step's kind instead.
+
+A name equal to a builtin, removed or not, is `name_collision`: it is checked against every builtin
+before any is removed, as in G1. Write, Edit, and Bash stay removed unless declared.
+
+| Kind | Cause |
+| --- | --- |
+| `unavailable` | The strict isolation is missing, on this OS or by the probe |
+| `effect_read_only` | One of the read-only contexts above |
+| `effect_limit_exceeded` | A limit above, widened or passed |
+| `effect_output_refused` | Not exactly one output, or an output ID that is not a slug |
+| `effect_path_refused` | A destination or input the rules refuse, at any stage, including what the commit finds there |
+| `effect_env_refused` | A refused key or value |
+| `invalid_pin` | The executable, a directory, the working directory, or the descriptor differs from its pin |
+| `process_failed` | The process did not end cleanly, including a cancel or a timeout |
+| `result_rejected` | The result failed a check above. The reason holds a fixed code |
+| `commit_failed` | The temporary could not be written, synced, or renamed. Nothing changed |
+
+### The commit
+
+`src/tools/profile_tools/commit.rs`, on a parent directory descriptor reached by a no-follow walk
+from a root descriptor held since admission:
+
+1. Open the leaf without following a link and `fstat` it. If anything is there, it must be a regular
+   file with one link, and not the same device and inode as an input or a protected path.
+2. `openat(O_CREAT|O_EXCL)` a temporary in the same directory, write, `fsync`.
+3. The same `fstat`, the full judgement again, the cancel.
+4. `renameat`. **Its success is the linearization point.**
+5. `fsync` the directory.
+
+Everything is checked before step 4: the runtime pin, request ID, input revision and digest, schema
+hash, the result's completeness, the candidate's digest, the limits, the cancel, the authority, and
+the path. A failure or a cancel before it leaves the old bytes in place and removes the temporary.
+
+After it the commit stands. A later cancel does not undo it: the receipt says
+`cancelled_after_commit: true`. A failed directory `fsync` is `durable: false` on a receipt that
+still says `committed: true`, not a failed commit.
+
+The receipt is `profile-tool.commit-receipt/v1`: the IDs, the path, `committed`, `durable`, the runtime,
+input, and schema digests, `result_sha256` (the raw stdout), `committed_sha256`, the byte count, and the
+diagnostics. It is the tool's result, it is on the `profile_tool_commit` event written immediately,
+and it is available from `commit_receipts()`. A session records a changed path from this receipt
+(`ToolRegistry::take_committed_paths`), never from a tool name or arguments. A receipt satisfies no
+artifact or stage. Dependence between stages is G4's.
+
+New events: `profile_tool_effect_call`, `profile_tool_effect_rejected`, and `profile_tool_commit`. The
+existing `tool_call_raw` and `tool_execute` events still surround a call. Their words are reserved in
+`src/sensitive_data/fixed_identifiers.rs`; an output ID, a path, and a diagnostic are not.
+
+### Decisions the issue body left open
+
+Decided with the project manager's approval. The issue body is not edited.
+
+- **Which OS.** macOS only, with its own strict launch. Everything else is unavailable before the start.
+- **Where the runtime comes from.** The operator's descriptor, with no registered runtime, so the binary
+  runs it too.
+- **Files.** The process writes nothing: bytes in on stdin, bytes out on stdout.
+- **Forks.** Denied by the policy, so a descendant cannot exist. `process.rs` still does not trust that:
+  a run stops its group, tracks descendants by their parent chain with their start time, stops the
+  group of one that left through the existing guarded helper, and refuses a run that left any alive.
+  It signals no group this run did not make: a descendant that joined another group stays counted
+  as alive, and the run is refused.
+- **Fixed environment.** Declared by the operator, literal, with the host adding no key. Measured on a
+  real interpreter under this policy: it needs one for its own configuration and the core does not
+  know which.
+- **A failed check ends the run.** "Do not hide it by retrying" is read strictly here. Returning it to
+  the model as feedback for a correction is a later decision.
+- **A step plan with an inspect step under such a profile** is refused at that step's session, before
+  its provider call, rather than withholding the tool.
+- **An action that only plans** means `Action::PlanSteps` and `Action::UltraPlan`. A library call to
+  `generate_step_plan` under another action, and the TUI's `/plan-steps`, publish no tool and start no
+  process; each still meets every other refusal, and a later run of that plan meets this one.
+
+### Known limits
+
+- The process runs only on macOS. No Linux backend exists here. Landlock alone does not close UDP or
+  writes this needs.
+- **A parent directory moved during the commit.** The walk holds the parent's descriptor, so swapping
+  its name for a symlink redirects nothing. But the held directory itself can be renamed out of the
+  workspace by something else while the commit runs, and the file lands where that directory went.
+  This is not closed.
+- **Case and Unicode aliases.** On a file system that folds them, `CONFIG/a.json` and `config/a.json`
+  are one file, and the string rules treat them as two. The commit's identity check catches a
+  destination that is the same inode as a protected file that already exists. Nothing folds case or
+  normalizes Unicode here, on purpose: a looser rule of its own would be a new way around the
+  protected paths. A protected path that does not yet exist is not covered.
+- **The G1 directory race.** G3's descriptor read compares the identities of the descriptors its walk
+  really held, so a registry directory swapped during the walk and put back is seen. This is closed for
+  the descriptor of a G3 tool. It stays open for G1 and G2 reads, which are unchanged. A dependency
+  directory's tree digest walks by path below the pinned directory, and the process is started by path,
+  so a change between the last check and `exec` is not closed. It is compared again before the commit.
+- **Crash.** A crash between the temporary's creation and the rename can leave a `.profile-tool-*.tmp`
+  file. It is not an artifact, nothing adopts it, and nothing removes it after a restart.
+- **A directory the commit made** stays if a later step fails.
+- **Descendants if the policy ever allowed a fork.** One that leaves its parent within one scan tick and
+  closes its streams would not be seen. The policy is what closes this today.
+- **REPL.** G2's limits carry over: a `--pack` in free text, a route the classifier proposes, and the
+  library `tui::repl::run` start before any admission. Each is admitted at its command and at its
+  session, so nothing is saved on those paths.
+- A provider's and a real tool's behavior is not measured here. Nothing here calls a live service.

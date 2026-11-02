@@ -14,6 +14,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+use super::effects::{EFFECT_PROPOSE_ARTIFACTS, RUNTIME_PINNED_PROCESS};
+use super::protocol::ProcessDeclaration;
 use super::schema::admission;
 use super::{ProfileToolRefusal, RefusalKind};
 use crate::planner::artifact_contract_checks::protocol;
@@ -52,6 +54,10 @@ pub struct Descriptor {
     #[serde(default)]
     pub requires: Vec<String>,
     pub limits: Limits,
+    /// The G3 pinned process of a `propose-artifacts` tool. The whole value is part of
+    /// the descriptor's bytes, so its digest pins this too.
+    #[serde(default)]
+    pub process: Option<ProcessDeclaration>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -137,6 +143,12 @@ pub(super) struct RegistryBinding {
 }
 
 impl RegistryBinding {
+    /// For a unit test that holds a real registry directory.
+    #[cfg(test)]
+    pub(super) fn capture_for_test(root: &Path, tool_id: &str) -> Self {
+        Self::capture(root, tool_id).unwrap()
+    }
+
     /// For a test of the parsing path, which reaches no registry.
     #[cfg(test)]
     pub(super) fn unreachable_for_test() -> Self {
@@ -185,6 +197,42 @@ impl RegistryBinding {
         self.check()?;
         Ok(bytes)
     }
+
+    /// G3: the identities are the ones the walk itself held while it read, so a directory
+    /// swapped during the walk and put back is seen. `read` above stays as G1 and G2 use it.
+    #[cfg(unix)]
+    fn read_held(&self) -> Result<Vec<u8>, String> {
+        let (file, held) = crate::tools::dir_fd::open_read_file_held(&self.root, &self.relative)
+            .map_err(|_| "cannot be opened as a regular file without a symlink".to_string())?;
+        if held.root != (self.root_identity.device, self.root_identity.inode)
+            || held.parent
+                != (
+                    self.directory_identity.device,
+                    self.directory_identity.inode,
+                )
+        {
+            return Err(
+                "is no longer reached from the directories it was admitted from".to_string(),
+            );
+        }
+        read_bounded(file, MAX_DESCRIPTOR_BYTES)
+    }
+
+    #[cfg(not(unix))]
+    fn read_held(&self) -> Result<Vec<u8>, String> {
+        Err("cannot be read through a held directory on this platform".to_string())
+    }
+}
+
+fn read_bounded(file: fs::File, limit: u64) -> Result<Vec<u8>, String> {
+    let mut bytes = Vec::new();
+    file.take(limit.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .map_err(|_| "cannot be read".to_string())?;
+    if bytes.len() as u64 > limit {
+        return Err(format!("exceeds {limit} bytes"));
+    }
+    Ok(bytes)
 }
 
 /// Read a regular file through the no-follow walk, with the bound applied to the
@@ -196,14 +244,7 @@ pub(super) fn read_without_following(
 ) -> Result<Vec<u8>, String> {
     let file = crate::tools::dir_fd::open_read_file(root, path)
         .map_err(|_| "cannot be opened as a regular file without a symlink".to_string())?;
-    let mut bytes = Vec::new();
-    file.take(limit.saturating_add(1))
-        .read_to_end(&mut bytes)
-        .map_err(|_| "cannot be read".to_string())?;
-    if bytes.len() as u64 > limit {
-        return Err(format!("exceeds {limit} bytes"));
-    }
-    Ok(bytes)
+    read_bounded(file, limit)
 }
 
 fn refusal(kind: RefusalKind, reason: impl Into<String>) -> ProfileToolRefusal {
@@ -343,6 +384,14 @@ fn validate(descriptor: &Descriptor, tool_id: &str) -> Result<(), ProfileToolRef
     if descriptor.dependencies.len() > MAX_DEPENDENCIES {
         return Err(invalid(format!(
             "at most {MAX_DEPENDENCIES} dependencies may be pinned"
+        )));
+    }
+    if descriptor.process.is_some()
+        && (descriptor.effect != EFFECT_PROPOSE_ARTIFACTS
+            || descriptor.runtime.kind != RUNTIME_PINNED_PROCESS)
+    {
+        return Err(invalid(format!(
+            "`process` belongs to effect `{EFFECT_PROPOSE_ARTIFACTS}` with runtime `{RUNTIME_PINNED_PROCESS}`"
         )));
     }
     let limits = descriptor.limits;
@@ -513,6 +562,140 @@ pub(super) fn verify_descriptor_pin(
         ));
     }
     Ok(())
+}
+
+/// The G3 form of [`verify_descriptor_pin`], compared on the descriptors the walk held.
+pub(super) fn verify_descriptor_pin_held(
+    registry: &RegistryBinding,
+    expected_sha256: &str,
+) -> Result<(), ProfileToolRefusal> {
+    let bytes = registry.read_held().map_err(|reason| {
+        refusal(
+            RefusalKind::InvalidPin,
+            format!("admitted descriptor {reason}"),
+        )
+    })?;
+    if sha256_hex(&bytes) != expected_sha256 {
+        return Err(refusal(
+            RefusalKind::InvalidPin,
+            "admitted descriptor changed since admission",
+        ));
+    }
+    Ok(())
+}
+
+const MAX_TREE_ENTRIES: usize = 200_000;
+const MAX_TREE_BYTES: u64 = 4 << 30;
+
+/// The identities behind one set of process pins, compared with the admission's.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct ProcessPins {
+    directories: Vec<DirectoryIdentity>,
+}
+
+/// The digest a `dependency_directories` or `link_directories` entry pins: for each entry
+/// below the directory, sorted by relative path, a type letter, the relative path, and the
+/// link target or the file's own digest. A symlink is recorded and never followed, and
+/// anything but a file, directory, or symlink is refused.
+pub fn directory_pin(directory: &Path) -> Result<String, String> {
+    let mut lines = Vec::new();
+    let mut budget = (MAX_TREE_ENTRIES, MAX_TREE_BYTES);
+    collect_tree(directory, Path::new(""), &mut lines, &mut budget)?;
+    lines.sort();
+    let mut digest = Sha256::new();
+    for line in lines {
+        digest.update(line.as_bytes());
+        digest.update([b'\n']);
+    }
+    Ok(format!("{:x}", digest.finalize()))
+}
+
+fn collect_tree(
+    root: &Path,
+    relative: &Path,
+    lines: &mut Vec<String>,
+    budget: &mut (usize, u64),
+) -> Result<(), String> {
+    let entries = fs::read_dir(root.join(relative)).map_err(|_| "cannot be listed".to_string())?;
+    for entry in entries {
+        let entry = entry.map_err(|_| "cannot be listed".to_string())?;
+        budget.0 = budget
+            .0
+            .checked_sub(1)
+            .ok_or_else(|| format!("holds more than {MAX_TREE_ENTRIES} entries"))?;
+        let path = relative.join(entry.file_name());
+        let shown = path.to_string_lossy().into_owned();
+        let kind = entry
+            .file_type()
+            .map_err(|_| "cannot be inspected".to_string())?;
+        if kind.is_symlink() {
+            let target =
+                fs::read_link(root.join(&path)).map_err(|_| "cannot be read".to_string())?;
+            lines.push(format!("l\0{shown}\0{}", target.to_string_lossy()));
+        } else if kind.is_dir() {
+            lines.push(format!("d\0{shown}"));
+            collect_tree(root, &path, lines, budget)?;
+        } else if kind.is_file() {
+            let bytes = read_without_following(root, &path, budget.1)?;
+            budget.1 = budget.1.saturating_sub(bytes.len() as u64);
+            lines.push(format!("f\0{shown}\0{}", sha256_hex(&bytes)));
+        } else {
+            return Err("holds something other than a file, directory, or symlink".to_string());
+        }
+    }
+    Ok(())
+}
+
+/// The executable, each pinned directory, and the working directory: canonical, outside
+/// the workspace, and holding what the descriptor pins. Used at admission, right before the
+/// process, and right before the commit.
+pub(super) fn verify_process_pins(
+    declaration: &ProcessDeclaration,
+    tool: &str,
+    workspace: &Path,
+) -> Result<ProcessPins, ProfileToolRefusal> {
+    let invalid = |reason: String| {
+        refusal(
+            RefusalKind::InvalidPin,
+            format!("tool `{tool}` process {reason}"),
+        )
+    };
+    let place = |path: &Path, label: &str| -> Result<(), ProfileToolRefusal> {
+        let canonical =
+            fs::canonicalize(path).map_err(|_| invalid(format!("{label} cannot be resolved")))?;
+        if canonical != path {
+            return Err(invalid(format!(
+                "{label} path must be canonical, without a symlink"
+            )));
+        }
+        ensure_outside_workspace(&canonical, workspace, label)
+    };
+    let executable = &declaration.executable;
+    place(&executable.path, "executable")?;
+    let (bytes, parent) = read_dependency(&executable.path)
+        .map_err(|reason| invalid(format!("executable {reason}")))?;
+    if sha256_hex(&bytes) != executable.sha256 {
+        return Err(invalid("executable does not match its pin".to_string()));
+    }
+    let mut directories = vec![parent];
+    for pin in declaration
+        .dependency_directories
+        .iter()
+        .chain(&declaration.link_directories)
+    {
+        place(&pin.path, "directory")?;
+        directories.push(
+            directory_identity(&pin.path)
+                .map_err(|reason| invalid(format!("directory {reason}")))?,
+        );
+        let digest =
+            directory_pin(&pin.path).map_err(|reason| invalid(format!("directory {reason}")))?;
+        if digest != pin.sha256 {
+            return Err(invalid("directory does not match its pin".to_string()));
+        }
+    }
+    place(&declaration.cwd, "cwd")?;
+    Ok(ProcessPins { directories })
 }
 
 fn ensure_outside_workspace(

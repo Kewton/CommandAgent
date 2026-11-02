@@ -51,6 +51,8 @@ pub struct ToolRegistry {
     repeated_reads: Arc<Mutex<RepeatedReadCache>>,
     /// Issue #972: when set, the only names published and executed.
     allowlist: Option<Arc<BTreeSet<String>>>,
+    /// Issue #974: tools with the `propose-artifacts` effect. Empty unless admitted.
+    proposals: BTreeMap<String, Arc<super::profile_tools::effects::ProposalTool>>,
 }
 
 impl Default for ToolRegistry {
@@ -60,6 +62,7 @@ impl Default for ToolRegistry {
             extensions: BTreeMap::new(),
             repeated_reads: Arc::new(Mutex::new(RepeatedReadCache::default())),
             allowlist: None,
+            proposals: BTreeMap::new(),
         }
     }
 }
@@ -77,14 +80,34 @@ impl ToolRegistry {
 
     /// Issue #972: a registry limited to the given builtins and tools. Names are
     /// checked for collisions against every builtin before any is removed.
+    #[cfg(test)]
     pub(crate) fn with_profile_tools(
         tools: impl IntoIterator<Item = super::extension::ExtensionTool>,
         builtin_tools: &[String],
     ) -> anyhow::Result<Self> {
+        Self::with_profile_tools_and_proposals(tools, [], builtin_tools)
+    }
+
+    /// Issue #974: the same, with proposal tools. Their names meet the same check, against
+    /// every builtin before any is removed.
+    pub(crate) fn with_profile_tools_and_proposals(
+        tools: impl IntoIterator<Item = super::extension::ExtensionTool>,
+        proposals: impl IntoIterator<Item = Arc<super::profile_tools::effects::ProposalTool>>,
+        builtin_tools: &[String],
+    ) -> anyhow::Result<Self> {
         let mut registry = Self::with_extensions(tools)?;
+        for proposal in proposals {
+            let name = proposal.name().to_string();
+            if registry.specs.iter().any(|spec| spec.function.name == name) {
+                bail!("duplicate tool name: {name}");
+            }
+            registry.specs.push(proposal.spec().clone());
+            registry.proposals.insert(name, proposal);
+        }
         let allowed = registry
             .extensions
             .keys()
+            .chain(registry.proposals.keys())
             .chain(builtin_tools)
             .cloned()
             .collect::<BTreeSet<_>>();
@@ -120,6 +143,15 @@ impl ToolRegistry {
         &self.specs
     }
 
+    /// Issue #974: what a proposal tool committed since the last call, from its receipts.
+    /// A session records these instead of guessing from a tool name or its arguments.
+    pub(crate) fn take_committed_paths(&self) -> Vec<String> {
+        self.proposals
+            .values()
+            .flat_map(|proposal| proposal.take_committed_paths())
+            .collect()
+    }
+
     pub fn execute(
         &self,
         name: &str,
@@ -143,6 +175,11 @@ impl ToolRegistry {
     {
         if !self.allows(name) {
             bail!("unknown tool: {name} is not in the selected profile's tool allowlist");
+        }
+        if let Some(proposal) = self.proposals.get(name) {
+            return proposal.execute(arguments, context, &|| {
+                is_cancelled() || is_force_cancelled()
+            });
         }
         if let Some(extension) = self.extensions.get(name) {
             return extension.execute(arguments, context);
