@@ -520,6 +520,7 @@ fn run_with_ui(
     config: &Config,
     ui: &dyn InteractionUi,
 ) -> anyhow::Result<String> {
+    crate::tools::profile_tools::refuse_before_provider(&config.workspace_root, &config.profile)?;
     if config.recovery_plan_auto_runs == 0 {
         return execute_initial(initial, planner, execution, config, ui);
     }

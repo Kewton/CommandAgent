@@ -264,6 +264,7 @@ pub(super) fn planner_chat_with_request_retry(
     messages: &[crate::state::ConversationMessage],
     ui: &dyn InteractionUi,
 ) -> anyhow::Result<AssistantReply> {
+    crate::tools::profile_tools::refuse_before_provider(&config.workspace_root, &config.profile)?;
     let mut last_error = None;
     for request_attempt in 1..=PLANNER_PROVIDER_REQUEST_ATTEMPTS {
         let result = {
@@ -952,6 +953,7 @@ pub fn run_step_plan_with_ui(
     config: &Config,
     ui: &dyn InteractionUi,
 ) -> anyhow::Result<String> {
+    crate::tools::profile_tools::refuse_before_provider(&config.workspace_root, &config.profile)?;
     let mut session = SessionSnapshot::new();
     run_step_plan_with_session_with_ui(
         client,

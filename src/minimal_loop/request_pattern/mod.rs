@@ -388,6 +388,7 @@ pub fn run_direct_prompt_with_common(
     classifier: Option<&dyn PatternClassifier>,
     common: Option<&str>,
 ) -> anyhow::Result<RunSessionOutcome> {
+    crate::tools::profile_tools::refuse_before_provider(&config.workspace_root, &config.profile)?;
     let mut options = RunSessionOptions::default();
     let routed = routes(settings, config);
     if routed || common.is_some() {

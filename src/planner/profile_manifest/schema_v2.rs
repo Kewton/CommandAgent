@@ -30,6 +30,9 @@ struct ManifestV2 {
     artifacts: ArtifactRequirements,
     guidance: ManifestGuidance,
     checks: BTreeMap<String, Vec<CheckBinding>>,
+    /// Issue #972: the explicit opt-in. Absent keeps every existing meaning.
+    #[serde(default)]
+    profile_tools: Option<crate::tools::profile_tools::ProfileToolDeclaration>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -62,15 +65,27 @@ pub(super) fn from_external_toml(input: &str) -> Result<ManifestV1, ManifestErro
 
 impl ManifestV2 {
     fn from_toml(input: &str) -> Result<ManifestV1, ManifestError> {
-        let manifest = toml::from_str::<Self>(input).map_err(ManifestError::Parse)?;
+        let mut manifest = toml::from_str::<Self>(input).map_err(ManifestError::Parse)?;
         if manifest.metadata.schema_version != SchemaVersion::V2 {
             return Err(ManifestError::Invalid {
                 field: "metadata.schema_version",
                 reason: "ManifestV2 accepts only `v2`".to_string(),
             });
         }
+        let profile_tools = manifest.profile_tools.take();
+        if let Some(declaration) = &profile_tools {
+            declaration
+                .validate()
+                .map_err(|reason| ManifestError::Invalid {
+                    field: "profile_tools",
+                    reason,
+                })?;
+        }
         let expanded = manifest.expand();
         expanded.resolve()?;
+        if let Some(declaration) = profile_tools {
+            crate::tools::profile_tools::selection::record_manifest_declaration(input, declaration);
+        }
         Ok(expanded)
     }
 

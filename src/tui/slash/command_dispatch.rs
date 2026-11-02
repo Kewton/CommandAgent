@@ -85,6 +85,7 @@ pub(super) fn run_command(
     execution: &mut dyn ChatClient,
     ui: &dyn crate::tui::InteractionUi,
 ) -> anyhow::Result<String> {
+    crate::tools::profile_tools::refuse_before_provider(&config.workspace_root, &config.profile)?;
     crate::preflight::run_for_slash_command(config, &parsed.command, &parsed.goal)?;
     match command.kind {
         SlashCommandKind::PlanSteps => {

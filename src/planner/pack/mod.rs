@@ -94,7 +94,18 @@ impl LoadedPack {
     }
 }
 
+/// A decoded pack with the tool declaration of the same bytes.
+#[derive(Debug)]
+pub(crate) struct DeclaredPack {
+    pub(crate) pack: LoadedPack,
+    pub(crate) profile_tools: Option<crate::tools::profile_tools::ProfileToolDeclaration>,
+}
+
 pub fn load_directory(path: &Path) -> Result<LoadedPack, PackError> {
+    load_declared_directory(path).map(|declared| declared.pack)
+}
+
+pub(crate) fn load_declared_directory(path: &Path) -> Result<DeclaredPack, PackError> {
     validate_pack_directory(path)?;
     let assist = read_optional(path.join(ASSIST_FILE))?;
     let eval = read_optional(path.join(EVAL_FILE))?;
@@ -106,14 +117,14 @@ pub fn parse_bytes(
     assist_bytes: Option<&[u8]>,
     eval_bytes: Option<&[u8]>,
 ) -> Result<LoadedPack, PackError> {
-    parse_members(assist_bytes, eval_bytes, BTreeMap::new())
+    parse_members(assist_bytes, eval_bytes, BTreeMap::new()).map(|declared| declared.pack)
 }
 
 fn parse_members(
     assist_bytes: Option<&[u8]>,
     eval_bytes: Option<&[u8]>,
     materials: BTreeMap<String, Vec<u8>>,
-) -> Result<LoadedPack, PackError> {
+) -> Result<DeclaredPack, PackError> {
     if assist_bytes.is_none() && eval_bytes.is_none() {
         return Err(PackError::Empty);
     }
@@ -128,7 +139,9 @@ fn parse_members(
         })?;
     let eval = eval_bytes
         .map(|bytes| strict_yaml::decode::<EvalPack>(EVAL_FILE, bytes))
-        .transpose()?
+        .transpose()?;
+    let profile_tools = eval.as_ref().and_then(EvalPack::profile_tools);
+    let eval = eval
         .map(EvalPack::validate)
         .transpose()
         .map_err(|reason| PackError::Invalid {
@@ -142,12 +155,15 @@ fn parse_members(
         (None, Some(eval)) => eval.pack.clone(),
         (None, None) => unreachable!("empty pack rejected above"),
     };
-    Ok(LoadedPack {
-        identity,
-        hash: exact_byte_hash_with_materials(assist_bytes, eval_bytes, &materials),
-        assist,
-        eval,
-        materials,
+    Ok(DeclaredPack {
+        pack: LoadedPack {
+            identity,
+            hash: exact_byte_hash_with_materials(assist_bytes, eval_bytes, &materials),
+            assist,
+            eval,
+            materials,
+        },
+        profile_tools,
     })
 }
 

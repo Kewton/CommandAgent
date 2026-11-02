@@ -22,7 +22,7 @@ use crate::tools::args_recovery::recover_tool_arguments;
 use crate::tools::bash::BashOutcomeKind;
 use crate::tools::path_guard::{normalize_workspace_path, resolve_existing};
 use crate::tools::registry::{
-    ToolContext, ToolRegistry, missing_arg_name, recoverable_tool_error, tool_error_kind,
+    ToolContext, missing_arg_name, recoverable_tool_error, tool_error_kind,
 };
 use crate::tui::status::UiStatus;
 use crate::tui::{InteractionUi, NOOP_UI};
@@ -67,6 +67,8 @@ mod implementation_completion;
 mod inspect_tool_policy;
 mod max_length_guard;
 mod output_limit_feedback;
+#[path = "profile_tool_runtime.rs"]
+mod profile_tool_runtime;
 mod recoverable_tool_errors;
 mod repair_start_feedback;
 mod repair_turn_observation;
@@ -457,7 +459,7 @@ fn run_session_planned(
     // scope during config resolution; direct minimal-loop callers get it here.
     // A source refusal is propagated so the run refuses honestly.
     crate::config::install_run_secret_scope(config)?;
-    let registry = ToolRegistry::default();
+    let registry = profile_tool_runtime::session_registry(config)?;
     let mut native_tools_enabled = super::tool_protocol::native_tools_enabled(
         config.tool_protocol,
         client.supports_native_tools(&config.model),
@@ -1585,7 +1587,10 @@ fn run_session_planned(
                 let split_has_install = split_bash_segments
                     .iter()
                     .any(|segment| segment.command.install_family().is_some());
-                if call.name == "Bash" && (split_bash_segments.len() > 1 || split_has_install) {
+                if call.name == "Bash"
+                    && registry.allows(&call.name)
+                    && (split_bash_segments.len() > 1 || split_has_install)
+                {
                     crate::tools::allow_policy::authorize_current(
                         &call.name,
                         &call.arguments,

@@ -1,0 +1,17 @@
+{
+  "issue": "#972",
+  "owner": "src/tools/profile_tools/ admission of the selected profile and pack tool set, through the public minimal loop and the public step-plan planner",
+  "base_sha": "104a166b5680422d89db5524ee1d93caed281a11",
+  "origin": "synthetic",
+  "synthetic_source": {
+    "cases": "hand-written generic profiles (a settings object reader and a document index reader), operator descriptors, and scripted replies; none is copied from a run, a benchmark task, or an issue evidence file",
+    "base_observation": "fixtures/off-golden.json was written by running the public entries against an export of base_sha with a recorder test that exists only outside this repository; the expectations of the off rows therefore do not come from the new implementation",
+    "excluded": "no live model, real key, external provider, Jev call, benchmark task, grader input, expected answer, generated code, run record, or host path is stored here"
+  },
+  "derived_fixture": "tests/profile_tool_registration.rs reads fixtures/cases.json and fixtures/off-golden.json",
+  "regenerate_digests": "shasum -a 256 fixtures/cases.json fixtures/off-golden.json",
+  "fixture_sha256": {
+    "cases.json": "37d0f71e5ceaa935a6f691f9a0d7a75a37a742490b92c3e053abff68c7220fb0",
+    "off-golden.json": "c006594d60a5fd039708f6c0c2d4b6ada2cd8783883bccbc51e3ccc7c41b2aea"
+  }
+}

@@ -9,6 +9,9 @@ use crate::cli::Cli;
 use crate::config::Config;
 use crate::planner::pack::PackIntent;
 use crate::planner::pack::catalog::{self, PackSource};
+use crate::tools::profile_tools::selection::{
+    InstalledDeclaration, PackSelection, ResolvedDeclaration, install_declaration,
+};
 
 const PACK_DIRECTORY_ENV: &str = "COMMANDAGENT_PACK_DIRECTORY";
 const PACK_ID_ENV: &str = "COMMANDAGENT_PACK_ID";
@@ -61,6 +64,20 @@ pub(crate) struct ResolvedPack {
     pub(crate) source: SelectionSource,
     #[serde(skip)]
     pub(crate) directory: PathBuf,
+    /// What the verified bytes declare. `None` is unknown: admission reads them.
+    #[serde(skip)]
+    pub(crate) declared: Option<ResolvedDeclaration>,
+}
+
+impl ResolvedPack {
+    pub(crate) fn selection(&self) -> PackSelection {
+        PackSelection {
+            directory: self.directory.clone(),
+            id: self.id.clone(),
+            version: self.version.clone(),
+            hash: self.hash.clone(),
+        }
+    }
 }
 
 pub(crate) fn resolve(cli: &Cli, config: &Config) -> anyhow::Result<Option<ResolvedPack>> {
@@ -115,12 +132,14 @@ fn resolve_inner(cli: &Cli, config: &Config) -> Result<Option<ResolvedPack>, Pac
             "pack `{id}@{version}` is retired and cannot be selected"
         )));
     }
-    let loaded = crate::planner::pack::load_directory(&directory).map_err(|error| {
+    let declared = crate::planner::pack::load_declared_directory(&directory).map_err(|error| {
         PackCliError::new(format!(
             "load selected pack {}: {error}",
             directory.display()
         ))
     })?;
+    let tools = declared.profile_tools;
+    let loaded = declared.pack;
     if loaded.id() != id || loaded.identity.version != version {
         return Err(PackCliError::new(format!(
             "selected directory identity is {}@{}, not {id}@{version}",
@@ -157,6 +176,10 @@ fn resolve_inner(cli: &Cli, config: &Config) -> Result<Option<ResolvedPack>, Pac
     Ok(Some(ResolvedPack {
         id: id.to_string(),
         version: version.to_string(),
+        declared: Some(ResolvedDeclaration {
+            pack_profile: loaded.identity.profile,
+            tools,
+        }),
         hash: loaded.hash,
         source,
         directory,
@@ -260,6 +283,8 @@ fn validate_compatibility(
 }
 
 pub(crate) struct RuntimeEnvironmentGuard {
+    // Declared before the lock: it is restored while the lock is still held.
+    _declared: Option<InstalledDeclaration>,
     _lock: Option<MutexGuard<'static, ()>>,
     previous: [Option<OsString>; 4],
 }
@@ -268,6 +293,7 @@ impl RuntimeEnvironmentGuard {
     pub(crate) fn install(selection: Option<&ResolvedPack>) -> anyhow::Result<Self> {
         let Some(selection) = selection else {
             return Ok(Self {
+                _declared: None,
                 _lock: None,
                 previous: [None, None, None, None],
             });
@@ -290,6 +316,10 @@ impl RuntimeEnvironmentGuard {
             }
         }
         Ok(Self {
+            _declared: Some(install_declaration(
+                selection.selection(),
+                selection.declared.clone(),
+            )),
             _lock: Some(lock),
             previous,
         })
@@ -345,5 +375,191 @@ mod tests {
         let (path, source) = locate(&repository, Some(&extension), "acme", "1.0.0").unwrap();
         assert_eq!(path, extension.join("acme/1.0.0"));
         assert_eq!(source, SelectionSource::ExtensionRoot);
+    }
+
+    const DECLARED_SELF_TEST_ENV: &str = "COMMANDAGENT_TEST_DECLARED_PACK_CHILD";
+
+    /// This installs process-wide variables, so it runs alone in its own process.
+    fn in_own_process(test: &str, body: fn()) {
+        if std::env::var_os(DECLARED_SELF_TEST_ENV).is_some() {
+            body();
+            return;
+        }
+        let home = tempfile::tempdir().unwrap();
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", test, "--nocapture"])
+            .env(DECLARED_SELF_TEST_ENV, "1")
+            .env("HOME", home.path())
+            .env_remove("COMMANDAGENT_ADAPTER_CONFIG_ROOT")
+            .env_remove(PACK_DIRECTORY_ENV)
+            .env_remove(PACK_ID_ENV)
+            .env_remove(PACK_VERSION_ENV)
+            .env_remove(PACK_HASH_ENV)
+            .status()
+            .unwrap();
+        assert!(status.success(), "{status}");
+    }
+
+    fn copy_directory(from: &Path, to: &Path) {
+        std::fs::create_dir_all(to).unwrap();
+        for entry in std::fs::read_dir(from).unwrap().flatten() {
+            let target = to.join(entry.file_name());
+            if entry.file_type().unwrap().is_dir() {
+                copy_directory(&entry.path(), &target);
+            } else {
+                std::fs::copy(entry.path(), target).unwrap();
+            }
+        }
+    }
+
+    /// `data-assist@1.0.0` of this repository, as a selection in a private workspace.
+    fn resolved_data_pack(root: &Path) -> (Config, ResolvedPack, PathBuf) {
+        let directory = root.join("packs/data-assist/1.0.0");
+        copy_directory(
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("packs/data-assist/1.0.0"),
+            &directory,
+        );
+        resolved(root, "data-assist@1.0.0", directory)
+    }
+
+    fn resolved(
+        root: &Path,
+        selector: &str,
+        directory: PathBuf,
+    ) -> (Config, ResolvedPack, PathBuf) {
+        use clap::Parser;
+        let cli = Cli::parse_from([
+            "commandagent",
+            "--profile",
+            "data",
+            "--intent",
+            "create",
+            "--pack",
+            selector,
+            "--prompt",
+            "hi",
+        ]);
+        let mut config = Config::from_cli(cli.clone()).unwrap();
+        config.workspace_root = root.to_path_buf();
+        let pack = resolve(&cli, &config).unwrap().unwrap();
+        (config, pack, directory)
+    }
+
+    fn admission_error(root: &Path, profile: &str) -> String {
+        crate::tools::profile_tools::admit_selected(root, profile, None)
+            .map(|_| ())
+            .unwrap_err()
+            .to_string()
+    }
+
+    #[test]
+    fn an_installed_selection_is_admitted_without_reading_the_pack() {
+        in_own_process(
+            "cli_pack::tests::an_installed_selection_is_admitted_without_reading_the_pack",
+            || {
+                let temp = tempfile::tempdir().unwrap();
+                let root = std::fs::canonicalize(temp.path()).unwrap();
+                let (config, pack, directory) = resolved_data_pack(&root);
+                assert_eq!(pack.declared.as_ref().unwrap().tools, None);
+                let moved = root.join("moved");
+
+                // The installed value answers with the pack gone.
+                let guard = RuntimeEnvironmentGuard::install(Some(&pack)).unwrap();
+                std::fs::rename(&directory, &moved).unwrap();
+                assert!(
+                    crate::tools::profile_tools::admit_selected(&root, "data", None)
+                        .map_err(|error| error.to_string())
+                        .unwrap()
+                        .is_none()
+                );
+                crate::tools::profile_tools::pre_run::refuse_before_workflow_node(&config).unwrap();
+                // Another profile does not take it: admission reads, and the pack is gone.
+                let error = admission_error(&root, "nextjs");
+                assert!(error.contains("selected_pack_invalid"), "{error}");
+                drop(guard);
+                assert_eq!(std::env::var_os(PACK_DIRECTORY_ENV), None);
+
+                // The same selection with nothing decoded, as a TUI confirmation installs
+                // it, reads: this is what the value above saved.
+                let unknown = ResolvedPack {
+                    declared: None,
+                    ..pack
+                };
+                let guard = RuntimeEnvironmentGuard::install(Some(&unknown)).unwrap();
+                let error = admission_error(&root, "data");
+                assert!(error.contains("selected_pack_invalid"), "{error}");
+                std::fs::rename(&moved, &directory).unwrap();
+                assert!(
+                    crate::tools::profile_tools::admit_selected(&root, "data", None)
+                        .map_err(|error| error.to_string())
+                        .unwrap()
+                        .is_none()
+                );
+                drop(guard);
+            },
+        );
+    }
+
+    #[test]
+    fn a_resolved_declaration_is_enforced_from_its_value_with_the_pack_gone() {
+        in_own_process(
+            "cli_pack::tests::a_resolved_declaration_is_enforced_from_its_value_with_the_pack_gone",
+            || {
+                let temp = tempfile::tempdir().unwrap();
+                let root = std::fs::canonicalize(temp.path()).unwrap();
+                let directory = root.join("packs/data-tools/1.0.0");
+                std::fs::create_dir_all(&directory).unwrap();
+                let eval = "schema_version: commandagent.pack.eval/v0\npack:\n  id: data-tools\n  version: 1.0.0\n  profile: data\n  intent: create\nprofile_tools:\n  schema_version: profile-tool.declaration/v1\n  builtin_tools: [Read]\n  tools:\n    - id: some-tool\n      effect: read\n";
+                std::fs::write(directory.join("eval.yaml"), eval).unwrap();
+                let hash = crate::planner::pack::exact_byte_hash(None, Some(eval.as_bytes()));
+                std::fs::write(directory.join("pack.sha256"), format!("{hash}\n")).unwrap();
+                let (config, pack, directory) = resolved(&root, "data-tools@1.0.0", directory);
+                let moved = root.join("moved");
+                std::fs::rename(&directory, &moved).unwrap();
+
+                // The operator root is unset: the declaration is what is refused, not
+                // a read of the pack, at the pre-run gate and after the guard installs.
+                let selected = Ok(Some(pack.clone()));
+                let error =
+                    crate::tools::profile_tools::pre_run::refuse_before_cli_run(&config, &selected)
+                        .unwrap_err()
+                        .to_string();
+                assert!(error.contains("registry_unavailable"), "{error}");
+                let _guard = RuntimeEnvironmentGuard::install(Some(&pack)).unwrap();
+                let error = admission_error(&root, "data");
+                assert!(error.contains("registry_unavailable"), "{error}");
+            },
+        );
+    }
+
+    #[test]
+    fn the_guard_restores_the_previous_value_and_only_the_exact_selection_takes_one() {
+        in_own_process(
+            "cli_pack::tests::the_guard_restores_the_previous_value_and_only_the_exact_selection_takes_one",
+            || {
+                let temp = tempfile::tempdir().unwrap();
+                let root = std::fs::canonicalize(temp.path()).unwrap();
+                let (_config, pack, directory) = resolved_data_pack(&root);
+                std::fs::rename(&directory, root.join("moved")).unwrap();
+                let guard = RuntimeEnvironmentGuard::install(Some(&pack)).unwrap();
+                // A different hash in the environment is another selection: it is read.
+                // SAFETY: this test runs alone in its own process.
+                unsafe { std::env::set_var(PACK_HASH_ENV, "0".repeat(64)) };
+                let error = admission_error(&root, "data");
+                assert!(error.contains("selected_pack_invalid"), "{error}");
+                drop(guard);
+
+                // After the guard the slot is empty: the same variables, set directly, read.
+                // SAFETY: this test runs alone in its own process.
+                unsafe {
+                    std::env::set_var(PACK_DIRECTORY_ENV, &pack.directory);
+                    std::env::set_var(PACK_ID_ENV, &pack.id);
+                    std::env::set_var(PACK_VERSION_ENV, &pack.version);
+                    std::env::set_var(PACK_HASH_ENV, &pack.hash);
+                }
+                let error = admission_error(&root, "data");
+                assert!(error.contains("selected_pack_invalid"), "{error}");
+            },
+        );
     }
 }

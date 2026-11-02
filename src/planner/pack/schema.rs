@@ -251,6 +251,9 @@ pub(super) struct EvalPack {
     schemas: Vec<ArtifactSchema>,
     #[serde(default)]
     score: Option<ScoreDeclaration>,
+    /// Issue #972: the explicit opt-in. Absent keeps every existing meaning.
+    #[serde(default)]
+    profile_tools: Option<crate::tools::profile_tools::ProfileToolDeclaration>,
 }
 
 #[derive(Debug)]
@@ -262,13 +265,25 @@ pub struct EvalPackDocument {
 }
 
 impl EvalPack {
+    /// What these exact bytes declare, read before `validate` consumes them.
+    pub(super) fn profile_tools(
+        &self,
+    ) -> Option<crate::tools::profile_tools::ProfileToolDeclaration> {
+        self.profile_tools.clone()
+    }
+
     pub(super) fn validate(self) -> Result<EvalPackDocument, String> {
         if self.schema_version != EVAL_SCHEMA_VERSION {
             return Err(format!("schema_version must be `{EVAL_SCHEMA_VERSION}`"));
         }
         self.pack.validate()?;
-        if self.checks.is_empty() && self.schemas.is_empty() {
+        if self.checks.is_empty() && self.schemas.is_empty() && self.profile_tools.is_none() {
             return Err("eval pack must declare checks or schemas".to_string());
+        }
+        if let Some(declaration) = &self.profile_tools {
+            declaration
+                .validate()
+                .map_err(|reason| format!("profile_tools: {reason}"))?;
         }
         unique(
             self.checks.iter().map(|check| check.id.as_str()),
