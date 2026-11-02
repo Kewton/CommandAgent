@@ -1615,16 +1615,21 @@ mod repl_order {
 
     /// Running, and not only a zombie nobody reaped, as under a container's first process.
     fn is_running(pid: i32) -> bool {
-        // SAFETY: signal 0 only asks whether the process exists.
-        let exists = unsafe { libc::kill(pid, 0) } == 0;
-        exists
-            && std::fs::read_to_string(format!("/proc/{pid}/stat"))
+        let state = if Path::new("/proc/self/stat").exists() {
+            std::fs::read_to_string(format!("/proc/{pid}/stat"))
                 .ok()
-                .and_then(|stat| {
-                    stat.rsplit_once(')')
-                        .map(|(_, rest)| rest.trim_start().starts_with('Z'))
-                })
-                != Some(true)
+                .and_then(|stat| stat.rsplit_once(')').map(|(_, rest)| rest.to_string()))
+        } else {
+            Command::new("ps")
+                .args(["-o", "stat=", "-p", &pid.to_string()])
+                .output()
+                .ok()
+                .map(|output| String::from_utf8_lossy(&output.stdout).into_owned())
+        };
+        state.is_some_and(|state| {
+            let state = state.trim_start();
+            !state.is_empty() && !state.starts_with('Z')
+        })
     }
 
     #[test]
