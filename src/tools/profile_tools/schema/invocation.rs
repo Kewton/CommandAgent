@@ -21,6 +21,7 @@ use super::validate::{self, Violation};
 use crate::config::Config;
 use crate::providers::ChatClient;
 use crate::providers::profile_tool_schema::{self, ProfileToolSchemaWire};
+use crate::providers::xml_fallback::LocatedToolCall;
 use crate::state::ToolCall;
 use crate::tools::args_recovery::{ToolArgsRecovery, recover_tool_arguments};
 use crate::tools::registry::ToolSpec;
@@ -495,8 +496,8 @@ fn plain_tag_arguments(
 /// Whether the calls a parser produced include a schema tool. This reads the decoded
 /// names, so a name written with a JSON escape counts, and a name mentioned in text
 /// does not.
-pub(crate) fn has_schema_call(calls: &[ToolCall]) -> bool {
-    calls.iter().any(|call| is_schema_tool(&call.name))
+pub(crate) fn has_schema_call<'a>(calls: impl IntoIterator<Item = &'a ToolCall>) -> bool {
+    calls.into_iter().any(|call| is_schema_tool(&call.name))
 }
 
 /// A parse that did not end in a schema call leaves nothing to execute. What it or a
@@ -527,17 +528,18 @@ pub(crate) fn watches_reply_text() -> bool {
     current().is_some()
 }
 
-/// Everything before an XML body is read can change a string inside it: the removal
-/// of a `<think>` block, the extraction of an inner tag, and the requirement plan's
-/// cut. A reply that produced a schema call is refused as a whole if any of these
-/// touched it, apart from complete `<think>` blocks ahead of everything else.
-pub(crate) fn check_xml_reply(text: &str, calls: &[ToolCall]) -> anyhow::Result<()> {
-    if !has_schema_call(calls) {
+/// In a reply that produced a schema call, every call, a builtin's too, must have been read
+/// from consecutive text of the reply: the parser removed nothing inside its tag. This reads
+/// the parser's own record, so it cannot differ from what the parser did. The requirement
+/// plan's cut comes before the parser, and a `<think>` block outside the complete ones ahead
+/// of everything else is refused as well.
+pub(crate) fn check_xml_reply(text: &str, calls: &[LocatedToolCall]) -> anyhow::Result<()> {
+    if !has_schema_call(calls.iter().map(|located| &located.call)) {
         return Ok(());
     }
     let cut =
         with_current(|state| state.shared.reply_cut.load(Ordering::SeqCst).then_some(())).is_some();
-    if cut || reply_text_can_change(text) {
+    if cut || think_block_outside_the_lead(text) || calls.iter().any(|located| located.spliced) {
         return Err(ProfileToolRefusal::new(
             RefusalKind::SchemaViolation,
             validate::render(STAGE_XML, &[violation("tag_inside_arguments")]),
@@ -547,9 +549,8 @@ pub(crate) fn check_xml_reply(text: &str, calls: &[ToolCall]) -> anyhow::Result<
     Ok(())
 }
 
-fn reply_text_can_change(text: &str) -> bool {
-    let rest = after_leading_think_blocks(text);
-    rest.contains("<think>") || tool_tags_overlap(rest)
+fn think_block_outside_the_lead(text: &str) -> bool {
+    after_leading_think_blocks(text).contains("<think>")
 }
 
 fn after_leading_think_blocks(text: &str) -> &str {
@@ -563,43 +564,6 @@ fn after_leading_think_blocks(text: &str) -> &str {
     rest
 }
 
-fn tool_tags_overlap(text: &str) -> bool {
-    // The forms `xml_fallback` reads, with the kind each belongs to. It extracts one kind
-    // at a time, so any overlap between two kinds cuts a call out of another's string. The
-    // match is case-sensitive like the parser's: what it does not read as a tag is text.
-    const OPEN: [(&str, u8); 6] = [
-        ("<anvil_tool_call>", 0),
-        ("<anvil_tool_call name=\"", 0),
-        ("<tool_call>", 1),
-        ("<function_call>", 2),
-        ("<function name=\"", 3),
-        ("<function=", 3),
-    ];
-    const CLOSE: [(&str, u8); 4] = [
-        ("</anvil_tool_call>", 0),
-        ("</tool_call>", 1),
-        ("</function_call>", 2),
-        ("</function>", 3),
-    ];
-    let mut open = None;
-    for (index, _) in text.match_indices('<') {
-        let rest = &text[index..];
-        if let Some((_, kind)) = OPEN.iter().find(|(tag, _)| rest.starts_with(tag)) {
-            if open.is_some() {
-                return true;
-            }
-            open = Some(*kind);
-        } else if let Some((_, kind)) = CLOSE.iter().find(|(tag, _)| rest.starts_with(tag)) {
-            // A closing tag with nothing open is ordinary text to the parser.
-            if open.is_some_and(|open| open != *kind) {
-                return true;
-            }
-            open = None;
-        }
-    }
-    false
-}
-
 /// What the XML prompt adds for a schema tool. Empty for every other tool.
 pub(crate) fn xml_prompt_note(name: &str) -> String {
     with_current(|state| state.guards.get(name).map(|guard| guard.xml_note())).unwrap_or_default()
@@ -607,34 +571,303 @@ pub(crate) fn xml_prompt_note(name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::reply_text_can_change;
+    use super::think_block_outside_the_lead;
 
     #[test]
-    fn only_complete_think_blocks_ahead_of_everything_leave_a_reply_unchanged() {
+    fn only_complete_think_blocks_ahead_of_everything_are_allowed() {
         for text in [
             "<tool_call>{}</tool_call>",
             "  <think>a</think>\n<think>b</think> <tool_call>{}</tool_call>",
             "<function=T>{}</function><tool_call>{}</tool_call>",
-            "</tool_call>stray<function_call>{}</function_call>",
-            "<function_call>{}</function_call><function name=\"T\">{}</function>",
             "<TOOL_CALL><tool_call></tool_call></TOOL_CALL>",
+            "<THINK>a</THINK><tool_call>{}</tool_call>",
         ] {
-            assert!(!reply_text_can_change(text), "{text}");
+            assert!(!think_block_outside_the_lead(text), "{text}");
         }
         for text in [
             "<tool_call>{\"s\":\"<think>a</think>\"}</tool_call>",
             "text <think>a</think> <tool_call>{}</tool_call>",
             "<think>never closed <tool_call>{}</tool_call>",
             "<think>a</think><think>never closed",
-            "<anvil_tool_call name=\"T\">{\"s\":\"<tool_call>\"}</anvil_tool_call>",
-            "<tool_call>a</TOOL_CALL><anvil_tool_call>{}</anvil_tool_call>b</tool_call>",
-            "<function=T>a</FUNCTION><tool_call>{}</tool_call>b</function>",
-            "<tool_call>a</anvil_tool_call>b</tool_call>",
-            "<function=T>a</function_call>b</function>",
-            "<function name=\"T\">a</tool_call>b</function>",
-            "<function_call>a</function>b</function_call>",
+            "<tool_call>{}</tool_call><think>later</think>",
         ] {
-            assert!(reply_text_can_change(text), "{text}");
+            assert!(think_block_outside_the_lead(text), "{text}");
         }
+    }
+}
+
+/// Every order of the pieces that can confuse the XML parser, inside and around a schema
+/// call. Whatever the parser does, a value that would run must be one the reply holds as
+/// consecutive text. The enumeration is fixed: there is no randomness.
+#[cfg(test)]
+mod exhaustive_tests {
+    use std::path::Path;
+    use std::sync::Arc;
+
+    use serde_json::{Value, json};
+
+    use super::super::super::descriptor::RegistryBinding;
+    use super::super::binding::{ToolPins, adopt};
+    use super::super::raw_json::{self, DecodeLimits};
+    use super::{ReceiveState, enter_session};
+    use crate::minimal_loop::tool_protocol::normalize_text_reply;
+    use crate::providers::AssistantReply;
+    use crate::tools::registry::{FunctionSpec, ToolSpec};
+
+    const TOOL: &str = "T";
+    /// A complete builtin call.
+    const BUILTIN: &str =
+        "<anvil_tool_call>{'name':'Read','arguments':{'path':'notes.txt'}}</anvil_tool_call>";
+    /// Everything the XML parser treats specially, and the spellings it does not read.
+    const ALL_PIECES: [&str; 25] = [
+        "<anvil_tool_call>",
+        "<anvil_tool_call name=\"T\">",
+        "<tool_call>",
+        "<function_call>",
+        "<function name=\"T\">",
+        "<function=T>",
+        "</anvil_tool_call>",
+        "</tool_call>",
+        "</function_call>",
+        "</function>",
+        "<TOOL_CALL>",
+        "</TOOL_CALL>",
+        "<FUNCTION=T>",
+        "</FUNCTION>",
+        "<think>",
+        "</think>",
+        "<to",
+        "ol_call>",
+        "<func",
+        "tion=T>",
+        "</tool",
+        "_call>",
+        "</func",
+        "tion>",
+        BUILTIN,
+    ];
+    /// The length 4 set: each kind of confusion once, to keep the run short.
+    const CORE_PIECES: [&str; 10] = [
+        "<anvil_tool_call>",
+        "</anvil_tool_call>",
+        "<tool_call>",
+        "</tool_call>",
+        "</TOOL_CALL>",
+        "<think>",
+        "</think>",
+        "<to",
+        "ol_call>",
+        BUILTIN,
+    ];
+
+    /// A schema call in pieces, each gap one place a piece can go.
+    struct Template {
+        open: (&'static str, &'static str),
+        before_value: &'static str,
+        after_value: &'static str,
+        close: (&'static str, &'static str),
+    }
+
+    const TEMPLATES: [Template; 2] = [
+        Template {
+            open: ("<to", "ol_call>"),
+            before_value: "{\"name\":\"T\",\"arguments\":{\"s\":\"",
+            after_value: "\"}}",
+            close: ("</tool", "_call>"),
+        },
+        Template {
+            open: ("<func", "tion=T>"),
+            before_value: "{\"s\":\"",
+            after_value: "\"}",
+            close: ("</func", "tion>"),
+        },
+    ];
+
+    const SLOTS: usize = 5;
+
+    /// Every way to give `length` pieces, in order, to the slots.
+    fn compositions(length: usize) -> Vec<[usize; SLOTS]> {
+        fn fill(
+            slot: usize,
+            left: usize,
+            current: &mut [usize; SLOTS],
+            out: &mut Vec<[usize; SLOTS]>,
+        ) {
+            if slot == SLOTS - 1 {
+                current[slot] = left;
+                out.push(*current);
+                return;
+            }
+            for here in 0..=left {
+                current[slot] = here;
+                fill(slot + 1, left - here, current, out);
+            }
+        }
+        let mut out = Vec::new();
+        fill(0, length, &mut [0; SLOTS], &mut out);
+        out
+    }
+
+    fn render(template: &Template, pieces: &[&str], slots: &[usize; SLOTS]) -> String {
+        let mut text = String::new();
+        let mut next = 0;
+        let mut take = |text: &mut String, slot: usize| {
+            for piece in &pieces[next..next + slots[slot]] {
+                text.push_str(piece);
+            }
+            next += slots[slot];
+        };
+        take(&mut text, 0);
+        text.push_str(template.open.0);
+        take(&mut text, 1);
+        text.push_str(template.open.1);
+        text.push_str(template.before_value);
+        take(&mut text, 2);
+        text.push_str(template.after_value);
+        text.push_str(template.close.0);
+        take(&mut text, 3);
+        text.push_str(template.close.1);
+        take(&mut text, 4);
+        text
+    }
+
+    fn holds_as_consecutive_text(reply: &str, value: &Value) -> bool {
+        if reply.contains(&value.to_string()) {
+            return true;
+        }
+        let limits = DecodeLimits {
+            bytes: usize::MAX,
+            depth: 32,
+            elements: 512,
+            lossless_numbers: true,
+        };
+        reply.match_indices('{').any(|(start, _)| {
+            reply[start..].match_indices('}').any(|(end, _)| {
+                raw_json::decode(&reply[start..=start + end], limits).as_ref() == Ok(value)
+            })
+        })
+    }
+
+    fn tool_spec(name: &str) -> ToolSpec {
+        ToolSpec {
+            kind: "function".to_string(),
+            function: FunctionSpec {
+                name: name.to_string(),
+                description: "d".to_string(),
+                parameters: json!({"type": "object"}),
+            },
+        }
+    }
+
+    struct Sweep {
+        state: Arc<ReceiveState>,
+        specs: Vec<ToolSpec>,
+        replies: usize,
+        executed: usize,
+        failures: Vec<String>,
+    }
+
+    impl Sweep {
+        fn new(workspace: &Path) -> Self {
+            let schema = json!({
+                "protocol": "profile-tool.schema/v1",
+                "root": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {"s": {"type": "string"}},
+                },
+            });
+            let pins = ToolPins {
+                tool_id: "exhaustive",
+                version: "1",
+                descriptor_sha256: "pin",
+                max_input_bytes: 1 << 20,
+            };
+            let adoption = adopt(&schema, &pins, workspace, "exhaustive").unwrap();
+            let mut state = ReceiveState::default();
+            state.add(
+                TOOL,
+                "d",
+                adoption,
+                RegistryBinding::unreachable_for_test(),
+                "pin",
+            );
+            Self {
+                state: Arc::new(state),
+                specs: vec![tool_spec(TOOL), tool_spec("Read")],
+                replies: 0,
+                executed: 0,
+                failures: Vec::new(),
+            }
+        }
+
+        fn check(&mut self, text: &str) {
+            self.replies += 1;
+            self.state.shared.clear();
+            let mut reply = AssistantReply::text(text);
+            if normalize_text_reply(&mut reply, &self.specs).is_err() {
+                return;
+            }
+            for call in reply.tool_calls.iter().filter(|call| call.name == TOOL) {
+                let Some(Ok(value)) = self.state.shared.take(TOOL) else {
+                    continue;
+                };
+                self.executed += 1;
+                if value != call.arguments || !holds_as_consecutive_text(text, &value) {
+                    self.failures.push(format!("{value} from {text}"));
+                }
+            }
+        }
+
+        fn sweep(&mut self, pieces: &[&str], length: usize) {
+            let compositions = compositions(length);
+            let mut indices = vec![0usize; length];
+            let mut chosen = vec![""; length];
+            loop {
+                for (slot, index) in indices.iter().enumerate() {
+                    chosen[slot] = pieces[*index];
+                }
+                for template in &TEMPLATES {
+                    for slots in &compositions {
+                        self.check(&render(template, &chosen, slots));
+                    }
+                }
+                let Some(position) = indices.iter().rposition(|index| index + 1 < pieces.len())
+                else {
+                    return;
+                };
+                indices[position] += 1;
+                indices[position + 1..].fill(0);
+            }
+        }
+    }
+
+    #[test]
+    fn no_order_of_the_pieces_runs_a_value_the_reply_does_not_hold() {
+        let workspace = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(workspace.path()).unwrap();
+        let mut sweep = Sweep::new(&root);
+        let _scope = enter_session(sweep.state.clone());
+        let started = std::time::Instant::now();
+        sweep.sweep(&ALL_PIECES, 3);
+        let at_three = sweep.replies;
+        sweep.sweep(&CORE_PIECES, 4);
+        println!(
+            "exhaustive: length 3 over {} pieces: {at_three} replies; length 4 over {} pieces: {} replies; {} values would run; {} failures; {:?}",
+            ALL_PIECES.len(),
+            CORE_PIECES.len(),
+            sweep.replies - at_three,
+            sweep.executed,
+            sweep.failures.len(),
+            started.elapsed(),
+        );
+        // The sweep measures something: some values do run.
+        assert!(sweep.executed > 0);
+        assert!(
+            sweep.failures.is_empty(),
+            "{} replies ran a value they do not hold:\n{}",
+            sweep.failures.len(),
+            sweep.failures.join("\n")
+        );
     }
 }

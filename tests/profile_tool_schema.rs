@@ -1325,6 +1325,22 @@ fn a_closing_tag_of_another_kind_in_a_string_runs_nothing() {
         format!(
             "<function_call>{{\"name\":\"{CONFIG_TOOL}\",\"arguments\":{{\"s\":\"a</Function_Call><tool_call>{read}</tool_call>b\"}}}}</function_call>"
         ),
+        // The parser closes the gap a call leaves and reads on, so a tag can appear that the
+        // reply never held, and a string can lose a part.
+        format!(
+            "<to<anvil_tool_call>{read}</anvil_tool_call>ol_call>{{\"name\":\"{CONFIG_TOOL}\",\"arguments\":{{\"s\":\"a<anvil_tool_call>{read}</anvil_tool_call>b\"}}}}</tool_call>"
+        ),
+        format!(
+            "<func<anvil_tool_call>{read}</anvil_tool_call>tion={CONFIG_TOOL}>{{\"s\":\"a<anvil_tool_call>{read}</anvil_tool_call>b\"}}</function>"
+        ),
+        // The same with one cut, where the value stays whole: a tag the reply never held.
+        format!(
+            "<to<anvil_tool_call>{read}</anvil_tool_call>ol_call>{{\"name\":\"{CONFIG_TOOL}\",\"arguments\":{{\"s\":\"a\"}}}}</tool_call>"
+        ),
+        // A schema call cut out of a builtin's string: every call is held to it.
+        format!(
+            "<tool_call>{{\"name\":\"Read\",\"arguments\":{{\"path\":\"notes<anvil_tool_call>{{\"name\":\"{CONFIG_TOOL}\",\"arguments\":{{\"s\":\"a\"}}}}</anvil_tool_call>.txt\"}}}}</tool_call>"
+        ),
     ];
     let mut failures = Vec::new();
     for content in cases {
@@ -1389,6 +1405,62 @@ fn a_descriptor_that_is_not_a_json_object_is_refused() {
             .starts_with("profile_tool_refused: invalid_descriptor:"),
         "{error}"
     );
+    set_env(REGISTRY_ENV, None);
+}
+
+/// A tag in a string that does not disturb the parse is part of the string. The value is
+/// delivered as the reply holds it, and no other call is made out of it.
+#[test]
+fn a_tag_in_a_string_the_parse_leaves_alone_is_delivered_as_written() {
+    let _guard = lock();
+    let schema = schema_declaration(closed(json!({"s": {"type": "string"}})));
+    let read = "{'name':'Read','arguments':{'path':'notes.txt'}}";
+    let cases = [
+        (
+            format!(
+                "<tool_call>{{\"name\":\"{CONFIG_TOOL}\",\"arguments\":{{\"s\":\"a</anvil_tool_call>b\"}}}}</tool_call>"
+            ),
+            "a</anvil_tool_call>b".to_string(),
+        ),
+        (
+            format!("<function={CONFIG_TOOL}>{{\"s\":\"a</function_call>b\"}}</function>"),
+            "a</function_call>b".to_string(),
+        ),
+        (
+            format!("<function name=\"{CONFIG_TOOL}\">{{\"s\":\"a</tool_call>b\"}}</function>"),
+            "a</tool_call>b".to_string(),
+        ),
+        (
+            format!(
+                "<function_call>{{\"name\":\"{CONFIG_TOOL}\",\"arguments\":{{\"s\":\"a</function>b\"}}}}</function_call>"
+            ),
+            "a</function>b".to_string(),
+        ),
+        // The outer kind is read first, so the inner tag is never looked at.
+        (
+            format!(
+                "<anvil_tool_call>{{\"name\":\"{CONFIG_TOOL}\",\"arguments\":{{\"s\":\"<tool_call>{read}</tool_call>\"}}}}</anvil_tool_call>"
+            ),
+            format!("<tool_call>{read}</tool_call>"),
+        ),
+    ];
+    for (content, value) in cases {
+        let env = Env::new();
+        env.write_tool(schema.clone());
+        let run = session(
+            &env,
+            Wire::Xml,
+            vec![text_reply(&content), text_reply("done")],
+            None,
+        );
+        assert_eq!(run.result.as_deref(), Ok("done"), "{content}");
+        assert_eq!(run.executed, vec![json!({"s": value})], "{content}");
+        assert_eq!(
+            env.events().matches("\"name\":\"Read\"").count(),
+            0,
+            "{content}"
+        );
+    }
     set_env(REGISTRY_ENV, None);
 }
 

@@ -337,13 +337,18 @@ which reshapes `name`, `tool`, and wrapper keys, the relaxed XML JSON, and the X
 XML, a named tag's body is the arguments, and a plain tag holds exactly
 `{"name": …, "arguments": …}`. These checks read the name of the call the parser produced,
 after JSON decoding, so a name written with an escape counts the same. A repair candidate that
-produces a schema call is discarded, whatever its spelling. In a reply that produced a schema
-call, a `<think>` block other than complete ones ahead of everything else, a tool tag opened
-while another is open, a closing tag of another kind than the open one (`<function=` and
-`<function name=` are one kind, `<function_call>` another; a closing tag with nothing open is
-plain text, and so is any spelling the parser does not read, such as `</TOOL_CALL>`), or a `<requirement_plan>` block the plan took out before the parse refuses the reply,
-because each can change a string in the arguments. A builtin and a flat tool in the same session
-keep every existing path.
+produces a schema call is discarded, whatever its spelling.
+
+The XML parser removes each call and each `<think>` block as it goes, and reads on from the text
+closed up, so a body can be different from anything the reply held, and a tag can appear that the
+reply never held. The parser records this, and the invariant reads its record: **in a reply that
+produced a schema call, every call, a builtin's too, was read from consecutive text of the reply.
+The parser removed nothing between the start of its tag and the end.** A reply that breaks this is
+refused as `tag_inside_arguments`. A tag in a string that does not disturb the parse stays part
+of the string and is delivered as it is, such as `</function>` inside a `<tool_call>`. Two more
+things refuse such a reply: a `<think>` block other than complete ones ahead of everything else,
+and a `<requirement_plan>` block the plan took out before the parse. A builtin and a flat tool in
+a reply without a schema call keep every existing path.
 
 An argument the validator refuses returns to the model as data, in the existing recoverable
 feedback: `{"stage": …, "violations": [{"path": …, "code": …}]}`. A path can hold a key the

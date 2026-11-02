@@ -137,6 +137,21 @@ pub(super) struct RegistryBinding {
 }
 
 impl RegistryBinding {
+    /// For a test of the parsing path, which reaches no registry.
+    #[cfg(test)]
+    pub(super) fn unreachable_for_test() -> Self {
+        let identity = DirectoryIdentity {
+            device: 0,
+            inode: 0,
+        };
+        Self {
+            root: PathBuf::new(),
+            root_identity: identity,
+            directory_identity: identity,
+            relative: PathBuf::new(),
+        }
+    }
+
     fn capture(root: &Path, tool_id: &str) -> Result<Self, String> {
         Ok(Self {
             root: root.to_path_buf(),
