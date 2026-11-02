@@ -1,0 +1,60 @@
+case_id = "profile-tool-registration"
+source = "Issue #972 (G1): synthetic scripted runs through the public minimal loop and step-plan planner for the explicit profile_tools opt-in; the off rows were recorded from an export of base 104a166b5680422d89db5524ee1d93caed281a11 before the feature existed; not a model-capability or bench measurement"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[json_fields]
+fixtures/cases.json:issue = "#972"
+fixtures/cases.json:kind = "synthetic"
+fixtures/off-golden.json:issue = "#972"
+fixtures/off-golden.json:kind = "synthetic"
+fixtures/off-golden.json:source = "104a166b"
+source-manifest.json:base_sha = "104a166b5680422d89db5524ee1d93caed281a11"
+source-manifest.json:origin = "synthetic"
+
+[fixture_contains]
+fixtures/cases.json = [
+  "\"id\": \"config-object-profile\"",
+  "\"id\": \"document-index-profile\"",
+  "\"id\": \"selected-pack\"",
+  "\"id\": \"unknown-id\"",
+  "\"id\": \"builtin-name-collision\"",
+  "\"id\": \"removed-builtin-name-collision\"",
+  "\"id\": \"schema-pin-mismatch\"",
+  "\"id\": \"dependency-swapped-before-start\"",
+  "\"id\": \"effect-not-implemented-g3\"",
+  "\"id\": \"nested-schema-not-implemented-g2\"",
+  "\"id\": \"os-feature-not-in-force\"",
+  "\"id\": \"generic-native\"",
+  "\"id\": \"planner-generic\"",
+  "\"refusal\": \"unknown_tool_id\"",
+  "\"refusal\": \"name_collision\"",
+  "\"refusal\": \"invalid_pin\"",
+  "\"refusal\": \"unavailable\"",
+  "\"refusal\": \"conflicting_declaration\""
+]
+fixtures/off-golden.json = [
+  "\"id\": \"generic-native\"",
+  "\"id\": \"generic-text-protocol\"",
+  "\"id\": \"undeclared-draft\"",
+  "\"id\": \"undeclared-draft-selected-pack\"",
+  "\"id\": \"planner-generic\""
+]

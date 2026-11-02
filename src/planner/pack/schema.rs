@@ -119,6 +119,10 @@ impl AssistPack {
             validate_point_owner(&self.pack, vocabulary.point)?;
             vocabulary.validate()?;
         }
+        crate::tools::profile_tools::selection::note_assist_pack_decoded(
+            &self.pack.id,
+            &self.pack.version,
+        );
         Ok(AssistPackDocument {
             pack: self.pack,
             inject: self.inject,
@@ -251,6 +255,9 @@ pub(super) struct EvalPack {
     schemas: Vec<ArtifactSchema>,
     #[serde(default)]
     score: Option<ScoreDeclaration>,
+    /// Issue #972: the explicit opt-in. Absent keeps every existing meaning.
+    #[serde(default)]
+    profile_tools: Option<crate::tools::profile_tools::ProfileToolDeclaration>,
 }
 
 #[derive(Debug)]
@@ -267,8 +274,13 @@ impl EvalPack {
             return Err(format!("schema_version must be `{EVAL_SCHEMA_VERSION}`"));
         }
         self.pack.validate()?;
-        if self.checks.is_empty() && self.schemas.is_empty() {
+        if self.checks.is_empty() && self.schemas.is_empty() && self.profile_tools.is_none() {
             return Err("eval pack must declare checks or schemas".to_string());
+        }
+        if let Some(declaration) = &self.profile_tools {
+            declaration
+                .validate()
+                .map_err(|reason| format!("profile_tools: {reason}"))?;
         }
         unique(
             self.checks.iter().map(|check| check.id.as_str()),
@@ -287,6 +299,11 @@ impl EvalPack {
         if let Some(score) = &self.score {
             score.validate(&self.checks)?;
         }
+        crate::tools::profile_tools::selection::note_eval_pack_decoded(
+            &self.pack.id,
+            &self.pack.version,
+            self.profile_tools,
+        );
         Ok(EvalPackDocument {
             pack: self.pack,
             checks: self.checks,

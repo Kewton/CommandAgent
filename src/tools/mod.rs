@@ -15,6 +15,7 @@ pub mod offline_policy;
 pub mod os_sandbox;
 pub mod path_guard;
 pub(crate) mod placeholder_path;
+pub mod profile_tools;
 pub mod read;
 pub(crate) mod read_missing;
 pub mod registry;

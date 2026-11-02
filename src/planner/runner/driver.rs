@@ -264,6 +264,7 @@ pub(super) fn planner_chat_with_request_retry(
     messages: &[crate::state::ConversationMessage],
     ui: &dyn InteractionUi,
 ) -> anyhow::Result<AssistantReply> {
+    crate::tools::profile_tools::refuse_before_provider(&config.workspace_root, &config.profile)?;
     let mut last_error = None;
     for request_attempt in 1..=PLANNER_PROVIDER_REQUEST_ATTEMPTS {
         let result = {

@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -49,6 +49,8 @@ pub struct ToolRegistry {
     specs: Vec<ToolSpec>,
     extensions: BTreeMap<String, super::extension::ExtensionTool>,
     repeated_reads: Arc<Mutex<RepeatedReadCache>>,
+    /// Issue #972: when set, the only names published and executed.
+    allowlist: Option<Arc<BTreeSet<String>>>,
 }
 
 impl Default for ToolRegistry {
@@ -57,6 +59,7 @@ impl Default for ToolRegistry {
             specs: default_tool_specs(),
             extensions: BTreeMap::new(),
             repeated_reads: Arc::new(Mutex::new(RepeatedReadCache::default())),
+            allowlist: None,
         }
     }
 }
@@ -70,6 +73,34 @@ impl ToolRegistry {
             registry.register_extension(extension)?;
         }
         Ok(registry)
+    }
+
+    /// Issue #972: a registry limited to the given builtins and tools. Names are
+    /// checked for collisions against every builtin before any is removed.
+    pub(crate) fn with_profile_tools(
+        tools: impl IntoIterator<Item = super::extension::ExtensionTool>,
+        builtin_tools: &[String],
+    ) -> anyhow::Result<Self> {
+        let mut registry = Self::with_extensions(tools)?;
+        let allowed = registry
+            .extensions
+            .keys()
+            .chain(builtin_tools)
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        registry
+            .specs
+            .retain(|spec| allowed.contains(&spec.function.name));
+        registry.allowlist = Some(Arc::new(allowed));
+        Ok(registry)
+    }
+
+    /// Whether this name may run. Every execution path checks it, because a
+    /// model can return a name that was never published.
+    pub(crate) fn allows(&self, name: &str) -> bool {
+        self.allowlist
+            .as_ref()
+            .is_none_or(|allowed| allowed.contains(name))
     }
 
     pub fn register_extension(
@@ -110,6 +141,9 @@ impl ToolRegistry {
         F: Fn() -> bool,
         G: Fn() -> bool,
     {
+        if !self.allows(name) {
+            bail!("unknown tool: {name} is not in the selected profile's tool allowlist");
+        }
         if let Some(extension) = self.extensions.get(name) {
             return extension.execute(arguments, context);
         }
@@ -824,6 +858,75 @@ mod tests {
                 .execute("Write", &json!({"path":"a","content":"b"}), &context)
                 .is_err()
         );
+    }
+
+    /// Issue #972: a declaration keeping Write does not reach past the mode or
+    /// the allow policy, and a removed name is refused at execution.
+    #[test]
+    fn profile_allowlist_intersects_mode_and_allow_policy() {
+        let dir = tempfile::tempdir().unwrap();
+        let registry = ToolRegistry::with_profile_tools(
+            Vec::new(),
+            &["Read".to_string(), "Write".to_string()],
+        )
+        .unwrap();
+        let names = registry
+            .specs()
+            .iter()
+            .map(|spec| spec.function.name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(names, ["Read", "Write"]);
+        let context = |mode| ToolContext {
+            root: dir.path().to_path_buf(),
+            mode,
+            auto_approve: true,
+            interactive_approval: false,
+            offline: false,
+            workspace_policy: WorkspacePolicy::NormalTask,
+            eval_events_path: None,
+            expected_paths: Vec::new(),
+            protected_paths: Vec::new(),
+        };
+        let write = json!({"path":"a.txt","content":"no"});
+
+        let error = registry
+            .execute("Write", &write, &context(ExecutionMode::Plan))
+            .unwrap_err();
+        assert!(error.to_string().contains("Plan mode"), "{error}");
+        assert!(!dir.path().join("a.txt").exists());
+
+        {
+            let _policy = crate::tools::allow_policy::install(
+                false,
+                &[crate::tools::allow_policy::AllowTarget::Read],
+            );
+            let error = registry
+                .execute("Write", &write, &context(ExecutionMode::Act))
+                .unwrap_err();
+            assert_eq!(tool_error_kind(&error), "allow_policy_rejected");
+            assert!(!dir.path().join("a.txt").exists());
+        }
+
+        let mut protected = context(ExecutionMode::Act);
+        protected.protected_paths = vec!["a.txt".to_string()];
+        let error = registry.execute("Write", &write, &protected).unwrap_err();
+        assert_eq!(tool_error_kind(&error), "protected_path_mutation_rejected");
+        assert!(!dir.path().join("a.txt").exists());
+
+        let error = registry
+            .execute(
+                "Bash",
+                &json!({"command":"true"}),
+                &context(ExecutionMode::Act),
+            )
+            .unwrap_err();
+        assert_eq!(tool_error_kind(&error), "unknown_tool");
+        assert!(recoverable_tool_error(&error));
+
+        registry
+            .execute("Write", &write, &context(ExecutionMode::Act))
+            .unwrap();
+        assert!(dir.path().join("a.txt").exists());
     }
 
     #[test]
