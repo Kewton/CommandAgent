@@ -2408,10 +2408,10 @@ mod not_macos {
 mod macos {
     use super::{
         Action, AtomicUsize, CANDIDATE_FAST, CANDIDATE_SAFE, COMMIT_PACK, CONFIG_PROFILE,
-        CONFIG_TOOL, CountingClassifier, CountingEndpoint, Env, Fake, FakeHttp, INDEX_OUTPUT,
-        INDEX_PROFILE, INDEX_TOOL, INDEX_TOOL_ID, NOOP_UI, OTHER_ENTRIES, OUTPUT, Ordering,
-        PACK_HOST, PLAN_GOAL, REGISTRY_ENV, Responder, SESSION_ENTRIES, SessionSnapshot, VALID,
-        Value, admit_selected, base_config, binary_command, binary_refused, call,
+        CONFIG_TOOL, CONFIG_TOOL_ID, CountingClassifier, CountingEndpoint, Env, Fake, FakeHttp,
+        INDEX_OUTPUT, INDEX_PROFILE, INDEX_TOOL, INDEX_TOOL_ID, NOOP_UI, OTHER_ENTRIES, OUTPUT,
+        Ordering, PACK_HOST, PLAN_GOAL, REGISTRY_ENV, Responder, SESSION_ENTRIES, SessionSnapshot,
+        VALID, Value, admit_selected, base_config, binary_command, binary_refused, call,
         client_from_config, config_schema, generate_step_plan, index_schema, json, lock,
         pack_selection_env, render_ultra_plan, run_entry, run_session_with_outcome_with_ui,
         run_with, set_env, sha256, step_plan, step_plan_reply, test_child, text_reply, tool_reply,
@@ -3039,19 +3039,216 @@ mod macos {
         set_env(REGISTRY_ENV, None);
     }
 
+    /// How long a start may take to be seen, and how long stopping may take.
+    const SEEN_WITHIN: Duration = Duration::from_secs(10);
+    const STOPPED_WITHIN: Duration = Duration::from_secs(10);
+
+    impl super::LaunchWatch {
+        /// Whether a sample has seen the tool yet, returning as soon as one has. The same samples
+        /// as [`Self::finish`] counts: this only stops waiting for the run to end.
+        fn seen_within(&self, limit: Duration) -> bool {
+            let deadline = Instant::now() + limit;
+            while self.seen.load(Ordering::SeqCst) == 0 {
+                if Instant::now() >= deadline {
+                    return false;
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            true
+        }
+    }
+
+    /// One row of the process list.
+    struct ProcessRow {
+        pid: i32,
+        parent: i32,
+        alive: bool,
+        command: String,
+    }
+
+    /// The whole process list, or why it could not be read. An answer that does not list this
+    /// process says nothing, so it is no proof that another process is gone.
+    fn process_rows() -> Result<Vec<ProcessRow>, String> {
+        let listing = std::process::Command::new("/bin/ps")
+            .args(["-axo", "pid=,ppid=,stat=,command="])
+            .env_clear()
+            .output()
+            .map_err(|error| format!("ps did not run: {error}"))?;
+        if !listing.status.success() {
+            return Err(format!("ps ended with {}", listing.status));
+        }
+        let rows = String::from_utf8_lossy(&listing.stdout)
+            .lines()
+            .map(|line| {
+                let mut fields = line.split_whitespace();
+                let mut number = || fields.next()?.parse().ok();
+                let (Some(pid), Some(parent)) = (number(), number()) else {
+                    return Err(format!("not a row of ps: {line}"));
+                };
+                let stat = fields
+                    .next()
+                    .ok_or_else(|| format!("not a row of ps: {line}"))?;
+                Ok(ProcessRow {
+                    pid,
+                    parent,
+                    alive: !stat.starts_with('Z'),
+                    command: fields.collect::<Vec<_>>().join(" "),
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        if !rows
+            .iter()
+            .any(|row| row.pid == std::process::id().cast_signed())
+        {
+            return Err("ps did not list this process".to_string());
+        }
+        Ok(rows)
+    }
+
+    /// Every process below `top`.
+    fn below(rows: &[ProcessRow], top: i32) -> Vec<i32> {
+        let mut found = vec![top];
+        let mut next = 0;
+        while let Some(&parent) = found.get(next) {
+            next += 1;
+            found.extend(
+                rows.iter()
+                    .filter(|row| row.parent == parent && !found.contains(&row.pid))
+                    .map(|row| row.pid)
+                    .collect::<Vec<_>>(),
+            );
+        }
+        found.remove(0);
+        found
+    }
+
+    /// The binary, running a tool that stays, with both of its streams read as they come. It is
+    /// stopped by its own pid and the pids below it, within a limit, however the test ends.
+    struct StayingRun {
+        child: Option<std::process::Child>,
+        script: String,
+        stdout: std::sync::mpsc::Receiver<Vec<u8>>,
+        stderr: std::sync::mpsc::Receiver<Vec<u8>>,
+    }
+
+    impl StayingRun {
+        fn spawn(mut command: std::process::Command, script: String) -> Self {
+            use std::process::Stdio;
+            let mut child = command
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            let stdout = read_to_its_end(child.stdout.take().unwrap());
+            let stderr = read_to_its_end(child.stderr.take().unwrap());
+            Self {
+                child: Some(child),
+                script,
+                stdout,
+                stderr,
+            }
+        }
+
+        /// Stops the binary and what is below it, and answers with the binary's stderr. The
+        /// binary is held first and reaped last: while it is held it starts nothing new and reaps
+        /// nothing, so a child it read here keeps its pid until that pid has been signalled. The
+        /// binary is killed and reaped even when the list could not be read.
+        fn stop(&mut self) -> Result<String, String> {
+            let Some(mut child) = self.child.take() else {
+                return Err("already stopped".to_string());
+            };
+            let deadline = Instant::now() + STOPPED_WITHIN;
+            let top = child.id().cast_signed();
+            // SAFETY: `top` is this test's own unreaped child, and this takes no pointer.
+            unsafe { libc::kill(top, libc::SIGSTOP) };
+            let tree = process_rows().map(|rows| below(&rows, top));
+            for pid in tree.iter().flatten().copied().filter(|pid| *pid > 1) {
+                // SAFETY: `pid` was read below this test's child, which is held and unreaped
+                // here. It is above 1 and signalled by number only, and this takes no pointer.
+                unsafe { libc::kill(pid, libc::SIGKILL) };
+            }
+            let _ = child.kill();
+            while child
+                .try_wait()
+                .map_err(|error| error.to_string())?
+                .is_none()
+            {
+                if Instant::now() >= deadline {
+                    return Err("the binary was not reaped in time".to_string());
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            let tree = tree?;
+            loop {
+                let rows = process_rows()?;
+                let left = rows
+                    .iter()
+                    .filter(|row| {
+                        row.alive && (tree.contains(&row.pid) || row.command.contains(&self.script))
+                    })
+                    .map(|row| row.pid)
+                    .collect::<Vec<_>>();
+                if left.is_empty() {
+                    break;
+                }
+                if Instant::now() >= deadline {
+                    return Err(format!("still running: {left:?}"));
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            let closed = "a stream of the binary did not close in time";
+            self.stdout
+                .recv_timeout(remaining)
+                .map_err(|_| closed.to_string())?;
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            let stderr = self
+                .stderr
+                .recv_timeout(remaining)
+                .map_err(|_| closed.to_string())?;
+            Ok(String::from_utf8_lossy(&stderr).into_owned())
+        }
+    }
+
+    impl Drop for StayingRun {
+        fn drop(&mut self) {
+            if self.child.is_some()
+                && let Err(reason) = self.stop()
+            {
+                eprintln!("the staying run was not stopped: {reason}");
+            }
+        }
+    }
+
+    fn read_to_its_end(
+        mut stream: impl std::io::Read + Send + 'static,
+    ) -> std::sync::mpsc::Receiver<Vec<u8>> {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            let _ = stream.read_to_end(&mut bytes);
+            let _ = sender.send(bytes);
+        });
+        receiver
+    }
+
     /// The witness for the zero in the refusal tests: the same watch sees the tool when it
-    /// really starts, in the binary too.
+    /// really starts, in the binary too. The watch starts first, and the tool's clock outlasts
+    /// the limit here, so only a tool that never ran can go unseen.
     #[test]
     fn the_launch_watch_sees_a_tool_that_really_starts() {
         let _guard = lock();
         let env = Env::new();
         env.write_changed(&super::staying_fake(), &|descriptor| {
-            descriptor["process"]["limits"]["timeout_ms"] = json!(1500);
+            descriptor["process"]["limits"]["timeout_ms"] = json!(30_000);
         });
         let http = FakeHttp::with_responder(Vec::new(), entry_responder(None));
         let home = tempfile::tempdir().unwrap();
+        let script = env.tools.join(CONFIG_TOOL_ID).join("tool.sh");
         let watch = super::LaunchWatch::start(&env);
-        let output = binary_command(&env.root, &env.registry, home.path())
+        let mut command = binary_command(&env.root, &env.registry, home.path());
+        command
             .args([
                 "--provider",
                 "lm-studio",
@@ -3064,16 +3261,15 @@ mod macos {
                 CONFIG_PROFILE,
                 "--prompt",
                 "Submit the object.",
-            ])
-            .output()
-            .unwrap();
-        http.finish();
-        assert!(
-            watch.finish() > 0,
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
+            ]);
+        let mut run = StayingRun::spawn(command, script.to_str().unwrap().to_string());
+        let seen_in_time = watch.seen_within(SEEN_WITHIN);
+        let stopped = run.stop();
+        let seen = watch.finish();
         set_env(REGISTRY_ENV, None);
+        let stderr = stopped.unwrap_or_else(|reason| panic!("not stopped: {reason}"));
+        http.finish();
+        assert!(seen_in_time && seen > 0, "{stderr}");
     }
 
     const PARENT_READER_SECRET: &str = "fake-parent-reader-secret-974-not-a-real-key";

@@ -42,6 +42,7 @@ and never fires for a real value.
 | `src/planner/runner/tests/support/process.rs` | `process_group_exists` | signal 0 probe (test support) | spawned child pid | none | **none** — test-only helper, outside this Issue's file scope (see §4) |
 | `tests/headless_summary.rs` | inline | positive pid | spawned `Child::id()` | none | **none** — test-only, outside this Issue's file scope |
 | `tests/gui_server.rs` | inline | signal 0 probe | spawned child pid | none | **none** — test-only, outside this Issue's file scope |
+| `tests/profile_tool_commit.rs` | `StayingRun::stop` | positive pid: `SIGSTOP` to the child, `SIGKILL` to each pid below it | spawned `Child::id()`, and the pids `ps` lists below that child while it is held | `pid > 1` filter on the `SIGKILL` | **none** — test-only, macOS-only, added by Issue #974; no process-group, `-1`, or by-name kill |
 | `tests/gui_read_only_guard.rs` | inline | none (string literal) | — | — | **none** — asserts the source text of `trial_process.rs` |
 
 `starts_with`-style work is not applicable here: the check is on the value that
@@ -204,6 +205,13 @@ admission that the remaining categories are not machine-checked here.
 from a child the test itself spawned, and the signal is an existence probe or a
 positive-pid `SIGINT`. They are listed so the inventory is complete, and so a
 future Issue can decide whether to guard them too.
+
+`tests/profile_tool_commit.rs` is a later test-only site of the same kind, added
+by Issue #974. `StayingRun::stop` sends `SIGSTOP` to the child the test spawned,
+reads the pids below it, sends `SIGKILL` to each of those pids while the child is
+held, and then kills and reaps the child. Its signals go only to positive pids:
+that child and the pids below it, never a process group, `-1`, or a name. It does
+not use the `src/bounded_process.rs` helpers because they stop a process group.
 
 ## 5. Dangerous-value tests (mutated runs only in the isolated container)
 
