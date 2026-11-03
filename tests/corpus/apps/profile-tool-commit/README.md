@@ -54,6 +54,8 @@ evidence of isolation. Off macOS the same entries expect `unavailable`.
 | `the_corpus_manifest_pins_its_fixtures`, `the_corpus_names_what_this_binary_runs` | Yes | Yes |
 | `not_macos::every_entry_expects_unavailable_with_no_provider_or_process` | No | Yes |
 | `not_macos::the_binary_expects_unavailable` | No | Yes |
+| `macos::a_tool_under_the_policy_does_not_find_the_credential_in_the_hosts_area` | Yes | No |
+| `macos::a_secret_in_a_tools_output_stops_the_run_and_goes_nowhere` | Yes | No |
 | `macos::a_config_object_and_a_document_index_commit_through_the_same_mechanism` | Yes | No |
 | `macos::every_session_entry_reaches_the_commit` | Yes | No |
 | `macos::an_inspect_step_is_refused_before_its_provider_call` | Yes | No |

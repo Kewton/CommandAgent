@@ -65,6 +65,17 @@ const PROTECTION_RULES: &[ProtectionRule] = &[
         audit: audit_profile_tool_effect_boundary,
     },
     ProtectionRule {
+        category: "startup_credential_boundary",
+        site_predicate: "provider credentials in a process's exec-time environment",
+        required_wrapper: "first-statement self exec / read-only store / no way back to an environment",
+        allowlist: &[
+            "src/main.rs",
+            "src/bin/gui_server.rs",
+            "src/startup_credentials.rs",
+        ],
+        audit: audit_startup_credential_boundary,
+    },
+    ProtectionRule {
         category: "declarative_command_check_boundary",
         site_predicate: "draft-profile and local-pack command checks",
         required_wrapper: "verify policy / normalized env / bounded process",
@@ -221,6 +232,111 @@ fn protection_coverage_table_rejects_unregistered_mock_sites() {
             && violations.contains("direct child-process invocation"),
         "old GUI process location did not trip the moved delegate guard: {violations}"
     );
+}
+
+/// Each way back to an environment, or a start that is not first, fails the rule.
+#[test]
+fn startup_credential_boundary_rejects_each_weakened_variant() {
+    let real = AuditCorpus::from_manifest_dir();
+    let rule = PROTECTION_RULES
+        .iter()
+        .find(|rule| rule.category == "startup_credential_boundary")
+        .unwrap();
+    assert!(
+        (rule.audit)(&real, rule).is_empty(),
+        "{:?}",
+        (rule.audit)(&real, rule)
+    );
+    for (label, path, from, to) in [
+        (
+            "the CLI does something first",
+            "src/main.rs",
+            "fn main() {\n    commandagent::startup_credentials::bootstrap_cli();",
+            "fn main() {\n    let _early = std::env::args();\n    commandagent::startup_credentials::bootstrap_cli();",
+        ),
+        (
+            "the CLI skips the start",
+            "src/main.rs",
+            "    commandagent::startup_credentials::bootstrap_cli();\n",
+            "",
+        ),
+        (
+            "the GUI skips the start",
+            "src/bin/gui_server.rs",
+            "    commandagent::startup_credentials::bootstrap_gui();\n",
+            "",
+        ),
+        (
+            "the GUI starts its runtime first",
+            "src/bin/gui_server.rs",
+            "fn main() -> anyhow::Result<()> {\n    commandagent::startup_credentials::bootstrap_gui();",
+            "#[tokio::main]\nasync fn main() -> anyhow::Result<()> {\n    commandagent::startup_credentials::bootstrap_gui();",
+        ),
+        (
+            "a value goes back to the environment",
+            "src/startup_credentials.rs",
+            "if super::HELD.set(Held(pairs)).is_err() {",
+            "unsafe { std::env::set_var(\"OPENAI_API_KEY\", \"x\") };\n        if super::HELD.set(Held(pairs)).is_err() {",
+        ),
+        (
+            "the store is public",
+            "src/startup_credentials.rs",
+            "static HELD: OnceLock<Held>",
+            "pub static HELD: OnceLock<Held>",
+        ),
+        (
+            "the store's Debug shows it",
+            "src/startup_credentials.rs",
+            ".field(\"count\", &self.0.len())",
+            ".field(\"values\", &self.0)",
+        ),
+        (
+            "the exec keeps the environment",
+            "src/startup_credentials.rs",
+            "command.args(arguments).env_clear();",
+            "command.args(arguments);",
+        ),
+        (
+            "a failed exec goes on",
+            "src/startup_credentials.rs",
+            "stop(\"this executable could not be started again\")",
+            "unreachable!()",
+        ),
+        (
+            "a marker alone is believed",
+            "src/startup_credentials.rs",
+            "if names.iter().any(|name| present(name).is_some()) {",
+            "if false {",
+        ),
+        (
+            "a child gets a received value",
+            "src/bin/gui_server/delegate.rs",
+            "fn restore_allowed_environment(command: &mut Command) {",
+            "fn restore_allowed_environment(command: &mut Command) {\n    let _ = commandagent::startup_credentials::var(\"OPENAI_API_KEY\");",
+        ),
+        (
+            "a reader copies a value to a child",
+            "src/providers/lm_studio.rs",
+            "crate::startup_credentials::var(LM_STUDIO_API_TOKEN_ENV)",
+            "command.env(\"X\", crate::startup_credentials::var(LM_STUDIO_API_TOKEN_ENV))",
+        ),
+        (
+            "a version check gets a credential",
+            "src/bin/gui_server/delegate.rs",
+            "        command.env_remove(name);\n",
+            "",
+        ),
+    ] {
+        let text = real.file(path);
+        assert!(text.contains(from), "{label}: the variant does not apply");
+        let mut changed = AuditCorpus {
+            files: real.files.clone(),
+        };
+        changed
+            .files
+            .insert(path.to_string(), text.replacen(from, to, 1));
+        assert!(!(rule.audit)(&changed, rule).is_empty(), "{label}");
+    }
 }
 
 /// Each bypass of the G3 boundary fails the rule, one file changed at a time.
@@ -717,6 +833,85 @@ fn audit_artifact_contract_process_boundary(
                     "{process}:{} uses `{forbidden}` in the adapter launch",
                     line_index + 1
                 ));
+            }
+        }
+    }
+    violations
+}
+
+/// Only these may read a received credential by name, each for its own request.
+const STARTUP_CREDENTIAL_READERS: [&str; 5] = [
+    "src/config.rs",
+    "src/doctor.rs",
+    "src/providers/lm_studio.rs",
+    "src/minimal_loop/request_pattern/jev.rs",
+    "src/tools/profile_tools/effects.rs",
+];
+
+fn audit_startup_credential_boundary(corpus: &AuditCorpus, rule: &ProtectionRule) -> Vec<String> {
+    let mut violations = Vec::new();
+    let [main, gui, store] = rule.allowlist else {
+        return vec!["the rule lists three files".to_string()];
+    };
+    for (path, required) in [
+        (
+            *main,
+            "fn main() {\n    commandagent::startup_credentials::bootstrap_cli();",
+        ),
+        (
+            *gui,
+            "fn main() -> anyhow::Result<()> {\n    commandagent::startup_credentials::bootstrap_gui();",
+        ),
+        (*store, "command.args(arguments).env_clear();"),
+        (*store, ".field(\"count\", &self.0.len())"),
+        (
+            *store,
+            "stop(\"this executable could not be started again\")",
+        ),
+        (
+            *store,
+            "if names.iter().any(|name| present(name).is_some()) {",
+        ),
+        (*store, "\nstatic HELD: OnceLock<Held>"),
+    ] {
+        if !production_text(corpus.file(path)).contains(required) {
+            violations.push(format!("{path} is missing `{required}`"));
+        }
+    }
+    if corpus.file(gui).contains("#[tokio::main]\nasync fn main()") {
+        violations.push(format!(
+            "{gui} starts its runtime before the credential start"
+        ));
+    }
+    if production_text(corpus.file(store)).contains("set_var") {
+        violations.push(format!("{store} puts a value back in the environment"));
+    }
+    for name in ["OPENAI_API_KEY", "GEMINI_API_KEY", "LM_STUDIO_API_TOKEN"] {
+        if corpus.file("src/bin/gui_server/delegate.rs").contains(name)
+            && !corpus
+                .file("src/bin/gui_server/delegate.rs")
+                .contains("        command.env_remove(name);\n")
+        {
+            violations.push(format!(
+                "src/bin/gui_server/delegate.rs gives its version check {name}"
+            ));
+        }
+    }
+    for (path, text) in &corpus.files {
+        if !path.starts_with("src/") || path == store {
+            continue;
+        }
+        let code = production_text(text);
+        let reads = code.contains("startup_credentials::var")
+            || code.contains("startup_credentials::held_values");
+        if reads && !STARTUP_CREDENTIAL_READERS.contains(&path.as_str()) {
+            violations.push(format!("{path} reads a received credential"));
+        }
+        for line in code.lines() {
+            if line.contains("startup_credentials::")
+                && (line.contains(".env(") || line.contains(".envs(") || line.contains("set_var"))
+            {
+                violations.push(format!("{path} copies a received credential: {line}"));
             }
         }
     }

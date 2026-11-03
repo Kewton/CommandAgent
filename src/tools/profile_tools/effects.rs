@@ -12,7 +12,7 @@
 use std::fmt;
 use std::fs::File;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -25,9 +25,10 @@ use super::process::{self, RunLimits};
 use super::protocol::{self, Binding, Diagnostic, ProcessDeclaration};
 use super::schema::SchemaInput;
 use super::schema::invocation::SchemaGuard;
+use super::secret_output::SecretForms;
 use super::selection::DeclaredTool;
 use super::{ProfileToolRefusal, RefusalKind};
-use crate::config::{Action, Config};
+use crate::config::{Action, Config, OpenAiCompatibleConfig};
 use crate::eval_events;
 use crate::mode::ExecutionMode;
 use crate::tools::registry::{FunctionSpec, ToolContext, ToolSpec};
@@ -221,6 +222,9 @@ pub(crate) struct ProposalTool {
     receipts: Arc<Mutex<Vec<ToolExecutionReceipt>>>,
     commits: Arc<Mutex<Vec<CommitReceipt>>>,
     pending_paths: Mutex<Vec<String>>,
+    /// The run's compatible provider, once an entry has judged this tool. Its key is a secret
+    /// of this run under whatever name the configuration chose.
+    compatible: OnceLock<OpenAiCompatibleConfig>,
 }
 
 impl fmt::Debug for ProposalTool {
@@ -294,6 +298,7 @@ impl ProposalTool {
             receipts: parts.receipts,
             commits: parts.commits,
             pending_paths: Mutex::new(Vec::new()),
+            compatible: OnceLock::new(),
         })
     }
 
@@ -331,6 +336,9 @@ impl ProposalTool {
     /// without a proposal tool, because this is only reached through one.
     pub(super) fn preflight(&self, config: &Config) -> Result<(), ProfileToolRefusal> {
         let tool = self.name();
+        if let Some(compatible) = &config.openai_compatible {
+            let _ = self.compatible.set(compatible.clone());
+        }
         if matches!(config.action, Action::PlanSteps(_) | Action::UltraPlan(_)) {
             return Err(refusal(
                 RefusalKind::EffectReadOnly,
@@ -518,6 +526,7 @@ impl ProposalTool {
         self.judge_now(context, STAGE_PROCESS)?;
         self.check_arguments(arguments)?;
         self.verify_pins(STAGE_PROCESS)?;
+        let secrets = self.secret_forms(context)?;
         if is_cancelled() {
             return Err(refusal(
                 RefusalKind::ProcessFailed,
@@ -540,6 +549,15 @@ impl ProposalTool {
         let observation = self
             .launch(&request, is_cancelled)
             .inspect_err(|error| notes.executed = error.kind != RefusalKind::EffectUnavailable)?;
+        // Before anything keeps, cuts, or reports a byte of it: with a secret in it, nothing of
+        // what the process said goes further, however the process ended.
+        if secrets.found_in(&observation.stdout)
+            || secrets.found_in(&observation.stderr)
+            || protocol::decode_document(&observation.stdout)
+                .is_some_and(|document| secrets.found_in_document(&document))
+        {
+            return Err(secret_in_output(&self.tool_id));
+        }
         // What the process said is kept apart from whether it is accepted. It is data for the
         // event, through the scrub, and stays out of every message: later steps classify a
         // message by its words, and the model does not get it.
@@ -564,6 +582,9 @@ impl ProposalTool {
                 format!("tool `{}`: {}", self.tool_id, rejection.code),
             )
         })?;
+        if secrets.found_in(&accepted.bytes) {
+            return Err(secret_in_output(&self.tool_id));
+        }
         self.verify_pins(STAGE_COMMIT)?;
         let mut forbidden = self.input_paths();
         forbidden.extend(context.protected_paths.iter().cloned());
@@ -607,6 +628,37 @@ impl ProposalTool {
             ));
         }
         Ok(())
+    }
+
+    /// Every secret this run holds, read now: the sources a run's catalog is built from, what
+    /// this workspace's scope already registered, and what the start received. A source that
+    /// cannot be read refuses the call, because no judgement of an empty set means anything.
+    fn secret_forms(&self, context: &ToolContext) -> Result<SecretForms, ProfileToolRefusal> {
+        let sources = crate::config::build_secret_sources(&self.workspace, self.compatible.get())
+            .map_err(|_| {
+            refusal(
+                RefusalKind::EffectEnvRefused,
+                format!(
+                    "tool `{}`: the secrets of this run cannot be read",
+                    self.tool_id
+                ),
+            )
+        })?;
+        let registered = [context.eval_events_path.as_deref(), Some(&self.workspace)]
+            .map(crate::sensitive_data::registered_for);
+        let scoped = registered
+            .iter()
+            .flatten()
+            .flat_map(|scope| scope.catalog_arc().values().to_vec())
+            .collect::<Vec<_>>();
+        Ok(SecretForms::new(
+            sources
+                .values()
+                .iter()
+                .chain(&scoped)
+                .map(String::as_str)
+                .chain(crate::startup_credentials::held_values()),
+        ))
     }
 
     fn launch(
@@ -666,6 +718,14 @@ impl ProposalTool {
             }),
         );
     }
+}
+
+/// A fixed code: not the value, not the form, not where it was.
+fn secret_in_output(tool: &str) -> ProfileToolRefusal {
+    refusal(
+        RefusalKind::ResultRejected,
+        format!("tool `{tool}`: secret_value_in_output"),
+    )
 }
 
 /// Nothing was started: a descriptor left open by the host's caller could have reached it.
@@ -1566,8 +1626,7 @@ field() { printf '%s' "$request" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }
     }
 
     fn noisy_result(request_id: &str) -> String {
-        let diagnostics =
-            format!(r#"[{{"code":"note","message":"said {DUMMY} and is a directory"}}]"#);
+        let diagnostics = r#"[{"code":"note","message":"said a-plain-word and is a directory"}]"#;
         result_script(
             request_id,
             "$(field runtime_sha256)",
@@ -1582,11 +1641,12 @@ field() { printf '%s' "$request" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }
         )
     }
 
-    /// What the process said stays as scrubbed data on the event, for each way of failing,
-    /// and never in the message, which later steps classify by its words.
+    /// What the process said stays as data on the event, for each way of failing, and never in
+    /// the message, which later steps classify by its words. A secret in it refuses it whole:
+    /// see `a_secret_in_any_output_saves_nothing_and_leaves_no_words`.
     #[test]
     fn a_failed_process_leaves_its_words_on_the_event_and_not_in_the_message() {
-        let stderr = format!("printf 'stderr says {DUMMY}' >&2\n");
+        let stderr = "printf 'stderr says a-plain-word' >&2\n";
         let cases = [
             (
                 "a nonzero exit",
@@ -1615,16 +1675,171 @@ field() { printf '%s' "$request" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }
             assert_eq!(event["kind"], expected, "{label}");
             assert_eq!(event["diagnostics"][0]["code"], "note", "{label}: {event}");
             let said = event["diagnostics"][0]["message"].as_str().unwrap();
-            assert!(said.contains("said"), "{label}: {said}");
-            assert!(!said.contains(DUMMY), "{label}: not scrubbed: {said}");
+            assert!(said.contains("a-plain-word"), "{label}: {said}");
             let tail = event["stderr_tail"].as_str().unwrap();
             assert!(tail.contains("stderr says"), "{label}: {tail}");
-            assert!(!tail.contains(DUMMY), "{label}: not scrubbed: {tail}");
             assert!(!message.contains("said"), "{label}: {message}");
             assert!(!message.contains("stderr says"), "{label}: {message}");
-            assert!(!message.contains(DUMMY), "{label}: {message}");
             assert_eq!(bench.saved(), None, "{label}");
         }
+    }
+
+    /// The forms a tool can print the dummy in, each one a line of a script.
+    fn printed_forms() -> Vec<(String, String)> {
+        let hex = DUMMY
+            .bytes()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        let mut forms = vec![
+            ("as it is".to_string(), DUMMY.to_string()),
+            ("hex".to_string(), hex.clone()),
+            ("upper hex".to_string(), hex.to_ascii_uppercase()),
+        ];
+        for prefix in ["", "a", "ab"] {
+            let encoded = encode_base64(format!("{prefix}{DUMMY}z").as_bytes());
+            let url = encoded.replace('+', "-").replace('/', "_");
+            let unpadded = encoded.trim_end_matches('=').to_string();
+            forms.push((format!("base64 after {prefix:?}"), encoded));
+            forms.push((format!("url-safe after {prefix:?}"), url));
+            forms.push((format!("unpadded after {prefix:?}"), unpadded));
+        }
+        forms
+    }
+
+    /// Nothing of the secret anywhere a later step can read, and nothing else of the output.
+    fn assert_refused_with_no_words(label: &str, bench: &Bench, event: &Value, message: &str) {
+        assert_eq!(event["kind"], "result_rejected", "{label}: {event}");
+        assert_eq!(event["diagnostics"], json!([]), "{label}: {event}");
+        assert_eq!(event["stderr_tail"], "", "{label}: {event}");
+        assert!(
+            message.contains("secret_value_in_output"),
+            "{label}: {message}"
+        );
+        assert!(!message.contains(DUMMY), "{label}: {message}");
+        assert!(!event.to_string().contains(DUMMY), "{label}: {event}");
+        assert_eq!(bench.saved(), None, "{label}");
+        assert_eq!(bench.starts(), 1, "{label}");
+        assert!(bench.tool.take_committed_paths().is_empty(), "{label}");
+    }
+
+    /// Each form on stdout and on stderr of a result that is otherwise good.
+    #[test]
+    fn a_secret_in_any_listed_form_on_either_stream_saves_nothing() {
+        for (label, form) in printed_forms() {
+            for (stream, line) in [
+                ("stdout", format!("printf '{form}'\n")),
+                ("stderr", format!("printf '{form}' >&2\n")),
+            ] {
+                let script = format!("{}{line}", good_script());
+                let (bench, event, message) = failing_call(&script, 20_000);
+                assert_refused_with_no_words(
+                    &format!("{label} on {stream}"),
+                    &bench,
+                    &event,
+                    &message,
+                );
+                assert!(!event.to_string().contains(&form), "{label}: {event}");
+            }
+        }
+    }
+
+    /// Whatever else was wrong with the run: this is judged before any of that is reported.
+    #[test]
+    fn a_secret_in_any_output_saves_nothing_and_leaves_no_words() {
+        let diagnostics = format!(r#"[{{"code":"note","message":"said {DUMMY}"}}]"#);
+        let in_diagnostics = |request_id: &str| {
+            result_script(
+                request_id,
+                "$(field runtime_sha256)",
+                "$(field input_revision)",
+                "$(field schema_sha256)",
+                CHECKS_PASSED,
+                &good_output(),
+            )
+            .replace(
+                r#""diagnostics":[]"#,
+                &format!(r#""diagnostics":{diagnostics}"#),
+            )
+        };
+        let spelled = DUMMY
+            .chars()
+            .map(|character| format!("\\\\u{:04x}", character as u32))
+            .collect::<String>();
+        let stderr = format!("printf '{DUMMY}' >&2\n");
+        let cases = [
+            (
+                "diagnostics only",
+                in_diagnostics("$(field request_id)"),
+                20_000,
+            ),
+            (
+                "an escape only a decoder sees",
+                in_diagnostics("$(field request_id)").replace(DUMMY, &spelled),
+                20_000,
+            ),
+            ("stderr only", format!("{}{stderr}", good_script()), 20_000),
+            (
+                "a nonzero exit",
+                format!("{PRELUDE}{stderr}exit 3\n"),
+                20_000,
+            ),
+            ("a clock", format!("{PRELUDE}{stderr}exec sleep 30\n"), 500),
+            ("a binding", in_diagnostics("another-request"), 20_000),
+        ];
+        for (label, script, timeout_ms) in cases {
+            let (bench, event, message) = failing_call(&script, timeout_ms);
+            assert_refused_with_no_words(label, &bench, &event, &message);
+        }
+    }
+
+    /// Bytes that are not text around the value, in the candidate, with a good result.
+    #[test]
+    fn a_secret_in_a_binary_candidate_saves_nothing() {
+        let mut candidate = vec![0xff, 0x00, 0xfe];
+        candidate.extend_from_slice(DUMMY.as_bytes());
+        candidate.push(0xff);
+        let outputs = format!(
+            r#"[{{"id":"artifact","sha256":"{}","bytes_base64":"{}"}}]"#,
+            sha256(&candidate),
+            encode_base64(&candidate)
+        );
+        let script = result_script(
+            "$(field request_id)",
+            "$(field runtime_sha256)",
+            "$(field input_revision)",
+            "$(field schema_sha256)",
+            CHECKS_PASSED,
+            &outputs,
+        );
+        let (bench, event, message) = failing_call(&script, 20_000);
+        assert_refused_with_no_words("a binary candidate", &bench, &event, &message);
+    }
+
+    /// A value the run has no way to judge is not an empty set: nothing starts.
+    #[test]
+    fn secrets_that_cannot_be_read_stop_the_call_before_the_process() {
+        let bench = bench(&good_script());
+        std::fs::write(bench.workspace.join(".env"), "DUMMY_API_KEY=short\n").unwrap();
+        let error = bench.call().unwrap_err();
+        assert_eq!(kind(&error), RefusalKind::EffectEnvRefused, "{error:#}");
+        assert_eq!(bench.starts(), 0);
+        assert_eq!(bench.saved(), None);
+        assert!(
+            !format!("{error:#} {error:?}").contains("short"),
+            "{error:#}"
+        );
+    }
+
+    /// A workspace's own value counts, and nothing leaks from a scope of another workspace.
+    #[test]
+    fn a_value_of_another_workspace_is_not_this_runs_secret() {
+        let other = tempfile::tempdir().unwrap();
+        let mut catalog = crate::sensitive_data::SecretCatalog::new();
+        catalog.register_credential("DUMMY_API_KEY", DUMMY).unwrap();
+        crate::sensitive_data::install_scope(catalog, Some(other.path()), None);
+        let bench = bench(&format!("{}printf '{DUMMY}' >&2\n", good_script()));
+        bench.call().unwrap();
+        assert_eq!(bench.saved().as_deref(), Some(CANDIDATE));
     }
 
     #[test]

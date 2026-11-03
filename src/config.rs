@@ -1395,7 +1395,7 @@ pub(crate) fn parse_string_value(
     expand_env_references(&value).with_context(|| format!("{}:{} {key}", path.display(), line_no))
 }
 
-fn expand_env_references(value: &str) -> anyhow::Result<String> {
+pub(crate) fn expand_env_references(value: &str) -> anyhow::Result<String> {
     let defer = env_deferral::env_expansion_is_deferred();
     let mut output = String::new();
     let mut remaining = value;
@@ -1420,7 +1420,7 @@ fn expand_env_references(value: &str) -> anyhow::Result<String> {
             remaining = &reference[end + 1..];
             continue;
         }
-        let resolved = std::env::var(name)
+        let resolved = crate::startup_credentials::var(name)
             .with_context(|| format!("environment variable {name} is not set or is not Unicode"))?;
         // Register the expansion value before any later validation can embed it
         // in an error, and so it is scrubbed from every persisted record. A
@@ -1772,6 +1772,13 @@ pub fn default_state_dir() -> PathBuf {
     crate::runtime_paths::default_state_dir()
 }
 
+/// The key name the selected preset chooses, by the loader a run uses, if it is one a run takes.
+#[cfg(target_os = "macos")]
+pub(crate) fn preset_api_key_env(root: &Path, preset: Option<&str>) -> Option<String> {
+    let name = load_named_preset(root, preset).ok()??.api_key_env?.value;
+    validate_api_key_env_name(&name).ok()
+}
+
 /// Build the run's secret sources: every non-empty built-in provider key, the
 /// compatible `api_key_env`, and the bounded root dotenv values.
 ///
@@ -1786,12 +1793,7 @@ pub(crate) fn build_secret_sources(
     use crate::sensitive_data::{CollectionFailure, CollectionRefusal, SecretCatalog};
     let mut catalog = SecretCatalog::new();
     let mut refusals: Vec<CollectionRefusal> = Vec::new();
-    for name in [
-        "OPENAI_API_KEY",
-        "GEMINI_API_KEY",
-        "LM_STUDIO_API_TOKEN",
-        "JEV_API_KEY",
-    ] {
+    for name in crate::startup_credentials::BUILT_IN_CREDENTIAL_NAMES {
         if let Ok(value) = load_api_key(root, name)
             && let Err(refusal) = catalog.register_credential(name, &value)
         {
@@ -1803,6 +1805,16 @@ pub(crate) fn build_secret_sources(
         && let Err(refusal) = catalog.register_credential(name, &value)
     {
         refusals.push(collection_refusal(name, refusal));
+    }
+    // A received value this run does not select, such as a preset's key name with no compatible
+    // role, is still a value this process holds. One too short to be a secret is left out here,
+    // as it was before it travelled: only a selected credential is refused for that.
+    for value in crate::startup_credentials::held_values() {
+        if value.trim().chars().count() >= crate::sensitive_data::MIN_GENERIC_SECRET_LEN
+            && let Err(refusal) = catalog.register_credential("received", value)
+        {
+            refusals.push(collection_refusal("received", refusal));
+        }
     }
     match crate::sensitive_data::collect_scoped_dotenv(root) {
         Ok(collection) => {
@@ -1883,7 +1895,7 @@ pub fn install_run_secret_scope(
 }
 
 pub fn load_api_key(workspace_root: &std::path::Path, name: &str) -> anyhow::Result<String> {
-    if let Ok(value) = std::env::var(name)
+    if let Ok(value) = crate::startup_credentials::var(name)
         && !value.trim().is_empty()
     {
         return Ok(value);
@@ -1900,7 +1912,7 @@ pub fn load_api_key(workspace_root: &std::path::Path, name: &str) -> anyhow::Res
 }
 
 pub fn load_process_api_key(name: &str) -> anyhow::Result<String> {
-    std::env::var(name)
+    crate::startup_credentials::var(name)
         .ok()
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| {

@@ -33,6 +33,7 @@ pub(crate) mod pre_run;
 pub(crate) mod process;
 pub mod protocol;
 pub mod schema;
+mod secret_output;
 pub mod selection;
 
 use std::fmt;

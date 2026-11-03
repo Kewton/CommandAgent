@@ -542,6 +542,16 @@ digest beside the bytes equal to the bytes. Exit 0, a success sentence, or a sel
 A check that did not pass ends the run. It is not retried or returned as feedback in this version;
 a second submission is G4's.
 
+**A secret in the output.** Before anything keeps, cuts, or reports a process's output, its raw stdout
+and stderr, whatever a document among them decodes to, and then the decoded candidate are compared as
+bytes with the values this run holds: the sources of the run's catalog, this workspace's scope, and what
+the start received. The forms are the value as it is, JSON-escaped, base64 in the standard and URL-safe
+alphabets at each of three alignments, with or without padding and with other bytes around it, and hex in
+either case. A match ends the call as `result_rejected` with the fixed code `secret_value_in_output`,
+however the process ended. Nothing of the output is kept: no diagnostics and no `stderr_tail`, nothing
+saved, and nothing returned to the model. A source of those values that cannot be read refuses the call
+before the process, as `effect_env_refused`. A value shorter than the catalog's minimum is not compared.
+
 What a process said is data, kept apart from whether it is accepted. On a refusal, the
 `profile_tool_effect_rejected` event holds the kind, the diagnostics of a document that decodes
 within the limits above (whatever else is wrong with it, including a binding that does not match),
@@ -704,10 +714,39 @@ Decided with the project manager's approval. The issue body is not edited.
 - **A writer of this same user and the adopted file.** Like any file, the destination can be rewritten
   by this user's other processes after the commit. The checks close the moment around the rename, up
   to step 6, and no further.
-- **The process table.** Under the strict policy a process can still read this user's process list and
-  each process's argv through `sysctl`. It cannot read their environment (measured). Closing `kern.proc`
-  stops a real interpreter from starting, so it stays open. A secret in another process's argv can leak
-  this way; `AGENTS.md` already says not to put one in the host's.
+- **Other processes of this user.** Under the strict policy a tool can read the exec-time environment
+  and the argv of every process of this same user through `KERN_PROCARGS2`: an ancestor shell or
+  launcher, another session, a GUI, and a child that the host let inherit its environment. Measured on
+  macOS 27.2 (26B123) with a parent that is not a platform binary. An earlier measurement said the
+  environment could not be read; its parent was `/bin/zsh`, and that conclusion was wrong. Five Seatbelt
+  rules were tried and none closes this: `sysctl-name`, `sysctl-name-prefix`, removing `sysctl-read`,
+  and two forms of `process-info*`.
+- **What this assumes.** The operator pinned the executable and trusts it. The sandbox is defense in
+  depth against a tool that misbehaves. It does not keep this user's secrets from an executable that
+  means harm. Running a tool as another user is a later issue.
+- **Where a secret may be.** Do not put a secret in the exec-time environment of any process that stays
+  running while a tool runs:
+  - Fine: a shell that was itself started without the secret runs `set -a; source ./.env; set +a` and
+    then `commandagent`. The shell's own exec-time area never held it, and the host removes it from its
+    own at the start. A shell started with the secret keeps it there, and sourcing again does not help.
+  - Not fine: `OPENAI_API_KEY=... wrapper` where `wrapper` execs or waits for `commandagent`. The wrapper's
+    exec-time area holds the value for as long as it runs.
+  - Not fine: a secret in any process's argv.
+- **The start's own window.** The host holds the value in its exec-time area from its first exec until
+  its second, a moment at the very start. No tool of this run has started then, and another process of
+  this user that reads in that moment is not stopped.
+- **What the start covers.** The command-line binary and the GUI server. A library caller, an embedding
+  host, and a test harness do not exec themselves: their exec-time area is whatever started them, and a
+  caller that wants this calls `startup_credentials::bootstrap_cli` first in its own `main`. The protected
+  names are the four built-in provider keys and the compatible provider's selected key name. Any other
+  secret-looking variable stays in the environment.
+- **The output check.** It refuses a finite list of forms of a value this run holds. Encryption, splitting,
+  compression, and any other encoding are not recognized.
+- **GUI delegation.** The server keeps its own received keys and does not put them back in an environment.
+  Create, continue, and recovery delegation still read the three provider keys from the server's
+  environment, so on macOS a key the server received does not reach a delegated CLI. A later issue passes
+  it by another route. A key the operator set on a delegated CLI some other way sits in that CLI's
+  exec-time area until its own start removes it.
 - **No second submission.** A failed check ends the run. G4 takes this up.
 - **Crash.** A crash between the temporary's creation and the rename can leave a `.profile-tool-*.tmp`
   file. It is not an artifact, nothing adopts it, and nothing removes it after a restart.

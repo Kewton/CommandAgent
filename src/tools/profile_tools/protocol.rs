@@ -377,22 +377,25 @@ impl Rejection {
 /// The diagnostics of a document, whether or not it is accepted, within the same limits as
 /// an accepted one. Anything else holds none. Data for the record, and nothing more.
 pub(crate) fn salvage_diagnostics(stdout: &[u8]) -> Vec<Diagnostic> {
-    std::str::from_utf8(stdout)
-        .ok()
-        .and_then(|text| {
-            raw_json::decode(
-                text,
-                DecodeLimits {
-                    bytes: MAX_RESULT_BYTES,
-                    depth: MAX_RESULT_DEPTH,
-                    elements: MAX_RESULT_ELEMENTS,
-                    lossless_numbers: true,
-                },
-            )
-            .ok()
-        })
+    decode_document(stdout)
         .and_then(|document| decode_diagnostics(document.get("diagnostics")?).ok())
         .unwrap_or_default()
+}
+
+/// A process's stdout as a document, within the limits of an accepted one, whether or not it is
+/// accepted.
+pub(crate) fn decode_document(stdout: &[u8]) -> Option<Value> {
+    let text = std::str::from_utf8(stdout).ok()?;
+    raw_json::decode(
+        text,
+        DecodeLimits {
+            bytes: MAX_RESULT_BYTES,
+            depth: MAX_RESULT_DEPTH,
+            elements: MAX_RESULT_ELEMENTS,
+            lossless_numbers: true,
+        },
+    )
+    .ok()
 }
 
 /// The end of stderr, which is where a failing process says why, within a bound on the text it

@@ -3076,12 +3076,186 @@ mod macos {
         set_env(REGISTRY_ENV, None);
     }
 
-    const NOISE: &str = r#"[{\"code\":\"note\",\"message\":\"said fake-dummy-env-credential-974-not-a-real-key\"}]"#;
-    const STDERR_NOISE: &str =
-        "printf 'stderr says fake-dummy-env-credential-974-not-a-real-key' >&2";
+    const PARENT_READER_SECRET: &str = "fake-parent-reader-secret-974-not-a-real-key";
 
-    /// Through the public session, on each way of failing: bounded words on the event, the
-    /// dummy secret scrubbed, and nothing of it in the error or in what the model was sent.
+    /// A compiled program, not a platform binary, that reads a process's exec-time area and says
+    /// what it found. With an argument it reads itself, and otherwise its parent. It never prints
+    /// what it read: only whether the area holds the name of the host and the dummy.
+    fn compile_area_reader(directory: &Path) -> std::path::PathBuf {
+        let source = directory.join("area_reader.c");
+        let binary = directory.join("area_reader");
+        std::fs::write(
+            &source,
+            format!(
+                r#"#include <stdio.h>
+#define _DARWIN_C_SOURCE
+#include <string.h>
+#include <sys/sysctl.h>
+#include <unistd.h>
+static char area[4 * 1024 * 1024];
+int main(int argc, char **argv) {{
+    (void)argv;
+    size_t limit = 0, limit_size = sizeof limit;
+    int limit_name[2] = {{CTL_KERN, KERN_ARGMAX}};
+    int limit_answer = sysctl(limit_name, 2, &limit, &limit_size, NULL, 0);
+    int name[3] = {{CTL_KERN, KERN_PROCARGS2, argc > 1 ? getpid() : getppid()}};
+    size_t size = limit < sizeof area ? limit : sizeof area;
+    int answer = limit_answer == 0 ? sysctl(name, 3, area, &size, NULL, 0) : -1;
+    int host = answer == 0 && memmem(area, size, "commandagent", 12) != NULL;
+    const char *needle = "{PARENT_READER_SECRET}";
+    int dummy = answer == 0 && memmem(area, size, needle, strlen(needle)) != NULL;
+    fprintf(stderr, "area answer=%d host=%d dummy=%d\n", answer, host, dummy);
+    char sink[4096];
+    while (read(0, sink, sizeof sink) > 0) {{}}
+    return 3;
+}}
+"#
+            ),
+        )
+        .unwrap();
+        let compiled = std::process::Command::new("/usr/bin/cc")
+            .arg("-o")
+            .arg(&binary)
+            .arg(&source)
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin")
+            .env("HOME", directory)
+            .env("TMPDIR", directory)
+            .output()
+            .unwrap();
+        assert!(
+            compiled.status.success(),
+            "{}",
+            String::from_utf8_lossy(&compiled.stderr)
+        );
+        std::fs::remove_file(source).unwrap();
+        binary
+    }
+
+    /// Under the real policy, as the real binary's child, with the dummy in the environment the
+    /// binary was started with: the area of its parent is readable, and the dummy is not in it.
+    #[test]
+    fn a_tool_under_the_policy_does_not_find_the_credential_in_the_hosts_area() {
+        let _guard = lock();
+        let env = Env::new();
+        env.with_old_bytes();
+        let reader = compile_area_reader(&env.tools);
+        let witness = std::process::Command::new(&reader)
+            .arg("itself")
+            .env_clear()
+            .env("OPENAI_API_KEY", PARENT_READER_SECRET)
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap();
+        let said = String::from_utf8_lossy(&witness.stderr);
+        assert!(said.contains("answer=0"), "{said}");
+        assert!(
+            said.contains("dummy=1"),
+            "the reader finds what is there: {said}"
+        );
+        let digest = sha256(&std::fs::read(&reader).unwrap());
+        env.write_changed(&Fake::default(), &|descriptor| {
+            descriptor["process"]["executable"] = json!({"path": reader, "sha256": digest});
+            descriptor["process"]["argv"] = json!([]);
+        });
+        let http = FakeHttp::with_responder(Vec::new(), entry_responder(None));
+        let home = tempfile::tempdir().unwrap();
+        let events = env.evidence.join("binary-events.jsonl");
+        let output = binary_command(&env.root, &env.registry, home.path())
+            .args([
+                "--provider",
+                "lm-studio",
+                "--lm-studio-host",
+                &http.url,
+                "--yes",
+            ])
+            .args([
+                "--profile",
+                CONFIG_PROFILE,
+                "--prompt",
+                "Submit the object.",
+            ])
+            .env("OPENAI_API_KEY", PARENT_READER_SECRET)
+            .env("COMMANDAGENT_EVAL_EVENTS", &events)
+            .output()
+            .unwrap();
+        http.finish();
+        let shown = std::fs::read_to_string(&events).unwrap_or_default();
+        let line = shown
+            .lines()
+            .find(|line| line.contains("profile_tool_effect_rejected"))
+            .unwrap_or_else(|| {
+                panic!(
+                    "no rejection: {}\n{shown}",
+                    String::from_utf8_lossy(&output.stderr)
+                )
+            });
+        let event: Value = serde_json::from_str(line).unwrap();
+        let tail = event["stderr_tail"].as_str().unwrap();
+        assert!(tail.contains("answer=0"), "{tail}");
+        assert!(tail.contains("host=1"), "it read the host: {tail}");
+        assert!(tail.contains("dummy=0"), "{tail}");
+        set_env(REGISTRY_ENV, None);
+    }
+
+    const NOISE: &str = r#"[{\"code\":\"note\",\"message\":\"said a-plain-word\"}]"#;
+    const STDERR_NOISE: &str = "printf 'stderr says a-plain-word' >&2";
+
+    /// The dummy secret, through the public session: on any stream, in any way of failing, the
+    /// run stops with a fixed code, and nothing of it is saved, recorded, or sent to the model.
+    #[test]
+    fn a_secret_in_a_tools_output_stops_the_run_and_goes_nowhere() {
+        let _guard = lock();
+        let secret = super::DUMMY_ENV_SECRET;
+        let encoded = super::encode_base64(format!("a{secret}").as_bytes());
+        let in_diagnostics = format!(r#"[{{\"code\":\"note\",\"message\":\"said {secret}\"}}]"#);
+        let cases: Vec<(&str, Fake)> = vec![
+            (
+                "diagnostics",
+                fake_with(|f| f.diagnostics = in_diagnostics.clone()),
+            ),
+            (
+                "stderr",
+                fake_with(|f| f.tail = format!("printf '{secret}' >&2")),
+            ),
+            (
+                "base64 on stderr",
+                fake_with(|f| f.tail = format!("printf '{encoded}' >&2")),
+            ),
+            (
+                "a nonzero exit",
+                fake_with(|f| f.tail = format!("printf '{secret}' >&2\nexit 3")),
+            ),
+            (
+                "a binding",
+                fake_with(|f| {
+                    f.request_id = "another-request".to_string();
+                    f.diagnostics = in_diagnostics.clone();
+                }),
+            ),
+        ];
+        for (label, fake) in &cases {
+            let env = Env::new();
+            env.with_old_bytes();
+            env.write_tool(fake);
+            let config = env.config("http://unused");
+            super::install_dummy_secret(&env.root, &config);
+            let (requests, result) = run_with(&config, call(VALID));
+            let error = result.unwrap_err();
+            assert!(error.contains("secret_value_in_output"), "{label}: {error}");
+            assert!(!error.contains(secret), "{label}: {error}");
+            assert!(!error.contains(&encoded), "{label}: {error}");
+            let events = env.events();
+            assert!(!events.contains(secret), "{label}: {events}");
+            assert!(!events.contains(&encoded), "{label}: {events}");
+            assert_eq!(requests.len(), 1, "{label}: nothing went back to the model");
+            env.assert_nothing_new_saved(label);
+        }
+        set_env(REGISTRY_ENV, None);
+    }
+
+    /// Through the public session, on each way of failing: bounded words on the event, and
+    /// nothing of them in the error or in what the model was sent.
     #[test]
     fn what_a_failed_process_said_stays_on_the_event_as_scrubbed_data() {
         let _guard = lock();

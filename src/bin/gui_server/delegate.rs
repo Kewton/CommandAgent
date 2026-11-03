@@ -60,6 +60,10 @@ pub(super) fn check_binary(path: &Path) -> anyhow::Result<String> {
     let mut command = Command::new(path);
     command.env_clear();
     restore_allowed_environment(&mut command);
+    // A version needs no credential, so this child's exec-time environment holds none.
+    for name in commandagent::startup_credentials::BUILT_IN_CREDENTIAL_NAMES {
+        command.env_remove(name);
+    }
     let output = command
         .arg("--version")
         .stdin(Stdio::null())
