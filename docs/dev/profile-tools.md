@@ -742,11 +742,10 @@ Decided with the project manager's approval. The issue body is not edited.
   secret-looking variable stays in the environment.
 - **The output check.** It refuses a finite list of forms of a value this run holds. Encryption, splitting,
   compression, and any other encoding are not recognized.
-- **GUI delegation.** The server keeps its own received keys and does not put them back in an environment.
-  Create, continue, and recovery delegation still read the three provider keys from the server's
-  environment, so on macOS a key the server received does not reach a delegated CLI. A later issue passes
-  it by another route. A key the operator set on a delegated CLI some other way sits in that CLI's
-  exec-time area until its own start removes it.
+- **GUI delegation.** The server keeps the keys it received in its store. Only for a child it delegates
+  to, `restore_allowed_environment` puts the existing allowed keys in that child's environment. From the
+  child's exec until its own start execs again, the key is in the child's exec-time area, and this same
+  user can read it there. A later issue hands it over without an environment. A version check gets no key.
 - **No second submission.** A failed check ends the run. G4 takes this up.
 - **Crash.** A crash between the temporary's creation and the rename can leave a `.profile-tool-*.tmp`
   file. It is not an artifact, nothing adopts it, and nothing removes it after a restart.

@@ -351,7 +351,7 @@ fn delegated_cli_command(
 
 fn restore_allowed_environment(command: &mut Command) {
     for name in DELEGATE_PARENT_ENV_ALLOWLIST {
-        if let Some(value) = std::env::var_os(name) {
+        if let Some(value) = commandagent::startup_credentials::var_os(name) {
             command.env(name, value);
         }
     }

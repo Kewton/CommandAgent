@@ -60,6 +60,16 @@ pub fn var(name: &str) -> Result<String, VarError> {
     }
 }
 
+/// The same for the GUI's delegation, the one place a received value goes to a child's
+/// environment: that child's own start removes it again. With nothing received, this is the
+/// plain environment read it was.
+pub fn var_os(name: &str) -> Option<std::ffi::OsString> {
+    match held(name) {
+        Some(value) => Some(value.into()),
+        None => std::env::var_os(name),
+    }
+}
+
 /// Every received value, for what must recognize or scrub one. Empty when step 1 did not run.
 pub(crate) fn held_values() -> Vec<&'static str> {
     HELD.get()

@@ -714,6 +714,327 @@ mod refused_starts {
     }
 }
 
+/// The real server delegating to the real CLI, with a dummy key and a fake on 127.0.0.1.
+#[cfg(feature = "gui")]
+mod gui_delegation {
+    use std::io::BufRead as _;
+    use std::net::TcpStream;
+    use std::time::Instant;
+
+    use super::*;
+
+    const ACCESS: &str = "startup-credential-gui-test-token-0000001";
+
+    /// A provider that answers a model list, and holds the first request that carries a key
+    /// without answering it, so the process that sent it stays as it is while it is read.
+    struct HoldingProvider {
+        url: String,
+        carrying_a_key: mpsc::Receiver<(u16, String, TcpStream)>,
+    }
+
+    impl HoldingProvider {
+        fn start() -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let url = format!("http://{}", listener.local_addr().unwrap());
+            let (sender, carrying_a_key) = mpsc::channel();
+            std::thread::spawn(move || {
+                for mut stream in listener.incoming().flatten() {
+                    let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+                    let mut heard = [0u8; 8192];
+                    let read = stream.read(&mut heard).unwrap_or(0);
+                    let request = String::from_utf8_lossy(&heard[..read]).into_owned();
+                    let peer = stream.peer_addr().map_or(0, |address| address.port());
+                    if !authorization_of(std::slice::from_ref(&request)).is_empty() {
+                        let _ = sender.send((peer, request, stream));
+                        continue;
+                    }
+                    let body = r#"{"data":[{"id":"m"}]}"#;
+                    let _ = write!(
+                        stream,
+                        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                }
+            });
+            Self {
+                url,
+                carrying_a_key,
+            }
+        }
+    }
+
+    /// The direct children of a process, for the end of a test.
+    fn children_of(parent: u32) -> Vec<u32> {
+        let Ok(listing) = Command::new("ps")
+            .args(["-A", "-o", "pid=,ppid="])
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin")
+            .output()
+        else {
+            return Vec::new();
+        };
+        String::from_utf8_lossy(&listing.stdout)
+            .lines()
+            .filter_map(|line| {
+                let mut columns = line.split_whitespace();
+                let pid = columns.next()?.parse().ok()?;
+                let ppid: u32 = columns.next()?.parse().ok()?;
+                (ppid == parent).then_some(pid)
+            })
+            .collect()
+    }
+
+    /// The server, stopped with its delegated children however the test ends.
+    struct Gui {
+        _directory: tempfile::TempDir,
+        server: Child,
+        port: u16,
+        /// The created session's stop request, for the server to stop what it started.
+        stop: std::cell::RefCell<Option<(String, serde_json::Value)>>,
+    }
+
+    impl Drop for Gui {
+        fn drop(&mut self) {
+            if let Some((path, body)) = self.stop.take() {
+                let _ = self.send(&path, &body);
+                let deadline = Instant::now() + Duration::from_secs(20);
+                while !children_of(self.server.id()).is_empty() && Instant::now() < deadline {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+            }
+            let _ = self.server.kill();
+            let _ = self.server.wait();
+        }
+    }
+
+    impl Gui {
+        fn start(provider_url: &str) -> Self {
+            let directory = tempfile::tempdir().unwrap();
+            let root = directory.path().canonicalize().unwrap();
+            let (workspace, statics) = (root.join("workspace"), root.join("out"));
+            for path in [&workspace, &statics] {
+                std::fs::create_dir_all(path).unwrap();
+            }
+            std::fs::write(statics.join("index.html"), "<html></html>").unwrap();
+            std::fs::write(
+                statics.join("commandagent-gui-contract.json"),
+                include_str!("../gui/public/commandagent-gui-contract.json"),
+            )
+            .unwrap();
+            let mut server = Command::new(env!("CARGO_BIN_EXE_gui_server"))
+                .args([
+                    "--port",
+                    "0",
+                    "--base-path",
+                    "/",
+                    "--trial-token-auth",
+                    "on",
+                ])
+                .arg("--repository-root")
+                .arg(env!("CARGO_MANIFEST_DIR"))
+                .arg("--static-dir")
+                .arg(&statics)
+                .arg("--execution-root")
+                .arg(&workspace)
+                .arg("--commandagent-bin")
+                .arg(env!("CARGO_BIN_EXE_commandagent"))
+                .args(["--ollama-host", provider_url])
+                .args(["--lm-studio-host", provider_url])
+                .env_clear()
+                .env("HOME", &root)
+                .env("PATH", "/usr/bin:/bin")
+                .env("GUI_TRIAL_TOKEN", ACCESS)
+                .env("LM_STUDIO_API_TOKEN", DUMMY)
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap();
+            let mut stdout = std::io::BufReader::new(server.stdout.take().unwrap());
+            let mut line = String::new();
+            let port = loop {
+                line.clear();
+                let read = stdout.read_line(&mut line).unwrap();
+                assert_ne!(read, 0, "the server ended before it listened");
+                if let Some(port) = line
+                    .split("127.0.0.1:")
+                    .nth(1)
+                    .and_then(|tail| tail.split('/').next())
+                    .and_then(|port| port.trim().parse().ok())
+                {
+                    break port;
+                }
+            };
+            std::thread::spawn(move || {
+                let mut sink = String::new();
+                while matches!(stdout.read_line(&mut sink), Ok(read) if read > 0) {
+                    sink.clear();
+                }
+            });
+            Self {
+                _directory: directory,
+                server,
+                port,
+                stop: std::cell::RefCell::new(None),
+            }
+        }
+
+        fn post(&self, path: &str, body: &serde_json::Value) -> serde_json::Value {
+            let response = self.send(path, body).unwrap();
+            let (head, payload) = response.split_once("\r\n\r\n").unwrap();
+            assert!(head.starts_with("HTTP/1.1 2"), "{head}\n{payload}");
+            serde_json::from_str(payload).unwrap()
+        }
+
+        fn send(&self, path: &str, body: &serde_json::Value) -> std::io::Result<String> {
+            let mut stream = TcpStream::connect(("127.0.0.1", self.port))?;
+            let body = body.to_string();
+            write!(
+                stream,
+                "POST {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nOrigin: http://127.0.0.1:{port}\r\nAuthorization: Bearer {ACCESS}\r\nContent-Type: application/json\r\nContent-Length: {length}\r\nConnection: close\r\n\r\n{body}",
+                port = self.port,
+                length = body.len(),
+            )?;
+            let mut response = String::new();
+            stream.read_to_string(&mut response)?;
+            Ok(response)
+        }
+
+        /// Create one session, which starts the delegated CLI.
+        fn delegate(&self) {
+            let mut spec = serde_json::json!({
+                "goal": "Create a CLI --pattern filter command",
+                "profile": "python-cli",
+                "provider": "lm-studio",
+                "model": "m",
+                "planner_provider": "lm-studio",
+                "planner_model": "m",
+            });
+            let proposal = self.post("/api/session-proposals", &spec);
+            spec["confirmation_hash"] = proposal["card_hash"].clone();
+            let created = self.post("/api/sessions", &spec);
+            let id = created["id"].as_str().unwrap();
+            *self.stop.borrow_mut() = Some((
+                format!("/api/sessions/{id}/stop"),
+                serde_json::json!({ "generation": created["process_generation"] }),
+            ));
+        }
+    }
+
+    /// The key the server received reaches the provider from the CLI it delegated to.
+    #[test]
+    fn a_delegated_cli_authenticates_with_the_key_the_server_received() {
+        let provider = HoldingProvider::start();
+        let gui = Gui::start(&provider.url);
+        gui.delegate();
+        let (_, request, _held) = provider
+            .carrying_a_key
+            .recv_timeout(Duration::from_secs(60))
+            .expect("no request carried a key");
+        let expected = format!("Bearer {DUMMY}");
+        assert!(authorization_of(&[request]).contains(&expected));
+    }
+
+    /// The process that holds this connection, other than this test.
+    #[cfg(target_os = "macos")]
+    fn owner_of_connection(peer: u16) -> u32 {
+        let listing = Command::new("/usr/sbin/lsof")
+            .args(["-nP", &format!("-iTCP:{peer}"), "-sTCP:ESTABLISHED", "-Fp"])
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin:/usr/sbin")
+            .output()
+            .unwrap();
+        let owners = String::from_utf8_lossy(&listing.stdout)
+            .lines()
+            .filter_map(|line| line.strip_prefix('p')?.parse::<u32>().ok())
+            .filter(|pid| *pid != std::process::id())
+            .collect::<Vec<_>>();
+        assert_eq!(owners.len(), 1, "{owners:?}");
+        owners[0]
+    }
+
+    /// Once the delegated CLI has reached the provider, the key is not in its exec-time area,
+    /// and it was never left in the server's. It is the process that sent the request, a child
+    /// of this server, running what the server delegates.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn neither_the_delegated_cli_nor_the_server_keeps_the_key_in_its_exec_time_area() {
+        let provider = HoldingProvider::start();
+        let gui = Gui::start(&provider.url);
+        gui.delegate();
+        let (peer, _, _held) = provider
+            .carrying_a_key
+            .recv_timeout(Duration::from_secs(60))
+            .expect("no request carried a key");
+        let child = owner_of_connection(peer);
+        assert!(children_of(gui.server.id()).contains(&child));
+        let child_area = procargs::read(child);
+        let server_area = procargs::read(gui.server.id());
+        assert!(!procargs::holds(&child_area.raw, DUMMY), "the child's area");
+        assert!(
+            !procargs::holds(&server_area.raw, DUMMY),
+            "the server's area"
+        );
+        assert!(
+            child_area
+                .argv
+                .iter()
+                .any(|argument| argument == b"--ultra-plan-run"),
+            "it is not the delegated CLI"
+        );
+        assert!(
+            server_area
+                .env
+                .iter()
+                .any(|row| row.starts_with(b"COMMANDAGENT_BOOT_FD=")),
+            "the server did not go through its start"
+        );
+    }
+
+    /// The version check runs a program that records the environment it got. It got the
+    /// ordinary names and no credential.
+    #[test]
+    fn a_version_check_gets_no_credential() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().canonicalize().unwrap();
+        let recorded = root.join("recorded-env");
+        let program = root.join("recording-commandagent");
+        std::fs::write(
+            &program,
+            format!(
+                "#!/bin/sh\nenv > '{}'\nprintf 'commandagent 0.1.0 test\\n'\n",
+                recorded.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let statics = root.join("out");
+        std::fs::create_dir_all(&statics).unwrap();
+        let _output = Command::new(env!("CARGO_BIN_EXE_gui_server"))
+            .args(["--check", "--json"])
+            .arg("--repository-root")
+            .arg(&root)
+            .arg("--static-dir")
+            .arg(&statics)
+            .arg("--commandagent-bin")
+            .arg(&program)
+            .env_clear()
+            .env("HOME", &root)
+            .env("PATH", "/usr/bin:/bin")
+            .env("OPENAI_API_KEY", DUMMY)
+            .env("GEMINI_API_KEY", DUMMY)
+            .env("LM_STUDIO_API_TOKEN", DUMMY)
+            .output()
+            .unwrap();
+        let environment = std::fs::read_to_string(&recorded).expect("the check ran the program");
+        assert!(environment.contains("PATH="));
+        assert!(!environment.contains(DUMMY));
+        assert!(!environment.contains("_API_KEY"));
+        assert!(!environment.contains("LM_STUDIO_API_TOKEN"));
+    }
+}
+
 #[test]
 fn a_command_line_that_does_not_parse_still_says_only_what_it_said() {
     let workspace = tempfile::tempdir().unwrap();

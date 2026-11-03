@@ -309,10 +309,40 @@ fn startup_credential_boundary_rejects_each_weakened_variant() {
             "if false {",
         ),
         (
-            "a child gets a received value",
+            "another function of the delegate reads a received value",
             "src/bin/gui_server/delegate.rs",
-            "fn restore_allowed_environment(command: &mut Command) {",
-            "fn restore_allowed_environment(command: &mut Command) {\n    let _ = commandagent::startup_credentials::var(\"OPENAI_API_KEY\");",
+            "fn apply_confirmed_pack(",
+            "fn elsewhere(command: &mut Command) {\n    command.env(\"X\", commandagent::startup_credentials::var_os(\"OPENAI_API_KEY\").unwrap());\n}\n\nfn apply_confirmed_pack(",
+        ),
+        (
+            "another function of the delegate reads it apart from the env call",
+            "src/bin/gui_server/delegate.rs",
+            "pub(super) fn check_binary(path: &Path) -> anyhow::Result<String> {",
+            "pub(super) fn check_binary(path: &Path) -> anyhow::Result<String> {\n    let _early = commandagent::startup_credentials::var_os(\"OPENAI_API_KEY\");",
+        ),
+        (
+            "another file reads a received value",
+            "src/bounded_process.rs",
+            "fn child_env_allowed(",
+            "fn elsewhere() -> Option<std::ffi::OsString> {\n    crate::startup_credentials::var_os(\"OPENAI_API_KEY\")\n}\n\nfn child_env_allowed(",
+        ),
+        (
+            "the delegate's restore reads one more name",
+            "src/bin/gui_server/delegate.rs",
+            "    for name in DELEGATE_PARENT_ENV_ALLOWLIST {\n",
+            "    let _ = commandagent::startup_credentials::var(\"JEV_API_KEY\");\n    for name in DELEGATE_PARENT_ENV_ALLOWLIST {\n",
+        ),
+        (
+            "the delegate's allowed names grow",
+            "src/bin/gui_server/delegate.rs",
+            "    \"LM_STUDIO_API_TOKEN\",\n];",
+            "    \"LM_STUDIO_API_TOKEN\",\n    \"JEV_API_KEY\",\n];",
+        ),
+        (
+            "the delegate's allowed names lose a key",
+            "src/bin/gui_server/delegate.rs",
+            "    \"GEMINI_API_KEY\",\n",
+            "",
         ),
         (
             "a reader copies a value to a child",
@@ -848,6 +878,33 @@ const STARTUP_CREDENTIAL_READERS: [&str; 5] = [
     "src/tools/profile_tools/effects.rs",
 ];
 
+/// Every name the GUI gives a delegated child, three of them credentials.
+const DELEGATE_ALLOWLIST_FIXED: &str = r#"const DELEGATE_PARENT_ENV_ALLOWLIST: &[&str] = &[
+    "PATH",
+    "HOME",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "TERM",
+    "TMPDIR",
+    "TZ",
+    "USER",
+    "LOGNAME",
+    "OPENAI_API_KEY",
+    "GEMINI_API_KEY",
+    "LM_STUDIO_API_TOKEN",
+];"#;
+
+/// The whole function, so its body is all that is allowed and nothing can be added to it.
+const DELEGATE_RESTORE_FIXED: &str = r#"fn restore_allowed_environment(command: &mut Command) {
+    for name in DELEGATE_PARENT_ENV_ALLOWLIST {
+        if let Some(value) = commandagent::startup_credentials::var_os(name) {
+            command.env(name, value);
+        }
+    }
+}
+"#;
+
 fn audit_startup_credential_boundary(corpus: &AuditCorpus, rule: &ProtectionRule) -> Vec<String> {
     let mut violations = Vec::new();
     let [main, gui, store] = rule.allowlist else {
@@ -897,10 +954,25 @@ fn audit_startup_credential_boundary(corpus: &AuditCorpus, rule: &ProtectionRule
             ));
         }
     }
+    let delegate = "src/bin/gui_server/delegate.rs";
+    if !corpus.file(delegate).contains(DELEGATE_ALLOWLIST_FIXED) {
+        violations.push(format!("{delegate} changed the names it gives a child"));
+    }
+    if !corpus.file(delegate).contains(DELEGATE_RESTORE_FIXED) {
+        violations.push(format!("{delegate} changed what it gives a child"));
+    }
     for (path, text) in &corpus.files {
         if !path.starts_with("src/") || path == store {
             continue;
         }
+        // The one place a received value goes to a child: this function's body, as fixed above,
+        // and nowhere else in its file.
+        let without_restore = text.replacen(DELEGATE_RESTORE_FIXED, "", 1);
+        let text = if path == delegate {
+            &without_restore
+        } else {
+            text
+        };
         let code = production_text(text);
         let reads = code.contains("startup_credentials::var")
             || code.contains("startup_credentials::held_values");
