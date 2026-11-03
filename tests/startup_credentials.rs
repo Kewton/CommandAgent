@@ -935,6 +935,34 @@ mod gui_delegation {
         assert!(authorization_of(&[request]).contains(&expected));
     }
 
+    /// The server's own request for the model list carries the key it received, for this one
+    /// header. It comes from the server itself: nothing was delegated here.
+    #[test]
+    fn the_model_list_request_carries_the_token_the_server_received() {
+        let provider = HoldingProvider::start();
+        let gui = Gui::start(&provider.url);
+        let port = gui.port;
+        std::thread::spawn(move || {
+            let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
+            let _ = write!(
+                stream,
+                "GET /api/provider-models?provider=lm-studio HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
+            );
+            let _ = stream.read_to_end(&mut Vec::new());
+        });
+        let (peer, request, _held) = provider
+            .carrying_a_key
+            .recv_timeout(Duration::from_secs(60))
+            .expect("the model list request carried no key");
+        assert!(request.starts_with("GET /v1/models "), "the path");
+        let expected = format!("Bearer {DUMMY}");
+        assert!(authorization_of(&[request]).contains(&expected));
+        #[cfg(target_os = "macos")]
+        assert_eq!(owner_of_connection(peer), gui.server.id());
+        let _ = peer;
+        assert!(children_of(gui.server.id()).is_empty());
+    }
+
     /// The process that holds this connection, other than this test.
     #[cfg(target_os = "macos")]
     fn owner_of_connection(peer: u16) -> u32 {

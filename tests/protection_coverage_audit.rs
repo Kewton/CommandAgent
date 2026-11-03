@@ -234,6 +234,182 @@ fn protection_coverage_table_rejects_unregistered_mock_sites() {
     );
 }
 
+/// A credential read past the store fails the rule, wherever and however it is written.
+#[test]
+fn a_direct_credential_read_fails_the_startup_rule() {
+    let real = AuditCorpus::from_manifest_dir();
+    let rule = PROTECTION_RULES
+        .iter()
+        .find(|rule| rule.category == "startup_credential_boundary")
+        .unwrap();
+    let with_file = |path: &str, text: &str| {
+        let mut changed = AuditCorpus {
+            files: real.files.clone(),
+        };
+        changed.files.insert(path.to_string(), text.to_string());
+        (rule.audit)(&changed, rule)
+    };
+    assert!((rule.audit)(&real, rule).is_empty(), "the tree");
+    let direct = |violations: &[String]| {
+        violations
+            .iter()
+            .any(|violation| violation.contains("from the environment"))
+    };
+    for (label, code) in [
+        (
+            "by name",
+            r#"fn f() { let _ = std::env::var("OPENAI_API_KEY"); }"#,
+        ),
+        (
+            "by name, for an OsString",
+            r#"fn f() { let _ = std::env::var_os("LM_STUDIO_API_TOKEN"); }"#,
+        ),
+        (
+            "over two lines",
+            "fn f() {\n    let _ = std::env::var(\n        \"GEMINI_API_KEY\",\n    );\n}\n",
+        ),
+        (
+            "by a constant",
+            "fn f() { let _ = std::env::var(JEV_API_KEY_ENV); }",
+        ),
+        (
+            "by a constant with its path",
+            "fn f() { let _ = std::env::var_os(crate::providers::lm_studio::LM_STUDIO_API_TOKEN_ENV); }",
+        ),
+        (
+            "by a constant this file declares",
+            "const MY_KEY_NAME: &str = \"OPENAI_API_KEY\";\nfn f() { let _ = std::env::var(MY_KEY_NAME); }",
+        ),
+        (
+            "through env_compat",
+            r#"fn f() { let _ = crate::env_compat::var("GEMINI_API_KEY"); }"#,
+        ),
+        (
+            "through env_compat, for an OsString",
+            r#"fn f() { let _ = env_compat::var_os("OPENAI_API_KEY"); }"#,
+        ),
+        (
+            "the configured key name",
+            "fn f(api_key_env: &str) { let _ = std::env::var(api_key_env); }",
+        ),
+        (
+            "the configured key name in a closure",
+            "fn f(c: &C) { let _ = c.api_key_env.as_deref().and_then(|name| std::env::var(name).ok()); }",
+        ),
+        (
+            "the configured key name as a path",
+            "fn f(c: &C) { let _ = c.api_key_env.as_deref().map(std::env::var_os); }",
+        ),
+        (
+            "the configured key name through env_compat",
+            "fn f(api_key_env: &str) { let _ = crate::env_compat::var(api_key_env); }",
+        ),
+        (
+            "a loop over names",
+            r#"fn f() { for name in ["OPENAI_API_KEY"] { let _ = std::env::var(name); } }"#,
+        ),
+        (
+            "beside an unrelated test item",
+            "#[cfg(test)]\nmod t {}\nfn f() { let _ = std::env::var(\"OPENAI_API_KEY\"); }",
+        ),
+    ] {
+        assert!(direct(&with_file("src/elsewhere.rs", code)), "{label}");
+    }
+    for (label, path, code) in [
+        (
+            "in the store's own file",
+            "src/startup_credentials.rs",
+            "fn f() { let _ = std::env::var(\"OPENAI_API_KEY\"); }",
+        ),
+        (
+            "another variable",
+            "src/elsewhere.rs",
+            r#"fn f() { let _ = std::env::var("PATH"); }"#,
+        ),
+        (
+            "a name with no read",
+            "src/elsewhere.rs",
+            r#"const HINT: &str = "set OPENAI_API_KEY";"#,
+        ),
+        (
+            "a test item",
+            "src/elsewhere.rs",
+            "#[cfg(test)]\nfn f() { let _ = std::env::var(\"OPENAI_API_KEY\"); }\n",
+        ),
+        (
+            "a test item for one platform",
+            "src/elsewhere.rs",
+            "#[cfg(all(test, unix))]\nmod t {\n    fn f() { let _ = std::env::var(\"OPENAI_API_KEY\"); }\n}\n",
+        ),
+        (
+            "a brace in a test item's string",
+            "src/elsewhere.rs",
+            "#[cfg(test)]\nmod t {\n    const A: &str = \"}\";\n    const C: char = '}';\n    const R: &str = r#\"}\"#;\n    fn f() { let _ = std::env::var(\"OPENAI_API_KEY\"); }\n}\n",
+        ),
+        (
+            "a comment",
+            "src/elsewhere.rs",
+            "// std::env::var(\"OPENAI_API_KEY\")\nfn f() {}\n",
+        ),
+    ] {
+        let violations = with_file(path, code);
+        assert!(!direct(&violations), "{label}: {violations:?}");
+    }
+    // A file only a test build compiles, and one it brings in.
+    let mut changed = AuditCorpus {
+        files: real.files.clone(),
+    };
+    for (path, text) in [
+        ("src/holder.rs", "#[cfg(test)]\nmod holder_tests;\n"),
+        (
+            "src/holder_tests.rs",
+            "mod inner;\nfn f() { let _ = std::env::var(\"OPENAI_API_KEY\"); }\n",
+        ),
+        (
+            "src/holder_tests/inner.rs",
+            "fn g() { let _ = std::env::var(\"OPENAI_API_KEY\"); }\n",
+        ),
+    ] {
+        changed.files.insert(path.to_string(), text.to_string());
+    }
+    assert!(!direct(&(rule.audit)(&changed, rule)), "a test-only file");
+    // The same file, brought in by production, counts.
+    changed.files.insert(
+        "src/holder.rs".to_string(),
+        "mod holder_tests;\n".to_string(),
+    );
+    assert!(direct(&(rule.audit)(&changed, rule)), "a production file");
+    // A file under `tests/` is not production.
+    assert!(!direct(&with_file(
+        "tests/elsewhere.rs",
+        r#"fn f() { let _ = std::env::var("OPENAI_API_KEY"); }"#,
+    )));
+
+    let discovery = "src/bin/gui_server/trial_options.rs";
+    let text = real.file(discovery);
+    let read = "commandagent::startup_credentials::var_os(\"LM_STUDIO_API_TOKEN\")";
+    assert!(text.contains(read));
+    for (label, to) in [
+        (
+            "its original form",
+            "std::env::var_os(\"LM_STUDIO_API_TOKEN\")".to_string(),
+        ),
+        (
+            "another key",
+            "commandagent::startup_credentials::var_os(\"OPENAI_API_KEY\")".to_string(),
+        ),
+        (
+            "a read that reaches a child",
+            format!(
+                "{read}.inspect(|value| {{ std::process::Command::new(\"x\").env(\"X\", value); }})"
+            ),
+        ),
+    ] {
+        let violations = with_file(discovery, &text.replacen(read, &to, 1));
+        assert!(!violations.is_empty(), "{label}");
+    }
+}
+
 /// Each way back to an environment, or a start that is not first, fails the rule.
 #[test]
 fn startup_credential_boundary_rejects_each_weakened_variant() {
@@ -870,7 +1046,8 @@ fn audit_artifact_contract_process_boundary(
 }
 
 /// Only these may read a received credential by name, each for its own request.
-const STARTUP_CREDENTIAL_READERS: [&str; 5] = [
+const STARTUP_CREDENTIAL_READERS: [&str; 6] = [
+    "src/bin/gui_server/trial_options.rs",
     "src/config.rs",
     "src/doctor.rs",
     "src/providers/lm_studio.rs",
@@ -987,7 +1164,251 @@ fn audit_startup_credential_boundary(corpus: &AuditCorpus, rule: &ProtectionRule
             }
         }
     }
+    // The GUI's model discovery reads one key for a header of its own request. It starts nothing.
+    let discovery = "src/bin/gui_server/trial_options.rs";
+    let code = production_text(corpus.file(discovery));
+    if code.matches("startup_credentials::").count() > 1
+        || (code.contains("startup_credentials::") && !code.contains(DISCOVERY_READ_FIXED))
+        || (code.contains("startup_credentials::")
+            && (code.contains("Command::new(") || code.contains(".env(")))
+    {
+        violations.push(format!("{discovery} reads more than its one header value"));
+    }
+    violations.extend(direct_credential_reads(corpus, store));
     violations
+}
+
+const DISCOVERY_READ_FIXED: &str =
+    "commandagent::startup_credentials::var_os(\"LM_STUDIO_API_TOKEN\")";
+
+const BUILT_IN_CREDENTIALS: [&str; 4] = [
+    "OPENAI_API_KEY",
+    "GEMINI_API_KEY",
+    "LM_STUDIO_API_TOKEN",
+    "JEV_API_KEY",
+];
+
+/// One way to read the environment, with whitespace already removed: called, or passed as a path.
+const ENVIRONMENT_READS: [&str; 9] = [
+    "env::var(",
+    "env::var_os(",
+    "env::var)",
+    "env::var_os)",
+    "env_compat::var(",
+    "env_compat::var_os(",
+    "env_compat::var_with(",
+    "env_compat::var)",
+    "env_compat::var_os)",
+];
+
+/// A read of a credential's name that does not go through `startup_credentials`, which finds a
+/// value the start received. On macOS such a read finds nothing, silently.
+///
+/// What this sees: in one statement of `src/` production code, an environment read together with
+/// a built-in name, a constant holding one, or `api_key_env` (a run's key name, known only at
+/// run time, so this looks for the variable or field by that name). A loop over names and an
+/// `.and_then(|name| std::env::var(name))` on `api_key_env` are one statement, so they count.
+///
+/// What this does not see: a name that was put in a differently named variable in an earlier
+/// statement, a name passed to a helper that reads the environment, a read in a macro or under a
+/// renamed import, a name built from pieces, and a scan of every variable (`vars_os`). A string
+/// holding a brace that does not balance can also end a test item's removal in the wrong place.
+///
+/// What is test code: an item under `#[cfg(test)]` or `#[cfg(all(test, ...))]`, by its braces,
+/// and a file that a `#[cfg(test)] mod name;` brings in, with whatever that file brings in.
+fn direct_credential_reads(corpus: &AuditCorpus, store: &str) -> Vec<String> {
+    let test_files = test_only_files(corpus);
+    let production = corpus
+        .files
+        .iter()
+        .filter(|(path, _)| path.starts_with("src/") && !test_files.contains(*path))
+        .map(|(path, text)| (path, statements(&without_test_items(text))))
+        .collect::<Vec<_>>();
+    let mut names = BUILT_IN_CREDENTIALS.map(str::to_string).to_vec();
+    names.push("api_key_env".to_string());
+    for (_, statements) in &production {
+        for statement in statements {
+            for built_in in BUILT_IN_CREDENTIALS {
+                let value = format!(":&str=\"{built_in}\"");
+                if let Some(constant) = statement.strip_suffix(&value)
+                    && let Some(position) = constant.rfind("const")
+                {
+                    names.push(constant[position + "const".len()..].to_string());
+                }
+            }
+        }
+    }
+    let mut violations = Vec::new();
+    for (path, statements) in &production {
+        if path.as_str() == store {
+            continue;
+        }
+        for statement in statements {
+            let reads = ENVIRONMENT_READS
+                .iter()
+                .any(|read| statement.contains(read));
+            if let Some(name) = names.iter().find(|name| statement.contains(name.as_str()))
+                && reads
+            {
+                violations.push(format!(
+                    "{path} reads `{name}` from the environment; use startup_credentials"
+                ));
+            }
+        }
+    }
+    violations
+}
+
+/// Files only a test build compiles, followed through the modules they declare.
+fn test_only_files(corpus: &AuditCorpus) -> std::collections::BTreeSet<String> {
+    let mut found = std::collections::BTreeSet::new();
+    loop {
+        let before = found.len();
+        for (path, text) in &corpus.files {
+            let in_test_file = found.contains(path);
+            let mut under_attribute = false;
+            for line in text.lines().map(str::trim) {
+                let declared = line
+                    .strip_prefix("pub ")
+                    .or_else(|| line.strip_prefix("pub(crate) "))
+                    .or_else(|| line.strip_prefix("pub(super) "))
+                    .unwrap_or(line)
+                    .strip_prefix("mod ")
+                    .and_then(|rest| rest.strip_suffix(';'));
+                if let Some(name) = declared
+                    && (under_attribute || in_test_file)
+                {
+                    let directory = Path::new(path).parent().unwrap();
+                    let own = Path::new(path).with_extension("");
+                    for candidate in [
+                        directory.join(format!("{name}.rs")),
+                        directory.join(name).join("mod.rs"),
+                        own.join(format!("{name}.rs")),
+                        own.join(name).join("mod.rs"),
+                    ] {
+                        let candidate = candidate.to_string_lossy().replace('\\', "/");
+                        if corpus.files.contains_key(&candidate) {
+                            found.insert(candidate);
+                        }
+                    }
+                }
+                under_attribute =
+                    is_test_attribute(line) || (under_attribute && line.starts_with("#["));
+            }
+        }
+        if found.len() == before {
+            return found;
+        }
+    }
+}
+
+fn is_test_attribute(line: &str) -> bool {
+    line.starts_with("#[cfg(test)]") || line.starts_with("#[cfg(all(test")
+}
+
+/// The text with each test-only item removed: from its attribute through its closing brace or
+/// semicolon. Braces in a string, a raw string, or a character are not counted.
+fn without_test_items(text: &str) -> String {
+    let mut kept = String::with_capacity(text.len());
+    let mut rest = text;
+    while !rest.is_empty() {
+        let line_end = rest.find('\n').map_or(rest.len(), |end| end + 1);
+        let (line, after) = rest.split_at(line_end);
+        if is_test_attribute(line.trim_start()) {
+            rest = &after[item_length(after)..];
+        } else {
+            kept.push_str(line);
+            rest = after;
+        }
+    }
+    kept
+}
+
+/// How far the first item in `text` reaches.
+fn item_length(text: &str) -> usize {
+    let bytes = text.as_bytes();
+    let mut depth = 0usize;
+    let mut at = 0;
+    while at < bytes.len() {
+        match bytes[at] {
+            b'"' => at = past_string(bytes, at + 1),
+            b'r' if matches!(bytes.get(at + 1), Some(b'"' | b'#')) => {
+                at = past_raw_string(bytes, at + 1)
+            }
+            b'\'' if bytes.get(at + 2) == Some(&b'\'') => at += 3,
+            b'\'' if bytes.get(at + 1) == Some(&b'\\') && bytes.get(at + 3) == Some(&b'\'') => {
+                at += 4
+            }
+            b'/' if bytes.get(at + 1) == Some(&b'/') => {
+                while at < bytes.len() && bytes[at] != b'\n' {
+                    at += 1;
+                }
+            }
+            b'{' => {
+                depth += 1;
+                at += 1;
+            }
+            b'}' => {
+                at += 1;
+                if depth <= 1 {
+                    return at;
+                }
+                depth -= 1;
+            }
+            b';' if depth == 0 => return at + 1,
+            _ => at += 1,
+        }
+    }
+    bytes.len()
+}
+
+fn past_string(bytes: &[u8], mut at: usize) -> usize {
+    while at < bytes.len() {
+        match bytes[at] {
+            b'\\' => at += 2,
+            b'"' => return at + 1,
+            _ => at += 1,
+        }
+    }
+    at
+}
+
+fn past_raw_string(bytes: &[u8], mut at: usize) -> usize {
+    let mut hashes = 0;
+    while bytes.get(at) == Some(&b'#') {
+        hashes += 1;
+        at += 1;
+    }
+    if bytes.get(at) != Some(&b'"') {
+        return at;
+    }
+    at += 1;
+    while at < bytes.len() {
+        if bytes[at] == b'"'
+            && bytes[at + 1..]
+                .iter()
+                .take(hashes)
+                .filter(|byte| **byte == b'#')
+                .count()
+                == hashes
+        {
+            return at + 1 + hashes;
+        }
+        at += 1;
+    }
+    at
+}
+
+/// Statements with whitespace and whole-line comments removed, so a call split over lines reads
+/// as one.
+fn statements(text: &str) -> Vec<String> {
+    let joined = text
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("//"))
+        .flat_map(str::chars)
+        .filter(|character| !character.is_whitespace())
+        .collect::<String>();
+    joined.split(';').map(str::to_string).collect()
 }
 
 /// The text of a file above its test module: a unit test may start what production must not.
