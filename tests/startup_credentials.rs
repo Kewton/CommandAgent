@@ -30,42 +30,51 @@ fn command(workspace: &Path) -> Command {
 struct FakeProvider {
     url: String,
     first_request: mpsc::Receiver<String>,
+    release: mpsc::Sender<()>,
 }
 
 impl FakeProvider {
     fn start() -> Self {
-        Self::listening(true)
-    }
-
-    /// One that never answers, so the process that asked stays until the test stops it. A test
-    /// that looks at a live process needs this: an answer ends the run while it looks.
-    #[cfg(target_os = "macos")]
-    fn holding() -> Self {
         Self::listening(false)
     }
 
-    fn listening(answers: bool) -> Self {
+    /// One that keeps its first request unanswered until [`Self::release`], or until it is
+    /// dropped, so the process that asked is there for as long as the test looks at it.
+    fn holding() -> Self {
+        Self::listening(true)
+    }
+
+    fn listening(holds: bool) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         let (sender, first_request) = mpsc::channel();
+        let (release, released) = mpsc::channel();
         std::thread::spawn(move || {
-            let mut held = Vec::new();
+            let mut holds = holds;
             for stream in listener.incoming().flatten() {
                 let mut stream = stream;
                 let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
                 let mut heard = [0u8; 8192];
                 let read = stream.read(&mut heard).unwrap_or(0);
                 let _ = sender.send(String::from_utf8_lossy(&heard[..read]).into_owned());
-                if answers {
-                    let _ = stream.write_all(
-                        b"HTTP/1.1 500 Internal Server Error\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
-                    );
-                } else {
-                    held.push(stream);
+                if std::mem::take(&mut holds) {
+                    let _ = released.recv();
                 }
+                let _ = stream.write_all(
+                    b"HTTP/1.1 500 Internal Server Error\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+                );
             }
         });
-        Self { url, first_request }
+        Self {
+            url,
+            first_request,
+            release,
+        }
+    }
+
+    /// The test has finished looking: the first request gets its answer.
+    fn release(&self) {
+        self.release.send(()).expect("the fake is still listening");
     }
 
     /// The first request, which is also the proof that the start finished, or a failure.
@@ -279,7 +288,8 @@ fn authorization_of(heard: &[String]) -> Vec<String> {
         .collect()
 }
 
-/// Run to its end, and what the fake heard.
+/// Run to its end, and what a holding fake heard. The run is alive for the read because the fake
+/// answers only after it, and only that answer lets the run end.
 fn heard_by_a_run(
     workspace: &Path,
     provider: &FakeProvider,
@@ -296,6 +306,7 @@ fn heard_by_a_run(
         assert!(!procargs::holds(&area.raw, DUMMY), "in the exec-time area");
     }
     let _ = pid;
+    provider.release();
     let output = child.wait_with_output().unwrap();
     let shown = [output.stdout, output.stderr].concat();
     assert!(
@@ -311,7 +322,7 @@ fn heard_by_a_run(
 #[test]
 fn the_lm_studio_token_reaches_the_endpoint() {
     let workspace = tempfile::tempdir().unwrap();
-    let provider = FakeProvider::start();
+    let provider = FakeProvider::holding();
     let heard = heard_by_a_run(workspace.path(), &provider, |command| {
         command
             .args(lm_studio_arguments(&provider.url))
@@ -342,7 +353,7 @@ fn compatible_arguments(url: &str) -> Vec<String> {
 #[test]
 fn a_key_name_from_the_command_line_reaches_the_endpoint() {
     let workspace = tempfile::tempdir().unwrap();
-    let provider = FakeProvider::start();
+    let provider = FakeProvider::holding();
     let heard = heard_by_a_run(workspace.path(), &provider, |command| {
         command
             .args(compatible_arguments(&provider.url))
@@ -358,7 +369,7 @@ fn a_key_name_from_the_command_line_reaches_the_endpoint() {
 #[test]
 fn a_key_name_from_the_selected_preset_reaches_the_endpoint() {
     let workspace = tempfile::tempdir().unwrap();
-    let provider = FakeProvider::start();
+    let provider = FakeProvider::holding();
     let config = workspace.path().join(".commandagent");
     std::fs::create_dir_all(&config).unwrap();
     std::fs::write(
@@ -476,6 +487,7 @@ fn off_macos_the_start_changes_nothing() {
 
 #[cfg(target_os = "macos")]
 mod refused_starts {
+    use std::collections::BTreeMap;
     use std::os::fd::AsRawFd as _;
     use std::os::unix::process::CommandExt as _;
     use std::time::Instant;
@@ -485,6 +497,10 @@ mod refused_starts {
     const MARKER: &str = "COMMANDAGENT_BOOT_FD";
     /// A number the handoff reaches the child at, free in the child.
     const AT: i32 = 40;
+    /// The most a handoff may hold.
+    const BOUND: usize = 16 * 1024;
+    const NOT_A_PIPE: &str = "the handoff descriptor is not a pipe";
+    const THE_WRITER_STAYED: &str = "the handoff did not end";
 
     fn frame(rows: &[(&str, &str)]) -> Vec<u8> {
         let mut bytes = b"CACRED1\n".to_vec();
@@ -498,49 +514,100 @@ mod refused_starts {
         bytes
     }
 
-    /// Both ends, close-on-exec, in this process.
-    fn pipe() -> (std::fs::File, std::fs::File) {
-        use std::os::fd::FromRawFd as _;
-        let mut ends = [-1i32; 2];
-        // SAFETY: `ends` is writable for the two descriptors.
-        assert_eq!(unsafe { libc::pipe(ends.as_mut_ptr()) }, 0);
-        for end in ends {
-            // SAFETY: `end` is open, and this only sets a flag.
-            let answer = unsafe { libc::fcntl(end, libc::F_SETFD, libc::FD_CLOEXEC) };
-            assert_eq!(answer, 0);
-        }
-        // SAFETY: both are open, and nothing else owns them.
+    /// What the handoff's writer is, once the child has written to it.
+    #[derive(Clone, Copy, PartialEq)]
+    enum Writer {
+        /// Everything was written and it is closed.
+        Closed,
+        /// Everything was written, and the child keeps it across the exec.
+        LeftOpen,
+        /// It took more than the bound, as much as the pipe would, and it is closed.
+        Filled,
+    }
+
+    /// A new pipe at [`AT`] holding these bytes. All of it is made in the child, after the fork:
+    /// the child has one thread and forks nothing before its exec, so no other process can ever
+    /// hold the writer, whatever this test binary's other threads are starting. A pipe made in
+    /// this process can reach a sibling that forks while it is open, close-on-exec or not.
+    fn hand_pipe_at(command: &mut Command, bytes: Vec<u8>, kept: Writer) {
+        let at_least = if kept == Writer::Filled {
+            BOUND + 1
+        } else {
+            bytes.len()
+        };
+        // SAFETY: only `pipe`, `fcntl`, `write`, `close` and `dup2` run in the child, which are
+        // async-signal-safe, and the bytes were made before the fork. Nothing here allocates.
         unsafe {
-            (
-                std::fs::File::from_raw_fd(ends[0]),
-                std::fs::File::from_raw_fd(ends[1]),
-            )
+            command.pre_exec(move || {
+                let mut ends = [-1i32; 2];
+                if libc::pipe(ends.as_mut_ptr()) != 0
+                    || libc::fcntl(ends[1], libc::F_SETFL, libc::O_NONBLOCK) != 0
+                {
+                    return Err(std::io::Error::last_os_error());
+                }
+                let [reader, writer] = ends;
+                let mut written = 0;
+                while written < bytes.len() {
+                    let pending = &bytes[written..];
+                    let answer = libc::write(writer, pending.as_ptr().cast(), pending.len());
+                    match usize::try_from(answer) {
+                        Ok(count) if count > 0 => written += count,
+                        _ => break,
+                    }
+                }
+                if written < at_least {
+                    return Err(std::io::Error::from_raw_os_error(libc::EMSGSIZE));
+                }
+                if kept != Writer::LeftOpen {
+                    libc::close(writer);
+                } else if writer == AT && libc::fcntl(writer, libc::F_DUPFD, AT + 1) < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                if reader != AT {
+                    if libc::dup2(reader, AT) < 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    libc::close(reader);
+                }
+                inherit_at()
+            });
         }
     }
 
-    /// A pipe holding these bytes, with its writer closed.
-    fn holding(bytes: &[u8]) -> std::fs::File {
-        let (reader, mut writer) = pipe();
-        writer.write_all(bytes).unwrap();
-        reader
+    /// `dup2` onto the same number changes nothing, so the flag is cleared here on every path.
+    ///
+    /// # Safety
+    /// For the new child: `fcntl` is async-signal-safe.
+    unsafe fn inherit_at() -> std::io::Result<()> {
+        // SAFETY: this sets one flag, and takes no pointer.
+        if unsafe { libc::fcntl(AT, libc::F_SETFD, 0) } != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(())
     }
 
-    /// The handoff at [`AT`] in the child, for the child alone.
+    /// This process's own descriptor, at [`AT`] in the child alone.
     fn hand_at(command: &mut Command, source: &std::fs::File) {
-        let source = source.as_raw_fd();
-        // SAFETY: `dup2` is async-signal-safe, and `AT` is free in a new child.
+        hand_number_at(command, source.as_raw_fd());
+    }
+
+    /// A file from `reopen` is close-on-exec from its open, so no sibling keeps it past its exec,
+    /// and nothing waits for this one to close.
+    fn hand_number_at(command: &mut Command, source: i32) {
+        // SAFETY: `dup2` and `fcntl` are async-signal-safe, and [`AT`] is replaced in the child.
         unsafe {
             command.pre_exec(move || {
                 if libc::dup2(source, AT) < 0 {
                     return Err(std::io::Error::last_os_error());
                 }
-                Ok(())
+                inherit_at()
             });
         }
     }
 
-    /// A refusal: not zero, soon, in a fixed sentence with no secret, and no provider call.
-    fn assert_refused(label: &str, build: impl Fn(&mut Command)) {
+    /// A refusal for this reason: not zero, soon, in a fixed sentence with no secret, and no
+    /// provider call. The reason matters: a handoff that never reached the child is refused too.
+    fn assert_refused(label: &str, reason: &str, build: impl Fn(&mut Command)) {
         let workspace = tempfile::tempdir().unwrap();
         let provider = FakeProvider::start();
         let mut command = super::command(workspace.path());
@@ -561,9 +628,10 @@ mod refused_starts {
         let output = child.wait_with_output().unwrap();
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(!status.success(), "{label}: {stderr}");
-        assert!(
-            stderr.contains("the startup credential handoff failed"),
-            "{label}: {stderr}"
+        assert_eq!(
+            stderr,
+            format!("error: the startup credential handoff failed: {reason}\n"),
+            "{label}"
         );
         assert!(!stderr.contains(DUMMY), "{label}: {stderr}");
         assert!(output.stdout.is_empty(), "{label}");
@@ -575,18 +643,21 @@ mod refused_starts {
 
     #[test]
     fn a_marker_that_names_no_usable_pipe_stops_the_start() {
-        for marker in ["", "x", "-1", "03", "0", "1", "2", "99999999999", "77"] {
-            assert_refused(marker, |command| {
+        for marker in ["", "x", "-1", "03", "0", "1", "2", "99999999999"] {
+            assert_refused(marker, "the handoff descriptor is not valid", |command| {
                 command.env(MARKER, marker);
             });
         }
+        assert_refused("77", "the handoff descriptor is not open", |command| {
+            command.env(MARKER, "77");
+        });
     }
 
     #[test]
     fn a_descriptor_that_is_not_a_pipe_stops_the_start() {
         let file = tempfile::NamedTempFile::new().unwrap();
         let file = file.reopen().unwrap();
-        assert_refused("a file", |command| {
+        assert_refused("a file", NOT_A_PIPE, |command| {
             hand_at(command, &file);
             command.env(MARKER, AT.to_string());
         });
@@ -598,7 +669,7 @@ mod refused_starts {
         let file = tempfile::NamedTempFile::new().unwrap();
         std::fs::write(file.path(), frame(&[("OPENAI_API_KEY", DUMMY)])).unwrap();
         let file = file.reopen().unwrap();
-        assert_refused("a file holding a good handoff", |command| {
+        assert_refused("a file holding a good handoff", NOT_A_PIPE, |command| {
             hand_at(command, &file);
             command.env(MARKER, AT.to_string());
         });
@@ -615,9 +686,8 @@ mod refused_starts {
             ("cut", good[..good.len() - 1].to_vec()),
             ("trailing", trailing),
         ] {
-            let reader = holding(&bytes);
-            assert_refused(label, |command| {
-                hand_at(command, &reader);
+            assert_refused(label, "the handoff is not well formed", |command| {
+                hand_pipe_at(command, bytes.clone(), Writer::Closed);
                 command.env(MARKER, AT.to_string());
             });
         }
@@ -626,29 +696,25 @@ mod refused_starts {
     /// More than the bound, however much the pipe took: what it took already exceeds it.
     #[test]
     fn a_handoff_over_the_bound_stops_the_start() {
-        let (reader, mut writer) = pipe();
-        let filler = std::thread::spawn(move || {
-            let _ = writer.write_all(&vec![b'x'; 64 * 1024]);
-        });
-        assert_refused("over the bound", |command| {
-            hand_at(command, &reader);
-            command.env(MARKER, AT.to_string());
-        });
-        drop(reader);
-        filler.join().unwrap();
+        assert_refused(
+            "over the bound",
+            "the handoff exceeds the bound",
+            |command| {
+                hand_pipe_at(command, vec![b'x'; 64 * 1024], Writer::Filled);
+                command.env(MARKER, AT.to_string());
+            },
+        );
     }
 
-    /// A writer that never closes: the start ends on it instead of waiting for it.
+    /// A writer that never closes: the start ends on it instead of waiting for it. The child
+    /// itself holds it, so it stays open for exactly as long as the start could wait.
     #[test]
     fn a_handoff_whose_writer_stays_open_stops_the_start_without_waiting() {
         for bytes in [Vec::new(), frame(&[("OPENAI_API_KEY", DUMMY)])] {
-            let (reader, mut writer) = pipe();
-            writer.write_all(&bytes).unwrap();
-            assert_refused("an open writer", |command| {
-                hand_at(command, &reader);
+            assert_refused("an open writer", THE_WRITER_STAYED, |command| {
+                hand_pipe_at(command, bytes.clone(), Writer::LeftOpen);
                 command.env(MARKER, AT.to_string());
             });
-            drop(writer);
         }
     }
 
@@ -659,32 +725,42 @@ mod refused_starts {
             frame(&[]),
             frame(&[("OPENAI_API_KEY", "another-dummy-value")]),
         ] {
-            let reader = holding(&bytes);
-            assert_refused("a credential beside the marker", |command| {
-                hand_at(command, &reader);
-                command
-                    .env(MARKER, AT.to_string())
-                    .env("OPENAI_API_KEY", DUMMY);
-            });
+            assert_refused(
+                "a credential beside the marker",
+                "a credential is still in the environment",
+                |command| {
+                    hand_pipe_at(command, bytes.clone(), Writer::Closed);
+                    command
+                        .env(MARKER, AT.to_string())
+                        .env("OPENAI_API_KEY", DUMMY);
+                },
+            );
         }
     }
 
     #[test]
     fn a_handoff_holding_a_name_this_run_does_not_use_stops_the_start() {
-        let reader = holding(&frame(&[("PATH", DUMMY)]));
-        assert_refused("another name", |command| {
-            hand_at(command, &reader);
-            command.env(MARKER, AT.to_string());
-        });
+        assert_refused(
+            "another name",
+            "the handoff holds a name that is not a credential of this run",
+            |command| {
+                hand_pipe_at(command, frame(&[("PATH", DUMMY)]), Writer::Closed);
+                command.env(MARKER, AT.to_string());
+            },
+        );
     }
 
     /// Too much for the handoff is a refusal, and the credential did not stay in the environment
     /// because the process ended with it there and started nothing.
     #[test]
     fn a_credential_over_the_bound_stops_the_start() {
-        assert_refused("a large value", |command| {
-            command.env("OPENAI_API_KEY", format!("{DUMMY}{}", "x".repeat(20_000)));
-        });
+        assert_refused(
+            "a large value",
+            "the credentials exceed the bound",
+            |command| {
+                command.env("OPENAI_API_KEY", format!("{DUMMY}{}", "x".repeat(20_000)));
+            },
+        );
     }
 
     /// The witness for all of these: a good handoff, by hand, starts and reaches the provider.
@@ -692,12 +768,15 @@ mod refused_starts {
     fn a_good_handoff_by_hand_starts() {
         let workspace = tempfile::tempdir().unwrap();
         let provider = FakeProvider::start();
-        let reader = holding(&frame(&[("LM_STUDIO_API_TOKEN", DUMMY)]));
         let mut command = super::command(workspace.path());
         command
             .args(lm_studio_arguments(&provider.url))
             .env(MARKER, AT.to_string());
-        hand_at(&mut command, &reader);
+        hand_pipe_at(
+            &mut command,
+            frame(&[("LM_STUDIO_API_TOKEN", DUMMY)]),
+            Writer::Closed,
+        );
         let child = command.spawn().unwrap();
         let first = provider.wait_for_request();
         stop(child);
@@ -705,47 +784,192 @@ mod refused_starts {
         assert!(authorization_of(&[first]).contains(&expected));
     }
 
-    /// Whether this number in this process is a pipe. A later open takes the lowest free number,
-    /// so a number this high stays what the handoff left it.
-    fn is_a_pipe(pid: u32, number: i32) -> bool {
-        let listing = Command::new("/usr/sbin/lsof")
-            .args([
-                "-nP",
-                "-a",
-                "-p",
-                &pid.to_string(),
-                "-d",
-                &number.to_string(),
-                "-Ft",
-            ])
-            .env_clear()
-            .env("PATH", "/usr/bin:/bin:/usr/sbin")
-            .output()
-            .unwrap();
-        String::from_utf8_lossy(&listing.stdout)
-            .lines()
-            .any(|line| line == "tPIPE")
+    /// The numbers below [`AT`] and just above it, filled or freed in the child so that its next
+    /// `pipe()` lands where a test wants it. The filling closes at the exec.
+    fn free_only(command: &mut Command, free: [i32; 2]) {
+        // SAFETY: `close`, `dup2` and `fcntl` are async-signal-safe, and this is the new child.
+        unsafe {
+            command.pre_exec(move || {
+                for number in 3..=free[1] {
+                    if free.contains(&number) {
+                        libc::close(number);
+                    } else if libc::dup2(0, number) < 0
+                        || libc::fcntl(number, libc::F_SETFD, libc::FD_CLOEXEC) != 0
+                    {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                }
+                Ok(())
+            });
+        }
     }
 
-    /// Once the start is done, the handoff's reader is gone from this real process. Stdout is a
-    /// pipe here too, so the same lookup shows it can see one.
-    #[test]
-    fn the_handoff_descriptor_is_closed_after_the_start() {
+    /// The first request of a start handed its pipe by `build`, or a failure.
+    fn assert_starts(build: impl Fn(&mut Command)) {
         let workspace = tempfile::tempdir().unwrap();
-        let provider = FakeProvider::holding();
-        let reader = holding(&frame(&[("LM_STUDIO_API_TOKEN", DUMMY)]));
+        let provider = FakeProvider::start();
         let mut command = super::command(workspace.path());
         command
             .args(lm_studio_arguments(&provider.url))
             .env(MARKER, AT.to_string());
-        hand_at(&mut command, &reader);
+        build(&mut command);
+        let child = command.spawn().unwrap();
+        let first = provider.wait_for_request();
+        stop(child);
+        let expected = format!("Bearer {DUMMY}");
+        assert!(authorization_of(&[first]).contains(&expected));
+    }
+
+    /// `pipe()` may give either end the number the handoff goes to.
+    #[test]
+    fn a_pipe_end_already_at_the_number_still_hands_off() {
+        let good = || frame(&[("LM_STUDIO_API_TOKEN", DUMMY)]);
+        assert_starts(|command| {
+            free_only(command, [AT, AT + 1]);
+            hand_pipe_at(command, good(), Writer::Closed);
+        });
+        assert_starts(|command| {
+            free_only(command, [AT - 1, AT]);
+            hand_pipe_at(command, good(), Writer::Closed);
+        });
+        assert_refused("a writer at the number", THE_WRITER_STAYED, |command| {
+            free_only(command, [AT - 1, AT]);
+            hand_pipe_at(command, good(), Writer::LeftOpen);
+            command.env(MARKER, AT.to_string());
+        });
+    }
+
+    /// A file that already has the number is still there after the exec, and is refused for what
+    /// it is. Refused as not open, it would say nothing about its kind.
+    #[test]
+    fn a_source_already_at_the_number_reaches_the_child() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let file = file.reopen().unwrap();
+        let source = file.as_raw_fd();
+        assert_refused("already at the number", NOT_A_PIPE, |command| {
+            // SAFETY: `dup2` and `fcntl` are async-signal-safe, and this is the new child.
+            unsafe {
+                command.pre_exec(move || {
+                    if libc::dup2(source, AT) < 0
+                        || libc::fcntl(AT, libc::F_SETFD, libc::FD_CLOEXEC) != 0
+                    {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    Ok(())
+                });
+            }
+            hand_number_at(command, AT);
+            command.env(MARKER, AT.to_string());
+        });
+    }
+
+    /// Each numbered descriptor of `lsof -Fft`'s answer and its type, or why the answer says
+    /// nothing. Named ones such as `cwd` have the same shape and are not numbers.
+    fn read_listing(
+        pid: u32,
+        succeeded: bool,
+        listing: &str,
+    ) -> Result<BTreeMap<i32, String>, String> {
+        if !succeeded {
+            return Err("the listing failed".to_string());
+        }
+        let mut lines = listing.lines();
+        if lines.next() != Some(format!("p{pid}").as_str()) {
+            return Err("the listing is not of this process".to_string());
+        }
+        let mut types = BTreeMap::new();
+        while let Some(line) = lines.next() {
+            let name = line
+                .strip_prefix('f')
+                .ok_or_else(|| format!("not a descriptor: {line}"))?;
+            let kind = lines
+                .next()
+                .and_then(|line| line.strip_prefix('t'))
+                .ok_or_else(|| format!("no type for {name}"))?;
+            if let Ok(number) = name.parse::<i32>()
+                && types.insert(number, kind.to_string()).is_some()
+            {
+                return Err(format!("{number} is listed twice"));
+            }
+        }
+        if types.is_empty() {
+            return Err("no descriptor is listed".to_string());
+        }
+        Ok(types)
+    }
+
+    /// One look at every descriptor of a live process. Not being able to look is a failure, and
+    /// never "that number is not open".
+    fn descriptors_of(pid: u32) -> BTreeMap<i32, String> {
+        let listing = Command::new("/usr/sbin/lsof")
+            .args(["-nP", "-a", "-p", &pid.to_string(), "-Fft"])
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin:/usr/sbin")
+            .output()
+            .unwrap();
+        read_listing(
+            pid,
+            listing.status.success(),
+            &String::from_utf8_lossy(&listing.stdout),
+        )
+        .unwrap_or_else(|reason| panic!("the descriptors of {pid} were not read: {reason}"))
+    }
+
+    /// Whether the handoff's reader is still at its number. A reader left open keeps the number,
+    /// so a later open can only have it once the reader is gone: another kind there means gone.
+    /// A later pipe there reads as the reader, which fails the test and hides nothing.
+    fn holds_the_handoff(descriptors: &BTreeMap<i32, String>) -> bool {
+        descriptors.get(&AT).is_some_and(|kind| kind == "PIPE")
+    }
+
+    #[test]
+    fn a_listing_is_read_only_when_it_says_what_it_should() {
+        let at = format!("f{AT}");
+        let read = |lines: &[&str]| read_listing(7, true, &lines.join("\n"));
+        for bad in [
+            &[][..],
+            &["p8", "f1", "tPIPE"],
+            &["p7"],
+            &["p7", "f1"],
+            &["p7", "tPIPE"],
+            &["p7", "f1", "nsomething"],
+            &["p7", "f1", "tPIPE", "f1", "tPIPE"],
+        ] {
+            assert!(read(bad).is_err(), "{bad:?}");
+        }
+        assert!(read_listing(7, false, "p7\nf1\ntPIPE").is_err());
+
+        let closed = read(&["p7", "fcwd", "tDIR", "f1", "tPIPE"]).unwrap();
+        assert_eq!(closed[&1], "PIPE");
+        assert!(!holds_the_handoff(&closed));
+        let reused = read(&["p7", &at, "tREG"]).unwrap();
+        assert!(!holds_the_handoff(&reused));
+        let open = read(&["p7", &at, "tPIPE"]).unwrap();
+        assert!(holds_the_handoff(&open));
+    }
+
+    /// Once the start is done, the handoff's reader is gone from this real process. Stdout is a
+    /// pipe here too, and it is in the same listing: this look can see a pipe.
+    #[test]
+    fn the_handoff_descriptor_is_closed_after_the_start() {
+        let workspace = tempfile::tempdir().unwrap();
+        let provider = FakeProvider::holding();
+        let mut command = super::command(workspace.path());
+        command
+            .args(lm_studio_arguments(&provider.url))
+            .env(MARKER, AT.to_string());
+        hand_pipe_at(
+            &mut command,
+            frame(&[("LM_STUDIO_API_TOKEN", DUMMY)]),
+            Writer::Closed,
+        );
         let child = command.spawn().unwrap();
         let pid = child.id();
         provider.wait_for_request();
-        let (stdout_is_a_pipe, handoff_is_a_pipe) = (is_a_pipe(pid, 1), is_a_pipe(pid, AT));
+        let descriptors = descriptors_of(pid);
         stop(child);
-        assert!(stdout_is_a_pipe);
-        assert!(!handoff_is_a_pipe);
+        assert_eq!(descriptors[&1], "PIPE");
+        assert!(!holds_the_handoff(&descriptors));
     }
 
     /// A caller that closed stdin gave the pipe a low number. The start moves it up.
