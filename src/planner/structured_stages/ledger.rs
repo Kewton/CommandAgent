@@ -11,7 +11,8 @@
 //! on a resume.
 //!
 //! A fresh start replaces an earlier run's file only at its first `begin`. Opening alone, as a
-//! preflight or a probe does, changes no byte of it.
+//! preflight or a probe does, changes no byte of it, and a resume before that `begin` goes on
+//! with the earlier run.
 //!
 //! `flock` on an open descriptor refuses a second holder, in another process or through another
 //! descriptor of this one, and goes away with its holder. A stale lock file cannot exist. A
@@ -86,7 +87,8 @@ impl From<SavedRefusal> for LedgerRefusal {
             SavedRefusal::FixedInputChanged { path } => Self::FixedInputChanged { path },
             SavedRefusal::WrongSchema
             | SavedRefusal::TargetsDiffer
-            | SavedRefusal::CountsInconsistent => Self::Corrupt,
+            | SavedRefusal::CountsInconsistent
+            | SavedRefusal::PinOutsideContract => Self::Corrupt,
         }
     }
 }
@@ -209,6 +211,10 @@ impl Store {
             .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
             .open(directory.join(LOCK_FILE))
             .map_err(unavailable)?;
+        // A lock on anything else, such as a FIFO, is not one every holder agrees on.
+        if !lock.metadata().map_err(unavailable)?.is_file() {
+            return Err(LedgerRefusal::Unavailable);
+        }
         // SAFETY: `lock` is an open descriptor this function owns, and flock only uses it.
         // LOCK_NB makes it return at once instead of waiting for the other holder.
         let result = unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
@@ -431,18 +437,48 @@ impl StageLedger {
 
     /// Taken again by a later session in this process. A file changed under us loses the
     /// states and gives no count back; a file gone or damaged is a refusal.
-    fn reconcile(&mut self, contract: &StageContract) -> Result<(), LedgerRefusal> {
+    fn reconcile(&mut self, request: &LedgerRequest<'_>) -> Result<(), LedgerRefusal> {
         if let Some(refusal) = &self.failed {
             return Err(refusal.clone());
         }
-        if self.machine.contract().sha256() != contract.sha256() {
+        if self.machine.contract().sha256() != request.contract.sha256() {
             return Err(LedgerRefusal::ContractChanged);
+        }
+        if self.fresh_not_begun && request.entry == LedgerEntry::Resume {
+            return self.take_up_resume(request);
         }
         let outcome = self.reconcile_with_file();
         if let Err(refusal) = &outcome {
             self.failed = Some(refusal.clone());
         }
         outcome
+    }
+
+    /// A resume reaching a fresh start that has not begun: nothing of that start is on disk, so
+    /// the previous run is still there to go on with, through the same checks as in a new process.
+    /// What those checks refuse changes nothing here, and the operator can put it right and ask
+    /// again. A file that is no longer the one found stops the ledger, as in any later session.
+    fn take_up_resume(&mut self, request: &LedgerRequest<'_>) -> Result<(), LedgerRefusal> {
+        let bytes = match self.store.read_file() {
+            Ok(Some(bytes)) => bytes,
+            Ok(None) => return Err(LedgerRefusal::Missing),
+            Err(refusal) => return Err(self.stop(refusal)),
+        };
+        if !self.store.holds_what_is_expected(&bytes) {
+            return Err(self.stop(LedgerRefusal::Diverged));
+        }
+        let machine = lowered_for_resume(&bytes, request)?;
+        if let Err(refusal) = self.store.write(machine.snapshot()) {
+            return Err(self.stop(refusal));
+        }
+        self.machine = machine;
+        self.fresh_not_begun = false;
+        Ok(())
+    }
+
+    fn stop(&mut self, refusal: LedgerRefusal) -> LedgerRefusal {
+        self.failed = Some(refusal.clone());
+        refusal
     }
 
     fn reconcile_with_file(&mut self) -> Result<(), LedgerRefusal> {
@@ -490,22 +526,30 @@ fn new_nonce() -> String {
     Uuid::now_v7().to_string()
 }
 
+/// Every resume's checks, whichever way it comes. It writes nothing.
+fn lowered_for_resume(
+    bytes: &[u8],
+    request: &LedgerRequest<'_>,
+) -> Result<StageMachine, LedgerRefusal> {
+    Ok(lower_saved(
+        decode(bytes)?,
+        &request.contract,
+        &ResumeFacts {
+            process_nonce: new_nonce(),
+            now_ms: request.now_ms,
+            bytes: request.bytes,
+            pins: request.pins,
+        },
+    )?)
+}
+
 fn open_new(directory: PathBuf, request: &LedgerRequest<'_>) -> Result<StageLedger, LedgerRefusal> {
     let mut store = Store::open(directory)?;
     let existing = store.read_file()?;
     match (request.entry, existing) {
         (LedgerEntry::Resume, None) => Err(LedgerRefusal::Missing),
         (LedgerEntry::Resume, Some(bytes)) => {
-            let machine = lower_saved(
-                decode(&bytes)?,
-                &request.contract,
-                &ResumeFacts {
-                    process_nonce: new_nonce(),
-                    now_ms: request.now_ms,
-                    bytes: request.bytes,
-                    pins: request.pins,
-                },
-            )?;
+            let machine = lowered_for_resume(&bytes, request)?;
             store.write(machine.snapshot())?;
             Ok(StageLedger {
                 machine,
@@ -546,7 +590,8 @@ pub(crate) struct LedgerRegistry {
 
 impl LedgerRegistry {
     /// Whatever the entry says, a ledger this process already holds is the one returned: only a
-    /// new process starts anything over (D10).
+    /// new process starts anything over (D10). A resume does move a fresh start that has not
+    /// begun onto the previous run, since going on with that run is what it asks for.
     pub(crate) fn open(&self, request: &LedgerRequest<'_>) -> Result<HeldLedger, LedgerRefusal> {
         refuse_state_dir_inside_workspace(request.state_dir, request.workspace)?;
         let workspace = fs::canonicalize(request.workspace).map_err(unavailable)?;
@@ -563,7 +608,7 @@ impl LedgerRegistry {
             existing
                 .lock()
                 .map_err(|_| LedgerRefusal::Unavailable)?
-                .reconcile(&request.contract)?;
+                .reconcile(request)?;
             return Ok(existing.clone());
         }
         let ledger = Arc::new(Mutex::new(open_new(directory, request)?));
@@ -589,7 +634,7 @@ mod tests {
     use super::super::contract::{
         NarrowedStageLimits, StageContract, StageSetDeclaration, TargetKey,
     };
-    use super::super::receipt::sha256_hex;
+    use super::super::receipt::{InputDigest, sha256_hex};
     use super::super::resume::AdmittedPins;
     use super::super::state::{
         AttemptTicket, BeginDecision, BytesSource, CommitObservation, LocalDecision,
@@ -977,8 +1022,8 @@ mod tests {
             assert!(!verdict.complete());
             assert_eq!(ledger.failed, None);
         }
-        // A later session in this process, before anything began.
-        assert!(registry.open(&world.request(LedgerEntry::Resume)).is_ok());
+        // A later session in this process that also starts fresh, before anything began.
+        assert!(registry.open(&world.request(LedgerEntry::Fresh)).is_ok());
 
         let mut ledger = held.lock().unwrap();
         start(&mut ledger, &alpha(), &world.bytes, 1, "a");
@@ -987,6 +1032,306 @@ mod tests {
         assert_ne!(saved.run_nonce, old_run, "the first begin replaced it");
         assert_eq!(saved.attempts_used, 1);
         assert!(ledger.verdict(&world.bytes).ledger_intact());
+    }
+
+    #[test]
+    fn a_resume_on_a_fresh_open_not_yet_begun_takes_up_the_previous_run() {
+        let mut world = world();
+        let held = both_sealed(&mut world);
+        let before = held.lock().unwrap().machine.snapshot().clone();
+        drop(held);
+
+        let registry = LedgerRegistry::default();
+        let opened = registry.open(&world.request(LedgerEntry::Fresh)).unwrap();
+        assert_ne!(
+            opened.lock().unwrap().machine.snapshot().run_nonce,
+            before.run_nonce
+        );
+
+        let resumed = registry.open(&world.request(LedgerEntry::Resume)).unwrap();
+        assert!(Arc::ptr_eq(&opened, &resumed));
+        let after = resumed.lock().unwrap().machine.snapshot().clone();
+        assert_eq!(after.run_nonce, before.run_nonce);
+        assert_ne!(after.process_nonce, before.process_nonce);
+        assert_eq!(after.attempts_used, before.attempts_used);
+        assert_eq!(after.started_at_ms, before.started_at_ms);
+        for (record, earlier) in after.targets.iter().zip(&before.targets) {
+            assert_eq!(record.phase, Phase::Unverified, "{:?}", record.key);
+            assert_eq!(record.unverified_reason, Some(UnverifiedReason::Resumed));
+            assert_eq!(record.attempts_used, earlier.attempts_used);
+            assert_eq!(record.generation, earlier.generation);
+            assert!(record.current_receipt.is_none());
+        }
+        assert_eq!(world.saved(), after, "the lowering is durable");
+        assert!(!resumed.lock().unwrap().fresh_not_begun);
+
+        // From here it is a resume, whatever a later session in this process says (D10).
+        let again = registry.open(&world.request(LedgerEntry::Fresh)).unwrap();
+        assert!(Arc::ptr_eq(&opened, &again));
+        let mut ledger = again.lock().unwrap();
+        assert_eq!(ledger.machine.snapshot(), &after);
+        assert!(!ledger.verdict(&world.bytes).complete());
+        start(&mut ledger, &alpha(), &world.bytes, 3, "a2");
+        let saved = world.saved();
+        assert_eq!(saved.run_nonce, before.run_nonce);
+        assert_eq!(saved.attempts_used, before.attempts_used + 1);
+    }
+
+    #[test]
+    fn a_refused_resume_on_a_fresh_open_changes_nothing_and_can_be_tried_again() {
+        let mut world = world();
+        let held = both_sealed(&mut world);
+        let before = held.lock().unwrap().machine.snapshot().clone();
+        drop(held);
+        let previous = fs::read(world.file()).unwrap();
+
+        let registry = LedgerRegistry::default();
+        let opened = registry.open(&world.request(LedgerEntry::Fresh)).unwrap();
+        let fresh = opened.lock().unwrap().machine.snapshot().clone();
+
+        world
+            .bytes
+            .put("fixed/source.json", b"changed while the fresh open waited");
+        assert_eq!(
+            registry
+                .open(&world.request(LedgerEntry::Resume))
+                .unwrap_err(),
+            LedgerRefusal::FixedInputChanged {
+                path: "fixed/source.json".to_string()
+            }
+        );
+        {
+            let ledger = opened.lock().unwrap();
+            assert_eq!(ledger.machine.snapshot(), &fresh);
+            assert!(ledger.fresh_not_begun);
+            assert_eq!(ledger.failed, None);
+        }
+        assert!(fs::read(world.file()).unwrap() == previous, "after refusal");
+
+        // Going on as fresh, short of a begin, leaves the previous run as it was too.
+        assert!(registry.open(&world.request(LedgerEntry::Fresh)).is_ok());
+        assert!(opened.lock().unwrap().verdict(&world.bytes).ledger_intact());
+        assert!(fs::read(world.file()).unwrap() == previous, "as fresh");
+
+        world.bytes.put("fixed/source.json", b"fixed source");
+        let resumed = registry.open(&world.request(LedgerEntry::Resume)).unwrap();
+        let after = resumed.lock().unwrap().machine.snapshot().clone();
+        assert_eq!(after.run_nonce, before.run_nonce);
+        assert_eq!(after.attempts_used, before.attempts_used);
+    }
+
+    #[test]
+    fn a_refused_resume_on_a_fresh_open_leaves_the_fresh_start_able_to_begin() {
+        let mut world = world();
+        let held = both_sealed(&mut world);
+        let old_run = held.lock().unwrap().machine.snapshot().run_nonce.clone();
+        drop(held);
+
+        let registry = LedgerRegistry::default();
+        let opened = registry.open(&world.request(LedgerEntry::Fresh)).unwrap();
+        world.bytes.put(
+            "fixed/source.json",
+            b"only a fresh session goes on from here",
+        );
+        assert!(matches!(
+            registry
+                .open(&world.request(LedgerEntry::Resume))
+                .unwrap_err(),
+            LedgerRefusal::FixedInputChanged { .. }
+        ));
+        let mut ledger = opened.lock().unwrap();
+        start(&mut ledger, &alpha(), &world.bytes, 1, "a");
+        assert_eq!(ledger.failed, None);
+        let saved = world.saved();
+        assert_ne!(saved.run_nonce, old_run);
+        assert_eq!(saved.attempts_used, 1);
+    }
+
+    #[test]
+    fn a_resume_on_a_fresh_open_with_no_file_is_missing_and_changes_nothing() {
+        // Nothing was ever there.
+        let world_empty = world();
+        let registry = LedgerRegistry::default();
+        let opened = registry
+            .open(&world_empty.request(LedgerEntry::Fresh))
+            .unwrap();
+        assert_eq!(
+            registry
+                .open(&world_empty.request(LedgerEntry::Resume))
+                .unwrap_err(),
+            LedgerRefusal::Missing
+        );
+        {
+            let mut ledger = opened.lock().unwrap();
+            assert!(ledger.fresh_not_begun);
+            assert_eq!(ledger.failed, None);
+            assert!(!world_empty.file().exists());
+            start(&mut ledger, &alpha(), &world_empty.bytes, 1, "a");
+            assert_eq!(world_empty.saved().attempts_used, 1);
+        }
+
+        // It was there when the fresh open found it, and is back in time for another try.
+        let mut world = world();
+        let held = both_sealed(&mut world);
+        let before = held.lock().unwrap().machine.snapshot().clone();
+        drop(held);
+        let previous = fs::read(world.file()).unwrap();
+        let registry = LedgerRegistry::default();
+        let opened = registry.open(&world.request(LedgerEntry::Fresh)).unwrap();
+        fs::remove_file(world.file()).unwrap();
+        assert_eq!(
+            registry
+                .open(&world.request(LedgerEntry::Resume))
+                .unwrap_err(),
+            LedgerRefusal::Missing
+        );
+        assert_eq!(opened.lock().unwrap().failed, None);
+        assert!(opened.lock().unwrap().fresh_not_begun);
+        fs::write(world.file(), &previous).unwrap();
+        let resumed = registry.open(&world.request(LedgerEntry::Resume)).unwrap();
+        assert_eq!(
+            resumed.lock().unwrap().machine.snapshot().run_nonce,
+            before.run_nonce
+        );
+    }
+
+    #[test]
+    fn a_file_that_appears_or_changes_under_a_fresh_open_stops_a_resume_for_good() {
+        let mut world = world();
+        let held = both_sealed(&mut world);
+        drop(held);
+        let previous = fs::read(world.file()).unwrap();
+
+        let registry = LedgerRegistry::default();
+        let opened = registry.open(&world.request(LedgerEntry::Fresh)).unwrap();
+        let mut saved = world.saved();
+        saved.attempts_used += 1;
+        world.save(&saved);
+        assert_eq!(
+            registry
+                .open(&world.request(LedgerEntry::Resume))
+                .unwrap_err(),
+            LedgerRefusal::Diverged
+        );
+        assert_eq!(opened.lock().unwrap().failed, Some(LedgerRefusal::Diverged));
+        fs::write(world.file(), &previous).unwrap();
+        assert_eq!(
+            registry
+                .open(&world.request(LedgerEntry::Resume))
+                .unwrap_err(),
+            LedgerRefusal::Diverged,
+            "putting it back does not vouch for it"
+        );
+
+        // Nothing was there when the fresh open looked.
+        let elsewhere = self::world();
+        let registry = LedgerRegistry::default();
+        registry
+            .open(&elsewhere.request(LedgerEntry::Fresh))
+            .unwrap();
+        fs::write(elsewhere.file(), &previous).unwrap();
+        assert_eq!(
+            registry
+                .open(&elsewhere.request(LedgerEntry::Resume))
+                .unwrap_err(),
+            LedgerRefusal::Diverged
+        );
+    }
+
+    #[test]
+    fn a_resume_on_a_fresh_open_that_cannot_write_stops_the_ledger() {
+        let mut world = world();
+        let held = both_sealed(&mut world);
+        drop(held);
+        let previous = fs::read(world.file()).unwrap();
+
+        let registry = LedgerRegistry::default();
+        let opened = registry.open(&world.request(LedgerEntry::Fresh)).unwrap();
+        fs::create_dir(world.directory().join(LEDGER_TEMPORARY)).unwrap();
+        assert_eq!(
+            registry
+                .open(&world.request(LedgerEntry::Resume))
+                .unwrap_err(),
+            LedgerRefusal::Unavailable
+        );
+        assert!(fs::read(world.file()).unwrap() == previous);
+        let mut ledger = opened.lock().unwrap();
+        assert_eq!(ledger.failed, Some(LedgerRefusal::Unavailable));
+        assert!(!ledger.verdict(&world.bytes).ledger_intact());
+    }
+
+    #[test]
+    fn a_ledger_that_refused_its_file_stays_refused_when_the_file_comes_back() {
+        let world = world();
+        let registry = LedgerRegistry::default();
+        let held = registry.open(&world.request(LedgerEntry::Fresh)).unwrap();
+        start(&mut held.lock().unwrap(), &alpha(), &world.bytes, 1, "a");
+        let good = fs::read(world.file()).unwrap();
+
+        fs::remove_file(world.file()).unwrap();
+        assert_eq!(
+            registry
+                .open(&world.request(LedgerEntry::Resume))
+                .unwrap_err(),
+            LedgerRefusal::Missing
+        );
+        fs::write(world.file(), &good).unwrap();
+        for entry in [LedgerEntry::Resume, LedgerEntry::Fresh] {
+            assert_eq!(
+                registry.open(&world.request(entry)).unwrap_err(),
+                LedgerRefusal::Missing,
+                "{entry:?}"
+            );
+        }
+        assert!(!held.lock().unwrap().verdict(&world.bytes).ledger_intact());
+    }
+
+    #[test]
+    fn a_pin_outside_the_contract_in_a_saved_record_is_damage() {
+        let mut world = world();
+        let held = both_sealed(&mut world);
+        drop(held);
+        world.bytes.put("elsewhere/outside.json", b"outside bytes");
+        let mut saved = world.saved();
+        saved.targets[0].fixed_inputs = Some(vec![InputDigest {
+            path: "elsewhere/outside.json".to_string(),
+            sha256: sha_of(b"outside bytes"),
+        }]);
+        world.save(&saved);
+        assert_eq!(
+            world.process(LedgerEntry::Resume).unwrap_err(),
+            LedgerRefusal::Corrupt
+        );
+    }
+
+    #[test]
+    fn a_pin_outside_the_contract_in_a_file_changed_under_a_live_ledger_is_damage() {
+        let world = world();
+        let registry = LedgerRegistry::default();
+        let held = registry.open(&world.request(LedgerEntry::Fresh)).unwrap();
+        start(&mut held.lock().unwrap(), &alpha(), &world.bytes, 1, "a");
+        let mut saved = world.saved();
+        saved.targets[0].fixed_inputs = Some(vec![InputDigest {
+            path: "elsewhere/outside.json".to_string(),
+            sha256: sha_of(b"outside bytes"),
+        }]);
+        world.save(&saved);
+        assert_eq!(
+            registry
+                .open(&world.request(LedgerEntry::Resume))
+                .unwrap_err(),
+            LedgerRefusal::Corrupt
+        );
+    }
+
+    #[test]
+    fn a_fifo_in_place_of_the_lock_is_no_lock() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("ledger");
+        fs::create_dir(&directory).unwrap();
+        make_fifo(&directory.join(LOCK_FILE));
+        let outcome = within_a_bound(move || Store::open(directory).map(|_| ()));
+        assert_eq!(outcome, Err(LedgerRefusal::Unavailable));
     }
 
     #[test]
@@ -1355,6 +1700,7 @@ mod tests {
         let mut world = world();
         let registry = LedgerRegistry::default();
         let held = registry.open(&world.request(LedgerEntry::Fresh)).unwrap();
+        start(&mut held.lock().unwrap(), &alpha(), &world.bytes, 1, "a");
         let other = Arc::new(
             admit(
                 &StageSetDeclaration {
@@ -1375,7 +1721,6 @@ mod tests {
         // That refusal did not cost the ledger anything.
         world.contract = original;
         assert!(registry.open(&world.request(LedgerEntry::Resume)).is_ok());
-        start(&mut held.lock().unwrap(), &alpha(), &world.bytes, 1, "a");
         drop(held);
         drop(registry);
 

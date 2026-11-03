@@ -11,7 +11,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use super::contract::{StageContract, TargetKey};
+use super::contract::{AdmittedTarget, StageContract, TargetKey};
 use super::invalidation::invalidate_downstream;
 use super::receipt::ToolPins;
 use super::state::{
@@ -25,6 +25,8 @@ pub(crate) enum SavedRefusal {
     ContractChanged,
     TargetsDiffer,
     CountsInconsistent,
+    /// A pin on a path the contract does not give its target as a fixed input.
+    PinOutsideContract,
     /// A fixed input is no longer what the run first adopted. Names the input, not its content.
     FixedInputChanged {
         path: String,
@@ -68,6 +70,20 @@ pub(crate) fn validate_saved(
         .try_fold(0u32, |sum, record| sum.checked_add(record.attempts_used));
     if counted.is_none_or(|sum| sum > saved.attempts_used) {
         return Err(SavedRefusal::CountsInconsistent);
+    }
+    // The contract says which paths are fixed inputs, and its digest was just compared. A path
+    // that only the file names is never read and never reaches a message.
+    for (record, target) in saved.targets.iter().zip(contract.targets()) {
+        let is_fixed_input = |path: &str| {
+            target
+                .inputs
+                .iter()
+                .any(|input| input.path == path && input.upstream.is_none())
+        };
+        let mut pins = record.fixed_inputs.iter().flatten();
+        if pins.any(|pin| !is_fixed_input(&pin.path)) {
+            return Err(SavedRefusal::PinOutsideContract);
+        }
     }
     Ok(())
 }
@@ -123,21 +139,23 @@ fn judge_interrupted_commit(record: &TargetRecord, observed: &ObservedBytes) -> 
 fn judge_saved_receipt(
     record: &TargetRecord,
     observed: &ObservedBytes,
-    tool_id: &str,
+    target: &AdmittedTarget,
     facts: &ResumeFacts<'_>,
 ) -> Option<UnverifiedReason> {
     let receipt = record.current_receipt.as_ref()?;
     if observed.sha256().as_deref() != Some(receipt.committed_sha256.as_str()) {
         return Some(UnverifiedReason::BytesChanged);
     }
-    let pinned = facts.pins.get(tool_id);
+    let pinned = facts.pins.get(&target.tool_id);
     if pinned.is_none_or(|admitted| {
         admitted.pins != receipt.pins || admitted.schema_sha256 != receipt.schema_sha256
     }) {
         return Some(UnverifiedReason::PinChanged);
     }
+    // An input the contract does not name counts as moved, without being read.
     let input_moved = receipt.inputs.iter().any(|input| {
-        facts.bytes.observe(&input.path).sha256().as_deref() != Some(input.sha256.as_str())
+        !target.inputs.iter().any(|known| known.path == input.path)
+            || facts.bytes.observe(&input.path).sha256().as_deref() != Some(input.sha256.as_str())
     });
     input_moved.then_some(UnverifiedReason::InputChanged)
 }
@@ -163,18 +181,13 @@ fn refuse_changed_fixed_input(
     Ok(())
 }
 
-fn lower_one(
-    record: &mut TargetRecord,
-    output_path: &str,
-    tool_id: &str,
-    facts: &ResumeFacts<'_>,
-) -> bool {
-    let observed = facts.bytes.observe(output_path);
+fn lower_one(record: &mut TargetRecord, target: &AdmittedTarget, facts: &ResumeFacts<'_>) -> bool {
+    let observed = facts.bytes.observe(&target.output_path);
     let interrupted = judge_interrupted_commit(record, &observed);
     let saved = if interrupted.bytes_moved {
         None
     } else {
-        judge_saved_receipt(record, &observed, tool_id, facts)
+        judge_saved_receipt(record, &observed, target, facts)
     };
     let reason = interrupted.reason.or(saved);
     let moved = reason.is_some();
@@ -217,7 +230,7 @@ pub(super) fn lower_saved(
         let Some(target) = contract.target(&record.key) else {
             continue;
         };
-        if lower_one(record, &target.output_path, &target.tool_id, facts) {
+        if lower_one(record, target, facts) {
             moved.push(record.key.clone());
         }
     }
@@ -261,14 +274,15 @@ pub(crate) fn absorb_diverged(held: &mut MachineSnapshot, disk: &MachineSnapshot
 
 #[cfg(test)]
 mod tests {
+    use std::cell::RefCell;
     use std::collections::BTreeMap;
     use std::sync::Arc;
 
     use super::super::contract::{StageContract, TargetKey};
-    use super::super::receipt::{CheckResult, CheckStatus};
+    use super::super::receipt::{CheckResult, CheckStatus, InputDigest};
     use super::super::state::{
-        BeginDecision, ExhaustedLimit, LocalDecision, MachineSnapshot, ObservedBytes, Phase,
-        StageMachine, UnverifiedReason,
+        BeginDecision, BytesSource, ExhaustedLimit, LocalDecision, MachineSnapshot, ObservedBytes,
+        Phase, StageMachine, UnverifiedReason,
     };
     use super::super::test_support::{
         FakeBytes, current_inputs, key, passed_checks, pins_for, request_for, schema_for, seal,
@@ -895,6 +909,111 @@ mod tests {
                 .next()
                 .is_none(),
             "the downstream pinned nothing: all its input comes from upstream"
+        );
+    }
+
+    /// Remembers what it was asked to read.
+    struct WatchedBytes {
+        bytes: FakeBytes,
+        asked: RefCell<Vec<String>>,
+    }
+
+    impl WatchedBytes {
+        fn over(bytes: &FakeBytes) -> Self {
+            Self {
+                bytes: bytes.clone(),
+                asked: RefCell::new(Vec::new()),
+            }
+        }
+
+        fn was_asked(&self, path: &str) -> bool {
+            self.asked.borrow().iter().any(|asked| asked == path)
+        }
+    }
+
+    impl BytesSource for WatchedBytes {
+        fn observe(&self, path: &str) -> ObservedBytes {
+            self.asked.borrow_mut().push(path.to_string());
+            self.bytes.observe_path(path)
+        }
+    }
+
+    fn lower_watched(
+        forged: MachineSnapshot,
+        contract: &Arc<StageContract>,
+        bytes: &WatchedBytes,
+    ) -> Result<StageMachine, SavedRefusal> {
+        let pins = current_pins(contract);
+        lower_saved(
+            forged,
+            contract,
+            &ResumeFacts {
+                process_nonce: "process-d".to_string(),
+                now_ms: NOW + 1,
+                bytes,
+                pins: &pins,
+            },
+        )
+    }
+
+    #[test]
+    fn a_pin_the_contract_does_not_name_for_its_target_is_refused_before_anything_is_read() {
+        let (machine, mut bytes) = both_sealed();
+        bytes.put("elsewhere/outside.json", b"outside bytes");
+        let contract = machine.contract().clone();
+
+        let honest = WatchedBytes::over(&bytes);
+        assert!(validate_saved(&saved(&machine), &contract).is_ok());
+        assert!(lower_watched(saved(&machine), &contract, &honest).is_ok());
+        assert!(honest.was_asked("fixed/source.json"));
+
+        for (index, path, why) in [
+            (0, "elsewhere/outside.json", "not in the contract at all"),
+            (1, "fixed/source.json", "another target's fixed input"),
+            (1, "out/alpha.json", "an input from upstream is not fixed"),
+        ] {
+            let mut forged = saved(&machine);
+            forged.targets[index].fixed_inputs = Some(vec![InputDigest {
+                path: path.to_string(),
+                sha256: bytes.observe_path(path).sha256().unwrap(),
+            }]);
+            assert_eq!(
+                validate_saved(&forged, &contract),
+                Err(SavedRefusal::PinOutsideContract),
+                "{why}"
+            );
+            let watched = WatchedBytes::over(&bytes);
+            assert_eq!(
+                lower_watched(forged, &contract, &watched).unwrap_err(),
+                SavedRefusal::PinOutsideContract,
+                "{why}"
+            );
+            assert!(watched.asked.borrow().is_empty(), "{why}");
+        }
+    }
+
+    #[test]
+    fn a_receipt_input_the_contract_does_not_name_is_not_read_and_lowers() {
+        let (machine, mut bytes) = both_sealed();
+        bytes.put("elsewhere/outside.json", b"outside bytes");
+        let contract = machine.contract().clone();
+        let mut forged = saved(&machine);
+        forged.targets[1]
+            .current_receipt
+            .as_mut()
+            .unwrap()
+            .inputs
+            .push(InputDigest {
+                path: "elsewhere/outside.json".to_string(),
+                sha256: sha_of(b"outside bytes"),
+            });
+        let watched = WatchedBytes::over(&bytes);
+        let resumed = lower_watched(forged, &contract, &watched).unwrap();
+        assert!(!watched.was_asked("elsewhere/outside.json"));
+        assert_eq!(phase(&resumed, &beta()), Phase::Unverified);
+        assert_eq!(
+            reason(&resumed, &beta()),
+            Some(UnverifiedReason::InputChanged)
         );
     }
 

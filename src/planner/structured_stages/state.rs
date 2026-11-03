@@ -51,6 +51,9 @@ pub(crate) enum UnverifiedReason {
     CommitNotDurable,
     CancelledAfterCommit,
     CommitOutcomeUnknown,
+    /// A commit stood after the compare stopped holding: the target's generation moved, for its
+    /// own bytes or from upstream, or what it depends on did.
+    ChangedDuringCommit,
     ReceiptRefused,
     LedgerDiverged,
 }
@@ -971,7 +974,7 @@ impl StageMachine {
         if !Self::is_in_flight(record, ticket) {
             return Err(StageRefusal::Stale);
         }
-        let dependencies_held = self.cas_check(ticket).is_ok();
+        let compare_held = self.cas_check(ticket).is_ok();
         let record = &mut self.snapshot.targets[index];
         let Some(in_flight) = record.in_flight.take() else {
             return Err(StageRefusal::Stale);
@@ -1032,8 +1035,8 @@ impl StageMachine {
                     Some(UnverifiedReason::CancelledAfterCommit)
                 } else if !commit.is_some_and(|commit| commit.durable) {
                     Some(UnverifiedReason::CommitNotDurable)
-                } else if !dependencies_held {
-                    Some(UnverifiedReason::DependencyChanged)
+                } else if !compare_held {
+                    Some(UnverifiedReason::ChangedDuringCommit)
                 } else {
                     None
                 }
@@ -1136,8 +1139,16 @@ impl StageMachine {
             ));
         }
         let obligations = self.obligations();
+        // Bytes that are about to move, or have, are not a finished stage set, and a call that
+        // forgot `record_commit` should not pass for one.
+        let intent_open = self
+            .snapshot
+            .targets
+            .iter()
+            .any(TargetRecord::has_recorded_intent);
         StageVerdict {
-            complete: !obligations.is_empty()
+            complete: !intent_open
+                && !obligations.is_empty()
                 && obligations
                     .iter()
                     .all(|status| status.phase == Phase::Sealed && status.receipt_sha256.is_some()),
@@ -2583,7 +2594,7 @@ mod tests {
         assert!(matches!(
             decision,
             CommitDecision::StoodUnverified {
-                reason: UnverifiedReason::DependencyChanged,
+                reason: UnverifiedReason::ChangedDuringCommit,
                 ..
             }
         ));
@@ -2610,6 +2621,77 @@ mod tests {
         );
         assert!(machine.record(&alpha()).unwrap().in_flight.is_none());
         assert_eq!(machine.cas_check(&started), Err(StageRefusal::Stale));
+    }
+
+    #[test]
+    fn an_intent_still_open_keeps_the_verdict_from_complete_and_changes_no_obligation() {
+        let (mut machine, mut bytes) = both_sealed();
+        let before = bytes.clone();
+        let (ticket, _) = at_commit(&mut machine, &mut bytes, 3);
+        let held = machine.clone();
+
+        // The bytes are still those the receipts name, and only the open intent says no.
+        let verdict = machine.judge(&before);
+        assert!(!verdict.complete);
+        assert!(verdict.ledger_intact);
+        assert!(verdict.invalidated.is_empty());
+        assert!(
+            verdict
+                .obligations
+                .iter()
+                .all(|status| status.phase == Phase::Sealed && status.receipt_sha256.is_some())
+        );
+        assert_eq!(machine.snapshot(), held.snapshot());
+
+        machine
+            .record_commit(&ticket, CommitObservation::NotAdopted)
+            .unwrap();
+        assert!(machine.judge(&before).complete, "with the intent closed");
+    }
+
+    /// Admission refuses a set with no target and a saved record must name every target, so only
+    /// a state built here can show this guard.
+    #[test]
+    fn a_machine_with_no_obligations_is_not_complete() {
+        let mut machine = machine(two_stage_contract());
+        machine.snapshot_mut().targets.clear();
+        let verdict = machine.judge(&FakeBytes::default());
+        assert!(verdict.obligations.is_empty());
+        assert!(!verdict.complete);
+    }
+
+    #[test]
+    fn a_sealed_record_without_a_receipt_is_lowered_and_never_complete() {
+        let (mut machine, bytes) = both_sealed();
+        machine.snapshot_mut().targets[1].current_receipt = None;
+        let verdict = machine.judge(&bytes);
+        assert!(!verdict.complete);
+        assert_eq!(phase(&machine, &beta()), Phase::Unverified);
+        assert_eq!(
+            machine.record(&beta()).unwrap().unverified_reason,
+            Some(UnverifiedReason::ReceiptRefused)
+        );
+    }
+
+    #[test]
+    fn a_commit_that_stands_after_its_bytes_moved_does_not_name_a_dependency() {
+        let (mut machine, mut bytes) = both_sealed();
+        let (ticket, candidate) = at_commit(&mut machine, &mut bytes, 3);
+        let commit = in_flight_commit(&machine, &candidate);
+        // The judgment moves the generation over the output's own bytes: no upstream moved.
+        assert!(!machine.judge(&bytes).complete);
+        assert_eq!(
+            machine.record(&alpha()).unwrap().unverified_reason,
+            Some(UnverifiedReason::BytesChanged)
+        );
+        let decision = machine
+            .record_commit(&ticket, CommitObservation::Stood(Box::new(commit)))
+            .unwrap();
+        let CommitDecision::StoodUnverified { reason, .. } = decision else {
+            panic!("unverified, got {decision:?}");
+        };
+        assert_eq!(reason, UnverifiedReason::ChangedDuringCommit);
+        assert_eq!(phase(&machine, &alpha()), Phase::Unverified);
     }
 
     #[test]
