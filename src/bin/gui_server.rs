@@ -126,8 +126,13 @@ impl TrialTokenAuthArg {
     }
 }
 
+fn main() -> anyhow::Result<()> {
+    commandagent::startup_credentials::bootstrap_gui();
+    serve()
+}
+
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn serve() -> anyhow::Result<()> {
     let mut arguments = Arguments::parse();
     if arguments.init {
         initialize_defaults(&mut arguments)?;

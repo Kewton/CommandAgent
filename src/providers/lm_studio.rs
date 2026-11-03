@@ -86,6 +86,14 @@ impl fmt::Debug for LmStudioClient {
     }
 }
 
+/// The optional LM Studio token this process holds, trimmed, or `None` when it is blank.
+pub(crate) fn process_api_token() -> Option<String> {
+    crate::startup_credentials::var(LM_STUDIO_API_TOKEN_ENV)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
 impl LmStudioClient {
     pub fn from_env(config: &Config) -> anyhow::Result<Self> {
         Self::from_env_for_role(config, ProviderRole::Executor)
@@ -93,10 +101,7 @@ impl LmStudioClient {
 
     pub(crate) fn from_env_for_role(config: &Config, role: ProviderRole) -> anyhow::Result<Self> {
         let reasoning_effort = CompatibleEffortSetting::from_process_env().for_client()?;
-        let api_token = crate::env_compat::var(LM_STUDIO_API_TOKEN_ENV)
-            .ok()
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty());
+        let api_token = process_api_token();
         Self::new(
             config.lm_studio_host.clone(),
             api_token,

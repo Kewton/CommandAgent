@@ -103,6 +103,8 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "commandagent.run-trace/v1",
     "commandagent.runs/v1",
     "commandagent.score-checkpoint/v0",
+    "commit_failed",
+    "committed_sha256",
     "community_profile_verification",
     "compile_error_extraction",
     "compile_no_snapshot_narrow_retry",
@@ -139,6 +141,11 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "edit_anchor_recovery",
     "edit_anchor_salvaged",
     "edits_after_prompt",
+    "effect_env_refused",
+    "effect_limit_exceeded",
+    "effect_output_refused",
+    "effect_path_refused",
+    "effect_read_only",
     "empty_response_escalation",
     "empty_response_recovered",
     "enum_mismatch",
@@ -260,6 +267,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "pattern_mismatch",
     "pending",
     "phase_verification_result",
+    "pinned_process",
     "pipeline_dropped",
     "pipeline_error_extraction",
     "plan_final_contract",
@@ -282,6 +290,11 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "preset_step_converted",
     "preset_ultra_plan_used",
     "probe_preflight",
+    "process_failed",
+    "profile-tool.commit-receipt/v1",
+    "profile-tool.process/v1",
+    "profile-tool.request/v1",
+    "profile-tool.result/v1",
     "profile-tool.schema/v1",
     "profile_behavior_probe",
     "profile_inferred",
@@ -290,8 +303,12 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "profile_not_generic",
     "profile_reinferred",
     "profile_tool",
+    "profile_tool_commit",
+    "profile_tool_effect_call",
+    "profile_tool_effect_rejected",
     "profile_tool_refused",
     "prompt_version",
+    "propose-artifacts",
     "protected_path_mutation_rejected",
     "provider_billed_cost_usd",
     "provider_error",
@@ -366,6 +383,8 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "requested",
     "requirement_plan",
     "resolved_failures",
+    "result_rejected",
+    "result_sha256",
     "resume_start",
     "resumed_conversation",
     "route_confirmed",
@@ -379,6 +398,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "run_stop",
     "running",
     "runtime_bash_policy",
+    "runtime_sha256",
     "schema_limit_exceeded",
     "schema_mismatch",
     "schema_scrubbed",
@@ -587,6 +607,74 @@ mod profile_tool_schema_tests {
     #[test]
     fn a_normal_credential_leaves_the_words_unchanged() {
         let credential = "fake-credential-973-not-a-real-key";
+        let mut catalog = SecretCatalog::new();
+        catalog
+            .register_credential("DUMMY_API_KEY", credential)
+            .unwrap();
+        for word in WORDS {
+            let text = format!("{word} {credential}");
+            assert_eq!(catalog.scrub(&text), format!("{word} <redacted>"));
+        }
+    }
+}
+
+/// Issue #974: the words the G3 effect owns: its name, runtime kind, protocol IDs, refusal
+/// kinds, events, and the receipt's digest fields. An output ID, a path, and a diagnostic
+/// an operator's tool chooses are not here.
+#[cfg(test)]
+mod profile_tool_effect_tests {
+    use super::{FIXED_IDENTIFIERS, collides_with_fixed_identifier, is_fixed_identifier};
+    use crate::sensitive_data::SecretCatalog;
+
+    const WORDS: [&str; 21] = [
+        "propose-artifacts",
+        "pinned_process",
+        "profile-tool.process/v1",
+        "profile-tool.request/v1",
+        "profile-tool.result/v1",
+        "profile-tool.commit-receipt/v1",
+        "effect_read_only",
+        "effect_limit_exceeded",
+        "effect_output_refused",
+        "effect_path_refused",
+        "effect_env_refused",
+        "process_failed",
+        "result_rejected",
+        "commit_failed",
+        "profile_tool_effect_call",
+        "profile_tool_effect_rejected",
+        "profile_tool_commit",
+        "committed_sha256",
+        "result_sha256",
+        "runtime_sha256",
+        "unavailable",
+    ];
+
+    #[test]
+    fn each_word_is_reserved_once_and_a_credential_equal_to_one_is_refused() {
+        for word in WORDS {
+            assert!(is_fixed_identifier(word), "{word}");
+            assert!(collides_with_fixed_identifier(word), "{word}");
+            assert_eq!(
+                FIXED_IDENTIFIERS
+                    .iter()
+                    .filter(|fixed| **fixed == word)
+                    .count(),
+                1,
+                "{word}"
+            );
+            assert!(
+                SecretCatalog::new()
+                    .register_credential("DUMMY_API_KEY", word)
+                    .is_err(),
+                "{word}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_normal_credential_leaves_the_words_unchanged() {
+        let credential = "fake-credential-974-not-a-real-key";
         let mut catalog = SecretCatalog::new();
         catalog
             .register_credential("DUMMY_API_KEY", credential)

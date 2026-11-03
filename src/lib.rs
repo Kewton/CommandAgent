@@ -43,6 +43,7 @@ mod run_trace;
 pub mod runs;
 pub mod runtime_paths;
 pub mod sensitive_data;
+pub mod startup_credentials;
 pub mod state;
 pub mod time_profile;
 pub mod tools;

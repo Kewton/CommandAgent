@@ -133,6 +133,11 @@ impl Adoption {
         &self.schema
     }
 
+    /// G3: the bytes the process receives are the ones adopted here, never read again.
+    pub(crate) fn inputs(&self) -> &[SchemaInput] {
+        &self.inputs
+    }
+
     fn verify_admission(&self, pins: &ToolPins<'_>) -> Result<(), ProfileToolRefusal> {
         if self.descriptor_sha256 != pins.descriptor_sha256 || self.tool_version != pins.version {
             return Err(ProfileToolRefusal::new(
@@ -180,6 +185,15 @@ impl Adoption {
         }
         Ok(())
     }
+}
+
+/// G3: the input paths a schema declares, without reading them, so the effect can judge
+/// them first. The read of a `read` tool's inputs keeps its meaning.
+pub(crate) fn declared_inputs(
+    schema: &Value,
+    tool: &str,
+) -> Result<Vec<String>, ProfileToolRefusal> {
+    Ok(SchemaDeclaration::decode(schema, tool)?.inputs)
 }
 
 /// The revision is a digest of the declared inputs, in declared order: for each,

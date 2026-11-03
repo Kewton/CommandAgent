@@ -71,6 +71,7 @@ const DECLARED: &[(&str, &str, usize)] = &[
     ),
     ("tests/gui_server.rs", "libc::kill(", 1),
     ("tests/headless_summary.rs", "libc::kill(", 1),
+    ("tests/profile_tool_commit.rs", "libc::kill(", 2),
     // `tests/gui_read_only_guard.rs` holds these as string literals only.
     ("tests/gui_read_only_guard.rs", "libc::kill(", 3),
     // Rust recursive delete.

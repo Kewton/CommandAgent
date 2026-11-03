@@ -273,6 +273,11 @@ fn ends_the_run(error: &anyhow::Error) -> bool {
         .is_some_and(|refusal| refusal.kind != RefusalKind::SchemaViolation)
 }
 
+/// Issue #974: a proposal tool's name follows the same rule as an extension's.
+pub(crate) fn validate_tool_name(name: &str) -> anyhow::Result<()> {
+    validate_identifier("extension tool", name)
+}
+
 fn validate_identifier(kind: &str, value: &str) -> anyhow::Result<()> {
     let mut characters = value.chars();
     let valid_first = characters

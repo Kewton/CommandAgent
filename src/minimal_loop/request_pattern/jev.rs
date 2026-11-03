@@ -122,10 +122,15 @@ impl fmt::Debug for JevClassifier {
 impl JevClassifier {
     /// The production classifier, or `None` when `JEV_API_KEY` is unset or blank.
     pub fn from_env() -> Option<Self> {
-        let api_key = std::env::var(JEV_API_KEY_ENV)
+        let api_key = crate::startup_credentials::var(JEV_API_KEY_ENV)
             .ok()
             .filter(|key| !key.trim().is_empty())?;
         Some(Self::new(JEV_ENDPOINT, api_key, JEV_TIMEOUT))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn api_key_for_test(&self) -> &str {
+        &self.api_key
     }
 
     pub fn new(endpoint: impl Into<String>, api_key: impl Into<String>, timeout: Duration) -> Self {

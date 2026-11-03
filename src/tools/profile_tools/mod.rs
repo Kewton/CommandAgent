@@ -18,13 +18,22 @@
 //!
 //! A descriptor that declares a `schema` takes nested arguments through
 //! [`schema`] (G2). The flat `object` and `array` parameter kinds stay refused as
-//! unavailable, and so does `propose-artifacts` (G3). Nothing here reports them,
-//! or an unknown cost, as a success.
+//! unavailable. Nothing here reports them, or an unknown cost, as a success.
+//!
+//! A descriptor with effect `propose-artifacts` and a pinned process (G3) proposes bytes
+//! through [`effects`]: [`isolation`] starts it, [`process`] bounds it, [`protocol`] judges
+//! its result, and only [`commit`] changes the workspace, once.
 
 pub mod admission;
+pub mod commit;
 pub mod descriptor;
+pub mod effects;
+pub(crate) mod isolation;
 pub(crate) mod pre_run;
+pub(crate) mod process;
+pub mod protocol;
 pub mod schema;
+mod secret_output;
 pub mod selection;
 
 use std::fmt;
@@ -34,6 +43,8 @@ pub use admission::{
     AdmittedProfileTools, AdmittedToolBinding, ProfileToolReadExecutor, ReadToolOutput,
     ToolExecutionReceipt, ToolUsage, admit_selected, register_read_executor,
 };
+pub use commit::CommitReceipt;
+pub use descriptor::directory_pin;
 pub use schema::{
     ProfileToolSchemaCompiler, SchemaCompileInput, SchemaInput, register_schema_compiler,
 };
@@ -60,6 +71,29 @@ pub enum RefusalKind {
     InputRevisionUnavailable,
     InputRevisionMismatch,
     SchemaViolation,
+    /// The strict isolation a proposal tool needs is missing. Reported as `unavailable`;
+    /// a separate variant so a REPL's free text can stop on it without moving where a
+    /// G1 tool's `unavailable` is reported.
+    EffectUnavailable,
+    /// A proposal tool's runtime differs from its pin at admission. Reported as
+    /// `invalid_pin`, kept apart for the same reason.
+    EffectInvalidPin,
+    /// The same, for the other kinds a proposal tool's admission shares with G1. Each
+    /// reports the shared word, so only the place it stops a REPL's free text differs.
+    EffectInvalidDescriptor,
+    EffectConflictingDeclaration,
+    EffectWorkspaceDescriptor,
+    EffectUnknownToolId,
+    EffectRegistryUnavailable,
+    EffectNameCollision,
+    EffectReadOnly,
+    EffectLimitExceeded,
+    EffectOutputRefused,
+    EffectPathRefused,
+    EffectEnvRefused,
+    ProcessFailed,
+    ResultRejected,
+    CommitFailed,
 }
 
 impl RefusalKind {
@@ -74,6 +108,42 @@ impl RefusalKind {
                 | Self::InputRevisionUnavailable
                 | Self::InputRevisionMismatch
         )
+    }
+
+    /// Only a `propose-artifacts` tool's admission can produce these.
+    pub(crate) const fn is_effect_tool_reason(self) -> bool {
+        matches!(
+            self,
+            Self::EffectUnavailable
+                | Self::EffectInvalidPin
+                | Self::EffectInvalidDescriptor
+                | Self::EffectConflictingDeclaration
+                | Self::EffectWorkspaceDescriptor
+                | Self::EffectUnknownToolId
+                | Self::EffectRegistryUnavailable
+                | Self::EffectNameCollision
+                | Self::EffectReadOnly
+                | Self::EffectLimitExceeded
+                | Self::EffectOutputRefused
+                | Self::EffectPathRefused
+                | Self::EffectEnvRefused
+        )
+    }
+
+    /// A shared kind that came from a proposal tool's admission keeps that origin, so it
+    /// is not mistaken for a G1 refusal, whose place stays where it was.
+    pub(crate) const fn with_effect_origin(self) -> Self {
+        match self {
+            Self::Unavailable => Self::EffectUnavailable,
+            Self::InvalidPin => Self::EffectInvalidPin,
+            Self::InvalidDescriptor => Self::EffectInvalidDescriptor,
+            Self::ConflictingDeclaration => Self::EffectConflictingDeclaration,
+            Self::WorkspaceDescriptor => Self::EffectWorkspaceDescriptor,
+            Self::UnknownToolId => Self::EffectUnknownToolId,
+            Self::RegistryUnavailable => Self::EffectRegistryUnavailable,
+            Self::NameCollision => Self::EffectNameCollision,
+            other => other,
+        }
     }
 
     pub const fn as_str(self) -> &'static str {
@@ -94,6 +164,22 @@ impl RefusalKind {
             Self::InputRevisionUnavailable => "input_revision_unavailable",
             Self::InputRevisionMismatch => "input_revision_mismatch",
             Self::SchemaViolation => "schema_violation",
+            Self::EffectUnavailable => "unavailable",
+            Self::EffectInvalidPin => "invalid_pin",
+            Self::EffectInvalidDescriptor => "invalid_descriptor",
+            Self::EffectConflictingDeclaration => "conflicting_declaration",
+            Self::EffectWorkspaceDescriptor => "workspace_descriptor",
+            Self::EffectUnknownToolId => "unknown_tool_id",
+            Self::EffectRegistryUnavailable => "registry_unavailable",
+            Self::EffectNameCollision => "name_collision",
+            Self::EffectReadOnly => "effect_read_only",
+            Self::EffectLimitExceeded => "effect_limit_exceeded",
+            Self::EffectOutputRefused => "effect_output_refused",
+            Self::EffectPathRefused => "effect_path_refused",
+            Self::EffectEnvRefused => "effect_env_refused",
+            Self::ProcessFailed => "process_failed",
+            Self::ResultRejected => "result_rejected",
+            Self::CommitFailed => "commit_failed",
         }
     }
 }

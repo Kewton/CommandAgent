@@ -693,11 +693,7 @@ fn add_provider_checks(checks: &mut Vec<DoctorCheck>, config: &Config) {
     })
     .collect::<Vec<_>>();
     if !lm_studio_roles.is_empty() {
-        let api_token =
-            crate::env_compat::var(crate::providers::lm_studio::LM_STUDIO_API_TOKEN_ENV)
-                .ok()
-                .map(|value| value.trim().to_string())
-                .filter(|value| !value.is_empty());
+        let api_token = crate::providers::lm_studio::process_api_token();
         checks.push(DoctorCheck::new(
             "provider.lm_studio.api_token",
             "provider",
@@ -738,7 +734,7 @@ fn add_provider_checks(checks: &mut Vec<DoctorCheck>, config: &Config) {
         let api_token = compatible
             .api_key_env
             .as_deref()
-            .and_then(|name| std::env::var(name).ok())
+            .and_then(process_credential)
             .filter(|value| !value.trim().is_empty());
         checks.push(DoctorCheck::new(
             "provider.openai_compatible.api_key",
@@ -791,9 +787,8 @@ fn add_provider_checks(checks: &mut Vec<DoctorCheck>, config: &Config) {
                 checks.push(openai_model_identity_check(role, model));
             }
         }
-        let openai_key = std::env::var("OPENAI_API_KEY")
-            .ok()
-            .filter(|value| !value.trim().is_empty());
+        let openai_key =
+            process_credential("OPENAI_API_KEY").filter(|value| !value.trim().is_empty());
         checks.push(process_credential_check_with(
             "OPENAI_API_KEY",
             "provider.openai.api_key",
@@ -812,9 +807,14 @@ fn add_provider_checks(checks: &mut Vec<DoctorCheck>, config: &Config) {
             "provider.gemini.api_key",
             "Gemini key",
             &crate::config::read_dotenv(&config.workspace_root),
-            |name| std::env::var(name).ok(),
+            process_credential,
         ));
     }
+}
+
+/// A credential as the run itself resolves it, so the report matches what the run will use.
+pub(crate) fn process_credential(name: &str) -> Option<String> {
+    crate::startup_credentials::var(name).ok()
 }
 
 fn openai_model_identity_check(role: &str, model: &str) -> DoctorCheck {

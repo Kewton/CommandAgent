@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 
 #[cfg(unix)]
 mod unix_impl {
-    use std::ffi::{CString, OsStr, OsString};
+    use std::ffi::{CStr, CString, OsStr, OsString};
     use std::fs::File;
     use std::io::{self, Read as _, Write as _};
     use std::os::fd::{AsRawFd, FromRawFd};
@@ -69,6 +69,84 @@ mod unix_impl {
             file.flush()
                 .with_context(|| format!("failed to flush {}", self.path.display()))?;
             Ok(())
+        }
+
+        /// Issue #974: the leaf as it is now, without following a link or blocking on a
+        /// FIFO. The caller reads its identity from the returned descriptor.
+        pub(crate) fn open_existing_leaf(&self) -> io::Result<File> {
+            let flags = libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC;
+            openat_file(&self.dir, &self.name, flags, 0)
+        }
+
+        /// Issue #974: a new name in the held directory, private to this user, on a
+        /// descriptor that can also read it back. An existing name is an error.
+        pub(crate) fn create_exclusive(&self, name: &CString) -> io::Result<File> {
+            let flags =
+                libc::O_RDWR | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+            openat_file(&self.dir, name, flags, 0o600)
+        }
+
+        /// Issue #974: what a name in the held directory is now, without following a link
+        /// or opening it.
+        pub(crate) fn stat_name(&self, name: &CStr) -> io::Result<EntryIdentity> {
+            // SAFETY: an all-zero `stat` is a valid value of this plain struct.
+            let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+            // SAFETY: the directory fd is owned by `self`, the name is NUL-terminated, and
+            // `stat` is writable; all three outlive the call.
+            let rc = unsafe {
+                libc::fstatat(
+                    self.dir.as_raw_fd(),
+                    name.as_ptr(),
+                    &raw mut stat,
+                    libc::AT_SYMLINK_NOFOLLOW,
+                )
+            };
+            if rc != 0 {
+                return Err(io::Error::last_os_error());
+            }
+            #[allow(
+                clippy::unnecessary_cast,
+                reason = "the width of these fields differs between platforms"
+            )]
+            Ok(EntryIdentity {
+                device: stat.st_dev as u64,
+                inode: stat.st_ino as u64,
+                regular: stat.st_mode & libc::S_IFMT == libc::S_IFREG,
+                links: stat.st_nlink as u64,
+            })
+        }
+
+        /// Issue #974: the leaf's own name in the held directory.
+        pub(crate) fn leaf_name(&self) -> &CStr {
+            &self.name
+        }
+
+        /// Issue #974: one atomic replacement of the leaf, inside the held directory.
+        pub(crate) fn rename_to_leaf(&self, from: &CString) -> io::Result<()> {
+            let fd = self.dir.as_raw_fd();
+            // SAFETY: the directory fd is owned by `self`; both names are NUL-terminated
+            // and outlive the call.
+            let rc = unsafe { libc::renameat(fd, from.as_ptr(), fd, self.name.as_ptr()) };
+            if rc == 0 {
+                Ok(())
+            } else {
+                Err(io::Error::last_os_error())
+            }
+        }
+
+        /// Issue #974: removes a name from the held directory, never following a path.
+        pub(crate) fn unlink(&self, name: &CString) -> io::Result<()> {
+            // SAFETY: the directory fd is owned by `self`; the name is NUL-terminated.
+            let rc = unsafe { libc::unlinkat(self.dir.as_raw_fd(), name.as_ptr(), 0) };
+            if rc == 0 {
+                Ok(())
+            } else {
+                Err(io::Error::last_os_error())
+            }
+        }
+
+        pub(crate) fn sync_directory(&self) -> io::Result<()> {
+            self.dir.sync_all()
         }
 
         fn leaf_error(&self, err: io::Error) -> anyhow::Error {
@@ -132,6 +210,115 @@ mod unix_impl {
             name,
             path: candidate,
         })
+    }
+
+    /// Issue #974: the same walk, started from a root descriptor the caller already holds,
+    /// so a root replaced after it was opened redirects nothing. `relative` has only normal
+    /// components; the workspace rules for it are the caller's.
+    pub(crate) fn open_parent_at(
+        root: &File,
+        display_root: &Path,
+        relative: &Path,
+        create: bool,
+    ) -> anyhow::Result<ParentDir> {
+        let mut names: Vec<OsString> = Vec::new();
+        for component in relative.components() {
+            let Component::Normal(part) = component else {
+                bail!("path escapes workspace: {}", relative.display());
+            };
+            names.push(part.to_os_string());
+        }
+        let Some(leaf) = names.pop() else {
+            bail!("path escapes workspace: {}", relative.display());
+        };
+        let name = CString::new(leaf.as_bytes())
+            .with_context(|| format!("path is not valid UTF-8: {}", relative.display()))?;
+        let mut dir = root
+            .try_clone()
+            .context("workspace root is not accessible")?;
+        let mut current = display_root.to_path_buf();
+        for part in &names {
+            current.push(part);
+            fire_seam(&current);
+            dir = open_component(dir, part, &current, create)?;
+        }
+        Ok(ParentDir {
+            dir,
+            name,
+            path: current.join(leaf),
+        })
+    }
+
+    /// Issue #974: what `fstatat` says one directory entry is.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub(crate) struct EntryIdentity {
+        pub(crate) device: u64,
+        pub(crate) inode: u64,
+        pub(crate) regular: bool,
+        pub(crate) links: u64,
+    }
+
+    /// Issue #974: the identities of the directories a read walk really held.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub(crate) struct HeldIdentities {
+        pub(crate) root: (u64, u64),
+        pub(crate) parent: (u64, u64),
+    }
+
+    fn file_identity(file: &File) -> io::Result<(u64, u64)> {
+        use std::os::unix::fs::MetadataExt as _;
+        let metadata = file.metadata()?;
+        Ok((metadata.dev(), metadata.ino()))
+    }
+
+    /// Issue #974: [`open_read_file`], and the identities read from the descriptors that
+    /// walk held, rather than from a separate open beside it. A directory swapped during
+    /// the walk and put back is seen here.
+    pub(crate) fn open_read_file_held(
+        root: &Path,
+        relative: &Path,
+    ) -> anyhow::Result<(File, HeldIdentities)> {
+        let mut names: Vec<OsString> = Vec::new();
+        for component in relative.components() {
+            match component {
+                Component::RootDir | Component::CurDir => {}
+                Component::Normal(part) => names.push(part.to_os_string()),
+                _ => bail!("path escapes root: {}", relative.display()),
+            }
+        }
+        let Some(leaf) = names.pop() else {
+            bail!("path escapes root: {}", relative.display());
+        };
+        let name = CString::new(leaf.as_bytes())
+            .with_context(|| format!("path is not valid UTF-8: {}", relative.display()))?;
+        let mut dir = File::open(root).context("root is not accessible")?;
+        let root_identity = file_identity(&dir)?;
+        let mut current = root.to_path_buf();
+        for part in &names {
+            current.push(part);
+            fire_seam(&current);
+            dir = open_component(dir, part, &current, false)?;
+        }
+        let candidate = current.join(&leaf);
+        fire_seam(&candidate);
+        let parent = file_identity(&dir)?;
+        let flags = libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC;
+        let file =
+            openat_file(&dir, &name, flags, 0).map_err(|err| leaf_read_error(err, &candidate))?;
+        if !file
+            .metadata()
+            .with_context(|| format!("inspect {}", candidate.display()))?
+            .is_file()
+        {
+            bail!("not a regular file: {}", candidate.display());
+        }
+        Ok((
+            file,
+            HeldIdentities {
+                root: root_identity,
+                parent,
+            },
+        ))
     }
 
     fn open_component(
@@ -274,7 +461,7 @@ mod unix_impl {
 }
 
 #[cfg(unix)]
-pub(crate) use unix_impl::{ParentDir, open_parent};
+pub(crate) use unix_impl::{ParentDir, open_parent, open_parent_at, open_read_file_held};
 
 /// fd-relative, no-follow read entry (Issue #506). Unix uses the `openat` walk;
 /// other platforms fall back to a path-based read with a canonical-containment

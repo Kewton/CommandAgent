@@ -56,10 +56,7 @@ fn lm_studio_warnings(config: &Config) -> Vec<String> {
     if models.is_empty() {
         return Vec::new();
     }
-    let api_token = crate::env_compat::var(crate::providers::lm_studio::LM_STUDIO_API_TOKEN_ENV)
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
+    let api_token = crate::providers::lm_studio::process_api_token();
     let result = crate::providers::lm_studio::LmStudioClient::new(
         config.lm_studio_host.clone(),
         api_token,

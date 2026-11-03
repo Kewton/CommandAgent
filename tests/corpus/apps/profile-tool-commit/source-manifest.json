@@ -1,0 +1,17 @@
+{
+  "issue": "#974",
+  "owner": "src/tools/profile_tools/{effects,isolation,process,protocol,commit}.rs the propose-artifacts effect: strict launch, bounded process, result checks, and the single host commit, through the public session, planner, TUI, probe, workflow, and CLI entries",
+  "base_sha": "85bcca4e1b85ffc33549a908a29250fcf87dd261",
+  "origin": "synthetic",
+  "synthetic_source": {
+    "cases": "hand-written generic profiles (a settings object and a document index), operator descriptors, fixed scripts, and raw replies; none is copied from a run, a benchmark task, or an issue evidence file",
+    "base_observation": "fixtures/off-golden.json was written by running the public session against the production code of base_sha with a recorder test that does not remain in this repository; the expectations of the off rows therefore do not come from the new implementation",
+    "excluded": "no live model, real key, external provider, Jev call, benchmark task, grader input, expected answer, generated code, run record, or host path is stored here"
+  },
+  "derived_fixture": "tests/profile_tool_commit.rs reads fixtures/cases.json and fixtures/off-golden.json",
+  "regenerate_digests": "shasum -a 256 fixtures/cases.json fixtures/off-golden.json",
+  "fixture_sha256": {
+    "cases.json": "6c3fcec2bdb354cc8a2f511d49eea0bcbeaf9b7bc1a7867db68edf8a2f355477",
+    "off-golden.json": "04e61dcbbc0a99ad2ad3e3abc3abe2e1bb12db869e782d403039f0e4d19096bf"
+  }
+}

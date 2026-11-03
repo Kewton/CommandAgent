@@ -221,7 +221,7 @@ async fn discover_models(state: &AppState, provider: Provider) -> anyhow::Result
         Provider::Openai | Provider::Gemini => anyhow::bail!("provider is not local"),
     };
     if provider == Provider::LmStudio
-        && let Some(token) = std::env::var_os("LM_STUDIO_API_TOKEN")
+        && let Some(token) = commandagent::startup_credentials::var_os("LM_STUDIO_API_TOKEN")
             .and_then(|value| value.into_string().ok())
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())

@@ -1,0 +1,56 @@
+case_id = "profile-tool-commit"
+source = "Issue #974 (G3): synthetic runs of the real Chat Completions client against a disposable 127.0.0.1 fake, with a fixed operator script as the pinned process; the off rows were recorded from the production code of base 85bcca4e1b85ffc33549a908a29250fcf87dd261 before the feature existed; not a model-capability or bench measurement"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[json_fields]
+fixtures/cases.json:issue = "#974"
+fixtures/cases.json:kind = "synthetic"
+fixtures/off-golden.json:issue = "#974"
+fixtures/off-golden.json:kind = "synthetic"
+fixtures/off-golden.json:source = "85bcca4e"
+source-manifest.json:base_sha = "85bcca4e1b85ffc33549a908a29250fcf87dd261"
+source-manifest.json:origin = "synthetic"
+
+[fixture_contains]
+fixtures/cases.json = [
+  "\"id\": \"config-object-profile\"",
+  "\"id\": \"document-index-profile\"",
+  "\"wires\": [\"native\"]",
+  "\"id\": \"two outputs\"",
+  "\"id\": \"a key a loader reads\"",
+  "\"id\": \"linux, windows, and any other OS\"",
+  "\"refusal\": \"effect_output_refused\"",
+  "\"refusal\": \"effect_limit_exceeded\"",
+  "\"refusal\": \"effect_path_refused\"",
+  "\"refusal\": \"effect_env_refused\"",
+  "\"refusal\": \"effect_read_only\"",
+  "\"refusal\": \"unavailable\"",
+  "\"code\": \"request_id_mismatch\"",
+  "\"code\": \"check_unknown\""
+]
+fixtures/off-golden.json = [
+  "\"id\": \"chat-native-write-and-read\"",
+  "\"id\": \"text-xml-write\"",
+  "\"id\": \"flat-extension-positive\"",
+  "\"id\": \"flat-extension-negative\"",
+  "\"id\": \"dummy-secret-next-to-reserved-words\""
+]

@@ -35,9 +35,9 @@ pub(crate) fn refuse_before_workflow_node(config: &Config) -> Result<(), Profile
 
 /// A REPL's free text, before its route is proposed. The route classifier is a provider
 /// call, and the REPL's provider, profile, and inputs can all change after it started.
-/// Only a schema tool's reasons stop here. Every other refusal keeps its place at the
-/// confirmed command, so a set without a schema tool proposes a route as it always did.
-/// Returns the block a refused command shows; the REPL goes on.
+/// Only a schema tool's and a proposal tool's reasons stop here. Every other refusal keeps
+/// its place at the confirmed command, so a set without one proposes a route as it always
+/// did. Returns the block a refused command shows; the REPL goes on.
 pub(crate) fn refused_before_gate_one(
     config: &Config,
     execution: &dyn crate::providers::ChatClient,
@@ -47,7 +47,11 @@ pub(crate) fn refused_before_gate_one(
         Ok(Some(admitted)) => admitted
             .preflight_schema_tools(config, execution.profile_tool_schema_wire())
             .err()?,
-        Err(refusal) if refusal.kind.is_schema_tool_reason() => refusal,
+        Err(refusal)
+            if refusal.kind.is_schema_tool_reason() || refusal.kind.is_effect_tool_reason() =>
+        {
+            refusal
+        }
         Err(_) => return None,
     };
     Some(crate::tui::status::render_task_failure_block(

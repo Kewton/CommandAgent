@@ -1,0 +1,62 @@
+{
+  "issue": "#974",
+  "kind": "synthetic",
+  "accepted": [
+    {"id": "config-object-profile", "kind": "synthetic", "profile": "commit-config", "tool": "SubmitConfig", "wires": ["native"], "raw": "{\"mode\":\"fast\"}", "output": "config/settings.json"},
+    {"id": "document-index-profile", "kind": "synthetic", "profile": "commit-index", "tool": "SubmitIndex", "wires": ["native"], "raw": "{\"documents\":[\"a\",\"b\"]}", "output": "config/index.json"}
+  ],
+  "rejected_results": [
+    {"id": "wrong request", "code": "request_id_mismatch"},
+    {"id": "wrong tool", "code": "tool_id_mismatch"},
+    {"id": "wrong runtime pin", "code": "runtime_pin_mismatch"},
+    {"id": "wrong input", "code": "input_revision_mismatch"},
+    {"id": "wrong schema", "code": "schema_hash_mismatch"},
+    {"id": "unknown output", "code": "unknown_output"},
+    {"id": "repeated output", "code": "duplicate_output"},
+    {"id": "missing output", "code": "missing_output"},
+    {"id": "wrong digest", "code": "output_digest_mismatch"},
+    {"id": "failed check", "code": "check_failed"},
+    {"id": "check not run", "code": "check_not_run"},
+    {"id": "unknown check", "code": "check_unknown"},
+    {"id": "no check", "code": "no_checks"},
+    {"id": "repeated key", "code": "result_duplicate_key"},
+    {"id": "self-declared acceptance", "code": "result_unknown_field"},
+    {"id": "broken JSON", "code": "result_malformed"}
+  ],
+  "refused_before_start": [
+    {"id": "two outputs", "refusal": "effect_output_refused"},
+    {"id": "a clock one over its limit", "refusal": "effect_limit_exceeded"},
+    {"id": "a result one over its limit", "refusal": "effect_limit_exceeded"},
+    {"id": "a destination outside the workspace", "refusal": "effect_path_refused"},
+    {"id": "a credential destination", "refusal": "effect_path_refused"},
+    {"id": "a credential input", "refusal": "effect_path_refused"},
+    {"id": "the executable does not match its pin", "refusal": "invalid_pin"},
+    {"id": "a dependency directory does not match its pin", "refusal": "invalid_pin"},
+    {"id": "a key a loader reads", "refusal": "effect_env_refused"},
+    {"id": "too many env keys", "refusal": "effect_limit_exceeded"},
+    {"id": "an env value the scrub would change", "refusal": "effect_env_refused"},
+    {"id": "the text tool protocol", "refusal": "schema_unsupported"},
+    {"id": "a protected destination", "refusal": "effect_path_refused"},
+    {"id": "no authority to write", "refusal": "effect_read_only"},
+    {"id": "an action that only plans", "refusal": "effect_read_only"},
+    {"id": "a destination that is a symlink", "refusal": "effect_path_refused"},
+    {"id": "an executable its group can write", "refusal": "unavailable"},
+    {"id": "a file in a dependency directory others can write", "refusal": "unavailable"},
+    {"id": "an executable in a directory its group can write", "refusal": "unavailable"}
+  ],
+  "unsupported": [
+    {"id": "linux, windows, and any other OS", "refusal": "unavailable"},
+    {"id": "macos under an outer sandbox", "refusal": "unavailable"}
+  ],
+  "off": [
+    {"id": "chat-native-write-and-read"},
+    {"id": "text-xml-write"},
+    {"id": "flat-extension-positive"},
+    {"id": "flat-extension-negative"},
+    {"id": "dummy-secret-next-to-reserved-words"}
+  ],
+  "os_table": {
+    "macos": "the real policy: success, and the OS refuses each attempt",
+    "other": "unavailable before the start"
+  }
+}

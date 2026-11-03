@@ -14,10 +14,12 @@ use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
 
+use super::commit::CommitReceipt;
 use super::descriptor::{
     self, Descriptor, DirectoryIdentity, EFFECT_READ, LoadedDescriptor, RUNTIME_IN_PROCESS,
     RegistryBinding,
 };
+use super::effects::{self, ProposalParts, ProposalTool, SessionAccess};
 use super::schema::binding::{self as schema_binding, ToolPins};
 use super::schema::invocation::{self, ReceiveState, SchemaGuard};
 use super::selection::{self, DeclaredTool, PackSource, SelectedTools};
@@ -81,9 +83,14 @@ pub struct AdmittedToolBinding {
     max_output_bytes: usize,
     input_revision: Option<String>,
     adopted_schema_sha256: Option<String>,
+    runtime_sha256: Option<String>,
 }
 
 impl AdmittedToolBinding {
+    /// The digest of a G3 process declaration. `None` for any other tool.
+    pub fn runtime_sha256(&self) -> Option<&str> {
+        self.runtime_sha256.as_deref()
+    }
     /// The host-adopted digest of the declared inputs. `None` without a G2 schema.
     pub fn input_revision(&self) -> Option<&str> {
         self.input_revision.as_deref()
@@ -143,16 +150,40 @@ pub struct AdmittedProfileTools {
     tools: Vec<ExtensionTool>,
     receipts: Receipts,
     schema_tools: Arc<ReceiveState>,
+    proposals: Vec<Arc<ProposalTool>>,
+    commits: Arc<Mutex<Vec<CommitReceipt>>>,
 }
 
 impl AdmittedProfileTools {
-    /// Off for every set without a schema tool.
+    /// Off for every set without a schema tool or a proposal tool. Every entry reaches
+    /// this before its first provider call.
     pub(crate) fn preflight_schema_tools(
         &self,
         config: &crate::config::Config,
         wire: crate::providers::profile_tool_schema::ProfileToolSchemaWire,
     ) -> Result<(), ProfileToolRefusal> {
-        self.schema_tools.preflight(config, wire)
+        self.schema_tools.preflight(config, wire)?;
+        self.proposals
+            .iter()
+            .try_for_each(|tool| tool.preflight(config))
+    }
+
+    /// What only a session knows: an inspect step, or a recovery's scoped reads.
+    pub(crate) fn preflight_session(
+        &self,
+        access: &dyn Fn(&str) -> SessionAccess,
+    ) -> Result<(), ProfileToolRefusal> {
+        self.proposals
+            .iter()
+            .try_for_each(|tool| tool.preflight_session(access(tool.name())))
+    }
+
+    /// Every commit this set made, each decided by the commit leaf.
+    pub fn commit_receipts(&self) -> Vec<CommitReceipt> {
+        self.commits
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 
     /// Installs this set on the session's thread. `None` for a set without a schema
@@ -177,8 +208,19 @@ impl AdmittedProfileTools {
     /// that collides with a builtin, removed or not, or with another admitted
     /// tool is refused here.
     pub fn registry(&self) -> Result<ToolRegistry, ProfileToolRefusal> {
-        ToolRegistry::with_profile_tools(self.tools.iter().cloned(), &self.builtin_tools)
-            .map_err(|error| ProfileToolRefusal::new(RefusalKind::NameCollision, error.to_string()))
+        ToolRegistry::with_profile_tools_and_proposals(
+            self.tools.iter().cloned(),
+            self.proposals.iter().cloned(),
+            &self.builtin_tools,
+        )
+        .map_err(|error| {
+            let kind = if self.proposals.is_empty() {
+                RefusalKind::NameCollision
+            } else {
+                RefusalKind::NameCollision.with_effect_origin()
+            };
+            ProfileToolRefusal::new(kind, error.to_string())
+        })
     }
 }
 
@@ -221,8 +263,32 @@ fn admit(
     let mut bindings = Vec::with_capacity(selected.tools.len());
     let mut tools = Vec::with_capacity(selected.tools.len());
     let mut schema_tools = ReceiveState::default();
+    let mut proposals = Vec::new();
+    let commits: Arc<Mutex<Vec<CommitReceipt>>> = Arc::default();
     for (tool_id, declared) in &selected.tools {
-        let loaded = descriptor::load(tool_id, workspace)?;
+        let loaded = descriptor::load(tool_id, workspace).map_err(|error| {
+            if declared.effect == effects::EFFECT_PROPOSE_ARTIFACTS {
+                effects::with_effect_origin(error)
+            } else {
+                error
+            }
+        })?;
+        if loaded.descriptor.effect == effects::EFFECT_PROPOSE_ARTIFACTS
+            && loaded.descriptor.runtime.kind == effects::RUNTIME_PINNED_PROCESS
+        {
+            let tool = admit_proposal(
+                &loaded,
+                declared,
+                (profile, run_id.clone()),
+                workspace,
+                &mut schema_tools,
+                (receipts.clone(), commits.clone()),
+                &mut bindings,
+            )
+            .map_err(effects::with_effect_origin)?;
+            proposals.push(Arc::new(tool));
+            continue;
+        }
         let executor = admit_one(&loaded.descriptor, declared)?;
         let mut binding = binding(&loaded, declared, profile, run_id.clone())?;
         let arguments = descriptor::closed_arguments(&loaded.descriptor)?;
@@ -258,7 +324,51 @@ fn admit(
         tools,
         receipts,
         schema_tools: Arc::new(schema_tools),
+        proposals,
+        commits,
     })
+}
+
+/// G3: the checks that need no run context, then the same schema adoption as any tool. A
+/// proposal tool gets its own registry entry, so nothing here passes through the Read path.
+fn admit_proposal(
+    loaded: &LoadedDescriptor,
+    declared: &DeclaredTool,
+    (profile, run_id): (&str, Option<String>),
+    workspace: &Path,
+    schema_tools: &mut ReceiveState,
+    (receipts, commits): (Receipts, Arc<Mutex<Vec<CommitReceipt>>>),
+    bindings: &mut Vec<AdmittedToolBinding>,
+) -> Result<ProposalTool, ProfileToolRefusal> {
+    let (declaration, pins) = effects::admit_process(&loaded.descriptor, declared, workspace)?;
+    let mut admitted = binding(loaded, declared, profile, run_id)?;
+    let guard = admit_schema(loaded, &mut admitted, workspace, profile, schema_tools)?.ok_or_else(
+        || {
+            ProfileToolRefusal::new(
+                RefusalKind::InvalidDescriptor,
+                format!("tool `{}` needs a schema", admitted.tool_id),
+            )
+        },
+    )?;
+    let tool = ProposalTool::new(ProposalParts {
+        name: admitted.name.clone(),
+        description: loaded.descriptor.description.clone(),
+        tool_id: admitted.tool_id.clone(),
+        tool_version: admitted.version.clone(),
+        descriptor_sha256: admitted.descriptor_sha256.clone(),
+        declaration: declaration.clone(),
+        registry: loaded.registry.clone(),
+        pins,
+        workspace: workspace.to_path_buf(),
+        guard,
+        max_input_bytes: admitted.max_input_bytes,
+        max_output_bytes: admitted.max_output_bytes,
+        receipts,
+        commits,
+    })?;
+    admitted.runtime_sha256 = Some(tool.runtime_sha256().to_string());
+    bindings.push(admitted);
+    Ok(tool)
 }
 
 /// Adopts a G2 tool's inputs and schema. Runs after `admit_one`, so a tool whose
@@ -382,6 +492,7 @@ fn binding(
         )?,
         input_revision: None,
         adopted_schema_sha256: None,
+        runtime_sha256: None,
     })
 }
 

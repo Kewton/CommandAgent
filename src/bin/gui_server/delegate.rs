@@ -60,6 +60,10 @@ pub(super) fn check_binary(path: &Path) -> anyhow::Result<String> {
     let mut command = Command::new(path);
     command.env_clear();
     restore_allowed_environment(&mut command);
+    // A version needs no credential, so this child's exec-time environment holds none.
+    for name in commandagent::startup_credentials::BUILT_IN_CREDENTIAL_NAMES {
+        command.env_remove(name);
+    }
     let output = command
         .arg("--version")
         .stdin(Stdio::null())
@@ -347,7 +351,7 @@ fn delegated_cli_command(
 
 fn restore_allowed_environment(command: &mut Command) {
     for name in DELEGATE_PARENT_ENV_ALLOWLIST {
-        if let Some(value) = std::env::var_os(name) {
+        if let Some(value) = commandagent::startup_credentials::var_os(name) {
             command.env(name, value);
         }
     }
