@@ -543,8 +543,10 @@ A check that did not pass ends the run. It is not retried or returned as feedbac
 a second submission is G4's.
 
 **A secret in the output.** Before anything keeps, cuts, or reports a process's output, its raw stdout
-and stderr, whatever a document among them decodes to, and then the decoded candidate are compared as
-bytes with the values this run holds: the sources of the run's catalog, this workspace's scope, and what
+and stderr, the strings of stdout if it decodes as a document, and what each of those strings decodes to
+as base64, which is how the candidate travels, are compared as bytes with the values this run holds, and
+this comes before how the process ended or what its result says is looked at. A string that does not
+decode has nothing more to compare, and the result's own refusal stands. The values are: the sources of the run's catalog, this workspace's scope, and what
 the start received. The forms are the value as it is, JSON-escaped, base64 in the standard and URL-safe
 alphabets at each of three alignments, with or without padding and with other bytes around it, and hex in
 either case. A match ends the call as `result_rejected` with the fixed code `secret_value_in_output`,

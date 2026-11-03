@@ -34,19 +34,35 @@ struct FakeProvider {
 
 impl FakeProvider {
     fn start() -> Self {
+        Self::listening(true)
+    }
+
+    /// One that never answers, so the process that asked stays until the test stops it. A test
+    /// that looks at a live process needs this: an answer ends the run while it looks.
+    #[cfg(target_os = "macos")]
+    fn holding() -> Self {
+        Self::listening(false)
+    }
+
+    fn listening(answers: bool) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         let (sender, first_request) = mpsc::channel();
         std::thread::spawn(move || {
+            let mut held = Vec::new();
             for stream in listener.incoming().flatten() {
                 let mut stream = stream;
                 let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
                 let mut heard = [0u8; 8192];
                 let read = stream.read(&mut heard).unwrap_or(0);
                 let _ = sender.send(String::from_utf8_lossy(&heard[..read]).into_owned());
-                let _ = stream.write_all(
-                    b"HTTP/1.1 500 Internal Server Error\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
-                );
+                if answers {
+                    let _ = stream.write_all(
+                        b"HTTP/1.1 500 Internal Server Error\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+                    );
+                } else {
+                    held.push(stream);
+                }
             }
         });
         Self { url, first_request }
@@ -180,7 +196,7 @@ mod procargs {
 #[test]
 fn a_credential_is_not_in_the_exec_time_area_after_the_start() {
     let workspace = tempfile::tempdir().unwrap();
-    let provider = FakeProvider::start();
+    let provider = FakeProvider::holding();
     let arguments = lm_studio_arguments(&provider.url);
     let child = command(workspace.path())
         .args(&arguments)
@@ -417,7 +433,7 @@ fn a_run_shows_the_same_bytes_with_and_without_a_credential_in_the_environment()
 #[test]
 fn with_no_credential_the_start_does_not_exec_again() {
     let workspace = tempfile::tempdir().unwrap();
-    let provider = FakeProvider::start();
+    let provider = FakeProvider::holding();
     let child = command(workspace.path())
         .args(lm_studio_arguments(&provider.url))
         .env("KEPT_VARIABLE", "kept-value")
@@ -576,6 +592,18 @@ mod refused_starts {
         });
     }
 
+    /// The right bytes on the wrong kind of descriptor: only the kind can refuse this one.
+    #[test]
+    fn a_file_holding_a_good_handoff_stops_the_start() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), frame(&[("OPENAI_API_KEY", DUMMY)])).unwrap();
+        let file = file.reopen().unwrap();
+        assert_refused("a file holding a good handoff", |command| {
+            hand_at(command, &file);
+            command.env(MARKER, AT.to_string());
+        });
+    }
+
     #[test]
     fn a_handoff_that_is_not_well_formed_stops_the_start() {
         let good = frame(&[("OPENAI_API_KEY", DUMMY)]);
@@ -675,6 +703,49 @@ mod refused_starts {
         stop(child);
         let expected = format!("Bearer {DUMMY}");
         assert!(authorization_of(&[first]).contains(&expected));
+    }
+
+    /// Whether this number in this process is a pipe. A later open takes the lowest free number,
+    /// so a number this high stays what the handoff left it.
+    fn is_a_pipe(pid: u32, number: i32) -> bool {
+        let listing = Command::new("/usr/sbin/lsof")
+            .args([
+                "-nP",
+                "-a",
+                "-p",
+                &pid.to_string(),
+                "-d",
+                &number.to_string(),
+                "-Ft",
+            ])
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin:/usr/sbin")
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&listing.stdout)
+            .lines()
+            .any(|line| line == "tPIPE")
+    }
+
+    /// Once the start is done, the handoff's reader is gone from this real process. Stdout is a
+    /// pipe here too, so the same lookup shows it can see one.
+    #[test]
+    fn the_handoff_descriptor_is_closed_after_the_start() {
+        let workspace = tempfile::tempdir().unwrap();
+        let provider = FakeProvider::holding();
+        let reader = holding(&frame(&[("LM_STUDIO_API_TOKEN", DUMMY)]));
+        let mut command = super::command(workspace.path());
+        command
+            .args(lm_studio_arguments(&provider.url))
+            .env(MARKER, AT.to_string());
+        hand_at(&mut command, &reader);
+        let child = command.spawn().unwrap();
+        let pid = child.id();
+        provider.wait_for_request();
+        let (stdout_is_a_pipe, handoff_is_a_pipe) = (is_a_pipe(pid, 1), is_a_pipe(pid, AT));
+        stop(child);
+        assert!(stdout_is_a_pipe);
+        assert!(!handoff_is_a_pipe);
     }
 
     /// A caller that closed stdin gave the pipe a low number. The start moves it up.

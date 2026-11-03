@@ -245,27 +245,7 @@ mod boot {
     /// The reader, inheritable, at 3 or above. Nothing reads until after the exec, so a write
     /// that would wait can never finish: the writer does not block, and any shortfall stops.
     fn write_to_pipe(bytes: &[u8]) -> i32 {
-        let mut ends = [-1i32; 2];
-        // SAFETY: `ends` is writable for the two descriptors `pipe` returns.
-        if unsafe { libc::pipe(ends.as_mut_ptr()) } != 0 {
-            stop("a pipe could not be made");
-        }
-        let [reader, writer] = ends;
-        set_flag(writer, libc::F_SETFD, libc::FD_CLOEXEC);
-        set_flag(writer, libc::F_SETFL, libc::O_NONBLOCK);
-        let mut written = 0;
-        while written < bytes.len() {
-            let pending = &bytes[written..];
-            // SAFETY: `pending` is readable for this many bytes, and `writer` is open.
-            let answer = unsafe { libc::write(writer, pending.as_ptr().cast(), pending.len()) };
-            match usize::try_from(answer) {
-                Ok(count) if count > 0 => written += count,
-                _ if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted => {}
-                _ => stop("the pipe did not take the whole handoff"),
-            }
-        }
-        // SAFETY: this closes the writer this function made, once.
-        unsafe { libc::close(writer) };
+        let reader = fill_pipe(bytes).unwrap_or_else(|reason| stop(reason));
         if reader > 2 {
             return reader;
         }
@@ -279,6 +259,33 @@ mod boot {
         // SAFETY: this closes the old number of the reader, once.
         unsafe { libc::close(reader) };
         moved
+    }
+
+    /// A new pipe holding `bytes` with its writer closed, or why not. A refusal ends the start,
+    /// which is what closes the two ends then.
+    fn fill_pipe(bytes: &[u8]) -> Result<i32, &'static str> {
+        let mut ends = [-1i32; 2];
+        // SAFETY: `ends` is writable for the two descriptors `pipe` returns.
+        if unsafe { libc::pipe(ends.as_mut_ptr()) } != 0 {
+            return Err("a pipe could not be made");
+        }
+        let [reader, writer] = ends;
+        set_flag(writer, libc::F_SETFD, libc::FD_CLOEXEC);
+        set_flag(writer, libc::F_SETFL, libc::O_NONBLOCK);
+        let mut written = 0;
+        while written < bytes.len() {
+            let pending = &bytes[written..];
+            // SAFETY: `pending` is readable for this many bytes, and `writer` is open.
+            let answer = unsafe { libc::write(writer, pending.as_ptr().cast(), pending.len()) };
+            match usize::try_from(answer) {
+                Ok(count) if count > 0 => written += count,
+                _ if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted => {}
+                _ => return Err("the pipe did not take the whole handoff"),
+            }
+        }
+        // SAFETY: this closes the writer this function made, once.
+        unsafe { libc::close(writer) };
+        Ok(reader)
     }
 
     fn set_flag(descriptor: i32, command: i32, flag: i32) {
@@ -398,6 +405,11 @@ mod boot {
     #[cfg(test)]
     pub(super) fn parse_descriptor_for_test(marker: &str) -> Option<i32> {
         parse_descriptor(OsStr::new(marker))
+    }
+
+    #[cfg(test)]
+    pub(super) fn fill_pipe_for_test(bytes: &[u8]) -> Result<i32, &'static str> {
+        fill_pipe(bytes)
     }
 
     #[cfg(test)]
@@ -667,5 +679,57 @@ mod tests {
         ] {
             assert_eq!(parse(bad), None, "{bad:?}");
         }
+    }
+
+    /// Nothing reads this pipe until after the exec, so a write that waited would never end. It
+    /// runs in a process of its own with a limit, because that wait is what this looks for, and
+    /// it would otherwise be a wait in the test binary with both ends of a pipe open.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_pipe_that_is_full_ends_the_write_instead_of_making_it_wait() {
+        use std::io::Read as _;
+        use std::os::fd::FromRawFd as _;
+        const TEST: &str = "a_pipe_that_is_full_ends_the_write_instead_of_making_it_wait";
+        if std::env::var_os(OWN_PROCESS).is_some() {
+            let over_any_pipe = vec![b'x'; 4 << 20];
+            assert_eq!(
+                super::boot::fill_pipe_for_test(&over_any_pipe),
+                Err("the pipe did not take the whole handoff")
+            );
+            // The witness: what fits is all there, and the read ends because the writer closed.
+            let reader = super::boot::fill_pipe_for_test(b"what fits").unwrap();
+            // SAFETY: `reader` is open, and nothing else owns it.
+            let mut reader = unsafe { std::fs::File::from_raw_fd(reader) };
+            let mut heard = Vec::new();
+            reader.read_to_end(&mut heard).unwrap();
+            assert_eq!(heard, b"what fits");
+            return;
+        }
+        let (_, module) = module_path!().split_once("::").unwrap();
+        let log = tempfile::NamedTempFile::new().unwrap();
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", &format!("{module}::{TEST}"), "--nocapture"])
+            .env_clear()
+            .env(OWN_PROCESS, "1")
+            .env("TMPDIR", std::env::temp_dir())
+            .stdin(std::process::Stdio::null())
+            .stdout(log.reopen().unwrap())
+            .stderr(log.reopen().unwrap())
+            .spawn()
+            .unwrap();
+        let started = std::time::Instant::now();
+        let status = loop {
+            if let Some(status) = child.try_wait().unwrap() {
+                break status;
+            }
+            if started.elapsed() > std::time::Duration::from_secs(30) {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("the write is still waiting");
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        };
+        let said = std::fs::read_to_string(log.path()).unwrap();
+        assert!(status.success() && said.contains("1 passed"), "{said}");
     }
 }

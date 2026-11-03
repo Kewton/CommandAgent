@@ -549,13 +549,10 @@ impl ProposalTool {
         let observation = self
             .launch(&request, is_cancelled)
             .inspect_err(|error| notes.executed = error.kind != RefusalKind::EffectUnavailable)?;
-        // Before anything keeps, cuts, or reports a byte of it: with a secret in it, nothing of
-        // what the process said goes further, however the process ended.
-        if secrets.found_in(&observation.stdout)
-            || secrets.found_in(&observation.stderr)
-            || protocol::decode_document(&observation.stdout)
-                .is_some_and(|document| secrets.found_in_document(&document))
-        {
+        // Before anything keeps, cuts, or reports a byte of it, and before how the process ended
+        // or what its result says is looked at: with a secret in it, nothing of what the process
+        // said goes further. This is the only place that judges it, so `notes` is empty here.
+        if secrets.found_in_output(&observation.stdout, &observation.stderr) {
             return Err(secret_in_output(&self.tool_id));
         }
         // What the process said is kept apart from whether it is accepted. It is data for the
@@ -582,9 +579,6 @@ impl ProposalTool {
                 format!("tool `{}`: {}", self.tool_id, rejection.code),
             )
         })?;
-        if secrets.found_in(&accepted.bytes) {
-            return Err(secret_in_output(&self.tool_id));
-        }
         self.verify_pins(STAGE_COMMIT)?;
         let mut forbidden = self.input_paths();
         forbidden.extend(context.protected_paths.iter().cloned());
@@ -857,6 +851,7 @@ mod tests {
     };
     use super::super::schema::binding::{self as schema_binding, ToolPins};
     use super::super::schema::invocation::ReceiveState;
+    use super::super::secret_output::SecretForms;
     use super::super::{ProfileToolRefusal, RefusalKind};
     use super::{ProposalParts, ProposalTool, SessionAccess};
     use crate::mode::ExecutionMode;
@@ -1813,6 +1808,86 @@ field() { printf '%s' "$request" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }
         );
         let (bench, event, message) = failing_call(&script, 20_000);
         assert_refused_with_no_words("a binary candidate", &bench, &event, &message);
+    }
+
+    const NOISE: &str = r#"[{"code":"note","message":"said a-plain-word"}]"#;
+
+    /// An envelope carrying these outputs, with ordinary diagnostics, and ordinary stderr.
+    fn noisy_envelope(request_id: &str, checks: &str, outputs: &str) -> String {
+        let result = result_script(
+            request_id,
+            "$(field runtime_sha256)",
+            "$(field input_revision)",
+            "$(field schema_sha256)",
+            checks,
+            outputs,
+        )
+        .replace(r#""diagnostics":[]"#, &format!(r#""diagnostics":{NOISE}"#));
+        format!("{result}printf 'stderr says a-plain-word' >&2\n")
+    }
+
+    /// Only decoding the candidate shows these: the wire is one more base64 around them. However
+    /// the run ended, the verdict comes first and nothing else of the output stays.
+    #[test]
+    fn a_secret_only_the_decoded_candidate_shows_leaves_no_words_however_the_run_ended() {
+        let hex = DUMMY
+            .bytes()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        let judged = SecretForms::new([DUMMY]);
+        for (form, candidate) in [("hex", hex), ("base64", encode_base64(DUMMY.as_bytes()))] {
+            let wire = encode_base64(candidate.as_bytes());
+            assert!(judged.found_in(candidate.as_bytes()), "{form}");
+            assert!(
+                !judged.found_in(wire.as_bytes()),
+                "{form}: the wire shows it"
+            );
+            let outputs = format!(
+                r#"[{{"id":"artifact","sha256":"{}","bytes_base64":"{wire}"}}]"#,
+                sha256(candidate.as_bytes())
+            );
+            let good = "$(field request_id)";
+            let failed = r#"[{"id":"a","status":"failed"}]"#;
+            for (label, script) in [
+                ("a good run", noisy_envelope(good, CHECKS_PASSED, &outputs)),
+                (
+                    "a nonzero exit",
+                    format!("{}exit 3\n", noisy_envelope(good, CHECKS_PASSED, &outputs)),
+                ),
+                (
+                    "a binding",
+                    noisy_envelope("another-request", CHECKS_PASSED, &outputs),
+                ),
+                ("a failed check", noisy_envelope(good, failed, &outputs)),
+            ] {
+                let label = format!("{form} and {label}");
+                let (bench, event, message) = failing_call(&script, 20_000);
+                assert_refused_with_no_words(&label, &bench, &event, &message);
+                for shown in [&candidate, &wire] {
+                    assert!(!message.contains(shown), "{label}: {message}");
+                    assert!(!event.to_string().contains(shown), "{label}: {event}");
+                }
+            }
+        }
+    }
+
+    /// A candidate that does not decode matches nothing, and the refusal it always had stands,
+    /// with what the process said as data.
+    #[test]
+    fn a_candidate_that_does_not_decode_keeps_its_own_refusal_and_its_words() {
+        let outputs = format!(
+            r#"[{{"id":"artifact","sha256":"{}","bytes_base64":"not base64!"}}]"#,
+            "0".repeat(64)
+        );
+        let script = noisy_envelope("$(field request_id)", CHECKS_PASSED, &outputs);
+        let (bench, event, message) = failing_call(&script, 20_000);
+        assert_eq!(event["kind"], "result_rejected", "{event}");
+        assert!(message.contains("output_not_base64"), "{message}");
+        assert!(!message.contains("said"), "{message}");
+        assert_eq!(event["diagnostics"][0]["code"], "note", "{event}");
+        let tail = event["stderr_tail"].as_str().unwrap();
+        assert!(tail.contains("stderr says"), "{tail}");
+        assert_eq!(bench.saved(), None);
     }
 
     /// A value the run has no way to judge is not an empty set: nothing starts.

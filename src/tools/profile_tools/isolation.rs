@@ -664,17 +664,26 @@ mod tests {
         probe_strict().unwrap();
     }
 
-    /// A descriptor the caller left open, without close-on-exec, at a number this returns.
+    /// A descriptor the caller left open, without close-on-exec, at a number this returns. The
+    /// number is 100 or above because the child's shell is what reports on it: bash keeps its
+    /// own stdout at 10 or the next free number during a redirect, so `>&10` succeeds in a child
+    /// with nothing inherited. It uses 255 for itself, so that number is not used either.
     #[cfg(unix)]
     fn inheritable(file: std::fs::File) -> (std::fs::File, i32) {
-        use std::os::fd::AsRawFd as _;
-        let descriptor = file.as_raw_fd();
-        // SAFETY: `file` owns this open descriptor; this only clears its close-on-exec flag.
-        assert_eq!(unsafe { libc::fcntl(descriptor, libc::F_SETFD, 0) }, 0);
-        (file, descriptor)
+        use std::os::fd::{AsRawFd as _, FromRawFd as _};
+        // SAFETY: `file` is open; this makes a new descriptor, which has no close-on-exec flag.
+        let moved = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_DUPFD, 100) };
+        assert!((100..255).contains(&moved), "{moved}");
+        // SAFETY: `moved` was just opened, and nothing else owns it.
+        let moved_file = unsafe { std::fs::File::from_raw_fd(moved) };
+        // SAFETY: `moved` is open; this only reads its flags.
+        assert_eq!(unsafe { libc::fcntl(moved, libc::F_GETFD) }, 0);
+        // `file` closes its old number here.
+        (moved_file, moved)
     }
 
-    /// On every OS, through the same `final_command`, and what the probe uses too.
+    /// On every OS, through the same `final_command`, and what the probe uses too. In bash, on
+    /// every OS: dash refuses the whole script over a number of two digits or more.
     #[cfg(unix)]
     #[test]
     fn a_descriptor_the_caller_left_open_does_not_reach_the_child() {
@@ -696,7 +705,7 @@ mod tests {
         let argv = ["-c".to_string(), script];
         let env = BTreeMap::new();
         let launch = StrictLaunch {
-            executable: Path::new("/bin/sh"),
+            executable: Path::new("/bin/bash"),
             argv: &argv,
             cwd: Path::new("/"),
             env: &env,

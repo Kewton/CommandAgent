@@ -15,7 +15,7 @@ use std::fmt;
 
 use serde_json::Value;
 
-use super::protocol::encode_base64;
+use super::protocol::{decode_base64, decode_document, encode_base64};
 
 /// The forms of this run's secrets. It shows how many there are and nothing about them.
 pub(super) struct SecretForms {
@@ -80,16 +80,33 @@ impl SecretForms {
             .any(|form| bytes.windows(form.len()).any(|window| window == form))
     }
 
+    /// The whole judgement of what one process wrote, whatever else is wrong with it: the raw
+    /// streams, then stdout as a document if it is one within the limits of an accepted result.
+    pub(super) fn found_in_output(&self, stdout: &[u8], stderr: &[u8]) -> bool {
+        self.found_in(stdout)
+            || self.found_in(stderr)
+            || decode_document(stdout).is_some_and(|document| self.found_in_document(&document))
+    }
+
     /// Any string of a decoded document, keys too: an escape the raw bytes hide is gone here.
     pub(super) fn found_in_document(&self, document: &Value) -> bool {
         match document {
-            Value::String(text) => self.found_in(text.as_bytes()),
+            Value::String(text) => self.found_in_text(text),
             Value::Array(items) => items.iter().any(|item| self.found_in_document(item)),
             Value::Object(fields) => fields
                 .iter()
-                .any(|(key, item)| self.found_in(key.as_bytes()) || self.found_in_document(item)),
+                .any(|(key, item)| self.found_in_text(key) || self.found_in_document(item)),
             _ => false,
         }
+    }
+
+    /// A string as it is, and what it decodes to if it is base64. A candidate travels that way,
+    /// and a document not yet accepted says nothing reliable about which string is the candidate,
+    /// so each is tried. A string that does not decode has no such bytes. What decodes is shorter
+    /// than the string, so the document's own limit bounds this.
+    fn found_in_text(&self, text: &str) -> bool {
+        self.found_in(text.as_bytes())
+            || decode_base64(text).is_some_and(|bytes| self.found_in(&bytes))
     }
 }
 
@@ -185,6 +202,61 @@ mod tests {
         assert!(hidden.found_in_document(&document));
         assert!(hidden.found_in_document(&json!({ DUMMY: 1 })));
         assert!(!hidden.found_in_document(&json!({"message": ["other", 3, null]})));
+    }
+
+    /// JSON spells these differently, so only the raw form can find the value as it is.
+    #[test]
+    fn a_value_json_would_spell_differently_is_found_as_its_own_bytes() {
+        for secret in [
+            "fake\"secret-value-974",
+            "fake\\secret-value-974",
+            "fake\nsecret-value-974",
+            "fake\u{1}secret-value-974",
+        ] {
+            let escaped = serde_json::to_string(secret).unwrap();
+            assert_ne!(&escaped[1..escaped.len() - 1], secret);
+            let forms = SecretForms::new([secret]);
+            assert!(forms.found_in(secret.as_bytes()), "{secret:?}");
+            assert!(
+                forms.found_in(format!("before {secret} after").as_bytes()),
+                "{secret:?}"
+            );
+        }
+    }
+
+    /// What only decoding shows, wherever the string sits and whatever else is in the document.
+    #[test]
+    fn a_form_inside_a_decoded_string_is_found_and_other_strings_are_not() {
+        let forms = forms();
+        let hex = DUMMY
+            .bytes()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        for inner in [hex, encode_base64(DUMMY.as_bytes())] {
+            let wire = encode_base64(inner.as_bytes());
+            assert!(!forms.found_in(wire.as_bytes()), "{inner}");
+            let document = json!({"outputs": [{"bytes_base64": wire}]});
+            assert!(forms.found_in_document(&document), "{inner}");
+            let stdout = document.to_string();
+            assert!(forms.found_in_output(stdout.as_bytes(), b""), "{inner}");
+            assert!(forms.found_in_document(&json!({ wire: 1 })), "{inner}");
+            // Not a document, so nothing decodes it: the refusal it gets is another one's.
+            assert!(!forms.found_in_output(format!("{stdout}x").as_bytes(), b""));
+        }
+        for text in ["not base64!", "", "AAAA", "AAA="] {
+            assert!(
+                !forms.found_in_document(&json!({"outputs": [text]})),
+                "{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn either_stream_alone_is_enough() {
+        let forms = forms();
+        assert!(forms.found_in_output(DUMMY.as_bytes(), b""));
+        assert!(forms.found_in_output(b"", DUMMY.as_bytes()));
+        assert!(!forms.found_in_output(b"{}", b"plain words"));
     }
 
     #[test]

@@ -966,6 +966,38 @@ mod tests {
         assert!(!stage.root.join("out/settings.json").exists());
     }
 
+    /// The plan is judged by itself first. The later read-backs would also refuse these bytes,
+    /// but only after making a directory and a temporary file and asking the final check.
+    #[test]
+    fn a_plan_whose_digest_differs_stops_before_any_check_or_file() {
+        let stage = stage();
+        let binding = binding();
+        let asked = std::cell::Cell::new(false);
+        let error = commit(
+            &CommitPlan {
+                root: &stage.file,
+                root_display: &stage.root,
+                relative: "fresh/settings.json",
+                bytes: NEW,
+                committed_sha256: &"0".repeat(64),
+                forbidden: &[],
+                binding: &binding,
+                output_id: "artifact",
+                result_sha256: &"e".repeat(64),
+                diagnostics: &[],
+            },
+            &|| {
+                asked.set(true);
+                Ok(())
+            },
+            &|| false,
+        )
+        .unwrap_err();
+        assert!(error.reason.contains("differ from their digest"), "{error}");
+        assert!(!asked.get());
+        assert!(!stage.root.join("fresh").exists());
+    }
+
     #[test]
     fn the_order_is_temporary_then_fsync_then_rename() {
         let stage = stage();
