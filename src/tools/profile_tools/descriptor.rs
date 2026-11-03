@@ -673,6 +673,7 @@ pub(super) fn verify_process_pins(
     let executable = &declaration.executable;
     place(&executable.path, "executable")?;
     check_runtime_writers(&executable.path, tool)?;
+    check_executable_directory(&executable.path, tool)?;
     for pin in &declaration.dependency_directories {
         place(&pin.path, "directory")?;
         check_runtime_writers(&pin.path, tool)?;
@@ -755,6 +756,38 @@ fn check_runtime_writers(path: &Path, tool: &str) -> Result<(), ProfileToolRefus
 
 #[cfg(not(unix))]
 fn check_runtime_writers(_path: &Path, tool: &str) -> Result<(), ProfileToolRefusal> {
+    Err(refusal(
+        RefusalKind::EffectUnavailable,
+        format!("tool `{tool}` runtime cannot be inspected on this platform"),
+    ))
+}
+
+/// The directory that names the executable, by the same rule: whoever can write there can
+/// put another file under that name. This one level only. Directories above it are not read,
+/// and neither is an access control list.
+#[cfg(unix)]
+fn check_executable_directory(executable: &Path, tool: &str) -> Result<(), ProfileToolRefusal> {
+    use std::os::unix::fs::MetadataExt as _;
+    let refused = |reason: &str| {
+        refusal(
+            RefusalKind::EffectUnavailable,
+            format!("tool `{tool}` executable's directory {reason}"),
+        )
+    };
+    let metadata = executable
+        .parent()
+        .and_then(|directory| fs::symlink_metadata(directory).ok())
+        .ok_or_else(|| refused("cannot be inspected"))?;
+    // SAFETY: `geteuid` has no preconditions and cannot fail.
+    let own_uid = unsafe { libc::geteuid() };
+    match runtime_entry_refusal(metadata.mode(), metadata.uid(), own_uid, false) {
+        Some(reason) => Err(refused(reason)),
+        None => Ok(()),
+    }
+}
+
+#[cfg(not(unix))]
+fn check_executable_directory(_executable: &Path, tool: &str) -> Result<(), ProfileToolRefusal> {
     Err(refusal(
         RefusalKind::EffectUnavailable,
         format!("tool `{tool}` runtime cannot be inspected on this platform"),

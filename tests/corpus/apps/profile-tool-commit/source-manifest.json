@@ -11,7 +11,7 @@
   "derived_fixture": "tests/profile_tool_commit.rs reads fixtures/cases.json and fixtures/off-golden.json",
   "regenerate_digests": "shasum -a 256 fixtures/cases.json fixtures/off-golden.json",
   "fixture_sha256": {
-    "cases.json": "66f535dfe5767c31c93ecf69ea2bd44a4ca51ed68fbe838b182e48823a21e097",
+    "cases.json": "6c3fcec2bdb354cc8a2f511d49eea0bcbeaf9b7bc1a7867db68edf8a2f355477",
     "off-golden.json": "04e61dcbbc0a99ad2ad3e3abc3abe2e1bb12db869e782d403039f0e4d19096bf"
   }
 }

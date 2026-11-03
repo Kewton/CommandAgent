@@ -94,10 +94,10 @@ fn authorize(root: &Path, auto_approve: bool, interactive: bool) -> Result<(), P
         auto_approve,
         interactive,
     )
-    .map_err(|error| {
+    .map_err(|_| {
         refusal(
             RefusalKind::EffectReadOnly,
-            format!("this run cannot write: {error}"),
+            "this run cannot write under its approval or its allow policy",
         )
     })
 }
@@ -537,7 +537,9 @@ impl ProposalTool {
         let output = self.declaration.single_output();
         let request = protocol::request_bytes(&binding, arguments, inputs, output);
         notes.executed = true;
-        let observation = self.launch(&request, is_cancelled)?;
+        let observation = self
+            .launch(&request, is_cancelled)
+            .inspect_err(|error| notes.executed = error.kind != RefusalKind::EffectUnavailable)?;
         // What the process said is kept apart from whether it is accepted. It is data for the
         // event, through the scrub, and stays out of every message: later steps classify a
         // message by its words, and the model does not get it.
@@ -630,11 +632,15 @@ impl ProposalTool {
             },
             is_cancelled,
         )
-        .map_err(|_| {
-            refusal(
-                RefusalKind::ProcessFailed,
-                format!("tool `{}` process could not start", self.tool_id),
-            )
+        .map_err(|error| {
+            if isolation::is_descriptor_refusal(&error) {
+                unavailable_descriptors(&self.tool_id)
+            } else {
+                refusal(
+                    RefusalKind::ProcessFailed,
+                    format!("tool `{}` process could not start", self.tool_id),
+                )
+            }
         })
     }
 
@@ -660,6 +666,14 @@ impl ProposalTool {
             }),
         );
     }
+}
+
+/// Nothing was started: a descriptor left open by the host's caller could have reached it.
+fn unavailable_descriptors(tool: &str) -> ProfileToolRefusal {
+    refusal(
+        RefusalKind::EffectUnavailable,
+        format!("tool `{tool}` was not started: not every inherited descriptor could be marked"),
+    )
 }
 
 fn emit_call(context: &ToolContext, tool: &ProposalTool, arguments: &Value) {
@@ -850,7 +864,10 @@ field() { printf '%s' "$request" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }
     struct Options {
         timeout_ms: u64,
         max_result_bytes: usize,
+        max_input_bytes: usize,
         env: Vec<(&'static str, &'static str)>,
+        /// The executable is a copy in a directory of its own, instead of the system's.
+        own_executable: bool,
     }
 
     impl Default for Options {
@@ -858,7 +875,9 @@ field() { printf '%s' "$request" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }
             Self {
                 timeout_ms: 20_000,
                 max_result_bytes: 64 * 1024,
+                max_input_bytes: 1 << 20,
                 env: Vec::new(),
+                own_executable: false,
             }
         }
     }
@@ -888,7 +907,14 @@ field() { printf '%s' "$request" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }
         std::fs::write(workspace.join(INPUT), "alpha\n").unwrap();
         let script_path = tool_dir.join("tool.sh");
         std::fs::write(&script_path, script).unwrap();
-        let shell = std::fs::canonicalize("/bin/sh").unwrap();
+        let mut shell = std::fs::canonicalize("/bin/sh").unwrap();
+        if options.own_executable {
+            let directory = base.join("executable");
+            std::fs::create_dir_all(&directory).unwrap();
+            let copy = directory.join("sh");
+            std::fs::copy(&shell, &copy).unwrap();
+            shell = copy;
+        }
         let mut env =
             std::collections::BTreeMap::from([("MARKS".to_string(), marks.display().to_string())]);
         env.insert("PATH_FOR_TEST".to_string(), "unused".to_string());
@@ -969,7 +995,7 @@ field() { printf '%s' "$request" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }
             pins,
             workspace: workspace.clone(),
             guard,
-            max_input_bytes: 1 << 20,
+            max_input_bytes: options.max_input_bytes,
             max_output_bytes: 64 * 1024,
             receipts: Arc::new(Mutex::new(Vec::new())),
             commits: Arc::new(Mutex::new(Vec::new())),
@@ -1401,6 +1427,91 @@ field() { printf '%s' "$request" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }
             "the directory"
         );
         assert_eq!(bench.starts(), 0);
+    }
+
+    /// The directory that holds the executable, too, right before the exec.
+    #[test]
+    fn an_executable_directory_someone_else_can_write_after_admission_never_starts() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let bench = bench_with(
+            &good_script(),
+            Options {
+                own_executable: true,
+                ..Options::default()
+            },
+        );
+        let directory = bench.workspace.parent().unwrap().join("executable");
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o775)).unwrap();
+        let error = bench.call().unwrap_err();
+        assert_eq!(kind(&error), RefusalKind::EffectUnavailable, "{error:#}");
+        assert_eq!(bench.starts(), 0);
+        assert_eq!(bench.saved(), None);
+    }
+
+    /// `{"mode":"fast"}` is 15 bytes: a limit of 15 takes it, and a limit of 14 starts nothing.
+    #[test]
+    fn the_input_limit_refuses_one_byte_over_it_and_takes_what_is_at_it() {
+        let at = |max_input_bytes| {
+            bench_with(
+                &good_script(),
+                Options {
+                    max_input_bytes,
+                    ..Options::default()
+                },
+            )
+        };
+        let over = at(14);
+        let error = over.call().unwrap_err();
+        assert_eq!(kind(&error), RefusalKind::EffectLimitExceeded, "{error:#}");
+        assert_eq!(over.starts(), 0);
+        assert_eq!(over.saved(), None);
+        let at_limit = at(15);
+        at_limit.call().unwrap();
+        assert_eq!(at_limit.starts(), 1);
+        assert_eq!(at_limit.saved().as_deref(), Some(CANDIDATE));
+    }
+
+    /// Whatever step fails, the call ends as unavailable, with no start and no save, and the
+    /// record says nothing ran.
+    #[test]
+    fn a_launch_stopped_over_its_descriptors_is_unavailable_and_ran_nothing() {
+        use super::super::isolation::test_hook::{DescriptorFault, descriptor_fault};
+        let bench = bench(&good_script());
+        {
+            let _fault = descriptor_fault(DescriptorFault::MarkRefused);
+            let error = bench.call().unwrap_err();
+            assert_eq!(kind(&error), RefusalKind::EffectUnavailable, "{error:#}");
+        }
+        assert_eq!(bench.starts(), 0);
+        assert_eq!(bench.saved(), None);
+        let receipts = bench.tool.receipts.lock().unwrap();
+        assert!(receipts.iter().all(|receipt| !receipt.executed));
+    }
+
+    /// A refusal's words are fixed: a classifier that reads words must not find a recoverable
+    /// kind in what a path or a policy happens to say, or the model is asked to try again.
+    #[test]
+    fn no_refusal_takes_its_class_from_a_path_or_a_policy() {
+        use crate::tools::registry::{recoverable_tool_error, tool_error_kind};
+        use std::os::unix::fs::symlink;
+        let bench = bench(&good_script());
+        let named = "is a directory";
+        std::fs::create_dir_all(bench.workspace.join(named)).unwrap();
+        symlink(&bench.marks, bench.workspace.join(named).join("frozen")).unwrap();
+        let mut context = bench.context();
+        context.protected_paths = vec![format!("{named}/frozen")];
+        let error = bench
+            .tool
+            .execute(&json!({"mode": "fast"}), &context, &|| false)
+            .unwrap_err();
+        assert_eq!(kind(&error), RefusalKind::EffectPathRefused, "{error:#}");
+        assert!(!error.to_string().contains(named), "{error:#}");
+        assert_eq!(tool_error_kind(&error), "tool_execution_error");
+        assert!(!recoverable_tool_error(&error));
+        let refused = super::authorize(&bench.workspace, false, false).unwrap_err();
+        let error = anyhow::Error::from(refused);
+        assert_eq!(tool_error_kind(&error), "tool_execution_error", "{error:#}");
+        assert!(!recoverable_tool_error(&error), "{error:#}");
     }
 
     #[test]

@@ -395,10 +395,16 @@ pub(crate) fn salvage_diagnostics(stdout: &[u8]) -> Vec<Diagnostic> {
         .unwrap_or_default()
 }
 
-/// The end of stderr, which is where a failing process says why, within a bound.
+/// The end of stderr, which is where a failing process says why, within a bound on the text it
+/// becomes: a byte that is not UTF-8 grows to three here, so the bound is applied after that.
 pub(crate) fn stderr_tail(stderr: &[u8]) -> String {
     let start = stderr.len().saturating_sub(MAX_STDERR_TAIL_BYTES);
-    String::from_utf8_lossy(&stderr[start..]).into_owned()
+    let text = String::from_utf8_lossy(&stderr[start..]);
+    let mut from = text.len().saturating_sub(MAX_STDERR_TAIL_BYTES);
+    while !text.is_char_boundary(from) {
+        from += 1;
+    }
+    text[from..].to_string()
 }
 
 const RESULT_KEYS: [&str; 9] = [
@@ -864,6 +870,18 @@ mod tests {
             super::MAX_STDERR_TAIL_BYTES
         );
         assert_eq!(super::stderr_tail(b"short"), "short");
+    }
+
+    #[test]
+    fn the_stderr_tail_is_bounded_after_it_becomes_text() {
+        let tail = super::stderr_tail(&[0xff; 2048]);
+        assert!(tail.len() <= super::MAX_STDERR_TAIL_BYTES, "{}", tail.len());
+        assert!(
+            tail.len() > super::MAX_STDERR_TAIL_BYTES - 4,
+            "{}",
+            tail.len()
+        );
+        assert!(tail.chars().all(|character| character == '\u{fffd}'));
     }
 
     #[test]

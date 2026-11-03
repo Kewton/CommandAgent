@@ -495,12 +495,16 @@ The policy is `src/tools/profile_tools/isolation.rs`. Every location is a `-D` p
 
 A policy judges an open, not a read or a write on a descriptor that is already open, so one left open
 by whatever started the host would reach the child. Between fork and exec, the launch marks every
-descriptor from 3 up close-on-exec: the host's own, the probe's, and any inherited one. The runner
-takes only a `StrictCommand`, which this leaf alone can make, so there is no other way to start one.
+descriptor from 3 up close-on-exec: the host's own, the probe's, and any inherited one. The exec
+happens only when every open descriptor is known to be marked. A descriptor table larger than the
+fixed list, a list that fails or fills, or a mark that fails with anything but `EBADF` stops the launch
+as `unavailable`, with nothing started. A resource limit is never taken for the highest descriptor,
+because lowering one leaves a higher descriptor open. The runner takes only a `StrictCommand`, which
+this leaf alone can make, so there is no other way to start one.
 
-**The runtime's writers.** At admission and again right before each process, the executable and each
-dependency directory with everything in it must be owned by this user or root, with no group or other
-write. Otherwise the tool is `unavailable`. A symlink's own mode means nothing and it is not followed.
+**The runtime's writers.** At admission and again right before each process, the executable, the
+directory that holds it, and each dependency directory with everything in it must be owned by this user
+or root, with no group or other write. Otherwise the tool is `unavailable`. A symlink's own mode means nothing and it is not followed.
 
 **The probe.** Before the first provider call, every entry starts `/bin/bash` under this very
 policy: one round trip on stdin and stdout, then a write and two connections (TCP and UDP to a
@@ -541,7 +545,7 @@ a second submission is G4's.
 What a process said is data, kept apart from whether it is accepted. On a refusal, the
 `profile_tool_effect_rejected` event holds the kind, the diagnostics of a document that decodes
 within the limits above (whatever else is wrong with it, including a binding that does not match),
-and the last 2 KiB of stderr as `stderr_tail`, each through the existing secret scrub. On a success,
+and the end of stderr as `stderr_tail`, at most 2 KiB of text, each through the existing secret scrub. On a success,
 the diagnostics are on the `profile_tool_commit` event and in `commit_receipts()`. Neither is in an
 error message, which later steps classify by its words, and neither is in the tool result the model
 gets. Nothing runs them.
@@ -688,9 +692,15 @@ Decided with the project manager's approval. The issue body is not edited.
   before the commit, so a runtime still changed then stops the commit. The process is still started by
   path: a writer running as this same user that swaps the executable or a dependency after the first
   comparison and restores it before the second is not detected. A writer of this same user is outside
-  what this guards; another user cannot be that writer, by the check above. Running a verified snapshot
-  is a later issue. A swapped runtime still runs under the strict policy, so it can propose bytes only
-  for the one declared output, and the host still checks the envelope.
+  what this guards. Running a verified snapshot is a later issue. A swapped runtime still runs under the
+  strict policy, so it can propose bytes only for the one declared output, and the host still checks
+  the envelope.
+- **Who else can write a runtime.** The check reads the mode and owner of the executable, of the
+  directory that holds it, and of each dependency directory and everything in it. Any of them writable
+  by group or other, or owned by neither this user nor root, is `unavailable`. That is the whole
+  guarantee. Directories above those are not read, so a user who can rename in one of them can still
+  swap the name of a runtime below it. Access control lists are not read, and neither are link
+  directories, which the policy lets a process see only as metadata.
 - **A writer of this same user and the adopted file.** Like any file, the destination can be rewritten
   by this user's other processes after the commit. The checks close the moment around the rename, up
   to step 6, and no further.

@@ -124,11 +124,7 @@ fn identity_below(
     relative: &str,
 ) -> Result<Option<(u64, u64)>, ProfileToolRefusal> {
     use std::os::unix::fs::MetadataExt as _;
-    let unidentified = || {
-        path_refused(format!(
-            "the protected path `{relative}` cannot be identified without a symlink"
-        ))
-    };
+    let unidentified = || path_refused("a protected path cannot be identified without a symlink");
     let parent =
         match crate::tools::dir_fd::open_parent_at(root, display, Path::new(relative), false) {
             Ok(parent) => parent,

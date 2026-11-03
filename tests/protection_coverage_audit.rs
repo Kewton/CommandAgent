@@ -321,8 +321,38 @@ fn profile_tool_effect_boundary_rejects_each_weakened_variant() {
         (
             "keeps inherited descriptors",
             0,
-            "mark_inherited_descriptors_close_on_exec();",
+            "command.pre_exec(move || mark_inherited_descriptors_close_on_exec(calls));",
             "",
+        ),
+        (
+            "execs whatever the marking said",
+            0,
+            "command.pre_exec(move || mark_inherited_descriptors_close_on_exec(calls));",
+            "command.pre_exec(move || { let _ = mark_inherited_descriptors_close_on_exec(calls); Ok(()) });",
+        ),
+        (
+            "ignores a mark that failed",
+            0,
+            "if info.proc_fd > 2 && !(calls.mark)(info.proc_fd) {",
+            "if info.proc_fd > 2 && false {",
+        ),
+        (
+            "goes on past a full list",
+            0,
+            "if count == 0 || count >= CAPACITY {",
+            "if false {",
+        ),
+        (
+            "goes on past a table it may not cover",
+            0,
+            "if table == 0 || table > CAPACITY * entry {",
+            "if false {",
+        ),
+        (
+            "takes a limit for the highest descriptor",
+            0,
+            "let count = usize::try_from((calls.list)(&mut listed)).unwrap_or(0) / entry;",
+            "let count = unsafe { libc::getdtablesize() } as usize;",
         ),
         (
             "keeps the temporary",
@@ -700,9 +730,16 @@ fn production_text(text: &str) -> &str {
         .map_or(text, |position| &text[..position])
 }
 
-const PROFILE_TOOL_EFFECT_REQUIRED: [(usize, &str); 40] = [
-    (0, "mark_inherited_descriptors_close_on_exec();"),
+const PROFILE_TOOL_EFFECT_REQUIRED: [(usize, &str); 44] = [
+    (
+        0,
+        "command.pre_exec(move || mark_inherited_descriptors_close_on_exec(calls));",
+    ),
     (0, "libc::F_SETFD, libc::FD_CLOEXEC"),
+    (0, "if info.proc_fd > 2 && !(calls.mark)(info.proc_fd) {"),
+    (0, "if count == 0 || count >= CAPACITY {"),
+    (0, "if table == 0 || table > CAPACITY * entry {"),
+    (0, "answer == 0 || errno == Some(libc::EBADF)"),
     (1, "    launch: StrictCommand,"),
     (3, "let _ = self.parent.unlink(&self.name);"),
     (3, "let synced = parent.sync_directory().is_ok();"),
@@ -771,6 +808,7 @@ fn audit_profile_tool_effect_boundary(corpus: &AuditCorpus, rule: &ProtectionRul
         "mach-lookup",
         "os_sandbox::",
         "wrap_command",
+        "getdtablesize",
     ] {
         let found = production_text(corpus.file(isolation))
             .lines()

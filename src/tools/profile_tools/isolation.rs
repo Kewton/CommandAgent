@@ -59,6 +59,40 @@ pub(super) mod test_hook {
 
     thread_local! {
         static UNCONFINED: Cell<bool> = const { Cell::new(false) };
+        static DESCRIPTOR_FAULT: Cell<Option<DescriptorFault>> = const { Cell::new(None) };
+    }
+
+    /// One way of not knowing that every descriptor is marked, read on this thread before
+    /// the fork. Only macOS has the steps these name; Linux has one call.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub(in super::super) enum DescriptorFault {
+        #[cfg(target_os = "macos")]
+        TableUnknown,
+        #[cfg(target_os = "macos")]
+        TableTooLarge,
+        #[cfg(target_os = "macos")]
+        ListFailed,
+        #[cfg(target_os = "macos")]
+        ListFull,
+        MarkRefused,
+    }
+
+    pub(in super::super) struct FaultyDescriptors;
+
+    impl Drop for FaultyDescriptors {
+        fn drop(&mut self) {
+            DESCRIPTOR_FAULT.with(|fault| fault.set(None));
+        }
+    }
+
+    pub(in super::super) fn descriptor_fault(fault: DescriptorFault) -> FaultyDescriptors {
+        DESCRIPTOR_FAULT.with(|slot| slot.set(Some(fault)));
+        FaultyDescriptors
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    pub(super) fn current_descriptor_fault() -> Option<DescriptorFault> {
+        DESCRIPTOR_FAULT.with(Cell::get)
     }
 
     /// Only a unit test of the parts around the launch can reach this: it does not exist
@@ -175,51 +209,188 @@ impl StrictCommand {
     }
 }
 
-/// Between fork and exec, only `fcntl` and the descriptor list. A descriptor the host's own
-/// caller left open would otherwise reach the child: the policy judges an open, not a read
-/// or a write on what is already open. Marking instead of closing leaves the runtime's own
-/// descriptors for the moment of the exec. Failure on an unused number is ignored.
+/// The errno of a launch stopped before its exec. An exec does not report this one, so the
+/// host can tell the stop from a program that could not start.
 #[cfg(unix)]
-fn mark_inherited_descriptors_close_on_exec() {
-    fn mark(descriptor: i32) {
-        // SAFETY: `fcntl` is async-signal-safe, and this only sets a flag on a number; an
-        // unused one returns an error that does not matter.
+const DESCRIPTORS_NOT_MARKED: i32 = libc::ENOTRECOVERABLE;
+
+/// This spawn error means no program ran, because a descriptor could have reached it.
+#[cfg(unix)]
+pub(super) fn is_descriptor_refusal(error: &std::io::Error) -> bool {
+    error.raw_os_error() == Some(DESCRIPTORS_NOT_MARKED)
+}
+
+#[cfg(not(unix))]
+pub(super) fn is_descriptor_refusal(_error: &std::io::Error) -> bool {
+    false
+}
+
+/// The system calls between fork and exec, chosen before the fork. A plain table of function
+/// pointers: nothing here allocates, locks, or formats.
+#[cfg(target_os = "macos")]
+#[derive(Clone, Copy)]
+struct DescriptorCalls {
+    table_bytes: fn() -> i32,
+    list: fn(&mut [libc::proc_fdinfo]) -> i32,
+    mark: fn(i32) -> bool,
+}
+
+#[cfg(target_os = "macos")]
+const REAL_DESCRIPTOR_CALLS: DescriptorCalls = DescriptorCalls {
+    table_bytes: || {
+        // SAFETY: a null buffer asks only for a size, and `getpid` has no preconditions.
         unsafe {
-            libc::fcntl(descriptor, libc::F_SETFD, libc::FD_CLOEXEC);
-        }
-    }
-    #[cfg(target_os = "macos")]
-    {
-        const CAPACITY: usize = 4096;
-        // SAFETY: an all-zero `proc_fdinfo` is a valid value of this plain struct.
-        let mut listed: [libc::proc_fdinfo; CAPACITY] = unsafe { std::mem::zeroed() };
-        let entry = std::mem::size_of::<libc::proc_fdinfo>();
-        // SAFETY: the buffer is writable for this many bytes on this stack frame, and
-        // `getpid` has no preconditions. Both are plain system calls.
-        let written = unsafe {
             libc::proc_pidinfo(
                 libc::getpid(),
                 libc::PROC_PIDLISTFDS,
                 0,
-                listed.as_mut_ptr().cast(),
-                (CAPACITY * entry) as i32,
+                std::ptr::null_mut(),
+                0,
             )
-        };
-        let count = usize::try_from(written).unwrap_or(0) / entry;
-        if count > 0 && count < CAPACITY {
-            for info in &listed[..count] {
-                if info.proc_fd > 2 {
-                    mark(info.proc_fd);
-                }
-            }
-            return;
+        }
+    },
+    list: |into| {
+        // SAFETY: the buffer is writable for this many bytes, and it fits in an `i32`.
+        unsafe {
+            libc::proc_pidinfo(
+                libc::getpid(),
+                libc::PROC_PIDLISTFDS,
+                0,
+                into.as_mut_ptr().cast(),
+                std::mem::size_of_val(into) as i32,
+            )
+        }
+    },
+    mark: |descriptor| {
+        // SAFETY: `fcntl` is async-signal-safe, and this only sets a flag on a number.
+        let answer = unsafe { libc::fcntl(descriptor, libc::F_SETFD, libc::FD_CLOEXEC) };
+        mark_held(answer, std::io::Error::last_os_error().raw_os_error())
+    },
+};
+
+/// Only a number that is not open needs no mark. Any other failure leaves it open at the exec.
+#[cfg(target_os = "macos")]
+fn mark_held(answer: i32, errno: Option<i32>) -> bool {
+    answer == 0 || errno == Some(libc::EBADF)
+}
+
+/// Between fork and exec. A descriptor the host's own caller left open would otherwise reach
+/// the child: the policy judges an open, not a read or a write on what is already open.
+/// Marking instead of closing leaves the runtime's own descriptors for the moment of the exec.
+///
+/// The exec happens only when every open descriptor is known to be marked. The list reaches
+/// a fixed buffer, so the size of the whole table is judged first: a table it might not cover,
+/// a list that cannot be read, a full list, or a mark that fails stops the launch. A resource
+/// limit says nothing here, because lowering one leaves a higher descriptor open.
+#[cfg(target_os = "macos")]
+fn mark_inherited_descriptors_close_on_exec(calls: DescriptorCalls) -> std::io::Result<()> {
+    const CAPACITY: usize = 4096;
+    let not_marked = || std::io::Error::from_raw_os_error(DESCRIPTORS_NOT_MARKED);
+    let entry = std::mem::size_of::<libc::proc_fdinfo>();
+    let table = usize::try_from((calls.table_bytes)()).unwrap_or(0);
+    if table == 0 || table > CAPACITY * entry {
+        return Err(not_marked());
+    }
+    // SAFETY: an all-zero `proc_fdinfo` is a valid value of this plain struct.
+    let mut listed: [libc::proc_fdinfo; CAPACITY] = unsafe { std::mem::zeroed() };
+    let count = usize::try_from((calls.list)(&mut listed)).unwrap_or(0) / entry;
+    if count == 0 || count >= CAPACITY {
+        return Err(not_marked());
+    }
+    for info in &listed[..count] {
+        if info.proc_fd > 2 && !(calls.mark)(info.proc_fd) {
+            return Err(not_marked());
         }
     }
-    // SAFETY: `getdtablesize` takes no argument and only reads a limit.
-    let limit = unsafe { libc::getdtablesize() };
-    for descriptor in 3..limit {
-        mark(descriptor);
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy)]
+struct DescriptorCalls {
+    mark_all: fn() -> bool,
+}
+
+#[cfg(target_os = "linux")]
+const REAL_DESCRIPTOR_CALLS: DescriptorCalls = DescriptorCalls {
+    mark_all: || {
+        // SAFETY: this only sets a flag on a range of numbers, and takes no pointer.
+        unsafe {
+            libc::syscall(
+                libc::SYS_close_range,
+                3u32,
+                u32::MAX,
+                libc::CLOSE_RANGE_CLOEXEC,
+            ) == 0
+        }
+    },
+};
+
+/// The kernel marks every number from 3 up, or the launch stops. No launch reaches this in
+/// production: only a unit test runs a process here.
+#[cfg(target_os = "linux")]
+fn mark_inherited_descriptors_close_on_exec(calls: DescriptorCalls) -> std::io::Result<()> {
+    if (calls.mark_all)() {
+        Ok(())
+    } else {
+        Err(std::io::Error::from_raw_os_error(DESCRIPTORS_NOT_MARKED))
     }
+}
+
+/// Nothing here can show every descriptor marked. No launch reaches this: this platform has
+/// no backend.
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))]
+#[derive(Clone, Copy)]
+struct DescriptorCalls;
+
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))]
+const REAL_DESCRIPTOR_CALLS: DescriptorCalls = DescriptorCalls;
+
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))]
+fn mark_inherited_descriptors_close_on_exec(_calls: DescriptorCalls) -> std::io::Result<()> {
+    Err(std::io::Error::from_raw_os_error(DESCRIPTORS_NOT_MARKED))
+}
+
+#[cfg(all(test, target_os = "macos"))]
+fn faulty_calls(fault: test_hook::DescriptorFault) -> DescriptorCalls {
+    use test_hook::DescriptorFault as Fault;
+    let real = REAL_DESCRIPTOR_CALLS;
+    match fault {
+        Fault::TableUnknown => DescriptorCalls {
+            table_bytes: || 0,
+            ..real
+        },
+        Fault::TableTooLarge => DescriptorCalls {
+            table_bytes: || i32::MAX,
+            ..real
+        },
+        Fault::ListFailed => DescriptorCalls {
+            list: |_| 0,
+            ..real
+        },
+        Fault::ListFull => DescriptorCalls {
+            list: |into| std::mem::size_of_val(into) as i32,
+            ..real
+        },
+        Fault::MarkRefused => DescriptorCalls {
+            mark: |_| mark_held(-1, Some(libc::EPERM)),
+            ..real
+        },
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+fn faulty_calls(_fault: test_hook::DescriptorFault) -> DescriptorCalls {
+    DescriptorCalls { mark_all: || false }
+}
+
+#[cfg(unix)]
+fn descriptor_calls() -> DescriptorCalls {
+    #[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
+    if let Some(fault) = test_hook::current_descriptor_fault() {
+        return faulty_calls(fault);
+    }
+    REAL_DESCRIPTOR_CALLS
 }
 
 /// The environment is cleared on this very `Command`: the declared keys are all the child
@@ -239,13 +410,11 @@ fn final_command(program: &OsStr, prefix: &[OsString], launch: &StrictLaunch<'_>
     {
         use std::os::unix::process::CommandExt as _;
         command.process_group(0);
+        let calls = descriptor_calls();
         // SAFETY: the closure makes only async-signal-safe calls, on the stack, and takes no
-        // lock and allocates nothing.
+        // lock and allocates nothing. An error from it stops the exec.
         unsafe {
-            command.pre_exec(|| {
-                mark_inherited_descriptors_close_on_exec();
-                Ok(())
-            });
+            command.pre_exec(move || mark_inherited_descriptors_close_on_exec(calls));
         }
     }
     StrictCommand { command }
@@ -552,14 +721,271 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&written).unwrap(), "");
     }
 
+    /// The launch is refused and the program never ran: its first act would leave the mark.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    fn assert_refused_without_an_exec(fault: super::test_hook::DescriptorFault) {
+        use super::super::process::{RunLimits, run};
+        let temp = tempfile::tempdir().unwrap();
+        let mark = temp.path().join("started");
+        let argv = ["-c".to_string(), format!(": > '{}'", mark.display())];
+        let env = BTreeMap::new();
+        let launch = StrictLaunch {
+            executable: Path::new("/bin/sh"),
+            argv: &argv,
+            cwd: Path::new("/"),
+            env: &env,
+            read_directories: Vec::new(),
+            link_directories: Vec::new(),
+        };
+        let _unconfined = super::test_hook::unconfined();
+        let limits = RunLimits {
+            timeout: std::time::Duration::from_secs(10),
+            max_stream_bytes: 4096,
+        };
+        {
+            let _fault = super::test_hook::descriptor_fault(fault);
+            let error = run(
+                super::strict_command(&launch).unwrap(),
+                b"",
+                limits,
+                &|| false,
+            )
+            .unwrap_err();
+            assert!(super::is_descriptor_refusal(&error), "{fault:?}: {error}");
+            assert!(!mark.exists(), "{fault:?}: the program ran");
+        }
+        // The witness: the same launch does start once nothing is wrong.
+        let observation = run(
+            super::strict_command(&launch).unwrap(),
+            b"",
+            limits,
+            &|| false,
+        )
+        .unwrap();
+        assert_eq!(observation.failure_code(), None);
+        assert!(mark.exists());
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn a_mark_that_fails_stops_the_launch_before_the_exec() {
+        assert_refused_without_an_exec(super::test_hook::DescriptorFault::MarkRefused);
+    }
+
+    /// The probe goes through the same launch, and its answer is unavailable.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_probe_does_not_pass_when_the_marks_cannot_be_shown() {
+        let _fault =
+            super::test_hook::descriptor_fault(super::test_hook::DescriptorFault::ListFailed);
+        assert_eq!(probe_strict().unwrap_err().kind.as_str(), "unavailable");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_list_that_is_full_failed_or_too_small_stops_the_launch_before_the_exec() {
+        use super::test_hook::DescriptorFault as Fault;
+        for fault in [
+            Fault::TableUnknown,
+            Fault::TableTooLarge,
+            Fault::ListFailed,
+            Fault::ListFull,
+        ] {
+            assert_refused_without_an_exec(fault);
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn only_a_number_that_is_not_open_needs_no_mark() {
+        assert!(super::mark_held(0, None));
+        assert!(super::mark_held(0, Some(libc::EPERM)));
+        assert!(super::mark_held(-1, Some(libc::EBADF)));
+        assert!(!super::mark_held(-1, Some(libc::EPERM)));
+        assert!(!super::mark_held(-1, None));
+    }
+
     #[cfg(target_os = "macos")]
     mod real_isolation {
         use std::collections::BTreeMap;
+        use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd};
         use std::path::{Path, PathBuf};
         use std::time::Duration;
 
         use super::super::super::process::{self, RunLimits};
-        use super::super::{StrictLaunch, strict_command};
+        use super::super::{StrictLaunch, is_descriptor_refusal, strict_command};
+
+        const OWN_PROCESS: &str = "G3_DESCRIPTOR_TEST_OWN_PROCESS";
+
+        /// A resource limit belongs to the whole process, and other tests run beside this one.
+        /// So `scenario` runs in this same test binary started again for this test alone, with
+        /// only the variables it needs.
+        fn in_own_process(test: &str, scenario: fn()) {
+            if std::env::var_os(OWN_PROCESS).is_some() {
+                scenario();
+                return;
+            }
+            let (_, module) = module_path!().split_once("::").unwrap();
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", &format!("{module}::{test}"), "--nocapture"])
+                .env_clear()
+                .env(OWN_PROCESS, "1")
+                .env("TMPDIR", std::env::temp_dir())
+                .output()
+                .unwrap();
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            assert!(
+                output.status.success() && stdout.contains("1 passed"),
+                "{stdout}\n{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+
+        /// The soft descriptor limit, put back at the end.
+        struct SoftLimit {
+            before: libc::rlimit,
+        }
+
+        impl SoftLimit {
+            fn hold() -> Self {
+                let mut before = libc::rlimit {
+                    rlim_cur: 0,
+                    rlim_max: 0,
+                };
+                // SAFETY: `before` is writable and outlives the call.
+                let answer = unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &raw mut before) };
+                assert_eq!(answer, 0);
+                Self { before }
+            }
+
+            fn set(&self, soft: u64) {
+                let limit = libc::rlimit {
+                    rlim_cur: soft,
+                    rlim_max: self.before.rlim_max,
+                };
+                // SAFETY: `limit` is a valid value and outlives the call.
+                let answer = unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &raw const limit) };
+                assert_eq!(answer, 0, "this test needs a hard limit above {soft}");
+            }
+        }
+
+        impl Drop for SoftLimit {
+            fn drop(&mut self) {
+                // SAFETY: the value this process had before.
+                unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &raw const self.before) };
+            }
+        }
+
+        /// An open descriptor at this number, without close-on-exec. Closed when dropped.
+        fn open_at(file: &std::fs::File, number: i32) -> OwnedFd {
+            // SAFETY: `file` is open, and `number` is free in this process of its own.
+            let answer = unsafe { libc::dup2(file.as_raw_fd(), number) };
+            assert_eq!(answer, number);
+            // SAFETY: this process has just opened `number`, and nothing else owns it.
+            let held = unsafe { OwnedFd::from_raw_fd(number) };
+            // SAFETY: `number` is open; this only reads its flags.
+            assert_eq!(unsafe { libc::fcntl(number, libc::F_GETFD) }, 0);
+            held
+        }
+
+        const SECRET: &str = "dummy-inherited-secret";
+
+        fn reads_descriptor(number: i32) -> String {
+            format!("{{ read -r line <&{number}; }}\nprintf 'line=[%s]\\n' \"$line\"\nexit 0\n")
+        }
+
+        /// The witness: with no marking, a child of a process that lowered its limit still
+        /// reads this number, so the limit is no bound on what is open.
+        fn assert_it_would_reach_an_unmarked_child(number: i32) {
+            use std::os::unix::process::CommandExt as _;
+            let mut command = std::process::Command::new("/bin/bash");
+            command.args(["-c", &reads_descriptor(number)]).env_clear();
+            // SAFETY: the closure does nothing. It is here so that this forks as the launch does.
+            unsafe { command.pre_exec(|| Ok(())) };
+            let output = command.output().unwrap();
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            assert!(stdout.contains(&format!("line=[{SECRET}]")), "{stdout}");
+        }
+
+        /// One descriptor at `number`, opened under a raised limit, and the limit then lowered.
+        fn with_descriptor_above_a_lowered_limit(number: i32, check: fn(&Stage, i32)) {
+            let stage = stage();
+            let secret = stage.outside.join("secret");
+            std::fs::write(&secret, format!("{SECRET}\n")).unwrap();
+            let file = std::fs::File::open(&secret).unwrap();
+            let limit = SoftLimit::hold();
+            limit.set(u64::try_from(number).unwrap() + 100);
+            let _held = open_at(&file, number);
+            limit.set(256);
+            assert_it_would_reach_an_unmarked_child(number);
+            check(&stage, number);
+        }
+
+        #[test]
+        fn a_listed_descriptor_above_a_lowered_limit_is_a_bad_descriptor() {
+            in_own_process(
+                "a_listed_descriptor_above_a_lowered_limit_is_a_bad_descriptor",
+                || {
+                    with_descriptor_above_a_lowered_limit(1000, |stage, number| {
+                        let observation = run(stage, &reads_descriptor(number), &BTreeMap::new());
+                        let stderr = String::from_utf8_lossy(&observation.stderr);
+                        assert!(stderr.contains("Bad file descriptor"), "{stderr}");
+                        let stdout = String::from_utf8_lossy(&observation.stdout);
+                        assert!(stdout.contains("line=[]"), "{stdout}");
+                    });
+                },
+            );
+        }
+
+        /// The review's case: nothing could be listed, and the limit would not have covered it.
+        #[test]
+        fn a_failed_list_with_a_descriptor_above_a_lowered_limit_starts_nothing() {
+            in_own_process(
+                "a_failed_list_with_a_descriptor_above_a_lowered_limit_starts_nothing",
+                || {
+                    with_descriptor_above_a_lowered_limit(1000, |stage, number| {
+                        use super::super::test_hook::{DescriptorFault, descriptor_fault};
+                        let _fault = descriptor_fault(DescriptorFault::ListFailed);
+                        let error = attempt(stage, &reads_descriptor(number), &BTreeMap::new())
+                            .unwrap_err();
+                        assert!(is_descriptor_refusal(&error), "{error}");
+                    });
+                },
+            );
+        }
+
+        /// A number past what the list is known to cover: gone at the exec, or no exec at all.
+        /// Either answer keeps it from the tool.
+        #[test]
+        fn a_descriptor_past_the_list_does_not_reach_the_tool() {
+            in_own_process("a_descriptor_past_the_list_does_not_reach_the_tool", || {
+                with_descriptor_above_a_lowered_limit(5000, |stage, number| {
+                    match attempt(stage, &reads_descriptor(number), &BTreeMap::new()) {
+                        Err(error) => assert!(is_descriptor_refusal(&error), "{error}"),
+                        Ok(observation) => {
+                            let stdout = String::from_utf8_lossy(&observation.stdout);
+                            assert!(stdout.contains("line=[]"), "{stdout}");
+                        }
+                    }
+                });
+            });
+        }
+
+        /// More than the fixed buffer holds, really open: nothing is started.
+        #[test]
+        fn more_descriptors_than_the_list_holds_start_nothing() {
+            in_own_process("more_descriptors_than_the_list_holds_start_nothing", || {
+                let stage = stage();
+                let file = std::fs::File::open(stage.tool.parent().unwrap()).unwrap();
+                let limit = SoftLimit::hold();
+                limit.set(6000);
+                let _held = (1000..5200)
+                    .map(|number| open_at(&file, number))
+                    .collect::<Vec<_>>();
+                let error = attempt(&stage, "exit 0\n", &BTreeMap::new()).unwrap_err();
+                assert!(is_descriptor_refusal(&error), "{error}");
+            });
+        }
 
         const DENIED: &str = "Operation not permitted";
 
@@ -588,6 +1014,14 @@ mod tests {
             script: &str,
             env: &BTreeMap<String, String>,
         ) -> process::Observation {
+            attempt(stage, script, env).unwrap()
+        }
+
+        fn attempt(
+            stage: &Stage,
+            script: &str,
+            env: &BTreeMap<String, String>,
+        ) -> std::io::Result<process::Observation> {
             let path = stage.tool.join("attempt.sh");
             std::fs::write(&path, script).unwrap();
             let argv = [path.display().to_string()];
@@ -608,7 +1042,6 @@ mod tests {
                 },
                 &|| false,
             )
-            .unwrap()
         }
 
         #[test]

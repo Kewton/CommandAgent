@@ -41,7 +41,8 @@
     {"id": "an action that only plans", "refusal": "effect_read_only"},
     {"id": "a destination that is a symlink", "refusal": "effect_path_refused"},
     {"id": "an executable its group can write", "refusal": "unavailable"},
-    {"id": "a file in a dependency directory others can write", "refusal": "unavailable"}
+    {"id": "a file in a dependency directory others can write", "refusal": "unavailable"},
+    {"id": "an executable in a directory its group can write", "refusal": "unavailable"}
   ],
   "unsupported": [
     {"id": "linux, windows, and any other OS", "refusal": "unavailable"},

@@ -1510,7 +1510,7 @@ const START_REFUSALS: &[StartRefusal] = &[
             let contract = env.evidence.join("contract.json");
             std::fs::write(
                 &contract,
-                json!({"protected_paths": ["config"]}).to_string(),
+                json!({"required_paths": [OUTPUT], "protected_paths": ["config"]}).to_string(),
             )
             .unwrap();
             config.completion_contract_path = Some(contract);
@@ -1568,6 +1568,23 @@ const START_REFUSALS: &[StartRefusal] = &[
             set_mode(&env.tools.join(CONFIG_TOOL_ID).join("tool.sh"), 0o646);
         },
     },
+    StartRefusal {
+        id: "an executable in a directory its group can write",
+        kind: "unavailable",
+        after_probe: false,
+        prepare: |env, _| {
+            let directory = env.tools.join("shell-directory");
+            std::fs::create_dir_all(&directory).unwrap();
+            let copy = directory.join("shell-copy");
+            std::fs::copy(pinned_shell(), &copy).unwrap();
+            set_mode(&copy, 0o755);
+            set_mode(&directory, 0o775);
+            let digest = sha256(&std::fs::read(&copy).unwrap());
+            env.write_changed(&Fake::default(), &|descriptor| {
+                descriptor["process"]["executable"] = json!({"path": copy, "sha256": digest});
+            });
+        },
+    },
 ];
 
 fn set_mode(path: &Path, mode: u32) {
@@ -1605,6 +1622,10 @@ fn running_command_lines() -> Vec<String> {
 /// Watches for an operator's tool by its own script's path, from outside any policy. The
 /// strict probe's fixed child has no such path, so it is not counted. For this to see a
 /// start, the script stays running: see [`staying_fake`].
+///
+/// This samples the process list about every 20 ms, so it is no count of starts. A process
+/// that ends between two samples is not seen, and no sample follows the stop. A zero here
+/// means this staying fake was never seen, and says nothing about a short-lived tool.
 struct LaunchWatch {
     seen: Arc<AtomicUsize>,
     stop: Arc<AtomicBool>,
@@ -3172,6 +3193,61 @@ mod macos {
         let error = result.unwrap_err();
         assert!(error.contains("invalid_pin"), "{error}");
         env.assert_nothing_new_saved("a rewritten dependency");
+        set_env(REGISTRY_ENV, None);
+    }
+
+    /// A protected path that becomes a symlink during the process, with a recoverable kind's
+    /// words in its name. The refusal keeps its own kind, and nothing goes back to the model:
+    /// words in a path must not turn the stop into feedback it can try again from.
+    #[test]
+    fn words_in_a_protected_path_do_not_turn_the_stop_into_feedback() {
+        let _guard = lock();
+        let env = Env::new();
+        env.with_old_bytes();
+        env.write_tool(&fake_with(|f| {
+            f.head = "until (( SECONDS >= 3 )); do :; done".to_string();
+        }));
+        let contract = env.evidence.join("contract.json");
+        std::fs::write(
+            &contract,
+            json!({
+                "required_paths": ["is a directory/frozen"],
+                "protected_paths": ["is a directory/frozen"],
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let mut config = env.config("http://unused");
+        config.completion_contract_path = Some(contract);
+        let script = env
+            .tools
+            .join(super::CONFIG_TOOL_ID)
+            .join("tool.sh")
+            .display()
+            .to_string();
+        let (root, outside) = (env.root.clone(), env.outside.clone());
+        let writer = std::thread::spawn(move || {
+            let started = Instant::now();
+            while !super::running_command_lines()
+                .iter()
+                .any(|line| line.starts_with("/bin/bash") && line.contains(&script))
+            {
+                if started.elapsed() > Duration::from_secs(10) {
+                    return false;
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            let directory = root.join("is a directory");
+            std::fs::create_dir_all(&directory).unwrap();
+            std::os::unix::fs::symlink(outside.join("target"), directory.join("frozen")).unwrap();
+            true
+        });
+        let (requests, result) = run_with(&config, call(VALID));
+        assert!(writer.join().unwrap(), "never started: {result:?}");
+        let error = result.unwrap_err();
+        assert!(error.contains("effect_path_refused"), "{error}");
+        assert!(!error.contains("is a directory"), "{error}");
+        assert_eq!(requests.len(), 1, "nothing went back to the model");
         set_env(REGISTRY_ENV, None);
     }
 
