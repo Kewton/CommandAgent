@@ -1381,9 +1381,15 @@ fn stage_receipt_for_model(receipt: &CommitReceipt, decision: &CommitDecision) -
 /// One block a terminal shows as it is: no control character of a name reaches it. A tool's
 /// spinner is drawing on stderr while this runs, with no newline after its frame, so on a terminal
 /// the block first clears that line. The spinner's next frame lands below it.
+///
+/// A run's terminal is raw, where a line feed does not go back to the left edge. A cooked terminal
+/// takes the same bytes to the same place.
 fn stage_refusal_block(notice: &str, stderr_is_terminal: bool) -> String {
-    let clear = if stderr_is_terminal { "\r\x1b[2K" } else { "" };
-    format!("{clear}{notice}\n")
+    if stderr_is_terminal {
+        format!("\r\x1b[2K{}\r\n", notice.replace('\n', "\r\n"))
+    } else {
+        format!("{notice}\n")
+    }
 }
 
 /// What an operator needs to act on a refusal that carries more than its message may. The path
@@ -1415,13 +1421,18 @@ fn stage_refusal_notice(data: &Value) -> String {
     lines.join("\n")
 }
 
-fn emit_stage_refusal(context: &ToolContext, tool: &ProposalTool, data: &Value) {
+/// Shows the operator a refusal of the record, wherever it was first found.
+pub(crate) fn show_stage_refusal(data: &Value) {
     let block = stage_refusal_block(
         &stage_refusal_notice(data),
         crate::tui::terminal::stderr_is_tty(),
     );
     // One write under the lock the spinner takes, so no frame lands inside the block.
     let _ = std::io::Write::write_all(&mut std::io::stderr().lock(), block.as_bytes());
+}
+
+fn emit_stage_refusal(context: &ToolContext, tool: &ProposalTool, data: &Value) {
+    show_stage_refusal(data);
     let mut event = json!({
         "event": "structured_stage_refused",
         "name": tool.name(),
@@ -2858,7 +2869,43 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
             let bench = bench.restarted(LedgerEntry::Resume);
             refused(&bench, "a resume in another process");
 
+            let bench = bench.restarted(LedgerEntry::FreshSession);
+            let answer = bench.call(&bench.upper, "fast", "initial").unwrap();
+            assert_eq!(answer["stage"]["status"], "sealed", "{answer}");
+        }
+
+        /// P2: a process that was only started does not take the mark away. Comparing the same
+        /// value once per process would be the same oracle, a little slower.
+        #[test]
+        fn a_new_process_that_did_not_ask_cannot_replace_a_record_a_secret_ended() {
+            let bench = stage_bench();
+            let mut catalog = crate::sensitive_data::SecretCatalog::new();
+            catalog.register_credential("DUMMY_API_KEY", DUMMY).unwrap();
+            crate::sensitive_data::install_scope(catalog, Some(&bench.workspace), None);
+            bench.mark(
+                &format!("diagnostics-{UPPER}"),
+                &json!([{"code": "note", "message": DUMMY}]).to_string(),
+            );
+            bench.call(&bench.upper, "fast", "initial").unwrap_err();
+            bench.unmark(&format!("diagnostics-{UPPER}"));
+            let file = crate::planner::structured_stages::ledger::ledger_file(
+                &bench.workspace.parent().unwrap().join("state"),
+                &bench.workspace,
+                PROFILE,
+            )
+            .unwrap();
+            let record = std::fs::read(&file).unwrap();
+
             let bench = bench.restarted(LedgerEntry::Fresh);
+            let error = bench.call(&bench.upper, "fast", "initial").unwrap_err();
+            assert_eq!(kind(&error), RefusalKind::StageLedgerRefused, "{error:#}");
+            assert_eq!(bench.starts(UPPER), 1, "nothing ran");
+            assert_eq!(std::fs::read(&file).unwrap(), record, "nothing replaced");
+            let message = error.to_string();
+            assert!(message.contains("ended_by_secret_value"), "{message}");
+            assert!(message.contains("`--fresh-session`"), "{message}");
+
+            let bench = bench.restarted(LedgerEntry::FreshSession);
             let answer = bench.call(&bench.upper, "fast", "initial").unwrap();
             assert_eq!(answer["stage"]["status"], "sealed", "{answer}");
         }
@@ -3376,6 +3423,84 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
             stage_incomplete(funnel(&bench, StageScope::All), "ledger_refused");
         }
 
+        /// N2: the first to find the damage may be a funnel or the final gate, not a call.
+        #[test]
+        fn a_record_found_broken_by_a_judgment_says_where_it_is_and_what_to_do() {
+            let bench = stage_bench();
+            bench.seal_upper();
+            let state_dir = bench.workspace.parent().unwrap().join("state");
+            let file = crate::planner::structured_stages::ledger::ledger_file(
+                &state_dir,
+                &bench.workspace,
+                PROFILE,
+            )
+            .unwrap();
+            std::fs::write(&file, b"not a record").unwrap();
+            let shortfall = bench.run.judge(StageScope::All).unwrap();
+            let record = shortfall.record.clone().expect("what the refusal carried");
+            assert_eq!(record["ledger_path"], file.display().to_string());
+            assert!(record["recovery"].as_str().is_some(), "{record}");
+
+            let event = shortfall.event();
+            assert_eq!(event["record"], record, "{event}");
+            // The message stays a fixed sentence, as in every other refusal of the record.
+            let message = shortfall.to_refusal().to_string();
+            assert!(
+                !message.contains(&state_dir.display().to_string()),
+                "{message}"
+            );
+        }
+
+        /// N7: a repair prompt shows this message, and has to say which one.
+        #[test]
+        fn the_failure_names_the_stages_it_is_about_and_no_path() {
+            let bench = stage_bench();
+            let answer = bench.seal_upper();
+            let message = bench
+                .run
+                .judge(StageScope::All)
+                .unwrap()
+                .to_refusal()
+                .to_string();
+            assert!(message.contains("lower/main"), "{message}");
+            assert!(!message.contains("upper/main"), "sealed: {message}");
+            assert!(!message.contains(LOWER_OUTPUT), "{message}");
+            assert!(answer["stage"]["status"] == "sealed");
+        }
+
+        /// M12: after a secret, every seal in the set does not make a success.
+        #[test]
+        fn a_secret_after_every_seal_still_leaves_the_run_unsuccessful() {
+            let bench = stage_bench();
+            let answer = bench.seal_upper();
+            let revision = downstream_revision(&answer);
+            bench.call(&bench.lower, "fast", &revision).unwrap();
+            assert!(funnel(&bench, StageScope::All).is_ok());
+
+            let mut catalog = crate::sensitive_data::SecretCatalog::new();
+            catalog.register_credential("DUMMY_API_KEY", DUMMY).unwrap();
+            crate::sensitive_data::install_scope(catalog, Some(&bench.workspace), None);
+            bench.mark(
+                &format!("diagnostics-{UPPER}"),
+                &json!([{"code": "note", "message": DUMMY}]).to_string(),
+            );
+            let current = answer["stage"]["revision"].as_str().unwrap();
+            bench.call(&bench.upper, "other", current).unwrap_err();
+            stage_incomplete(funnel(&bench, StageScope::All), "obligations_unmet");
+        }
+
+        /// T-C (N1): a judgment before the first call is not that call.
+        #[test]
+        fn asking_whether_the_stages_are_met_does_not_start_the_deadline() {
+            let bench = stage_bench();
+            assert!(bench.run.judge(StageScope::All).is_some());
+            let before = bench.ledger().lock().unwrap().started_at_ms();
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            bench.seal_upper();
+            let after = bench.ledger().lock().unwrap().started_at_ms();
+            assert!(after > before, "the first stage call is what starts it");
+        }
+
         #[test]
         fn a_step_that_called_no_stage_opens_nothing_and_answers_for_nothing() {
             let bench = stage_bench();
@@ -3496,39 +3621,51 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
             assert_eq!(next["stage"]["status"], "sealed", "{next}");
         }
 
-        /// What a terminal holds after the writes it gets while a tool runs.
+        /// A raw terminal, as a tool's run has one: a line feed moves down and keeps the column,
+        /// and only a return goes back to the left edge.
         fn screen_after(writes: &[&str]) -> Vec<String> {
-            let mut lines = vec![String::new()];
+            let (mut rows, mut row, mut column) = (vec![Vec::<char>::new()], 0usize, 0usize);
             for write in writes {
                 let mut rest = *write;
                 while let Some(c) = rest.chars().next() {
                     if let Some(after) = rest.strip_prefix("\x1b[2K") {
-                        *lines.last_mut().unwrap() = String::new();
+                        rows[row].clear();
                         rest = after;
                         continue;
                     }
                     rest = &rest[c.len_utf8()..];
                     match c {
-                        '\r' => {
-                            // Every writer here clears right after a return, so the column
-                            // never matters.
+                        '\r' => column = 0,
+                        '\n' => {
+                            row += 1;
+                            if rows.len() == row {
+                                rows.push(Vec::new());
+                            }
                         }
-                        '\n' => lines.push(String::new()),
-                        other => lines.last_mut().unwrap().push(other),
+                        other => {
+                            if rows[row].len() <= column {
+                                rows[row].resize(column + 1, ' ');
+                            }
+                            rows[row][column] = other;
+                            column += 1;
+                        }
                     }
                 }
             }
-            lines
+            rows.into_iter()
+                .map(|line| line.into_iter().collect())
+                .collect()
         }
 
         const SPINNER_FRAME: &str = "\r\x1b[2K| tool ProposeUpper 2s";
+        const NOTICE: &str = "stage record refused: corrupt\n  ledger: /state/ledger.json";
 
-        /// The spinner leaves its frame with no newline. A block written as it stands would start
-        /// on that line.
+        /// The spinner leaves its frame with no newline, and a run's terminal is raw: its line
+        /// feed returns to no edge. A block written as it stands would start on the frame's line
+        /// and its second line would start where the first one ended.
         #[test]
         fn the_notice_starts_on_a_line_of_its_own_and_the_spinner_goes_on_below_it() {
-            let notice = "stage record refused: corrupt\n  ledger: /state/ledger.json";
-            let block = super::super::stage_refusal_block(notice, true);
+            let block = super::super::stage_refusal_block(NOTICE, true);
             let screen = screen_after(&[SPINNER_FRAME, &block, SPINNER_FRAME]);
             assert_eq!(
                 screen,
@@ -3538,17 +3675,91 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                     "| tool ProposeUpper 2s",
                 ]
             );
-            // Without the clear, the first line would have the frame in front of it.
-            let plain = format!("{notice}\n");
-            let broken = screen_after(&[SPINNER_FRAME, &plain]);
+            // The model's own check: without the returns, the second line drifts to the right.
+            let plain = format!("{NOTICE}\n");
+            let broken = screen_after(&[&plain]);
             assert_eq!(
-                broken[0],
-                format!("| tool ProposeUpper 2s{}", "stage record refused: corrupt")
+                broken[1],
+                format!(
+                    "{}  ledger: /state/ledger.json",
+                    " ".repeat("stage record refused: corrupt".len())
+                )
             );
 
             // Piped or logged, there is nothing to clear and no control character at all.
-            let piped = super::super::stage_refusal_block(notice, false);
+            let piped = super::super::stage_refusal_block(NOTICE, false);
             assert_eq!(piped, plain);
+        }
+
+        /// A real terminal device set the way a run sets it: what the block's bytes do there, and
+        /// not only what the model above takes them to do. No process is started.
+        #[test]
+        fn the_notice_goes_through_a_raw_pty_with_its_left_edge() {
+            use std::io::{Read, Write};
+            use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+            let (mut master, mut slave) = (-1, -1);
+            // SAFETY: all five are valid for this call, and the three nulls mean no name and
+            // default settings.
+            let opened = unsafe {
+                libc::openpty(
+                    &raw mut master,
+                    &raw mut slave,
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                )
+            };
+            assert_eq!(opened, 0, "{}", std::io::Error::last_os_error());
+            // SAFETY: `openpty` returned these two and nothing else owns them.
+            let master = unsafe { OwnedFd::from_raw_fd(master) };
+            // SAFETY: as above.
+            let slave = unsafe { OwnedFd::from_raw_fd(slave) };
+            // SAFETY: an all-zero `termios` is a valid value for `tcgetattr` to fill in.
+            let mut modes = unsafe { std::mem::zeroed::<libc::termios>() };
+            // SAFETY: `slave` is open and `modes` is a valid place to write.
+            let got = unsafe { libc::tcgetattr(slave.as_raw_fd(), &raw mut modes) };
+            assert_eq!(got, 0);
+            // SAFETY: `modes` was just filled in.
+            unsafe { libc::cfmakeraw(&raw mut modes) };
+            // SAFETY: `slave` is open and `modes` is valid.
+            let set =
+                unsafe { libc::tcsetattr(slave.as_raw_fd(), libc::TCSANOW, &raw const modes) };
+            assert_eq!(set, 0);
+
+            let written = format!(
+                "{SPINNER_FRAME}{}",
+                super::super::stage_refusal_block(NOTICE, true)
+            );
+            let mut writer = std::fs::File::from(slave.try_clone().unwrap());
+            writer.write_all(written.as_bytes()).unwrap();
+            let mut read = vec![0; written.len()];
+            std::fs::File::from(master).read_exact(&mut read).unwrap();
+            // The slave stays open past the read: closing it first may end the read on some
+            // systems before the bytes come out.
+            drop(writer);
+            drop(slave);
+            let screen = screen_after(&[std::str::from_utf8(&read).unwrap()]);
+            assert_eq!(screen[0], "stage record refused: corrupt");
+            assert_eq!(screen[1], "  ledger: /state/ledger.json");
+        }
+
+        /// For the eye, on a real terminal with the footer on: run it under a named `tmux` session
+        /// and look at the pane. The block's left edge, the footer's row, and the spinner below it.
+        #[test]
+        #[ignore = "needs a real terminal and someone to read it"]
+        fn the_notice_on_a_real_terminal_with_the_footer_and_the_spinner() {
+            use crate::tui::InteractionUi;
+            let temp = tempfile::tempdir().unwrap();
+            let config = super::super::config_for_test(temp.path());
+            let ui = crate::tui::TerminalUi::new(&config);
+            let guard = ui.before_tool_call("ProposeUpper");
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            let block =
+                super::super::stage_refusal_block(NOTICE, crate::tui::terminal::stderr_is_tty());
+            // The same write as `emit_stage_refusal`.
+            let _ = std::io::Write::write_all(&mut std::io::stderr().lock(), block.as_bytes());
+            std::thread::sleep(std::time::Duration::from_secs(3));
+            drop(guard);
         }
 
         /// A name is the operator's and a path can hold anything. None of it moves a cursor.
@@ -3755,7 +3966,9 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
             );
             assert!(notice.contains("/state/structured-stages/abc/ledger.json"));
             assert!(
-                notice.contains("only `--fresh-session` goes on"),
+                notice.contains(
+                    "`--fresh-session`, or any new process that does not resume, starts over"
+                ),
                 "{notice}"
             );
         }
@@ -3774,6 +3987,7 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                 LedgerRefusal::StateDirInsideWorkspace,
                 LedgerRefusal::StateDirWritableByCommands,
                 LedgerRefusal::Diverged,
+                LedgerRefusal::EndedBySecretValue,
                 LedgerRefusal::Unavailable,
             ] {
                 let error = anyhow::Error::new(crate::planner::structured_stages::ledger_refused(

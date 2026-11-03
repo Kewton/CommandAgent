@@ -183,4 +183,34 @@ mod tests {
             None
         );
     }
+
+    /// B4: a run that may recover by itself stops here too, before the classifier's call. A set
+    /// with no stage is not this filter's to stop, whatever the recovery setting.
+    #[test]
+    fn free_text_that_may_recover_by_itself_stops_at_the_filter_with_no_provider_call() {
+        let _sandbox = SandboxTestState::acquire();
+        let temp = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(temp.path()).unwrap();
+        let mut config = config_outside(&root);
+        config.recovery_plan_auto_runs = 1;
+        let calls = Arc::new(AtomicUsize::new(0));
+        let client = CountingClient(calls.clone());
+        install(&root, SandboxMode::Auto);
+
+        let staged = AdmittedProfileTools::with_stage_set_for_test(&config.workspace_root);
+        let refused = refusal_before_gate_one(Ok(Some(staged)), &config, &client)
+            .expect("the filter refuses");
+        assert_eq!(refused.kind, RefusalKind::StageContractRefused);
+        assert!(
+            refused.to_string().contains("RecoversByItself"),
+            "{refused}"
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+
+        let plain = AdmittedProfileTools::without_stages_for_test();
+        assert_eq!(
+            refusal_before_gate_one(Ok(Some(plain)), &config, &client),
+            None
+        );
+    }
 }

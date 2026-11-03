@@ -1645,6 +1645,7 @@ fn run_session_planned(
                     );
                     if implementation_completion.absorb_stage_notes(registry.take_stage_notes()) {
                         batch_all_read_only_tools = false;
+                        batch_had_execution_progress = true;
                     }
                     for path in registry.take_committed_paths() {
                         write_or_edit_seen = true;

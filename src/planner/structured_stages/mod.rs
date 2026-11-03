@@ -16,7 +16,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use contract::{
@@ -105,6 +105,7 @@ pub(crate) struct StageRun {
     notes: Mutex<Vec<StageNote>>,
     /// Calls in a row that started no process. Nothing else limits them: they spend no attempt.
     calls_without_process: AtomicUsize,
+    record_notice_shown: AtomicBool,
 }
 
 /// A call's effect on whether a stage moved, for the loop's stagnation count. This is the only
@@ -139,6 +140,9 @@ pub(crate) struct StageShortfall {
     pub(crate) unmet: Vec<UnmetObligation>,
     /// What this very judgment took a state from, because the bytes had moved.
     pub(crate) invalidated: Vec<TargetKey>,
+    /// Where the record is and what to do about it, when the record is what refused. Never in a
+    /// message: a word in a path could make this end look like something to retry.
+    pub(crate) record: Option<serde_json::Value>,
 }
 
 impl StageShortfall {
@@ -147,6 +151,7 @@ impl StageShortfall {
             code,
             unmet: Vec::new(),
             invalidated: Vec::new(),
+            record: None,
         }
     }
 
@@ -156,11 +161,20 @@ impl StageShortfall {
         !self.unmet.is_empty()
     }
 
+    /// IDs only, which admission limits to a few plain characters. A repair prompt shows this.
     pub(crate) fn to_refusal(&self) -> ProfileToolRefusal {
-        ProfileToolRefusal::new(
-            RefusalKind::StageIncomplete,
-            format!("{}: {} unmet", self.code, self.unmet.len()),
-        )
+        let names = self
+            .unmet
+            .iter()
+            .map(|obligation| format!("{}/{}", obligation.key.stage, obligation.key.target))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let reason = if names.is_empty() {
+            format!("{}: {} unmet", self.code, self.unmet.len())
+        } else {
+            format!("{}: {} unmet: {names}", self.code, self.unmet.len())
+        };
+        ProfileToolRefusal::new(RefusalKind::StageIncomplete, reason)
     }
 
     pub(crate) fn event(&self) -> serde_json::Value {
@@ -175,12 +189,16 @@ impl StageShortfall {
                 })
             })
             .collect::<Vec<_>>();
-        serde_json::json!({
+        let mut event = serde_json::json!({
             "event": "structured_stage_incomplete",
             "code": self.code,
             "unmet": unmet,
             "invalidated": self.invalidated,
-        })
+        });
+        if let Some(record) = &self.record {
+            event["record"] = record.clone();
+        }
+        event
     }
 }
 
@@ -220,8 +238,49 @@ pub(crate) fn final_gate_failure(config: &Config) -> Option<String> {
         .then(|| "stage_incomplete: no_session_bound_the_declared_stages".to_string());
     };
     let shortfall = run.judge(StageScope::All)?;
-    crate::eval_events::emit(config.eval_events_path.as_deref(), shortfall.event());
+    run.report_shortfall(&shortfall, config.eval_events_path.as_deref());
     Some(shortfall.to_refusal().to_string())
+}
+
+/// What one verdict says for one scope.
+fn shortfall_of(
+    verdict: &state::StageVerdict,
+    scope: StageScope,
+    touched: &BTreeSet<TargetKey>,
+    revision_of: impl Fn(&TargetKey) -> Option<String>,
+) -> Option<StageShortfall> {
+    if !verdict.ledger_intact() {
+        return Some(StageShortfall::of("ledger_not_intact"));
+    }
+    let unmet = verdict
+        .obligations()
+        .iter()
+        .filter(|status| status.phase != state::Phase::Sealed)
+        .filter(|status| scope == StageScope::All || touched.contains(&status.key))
+        .map(|status| UnmetObligation {
+            key: status.key.clone(),
+            phase: status.phase,
+            revision: revision_of(&status.key),
+        })
+        .collect::<Vec<_>>();
+    let stands = match scope {
+        StageScope::All => verdict.complete(),
+        // Not a claim that the stages are complete: only that this step left none it
+        // called unsealed. The set as a whole is judged by `complete` alone.
+        StageScope::Touched => unmet.is_empty(),
+    };
+    (!stands).then(|| StageShortfall {
+        code: "obligations_unmet",
+        unmet,
+        invalidated: verdict.invalidated().to_vec(),
+        record: None,
+    })
+}
+
+/// A plan with no final acceptance after it: a step answered only for what it called, so its end
+/// answers for the rest.
+pub(crate) fn refuse_unmet_plan(config: &Config) -> anyhow::Result<()> {
+    final_gate_failure(config).map_or(Ok(()), |unmet| Err(anyhow::anyhow!("{unmet}")))
 }
 
 /// The last word on a session: however it ended, a success with obligations unmet is no success.
@@ -232,10 +291,13 @@ pub(crate) fn refuse_unmet_session<T>(
     events: Option<&Path>,
 ) -> anyhow::Result<T> {
     let outcome = result?;
-    let Some(shortfall) = run.and_then(|run| run.judge(scope)) else {
+    let Some(run) = run else {
         return Ok(outcome);
     };
-    crate::eval_events::emit(events, shortfall.event());
+    let Some(shortfall) = run.judge(scope) else {
+        return Ok(outcome);
+    };
+    run.report_shortfall(&shortfall, events);
     Err(shortfall.to_refusal().into())
 }
 
@@ -257,6 +319,7 @@ impl StageRun {
             touched: Mutex::new(BTreeSet::new()),
             notes: Mutex::new(Vec::new()),
             calls_without_process: AtomicUsize::new(0),
+            record_notice_shown: AtomicBool::new(false),
         }
     }
 
@@ -273,44 +336,36 @@ impl StageRun {
             return None;
         }
         let bytes = ledger::WorkspaceBytes::new(&self.workspace);
-        let Ok((held, _)) =
-            self.open_ledger(crate::tools::profile_tools::effects::now_ms(), &bytes)
-        else {
-            return Some(StageShortfall::of("ledger_refused"));
+        let held = match self.open_ledger(crate::tools::profile_tools::effects::now_ms(), &bytes) {
+            Ok((held, _)) => held,
+            Err(refusal) => {
+                return Some(StageShortfall {
+                    record: self.with_ledger_path(refusal).data,
+                    ..StageShortfall::of("ledger_refused")
+                });
+            }
         };
         let Ok(mut ledger) = held.lock() else {
             return Some(StageShortfall::of("ledger_refused"));
         };
         let verdict = ledger.verdict(&bytes);
-        if !verdict.ledger_intact() {
-            return Some(StageShortfall::of("ledger_not_intact"));
+        shortfall_of(&verdict, scope, &touched, |key| ledger.revision_of(key))
+    }
+
+    /// The event for a run's end, and what the operator needs when the record is the reason. A
+    /// repair cycle asks again and again; the notice shows once.
+    fn report_shortfall(&self, shortfall: &StageShortfall, events: Option<&Path>) {
+        crate::eval_events::emit(events, shortfall.event());
+        if let Some(record) = &shortfall.record
+            && !self.record_notice_shown.swap(true, Ordering::SeqCst)
+        {
+            crate::tools::profile_tools::effects::show_stage_refusal(record);
         }
-        let unmet = verdict
-            .obligations()
-            .iter()
-            .filter(|status| status.phase != state::Phase::Sealed)
-            .filter(|status| scope == StageScope::All || touched.contains(&status.key))
-            .map(|status| UnmetObligation {
-                key: status.key.clone(),
-                phase: status.phase,
-                revision: ledger.revision_of(&status.key),
-            })
-            .collect::<Vec<_>>();
-        let stands = match scope {
-            StageScope::All => verdict.complete(),
-            // Not a claim that the stages are complete: only that this step left none it
-            // called unsealed. The set as a whole is judged by `complete` alone.
-            StageScope::Touched => unmet.is_empty(),
-        };
-        (!stands).then(|| StageShortfall {
-            code: "obligations_unmet",
-            unmet,
-            invalidated: verdict.invalidated().to_vec(),
-        })
     }
 
     /// Records a call's effect. A call that started no process counts against a limit of its own
-    /// and says whether that limit is reached.
+    /// and says whether that limit is reached. The limit is never below the set's size: one reply
+    /// listing a whole chain gets `not_ready` from all but its top, and repeats nothing.
     pub(crate) fn note_call(&self, target: &TargetKey, started_process: bool) -> bool {
         self.touched
             .lock()
@@ -321,7 +376,14 @@ impl StageRun {
             return false;
         }
         self.note_no_progress(target);
-        self.calls_without_process.fetch_add(1, Ordering::SeqCst) + 1 >= MAX_CALLS_WITHOUT_PROCESS
+        let limit = self
+            .session
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            .map_or(0, |session| session.contract.targets().count())
+            .max(MAX_CALLS_WITHOUT_PROCESS);
+        self.calls_without_process.fetch_add(1, Ordering::SeqCst) + 1 >= limit
     }
 
     pub(crate) fn note_no_progress(&self, target: &TargetKey) {
@@ -517,6 +579,127 @@ pub(crate) mod resume;
 pub(crate) mod state;
 
 #[cfg(test)]
+mod no_progress_limit_tests {
+    use std::collections::{BTreeMap, BTreeSet};
+    use std::sync::Arc;
+
+    use super::contract::{
+        HostToolFacts, NarrowedStageLimits, StageContractDraft, StageDeclaration, StageLimits,
+        StageRunFacts, StageSetDeclaration, TargetDeclaration, TargetKey,
+    };
+    use super::ledger::{LedgerEntry, LedgerRegistry};
+    use super::{MAX_CALLS_WITHOUT_PROCESS, StageRun, StageScope, shortfall_of, state};
+
+    /// `count` stages in a chain, none of them submitted, with no process behind any.
+    fn chain(temp: &tempfile::TempDir, count: usize) -> StageRun {
+        let root = std::fs::canonicalize(temp.path()).unwrap();
+        let workspace = root.join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let output = |index: usize| format!("out/s{index}.json");
+        let tools = (0..count)
+            .map(|index| HostToolFacts {
+                tool_id: format!("t{index}"),
+                output_id: "artifact".to_string(),
+                output_path: output(index),
+                schema_inputs: index.checked_sub(1).map(output).into_iter().collect(),
+                has_revision_argument: false,
+                has_compiler: false,
+                required_checks: vec!["shape".to_string()],
+                limits: StageLimits {
+                    attempts_per_target: 2,
+                    attempts_per_run: 32,
+                    deadline_seconds: 60,
+                },
+            })
+            .collect::<Vec<_>>();
+        let stages = (0..count)
+            .map(|index| StageDeclaration {
+                id: format!("s{index}"),
+                targets: vec![TargetDeclaration {
+                    id: "main".to_string(),
+                    tool_id: format!("t{index}"),
+                }],
+                depends_on: Vec::new(),
+                required_checks: Vec::new(),
+            })
+            .collect();
+        let draft = StageContractDraft::new(
+            &StageSetDeclaration {
+                stages,
+                limits: NarrowedStageLimits::default(),
+            },
+            &tools,
+        )
+        .unwrap();
+        let run = StageRun::new(
+            draft,
+            BTreeMap::new(),
+            workspace,
+            "a-profile".to_string(),
+            Arc::new(LedgerRegistry::default()),
+        );
+        run.bind_session(
+            StageRunFacts::for_test(true, false),
+            &root.join("state"),
+            LedgerEntry::Fresh,
+        )
+        .unwrap();
+        run
+    }
+
+    fn key(index: usize) -> TargetKey {
+        TargetKey {
+            stage: format!("s{index}"),
+            target: "main".to_string(),
+        }
+    }
+
+    /// N3: a reply that lists a whole chain runs the top and gets `not_ready` from each one below.
+    /// That is one honest reply, and not a model repeating itself.
+    #[test]
+    fn a_chain_longer_than_the_limit_can_be_listed_in_one_reply() {
+        let temp = tempfile::tempdir().unwrap();
+        let run = chain(&temp, 9);
+        for index in 1..9 {
+            assert!(!run.note_call(&key(index), false), "call {index} of 8");
+        }
+        assert!(run.note_call(&key(1), false), "the ninth is past the chain");
+    }
+
+    #[test]
+    fn a_set_smaller_than_the_limit_still_stops_at_the_limit() {
+        let temp = tempfile::tempdir().unwrap();
+        let run = chain(&temp, 2);
+        for repeat in 1..MAX_CALLS_WITHOUT_PROCESS {
+            assert!(!run.note_call(&key(0), false), "call {repeat}");
+        }
+        assert!(run.note_call(&key(0), false));
+    }
+
+    /// M11: the one way a step could call a record it cannot vouch for fine. `Touched` looks at
+    /// the stages it called alone, so this is its last stand.
+    #[test]
+    fn a_verdict_with_no_record_behind_it_stands_for_no_scope() {
+        let temp = tempfile::tempdir().unwrap();
+        let contract = chain(&temp, 1)
+            .judge_run(StageRunFacts::for_test(true, false), &temp.path().join("s"))
+            .unwrap();
+        let verdict = state::StageMachine::new(
+            Arc::new(contract),
+            "nonce".to_string(),
+            "nonce".to_string(),
+            1,
+        )
+        .verdict_without_ledger();
+        assert!(!verdict.ledger_intact());
+        for scope in [StageScope::All, StageScope::Touched] {
+            let shortfall = shortfall_of(&verdict, scope, &BTreeSet::new(), |_| None).unwrap();
+            assert_eq!(shortfall.code, "ledger_not_intact", "{scope:?}");
+        }
+    }
+}
+
+#[cfg(test)]
 mod resume_entry_tests {
     use std::path::Path;
 
@@ -540,7 +723,7 @@ mod resume_entry_tests {
         config.fresh_session = true;
         assert_eq!(
             LedgerEntry::of_config(&config_resuming(&config, "018f3333")),
-            LedgerEntry::Fresh
+            LedgerEntry::FreshSession
         );
     }
 }

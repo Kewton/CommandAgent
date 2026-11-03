@@ -101,6 +101,8 @@ pub(crate) struct StageRunFacts {
     /// False for `--sandbox off`, for `auto` with no backend, and when no policy is installed.
     os_sandbox_enforced: bool,
     workflow_child: bool,
+    /// A treatment runs in a workspace of its own, where a ledger would start over (D10).
+    recovers_by_itself: bool,
 }
 
 impl StageRunFacts {
@@ -109,6 +111,7 @@ impl StageRunFacts {
         Self {
             os_sandbox_enforced: crate::tools::os_sandbox::is_applied(),
             workflow_child: crate::planner::external_reproducer::is_workflow_node(config),
+            recovers_by_itself: config.recovery_plan_auto_runs > 0,
         }
     }
 
@@ -117,6 +120,7 @@ impl StageRunFacts {
         Self {
             os_sandbox_enforced,
             workflow_child,
+            recovers_by_itself: false,
         }
     }
 }
@@ -148,6 +152,7 @@ pub(crate) enum ContractRefusalKind {
     WidenedLimit,
     OsSandboxNotEnforced,
     WorkflowChild,
+    RecoversByItself,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -230,13 +235,17 @@ impl StageContract {
 
 /// With no OS boundary, every command the run executes can reach the ledger: Bash, and also a
 /// plan's verify and a dependency setup, so taking Bash away would not close it (D6). A workflow
-/// child's obligations have no owner in this version (D12).
+/// child's obligations have no owner in this version (D12), and neither have an automatic
+/// recovery's: its treatment works on a copy of the workspace, under a ledger of its own.
 fn refuse_for_run(facts: StageRunFacts) -> Result<(), ContractRefusal> {
     if facts.workflow_child {
         return Err(refused(ContractRefusalKind::WorkflowChild, ""));
     }
     if !facts.os_sandbox_enforced {
         return Err(refused(ContractRefusalKind::OsSandboxNotEnforced, ""));
+    }
+    if facts.recovers_by_itself {
+        return Err(refused(ContractRefusalKind::RecoversByItself, ""));
     }
     Ok(())
 }
@@ -1265,6 +1274,30 @@ mod tests {
         }
     }
 
+    /// B4: a treatment's workspace is another ledger, where the counts, the deadline, and a
+    /// secret's mark would all be gone.
+    #[test]
+    fn no_contract_comes_out_of_a_run_that_may_recover_by_itself() {
+        let declaration = set(vec![one_target("s", "t")]);
+        let tools = [facts("t", "out/a", &[])];
+        let recovering = StageRunFacts {
+            os_sandbox_enforced: true,
+            workflow_child: false,
+            recovers_by_itself: true,
+        };
+        let draft = super::StageContractDraft::new(&declaration, &tools).unwrap();
+        assert_eq!(
+            draft.for_run(recovering).unwrap_err().kind,
+            ContractRefusalKind::RecoversByItself
+        );
+
+        let mut config =
+            crate::tools::profile_tools::effects::config_for_test(std::path::Path::new("/none"));
+        assert!(!StageRunFacts::of_session(&config).recovers_by_itself);
+        config.recovery_plan_auto_runs = 1;
+        assert!(StageRunFacts::of_session(&config).recovers_by_itself);
+    }
+
     #[test]
     fn no_contract_comes_out_of_a_run_without_an_os_boundary_or_in_a_workflow_child() {
         let declaration = set(vec![one_target("s", "t")]);
@@ -1272,6 +1305,7 @@ mod tests {
         let run = |os_sandbox_enforced, workflow_child| StageRunFacts {
             os_sandbox_enforced,
             workflow_child,
+            recovers_by_itself: false,
         };
         let kind_for = |facts| super::admit(facts, &declaration, &tools).unwrap_err().kind;
         assert_eq!(

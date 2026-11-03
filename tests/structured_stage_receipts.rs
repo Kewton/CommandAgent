@@ -351,8 +351,10 @@ mod with_the_strict_isolation {
         PromptLayout, Provider,
     };
     use commandagent::minimal_loop::loop_run::run_session_with_outcome_with_ui;
-    use commandagent::planner::runner::run_step_plan;
+    use commandagent::planner::adjudication::contract::IntentId;
+    use commandagent::planner::runner::{run_step_plan, run_ultra_plan};
     use commandagent::planner::step_plan::{PlanStep, StepPlan};
+    use commandagent::planner::ultra_plan::{UltraPhase, UltraPlan};
     use commandagent::providers::client_from_config;
     use commandagent::state::SessionSnapshot;
     use commandagent::tools::os_sandbox::{
@@ -469,13 +471,29 @@ mod with_the_strict_isolation {
         .to_string()
     }
 
-    /// What the host answered to the last call, as the model reads it.
+    fn read_reply(path: &str) -> String {
+        json!({"choices": [{"message": {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{
+                "id": "call-1",
+                "type": "function",
+                "function": {
+                    "name": "Read",
+                    "arguments": json!({"file_path": path}).to_string(),
+                },
+            }],
+        }}]})
+        .to_string()
+    }
+
     fn has_tool_answer(body: &Value) -> bool {
         body["messages"]
             .as_array()
             .is_some_and(|messages| messages.iter().any(|message| message["role"] == "tool"))
     }
 
+    /// What the host answered to the last call, as the model reads it.
     fn last_tool_answer(body: &Value) -> Value {
         let text = body["messages"]
             .as_array()
@@ -695,6 +713,412 @@ mod with_the_strict_isolation {
         let seen = seen.lock().unwrap();
         assert_eq!(seen[0]["stage"]["status"], "sealed", "{}", seen[0]);
         assert_eq!(seen[0]["truncated"], true, "{}", seen[0]);
+    }
+
+    fn setup_step(instruction: &str) -> PlanStep {
+        PlanStep {
+            id: "step-setup".to_string(),
+            kind: "setup".to_string(),
+            expected_result: "pass".to_string(),
+            instruction: instruction.to_string(),
+            expected_paths: Vec::new(),
+            verify: Vec::new(),
+        }
+    }
+
+    /// T-A (B1): a plain step plan has no final acceptance. A step answers for what it called, so
+    /// the plan's end is what answers for the rest.
+    #[test]
+    fn a_plan_that_never_calls_the_lower_stage_is_no_success() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor()));
+        install_sandbox(&env);
+        let responder: Responder = Arc::new(|index, _| match index {
+            1 => tool_reply(UPPER_TOOL, "good", "initial"),
+            _ => text_reply("done"),
+        });
+        let http = FakeHttp::start(responder);
+        let config = config(&env, WALK_PROFILE, &http.url);
+        let mut client = client_from_config(&config, false).unwrap();
+        let plan = StepPlan {
+            goal: "Submit the upper stage.".to_string(),
+            steps: vec![setup_step("Submit the upper stage")],
+        };
+        let result = run_step_plan(client.as_mut(), &plan, &config);
+        http.finish();
+        reset_for_test();
+        let error = result.expect_err("the lower stage was never submitted");
+        assert!(error.to_string().contains("stage_incomplete"), "{error:#}");
+        assert!(error.to_string().contains("lower/main"), "{error:#}");
+    }
+
+    /// The control for T-A: a plan that sealed everything is a success.
+    #[test]
+    fn a_plan_that_seals_every_stage_succeeds() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor()));
+        install_sandbox(&env);
+        // The second step's first call is written before it knows the revision below, and the
+        // answer tells it.
+        let responder: Responder = Arc::new(|index, body| match index {
+            1 => tool_reply(UPPER_TOOL, "good", "initial"),
+            2 => tool_reply(LOWER_TOOL, "good", "initial"),
+            _ => {
+                let answer = last_tool_answer(body);
+                match answer["revision"].as_str() {
+                    Some(revision) if answer["status"] == "stale" => {
+                        tool_reply(LOWER_TOOL, "good", revision)
+                    }
+                    _ => text_reply("done"),
+                }
+            }
+        });
+        let http = FakeHttp::start(responder);
+        let config = config(&env, WALK_PROFILE, &http.url);
+        let mut client = client_from_config(&config, false).unwrap();
+        let mut second = setup_step("Submit the lower stage");
+        second.id = "step-setup-lower".to_string();
+        let plan = StepPlan {
+            goal: "Submit both stages.".to_string(),
+            steps: vec![setup_step("Submit the upper stage"), second],
+        };
+        let result = run_step_plan(client.as_mut(), &plan, &config);
+        http.finish();
+        reset_for_test();
+        result.unwrap();
+        assert_eq!(
+            std::fs::read(env.root.join(LOWER_OUTPUT)).unwrap(),
+            CANDIDATE
+        );
+    }
+
+    /// With no step there is no session, so no stage was ever bound. Declared stages are still
+    /// declared: nothing vouched for them.
+    #[test]
+    fn a_plan_with_no_session_answers_for_no_stage_and_is_no_success() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor()));
+        install_sandbox(&env);
+        let http = FakeHttp::start(Arc::new(|_, _| text_reply("nobody asked")));
+        let config = config(&env, WALK_PROFILE, &http.url);
+        let mut client = client_from_config(&config, false).unwrap();
+        let plan = StepPlan {
+            goal: "Do nothing.".to_string(),
+            steps: Vec::new(),
+        };
+        let result = run_step_plan(client.as_mut(), &plan, &config);
+        http.finish();
+        reset_for_test();
+        let error = result.expect_err("no stage was ever bound");
+        assert!(
+            error
+                .to_string()
+                .contains("stage_incomplete: no_session_bound_the_declared_stages"),
+            "{error:#}"
+        );
+    }
+
+    fn two_phase_plan(intent: &str, first: &str, second: &str) -> UltraPlan {
+        UltraPlan {
+            goal: "Submit the stages".to_string(),
+            profile: WALK_PROFILE.to_string(),
+            style: "default".to_string(),
+            intent: intent.to_string(),
+            phases: vec![
+                UltraPhase {
+                    id: "first".to_string(),
+                    prompt: format!("Phase-first: {first}"),
+                },
+                UltraPhase {
+                    id: "second".to_string(),
+                    prompt: format!("Phase-second: {second}"),
+                },
+            ],
+        }
+    }
+
+    fn one_step_plan(goal: &str) -> Value {
+        json!({"goal": goal, "steps": [{
+            "id": "step-setup",
+            "kind": "setup",
+            "expected_result": "pass",
+            "instruction": goal,
+            "expected_paths": [],
+            "verify": [],
+        }]})
+    }
+
+    /// Phases that hand out their plans by what they are asked, and a model that submits what its
+    /// step says. The first answer that is stale gives the revision to go on with.
+    fn ultra_responder(submit_lower: bool) -> Responder {
+        Arc::new(move |_, body| {
+            let text = body.to_string();
+            if !body["tools"].to_string().contains(UPPER_TOOL) {
+                let goal = if text.contains("Phase-second") {
+                    "Submit the lower stage"
+                } else {
+                    "Submit the upper stage"
+                };
+                return text_reply(&one_step_plan(goal).to_string());
+            }
+            let wants_lower = text.contains("Submit the lower stage");
+            if !wants_lower {
+                return if has_tool_answer(body) {
+                    text_reply("done")
+                } else {
+                    tool_reply(UPPER_TOOL, "good", "initial")
+                };
+            }
+            if !submit_lower {
+                // Something for the step to have done, that is no stage call.
+                let answered = body["messages"]
+                    .as_array()
+                    .and_then(|messages| messages.last())
+                    .is_some_and(|message| message["role"] == "tool");
+                return if answered {
+                    text_reply("done")
+                } else {
+                    read_reply(FIXED_INPUT)
+                };
+            }
+            let answer = has_tool_answer(body).then(|| last_tool_answer(body));
+            match answer {
+                Some(answer) if answer["status"] == "stale" => {
+                    tool_reply(LOWER_TOOL, "good", answer["revision"].as_str().unwrap())
+                }
+                Some(answer) if answer["stage"]["status"] == "sealed" => {
+                    if answer["path"] == LOWER_OUTPUT {
+                        text_reply("done")
+                    } else {
+                        tool_reply(LOWER_TOOL, "good", "initial")
+                    }
+                }
+                _ => tool_reply(LOWER_TOOL, "good", "initial"),
+            }
+        })
+    }
+
+    fn run_two_phases(env: &Env, responder: Responder) -> (Vec<Value>, anyhow::Result<String>) {
+        std::fs::write(env.root.join("notes.txt"), "the notes\n").unwrap();
+        let http = FakeHttp::start(responder);
+        let config = config(env, WALK_PROFILE, &http.url);
+        let mut planner = client_from_config(&config, true).unwrap();
+        let mut execution = client_from_config(&config, false).unwrap();
+        let plan = two_phase_plan(
+            "create",
+            "submit the upper stage.",
+            "submit the lower stage.",
+        );
+        let result = run_ultra_plan(planner.as_mut(), execution.as_mut(), &plan, &config);
+        (http.finish(), result)
+    }
+
+    /// The control for final acceptance: it must not refuse a run that met every obligation. A
+    /// session that did not leave its set for the gate to find would fail here.
+    #[test]
+    fn an_ultra_plan_that_seals_every_stage_succeeds() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor()));
+        install_sandbox(&env);
+        let (_, result) = run_two_phases(&env, ultra_responder(true));
+        reset_for_test();
+        let summary = result.unwrap_or_else(|error| panic!("{error:#}"));
+        assert!(summary.contains("complete"), "{summary}");
+        assert_eq!(
+            std::fs::read(env.root.join(LOWER_OUTPUT)).unwrap(),
+            CANDIDATE
+        );
+    }
+
+    /// Each step answers only for what it called, so only the final gate can see the stage nobody
+    /// called. Its failure is in what acceptance reports.
+    #[test]
+    fn an_ultra_plan_that_leaves_a_stage_open_fails_at_final_acceptance() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor()));
+        install_sandbox(&env);
+        let (_, result) = run_two_phases(&env, ultra_responder(false));
+        reset_for_test();
+        result.expect_err("the lower stage was never submitted");
+        let events = std::fs::read_to_string(env.evidence.join("events.jsonl")).unwrap();
+        let failed = events
+            .lines()
+            .find(|line| line.contains("\"event\":\"ultra_final_acceptance_failed\""))
+            .expect("the steps passed and acceptance is what refused");
+        assert!(failed.contains("stage_incomplete"), "{failed}");
+        assert!(failed.contains("lower/main"), "{failed}");
+        assert!(events.contains("structured_stage_incomplete"), "{events}");
+    }
+
+    /// `post_write_read_confirmation_completed` ends a run at a Read after a commit. With a stage
+    /// open, that end would give the model no chance to go on: it is held back and asked again.
+    #[test]
+    fn a_read_after_a_commit_does_not_end_a_run_with_a_stage_open() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor()));
+        install_sandbox(&env);
+        let responder: Responder = Arc::new(move |index, _| match index {
+            1 => tool_reply(UPPER_TOOL, "good", "initial"),
+            2 => read_reply(UPPER_OUTPUT),
+            _ => text_reply("stopping"),
+        });
+        let (requests, result) = run(&env, WALK_PROFILE, responder);
+        reset_for_test();
+        assert_not_a_success(&result, "the lower stage is open");
+        assert!(requests.len() > 2, "ended at the Read: {}", requests.len());
+    }
+
+    /// An implement step counts what starts no process as reading (S8), and a seal as a move. The
+    /// loop's own stagnation notice is what tells the two apart.
+    fn stagnation_notices(replies: Vec<&'static str>) -> (usize, String) {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor()));
+        install_sandbox(&env);
+        let responder: Responder = Arc::new(move |index, _| match replies.get(index - 1) {
+            Some(&"seal") => tool_reply(UPPER_TOOL, "good", "initial"),
+            Some(&"check") => tool_reply(UPPER_TOOL, "bad", "initial"),
+            Some(&"stale") => tool_reply(UPPER_TOOL, "bad", "not-a-revision"),
+            _ => text_reply("stopping"),
+        });
+        let http = FakeHttp::start(responder);
+        let config = config(&env, WALK_PROFILE, &http.url);
+        let mut client = client_from_config(&config, false).unwrap();
+        let mut step = setup_step("Submit the upper stage");
+        step.kind = "implement".to_string();
+        // Never written, so no call here reduces what is missing: only the stage's note can.
+        step.expected_paths = vec!["notes.txt".to_string()];
+        let plan = StepPlan {
+            goal: "Submit the upper stage.".to_string(),
+            steps: vec![step],
+        };
+        let _ = run_step_plan(client.as_mut(), &plan, &config);
+        http.finish();
+        reset_for_test();
+        let events = std::fs::read_to_string(env.evidence.join("events.jsonl")).unwrap();
+        let notices = events
+            .lines()
+            .filter(|line| line.contains("\"event\":\"read_only_stagnation_feedback\""))
+            .count();
+        (notices, events)
+    }
+
+    /// `is_stage_tool`: a call that starts nothing counts as reading.
+    #[test]
+    fn repeated_calls_that_start_nothing_read_as_stagnation_to_the_loop() {
+        let (notices, events) = stagnation_notices(vec!["stale", "stale", "stale", "stale"]);
+        assert!(notices >= 1, "{events}");
+    }
+
+    /// `batch_all_read_only_tools = false`: a seal is a move, so the count starts over at it.
+    #[test]
+    fn a_seal_between_them_starts_the_count_over() {
+        let (notices, events) =
+            stagnation_notices(vec!["stale", "stale", "seal", "stale", "stale"]);
+        assert_eq!(notices, 0, "{events}");
+    }
+
+    /// T-B (B2): an investigation ends at its own adjudication and has no final acceptance.
+    #[test]
+    fn an_investigation_that_leaves_a_stage_open_is_no_success() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor()));
+        install_sandbox(&env);
+        std::fs::create_dir_all(env.root.join("output")).unwrap();
+        std::fs::write(env.root.join("output/diagnosis.md"), "# Diagnosis\n").unwrap();
+        let reproduce = json!({"goal": "reproduce", "steps": [{
+            "id": "step-reproduce",
+            "kind": "verify",
+            "expected_result": "fail",
+            "instruction": "Reproduce the failure",
+            "expected_paths": [],
+            "verify": ["false"],
+        }]});
+        let report = json!({"goal": "report", "steps": [{
+            "id": "step-setup",
+            "kind": "setup",
+            "expected_result": "pass",
+            "instruction": "Submit the upper stage",
+            "expected_paths": [],
+            "verify": [],
+        }]});
+        let responder: Responder = Arc::new(move |_, body| {
+            if !body["tools"].to_string().contains(UPPER_TOOL) {
+                let wanted = if body.to_string().contains("Phase-report") {
+                    &report
+                } else {
+                    &reproduce
+                };
+                return text_reply(&wanted.to_string());
+            }
+            if !has_tool_answer(body) {
+                return tool_reply(UPPER_TOOL, "good", "initial");
+            }
+            text_reply("done")
+        });
+        let http = FakeHttp::start(responder);
+        let mut config = config(&env, WALK_PROFILE, &http.url);
+        config.intent_override = Some(IntentId::Investigate);
+        let mut planner = client_from_config(&config, true).unwrap();
+        let mut execution = client_from_config(&config, false).unwrap();
+        let plan = UltraPlan {
+            goal: "Find out why it fails".to_string(),
+            profile: WALK_PROFILE.to_string(),
+            style: "default".to_string(),
+            intent: "investigate".to_string(),
+            phases: vec![
+                UltraPhase {
+                    id: "reproduce".to_string(),
+                    prompt: "Phase-reproduce: reproduce the failure.".to_string(),
+                },
+                UltraPhase {
+                    id: "report".to_string(),
+                    prompt: "Phase-report: submit the upper stage.".to_string(),
+                },
+            ],
+        };
+        let result = run_ultra_plan(planner.as_mut(), execution.as_mut(), &plan, &config);
+        http.finish();
+        reset_for_test();
+        let error = result.expect_err("the lower stage was never submitted");
+        assert!(error.to_string().contains("stage_incomplete"), "{error:#}");
+    }
+
+    /// B4: a treatment runs in a workspace of its own. The run is refused before any call.
+    #[test]
+    fn a_session_that_may_recover_by_itself_gets_no_stages_and_no_provider_call() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor()));
+        install_sandbox(&env);
+        let http = FakeHttp::start(Arc::new(|_, _| text_reply("a reply nobody asked for")));
+        let mut config = config(&env, WALK_PROFILE, &http.url);
+        config.recovery_plan_auto_runs = 1;
+        let mut client = client_from_config(&config, false).unwrap();
+        let result = run_session_with_outcome_with_ui(
+            client.as_mut(),
+            &mut SessionSnapshot::new(),
+            "Submit both stages.",
+            &[],
+            &config,
+            &NOOP_UI,
+        )
+        .map(|_| ())
+        .map_err(|error| format!("{error:#}"));
+        let requests = http.finish();
+        reset_for_test();
+        let error = result.unwrap_err();
+        assert!(error.contains("stage_contract_refused"), "{error}");
+        assert!(error.contains("RecoversByItself"), "{error}");
+        assert!(requests.is_empty());
+        assert!(!env.evidence.join("state/structured-stages").exists());
     }
 
     /// F5: a plan's setup step ends at a tool result. A failed check must not end it unread.

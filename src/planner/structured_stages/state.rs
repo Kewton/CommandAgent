@@ -612,7 +612,6 @@ impl StageMachine {
 
     /// The latest attempt of a target, read-only. `None` until one started. An attempt under
     /// way answers with the generation it started on.
-    #[allow(dead_code, reason = "G5's way in: its budget is what will call this")]
     pub(crate) fn attempt_identity(&self, key: &TargetKey) -> Option<AttemptIdentity> {
         let record = self.record(key)?;
         if record.attempts_used == 0 {

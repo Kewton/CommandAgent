@@ -12,7 +12,7 @@
 //!
 //! A fresh start replaces an earlier run's file only at its first `begin`. Opening alone, as a
 //! preflight or a probe does, changes no byte of it, and a resume before that `begin` goes on
-//! with the earlier run.
+//! with the earlier run. A record a secret value ended is replaced only by `--fresh-session`.
 //!
 //! `flock` on an open descriptor refuses a second holder, in another process or through another
 //! descriptor of this one, and goes away with its holder. A stale lock file cannot exist. A
@@ -56,8 +56,10 @@ const MAX_LEDGER_BYTES: u64 = 8 << 20;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LedgerEntry {
-    /// A new process that is not a resume. Only here do the counts start over.
+    /// A new process that is not a resume. Only here and below do the counts start over.
     Fresh,
+    /// `--fresh-session`: the operator asked to start over. Nothing else removes a secret's mark.
+    FreshSession,
     /// `--resume`, or `/resume` in a new process. The ledger must be there.
     Resume,
 }
@@ -66,7 +68,9 @@ impl LedgerEntry {
     /// The same reading as the session store: a fresh session wins over a resume. `/resume`
     /// reaches here too, by setting `resume` on the config it runs the plan with.
     pub(crate) fn of_config(config: &crate::config::Config) -> Self {
-        if !config.fresh_session && config.resume.is_some() {
+        if config.fresh_session {
+            Self::FreshSession
+        } else if config.resume.is_some() {
             Self::Resume
         } else {
             Self::Fresh
@@ -89,6 +93,8 @@ pub(crate) enum LedgerRefusal {
     StateDirWritableByCommands,
     /// The file is not what this process last wrote.
     Diverged,
+    /// The record says a secret value ended its run, and this start did not ask to replace it.
+    EndedBySecretValue,
     Unavailable,
 }
 
@@ -103,6 +109,7 @@ impl LedgerRefusal {
             Self::StateDirInsideWorkspace => "state_dir_inside_workspace",
             Self::StateDirWritableByCommands => "state_dir_writable_by_commands",
             Self::Diverged => "diverged",
+            Self::EndedBySecretValue => "ended_by_secret_value",
             Self::Unavailable => "unavailable",
         }
     }
@@ -119,7 +126,10 @@ impl LedgerRefusal {
                 "The declared stages are not the ones it was written under; `--fresh-session` starts over"
             }
             Self::FixedInputChanged { .. } => {
-                "A fixed input is not what the run pinned; only `--fresh-session` goes on"
+                "A fixed input is not what the run pinned; `--fresh-session`, or any new process that does not resume, starts over"
+            }
+            Self::EndedBySecretValue => {
+                "A secret value reached an output in the run it holds; only `--fresh-session` starts over"
             }
             Self::StateDirInsideWorkspace | Self::StateDirWritableByCommands => {
                 "Commands of this run can write there; choose a state directory they cannot"
@@ -462,8 +472,14 @@ impl StageLedger {
         key: &TargetKey,
         request: AttemptRequest<'_>,
     ) -> Result<BeginDecision, LedgerRefusal> {
-        let decision =
-            self.apply_writing(self.fresh_not_begun, |machine| machine.begin(key, request))?;
+        let fresh = self.fresh_not_begun;
+        let decision = self.apply_writing(fresh, |machine| {
+            // The run's clock starts here, once. Opening was not a stage call.
+            if fresh {
+                machine.snapshot_mut().started_at_ms = request.now_ms;
+            }
+            machine.begin(key, request)
+        })?;
         self.fresh_not_begun = false;
         Ok(decision)
     }
@@ -539,6 +555,11 @@ impl StageLedger {
     #[cfg(test)]
     pub(crate) fn contract(&self) -> &Arc<StageContract> {
         self.machine.contract()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn started_at_ms(&self) -> u64 {
+        self.machine.snapshot().started_at_ms
     }
 
     /// Taken again by a later session in this process. A file changed under us loses the
@@ -664,11 +685,15 @@ fn open_new(directory: PathBuf, request: &LedgerRequest<'_>) -> Result<StageLedg
                 fresh_not_begun: false,
             })
         }
-        (LedgerEntry::Fresh, existing) => {
+        (entry, existing) => {
             // Starting over is the operator's to choose, on a record that can be read. A
-            // damaged one stays until the operator has looked at it.
+            // damaged one stays until the operator has looked at it. A run a secret ended stays
+            // until they say so: only being started again would let the value be compared again.
             if let Some(bytes) = existing {
-                decode(&bytes)?;
+                let saved = decode(&bytes)?;
+                if saved.ended_by_secret_value && entry != LedgerEntry::FreshSession {
+                    return Err(LedgerRefusal::EndedBySecretValue);
+                }
                 store.expected_sha256 = Some(sha256_hex(&bytes));
             }
             Ok(StageLedger {
@@ -1722,6 +1747,35 @@ mod tests {
         assert_eq!(resumed.lock().unwrap().machine.snapshot().started_at_ms, T0);
     }
 
+    /// N1: opening is not a stage call. A judgment, or a Read in front of the first call, opens the
+    /// ledger, and the time until that first call is not taken out of the run's deadline.
+    #[test]
+    fn the_deadline_starts_at_the_first_stage_call_and_not_at_the_open() {
+        let world = world();
+        const OPENED: u64 = 50_000;
+        const FIRST_CALL: u64 = OPENED + 7_000;
+        let deadline_ms = world.contract.limits().deadline_seconds * 1000;
+        let mut request = world.request(LedgerEntry::Fresh);
+        request.now_ms = OPENED;
+        let held = LedgerRegistry::default().open(&request).unwrap();
+        assert!(matches!(
+            begin_alpha_at(&mut held.lock().unwrap(), &world.bytes, FIRST_CALL),
+            BeginDecision::Proceed(_)
+        ));
+        assert_eq!(world.saved().started_at_ms, FIRST_CALL);
+
+        // Later calls move it no further: the window is as long as declared, from that call.
+        assert_eq!(
+            begin_alpha_at(
+                &mut held.lock().unwrap(),
+                &world.bytes,
+                FIRST_CALL + deadline_ms
+            ),
+            BeginDecision::DeadlineExceeded
+        );
+        assert_eq!(world.saved().started_at_ms, FIRST_CALL);
+    }
+
     #[test]
     fn the_deadline_cannot_be_declared_past_the_hosts_limit() {
         use super::super::contract::{ContractRefusalKind, HOST_MAX_DEADLINE_SECONDS};
@@ -1765,7 +1819,9 @@ mod tests {
         config.resume = Some("a-saved-session".to_string());
         assert_eq!(LedgerEntry::of_config(&config), LedgerEntry::Resume);
         config.fresh_session = true;
-        assert_eq!(LedgerEntry::of_config(&config), LedgerEntry::Fresh);
+        assert_eq!(LedgerEntry::of_config(&config), LedgerEntry::FreshSession);
+        config.resume = None;
+        assert_eq!(LedgerEntry::of_config(&config), LedgerEntry::FreshSession);
     }
 
     #[test]
