@@ -386,8 +386,9 @@ impl StageLedger {
         self.apply(|machine| machine.record_failure(ticket, failure))
     }
 
-    /// `Ok(Ok(()))` means the intent is durable, and the rename may go ahead.
-    pub(crate) fn record_intent(
+    /// `Ok(Ok(()))` means the intent is durable. Reached through [`record_intent`], which is what
+    /// hands out the way to answer it.
+    fn record_intent(
         &mut self,
         ticket: &AttemptTicket,
         previous_sha256: Option<String>,
@@ -404,7 +405,8 @@ impl StageLedger {
         self.apply(|machine| machine.cas_check(ticket))
     }
 
-    pub(crate) fn record_commit(
+    /// Reached through a [`CommitPermit`], so no intent goes unanswered.
+    fn record_commit(
         &mut self,
         ticket: &AttemptTicket,
         observation: CommitObservation,
@@ -580,7 +582,112 @@ fn open_new(directory: PathBuf, request: &LedgerRequest<'_>) -> Result<StageLedg
     }
 }
 
-type HeldLedger = Arc<Mutex<StageLedger>>;
+pub(crate) type HeldLedger = Arc<Mutex<StageLedger>>;
+
+/// The one thing that lets a commit go ahead, and the one way to report how it went. Dropped
+/// unanswered, by an early return or by a panic on any path past the intent, it records
+/// [`CommitObservation::OutcomeUnknown`]: a rename may have happened and nothing said otherwise.
+#[must_use = "dropping this records the commit's outcome as unknown"]
+#[derive(Debug)]
+pub(crate) struct CommitPermit {
+    ledger: HeldLedger,
+    ticket: AttemptTicket,
+    answered: bool,
+}
+
+/// The intent, durable before this returns. The rename may go ahead only on a permit.
+pub(crate) fn record_intent(
+    ledger: &HeldLedger,
+    ticket: &AttemptTicket,
+    previous_sha256: Option<String>,
+) -> Result<Result<CommitPermit, StageRefusal>, LedgerRefusal> {
+    let recorded = ledger
+        .lock()
+        .map_err(|_| LedgerRefusal::Unavailable)?
+        .record_intent(ticket, previous_sha256)?;
+    Ok(recorded.map(|()| CommitPermit {
+        ledger: ledger.clone(),
+        ticket: ticket.clone(),
+        answered: false,
+    }))
+}
+
+impl CommitPermit {
+    pub(crate) fn answer(
+        mut self,
+        observation: CommitObservation,
+    ) -> Result<Result<CommitDecision, StageRefusal>, LedgerRefusal> {
+        self.answered = true;
+        self.record(observation)
+    }
+
+    /// A poisoned lock means something panicked while holding the state, so this live ledger
+    /// can vouch for nothing from here on. The intent is on disk, and a new process judges it by
+    /// the bytes.
+    fn record(
+        &self,
+        observation: CommitObservation,
+    ) -> Result<Result<CommitDecision, StageRefusal>, LedgerRefusal> {
+        match self.ledger.lock() {
+            Ok(mut ledger) => ledger.record_commit(&self.ticket, observation),
+            Err(poisoned) => {
+                poisoned
+                    .into_inner()
+                    .failed
+                    .get_or_insert(LedgerRefusal::Unavailable);
+                Err(LedgerRefusal::Unavailable)
+            }
+        }
+    }
+}
+
+impl Drop for CommitPermit {
+    /// Never panics. A write that fails here has already set the ledger's `failed`, and from then
+    /// on it refuses everything.
+    fn drop(&mut self) {
+        if !self.answered {
+            let _ = self.record(CommitObservation::OutcomeUnknown);
+        }
+    }
+}
+
+/// What is at a workspace-relative path now, reached with no symlink.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct WorkspaceBytes<'a> {
+    root: &'a Path,
+}
+
+impl<'a> WorkspaceBytes<'a> {
+    pub(crate) const fn new(root: &'a Path) -> Self {
+        Self { root }
+    }
+}
+
+impl BytesSource for WorkspaceBytes<'_> {
+    fn observe(&self, path: &str) -> ObservedBytes {
+        let file = match crate::tools::dir_fd::open_read_file(self.root, Path::new(path)) {
+            Ok(file) => file,
+            Err(error) => {
+                let nothing_there = error
+                    .downcast_ref::<std::io::Error>()
+                    .is_some_and(|error| error.kind() == ErrorKind::NotFound);
+                return if nothing_there {
+                    ObservedBytes::Absent
+                } else {
+                    ObservedBytes::Unreadable
+                };
+            }
+        };
+        if !file.metadata().is_ok_and(|metadata| metadata.is_file()) {
+            return ObservedBytes::Unreadable;
+        }
+        let mut bytes = Vec::new();
+        match file.take(MAX_LEDGER_BYTES + 1).read_to_end(&mut bytes) {
+            Ok(_) if bytes.len() as u64 <= MAX_LEDGER_BYTES => ObservedBytes::Present(bytes),
+            _ => ObservedBytes::Unreadable,
+        }
+    }
+}
 
 /// The ledgers one process holds. Tests make their own, to stand for separate processes.
 #[derive(Debug, Default)]
@@ -617,9 +724,9 @@ impl LedgerRegistry {
     }
 }
 
-pub(crate) fn process_ledgers() -> &'static LedgerRegistry {
-    static LEDGERS: OnceLock<LedgerRegistry> = OnceLock::new();
-    LEDGERS.get_or_init(LedgerRegistry::default)
+pub(crate) fn process_ledgers() -> Arc<LedgerRegistry> {
+    static LEDGERS: OnceLock<Arc<LedgerRegistry>> = OnceLock::new();
+    LEDGERS.get_or_init(Arc::default).clone()
 }
 
 #[cfg(test)]
@@ -629,7 +736,7 @@ mod tests {
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::fs::PermissionsExt;
     use std::path::{Path, PathBuf};
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Mutex, PoisonError};
 
     use super::super::contract::{
         NarrowedStageLimits, StageContract, StageSetDeclaration, TargetKey,
@@ -637,17 +744,18 @@ mod tests {
     use super::super::receipt::{InputDigest, sha256_hex};
     use super::super::resume::AdmittedPins;
     use super::super::state::{
-        AttemptTicket, BeginDecision, BytesSource, CommitObservation, LocalDecision,
-        MachineSnapshot, Phase, StageMachine, StageRefusal, UnverifiedReason,
+        AttemptTicket, BeginDecision, BytesSource, CommitDecision, CommitObservation,
+        LocalDecision, MachineSnapshot, ObservedBytes, Phase, StageMachine, StageRefusal,
+        UnverifiedReason,
     };
     use super::super::test_support::{
         FakeBytes, admit_enforced as admit, commit_for, facts, key, one_target, passed_checks,
         pins_for, request_for, schema_for, sha_of, two_stage_contract,
     };
     use super::{
-        LEDGER_FILE, LEDGER_LEAF, LEDGER_TEMPORARY, LOCK_FILE, LedgerEntry, LedgerRefusal,
-        LedgerRegistry, LedgerRequest, StageLedger, Store, decode, encode, process_ledgers,
-        refuse_state_dir_inside_workspace,
+        HeldLedger, LEDGER_FILE, LEDGER_LEAF, LEDGER_TEMPORARY, LOCK_FILE, LedgerEntry,
+        LedgerRefusal, LedgerRegistry, LedgerRequest, StageLedger, Store, WorkspaceBytes, decode,
+        encode, process_ledgers, record_intent, refuse_state_dir_inside_workspace,
     };
 
     const NOW: u64 = 9_000;
@@ -1284,6 +1392,169 @@ mod tests {
             );
         }
         assert!(!held.lock().unwrap().verdict(&world.bytes).ledger_intact());
+    }
+
+    /// A live ticket on `alpha`, up to the point its intent would be written.
+    fn before_intent(world: &World, held: &HeldLedger) -> AttemptTicket {
+        let mut ledger = held.lock().unwrap();
+        let contract = ledger.contract().clone();
+        let bytes = world.bytes.clone();
+        let ticket = start(&mut ledger, &alpha(), &bytes, 3, "a2");
+        let output = bytes.observe("out/alpha.json");
+        assert_eq!(
+            ledger
+                .record_local_result(
+                    &ticket,
+                    &sha_of(b"alpha v2"),
+                    passed_checks(&contract, &alpha()),
+                    &output,
+                )
+                .unwrap(),
+            LocalDecision::ReadyToCommit
+        );
+        ticket
+    }
+
+    fn generation_of_alpha(held: &HeldLedger) -> u64 {
+        let ledger = held.lock().unwrap();
+        ledger.machine.record(&alpha()).unwrap().generation
+    }
+
+    #[test]
+    fn an_intent_nobody_answered_is_recorded_as_an_unknown_outcome() {
+        let mut world = world();
+        let held = both_sealed(&mut world);
+        let generation = generation_of_alpha(&held);
+        let ticket = before_intent(&world, &held);
+        let permit = record_intent(&held, &ticket, Some(sha_of(b"alpha v1")))
+            .unwrap()
+            .unwrap();
+        // Durable before the permit exists, and only the permit can end it.
+        assert!(world.saved().targets[0].has_recorded_intent());
+        assert_eq!(generation_of_alpha(&held), generation);
+        drop(permit);
+
+        let ledger = held.lock().unwrap();
+        let record = ledger.machine.record(&alpha()).unwrap();
+        assert!(record.in_flight.is_none(), "the intent has been answered");
+        assert_eq!(record.generation, generation + 1);
+        assert_eq!(record.phase, Phase::Unverified);
+        assert_eq!(
+            record.unverified_reason,
+            Some(UnverifiedReason::CommitOutcomeUnknown)
+        );
+        assert_eq!(world.saved().targets[0].generation, generation + 1);
+        assert_eq!(ledger.failed, None);
+    }
+
+    #[test]
+    fn an_answered_permit_records_once_and_its_drop_adds_nothing() {
+        let mut world = world();
+        let held = both_sealed(&mut world);
+        let generation = generation_of_alpha(&held);
+        let ticket = before_intent(&world, &held);
+        let permit = record_intent(&held, &ticket, Some(sha_of(b"alpha v1")))
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            permit.answer(CommitObservation::NotAdopted).unwrap(),
+            Ok(CommitDecision::NotAdopted)
+        );
+        let ledger = held.lock().unwrap();
+        let record = ledger.machine.record(&alpha()).unwrap();
+        assert_eq!(
+            record.generation, generation,
+            "the old bytes are still there"
+        );
+        assert_eq!(record.unverified_reason, None);
+        assert!(record.in_flight.is_none());
+    }
+
+    #[test]
+    fn an_intent_refused_hands_out_no_permit() {
+        let mut world = world();
+        let held = both_sealed(&mut world);
+        let ticket = before_intent(&world, &held);
+        let permit = record_intent(&held, &ticket, None).unwrap().unwrap();
+        // The second intent on the same attempt is out of order, and the first is still open.
+        assert_eq!(
+            record_intent(&held, &ticket, None).unwrap().err(),
+            Some(StageRefusal::OutOfOrder)
+        );
+        assert!(
+            held.lock()
+                .unwrap()
+                .machine
+                .record(&alpha())
+                .unwrap()
+                .has_recorded_intent()
+        );
+        drop(permit);
+    }
+
+    #[test]
+    fn a_permit_dropped_when_the_write_fails_stops_the_ledger_and_does_not_panic() {
+        let mut world = world();
+        let held = both_sealed(&mut world);
+        let ticket = before_intent(&world, &held);
+        let permit = record_intent(&held, &ticket, None).unwrap().unwrap();
+        let on_disk = fs::read(world.file()).unwrap();
+        fs::create_dir(world.directory().join(LEDGER_TEMPORARY)).unwrap();
+        drop(permit);
+
+        let mut ledger = held.lock().unwrap();
+        assert_eq!(ledger.failed, Some(LedgerRefusal::Unavailable));
+        assert!(
+            fs::read(world.file()).unwrap() == on_disk,
+            "the intent stays"
+        );
+        assert!(!ledger.verdict(&world.bytes).ledger_intact());
+    }
+
+    #[test]
+    fn a_permit_dropped_on_a_poisoned_lock_stops_the_ledger_and_does_not_panic() {
+        let mut world = world();
+        let held = both_sealed(&mut world);
+        let ticket = before_intent(&world, &held);
+        let permit = record_intent(&held, &ticket, None).unwrap().unwrap();
+        let on_disk = fs::read(world.file()).unwrap();
+
+        let poisoner = held.clone();
+        let outcome = std::thread::spawn(move || {
+            let _guard = poisoner.lock().unwrap();
+            panic!("a panic standing for one in the middle of a ledger call");
+        })
+        .join();
+        assert!(outcome.is_err());
+        assert!(held.is_poisoned());
+
+        drop(permit);
+        let ledger = held.lock().unwrap_or_else(PoisonError::into_inner);
+        assert_eq!(ledger.failed, Some(LedgerRefusal::Unavailable));
+        assert!(fs::read(world.file()).unwrap() == on_disk, "no write");
+    }
+
+    #[test]
+    fn what_is_at_a_path_is_read_by_its_bytes_and_a_link_is_not_followed() {
+        let world = world();
+        let bytes = WorkspaceBytes::new(&world.workspace);
+        assert_eq!(bytes.observe("out/nothing.json"), ObservedBytes::Absent);
+        assert_eq!(bytes.observe("nothing.json"), ObservedBytes::Absent);
+
+        fs::create_dir(world.workspace.join("out")).unwrap();
+        assert_eq!(bytes.observe("out/nothing.json"), ObservedBytes::Absent);
+        fs::write(world.workspace.join("out/there.json"), b"held").unwrap();
+        assert_eq!(
+            bytes.observe("out/there.json"),
+            ObservedBytes::Present(b"held".to_vec())
+        );
+        assert_eq!(bytes.observe("out"), ObservedBytes::Unreadable);
+        std::os::unix::fs::symlink(
+            world.workspace.join("out/there.json"),
+            world.workspace.join("out/link.json"),
+        )
+        .unwrap();
+        assert_eq!(bytes.observe("out/link.json"), ObservedBytes::Unreadable);
     }
 
     #[test]
@@ -2102,7 +2373,7 @@ mod tests {
 
     #[test]
     fn the_process_wide_registry_is_one_value() {
-        assert!(std::ptr::eq(process_ledgers(), process_ledgers()));
+        assert!(Arc::ptr_eq(&process_ledgers(), &process_ledgers()));
     }
 
     /// Not a path a test should reach by accident: the helper above asserts one directory.

@@ -34,32 +34,42 @@ pub(crate) struct TargetKey {
     pub(crate) target: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct TargetDeclaration {
     pub(crate) id: String,
     pub(crate) tool_id: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct StageDeclaration {
     pub(crate) id: String,
     pub(crate) targets: Vec<TargetDeclaration>,
     /// Added to the edges the host derives. It cannot take one away.
+    #[serde(default)]
     pub(crate) depends_on: Vec<String>,
     /// Added to the operator's IDs. It cannot take one away.
+    #[serde(default)]
     pub(crate) required_checks: Vec<String>,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct NarrowedStageLimits {
+    #[serde(default)]
     pub(crate) attempts_per_target: Option<u32>,
+    #[serde(default)]
     pub(crate) attempts_per_run: Option<u32>,
+    #[serde(default)]
     pub(crate) deadline_seconds: Option<u64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct StageSetDeclaration {
     pub(crate) stages: Vec<StageDeclaration>,
+    #[serde(default)]
     pub(crate) limits: NarrowedStageLimits,
 }
 
@@ -83,12 +93,32 @@ pub(crate) struct HostToolFacts {
     pub(crate) limits: StageLimits,
 }
 
-/// The facts about a run that decide whether stages may be declared in it at all.
+/// The facts about a run that decide whether stages may be declared in it at all. Read anew for
+/// each session: a workflow child reconciles the sandbox with its own workspace, so an earlier
+/// answer does not carry over.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct StageRunFacts {
     /// False for `--sandbox off`, for `auto` with no backend, and when no policy is installed.
-    pub(crate) os_sandbox_enforced: bool,
-    pub(crate) workflow_child: bool,
+    os_sandbox_enforced: bool,
+    workflow_child: bool,
+}
+
+impl StageRunFacts {
+    /// What this process holds now. This is the only way a production caller gets a value.
+    pub(crate) fn of_session(config: &crate::config::Config) -> Self {
+        Self {
+            os_sandbox_enforced: crate::tools::os_sandbox::is_applied(),
+            workflow_child: crate::planner::external_reproducer::is_workflow_node(config),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn for_test(os_sandbox_enforced: bool, workflow_child: bool) -> Self {
+        Self {
+            os_sandbox_enforced,
+            workflow_child,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -548,13 +578,18 @@ fn admitted_inputs(
 ) -> Result<Vec<AdmittedInput>, ContractRefusal> {
     let mut inputs = Vec::with_capacity(reader.inputs.len());
     for path in &reader.inputs {
-        let upstream = resolved
+        let writer = resolved
             .iter()
-            .find(|writer| paths_overlap(path, &writer.output_path))
-            .map(|writer| TargetKey {
-                stage: writer.stage.id.clone(),
-                target: writer.target.id.clone(),
-            });
+            .find(|writer| paths_overlap(path, &writer.output_path));
+        // A commit names its output's spelling and a new version is matched by it, so an input
+        // that only overlaps an output, or spells it another way, could never take one up.
+        if writer.is_some_and(|writer| &writer.output_path != path) {
+            return Err(refused(ContractRefusalKind::InvalidPath, path.as_str()));
+        }
+        let upstream = writer.map(|writer| TargetKey {
+            stage: writer.stage.id.clone(),
+            target: writer.target.id.clone(),
+        });
         // W1: the public schema is fixed for the run, so upstream content may not narrow it.
         if upstream.is_some() && (reader.tool.has_revision_argument || reader.tool.has_compiler) {
             return Err(refused(
@@ -578,6 +613,53 @@ pub(crate) fn admit(
     facts: &[HostToolFacts],
 ) -> Result<StageContract, ContractRefusal> {
     refuse_for_run(run)?;
+    Ok(StageContractDraft::new(declaration, facts)?.contract)
+}
+
+/// A declaration judged by everything a run's facts have no say in. An entry that runs before
+/// the OS sandbox is installed can judge this far. Only a session turns it into a contract.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct StageContractDraft {
+    contract: StageContract,
+}
+
+impl StageContractDraft {
+    pub(crate) fn new(
+        declaration: &StageSetDeclaration,
+        facts: &[HostToolFacts],
+    ) -> Result<Self, ContractRefusal> {
+        Ok(Self {
+            contract: judge_declaration(declaration, facts)?,
+        })
+    }
+
+    pub(crate) fn for_run(&self, run: StageRunFacts) -> Result<StageContract, ContractRefusal> {
+        refuse_for_run(run)?;
+        Ok(self.contract.clone())
+    }
+
+    /// The inputs of a tool that some stage's output feeds. G2 waits for a receipt for these.
+    pub(crate) fn upstream_inputs(&self, tool_id: &str) -> BTreeSet<String> {
+        self.contract
+            .target_for_tool(tool_id)
+            .into_iter()
+            .flat_map(|target| target.inputs.iter())
+            .filter(|input| input.upstream.is_some())
+            .map(|input| input.path.clone())
+            .collect()
+    }
+
+    pub(crate) fn tool_ids(&self) -> impl Iterator<Item = &str> {
+        self.contract
+            .targets()
+            .map(|target| target.tool_id.as_str())
+    }
+}
+
+fn judge_declaration(
+    declaration: &StageSetDeclaration,
+    facts: &[HostToolFacts],
+) -> Result<StageContract, ContractRefusal> {
     if declaration.stages.is_empty() {
         return Err(refused(ContractRefusalKind::NoStages, ""));
     }
@@ -898,23 +980,31 @@ mod tests {
 
     #[test]
     fn another_spelling_of_a_path_does_not_hide_an_edge_or_a_collision() {
-        // The same edge through `./`, a doubled slash, and another case.
-        for spelling in ["./out//a.json", "OUT/A.JSON"] {
-            let tools = [
-                facts("t", "out/a.json", &[]),
-                facts("u", "out/b.json", &[spelling]),
-            ];
-            let contract = admit(
+        // The same edge through `./` and a doubled slash. Another case is the same file on some
+        // filesystems, and no commit could name it, so it is refused rather than left without
+        // an edge.
+        let tools = [
+            facts("t", "out/a.json", &[]),
+            facts("u", "out/b.json", &["./out//a.json"]),
+        ];
+        let contract = admit(
+            &set(vec![one_target("beta", "u"), one_target("alpha", "t")]),
+            &tools,
+        )
+        .unwrap();
+        assert_eq!(contract.stages()[0].id, "alpha");
+        assert!(contract.stages()[1].depends_on.contains("alpha"));
+        let tools = [
+            facts("t", "out/a.json", &[]),
+            facts("u", "out/b.json", &["OUT/A.JSON"]),
+        ];
+        assert_eq!(
+            kind(
                 &set(vec![one_target("beta", "u"), one_target("alpha", "t")]),
-                &tools,
-            )
-            .unwrap();
-            assert_eq!(contract.stages()[0].id, "alpha", "{spelling}");
-            assert!(
-                contract.stages()[1].depends_on.contains("alpha"),
-                "{spelling}"
-            );
-        }
+                &tools
+            ),
+            ContractRefusalKind::InvalidPath
+        );
         for second in ["./out//a.json", "OUT/a.json", "out/a.json/inner"] {
             let tools = [facts("t", "out/a.json", &[]), facts("u", second, &[])];
             assert_eq!(
@@ -1082,6 +1172,92 @@ mod tests {
             kind(&declaration, &tools),
             ContractRefusalKind::InvalidLimit
         );
+    }
+
+    #[test]
+    fn the_run_facts_are_what_the_process_holds_when_they_are_asked_for() {
+        use crate::tools::os_sandbox::{
+            SandboxAvailability, SandboxMode, SandboxPolicy, SandboxTestState, install_for_test,
+        };
+        let _sandbox = SandboxTestState::acquire();
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("workspace");
+        std::fs::create_dir_all(&root).unwrap();
+        let tmp = temp.path().join("sandbox/run");
+        std::fs::create_dir_all(&tmp).unwrap();
+        let mut config = crate::tools::profile_tools::effects::config_for_test(&root);
+        config.state_dir = temp.path().join("state");
+        let of_session = || StageRunFacts::of_session(&config);
+
+        // Nothing installed: nothing is enforced, and no earlier answer stands in for this one.
+        assert_eq!(of_session(), StageRunFacts::for_test(false, false));
+        install_for_test(
+            SandboxMode::Auto,
+            SandboxPolicy::new(&root, &tmp),
+            SandboxAvailability::Available,
+        );
+        assert_eq!(of_session(), StageRunFacts::for_test(true, false));
+        install_for_test(
+            SandboxMode::Off,
+            SandboxPolicy::new(&root, &tmp),
+            SandboxAvailability::Available,
+        );
+        assert_eq!(of_session(), StageRunFacts::for_test(false, false));
+        install_for_test(
+            SandboxMode::Auto,
+            SandboxPolicy::new(&root, &tmp),
+            SandboxAvailability::Unavailable("no backend in this test".to_string()),
+        );
+        assert_eq!(of_session(), StageRunFacts::for_test(false, false));
+
+        crate::planner::external_reproducer::mark_workflow_node(&config).unwrap();
+        assert_eq!(of_session(), StageRunFacts::for_test(false, true));
+    }
+
+    #[test]
+    fn a_draft_is_judged_without_the_run_and_only_a_run_makes_it_a_contract() {
+        let declaration = set(vec![one_target("upper", "a"), one_target("lower", "b")]);
+        let tools = [
+            facts("a", "out/a", &["fixed/seed"]),
+            facts("b", "out/b", &["out/a", "fixed/other"]),
+        ];
+        let draft = super::StageContractDraft::new(&declaration, &tools).unwrap();
+        assert_eq!(
+            draft.upstream_inputs("b"),
+            std::collections::BTreeSet::from(["out/a".to_string()])
+        );
+        assert!(draft.upstream_inputs("a").is_empty());
+        assert_eq!(
+            draft
+                .for_run(StageRunFacts::for_test(false, false))
+                .unwrap_err()
+                .kind,
+            ContractRefusalKind::OsSandboxNotEnforced
+        );
+        assert_eq!(
+            draft
+                .for_run(StageRunFacts::for_test(true, true))
+                .unwrap_err()
+                .kind,
+            ContractRefusalKind::WorkflowChild
+        );
+        assert_eq!(
+            draft.for_run(StageRunFacts::for_test(true, false)).unwrap(),
+            admit(&declaration, &tools).unwrap()
+        );
+    }
+
+    #[test]
+    fn an_input_that_only_overlaps_an_output_or_spells_it_otherwise_cannot_take_it_up() {
+        for input in ["OUT/A", "out/a/below", "out"] {
+            let declaration = set(vec![one_target("upper", "a"), one_target("lower", "b")]);
+            let tools = [facts("a", "out/a", &[]), facts("b", "other/b", &[input])];
+            assert_eq!(
+                kind(&declaration, &tools),
+                ContractRefusalKind::InvalidPath,
+                "{input}"
+            );
+        }
     }
 
     #[test]

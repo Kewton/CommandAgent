@@ -5,8 +5,9 @@
 //! says; each must pass its required checks again in this process (D11).
 //!
 //! The one thing a resume does not lower past is a changed fixed input: it is refused, and only
-//! a fresh session goes on (P5). A target that never started has no pin to compare, so a change
-//! to its fixed inputs cannot be seen, and its first attempt pins what is there then.
+//! a fresh session goes on (P5). The run's first `begin` pins every target's fixed inputs as G2
+//! adopted them, so a target that has not run is held to them too. A change made before that
+//! first `begin` cannot be seen: no pin exists yet, and the first `begin` pins what is there then.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -160,8 +161,8 @@ fn judge_saved_receipt(
     input_moved.then_some(UnverifiedReason::InputChanged)
 }
 
-/// The pins hold what each target's first attempt adopted. An input from upstream is not among
-/// them: its change is an invalidation, handled below.
+/// The pins hold what G2 adopted for each target at the run's first `begin`. An input from
+/// upstream is not among them: its change is an invalidation, handled below.
 fn refuse_changed_fixed_input(
     saved: &MachineSnapshot,
     facts: &ResumeFacts<'_>,
@@ -202,11 +203,7 @@ fn lower_one(record: &mut TargetRecord, target: &AdmittedTarget, facts: &ResumeF
             let kept = record.unverified_reason;
             record.lower_to_unverified(kept.unwrap_or(UnverifiedReason::Resumed));
         }
-        None => {
-            if record.phase == Phase::LocallyValid {
-                record.phase = Phase::Proposed;
-            }
-        }
+        None => record.settle_after_attempt(),
     }
     // Whatever it was, it has been judged, and the process it ran in is gone.
     record.in_flight = None;
@@ -260,8 +257,8 @@ pub(crate) fn absorb_diverged(held: &mut MachineSnapshot, disk: &MachineSnapshot
         record.drop_unless_intent();
         if record.phase == Phase::Sealed || record.current_receipt.is_some() {
             record.lower_to_unverified(UnverifiedReason::LedgerDiverged);
-        } else if record.phase == Phase::LocallyValid {
-            record.phase = Phase::Proposed;
+        } else {
+            record.settle_after_attempt();
         }
     }
     // The total keeps to at least the sum of its lines, or a later resume could not read it.
@@ -278,15 +275,17 @@ mod tests {
     use std::collections::BTreeMap;
     use std::sync::Arc;
 
-    use super::super::contract::{StageContract, TargetKey};
+    use super::super::contract::{
+        NarrowedStageLimits, StageContract, StageSetDeclaration, TargetKey,
+    };
     use super::super::receipt::{CheckResult, CheckStatus, InputDigest};
     use super::super::state::{
         BeginDecision, BytesSource, ExhaustedLimit, LocalDecision, MachineSnapshot, ObservedBytes,
         Phase, StageMachine, UnverifiedReason,
     };
     use super::super::test_support::{
-        FakeBytes, current_inputs, key, passed_checks, pins_for, request_for, schema_for, seal,
-        sha_of, two_stage_contract,
+        FakeBytes, admit_enforced, current_inputs, facts, key, one_target, passed_checks, pins_for,
+        request_for, schema_for, seal, sha_of, two_stage_contract,
     };
     use super::{
         AdmittedPins, ResumeFacts, SavedRefusal, absorb_diverged, lower_saved, validate_saved,
@@ -1017,8 +1016,62 @@ mod tests {
         );
     }
 
+    /// `beta` reads `alpha`'s output and a fixed input of its own.
+    fn downstream_with_a_fixed_input() -> Arc<StageContract> {
+        let declaration = StageSetDeclaration {
+            stages: vec![one_target("alpha", "main"), one_target("beta", "beta-tool")],
+            limits: NarrowedStageLimits::default(),
+        };
+        let tools = [
+            facts("main", "out/alpha.json", &["fixed/source.json"]),
+            facts(
+                "beta-tool",
+                "out/beta.json",
+                &["out/alpha.json", "fixed/beta-source.json"],
+            ),
+        ];
+        Arc::new(admit_enforced(&declaration, &tools).unwrap())
+    }
+
     #[test]
-    fn a_target_that_never_started_has_no_pin_so_its_changed_input_is_not_seen() {
+    fn a_downstream_fixed_input_changed_before_it_ever_ran_refuses_the_resume() {
+        let contract = downstream_with_a_fixed_input();
+        let mut machine = StageMachine::new(
+            contract.clone(),
+            "run-a".to_string(),
+            "process-a".to_string(),
+            NOW,
+        );
+        let upstream = key("alpha", "main");
+        let mut bytes = FakeBytes::default();
+        bytes.put("fixed/source.json", b"fixed source");
+        bytes.put("fixed/beta-source.json", b"as adopted");
+        seal(
+            &mut machine,
+            &upstream,
+            b"alpha v1",
+            &mut bytes,
+            1,
+            NOW,
+            "a",
+        );
+        let target = key("beta", "beta-tool");
+        assert_eq!(generation(&machine, &upstream), 1);
+        assert_eq!(machine.record(&target).unwrap().attempts_used, 0);
+
+        assert!(resume_outcome(&machine, &bytes).is_ok());
+        let changed = bytes.with("fixed/beta-source.json", b"rewritten by a command");
+        assert_eq!(
+            resume_outcome(&machine, &changed).unwrap_err(),
+            SavedRefusal::FixedInputChanged {
+                path: "fixed/beta-source.json".to_string()
+            }
+        );
+    }
+
+    /// The limit of the pin: nothing was held before the first `begin`.
+    #[test]
+    fn a_fixed_input_changed_before_the_first_begin_cannot_be_seen() {
         let machine = StageMachine::new(
             Arc::new(two_stage_contract()),
             "run-a".to_string(),

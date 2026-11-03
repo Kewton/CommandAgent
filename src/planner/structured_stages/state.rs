@@ -122,7 +122,9 @@ pub(crate) struct TargetRecord {
     pub(crate) in_flight: Option<InFlight>,
     /// Attempt to the digest of what it reported: the host's idempotency key is the attempt.
     pub(crate) reported: BTreeMap<u32, String>,
-    /// The fixed inputs as first adopted. A change is refused, not adopted.
+    /// The fixed inputs as G2 adopted them, set for every target at the run's first `begin`,
+    /// whether that target has run or not. A change is refused, not adopted. A change made before
+    /// that first `begin` cannot be seen: nothing was held to compare it with.
     pub(crate) fixed_inputs: Option<Vec<InputDigest>>,
 }
 
@@ -163,11 +165,21 @@ impl TargetRecord {
         }
     }
 
+    /// Where a target stands once an attempt on it is over and adopted nothing. A reason still
+    /// on it means its bytes are as unvouched for as they were, so the phase says so too.
+    pub(crate) fn settle_after_attempt(&mut self) {
+        if matches!(self.phase, Phase::Proposed | Phase::LocallyValid) {
+            self.phase = if self.unverified_reason.is_some() {
+                Phase::Unverified
+            } else {
+                Phase::Proposed
+            };
+        }
+    }
+
     fn drop_in_flight(&mut self) {
         self.in_flight = None;
-        if matches!(self.phase, Phase::LocallyValid) {
-            self.phase = Phase::Proposed;
-        }
+        self.settle_after_attempt();
     }
 }
 
@@ -222,6 +234,8 @@ pub(crate) struct AttemptRequest<'a> {
     /// The host's ID for this call, which its commit receipt must repeat.
     pub(crate) request_id: String,
     pub(crate) current_output: &'a ObservedBytes,
+    /// Every target's fixed inputs as G2 adopted them, for the first `begin` to pin.
+    pub(crate) adopted_fixed: Vec<(TargetKey, Vec<InputDigest>)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -356,18 +370,25 @@ pub(crate) enum CommitObservation {
     OutcomeUnknown,
 }
 
+/// A target a commit took the state from, and the revision its next call has to name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct InvalidatedTarget {
+    pub(crate) key: TargetKey,
+    pub(crate) revision: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum CommitDecision {
     Sealed {
         revision: String,
         receipt_sha256: String,
-        invalidated: Vec<TargetKey>,
+        invalidated: Vec<InvalidatedTarget>,
     },
     /// The bytes moved, but nothing vouches for them.
     StoodUnverified {
         revision: String,
         reason: UnverifiedReason,
-        invalidated: Vec<TargetKey>,
+        invalidated: Vec<InvalidatedTarget>,
     },
     NotAdopted,
 }
@@ -673,14 +694,29 @@ impl StageMachine {
                 })
     }
 
-    /// An upstream input must be what its stage adopted; a fixed input what was first adopted.
-    /// Returns the digests of the fixed ones, to pin when the attempt proceeds.
+    /// Once, at the run's first `begin`: what G2 adopted for every target, so that a target that
+    /// has not run yet is held to it as well.
+    fn pin_fixed_inputs(&mut self, adopted: &[(TargetKey, Vec<InputDigest>)]) {
+        for (key, inputs) in adopted {
+            let Some(index) = self.index_of(key) else {
+                continue;
+            };
+            let record = &mut self.snapshot.targets[index];
+            if record.fixed_inputs.is_none() {
+                let mut inputs = inputs.clone();
+                inputs.sort();
+                record.fixed_inputs = Some(inputs);
+            }
+        }
+    }
+
+    /// An upstream input must be what its stage adopted; a fixed input what was pinned.
     fn judge_inputs(
         &self,
         key: &TargetKey,
         record: &TargetRecord,
         inputs: &[InputDigest],
-    ) -> Result<Vec<InputDigest>, BeginDecision> {
+    ) -> Result<(), BeginDecision> {
         let declared = self
             .contract
             .target(key)
@@ -713,15 +749,18 @@ impl StageMachine {
                 path: String::new(),
             });
         }
-        fixed.sort();
-        if let Some(pinned) = &record.fixed_inputs
-            && let Some(changed) = fixed.iter().find(|given| !pinned.contains(given))
-        {
+        // Nothing pinned means nothing to compare with, which is not the same as nothing changed.
+        let Some(pinned) = &record.fixed_inputs else {
+            return Err(BeginDecision::InputNotCurrent {
+                path: String::new(),
+            });
+        };
+        if let Some(changed) = fixed.iter().find(|given| !pinned.contains(given)) {
             return Err(BeginDecision::FixedInputChanged {
                 path: changed.path.clone(),
             });
         }
-        Ok(fixed)
+        Ok(())
     }
 
     /// The D7 table, then the limits. Only `Proceed` counts an attempt.
@@ -734,6 +773,7 @@ impl StageMachine {
             return BeginDecision::Refused(StageRefusal::OutOfOrder);
         }
         self.snapshot.latest_clock_ms = self.snapshot.latest_clock_ms.max(request.now_ms);
+        self.pin_fixed_inputs(&request.adopted_fixed);
         if self.deadline_passed() {
             return BeginDecision::DeadlineExceeded;
         }
@@ -762,10 +802,9 @@ impl StageMachine {
             Ok(pins) => pins,
             Err(waiting_on) => return BeginDecision::NotReady { waiting_on },
         };
-        let fixed = match self.judge_inputs(key, record, &request.inputs) {
-            Ok(fixed) => fixed,
-            Err(refusal) => return refusal,
-        };
+        if let Err(refusal) = self.judge_inputs(key, record, &request.inputs) {
+            return refusal;
+        }
         let limits = self.contract.limits();
         if record.attempts_used >= limits.attempts_per_target {
             return BeginDecision::AttemptsExhausted(ExhaustedLimit::Target);
@@ -778,7 +817,6 @@ impl StageMachine {
         let run_nonce = self.snapshot.run_nonce.clone();
         let record = &mut self.snapshot.targets[index];
         record.attempts_used += 1;
-        record.fixed_inputs.get_or_insert(fixed);
         if record.phase != Phase::Sealed {
             record.phase = Phase::Proposed;
         }
@@ -1061,7 +1099,13 @@ impl StageMachine {
         let unverified_reason = record.unverified_reason;
         self.snapshot.last_commit_turn = Some(ticket.turn);
         let invalidated =
-            invalidate_downstream(&self.contract, &mut self.snapshot.targets, &ticket.stage);
+            invalidate_downstream(&self.contract, &mut self.snapshot.targets, &ticket.stage)
+                .into_iter()
+                .map(|key| InvalidatedTarget {
+                    revision: self.revision_of(&key).unwrap_or_default(),
+                    key,
+                })
+                .collect();
         let revision = revision_token(&ticket.run_nonce, &ticket.key(), generation);
         if sealed && let Some(receipt_sha256) = receipt_sha256 {
             return Ok(CommitDecision::Sealed {
@@ -1201,8 +1245,8 @@ mod tests {
     use super::{
         AttemptFailure, AttemptRequest, AttemptTicket, BeginDecision, CheckFailureKind,
         CommitDecision, CommitObservation, ExhaustedLimit, FailureDecision, INITIAL_REVISION,
-        LocalDecision, MAX_RECEIPT_HISTORY, ObservedBytes, Phase, StageMachine, StageRefusal,
-        TerminalFailure, UnverifiedReason, judge_checks,
+        InvalidatedTarget, LocalDecision, MAX_RECEIPT_HISTORY, ObservedBytes, Phase, StageMachine,
+        StageRefusal, TerminalFailure, UnverifiedReason, judge_checks,
     };
 
     const NOW: u64 = 1_000_000;
@@ -1341,7 +1385,15 @@ mod tests {
         assert!(is_sha256_hex(&receipt_sha256));
         assert_eq!(answered, machine.revision_of(&alpha()).unwrap());
         assert_ne!(answered, INITIAL_REVISION);
-        assert_eq!(invalidated, vec![beta()]);
+        assert_eq!(
+            invalidated,
+            vec![InvalidatedTarget {
+                key: beta(),
+                revision: machine.revision_of(&beta()).unwrap(),
+            }],
+            "the next call on the target below names this revision and meets no stale"
+        );
+        assert_ne!(invalidated[0].revision, INITIAL_REVISION);
     }
 
     /// The same machine over stage sets that differ only in their names and paths. It shows the
@@ -2406,7 +2458,13 @@ mod tests {
                 panic!("unverified");
             };
             assert_eq!(got, reason);
-            assert_eq!(invalidated, vec![beta()]);
+            assert_eq!(
+                invalidated,
+                vec![InvalidatedTarget {
+                    key: beta(),
+                    revision: machine.revision_of(&beta()).unwrap(),
+                }]
+            );
             let record = machine.record(&alpha()).unwrap();
             assert_eq!(record.phase, Phase::Unverified);
             assert_eq!(record.generation, generation + 1);
@@ -2695,25 +2753,54 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_check_on_an_unverified_target_ends_as_proposed_and_keeps_the_reason() {
+    fn a_failed_check_on_an_unverified_target_goes_back_to_unverified_and_keeps_the_reason() {
         let (mut machine, bytes) = both_sealed();
         let edited = bytes.with("out/alpha.json", b"edited");
         assert!(!machine.judge(&edited).complete);
         assert_eq!(phase(&machine, &alpha()), Phase::Unverified);
+        let generation = machine.record(&alpha()).unwrap().generation;
+        let attempts = machine.record(&alpha()).unwrap().attempts_used;
 
         let ticket = start(&mut machine, &edited, 3, "again");
+        assert_eq!(phase(&machine, &alpha()), Phase::Proposed);
         let output = edited.observe_path("out/alpha.json");
         assert_eq!(
             machine.record_local_result(&ticket, &sha_of(b"bad"), Vec::new(), &output),
             LocalDecision::Resubmit(CheckFailureKind::NotRun)
         );
         let record = machine.record(&alpha()).unwrap();
-        assert_eq!(record.phase, Phase::Proposed);
+        assert_eq!(record.phase, Phase::Unverified);
         assert_eq!(
             record.unverified_reason,
-            Some(UnverifiedReason::BytesChanged)
+            Some(UnverifiedReason::BytesChanged),
+            "the bytes are as unvouched for as before: a failed check says nothing new about them"
         );
+        assert_eq!(record.generation, generation);
+        assert_eq!(record.attempts_used, attempts + 1);
         assert!(!machine.judge(&edited).complete);
+
+        // A failure reported without a result lands in the same place.
+        let ticket = start(&mut machine, &edited, 4, "again and again");
+        assert_eq!(
+            machine.record_failure(&ticket, AttemptFailure::Check(CheckFailureKind::Unknown)),
+            FailureDecision::Resubmit(CheckFailureKind::Unknown)
+        );
+        assert_eq!(phase(&machine, &alpha()), Phase::Unverified);
+    }
+
+    #[test]
+    fn a_failed_check_on_a_target_that_never_held_a_state_stays_proposed() {
+        let mut machine = machine(two_stage_contract());
+        let bytes = FakeBytes::default().with("fixed/source.json", b"fixed source");
+        let ticket = start(&mut machine, &bytes, 1, "first");
+        let output = bytes.observe_path("out/alpha.json");
+        assert_eq!(
+            machine.record_local_result(&ticket, &sha_of(b"bad"), Vec::new(), &output),
+            LocalDecision::Resubmit(CheckFailureKind::NotRun)
+        );
+        let record = machine.record(&alpha()).unwrap();
+        assert_eq!(record.phase, Phase::Proposed);
+        assert_eq!(record.unverified_reason, None);
     }
 
     #[test]

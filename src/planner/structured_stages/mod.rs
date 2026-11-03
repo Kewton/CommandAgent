@@ -11,7 +11,221 @@
 //! - [`resume`] lowers a saved record. A saved record never raises a state.
 //! - [`ledger`] keeps attempts and generations across sessions and for a later process.
 //!
-//! Nothing outside this module is wired to it yet, so no behavior changes.
+//! [`StageRun`] joins them to a set of admitted tools. A tool in no declared stage never reaches
+//! any of this, so a run with no stage declaration reads and writes nothing here.
+
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, PoisonError};
+
+use contract::{AdmittedTarget, ContractRefusal, StageContract, StageContractDraft, StageRunFacts};
+use ledger::{HeldLedger, LedgerEntry, LedgerRefusal, LedgerRegistry, LedgerRequest};
+use receipt::{InputDigest, sha256_hex};
+use resume::AdmittedPins;
+use state::{AttemptRequest, BytesSource, ObservedBytes};
+
+use crate::tools::profile_tools::commit::CommitReceipt;
+use crate::tools::profile_tools::schema::binding::AdoptedInputs;
+use crate::tools::profile_tools::schema::invocation::SchemaGuard;
+use crate::tools::profile_tools::{ProfileToolRefusal, RefusalKind};
+
+pub(crate) fn contract_refused(refusal: ContractRefusal) -> ProfileToolRefusal {
+    ProfileToolRefusal::new(
+        RefusalKind::StageContractRefused,
+        format!(
+            "the declared stages cannot be admitted: {:?} {}",
+            refusal.kind, refusal.subject
+        ),
+    )
+}
+
+pub(crate) fn ledger_refused(refusal: LedgerRefusal) -> ProfileToolRefusal {
+    ProfileToolRefusal::new(
+        RefusalKind::StageLedgerRefused,
+        format!("the record of this run's stages: {refusal:?}"),
+    )
+}
+
+/// One tool of a stage set: its pins as admitted, and the guard holding its adopted inputs.
+#[derive(Debug)]
+pub(crate) struct StageMember {
+    pub(crate) pins: AdmittedPins,
+    pub(crate) guard: Arc<SchemaGuard>,
+}
+
+#[derive(Debug, Clone)]
+struct StageSession {
+    contract: Arc<StageContract>,
+    state_dir: PathBuf,
+    entry: LedgerEntry,
+}
+
+/// What one tool call brings that the host cannot read elsewhere.
+#[derive(Debug)]
+pub(crate) struct StageCallFacts<'a> {
+    pub(crate) turn: u64,
+    pub(crate) now_ms: u64,
+    pub(crate) expected_revision: &'a str,
+    pub(crate) arguments_sha256: String,
+    pub(crate) request_id: String,
+    pub(crate) current_output: &'a ObservedBytes,
+    pub(crate) adopted: &'a AdoptedInputs,
+}
+
+/// The stage set of one admission. Opening its ledger waits for the first call: an entry that
+/// only admits, as a preflight does, holds no lock and touches no file.
+#[derive(Debug)]
+pub(crate) struct StageRun {
+    draft: StageContractDraft,
+    members: BTreeMap<String, StageMember>,
+    workspace: PathBuf,
+    profile: String,
+    ledgers: Arc<LedgerRegistry>,
+    session: Mutex<Option<StageSession>>,
+}
+
+impl StageRun {
+    pub(crate) fn new(
+        draft: StageContractDraft,
+        members: BTreeMap<String, StageMember>,
+        workspace: PathBuf,
+        profile: String,
+        ledgers: Arc<LedgerRegistry>,
+    ) -> Self {
+        Self {
+            draft,
+            members,
+            workspace,
+            profile,
+            ledgers,
+            session: Mutex::new(None),
+        }
+    }
+
+    /// What only a session can answer, asked anew for each one.
+    pub(crate) fn bind_session(
+        &self,
+        run: StageRunFacts,
+        state_dir: &Path,
+        entry: LedgerEntry,
+    ) -> Result<(), ProfileToolRefusal> {
+        let contract = self.draft.for_run(run).map_err(contract_refused)?;
+        ledger::refuse_state_dir_inside_workspace(state_dir, &self.workspace)
+            .map_err(ledger_refused)?;
+        *self.session.lock().unwrap_or_else(PoisonError::into_inner) = Some(StageSession {
+            contract: Arc::new(contract),
+            state_dir: state_dir.to_path_buf(),
+            entry,
+        });
+        Ok(())
+    }
+
+    /// The ledger as of now, and the contract it is held to. Never called during an admission.
+    pub(crate) fn open_ledger(
+        &self,
+        now_ms: u64,
+        bytes: &dyn BytesSource,
+    ) -> Result<(HeldLedger, Arc<StageContract>), ProfileToolRefusal> {
+        let session = self
+            .session
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+            .ok_or_else(|| {
+                ProfileToolRefusal::new(
+                    RefusalKind::StageContractRefused,
+                    "a stage tool was called outside a session that admitted its stages",
+                )
+            })?;
+        let pins = self
+            .members
+            .iter()
+            .map(|(tool, member)| (tool.clone(), member.pins.clone()))
+            .collect();
+        let held = self
+            .ledgers
+            .open(&LedgerRequest {
+                state_dir: &session.state_dir,
+                workspace: &self.workspace,
+                profile: &self.profile,
+                entry: session.entry,
+                contract: session.contract.clone(),
+                now_ms,
+                bytes,
+                pins: &pins,
+            })
+            .map_err(ledger_refused)?;
+        Ok((held, session.contract))
+    }
+
+    /// The one place a call's values become what the state machine judges. Paths come from the
+    /// admitted target and digests from what G2 adopted, so no spelling and no digest here is
+    /// the caller's.
+    pub(crate) fn attempt_request<'a>(
+        &self,
+        contract: &StageContract,
+        target: &AdmittedTarget,
+        call: StageCallFacts<'a>,
+    ) -> Option<AttemptRequest<'a>> {
+        let member = self.members.get(&target.tool_id)?;
+        let digest_of = |adopted: &AdoptedInputs, path: &str| InputDigest {
+            path: path.to_string(),
+            sha256: adopted
+                .inputs
+                .iter()
+                .find(|input| input.path == path)
+                .map(|input| sha256_hex(&input.bytes))
+                .unwrap_or_default(),
+        };
+        let mut adopted_fixed = Vec::new();
+        for other in contract.targets() {
+            let adopted = self.members.get(&other.tool_id)?.guard.adopted();
+            let fixed = other
+                .inputs
+                .iter()
+                .filter(|input| input.upstream.is_none())
+                .map(|input| digest_of(&adopted, &input.path))
+                .collect();
+            adopted_fixed.push((other.key.clone(), fixed));
+        }
+        Some(AttemptRequest {
+            turn: call.turn,
+            now_ms: call.now_ms,
+            expected_revision: call.expected_revision,
+            pins: member.pins.pins.clone(),
+            schema_sha256: member.pins.schema_sha256.clone(),
+            input_revision: call.adopted.revision.clone(),
+            inputs: target
+                .inputs
+                .iter()
+                .map(|input| digest_of(call.adopted, &input.path))
+                .collect(),
+            arguments_sha256: call.arguments_sha256,
+            request_id: call.request_id,
+            current_output: call.current_output,
+            adopted_fixed,
+        })
+    }
+
+    /// A seal is what every reader of this output takes its new version from (S6).
+    pub(crate) fn readopt_readers(
+        &self,
+        contract: &StageContract,
+        writer: &AdmittedTarget,
+        receipt: &CommitReceipt,
+    ) -> Result<(), ProfileToolRefusal> {
+        for reader in contract.targets() {
+            let reads_it = reader
+                .inputs
+                .iter()
+                .any(|input| input.upstream.as_ref() == Some(&writer.key));
+            if reads_it && let Some(member) = self.members.get(&reader.tool_id) {
+                member.guard.readopt(receipt)?;
+            }
+        }
+        Ok(())
+    }
+}
 
 #[allow(
     dead_code,
@@ -70,14 +284,7 @@ mod test_support {
         declaration: &StageSetDeclaration,
         tools: &[HostToolFacts],
     ) -> Result<StageContract, ContractRefusal> {
-        admit(
-            StageRunFacts {
-                os_sandbox_enforced: true,
-                workflow_child: false,
-            },
-            declaration,
-            tools,
-        )
+        admit(StageRunFacts::for_test(true, false), declaration, tools)
     }
 
     pub(crate) fn digest(text: &str) -> String {
@@ -281,6 +488,21 @@ mod test_support {
             .target(target)
             .map_or("", |admitted| admitted.tool_id.as_str());
         let inputs = current_inputs(contract, target, bytes);
+        let adopted_fixed = contract
+            .targets()
+            .map(|admitted| {
+                let fixed = admitted
+                    .inputs
+                    .iter()
+                    .filter(|input| input.upstream.is_none())
+                    .map(|input| InputDigest {
+                        path: input.path.clone(),
+                        sha256: bytes.observe(&input.path).sha256().unwrap_or_default(),
+                    })
+                    .collect();
+                (admitted.key.clone(), fixed)
+            })
+            .collect();
         AttemptRequest {
             turn,
             now_ms,
@@ -292,6 +514,7 @@ mod test_support {
             arguments_sha256: digest(arguments),
             request_id: "request-1".to_string(),
             current_output,
+            adopted_fixed,
         }
     }
 

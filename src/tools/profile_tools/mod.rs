@@ -94,6 +94,12 @@ pub enum RefusalKind {
     ProcessFailed,
     ResultRejected,
     CommitFailed,
+    /// A declared stage set cannot be admitted, here or for this session.
+    StageContractRefused,
+    /// A stage tool's record of attempts cannot be vouched for.
+    StageLedgerRefused,
+    /// A limit, a changed fixed input, or an unfinished commit: no later call can get past it.
+    StageRunEnded,
 }
 
 impl RefusalKind {
@@ -127,6 +133,8 @@ impl RefusalKind {
                 | Self::EffectOutputRefused
                 | Self::EffectPathRefused
                 | Self::EffectEnvRefused
+                | Self::StageContractRefused
+                | Self::StageLedgerRefused
         )
     }
 
@@ -180,6 +188,9 @@ impl RefusalKind {
             Self::ProcessFailed => "process_failed",
             Self::ResultRejected => "result_rejected",
             Self::CommitFailed => "commit_failed",
+            Self::StageContractRefused => "stage_contract_refused",
+            Self::StageLedgerRefused => "stage_ledger_refused",
+            Self::StageRunEnded => "stage_run_ended",
         }
     }
 }

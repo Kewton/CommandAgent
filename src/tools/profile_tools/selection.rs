@@ -16,9 +16,12 @@ use crate::planner::artifact_contract_checks::protocol;
 use crate::planner::artifact_contract_checks::read_regular_file;
 use crate::planner::pack::{LoadedPack, PackProfile, catalog, load_declared_directory};
 use crate::planner::profile_manifest::source::{EXTENSION_MANIFEST_FILE, exact_byte_hash};
+use crate::planner::structured_stages::contract::StageSetDeclaration;
 use crate::tools::registry::ToolRegistry;
 
 pub const DECLARATION_SCHEMA: &str = "profile-tool.declaration/v1";
+/// The same declaration with `stages`. A tool in a v1 declaration keeps its one submission.
+pub const STAGE_DECLARATION_SCHEMA: &str = "profile-tool.declaration/v2";
 
 // The selection variables and pin file `planner::pack::runtime` owns. Its
 // verification is private to that module, so `verify_selected_pack` repeats it
@@ -40,6 +43,10 @@ pub struct ProfileToolDeclaration {
     pub builtin_tools: Vec<String>,
     #[serde(default)]
     pub tools: Vec<DeclaredTool>,
+    /// Obligations over this declaration's tools (G4). Opaque IDs, added checks and dependencies,
+    /// and limits it may only narrow.
+    #[serde(default)]
+    pub(crate) stages: Option<Box<StageSetDeclaration>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -58,8 +65,12 @@ pub struct DeclaredTool {
 impl ProfileToolDeclaration {
     /// The checks that need no registry, run when the manifest or pack decodes.
     pub fn validate(&self) -> Result<(), String> {
-        if self.schema_version != DECLARATION_SCHEMA {
-            return Err(format!("schema_version must be `{DECLARATION_SCHEMA}`"));
+        let expected = match &self.stages {
+            Some(_) => STAGE_DECLARATION_SCHEMA,
+            None => DECLARATION_SCHEMA,
+        };
+        if self.schema_version != expected {
+            return Err(format!("schema_version must be `{expected}`"));
         }
         if self.builtin_tools.is_empty() && self.tools.is_empty() {
             return Err("a declaration must keep a builtin tool or name a tool".to_string());
@@ -103,6 +114,8 @@ pub(super) struct SelectedTools {
     pub(super) builtin_tools: BTreeSet<String>,
     /// Sorted by opaque ID; this is the stable publication order's input.
     pub(super) tools: BTreeMap<String, DeclaredTool>,
+    /// From the one source that declares them.
+    pub(super) stages: Option<Box<StageSetDeclaration>>,
 }
 
 static MANIFEST_DECLARATIONS: Mutex<BTreeMap<String, ProfileToolDeclaration>> =
@@ -323,7 +336,14 @@ fn verify_selected_pack(selection: &PackSelection, pack: &LoadedPack) -> Result<
 fn merge(sources: &[ProfileToolDeclaration]) -> Result<SelectedTools, ProfileToolRefusal> {
     let mut builtin_tools: Option<BTreeSet<String>> = None;
     let mut tools = BTreeMap::new();
+    let mut stages = None;
     for source in sources {
+        if source.stages.is_some() && stages.replace(source.stages.clone()).is_some() {
+            return Err(ProfileToolRefusal::new(
+                RefusalKind::ConflictingDeclaration,
+                "stages are declared by both profile and pack",
+            ));
+        }
         let kept = source
             .builtin_tools
             .iter()
@@ -345,5 +365,66 @@ fn merge(sources: &[ProfileToolDeclaration]) -> Result<SelectedTools, ProfileToo
     Ok(SelectedTools {
         builtin_tools: builtin_tools.unwrap_or_default(),
         tools,
+        stages: stages.flatten(),
     })
+}
+
+#[cfg(test)]
+mod stage_declaration_tests {
+    use serde_json::json;
+
+    use super::{ProfileToolDeclaration, merge};
+
+    fn declaration(schema: &str, stages: bool) -> ProfileToolDeclaration {
+        let mut value = json!({"schema_version": schema, "builtin_tools": ["Read"]});
+        if stages {
+            value["stages"] = json!({
+                "stages": [{"id": "only", "targets": [{"id": "main", "tool_id": "a-tool"}]}],
+                "limits": {"attempts_per_target": 2},
+            });
+        }
+        serde_json::from_value(value).unwrap()
+    }
+
+    #[test]
+    fn stages_come_with_their_own_version_and_a_v1_declaration_stays_as_it_was() {
+        let v1 = "profile-tool.declaration/v1";
+        let v2 = "profile-tool.declaration/v2";
+        assert!(declaration(v1, false).validate().is_ok());
+        assert!(declaration(v2, true).validate().is_ok());
+        assert!(declaration(v1, true).validate().is_err());
+        assert!(declaration(v2, false).validate().is_err());
+    }
+
+    #[test]
+    fn anything_else_a_stage_declaration_says_is_refused() {
+        for extra in [
+            json!({"stages": [], "executable": "/bin/sh"}),
+            json!({"stages": [{"id": "s", "targets": [], "command": "x"}]}),
+            json!({"stages": [{"id": "s", "targets": [{"id": "t", "tool_id": "a", "path": "p"}]}]}),
+            json!({"stages": [], "limits": {"attempts": 9}}),
+        ] {
+            let value = json!({
+                "schema_version": "profile-tool.declaration/v2",
+                "builtin_tools": ["Read"],
+                "stages": extra,
+            });
+            assert!(
+                serde_json::from_value::<ProfileToolDeclaration>(value).is_err(),
+                "{extra}"
+            );
+        }
+    }
+
+    #[test]
+    fn one_source_declares_stages() {
+        let v2 = "profile-tool.declaration/v2";
+        let selected = merge(&[
+            declaration(v2, true),
+            declaration("profile-tool.declaration/v1", false),
+        ])
+        .unwrap();
+        assert!(selected.stages.is_some());
+        assert!(merge(&[declaration(v2, true), declaration(v2, true)]).is_err());
+    }
 }

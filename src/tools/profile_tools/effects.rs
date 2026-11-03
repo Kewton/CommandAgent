@@ -12,8 +12,8 @@
 use std::fmt;
 use std::fs::File;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock, PoisonError};
-use std::time::Duration;
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 
@@ -22,8 +22,9 @@ use super::commit::{self, CommitPlan, CommitReceipt};
 use super::descriptor::{self, Descriptor, ProcessPins, RegistryBinding};
 use super::isolation::{self, StrictLaunch};
 use super::process::{self, RunLimits};
-use super::protocol::{self, Binding, Diagnostic, ProcessDeclaration};
+use super::protocol::{self, Binding, BoundedDiagnostics, Diagnostic, ProcessDeclaration};
 use super::schema::SchemaInput;
+use super::schema::binding::AdoptedInputs;
 use super::schema::invocation::SchemaGuard;
 use super::secret_output::SecretForms;
 use super::selection::DeclaredTool;
@@ -31,6 +32,18 @@ use super::{ProfileToolRefusal, RefusalKind};
 use crate::config::{Action, Config, OpenAiCompatibleConfig};
 use crate::eval_events;
 use crate::mode::ExecutionMode;
+use crate::planner::structured_stages::contract::{AdmittedTarget, StageContract};
+use crate::planner::structured_stages::ledger::{
+    self as stage_ledger, HeldLedger, StageLedger, WorkspaceBytes,
+};
+use crate::planner::structured_stages::receipt::{ToolPins, sha256_hex};
+use crate::planner::structured_stages::resume::AdmittedPins;
+use crate::planner::structured_stages::state::{
+    AttemptFailure, AttemptTicket, BeginDecision, BytesSource, CheckFailureKind, CommitDecision,
+    CommitObservation, ExhaustedLimit, InvalidatedTarget, LocalDecision, ObservedBytes,
+    TerminalFailure, judge_checks,
+};
+use crate::planner::structured_stages::{StageCallFacts, StageMember, StageRun, ledger_refused};
 use crate::tools::registry::{FunctionSpec, ToolContext, ToolSpec};
 use crate::tools::workspace_policy::WorkspacePolicy;
 
@@ -39,6 +52,11 @@ pub const RUNTIME_PINNED_PROCESS: &str = "pinned_process";
 const TRANSPORT: &str = "profile_tool";
 const STAGE_PROCESS: &str = "before_process";
 const STAGE_COMMIT: &str = "before_commit";
+/// The model's idea of a stage tool's revision. The operator's schema declares it: required and
+/// exactly `type: string`, so nothing the host publishes changes and the schema's own pin and
+/// hash cover it. It is compared and nothing else. It is neither part of what a call asks for nor
+/// shown to the process.
+pub(crate) const EXPECTED_REVISION_ARGUMENT: &str = "expected_revision";
 
 /// What is known at the start of a session about the session itself. `ToolContext.mode` is
 /// always `Act` in a session, so an inspect step is told apart here.
@@ -225,6 +243,8 @@ pub(crate) struct ProposalTool {
     /// The run's compatible provider, once an entry has judged this tool. Its key is a secret
     /// of this run under whatever name the configuration chose.
     compatible: OnceLock<OpenAiCompatibleConfig>,
+    /// Set only for a tool a declared stage names. Everything else keeps its one submission.
+    stage: OnceLock<Arc<StageRun>>,
 }
 
 impl fmt::Debug for ProposalTool {
@@ -299,11 +319,59 @@ impl ProposalTool {
             commits: parts.commits,
             pending_paths: Mutex::new(Vec::new()),
             compatible: OnceLock::new(),
+            stage: OnceLock::new(),
         })
     }
 
     pub(crate) fn name(&self) -> &str {
         &self.spec.function.name
+    }
+
+    pub(super) fn tool_id(&self) -> &str {
+        &self.tool_id
+    }
+
+    /// What a stage set holds of this tool. A tool whose schema does not take the revision
+    /// argument cannot be one: a model would have no way to answer a `stale`.
+    pub(super) fn stage_member(&self) -> Result<StageMember, ProfileToolRefusal> {
+        let schema = self.guard.published_schema();
+        let is_plain_string = schema
+            .get("properties")
+            .and_then(|properties| properties.get(EXPECTED_REVISION_ARGUMENT))
+            == Some(&json!({"type": "string"}));
+        let is_required = schema
+            .get("required")
+            .and_then(Value::as_array)
+            .is_some_and(|required| {
+                required
+                    .iter()
+                    .any(|name| name == EXPECTED_REVISION_ARGUMENT)
+            });
+        if !is_plain_string || !is_required {
+            return Err(refusal(
+                RefusalKind::StageContractRefused,
+                format!(
+                    "tool `{}` must declare `{EXPECTED_REVISION_ARGUMENT}`: required, and exactly `type: string`",
+                    self.tool_id
+                ),
+            ));
+        }
+        Ok(StageMember {
+            pins: AdmittedPins {
+                pins: ToolPins {
+                    tool_id: self.tool_id.clone(),
+                    tool_version: self.tool_version.clone(),
+                    descriptor_sha256: self.descriptor_sha256.clone(),
+                    runtime_sha256: self.runtime_sha256.clone(),
+                },
+                schema_sha256: self.guard.adopted_schema_sha256().to_string(),
+            },
+            guard: self.guard.clone(),
+        })
+    }
+
+    pub(super) fn attach_stage(&self, stage: Arc<StageRun>) {
+        let _ = self.stage.set(stage);
     }
 
     pub(crate) fn spec(&self) -> &ToolSpec {
@@ -325,11 +393,7 @@ impl ProposalTool {
     }
 
     fn input_paths(&self) -> Vec<String> {
-        self.guard
-            .adopted_inputs()
-            .iter()
-            .map(|input| input.path.clone())
-            .collect()
+        self.guard.declared_inputs().to_vec()
     }
 
     /// The context of one entry, before its first provider call. Off for every set
@@ -501,7 +565,10 @@ impl ProposalTool {
         let mut notes = RunNotes::default();
         match self.run(arguments, context, is_cancelled, &mut notes) {
             Ok(text) => {
-                self.record(true, true);
+                match notes.stage_reply_ok {
+                    Some(ok) => self.record(notes.executed, ok),
+                    None => self.record(true, true),
+                }
                 Ok(text)
             }
             Err(error) => {
@@ -533,16 +600,31 @@ impl ProposalTool {
                 "cancelled before the process started",
             ));
         }
+        let adopted = self.guard.adopted();
         let binding = Binding {
             request_id: uuid::Uuid::now_v7().to_string(),
             tool_id: self.tool_id.clone(),
             tool_version: self.tool_version.clone(),
             descriptor_sha256: self.descriptor_sha256.clone(),
             runtime_sha256: self.runtime_sha256.clone(),
-            input_revision: self.guard.adopted_revision().to_string(),
+            input_revision: adopted.revision.clone(),
             schema_sha256: self.guard.adopted_schema_sha256().to_string(),
         };
-        let inputs: &[SchemaInput] = self.guard.adopted_inputs();
+        if let Some(stage) = self.stage.get() {
+            return self.run_stage(
+                &StageCall {
+                    stage,
+                    arguments,
+                    context,
+                    is_cancelled,
+                    secrets: &secrets,
+                    binding: &binding,
+                    adopted: &adopted,
+                },
+                notes,
+            );
+        }
+        let inputs: &[SchemaInput] = &adopted.inputs;
         let output = self.declaration.single_output();
         let request = protocol::request_bytes(&binding, arguments, inputs, output);
         notes.executed = true;
@@ -600,6 +682,290 @@ impl ProposalTool {
         )?;
         self.note_commit(context, &receipt);
         Ok(receipt_for_model(&receipt))
+    }
+
+    /// One call of a tool a declared stage names. Everything that does not spend an attempt has
+    /// already happened by the time this runs: the authority, the arguments, the pins, the secret
+    /// read, and the cancel.
+    fn run_stage(
+        &self,
+        call: &StageCall<'_>,
+        notes: &mut RunNotes,
+    ) -> Result<String, ProfileToolRefusal> {
+        let bytes = WorkspaceBytes::new(&self.workspace);
+        let now_ms = now_ms();
+        let (ledger, contract) = call.stage.open_ledger(now_ms, &bytes)?;
+        let target = contract
+            .target_for_tool(&self.tool_id)
+            .ok_or_else(|| stage_ended(&self.tool_id, "not_a_target"))?;
+        let current_output = bytes.observe(&target.output_path);
+        let asked = arguments_without_revision(call.arguments);
+        let request = call
+            .stage
+            .attempt_request(
+                &contract,
+                target,
+                StageCallFacts {
+                    turn: self.guard.reply_number(),
+                    now_ms,
+                    expected_revision: call
+                        .arguments
+                        .get(EXPECTED_REVISION_ARGUMENT)
+                        .and_then(Value::as_str)
+                        .unwrap_or_default(),
+                    arguments_sha256: arguments_sha256(&asked),
+                    request_id: call.binding.request_id.clone(),
+                    current_output: &current_output,
+                    adopted: call.adopted,
+                },
+            )
+            .ok_or_else(|| stage_ended(&self.tool_id, "not_a_member"))?;
+        let decision = {
+            let mut held = locked(&ledger)?;
+            // Bytes that moved since the last call take their state, and everything below's,
+            // before this call is judged against it.
+            let _ = held.verdict(&bytes);
+            held.begin(&target.key, request).map_err(ledger_refused)?
+        };
+        let ticket = match decision {
+            BeginDecision::Proceed(ticket) => ticket,
+            other => return self.answer_without_process(other, &ledger, target, notes),
+        };
+        let outcome =
+            self.stage_attempt(call, &ledger, (&contract, target), &ticket, &asked, notes);
+        if let Err(error) = &outcome {
+            // Past the intent the permit has answered already, and this is refused as stale.
+            if let Ok(mut held) = locked(&ledger) {
+                let failure = terminal_failure(error.kind, notes.secret_in_output);
+                let _ = held.record_failure(&ticket, AttemptFailure::Terminal(failure));
+            }
+        }
+        outcome
+    }
+
+    /// The table's rows that start nothing. What a model can correct goes back as data; the
+    /// rest ends the run, as any refusal does.
+    fn answer_without_process(
+        &self,
+        decision: BeginDecision,
+        ledger: &HeldLedger,
+        target: &AdmittedTarget,
+        notes: &mut RunNotes,
+    ) -> Result<String, ProfileToolRefusal> {
+        let tool = self.tool_id.as_str();
+        let (ok, answer) = match decision {
+            BeginDecision::NoChange { revision } => {
+                (true, json!({"status": "no_change", "revision": revision}))
+            }
+            BeginDecision::Stale { current_revision } => (
+                false,
+                json!({"status": "stale", "revision": current_revision}),
+            ),
+            BeginDecision::UnknownRevision => (
+                false,
+                json!({
+                    "status": "unknown_revision",
+                    "revision": locked(ledger)?.revision_of(&target.key),
+                }),
+            ),
+            BeginDecision::NotReady { waiting_on } => {
+                notes.stage_reply_ok = Some(false);
+                return Ok(fit_for_model(
+                    json!({"status": "not_ready", "waiting_on": waiting_on}),
+                    "/waiting_on",
+                ));
+            }
+            BeginDecision::InputNotCurrent { path } => {
+                (false, json!({"status": "input_not_current", "path": path}))
+            }
+            BeginDecision::AttemptsExhausted(ExhaustedLimit::Target) => {
+                return Err(stage_ended(tool, "attempts_exhausted_for_target"));
+            }
+            BeginDecision::AttemptsExhausted(ExhaustedLimit::Run) => {
+                return Err(stage_ended(tool, "attempts_exhausted_for_run"));
+            }
+            BeginDecision::DeadlineExceeded => return Err(stage_ended(tool, "deadline_exceeded")),
+            BeginDecision::FixedInputChanged { path } => {
+                return Err(stage_ended(tool, &format!("fixed_input_changed {path}")));
+            }
+            BeginDecision::Refused(refused) => {
+                return Err(stage_ended(tool, &format!("refused {refused:?}")));
+            }
+            BeginDecision::UnknownTarget | BeginDecision::Proceed(_) => {
+                return Err(stage_ended(tool, "not_a_target"));
+            }
+        };
+        notes.stage_reply_ok = Some(ok);
+        Ok(answer.to_string())
+    }
+
+    /// One attempt, already counted. The ledger's lock is not held across the process or the
+    /// commit: another session's call must meet a refusal, not wait for them.
+    fn stage_attempt(
+        &self,
+        call: &StageCall<'_>,
+        ledger: &HeldLedger,
+        (contract, target): (&StageContract, &AdmittedTarget),
+        ticket: &AttemptTicket,
+        asked: &Value,
+        notes: &mut RunNotes,
+    ) -> Result<String, ProfileToolRefusal> {
+        let output = self.declaration.single_output();
+        let request = protocol::request_bytes(call.binding, asked, &call.adopted.inputs, output);
+        notes.executed = true;
+        let observation = self
+            .launch(&request, call.is_cancelled)
+            .inspect_err(|error| notes.executed = error.kind != RefusalKind::EffectUnavailable)?;
+        // As in the plain path: nothing of what the process said goes further than this.
+        if call
+            .secrets
+            .found_in_output(&observation.stdout, &observation.stderr)
+        {
+            notes.secret_in_output = true;
+            return Err(secret_in_output(&self.tool_id));
+        }
+        notes.diagnostics = protocol::salvage_diagnostics(&observation.stdout);
+        notes.stderr_tail = protocol::stderr_tail(&observation.stderr);
+        if let Some(code) = observation.failure_code() {
+            return Err(refusal(
+                RefusalKind::ProcessFailed,
+                format!("tool `{}` process ended with `{code}`", self.tool_id),
+            ));
+        }
+        let rejected = |rejection: protocol::Rejection| {
+            refusal(
+                RefusalKind::ResultRejected,
+                format!("tool `{}`: {}", self.tool_id, rejection.code),
+            )
+        };
+        let result = protocol::verify_stage_result(
+            &observation.stdout,
+            observation.stderr.len(),
+            call.binding,
+            self.max_result_bytes,
+        )
+        .map_err(rejected)?;
+        if let Err(kind) = judge_checks(&target.required_checks, &result.checks) {
+            locked(ledger)?
+                .record_failure(ticket, AttemptFailure::Check(kind))
+                .map_err(ledger_refused)?;
+            return Ok(self.answer_failed_check(
+                call.context,
+                kind,
+                result.resubmit_diagnostics(),
+                notes,
+            ));
+        }
+        let accepted = result
+            .accepted(&observation.stdout, output)
+            .map_err(rejected)
+            .and_then(|accepted| self.verify_pins(STAGE_COMMIT).map(|()| accepted))?;
+        let bytes = WorkspaceBytes::new(&self.workspace);
+        let before = bytes.observe(&target.output_path);
+        let decision = locked(ledger)?
+            .record_local_result(
+                ticket,
+                &accepted.committed_sha256,
+                result.checks.clone(),
+                &before,
+            )
+            .map_err(ledger_refused)?;
+        match decision {
+            LocalDecision::ReadyToCommit => {}
+            LocalDecision::Unchanged => {
+                notes.stage_reply_ok = Some(true);
+                let revision = locked(ledger)?.revision_of(&target.key);
+                return Ok(json!({"status": "no_change", "revision": revision}).to_string());
+            }
+            LocalDecision::Resubmit(kind) => {
+                return Ok(self.answer_failed_check(
+                    call.context,
+                    kind,
+                    result.resubmit_diagnostics(),
+                    notes,
+                ));
+            }
+            other => {
+                return Err(stage_ended(&self.tool_id, &format!("{other:?}")));
+            }
+        }
+        let permit = stage_ledger::record_intent(ledger, ticket, before.sha256())
+            .map_err(ledger_refused)?
+            .map_err(|refused| stage_ended(&self.tool_id, &format!("refused {refused:?}")))?;
+        let mut forbidden = self.input_paths();
+        forbidden.extend(call.context.protected_paths.iter().cloned());
+        let committed = commit::commit(
+            &CommitPlan {
+                root: &self.root,
+                root_display: &self.workspace,
+                relative: &output.path,
+                bytes: &accepted.bytes,
+                committed_sha256: &accepted.committed_sha256,
+                forbidden: &forbidden,
+                binding: call.binding,
+                output_id: &accepted.output_id,
+                result_sha256: &accepted.result_sha256,
+                diagnostics: &accepted.diagnostics,
+            },
+            &|| {
+                self.judge_now(call.context, STAGE_COMMIT)?;
+                let compared = locked(ledger)?.cas_check(ticket).map_err(ledger_refused)?;
+                compared
+                    .map_err(|refused| stage_ended(&self.tool_id, &format!("refused {refused:?}")))
+            },
+            call.is_cancelled,
+        );
+        let receipt = match committed {
+            Ok(receipt) => receipt,
+            Err(error) => {
+                let observation = commit_failure_observation(&before, &bytes.observe(&output.path));
+                let _ = permit.answer(observation);
+                return Err(error);
+            }
+        };
+        self.note_commit(call.context, &receipt);
+        let decision = permit
+            .answer(CommitObservation::Stood(Box::new(receipt.clone())))
+            .map_err(ledger_refused)?
+            .map_err(|refused| stage_ended(&self.tool_id, &format!("refused {refused:?}")))?;
+        notes.stage_reply_ok = Some(decision.is_progress());
+        if decision.is_progress() {
+            call.stage.readopt_readers(contract, target, &receipt)?;
+        }
+        Ok(stage_receipt_for_model(&receipt, &decision))
+    }
+
+    /// The one failure a model may answer with another submission. Its diagnostics are data, in
+    /// a field of their own: no message carries them, because later steps read messages by their
+    /// words.
+    fn answer_failed_check(
+        &self,
+        context: &ToolContext,
+        kind: CheckFailureKind,
+        diagnostics: BoundedDiagnostics,
+        notes: &mut RunNotes,
+    ) -> String {
+        let code = check_failure_code(kind);
+        notes.stage_reply_ok = Some(false);
+        notes.diagnostics.clone_from(&diagnostics.items);
+        emit_rejection(
+            context,
+            self,
+            &refusal(
+                RefusalKind::ResultRejected,
+                format!("tool `{}`: {code}", self.tool_id),
+            ),
+            notes,
+        );
+        fit_for_model(
+            json!({
+                "status": "resubmit",
+                "code": code,
+                "diagnostics": diagnostics.items,
+                "truncated": diagnostics.truncated,
+            }),
+            "/diagnostics",
+        )
     }
 
     fn check_arguments(&self, arguments: &Value) -> Result<(), ProfileToolRefusal> {
@@ -712,6 +1078,182 @@ impl ProposalTool {
             }),
         );
     }
+}
+
+/// What a stage call carries through its steps.
+struct StageCall<'a> {
+    stage: &'a StageRun,
+    arguments: &'a Value,
+    context: &'a ToolContext,
+    is_cancelled: &'a dyn Fn() -> bool,
+    secrets: &'a SecretForms,
+    binding: &'a Binding,
+    adopted: &'a AdoptedInputs,
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| {
+            u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX)
+        })
+}
+
+fn stage_ended(tool: &str, code: &str) -> ProfileToolRefusal {
+    refusal(RefusalKind::StageRunEnded, format!("tool `{tool}`: {code}"))
+}
+
+fn locked(ledger: &HeldLedger) -> Result<MutexGuard<'_, StageLedger>, ProfileToolRefusal> {
+    ledger.lock().map_err(|_| {
+        ledger_refused(crate::planner::structured_stages::ledger::LedgerRefusal::Unavailable)
+    })
+}
+
+/// What a call asks for: the arguments without the model's idea of the revision. A sealed call
+/// and its repeat name different revisions and ask for the same thing.
+fn arguments_without_revision(arguments: &Value) -> Value {
+    let mut asked = arguments.clone();
+    if let Some(fields) = asked.as_object_mut() {
+        fields.remove(EXPECTED_REVISION_ARGUMENT);
+    }
+    asked
+}
+
+fn arguments_sha256(asked: &Value) -> String {
+    sha256_hex(&serde_json::to_vec(asked).unwrap_or_default())
+}
+
+/// The bytes decide, not the words of the refusal: the same bytes as before the intent mean
+/// nothing was adopted, and anything else may mean a rename stood.
+fn commit_failure_observation(before: &ObservedBytes, now: &ObservedBytes) -> CommitObservation {
+    let unchanged = match (before, now) {
+        (ObservedBytes::Absent, ObservedBytes::Absent) => true,
+        (ObservedBytes::Present(before), ObservedBytes::Present(now)) => before == now,
+        _ => false,
+    };
+    if unchanged {
+        CommitObservation::NotAdopted
+    } else {
+        CommitObservation::OutcomeUnknown
+    }
+}
+
+const fn check_failure_code(kind: CheckFailureKind) -> &'static str {
+    match kind {
+        CheckFailureKind::Failed => "check_failed",
+        CheckFailureKind::NotRun => "check_not_run",
+        CheckFailureKind::Unknown => "check_unknown",
+    }
+}
+
+/// How a refusal ends an attempt. The kind decides, and none of these can be answered with
+/// another submission.
+const fn terminal_failure(kind: RefusalKind, secret_in_output: bool) -> TerminalFailure {
+    if secret_in_output {
+        return TerminalFailure::SecretValueInOutput;
+    }
+    match kind {
+        RefusalKind::InvalidPin
+        | RefusalKind::EffectInvalidPin
+        | RefusalKind::InputRevisionMismatch
+        | RefusalKind::SchemaMismatch => TerminalFailure::Pin,
+        RefusalKind::EffectPathRefused | RefusalKind::EffectReadOnly => TerminalFailure::Path,
+        RefusalKind::ProcessFailed | RefusalKind::EffectUnavailable => TerminalFailure::Process,
+        RefusalKind::CommitFailed => TerminalFailure::CommitBeforeIntent,
+        _ => TerminalFailure::Binding,
+    }
+}
+
+fn downstream_for_model(invalidated: &[InvalidatedTarget]) -> Vec<Value> {
+    invalidated
+        .iter()
+        .map(|target| {
+            json!({
+                "stage": target.key.stage,
+                "target": target.key.target,
+                "revision": target.revision,
+            })
+        })
+        .collect()
+}
+
+/// What the history keeps of a tool result that is neither `Read` nor `Bash`, in characters. A
+/// longer one is cut wherever the limit falls, which makes a JSON answer unreadable.
+const MODEL_RESULT_CHARS: usize = 500;
+
+/// An answer short enough to reach the model whole. The list at `pointer` gives way, last item
+/// first, and a long message before its item, and `truncated` says so. A model that does not
+/// get a revision here gets it from the `stale` its next call meets.
+fn fit_for_model(mut answer: Value, pointer: &str) -> String {
+    loop {
+        let text = answer.to_string();
+        if text.chars().count() <= MODEL_RESULT_CHARS {
+            return text;
+        }
+        let Some(list) = answer
+            .pointer_mut(pointer)
+            .and_then(Value::as_array_mut)
+            .filter(|list| !list.is_empty())
+        else {
+            return text;
+        };
+        let long_message = list
+            .last_mut()
+            .and_then(|last| last.get_mut("message"))
+            .filter(|message| {
+                message
+                    .as_str()
+                    .is_some_and(|text| text.chars().count() > 32)
+            });
+        match long_message {
+            Some(message) => {
+                let text = message.as_str().unwrap_or_default();
+                let half = text.chars().count() / 2;
+                *message = Value::String(text.chars().take(half).collect());
+            }
+            None => {
+                list.pop();
+            }
+        }
+        answer["truncated"] = Value::Bool(true);
+    }
+}
+
+/// What the model needs of a receipt, where the stage stands now, and the revision each target
+/// below it has to name next, so that no call of theirs starts out stale. The whole receipt is on
+/// the event and in `commit_receipts()`.
+fn stage_receipt_for_model(receipt: &CommitReceipt, decision: &CommitDecision) -> String {
+    let stage = match decision {
+        CommitDecision::Sealed {
+            revision,
+            invalidated,
+            ..
+        } => json!({
+            "status": "sealed",
+            "revision": revision,
+            "downstream": downstream_for_model(invalidated),
+        }),
+        CommitDecision::StoodUnverified {
+            revision,
+            reason,
+            invalidated,
+        } => json!({
+            "status": "unverified",
+            "reason": reason,
+            "revision": revision,
+            "downstream": downstream_for_model(invalidated),
+        }),
+        CommitDecision::NotAdopted => json!({"status": "not_adopted"}),
+    };
+    fit_for_model(
+        json!({
+            "committed": receipt.committed,
+            "committed_sha256": receipt.committed_sha256,
+            "path": receipt.path,
+            "stage": stage,
+        }),
+        "/stage/downstream",
+    )
 }
 
 /// A fixed code: not the value, not the form, not where it was.
@@ -830,6 +1372,9 @@ struct RunNotes {
     executed: bool,
     diagnostics: Vec<Diagnostic>,
     stderr_tail: String,
+    /// A stage call that returned as data: whether what it asked for happened.
+    stage_reply_ok: Option<bool>,
+    secret_in_output: bool,
 }
 
 /// The whole of one call on every platform. The launch is unconfined here, which only a
@@ -1291,6 +1836,960 @@ field() { printf '%s' "$request" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }
             assert_eq!(bench.saved().as_deref(), Some(&b"old"[..]), "{label}");
             assert_eq!(bench.starts(), 1, "{label}: no retry hides a failure");
             assert!(bench.tool.take_committed_paths().is_empty(), "{label}");
+        }
+    }
+
+    /// A declaration that names no stage: one failed check ends it, as it always did.
+    #[test]
+    fn a_tool_outside_a_stage_set_still_ends_at_one_failed_check() {
+        let failing = result_script(
+            "$(field request_id)",
+            "$(field runtime_sha256)",
+            "$(field input_revision)",
+            "$(field schema_sha256)",
+            r#"[{"id":"shape","status":"failed"}]"#,
+            &good_output(),
+        );
+        let bench = bench(&failing);
+        let error = bench.call().unwrap_err();
+        assert_eq!(kind(&error), RefusalKind::ResultRejected);
+        assert!(error.to_string().contains("check_failed"), "{error:#}");
+        assert_eq!(bench.starts(), 1);
+        // Nor can it join a stage set by what its schema does not have.
+        assert_eq!(
+            bench.tool.stage_member().unwrap_err().kind,
+            RefusalKind::StageContractRefused
+        );
+    }
+
+    mod stages {
+        use std::collections::BTreeMap;
+        use std::path::PathBuf;
+        use std::sync::{Arc, Mutex};
+
+        use serde_json::{Value, json};
+
+        use super::super::super::RefusalKind;
+        use super::super::super::commit::test_hook::{self, Stage};
+        use super::super::super::descriptor::{RegistryBinding, directory_pin};
+        use super::super::super::isolation::test_hook::{Unconfined, unconfined};
+        use super::super::super::protocol::{
+            DirectoryPin, FilePin, OutputDeclaration, PROCESS_PROTOCOL, ProcessDeclaration,
+            ProcessLimits, encode_base64,
+        };
+        use super::super::super::schema::binding::{self as schema_binding, ToolPins};
+        use super::super::super::schema::invocation::ReceiveState;
+        use super::super::{
+            EXPECTED_REVISION_ARGUMENT, MODEL_RESULT_CHARS, ProposalParts, ProposalTool,
+            arguments_sha256, arguments_without_revision, fit_for_model,
+        };
+        use super::{DUMMY, kind, sha256};
+        use crate::mode::ExecutionMode;
+        use crate::planner::structured_stages::contract::{
+            HostToolFacts, NarrowedStageLimits, StageContractDraft, StageDeclaration, StageLimits,
+            StageRunFacts, StageSetDeclaration, TargetDeclaration, TargetKey,
+        };
+        use crate::planner::structured_stages::ledger::{
+            HeldLedger, LedgerEntry, LedgerRegistry, WorkspaceBytes,
+        };
+        use crate::planner::structured_stages::state::{Phase, UnverifiedReason};
+        use crate::planner::structured_stages::{StageMember, StageRun};
+        use crate::tools::registry::ToolContext;
+        use crate::tools::workspace_policy::WorkspacePolicy;
+
+        const PROFILE: &str = "stage-unit-profile";
+        const UPPER: &str = "stage-upper";
+        const LOWER: &str = "stage-lower";
+        const UPPER_OUTPUT: &str = "out/upper.json";
+        const LOWER_OUTPUT: &str = "out/lower.json";
+        const UPPER_FIXED: &str = "fixed/upper.json";
+        const LOWER_FIXED: &str = "fixed/lower.json";
+        const VERSION_ONE: &[u8] = b"{\"version\":1}\n";
+        const VERSION_TWO: &[u8] = b"{\"version\":2}\n";
+
+        fn output_for(bytes: &[u8]) -> String {
+            format!(
+                r#"[{{"id":"artifact","sha256":"{}","bytes_base64":"{}"}}]"#,
+                sha256(bytes),
+                encode_base64(bytes)
+            )
+        }
+
+        /// A process steered by files only the test writes, so one script serves every call.
+        fn script(tool: &str) -> String {
+            let (one, two) = (output_for(VERSION_ONE), output_for(VERSION_TWO));
+            format!(
+                r#"request=$(cat)
+echo started >> "$MARKS/started-{tool}"
+printf '%s' "$request" > "$MARKS/request-{tool}"
+field() {{ printf '%s' "$request" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }}
+checks='[{{"id":"shape","status":"passed"}}]'
+[ -f "$MARKS/checks-{tool}" ] && checks=$(cat "$MARKS/checks-{tool}")
+outputs='{one}'
+[ -f "$MARKS/second-{tool}" ] && outputs='{two}'
+diagnostics='[]'
+[ -f "$MARKS/diagnostics-{tool}" ] && diagnostics=$(cat "$MARKS/diagnostics-{tool}")
+printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","runtime_sha256":"%s","input_revision":"%s","schema_sha256":"%s","checks":%s,"outputs":%s,"diagnostics":%s}}' "$(field request_id)" "$(field tool_id)" "$(field runtime_sha256)" "$(field input_revision)" "$(field schema_sha256)" "$checks" "$outputs" "$diagnostics"
+"#
+            )
+        }
+
+        struct StageBench {
+            _guard: Unconfined,
+            _temp: tempfile::TempDir,
+            workspace: PathBuf,
+            marks: PathBuf,
+            upper: Arc<ProposalTool>,
+            lower: Arc<ProposalTool>,
+            run: Arc<StageRun>,
+        }
+
+        fn facts(tool: &str, output: &str, inputs: &[&str], attempts: u32) -> HostToolFacts {
+            HostToolFacts {
+                tool_id: tool.to_string(),
+                output_id: "artifact".to_string(),
+                output_path: output.to_string(),
+                schema_inputs: inputs.iter().map(|path| (*path).to_string()).collect(),
+                has_revision_argument: false,
+                has_compiler: false,
+                required_checks: vec!["shape".to_string()],
+                limits: StageLimits {
+                    attempts_per_target: attempts,
+                    attempts_per_run: 64,
+                    deadline_seconds: 3600,
+                },
+            }
+        }
+
+        fn stage(id: &str, tool: &str) -> StageDeclaration {
+            StageDeclaration {
+                id: id.to_string(),
+                targets: vec![TargetDeclaration {
+                    id: "main".to_string(),
+                    tool_id: tool.to_string(),
+                }],
+                depends_on: Vec::new(),
+                required_checks: Vec::new(),
+            }
+        }
+
+        fn stage_bench() -> StageBench {
+            stage_bench_with(8)
+        }
+
+        fn stage_bench_with(attempts_per_target: u32) -> StageBench {
+            let temp = tempfile::tempdir().unwrap();
+            let base = std::fs::canonicalize(temp.path()).unwrap();
+            let (workspace, marks, registry) = (
+                base.join("workspace"),
+                base.join("marks"),
+                base.join("registry"),
+            );
+            for directory in [
+                workspace.join("fixed"),
+                marks.clone(),
+                registry.join("profile-tools"),
+            ] {
+                std::fs::create_dir_all(directory).unwrap();
+            }
+            std::fs::write(workspace.join(UPPER_FIXED), b"upper seed").unwrap();
+            std::fs::write(workspace.join(LOWER_FIXED), b"lower seed").unwrap();
+            let host_facts = [
+                facts(UPPER, UPPER_OUTPUT, &[UPPER_FIXED], attempts_per_target),
+                facts(
+                    LOWER,
+                    LOWER_OUTPUT,
+                    &[UPPER_OUTPUT, LOWER_FIXED],
+                    attempts_per_target,
+                ),
+            ];
+            let draft = StageContractDraft::new(
+                &StageSetDeclaration {
+                    stages: vec![stage("lower", LOWER), stage("upper", UPPER)],
+                    limits: NarrowedStageLimits::default(),
+                },
+                &host_facts,
+            )
+            .unwrap();
+
+            let mut state = ReceiveState::default();
+            let mut build = |id: &str, name: &str, output: &str, inputs: &[&str]| {
+                let tool_dir = base.join(format!("tool-{id}"));
+                std::fs::create_dir_all(&tool_dir).unwrap();
+                let script_path = tool_dir.join("tool.sh");
+                std::fs::write(&script_path, script(id)).unwrap();
+                let shell = std::fs::canonicalize("/bin/sh").unwrap();
+                let declaration = ProcessDeclaration {
+                    protocol: PROCESS_PROTOCOL.to_string(),
+                    executable: FilePin {
+                        sha256: sha256(&std::fs::read(&shell).unwrap()),
+                        path: shell,
+                    },
+                    dependency_directories: vec![DirectoryPin {
+                        path: tool_dir.clone(),
+                        sha256: directory_pin(&tool_dir).unwrap(),
+                    }],
+                    link_directories: Vec::new(),
+                    argv: vec![script_path.display().to_string()],
+                    cwd: tool_dir.clone(),
+                    env: BTreeMap::from([("MARKS".to_string(), marks.display().to_string())]),
+                    limits: ProcessLimits {
+                        timeout_ms: 20_000,
+                        max_result_bytes: 64 * 1024,
+                    },
+                    outputs: vec![OutputDeclaration {
+                        id: "artifact".to_string(),
+                        path: output.to_string(),
+                    }],
+                };
+                let schema = json!({
+                    "protocol": "profile-tool.schema/v1",
+                    "root": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                            "mode": {"type": "string"},
+                            EXPECTED_REVISION_ARGUMENT: {"type": "string"},
+                        },
+                        "required": [EXPECTED_REVISION_ARGUMENT],
+                    },
+                    "inputs": inputs,
+                });
+                let descriptor_text = json!({"process": declaration, "schema": schema}).to_string();
+                std::fs::write(
+                    registry.join(format!("profile-tools/{id}.json")),
+                    &descriptor_text,
+                )
+                .unwrap();
+                let binding = RegistryBinding::capture_for_test(&registry, id);
+                let descriptor_sha256 = sha256(descriptor_text.as_bytes());
+                let pins = super::super::super::descriptor::verify_process_pins(
+                    &declaration,
+                    id,
+                    &workspace,
+                )
+                .unwrap();
+                let adoption = schema_binding::adopt_with_upstream(
+                    &schema,
+                    &ToolPins {
+                        tool_id: id,
+                        version: "1.0.0",
+                        descriptor_sha256: &descriptor_sha256,
+                        max_input_bytes: 1 << 20,
+                    },
+                    &workspace,
+                    PROFILE,
+                    &draft.upstream_inputs(id),
+                )
+                .unwrap();
+                let guard = state.add(
+                    name,
+                    "Propose one object.",
+                    adoption,
+                    binding.clone(),
+                    &descriptor_sha256,
+                );
+                Arc::new(
+                    ProposalTool::new(ProposalParts {
+                        name: name.to_string(),
+                        description: "Propose one object.".to_string(),
+                        tool_id: id.to_string(),
+                        tool_version: "1.0.0".to_string(),
+                        descriptor_sha256,
+                        declaration,
+                        registry: binding,
+                        pins,
+                        workspace: workspace.clone(),
+                        guard,
+                        max_input_bytes: 1 << 20,
+                        max_output_bytes: 64 * 1024,
+                        receipts: Arc::new(Mutex::new(Vec::new())),
+                        commits: Arc::new(Mutex::new(Vec::new())),
+                    })
+                    .unwrap(),
+                )
+            };
+            let upper = build(UPPER, "ProposeUpper", UPPER_OUTPUT, &[UPPER_FIXED]);
+            let lower = build(
+                LOWER,
+                "ProposeLower",
+                LOWER_OUTPUT,
+                &[UPPER_OUTPUT, LOWER_FIXED],
+            );
+            let members: BTreeMap<String, StageMember> = BTreeMap::from([
+                (UPPER.to_string(), upper.stage_member().unwrap()),
+                (LOWER.to_string(), lower.stage_member().unwrap()),
+            ]);
+            let run = Arc::new(StageRun::new(
+                draft,
+                members,
+                workspace.clone(),
+                PROFILE.to_string(),
+                Arc::new(LedgerRegistry::default()),
+            ));
+            upper.attach_stage(run.clone());
+            lower.attach_stage(run.clone());
+            run.bind_session(
+                StageRunFacts::for_test(true, false),
+                &base.join("state"),
+                LedgerEntry::Fresh,
+            )
+            .unwrap();
+            StageBench {
+                _guard: unconfined(),
+                _temp: temp,
+                workspace,
+                marks,
+                upper,
+                lower,
+                run,
+            }
+        }
+
+        fn upper_key() -> TargetKey {
+            TargetKey {
+                stage: "upper".to_string(),
+                target: "main".to_string(),
+            }
+        }
+
+        fn lower_key() -> TargetKey {
+            TargetKey {
+                stage: "lower".to_string(),
+                target: "main".to_string(),
+            }
+        }
+
+        impl StageBench {
+            fn context(&self) -> ToolContext {
+                ToolContext {
+                    root: self.workspace.clone(),
+                    mode: ExecutionMode::Act,
+                    auto_approve: true,
+                    interactive_approval: false,
+                    offline: false,
+                    workspace_policy: WorkspacePolicy::for_task_request(),
+                    eval_events_path: None,
+                    expected_paths: Vec::new(),
+                    protected_paths: Vec::new(),
+                }
+            }
+
+            fn call(
+                &self,
+                tool: &ProposalTool,
+                mode: &str,
+                revision: &str,
+            ) -> anyhow::Result<Value> {
+                self.call_cancelling(tool, mode, revision, &|| false)
+            }
+
+            fn call_cancelling(
+                &self,
+                tool: &ProposalTool,
+                mode: &str,
+                revision: &str,
+                is_cancelled: &dyn Fn() -> bool,
+            ) -> anyhow::Result<Value> {
+                let arguments = json!({"mode": mode, EXPECTED_REVISION_ARGUMENT: revision});
+                let text = tool.execute(&arguments, &self.context(), is_cancelled)?;
+                Ok(serde_json::from_str(&text).unwrap())
+            }
+
+            fn starts(&self, tool: &str) -> usize {
+                std::fs::read_to_string(self.marks.join(format!("started-{tool}")))
+                    .map_or(0, |text| text.lines().count())
+            }
+
+            fn mark(&self, name: &str, text: &str) {
+                std::fs::write(self.marks.join(name), text).unwrap();
+            }
+
+            fn unmark(&self, name: &str) {
+                std::fs::remove_file(self.marks.join(name)).unwrap();
+            }
+
+            fn saved(&self, path: &str) -> Option<Vec<u8>> {
+                std::fs::read(self.workspace.join(path)).ok()
+            }
+
+            fn ledger(&self) -> HeldLedger {
+                let bytes = WorkspaceBytes::new(&self.workspace);
+                self.run
+                    .open_ledger(super::super::now_ms(), &bytes)
+                    .unwrap()
+                    .0
+            }
+
+            /// Phase, generation, and reason, by the bytes there now.
+            fn status(&self, key: &TargetKey) -> (Phase, u64, Option<UnverifiedReason>) {
+                let bytes = WorkspaceBytes::new(&self.workspace);
+                let held = self.ledger();
+                let verdict = held.lock().unwrap().verdict(&bytes);
+                let status = verdict
+                    .obligations()
+                    .iter()
+                    .find(|status| status.key == *key)
+                    .unwrap();
+                (status.phase, status.generation, status.unverified_reason)
+            }
+
+            fn attempts(&self, key: &TargetKey) -> u32 {
+                self.ledger()
+                    .lock()
+                    .unwrap()
+                    .attempt_identity(key)
+                    .map_or(0, |identity| identity.attempt)
+            }
+
+            fn revision(&self, key: &TargetKey) -> String {
+                self.ledger().lock().unwrap().revision_of(key).unwrap()
+            }
+
+            fn seal_upper(&self) -> Value {
+                let answer = self.call(&self.upper, "fast", "initial").unwrap();
+                assert_eq!(answer["stage"]["status"], "sealed", "{answer}");
+                answer
+            }
+        }
+
+        fn request_of(bench: &StageBench, tool: &str) -> Value {
+            let text =
+                std::fs::read_to_string(bench.marks.join(format!("request-{tool}"))).unwrap();
+            serde_json::from_str(&text).unwrap()
+        }
+
+        fn downstream_revision(answer: &Value) -> String {
+            let downstream = answer["stage"]["downstream"].as_array().unwrap();
+            assert_eq!(downstream.len(), 1, "{answer}");
+            assert_eq!(downstream[0]["stage"], "lower");
+            assert_eq!(downstream[0]["target"], "main");
+            downstream[0]["revision"].as_str().unwrap().to_string()
+        }
+
+        /// What a model sees: A's answer names B's revision, and B goes through on that alone.
+        #[test]
+        fn a_commit_tells_the_model_the_revision_below_and_the_next_call_is_not_stale() {
+            let bench = stage_bench();
+            let answer = bench.seal_upper();
+            let lower_revision = downstream_revision(&answer);
+            assert_ne!(lower_revision, "initial");
+            assert_eq!(lower_revision, bench.revision(&lower_key()));
+            assert_eq!(bench.saved(UPPER_OUTPUT).as_deref(), Some(VERSION_ONE));
+
+            let answer = bench.call(&bench.lower, "fast", &lower_revision).unwrap();
+            assert_eq!(answer["stage"]["status"], "sealed", "{answer}");
+            assert_eq!(answer["stage"]["downstream"], json!([]));
+            assert_eq!(bench.starts(LOWER), 1, "no call was spent on a stale");
+            assert_eq!(bench.saved(LOWER_OUTPUT).as_deref(), Some(VERSION_ONE));
+            assert!(answer.get("diagnostics").is_none(), "{answer}");
+
+            // The process got the upstream's bytes as adopted, and not the model's revision.
+            let request = request_of(&bench, LOWER);
+            assert_eq!(request["arguments"], json!({"mode": "fast"}));
+            assert_eq!(request["inputs"][0]["path"], UPPER_OUTPUT);
+            assert_eq!(
+                request["inputs"][0]["bytes_base64"],
+                encode_base64(VERSION_ONE)
+            );
+            assert_eq!(request["inputs"][1]["path"], LOWER_FIXED);
+
+            let verdict = {
+                let bytes = WorkspaceBytes::new(&bench.workspace);
+                bench.ledger().lock().unwrap().verdict(&bytes)
+            };
+            assert!(verdict.complete());
+        }
+
+        #[test]
+        fn a_stage_below_cannot_start_before_the_one_above_it_is_sealed() {
+            let bench = stage_bench();
+            let answer = bench.call(&bench.lower, "fast", "initial").unwrap();
+            assert_eq!(answer["status"], "not_ready", "{answer}");
+            assert_eq!(
+                answer["waiting_on"],
+                json!([{"stage": "upper", "target": "main"}])
+            );
+            assert_eq!(bench.starts(LOWER), 0);
+            assert_eq!(bench.attempts(&lower_key()), 0);
+            assert_eq!(bench.saved(LOWER_OUTPUT), None);
+        }
+
+        /// The revision a sealed call named and the one its repeat names differ, so a digest that
+        /// held the revision would never match and this row could never be reached.
+        #[test]
+        fn row_one_the_same_call_on_the_sealed_bytes_changes_nothing_and_starts_nothing() {
+            let bench = stage_bench();
+            let sealed_with = "initial";
+            let answer = bench.seal_upper();
+            let current = answer["stage"]["revision"].as_str().unwrap().to_string();
+            assert_ne!(current, sealed_with);
+            let before = bench.status(&upper_key());
+            assert_eq!(bench.starts(UPPER), 1);
+
+            let again = bench.call(&bench.upper, "fast", &current).unwrap();
+            assert_eq!(again, json!({"status": "no_change", "revision": current}));
+            assert_eq!(bench.starts(UPPER), 1, "no process");
+            assert_eq!(bench.attempts(&upper_key()), 1, "no attempt");
+            assert_eq!(bench.status(&upper_key()), before);
+        }
+
+        #[test]
+        fn the_digest_of_a_call_leaves_out_the_revision_and_nothing_else() {
+            let call = |mode: &str, revision: &str| {
+                arguments_sha256(&arguments_without_revision(&json!({
+                    "mode": mode,
+                    EXPECTED_REVISION_ARGUMENT: revision,
+                })))
+            };
+            assert_eq!(call("fast", "initial"), call("fast", "g1-0123456789abcdef"));
+            assert_ne!(call("fast", "initial"), call("slow", "initial"));
+            assert_eq!(
+                arguments_without_revision(&json!({
+                    "mode": "fast",
+                    EXPECTED_REVISION_ARGUMENT: "initial",
+                })),
+                json!({"mode": "fast"})
+            );
+        }
+
+        #[test]
+        fn row_two_another_call_is_a_new_version_that_takes_the_stage_below_with_it() {
+            let bench = stage_bench();
+            let first = bench.seal_upper();
+            let lower_revision = downstream_revision(&first);
+            bench.call(&bench.lower, "fast", &lower_revision).unwrap();
+            let upper_before = bench.status(&upper_key()).1;
+            let lower_before = bench.status(&lower_key()).1;
+
+            bench.mark(&format!("second-{UPPER}"), "");
+            let current = first["stage"]["revision"].as_str().unwrap();
+            let second = bench.call(&bench.upper, "slow", current).unwrap();
+            assert_eq!(second["stage"]["status"], "sealed", "{second}");
+            assert_eq!(bench.status(&upper_key()).1, upper_before + 1);
+            let (phase, generation, _) = bench.status(&lower_key());
+            assert_eq!(phase, Phase::NotReady);
+            assert_eq!(generation, lower_before + 1);
+            assert_eq!(bench.saved(UPPER_OUTPUT).as_deref(), Some(VERSION_TWO));
+
+            // The reader took up the new version from the receipt: this is what a run ended on
+            // with `input_revision_mismatch` before.
+            let new_revision = downstream_revision(&second);
+            assert_ne!(new_revision, lower_revision);
+            let answer = bench.call(&bench.lower, "fast", &new_revision).unwrap();
+            assert_eq!(answer["stage"]["status"], "sealed", "{answer}");
+            assert_eq!(
+                request_of(&bench, LOWER)["inputs"][0]["bytes_base64"],
+                encode_base64(VERSION_TWO)
+            );
+        }
+
+        #[test]
+        fn row_three_an_older_revision_is_stale_and_row_four_an_unknown_one_is_refused() {
+            let bench = stage_bench();
+            let answer = bench.seal_upper();
+            let current = answer["stage"]["revision"].as_str().unwrap().to_string();
+
+            let stale = bench.call(&bench.upper, "other", "initial").unwrap();
+            assert_eq!(stale, json!({"status": "stale", "revision": current}));
+            assert_eq!(bench.starts(UPPER), 1);
+            assert_eq!(bench.attempts(&upper_key()), 1);
+
+            for revision in ["g9-0123456789abcdef", "made up", ""] {
+                let unknown = bench.call(&bench.upper, "other", revision).unwrap();
+                assert_eq!(unknown["status"], "unknown_revision", "{revision}");
+                assert_eq!(bench.starts(UPPER), 1, "{revision}");
+                assert_eq!(bench.attempts(&upper_key()), 1, "{revision}");
+            }
+        }
+
+        #[test]
+        fn each_failed_check_can_be_answered_and_the_next_submission_seals() {
+            for (status, code) in [
+                ("failed", "check_failed"),
+                ("not_run", "check_not_run"),
+                ("unknown", "check_unknown"),
+            ] {
+                let bench = stage_bench();
+                bench.mark(
+                    &format!("checks-{UPPER}"),
+                    &format!(r#"[{{"id":"shape","status":"{status}"}}]"#),
+                );
+                let answer = bench.call(&bench.upper, "fast", "initial").unwrap();
+                assert_eq!(answer["status"], "resubmit", "{answer}");
+                assert_eq!(answer["code"], code, "{answer}");
+                assert_eq!(bench.saved(UPPER_OUTPUT), None, "{status}");
+                assert_eq!(bench.status(&upper_key()).0, Phase::Proposed, "{status}");
+                assert_eq!(bench.attempts(&upper_key()), 1, "{status}");
+
+                bench.unmark(&format!("checks-{UPPER}"));
+                let answer = bench.call(&bench.upper, "fast", "initial").unwrap();
+                assert_eq!(answer["stage"]["status"], "sealed", "{status}: {answer}");
+                assert_eq!(bench.starts(UPPER), 2, "{status}");
+                assert_eq!(bench.attempts(&upper_key()), 2, "{status}");
+            }
+        }
+
+        /// The operator's IDs decide: a passing report of something else is not a pass.
+        #[test]
+        fn a_passing_report_that_is_not_the_required_ids_seals_nothing() {
+            for (checks, code) in [
+                (r#"[{"id":"other","status":"passed"}]"#, "check_unknown"),
+                (
+                    r#"[{"id":"shape","status":"passed"},{"id":"other","status":"passed"}]"#,
+                    "check_unknown",
+                ),
+            ] {
+                let bench = stage_bench();
+                bench.mark(&format!("checks-{UPPER}"), checks);
+                let answer = bench.call(&bench.upper, "fast", "initial").unwrap();
+                assert_eq!(answer["code"], code, "{checks}");
+                assert_eq!(bench.saved(UPPER_OUTPUT), None, "{checks}");
+            }
+        }
+
+        #[test]
+        fn a_failed_check_that_said_too_much_comes_back_cut_as_data_and_never_in_a_message() {
+            let bench = stage_bench();
+            bench.mark(
+                &format!("checks-{UPPER}"),
+                r#"[{"id":"shape","status":"failed"}]"#,
+            );
+            let items = (0..9)
+                .map(|index| json!({"code": format!("c{index}"), "message": "said a plain word"}))
+                .collect::<Vec<_>>();
+            bench.mark(
+                &format!("diagnostics-{UPPER}"),
+                &Value::Array(items).to_string(),
+            );
+            let answer = bench.call(&bench.upper, "fast", "initial").unwrap();
+            assert_eq!(answer["status"], "resubmit");
+            assert_eq!(answer["diagnostics"].as_array().unwrap().len(), 8);
+            assert_eq!(answer["truncated"], true);
+            assert_eq!(answer["diagnostics"][7]["code"], "c7");
+            assert!(answer["code"].as_str().unwrap().starts_with("check_"));
+        }
+
+        /// The history cuts any other tool's result at 500 characters, wherever that falls.
+        #[test]
+        fn an_answer_reaches_the_model_whole_at_the_edge_of_what_it_keeps() {
+            let answer = |message: String| {
+                json!({"status": "resubmit", "code": "c", "diagnostics": [
+                    {"code": "n", "message": message},
+                ], "truncated": false})
+            };
+            let overhead = answer(String::new()).to_string().chars().count();
+            let at_edge = "m".repeat(MODEL_RESULT_CHARS - overhead);
+            let whole = fit_for_model(answer(at_edge.clone()), "/diagnostics");
+            assert_eq!(whole.chars().count(), MODEL_RESULT_CHARS);
+            assert!(whole.contains(&at_edge));
+            assert!(whole.contains(r#""truncated":false"#), "{whole}");
+            assert_eq!(crate::eval_events::body_snippet_whole_tokens(&whole), whole);
+
+            let over = fit_for_model(answer(format!("{at_edge}m")), "/diagnostics");
+            assert!(over.chars().count() <= MODEL_RESULT_CHARS);
+            let read: Value = serde_json::from_str(&over).unwrap();
+            assert_eq!(read["truncated"], true);
+            assert!(
+                !read["diagnostics"][0]["message"]
+                    .as_str()
+                    .unwrap()
+                    .is_empty()
+            );
+        }
+
+        #[test]
+        fn a_list_too_long_for_the_model_gives_way_from_its_end_and_says_so() {
+            let bench = stage_bench();
+            bench.mark(
+                &format!("checks-{UPPER}"),
+                r#"[{"id":"shape","status":"failed"}]"#,
+            );
+            let items = (0..8)
+                .map(|index| json!({"code": format!("c{index}"), "message": "m".repeat(512)}))
+                .collect::<Vec<_>>();
+            bench.mark(
+                &format!("diagnostics-{UPPER}"),
+                &Value::Array(items).to_string(),
+            );
+            let text = bench
+                .upper
+                .execute(
+                    &json!({"mode": "fast", EXPECTED_REVISION_ARGUMENT: "initial"}),
+                    &bench.context(),
+                    &|| false,
+                )
+                .unwrap();
+            assert!(text.chars().count() <= MODEL_RESULT_CHARS, "{text}");
+            assert_eq!(crate::eval_events::body_snippet_whole_tokens(&text), text);
+            let read: Value = serde_json::from_str(&text).unwrap();
+            assert_eq!(read["truncated"], true);
+            assert_eq!(read["diagnostics"][0]["code"], "c0", "the first ones stay");
+
+            let many = (0..40)
+                .map(|index| json!({"stage": format!("stage-{index}"), "target": "main"}))
+                .collect::<Vec<_>>();
+            let fitted = fit_for_model(json!({"waiting_on": many}), "/waiting_on");
+            assert!(fitted.chars().count() <= MODEL_RESULT_CHARS);
+            let read: Value = serde_json::from_str(&fitted).unwrap();
+            assert_eq!(read["truncated"], true);
+            assert_eq!(read["waiting_on"][0]["stage"], "stage-0");
+        }
+
+        /// A failed check with the dummy in what it says is not a failed check. It ends the run
+        /// like any secret in an output, or a model could probe a value against the comparison.
+        #[test]
+        fn a_secret_in_what_a_failed_check_says_ends_the_run_and_shows_nothing() {
+            let bench = stage_bench();
+            let mut catalog = crate::sensitive_data::SecretCatalog::new();
+            catalog.register_credential("DUMMY_API_KEY", DUMMY).unwrap();
+            crate::sensitive_data::install_scope(catalog, Some(&bench.workspace), None);
+            bench.mark(
+                &format!("checks-{UPPER}"),
+                r#"[{"id":"shape","status":"failed"}]"#,
+            );
+            bench.mark(
+                &format!("diagnostics-{UPPER}"),
+                &json!([{"code": "note", "message": DUMMY}]).to_string(),
+            );
+            let error = bench.call(&bench.upper, "fast", "initial").unwrap_err();
+            assert_eq!(kind(&error), RefusalKind::ResultRejected);
+            let message = format!("{error:#}");
+            assert!(message.contains("secret_value_in_output"), "{message}");
+            assert!(!message.contains(DUMMY), "{message}");
+            assert_eq!(bench.saved(UPPER_OUTPUT), None);
+            assert_eq!(bench.attempts(&upper_key()), 1);
+
+            // Without it, the same failed check goes back with what it said, and that is clean.
+            bench.mark(
+                &format!("diagnostics-{UPPER}"),
+                &json!([{"code": "note", "message": "said a plain word"}]).to_string(),
+            );
+            let answer = bench.call(&bench.upper, "fast", "initial").unwrap();
+            assert_eq!(answer["status"], "resubmit", "{answer}");
+            assert_eq!(answer["diagnostics"][0]["message"], "said a plain word");
+            assert!(!answer.to_string().contains(DUMMY), "{answer}");
+        }
+
+        #[test]
+        fn a_result_that_does_not_bind_is_not_something_to_resubmit() {
+            let bench = stage_bench();
+            bench.mark(&format!("checks-{UPPER}"), r#"[{"id":"shape"}]"#);
+            let error = bench.call(&bench.upper, "fast", "initial").unwrap_err();
+            assert_eq!(kind(&error), RefusalKind::ResultRejected);
+            assert!(error.to_string().contains("checks_invalid"), "{error:#}");
+        }
+
+        #[test]
+        fn submissions_stop_at_the_operators_limit_with_no_process_past_it() {
+            let bench = stage_bench_with(2);
+            bench.mark(
+                &format!("checks-{UPPER}"),
+                r#"[{"id":"shape","status":"failed"}]"#,
+            );
+            for _ in 0..2 {
+                let answer = bench.call(&bench.upper, "fast", "initial").unwrap();
+                assert_eq!(answer["status"], "resubmit");
+            }
+            let error = bench.call(&bench.upper, "fast", "initial").unwrap_err();
+            assert_eq!(kind(&error), RefusalKind::StageRunEnded);
+            assert!(
+                error.to_string().contains("attempts_exhausted_for_target"),
+                "{error:#}"
+            );
+            assert_eq!(bench.starts(UPPER), 2);
+        }
+
+        #[test]
+        fn a_fixed_input_changed_during_the_run_still_ends_it_at_the_pins() {
+            let bench = stage_bench();
+            bench.seal_upper();
+            std::fs::write(bench.workspace.join(LOWER_FIXED), b"rewritten").unwrap();
+            let revision = bench.revision(&lower_key());
+            let error = bench.call(&bench.lower, "fast", &revision).unwrap_err();
+            assert_eq!(
+                kind(&error),
+                RefusalKind::InputRevisionMismatch,
+                "{error:#}"
+            );
+            assert_eq!(bench.starts(LOWER), 0);
+        }
+
+        #[test]
+        fn the_first_call_pins_every_fixed_input_on_disk_for_a_later_process() {
+            let bench = stage_bench();
+            let answer = bench.call(&bench.lower, "fast", "initial").unwrap();
+            assert_eq!(answer["status"], "not_ready");
+            let directory = std::fs::read_dir(bench.workspace.parent().unwrap().join("state"))
+                .unwrap()
+                .next()
+                .unwrap()
+                .unwrap()
+                .path();
+            let ledger_dir = std::fs::read_dir(directory)
+                .unwrap()
+                .next()
+                .unwrap()
+                .unwrap()
+                .path();
+            let saved = std::fs::read_to_string(ledger_dir.join("ledger.json")).unwrap();
+            assert!(saved.contains(LOWER_FIXED), "the target below is pinned");
+            assert!(saved.contains(UPPER_FIXED));
+        }
+
+        #[test]
+        fn a_commit_stopped_before_the_rename_leaves_the_generation_where_it_was() {
+            let bench = stage_bench();
+            let answer = bench.seal_upper();
+            let current = answer["stage"]["revision"].as_str().unwrap().to_string();
+            let lower_before = bench.status(&lower_key()).1;
+            let generation = bench.status(&upper_key()).1;
+            bench.mark(&format!("second-{UPPER}"), "");
+
+            let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let raised = cancel.clone();
+            let _reset = test_hook::install(move |stage| {
+                if stage == Stage::BeforeRename {
+                    raised.store(true, std::sync::atomic::Ordering::SeqCst);
+                }
+            });
+            let error = bench
+                .call_cancelling(&bench.upper, "slow", &current, &|| {
+                    cancel.load(std::sync::atomic::Ordering::SeqCst)
+                })
+                .unwrap_err();
+            assert_eq!(kind(&error), RefusalKind::CommitFailed, "{error:#}");
+            assert_eq!(bench.saved(UPPER_OUTPUT).as_deref(), Some(VERSION_ONE));
+            let (phase, moved, _) = bench.status(&upper_key());
+            assert_eq!(moved, generation, "the old bytes are still there");
+            assert_eq!(phase, Phase::Sealed);
+            assert_eq!(bench.status(&lower_key()).1, lower_before);
+            // The attempt is over, so the next call is not refused for an open intent.
+            assert!(bench.call(&bench.upper, "slow", &current).is_ok());
+        }
+
+        #[test]
+        fn a_commit_that_failed_with_other_bytes_there_counts_as_moved() {
+            let bench = stage_bench();
+            let generation = bench.status(&upper_key()).1;
+            let destination = bench.workspace.join(UPPER_OUTPUT);
+            let _reset = test_hook::install(move |stage| {
+                if stage == Stage::AfterRename {
+                    std::fs::write(&destination, b"replaced in that instant").unwrap();
+                }
+            });
+            let error = bench.call(&bench.upper, "fast", "initial").unwrap_err();
+            assert_eq!(kind(&error), RefusalKind::CommitFailed, "{error:#}");
+            let (phase, moved, reason) = bench.status(&upper_key());
+            assert_eq!(phase, Phase::Unverified);
+            assert_eq!(moved, generation + 1);
+            assert_eq!(reason, Some(UnverifiedReason::CommitOutcomeUnknown));
+        }
+
+        #[test]
+        fn a_commit_that_stands_but_is_not_durable_is_no_seal_and_the_reader_stays_waiting() {
+            let bench = stage_bench();
+            test_hook::fail_directory_sync();
+            let _reset = test_hook::install(|_| {});
+            let answer = bench.call(&bench.upper, "fast", "initial").unwrap();
+            assert_eq!(answer["stage"]["status"], "unverified", "{answer}");
+            assert_eq!(answer["stage"]["reason"], "commit_not_durable", "{answer}");
+            let revision = downstream_revision(&answer);
+            let waiting = bench.call(&bench.lower, "fast", &revision).unwrap();
+            assert_eq!(waiting["status"], "not_ready", "{waiting}");
+        }
+
+        #[test]
+        fn output_bytes_edited_behind_the_host_take_the_state_before_the_next_call() {
+            let bench = stage_bench();
+            let answer = bench.seal_upper();
+            let lower_revision = downstream_revision(&answer);
+            std::fs::write(bench.workspace.join(UPPER_OUTPUT), b"edited by a command").unwrap();
+            let moved = bench.call(&bench.lower, "fast", &lower_revision).unwrap();
+            assert_eq!(moved["status"], "stale", "{moved}");
+            let current = moved["revision"].as_str().unwrap();
+            let waiting = bench.call(&bench.lower, "fast", current).unwrap();
+            assert_eq!(waiting["status"], "not_ready", "{waiting}");
+            assert_eq!(bench.starts(LOWER), 0);
+        }
+
+        #[test]
+        fn a_session_that_cannot_answer_for_its_run_gets_no_stages() {
+            let bench = stage_bench();
+            let state_dir = bench.workspace.parent().unwrap().join("state");
+            let refused = |facts| {
+                bench
+                    .run
+                    .bind_session(facts, &state_dir, LedgerEntry::Fresh)
+                    .unwrap_err()
+                    .kind
+            };
+            assert_eq!(
+                refused(StageRunFacts::for_test(false, false)),
+                RefusalKind::StageContractRefused
+            );
+            assert_eq!(
+                refused(StageRunFacts::for_test(true, true)),
+                RefusalKind::StageContractRefused
+            );
+            let inside = bench.workspace.join(".state");
+            assert_eq!(
+                bench
+                    .run
+                    .bind_session(
+                        StageRunFacts::for_test(true, false),
+                        &inside,
+                        LedgerEntry::Fresh
+                    )
+                    .unwrap_err()
+                    .kind,
+                RefusalKind::StageLedgerRefused
+            );
+        }
+
+        /// Neither spends an attempt, and the first does not even open the ledger.
+        #[test]
+        fn a_cancel_or_an_unreadable_secret_before_the_start_spends_no_attempt() {
+            let bench = stage_bench();
+            let error = bench
+                .call_cancelling(&bench.upper, "fast", "initial", &|| true)
+                .unwrap_err();
+            assert_eq!(kind(&error), RefusalKind::ProcessFailed, "{error:#}");
+            assert_eq!(bench.starts(UPPER), 0);
+            assert!(
+                !bench.workspace.parent().unwrap().join("state").exists(),
+                "a cancel opens nothing"
+            );
+
+            std::fs::write(bench.workspace.join(".env"), "DUMMY_API_KEY=Zq7_x3\n").unwrap();
+            let error = bench.call(&bench.upper, "fast", "initial").unwrap_err();
+            assert_eq!(kind(&error), RefusalKind::EffectEnvRefused, "{error:#}");
+            assert_eq!(bench.starts(UPPER), 0);
+            std::fs::remove_file(bench.workspace.join(".env")).unwrap();
+            assert_eq!(bench.attempts(&upper_key()), 0);
+        }
+
+        #[test]
+        fn a_stage_tool_outside_any_session_is_refused_before_a_ledger_or_a_process() {
+            let bench = stage_bench();
+            let unbound = Arc::new(StageRun::new(
+                StageContractDraft::new(
+                    &StageSetDeclaration {
+                        stages: vec![stage("upper", UPPER)],
+                        limits: NarrowedStageLimits::default(),
+                    },
+                    &[facts(UPPER, UPPER_OUTPUT, &[UPPER_FIXED], 8)],
+                )
+                .unwrap(),
+                BTreeMap::new(),
+                bench.workspace.clone(),
+                PROFILE.to_string(),
+                Arc::new(LedgerRegistry::default()),
+            ));
+            let refusal = unbound
+                .open_ledger(1, &WorkspaceBytes::new(&bench.workspace))
+                .unwrap_err();
+            assert_eq!(refusal.kind, RefusalKind::StageContractRefused);
         }
     }
 

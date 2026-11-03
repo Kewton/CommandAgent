@@ -10,6 +10,7 @@ use serde_json::Value;
 
 use super::context::{RunSessionOptions, RunSessionStepKind};
 use crate::config::Config;
+use crate::planner::structured_stages::ledger::LedgerEntry;
 use crate::providers::ChatClient;
 use crate::state::ToolCall;
 use crate::tools::profile_tools::admit_selected;
@@ -31,6 +32,9 @@ pub(super) fn session_registry(
         Some(admitted) => {
             admitted.preflight_schema_tools(config, client.profile_tool_schema_wire())?;
             admitted.preflight_session(&|name| session_access(config, options, name))?;
+            // Which entry this session is on comes from the caller once it can tell a resume
+            // from a new process.
+            admitted.bind_stage_session(config, LedgerEntry::Fresh)?;
             Ok((admitted.registry()?, admitted.enter_session()))
         }
         None => Ok((ToolRegistry::default(), None)),
