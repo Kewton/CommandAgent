@@ -9,6 +9,7 @@ use std::path::Path;
 use serde_json::Value;
 
 use super::context::{RunSessionOptions, RunSessionStepKind};
+use super::implementation_completion::structured_stage_completion::enter_stage_run;
 use crate::config::Config;
 use crate::planner::structured_stages::ledger::LedgerEntry;
 use crate::providers::ChatClient;
@@ -33,6 +34,10 @@ pub(super) fn session_registry(
             admitted.preflight_schema_tools(config, client.profile_tool_schema_wire())?;
             admitted.preflight_session(&|name| session_access(config, options, name))?;
             admitted.bind_stage_session(config, LedgerEntry::of_config(config))?;
+            if let Some(run) = admitted.stage_run() {
+                run.remember_bound();
+                enter_stage_run(run);
+            }
             Ok((admitted.registry()?, admitted.enter_session()))
         }
         None => Ok((ToolRegistry::default(), None)),

@@ -213,6 +213,18 @@ pub(super) fn selected(
     merge(&sources).map(Some)
 }
 
+/// Whether this run's profile or installed pack declares stages, from what is already in memory.
+/// Final acceptance asks this on every run, so it may not read a file.
+pub(crate) fn stages_declared_without_a_read(profile: &str) -> bool {
+    let by_profile = profile_declaration(profile).is_some_and(|declared| declared.stages.is_some());
+    by_profile
+        || pack_selection_from_environment()
+            .as_ref()
+            .and_then(installed_declaration)
+            .and_then(|resolved| resolved.tools)
+            .is_some_and(|declared| declared.stages.is_some())
+}
+
 fn profile_declaration(profile: &str) -> Option<ProfileToolDeclaration> {
     let extension = crate::planner::extension_profiles::find(profile)?;
     MANIFEST_DECLARATIONS

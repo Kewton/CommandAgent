@@ -224,6 +224,10 @@ impl AdmittedProfileTools {
 }
 
 impl AdmittedProfileTools {
+    pub(crate) fn stage_run(&self) -> Option<Arc<StageRun>> {
+        self.stages.clone()
+    }
+
     /// The same question as a session's, for an entry about to spend a provider call. Off for a
     /// set with no stage.
     pub(crate) fn preflight_stage_run(

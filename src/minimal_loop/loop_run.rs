@@ -435,7 +435,9 @@ pub(crate) fn run_session_with_outcome_with_options(
 ) -> anyhow::Result<RunSessionOutcome> {
     let mut plan = RequirementPlan::default();
     let run = (client, session, user_prompt, required_paths, config, ui);
-    let result = run_session_planned(run, options, &mut plan);
+    let stages =
+        implementation_completion::structured_stage_completion::StageFunnel::enter(&options);
+    let result = stages.finish(run_session_planned(run, options, &mut plan), config);
     plan.finish(result.is_ok(), ui.interrupted());
     result
 }
@@ -1451,7 +1453,9 @@ fn run_session_planned(
             } else {
                 batch_all_read_tools = false;
             }
-            if !matches!(call.name.as_str(), "Read" | "Glob" | "Grep") {
+            if !matches!(call.name.as_str(), "Read" | "Glob" | "Grep")
+                && !registry.is_stage_tool(&call.name)
+            {
                 batch_all_read_only_tools = false;
             }
             if call_is_edit {
@@ -1639,6 +1643,9 @@ fn run_session_planned(
                             "status": "ok",
                         }),
                     );
+                    if implementation_completion.absorb_stage_notes(registry.take_stage_notes()) {
+                        batch_all_read_only_tools = false;
+                    }
                     for path in registry.take_committed_paths() {
                         write_or_edit_seen = true;
                         post_write_completion_tracker.note_successful_write(&path);
@@ -1914,6 +1921,7 @@ fn run_session_planned(
         if options.scope == RunSessionScope::MinimalLoop
             && required_paths.is_empty()
             && completion_contract.is_none()
+            && !implementation_completion.stage_has_unmet_obligation()
             && let Some(evidence) = post_write_completion_tracker.observe_batch(
                 batch_all_read_tools,
                 &batch_read_paths,
@@ -2062,6 +2070,7 @@ fn run_session_planned(
                 &repair_batch_probe,
                 &config.workspace_root,
             )
+            && !implementation_completion.stage_holds_tool_only_completion()
         {
             eval_events::emit(
                 config.eval_events_path.as_deref(),

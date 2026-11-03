@@ -14,16 +14,20 @@
 //! [`StageRun`] joins them to a set of admitted tools. A tool in no declared stage never reaches
 //! any of this, so a run with no stage declaration reads and writes nothing here.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use contract::{AdmittedTarget, ContractRefusal, StageContract, StageContractDraft, StageRunFacts};
+use contract::{
+    AdmittedTarget, ContractRefusal, StageContract, StageContractDraft, StageRunFacts, TargetKey,
+};
 use ledger::{HeldLedger, LedgerEntry, LedgerRefusal, LedgerRegistry, LedgerRequest};
 use receipt::{InputDigest, sha256_hex};
 use resume::AdmittedPins;
 use state::{AttemptRequest, BytesSource, ObservedBytes};
 
+use crate::config::Config;
 use crate::tools::profile_tools::commit::CommitReceipt;
 use crate::tools::profile_tools::schema::binding::AdoptedInputs;
 use crate::tools::profile_tools::schema::invocation::SchemaGuard;
@@ -96,6 +100,143 @@ pub(crate) struct StageRun {
     profile: String,
     ledgers: Arc<LedgerRegistry>,
     session: Mutex<Option<StageSession>>,
+    /// The targets this session's calls named, whatever came of them.
+    touched: Mutex<BTreeSet<TargetKey>>,
+    notes: Mutex<Vec<StageNote>>,
+    /// Calls in a row that started no process. Nothing else limits them: they spend no attempt.
+    calls_without_process: AtomicUsize,
+}
+
+/// A call's effect on whether a stage moved, for the loop's stagnation count. This is the only
+/// thing the loop learns of a stage call: it never reads an answer's text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct StageNote {
+    pub(crate) target: TargetKey,
+    pub(crate) progress: bool,
+}
+
+/// Which obligations completion asks about.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum StageScope {
+    /// Every obligation of the set: a run with no final acceptance after it, or that acceptance.
+    #[default]
+    All,
+    /// A plan step answers for the stages it called. The rest is final acceptance's to judge.
+    Touched,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct UnmetObligation {
+    pub(crate) key: TargetKey,
+    pub(crate) phase: state::Phase,
+    pub(crate) revision: Option<String>,
+}
+
+/// Why completion does not stand. Only a fixed code and opaque IDs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct StageShortfall {
+    pub(crate) code: &'static str,
+    pub(crate) unmet: Vec<UnmetObligation>,
+    /// What this very judgment took a state from, because the bytes had moved.
+    pub(crate) invalidated: Vec<TargetKey>,
+}
+
+impl StageShortfall {
+    const fn of(code: &'static str) -> Self {
+        Self {
+            code,
+            unmet: Vec::new(),
+            invalidated: Vec::new(),
+        }
+    }
+
+    /// Whether another submission could change the answer. A record that cannot be vouched for
+    /// and a run a secret ended cannot be put right by a model.
+    pub(crate) fn can_be_resubmitted(&self) -> bool {
+        !self.unmet.is_empty()
+    }
+
+    pub(crate) fn to_refusal(&self) -> ProfileToolRefusal {
+        ProfileToolRefusal::new(
+            RefusalKind::StageIncomplete,
+            format!("{}: {} unmet", self.code, self.unmet.len()),
+        )
+    }
+
+    pub(crate) fn event(&self) -> serde_json::Value {
+        let unmet = self
+            .unmet
+            .iter()
+            .map(|obligation| {
+                serde_json::json!({
+                    "stage": obligation.key.stage,
+                    "target": obligation.key.target,
+                    "phase": obligation.phase,
+                })
+            })
+            .collect::<Vec<_>>();
+        serde_json::json!({
+            "event": "structured_stage_incomplete",
+            "code": self.code,
+            "unmet": unmet,
+            "invalidated": self.invalidated,
+        })
+    }
+}
+
+/// A plan run by `/resume` is a resume to everything below it that asks.
+pub(crate) fn config_resuming(config: &Config, resumed_from: &str) -> Config {
+    let mut resuming = config.clone();
+    resuming.resume = Some(resumed_from.to_string());
+    resuming
+}
+
+/// Stage calls in a row that may start no process. `stale` and `not_ready` spend no attempt, so
+/// without this only the session's iteration budget would stop a model repeating them (S8).
+const MAX_CALLS_WITHOUT_PROCESS: usize = 8;
+
+type BoundRuns = BTreeMap<(PathBuf, String), Arc<StageRun>>;
+
+/// The stage set each workspace and profile last bound in this process, for the one judgment made
+/// outside a session. Empty without a stage declaration.
+static BOUND_RUNS: Mutex<BoundRuns> = Mutex::new(BTreeMap::new());
+
+/// Final acceptance's question: every obligation of the set, by the bytes there now. It can only
+/// lower a report. A pass here says nothing wider than that the obligations were met (D8).
+pub(crate) fn final_gate_failure(config: &Config) -> Option<String> {
+    let bound = {
+        let runs = BOUND_RUNS.lock().unwrap_or_else(PoisonError::into_inner);
+        if runs.is_empty() {
+            None
+        } else {
+            let workspace = std::fs::canonicalize(&config.workspace_root).ok();
+            workspace.and_then(|workspace| runs.get(&(workspace, config.profile.clone())).cloned())
+        }
+    };
+    let Some(run) = bound else {
+        return crate::tools::profile_tools::selection::stages_declared_without_a_read(
+            &config.profile,
+        )
+        .then(|| "stage_incomplete: no_session_bound_the_declared_stages".to_string());
+    };
+    let shortfall = run.judge(StageScope::All)?;
+    crate::eval_events::emit(config.eval_events_path.as_deref(), shortfall.event());
+    Some(shortfall.to_refusal().to_string())
+}
+
+/// The last word on a session: however it ended, a success with obligations unmet is no success.
+pub(crate) fn refuse_unmet_session<T>(
+    result: anyhow::Result<T>,
+    run: Option<&StageRun>,
+    scope: StageScope,
+    events: Option<&Path>,
+) -> anyhow::Result<T> {
+    let outcome = result?;
+    let Some(shortfall) = run.and_then(|run| run.judge(scope)) else {
+        return Ok(outcome);
+    };
+    crate::eval_events::emit(events, shortfall.event());
+    Err(shortfall.to_refusal().into())
 }
 
 impl StageRun {
@@ -113,7 +254,96 @@ impl StageRun {
             profile,
             ledgers,
             session: Mutex::new(None),
+            touched: Mutex::new(BTreeSet::new()),
+            notes: Mutex::new(Vec::new()),
+            calls_without_process: AtomicUsize::new(0),
         }
+    }
+
+    /// Whether completion stands for this scope, by the bytes there now. `None` means it does.
+    /// The one place a verdict is read for completion, once per question: it writes what moved.
+    /// A step that called no stage asks nothing, and opens nothing.
+    pub(crate) fn judge(&self, scope: StageScope) -> Option<StageShortfall> {
+        let touched = self
+            .touched
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        if scope == StageScope::Touched && touched.is_empty() {
+            return None;
+        }
+        let bytes = ledger::WorkspaceBytes::new(&self.workspace);
+        let Ok((held, _)) =
+            self.open_ledger(crate::tools::profile_tools::effects::now_ms(), &bytes)
+        else {
+            return Some(StageShortfall::of("ledger_refused"));
+        };
+        let Ok(mut ledger) = held.lock() else {
+            return Some(StageShortfall::of("ledger_refused"));
+        };
+        let verdict = ledger.verdict(&bytes);
+        if !verdict.ledger_intact() {
+            return Some(StageShortfall::of("ledger_not_intact"));
+        }
+        let unmet = verdict
+            .obligations()
+            .iter()
+            .filter(|status| status.phase != state::Phase::Sealed)
+            .filter(|status| scope == StageScope::All || touched.contains(&status.key))
+            .map(|status| UnmetObligation {
+                key: status.key.clone(),
+                phase: status.phase,
+                revision: ledger.revision_of(&status.key),
+            })
+            .collect::<Vec<_>>();
+        let stands = match scope {
+            StageScope::All => verdict.complete(),
+            // Not a claim that the stages are complete: only that this step left none it
+            // called unsealed. The set as a whole is judged by `complete` alone.
+            StageScope::Touched => unmet.is_empty(),
+        };
+        (!stands).then(|| StageShortfall {
+            code: "obligations_unmet",
+            unmet,
+            invalidated: verdict.invalidated().to_vec(),
+        })
+    }
+
+    /// Records a call's effect. A call that started no process counts against a limit of its own
+    /// and says whether that limit is reached.
+    pub(crate) fn note_call(&self, target: &TargetKey, started_process: bool) -> bool {
+        self.touched
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(target.clone());
+        if started_process {
+            self.calls_without_process.store(0, Ordering::SeqCst);
+            return false;
+        }
+        self.note_no_progress(target);
+        self.calls_without_process.fetch_add(1, Ordering::SeqCst) + 1 >= MAX_CALLS_WITHOUT_PROCESS
+    }
+
+    pub(crate) fn note_no_progress(&self, target: &TargetKey) {
+        self.push_note(target, false);
+    }
+
+    pub(crate) fn note_progress(&self, target: &TargetKey) {
+        self.push_note(target, true);
+    }
+
+    fn push_note(&self, target: &TargetKey, progress: bool) {
+        self.notes
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(StageNote {
+                target: target.clone(),
+                progress,
+            });
+    }
+
+    pub(crate) fn take_notes(&self) -> Vec<StageNote> {
+        std::mem::take(&mut *self.notes.lock().unwrap_or_else(PoisonError::into_inner))
     }
 
     /// Whether this run may hold stages at all, with the values in force now. An entry can ask
@@ -154,7 +384,22 @@ impl StageRun {
             state_dir: state_dir.to_path_buf(),
             entry,
         });
+        self.touched
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clear();
+        self.calls_without_process.store(0, Ordering::SeqCst);
         Ok(())
+    }
+
+    /// For the judgment final acceptance makes once sessions are over.
+    pub(crate) fn remember_bound(self: &Arc<Self>) {
+        if let Ok(workspace) = std::fs::canonicalize(&self.workspace) {
+            BOUND_RUNS
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .insert((workspace, self.profile.clone()), self.clone());
+        }
     }
 
     /// The ledger as of now, and the contract it is held to. Never called during an admission.
@@ -264,36 +509,41 @@ impl StageRun {
     }
 }
 
-#[allow(
-    dead_code,
-    reason = "Issue #975 step 1 has no caller; the attribute goes when step 3 wires it in"
-)]
 pub(crate) mod contract;
-#[allow(
-    dead_code,
-    reason = "Issue #975 step 1 has no caller; the attribute goes when step 3 wires it in"
-)]
 pub(crate) mod invalidation;
-#[allow(
-    dead_code,
-    reason = "Issue #975 step 1 has no caller; the attribute goes when step 3 wires it in"
-)]
 pub(crate) mod ledger;
-#[allow(
-    dead_code,
-    reason = "Issue #975 step 1 has no caller; the attribute goes when step 3 wires it in"
-)]
 pub(crate) mod receipt;
-#[allow(
-    dead_code,
-    reason = "Issue #975 step 1 has no caller; the attribute goes when step 3 wires it in"
-)]
 pub(crate) mod resume;
-#[allow(
-    dead_code,
-    reason = "Issue #975 step 1 has no caller; the attribute goes when step 3 wires it in"
-)]
 pub(crate) mod state;
+
+#[cfg(test)]
+mod resume_entry_tests {
+    use std::path::Path;
+
+    use super::config_resuming;
+    use super::ledger::LedgerEntry;
+
+    #[test]
+    fn a_plan_run_by_resume_says_so_and_a_fresh_session_still_wins() {
+        let mut config =
+            crate::tools::profile_tools::effects::config_for_test(Path::new("/nonexistent"));
+        assert_eq!(LedgerEntry::of_config(&config), LedgerEntry::Fresh);
+        let resuming = config_resuming(&config, "018f3333");
+        assert_eq!(resuming.resume.as_deref(), Some("018f3333"));
+        assert_eq!(LedgerEntry::of_config(&resuming), LedgerEntry::Resume);
+        // Only this one field differs, and the original is left as it was.
+        assert_eq!(config.resume, None);
+        let mut same = resuming;
+        same.resume = None;
+        assert_eq!(format!("{same:?}"), format!("{config:?}"));
+
+        config.fresh_session = true;
+        assert_eq!(
+            LedgerEntry::of_config(&config_resuming(&config, "018f3333")),
+            LedgerEntry::Fresh
+        );
+    }
+}
 
 #[cfg(test)]
 mod test_support {

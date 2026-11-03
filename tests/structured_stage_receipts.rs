@@ -20,6 +20,8 @@ const WALK_PROFILE: &str = "stage-walk";
 const NO_FLOOR_PROFILE: &str = "stage-no-floor";
 const UNKNOWN_TOOL_PROFILE: &str = "stage-unknown-tool";
 const NO_ARGUMENT_PROFILE: &str = "stage-no-argument";
+#[cfg(target_os = "macos")]
+const MARKER_NAME_PROFILE: &str = "stage-marker-name";
 const UPPER_TOOL_ID: &str = "stage-upper-tool";
 const LOWER_TOOL_ID: &str = "stage-lower-tool";
 const BARE_TOOL_ID: &str = "stage-bare-tool";
@@ -82,6 +84,19 @@ fn extension() {
         let root = std::fs::canonicalize(tempfile::tempdir().unwrap().keep()).unwrap();
         let both = [UPPER_TOOL_ID, LOWER_TOOL_ID];
         let walk = [("upper", UPPER_TOOL_ID), ("lower", LOWER_TOOL_ID)];
+        #[cfg(target_os = "macos")]
+        {
+            // The history replaces a whole token holding a word like this one, so a commit's
+            // answer naming the stage below it has to fall to its fixed form.
+            let marked = [("upper", UPPER_TOOL_ID), ("api_key_stage", LOWER_TOOL_ID)];
+            let directory = root.join(format!("profiles/{MARKER_NAME_PROFILE}"));
+            std::fs::create_dir_all(&directory).unwrap();
+            std::fs::write(
+                directory.join("manifest.toml"),
+                manifest(MARKER_NAME_PROFILE, &both, &marked),
+            )
+            .unwrap();
+        }
         for (profile, text) in [
             (WALK_PROFILE, manifest(WALK_PROFILE, &both, &walk)),
             (NO_FLOOR_PROFILE, manifest(NO_FLOOR_PROFILE, &both, &walk)),
@@ -178,6 +193,22 @@ impl Env {
             evidence: evidence_path,
             registry,
             tools,
+        }
+    }
+
+    /// A later process over what an earlier one set up. The registry variable is already set.
+    #[cfg(target_os = "macos")]
+    fn over(root: PathBuf, evidence: PathBuf) -> Self {
+        extension();
+        let unused = || tempfile::tempdir().unwrap();
+        Self {
+            _workspace: unused(),
+            _evidence: unused(),
+            _operator: unused(),
+            root,
+            evidence,
+            registry: PathBuf::new(),
+            tools: PathBuf::new(),
         }
     }
 
@@ -320,6 +351,8 @@ mod with_the_strict_isolation {
         PromptLayout, Provider,
     };
     use commandagent::minimal_loop::loop_run::run_session_with_outcome_with_ui;
+    use commandagent::planner::runner::run_step_plan;
+    use commandagent::planner::step_plan::{PlanStep, StepPlan};
     use commandagent::providers::client_from_config;
     use commandagent::state::SessionSnapshot;
     use commandagent::tools::os_sandbox::{
@@ -327,11 +360,12 @@ mod with_the_strict_isolation {
     };
     use commandagent::tools::profile_tools::admit_selected;
     use commandagent::tui::NOOP_UI;
+    use commandagent::tui::slash::handle_command;
     use serde_json::{Value, json};
 
     use super::{
-        BARE_TOOL_ID, CANDIDATE, Env, FIXED_INPUT, LOWER_OUTPUT, LOWER_TOOL, NO_ARGUMENT_PROFILE,
-        UPPER_OUTPUT, UPPER_TOOL, WALK_PROFILE, floor, lock,
+        BARE_TOOL_ID, CANDIDATE, Env, FIXED_INPUT, LOWER_OUTPUT, LOWER_TOOL, MARKER_NAME_PROFILE,
+        NO_ARGUMENT_PROFILE, UPPER_OUTPUT, UPPER_TOOL, WALK_PROFILE, floor, lock,
     };
 
     type Responder = Arc<dyn Fn(usize, &Value) -> String + Send + Sync>;
@@ -436,6 +470,12 @@ mod with_the_strict_isolation {
     }
 
     /// What the host answered to the last call, as the model reads it.
+    fn has_tool_answer(body: &Value) -> bool {
+        body["messages"]
+            .as_array()
+            .is_some_and(|messages| messages.iter().any(|message| message["role"] == "tool"))
+    }
+
     fn last_tool_answer(body: &Value) -> Value {
         let text = body["messages"]
             .as_array()
@@ -576,6 +616,261 @@ mod with_the_strict_isolation {
             "the record is outside the workspace"
         );
         assert!(!env.root.join("structured-stages").exists());
+    }
+
+    fn assert_not_a_success(result: &Result<(), String>, label: &str) {
+        let error = result
+            .as_ref()
+            .err()
+            .unwrap_or_else(|| panic!("{label}: the run reported a success"));
+        assert!(error.contains("stage_incomplete"), "{label}: {error}");
+    }
+
+    const CLAIM: &str = "All stages are sealed and every check passed.";
+
+    /// What a model says about a stage is not what the host decides on.
+    #[test]
+    fn a_failed_upper_stage_is_no_success_whatever_the_model_says() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor()));
+        install_sandbox(&env);
+        let responder: Responder = Arc::new(|index, _| match index {
+            1 => tool_reply(UPPER_TOOL, "bad", "initial"),
+            _ => text_reply(CLAIM),
+        });
+        let (requests, result) = run(&env, WALK_PROFILE, responder);
+        reset_for_test();
+        assert_not_a_success(&result, "upper failed");
+        assert!(
+            requests.len() >= 3,
+            "the claim was answered: {}",
+            requests.len()
+        );
+        assert!(!env.root.join(UPPER_OUTPUT).exists());
+    }
+
+    #[test]
+    fn a_lower_stage_never_submitted_is_no_success_whatever_the_model_says() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor()));
+        install_sandbox(&env);
+        let responder: Responder = Arc::new(|index, _| match index {
+            1 => tool_reply(UPPER_TOOL, "good", "initial"),
+            _ => text_reply(CLAIM),
+        });
+        let (_, result) = run(&env, WALK_PROFILE, responder);
+        reset_for_test();
+        assert_not_a_success(&result, "lower missing");
+        assert_eq!(
+            std::fs::read(env.root.join(UPPER_OUTPUT)).unwrap(),
+            CANDIDATE
+        );
+        assert!(!env.root.join(LOWER_OUTPUT).exists());
+    }
+
+    /// The commit's answer reaches the model in its fixed form here, without the name below. The
+    /// host's decision does not go through that text.
+    #[test]
+    fn a_name_the_history_redacts_changes_nothing_the_host_decides() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor()));
+        install_sandbox(&env);
+        let seen: Arc<Mutex<Vec<Value>>> = Arc::default();
+        let kept = seen.clone();
+        let responder: Responder = Arc::new(move |index, body| {
+            if index == 1 {
+                return tool_reply(UPPER_TOOL, "good", "initial");
+            }
+            if index == 2 {
+                kept.lock().unwrap().push(last_tool_answer(body));
+            }
+            text_reply(CLAIM)
+        });
+        let (_, result) = run(&env, MARKER_NAME_PROFILE, responder);
+        reset_for_test();
+        assert_not_a_success(&result, "marker name");
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen[0]["stage"]["status"], "sealed", "{}", seen[0]);
+        assert_eq!(seen[0]["truncated"], true, "{}", seen[0]);
+    }
+
+    /// F5: a plan's setup step ends at a tool result. A failed check must not end it unread.
+    #[test]
+    fn a_failed_check_in_a_setup_step_goes_back_to_the_model() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor()));
+        install_sandbox(&env);
+        let responder: Responder = Arc::new(|index, body| match index {
+            1 => tool_reply(UPPER_TOOL, "bad", "initial"),
+            2 => {
+                let answer = last_tool_answer(body);
+                assert_eq!(answer["status"], "resubmit", "{answer}");
+                tool_reply(UPPER_TOOL, "good", "initial")
+            }
+            _ => text_reply("done"),
+        });
+        let http = FakeHttp::start(responder);
+        let config = config(&env, WALK_PROFILE, &http.url);
+        let mut client = client_from_config(&config, false).unwrap();
+        let plan = StepPlan {
+            goal: "Submit the upper stage.".to_string(),
+            steps: vec![PlanStep {
+                id: "step-setup".to_string(),
+                kind: "setup".to_string(),
+                expected_result: "pass".to_string(),
+                instruction: "Submit the upper stage".to_string(),
+                expected_paths: Vec::new(),
+                verify: Vec::new(),
+            }],
+        };
+        let result = run_step_plan(client.as_mut(), &plan, &config);
+        let requests = http.finish();
+        reset_for_test();
+        assert!(requests.len() >= 2, "no second request: {result:?}");
+        assert_eq!(
+            std::fs::read(env.root.join(UPPER_OUTPUT)).unwrap(),
+            CANDIDATE,
+            "{result:?}"
+        );
+        let events = std::fs::read_to_string(env.evidence.join("events.jsonl")).unwrap();
+        let held = events
+            .lines()
+            .position(|line| line.contains("\"reason\":\"step_tool_observation_completed\""));
+        let second = events
+            .lines()
+            .filter(|line| line.contains("\"event\":\"tool_execute\""))
+            .count();
+        assert_eq!(second, 2, "both calls ran");
+        assert!(
+            held.is_some(),
+            "the step ends once the stage it touched is sealed: {result:?}"
+        );
+    }
+
+    const PREVIOUS_ROOT: &str = "STAGE_RESUME_PREVIOUS_ROOT";
+    const PREVIOUS_EVIDENCE: &str = "STAGE_RESUME_PREVIOUS_EVIDENCE";
+
+    /// Not a test by itself: the parent below starts this in a process of its own, so that the
+    /// ledger it leaves is another process's and its lock is gone when it ends.
+    #[test]
+    fn previous_process_of_the_resume_test() {
+        let (Some(root), Some(evidence)) = (
+            std::env::var_os(PREVIOUS_ROOT),
+            std::env::var_os(PREVIOUS_EVIDENCE),
+        ) else {
+            return;
+        };
+        let _guard = lock();
+        let env = Env::over(root.into(), evidence.into());
+        install_sandbox(&env);
+        let responder: Responder = Arc::new(|index, _| match index {
+            1 => tool_reply(UPPER_TOOL, "good", "initial"),
+            _ => text_reply("that is all for now"),
+        });
+        let (_, result) = run(&env, WALK_PROFILE, responder);
+        reset_for_test();
+        assert_not_a_success(&result, "the previous process left the lower stage open");
+    }
+
+    fn saved_attempts(env: &Env) -> u64 {
+        let leaf = env.evidence.join("state/structured-stages");
+        let directory = std::fs::read_dir(leaf)
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let saved: Value =
+            serde_json::from_slice(&std::fs::read(directory.join("ledger.json")).unwrap()).unwrap();
+        saved["body"]["attempts_used"].as_u64().unwrap()
+    }
+
+    /// `/resume` in a new REPL goes on with the run: the revision the first process started from
+    /// is old now, where a new start would have taken it as current and run the tool.
+    #[test]
+    fn resume_in_a_new_process_goes_on_with_the_run_and_gives_no_attempt_back() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor()));
+        let mut previous = std::process::Command::new(std::env::current_exe().unwrap());
+        previous
+            .args([
+                "--exact",
+                "with_the_strict_isolation::previous_process_of_the_resume_test",
+                "--test-threads=1",
+            ])
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin")
+            .env("HOME", &env.evidence)
+            .env(super::REGISTRY_ENV, &env.registry)
+            .env(PREVIOUS_ROOT, &env.root)
+            .env(PREVIOUS_EVIDENCE, &env.evidence);
+        // `status` waits for it, so nothing of it is left to stop.
+        assert!(previous.status().unwrap().success());
+        assert_eq!(saved_attempts(&env), 1);
+
+        install_sandbox(&env);
+        let plans = env.root.join(".anvil/plans");
+        std::fs::create_dir_all(&plans).unwrap();
+        std::fs::write(
+            plans.join("recovery.yaml"),
+            format!(
+                "goal: \"finish\"\nprofile: \"{WALK_PROFILE}\"\nphases:\n  - id: \"finish\"\n    prompt: \"Submit the upper stage.\"\n  - id: \"after\"\n    prompt: \"Submit the lower stage.\"\n"
+            ),
+        )
+        .unwrap();
+        let phase_plan = json!({"goal": "finish", "steps": [{
+            "id": "step-setup",
+            "kind": "setup",
+            "expected_result": "pass",
+            "instruction": "Submit the upper stage",
+            "expected_paths": [],
+            "verify": [],
+        }]});
+        let responder: Responder = Arc::new(move |_, body| {
+            if !body["tools"].to_string().contains(UPPER_TOOL) {
+                // A phase asks for its plan first, and that request offers no tool.
+                return text_reply(&phase_plan.to_string());
+            }
+            if !has_tool_answer(body) {
+                return tool_reply(UPPER_TOOL, "good", "initial");
+            }
+            text_reply("stopping here")
+        });
+        let http = FakeHttp::start(responder);
+        let config = config(&env, WALK_PROFILE, &http.url);
+        let mut planner = client_from_config(&config, true).unwrap();
+        let mut execution = client_from_config(&config, false).unwrap();
+        let result = handle_command(
+            "/resume .anvil/plans/recovery.yaml",
+            &config,
+            planner.as_mut(),
+            execution.as_mut(),
+            &NOOP_UI,
+        );
+        let requests = http.finish();
+        reset_for_test();
+
+        let first = requests
+            .iter()
+            .find(|body| has_tool_answer(body))
+            .map(last_tool_answer)
+            .unwrap_or_else(|| panic!("no tool answer: {result:?}"));
+        assert_eq!(first["status"], "stale", "{first}");
+        assert_ne!(first["revision"], "initial", "{first}");
+        assert_eq!(
+            saved_attempts(&env),
+            1,
+            "no attempt came back and none was spent"
+        );
+        assert!(
+            result.is_err(),
+            "the obligations are still open: {result:?}"
+        );
     }
 
     #[test]

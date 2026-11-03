@@ -100,6 +100,8 @@ pub enum RefusalKind {
     StageLedgerRefused,
     /// A limit, a changed fixed input, or an unfinished commit: no later call can get past it.
     StageRunEnded,
+    /// A session wanted to end with a stage obligation it answers for unmet.
+    StageIncomplete,
 }
 
 impl RefusalKind {
@@ -191,6 +193,7 @@ impl RefusalKind {
             Self::StageContractRefused => "stage_contract_refused",
             Self::StageLedgerRefused => "stage_ledger_refused",
             Self::StageRunEnded => "stage_run_ended",
+            Self::StageIncomplete => "stage_incomplete",
         }
     }
 }

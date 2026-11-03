@@ -736,6 +736,9 @@ pub(super) fn ultra_final_acceptance_report_inner(
         report.push_missing_path(path);
     }
     merge_verification_report(&mut report, profile_report);
+    if let Some(unmet) = crate::planner::structured_stages::final_gate_failure(config) {
+        report.push_profile_failure(unmet);
+    }
     if !acceptance.passed {
         report.push_profile_failure(acceptance.primary_reason.clone());
         for guidance in

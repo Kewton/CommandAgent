@@ -527,6 +527,7 @@ impl StageLedger {
     }
 
     /// What a later budget attaches a cost to. It reads and changes nothing.
+    #[allow(dead_code, reason = "G5's way in: its budget is what will call this")]
     pub(crate) fn attempt_identity(&self, key: &TargetKey) -> Option<AttemptIdentity> {
         self.machine.attempt_identity(key)
     }
@@ -535,6 +536,7 @@ impl StageLedger {
         self.machine.revision_of(key)
     }
 
+    #[cfg(test)]
     pub(crate) fn contract(&self) -> &Arc<StageContract> {
         self.machine.contract()
     }
@@ -1899,6 +1901,101 @@ mod tests {
         let saved = world.saved();
         assert_ne!(saved.run_nonce, old_run);
         assert_eq!(saved.attempts_used, 0);
+    }
+
+    /// `beta` reads `alpha`'s output, and neither has a fixed input.
+    fn world_with_no_fixed_input() -> World {
+        let mut world = world();
+        let declaration = StageSetDeclaration {
+            stages: vec![one_target("alpha", "main"), one_target("beta", "beta-tool")],
+            limits: NarrowedStageLimits::default(),
+        };
+        let tools = [
+            facts("main", "out/alpha.json", &[]),
+            facts("beta-tool", "out/beta.json", &["out/alpha.json"]),
+        ];
+        world.contract = Arc::new(admit(&declaration, &tools).unwrap());
+        world.pins = pins_of(&world.contract);
+        world
+    }
+
+    fn previous_run_of(world: &World) -> String {
+        let held = world.process(LedgerEntry::Fresh).unwrap();
+        start(&mut held.lock().unwrap(), &alpha(), &world.bytes, 1, "a");
+        let run = world.saved().run_nonce;
+        assert_eq!(world.saved().attempts_used, 1);
+        run
+    }
+
+    #[test]
+    fn with_no_fixed_input_a_first_begin_that_starts_nothing_still_replaces_the_previous_run() {
+        let world = world_with_no_fixed_input();
+        let old_run = previous_run_of(&world);
+
+        let held = world.process(LedgerEntry::Fresh).unwrap();
+        let target = key("beta", "beta-tool");
+        let mut ledger = held.lock().unwrap();
+        let contract = ledger.contract().clone();
+        let output = world.bytes.observe("out/beta.json");
+        let decision = ledger
+            .begin(
+                &target,
+                request_for(
+                    &contract,
+                    &target,
+                    "initial",
+                    &world.bytes,
+                    1,
+                    NOW,
+                    "b",
+                    &output,
+                ),
+            )
+            .unwrap();
+        assert!(
+            matches!(decision, BeginDecision::NotReady { .. }),
+            "{decision:?}"
+        );
+        let saved = world.saved();
+        assert_ne!(saved.run_nonce, old_run);
+        assert_eq!(saved.attempts_used, 0);
+    }
+
+    /// The one first `begin` that changes nothing in the machine, so only `write_regardless`
+    /// makes it replace the file. Every other answer has by then pinned the fixed inputs, which
+    /// changes the record even when there are none to pin. A production call always names a
+    /// target of the contract, so this is the guarantee stated, not a path a run takes.
+    #[test]
+    fn a_first_begin_that_changes_nothing_in_the_machine_still_replaces_the_previous_run() {
+        let world = world_with_no_fixed_input();
+        let old_run = previous_run_of(&world);
+
+        let held = world.process(LedgerEntry::Fresh).unwrap();
+        let unknown = key("no-such-stage", "main");
+        let mut ledger = held.lock().unwrap();
+        let contract = ledger.contract().clone();
+        let before = ledger.machine.snapshot().clone();
+        let output = world.bytes.observe("out/alpha.json");
+        let decision = ledger
+            .begin(
+                &unknown,
+                request_for(
+                    &contract,
+                    &unknown,
+                    "initial",
+                    &world.bytes,
+                    1,
+                    NOW,
+                    "a",
+                    &output,
+                ),
+            )
+            .unwrap();
+        assert_eq!(decision, BeginDecision::UnknownTarget);
+        assert_eq!(ledger.machine.snapshot(), &before);
+        let saved = world.saved();
+        assert_ne!(saved.run_nonce, old_run);
+        assert_eq!(saved.run_nonce, before.run_nonce);
     }
 
     #[test]

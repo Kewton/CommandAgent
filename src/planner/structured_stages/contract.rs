@@ -605,8 +605,9 @@ fn admitted_inputs(
     Ok(inputs)
 }
 
-/// Runs before any provider call. `Err` names what is wrong and nothing is kept. The run's facts
-/// are an argument so that no caller can get a contract without having answered them.
+/// The two steps of [`StageContractDraft`] as one, for what is judged on its own. `Err` names what
+/// is wrong and nothing is kept.
+#[cfg(test)]
 pub(crate) fn admit(
     run: StageRunFacts,
     declaration: &StageSetDeclaration,

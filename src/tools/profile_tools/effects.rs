@@ -40,10 +40,12 @@ use crate::planner::structured_stages::receipt::{ToolPins, sha256_hex};
 use crate::planner::structured_stages::resume::AdmittedPins;
 use crate::planner::structured_stages::state::{
     AttemptFailure, AttemptTicket, BeginDecision, BytesSource, CheckFailureKind, CommitDecision,
-    CommitObservation, ExhaustedLimit, InvalidatedTarget, LocalDecision, ObservedBytes,
-    TerminalFailure, judge_checks,
+    CommitObservation, ExhaustedLimit, FailureDecision, InvalidatedTarget, LocalDecision,
+    ObservedBytes, TerminalFailure, judge_checks,
 };
-use crate::planner::structured_stages::{StageCallFacts, StageMember, StageRun, ledger_refused};
+use crate::planner::structured_stages::{
+    StageCallFacts, StageMember, StageNote, StageRun, ledger_refused,
+};
 use crate::tools::registry::{FunctionSpec, ToolContext, ToolSpec};
 use crate::tools::workspace_policy::WorkspacePolicy;
 
@@ -329,6 +331,16 @@ impl ProposalTool {
 
     pub(super) fn tool_id(&self) -> &str {
         &self.tool_id
+    }
+
+    pub(crate) fn has_stage(&self) -> bool {
+        self.stage.get().is_some()
+    }
+
+    pub(crate) fn take_stage_notes(&self) -> Vec<StageNote> {
+        self.stage
+            .get()
+            .map_or_else(Vec::new, |stage| stage.take_notes())
     }
 
     /// The contract and this tool come from two reads of the descriptor. A file replaced between
@@ -746,12 +758,25 @@ impl ProposalTool {
             let _ = held.verdict(&bytes);
             held.begin(&target.key, request).map_err(ledger_refused)?
         };
+        let limit_reached = call
+            .stage
+            .note_call(&target.key, !decision.counts_for_stagnation());
         let ticket = match decision {
             BeginDecision::Proceed(ticket) => ticket,
+            other if limit_reached && !other.ends_run() => {
+                return Err(stage_ended("no_progress_limit"));
+            }
             other => return self.answer_without_process(other, &ledger, target, notes),
         };
         let outcome =
             self.stage_attempt(call, &ledger, (&contract, target), &ticket, &asked, notes);
+        if notes.stage_reply_ok.is_some() {
+            if notes.stage_moved {
+                call.stage.note_progress(&target.key);
+            } else {
+                call.stage.note_no_progress(&target.key);
+            }
+        }
         if let Err(error) = &outcome {
             // Past the intent the permit has answered already, and this is refused as stale.
             if let Ok(mut held) = locked(&ledger) {
@@ -876,10 +901,17 @@ impl ProposalTool {
             self.max_result_bytes,
         )
         .map_err(rejected)?;
+        // Judged here because a failed check has no candidate to report: a failing process need not
+        // send an output. `record_local_result` judges again and is what holds on the accepted
+        // path, as a defence of the machine's own; its `Resubmit`, `Replay`, and `Conflict` are not
+        // reached from this call.
         if let Err(kind) = judge_checks(&target.required_checks, &result.checks) {
-            locked(ledger)?
+            let recorded = locked(ledger)?
                 .record_failure(ticket, AttemptFailure::Check(kind))
                 .map_err(ledger_refused)?;
+            if let FailureDecision::Refused(refused) = recorded {
+                return Err(stage_ended(&format!("refused {refused:?}")));
+            }
             return Ok(self.answer_failed_check(
                 call.context,
                 kind,
@@ -962,6 +994,7 @@ impl ProposalTool {
             .map_err(ledger_refused)?
             .map_err(|refused| stage_ended(&format!("refused {refused:?}")))?;
         notes.stage_reply_ok = Some(decision.is_progress());
+        notes.stage_moved = decision.is_progress();
         if decision.is_progress() {
             call.stage.readopt_readers(contract, target, &receipt)?;
         }
@@ -1141,7 +1174,7 @@ struct StageCall<'a> {
     adopted: &'a AdoptedInputs,
 }
 
-fn now_ms() -> u64 {
+pub(crate) fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |elapsed| {
@@ -1211,7 +1244,7 @@ const fn terminal_failure(kind: RefusalKind, secret_in_output: bool) -> Terminal
         | RefusalKind::SchemaMismatch => TerminalFailure::Pin,
         RefusalKind::EffectPathRefused | RefusalKind::EffectReadOnly => TerminalFailure::Path,
         RefusalKind::ProcessFailed | RefusalKind::EffectUnavailable => TerminalFailure::Process,
-        RefusalKind::CommitFailed => TerminalFailure::CommitBeforeIntent,
+        // A commit's failure is answered through its permit, which ends the attempt first.
         _ => TerminalFailure::Binding,
     }
 }
@@ -1345,13 +1378,30 @@ fn stage_receipt_for_model(receipt: &CommitReceipt, decision: &CommitDecision) -
     )
 }
 
+/// One block a terminal shows as it is: no control character of a name reaches it. A tool's
+/// spinner is drawing on stderr while this runs, with no newline after its frame, so on a terminal
+/// the block first clears that line. The spinner's next frame lands below it.
+fn stage_refusal_block(notice: &str, stderr_is_terminal: bool) -> String {
+    let clear = if stderr_is_terminal { "\r\x1b[2K" } else { "" };
+    format!("{clear}{notice}\n")
+}
+
 /// What an operator needs to act on a refusal that carries more than its message may. The path
 /// and the input's name are theirs, and go nowhere but here and the event.
 fn stage_refusal_notice(data: &Value) -> String {
-    let field = |name: &str| data.get(name).and_then(Value::as_str);
+    // Field by field: no value may end a line or move a cursor, and each is scrubbed as written.
+    let field = |name: &str| {
+        data.get(name).and_then(Value::as_str).map(|value| {
+            let plain = value
+                .chars()
+                .map(|c| if c.is_control() { '?' } else { c })
+                .collect::<String>();
+            eval_events::scrub_sensitive_text(&plain)
+        })
+    };
     let mut lines = vec![format!(
         "stage record refused: {}",
-        field("code").unwrap_or("unknown")
+        field("code").unwrap_or_else(|| "unknown".to_string())
     )];
     if let Some(input) = field("input") {
         lines.push(format!("  changed input: {input}"));
@@ -1362,11 +1412,16 @@ fn stage_refusal_notice(data: &Value) -> String {
     if let Some(recovery) = field("recovery") {
         lines.push(format!("  to recover: {recovery}"));
     }
-    eval_events::scrub_sensitive_text(&lines.join("\n"))
+    lines.join("\n")
 }
 
 fn emit_stage_refusal(context: &ToolContext, tool: &ProposalTool, data: &Value) {
-    eprintln!("{}", stage_refusal_notice(data));
+    let block = stage_refusal_block(
+        &stage_refusal_notice(data),
+        crate::tui::terminal::stderr_is_tty(),
+    );
+    // One write under the lock the spinner takes, so no frame lands inside the block.
+    let _ = std::io::Write::write_all(&mut std::io::stderr().lock(), block.as_bytes());
     let mut event = json!({
         "event": "structured_stage_refused",
         "name": tool.name(),
@@ -1502,6 +1557,8 @@ struct RunNotes {
     stderr_tail: String,
     /// A stage call that returned as data: whether what it asked for happened.
     stage_reply_ok: Option<bool>,
+    /// A commit stood and sealed. A commit that stood unverified moved the bytes, not the stage.
+    stage_moved: bool,
     secret_in_output: bool,
 }
 
@@ -2006,7 +2063,9 @@ field() { printf '%s' "$request" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }
             ProcessLimits, encode_base64,
         };
         use super::super::super::schema::binding::{self as schema_binding, ToolPins};
-        use super::super::super::schema::invocation::ReceiveState;
+        use super::super::super::schema::invocation::{
+            ReceiveState, enter_session, for_provider_worker, receive_native,
+        };
         use super::super::{
             BoundedDiagnostics, CheckFailureKind, CommitReceipt, Diagnostic,
             EXPECTED_REVISION_ARGUMENT, MODEL_RESULT_CHARS, ProposalParts, ProposalTool, RunNotes,
@@ -2025,7 +2084,9 @@ field() { printf '%s' "$request" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }
         use crate::planner::structured_stages::state::{
             BeginDecision, CommitDecision, Phase, UnverifiedReason,
         };
-        use crate::planner::structured_stages::{StageMember, StageRun};
+        use crate::planner::structured_stages::{
+            StageMember, StageRun, StageScope, refuse_unmet_session,
+        };
         use crate::tools::registry::ToolContext;
         use crate::tools::workspace_policy::WorkspacePolicy;
 
@@ -2075,6 +2136,7 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
             upper: Arc<ProposalTool>,
             lower: Arc<ProposalTool>,
             run: Arc<StageRun>,
+            state: Arc<ReceiveState>,
         }
 
         fn facts(tool: &str, output: &str, inputs: &[&str], attempts: u32) -> HostToolFacts {
@@ -2288,6 +2350,7 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                 upper,
                 lower,
                 run,
+                state: Arc::new(state),
             }
         }
 
@@ -2317,10 +2380,11 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                     upper,
                     lower,
                     run,
+                    state,
                 } = self;
                 // Everything of the old one goes first: its ledger's lock, and its guard, whose
                 // end would otherwise come after the new one's start.
-                drop((_guard, workspace, marks, upper, lower, run));
+                drop((_guard, workspace, marks, upper, lower, run, state));
                 assemble(temp, attempts_per_target, entry)
             }
 
@@ -3233,6 +3297,285 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
             assert_eq!(bench.starts(UPPER), 0);
             std::fs::remove_file(bench.workspace.join(".env")).unwrap();
             assert_eq!(bench.attempts(&upper_key()), 0);
+        }
+
+        fn funnel(bench: &StageBench, scope: StageScope) -> anyhow::Result<&'static str> {
+            refuse_unmet_session(
+                Ok("All stages are sealed and every check passed."),
+                Some(&bench.run),
+                scope,
+                None,
+            )
+        }
+
+        fn stage_incomplete(result: anyhow::Result<&'static str>, code: &str) {
+            let error = result.expect_err("the run must not be a success");
+            let message = error.to_string();
+            assert!(
+                message.starts_with(&format!("profile_tool_refused: stage_incomplete: {code}")),
+                "{message}"
+            );
+        }
+
+        /// T6: nothing a model says or an answer says reaches the host's decision.
+        #[test]
+        fn only_the_ledger_decides_whether_a_run_succeeds() {
+            // A failed check.
+            let bench = stage_bench();
+            bench.mark(
+                &format!("checks-{UPPER}"),
+                r#"[{"id":"shape","status":"failed"}]"#,
+            );
+            bench.call(&bench.upper, "fast", "initial").unwrap();
+            stage_incomplete(funnel(&bench, StageScope::All), "obligations_unmet");
+
+            // The upper sealed, and the lower never submitted.
+            let bench = stage_bench();
+            let answer = bench.seal_upper();
+            stage_incomplete(funnel(&bench, StageScope::All), "obligations_unmet");
+
+            // Everything sealed: the control.
+            let revision = downstream_revision(&answer);
+            bench.call(&bench.lower, "fast", &revision).unwrap();
+            assert!(funnel(&bench, StageScope::All).is_ok());
+
+            // Then the bytes move behind the host.
+            std::fs::write(bench.workspace.join(LOWER_OUTPUT), b"edited").unwrap();
+            stage_incomplete(funnel(&bench, StageScope::All), "obligations_unmet");
+            assert_eq!(bench.status(&lower_key()).0, Phase::Unverified);
+        }
+
+        #[test]
+        fn a_commit_that_stood_unverified_leaves_the_run_unsuccessful() {
+            let bench = stage_bench();
+            test_hook::fail_directory_sync();
+            let _reset = test_hook::install(|_| {});
+            let answer = bench.call(&bench.upper, "fast", "initial").unwrap();
+            assert_eq!(answer["stage"]["status"], "unverified", "{answer}");
+            assert!(bench.saved(UPPER_OUTPUT).is_some(), "the bytes moved");
+            stage_incomplete(funnel(&bench, StageScope::All), "obligations_unmet");
+            stage_incomplete(funnel(&bench, StageScope::Touched), "obligations_unmet");
+            let notes = bench.run.take_notes();
+            assert!(notes.iter().all(|note| !note.progress), "{notes:?}");
+        }
+
+        #[test]
+        fn a_record_that_cannot_be_vouched_for_is_a_named_failure_and_not_a_hold() {
+            let bench = stage_bench();
+            bench.seal_upper();
+            let file = crate::planner::structured_stages::ledger::ledger_file(
+                &bench.workspace.parent().unwrap().join("state"),
+                &bench.workspace,
+                PROFILE,
+            )
+            .unwrap();
+            std::fs::write(file, b"not a record").unwrap();
+            let shortfall = bench.run.judge(StageScope::All).unwrap();
+            assert_eq!(shortfall.code, "ledger_refused");
+            assert!(!shortfall.can_be_resubmitted());
+            stage_incomplete(funnel(&bench, StageScope::All), "ledger_refused");
+        }
+
+        #[test]
+        fn a_step_that_called_no_stage_opens_nothing_and_answers_for_nothing() {
+            let bench = stage_bench();
+            assert!(funnel(&bench, StageScope::Touched).is_ok());
+            assert!(!bench.workspace.parent().unwrap().join("state").exists());
+            // A step that called one answers for that one, and the other is not its to answer.
+            bench.seal_upper();
+            assert!(funnel(&bench, StageScope::Touched).is_ok());
+            stage_incomplete(funnel(&bench, StageScope::All), "obligations_unmet");
+        }
+
+        #[test]
+        fn final_acceptance_asks_for_every_obligation_and_only_a_bound_set_is_asked() {
+            let bench = stage_bench();
+            let mut config = super::super::config_for_test(&bench.workspace);
+            config.profile = PROFILE.to_string();
+            assert_eq!(
+                crate::planner::structured_stages::final_gate_failure(&config),
+                None
+            );
+
+            bench.run.remember_bound();
+            let failure = crate::planner::structured_stages::final_gate_failure(&config).unwrap();
+            assert!(
+                failure.contains("stage_incomplete: obligations_unmet"),
+                "{failure}"
+            );
+
+            let answer = bench.seal_upper();
+            assert!(
+                crate::planner::structured_stages::final_gate_failure(&config).is_some(),
+                "a step's seal is not the whole set"
+            );
+            let revision = downstream_revision(&answer);
+            bench.call(&bench.lower, "fast", &revision).unwrap();
+            assert_eq!(
+                crate::planner::structured_stages::final_gate_failure(&config),
+                None
+            );
+        }
+
+        /// S8: a call that starts nothing spends no attempt, so it needs a limit of its own.
+        #[test]
+        fn repeating_a_stale_call_is_counted_and_ends_the_run_at_its_limit() {
+            let bench = stage_bench();
+            let answer = bench.seal_upper();
+            bench.run.take_notes();
+            assert!(
+                answer["stage"]["revision"].as_str().unwrap() != "initial",
+                "{answer}"
+            );
+            for repeat in 0..7 {
+                let stale = bench.call(&bench.upper, "other", "initial").unwrap();
+                assert_eq!(stale["status"], "stale", "{repeat}");
+            }
+            let notes = bench.run.take_notes();
+            assert_eq!(notes.len(), 7);
+            assert!(notes.iter().all(|note| !note.progress));
+
+            let error = bench.call(&bench.upper, "other", "initial").unwrap_err();
+            assert_eq!(kind(&error), RefusalKind::StageRunEnded);
+            assert!(error.to_string().contains("no_progress_limit"), "{error:#}");
+            assert_eq!(bench.starts(UPPER), 1, "nothing ran");
+        }
+
+        #[test]
+        fn a_call_that_starts_a_process_clears_the_count_of_those_that_did_not() {
+            let bench = stage_bench();
+            for _ in 0..7 {
+                let waiting = bench.call(&bench.lower, "fast", "initial").unwrap();
+                assert_eq!(waiting["status"], "not_ready");
+            }
+            let answer = bench.seal_upper();
+            assert_eq!(answer["stage"]["status"], "sealed");
+            let revision = downstream_revision(&answer);
+            for _ in 0..7 {
+                let waiting = bench.call(&bench.upper, "other", "initial").unwrap();
+                assert_eq!(waiting["status"], "stale");
+            }
+            let notes_end = bench.call(&bench.lower, "fast", &revision).unwrap();
+            assert_eq!(notes_end["stage"]["status"], "sealed", "{notes_end}");
+            let notes = bench.run.take_notes();
+            assert!(notes.last().is_some_and(|note| note.progress), "{notes:?}");
+        }
+
+        /// T2: calls in the reply that committed were written before they knew of it.
+        #[test]
+        fn a_call_in_the_reply_that_committed_is_stale_and_the_next_reply_goes_through() {
+            let bench = stage_bench();
+            let _scope = enter_session(bench.state.clone());
+            for_provider_worker().unwrap();
+            let raw = |revision: &str| {
+                json!({"mode": "fast", EXPECTED_REVISION_ARGUMENT: revision}).to_string()
+            };
+            let run = |tool: &ProposalTool, revision: &str| -> Value {
+                let call = receive_native(
+                    tool.name(),
+                    || "call".to_string(),
+                    Some(&Value::String(raw(revision))),
+                    true,
+                )
+                .unwrap();
+                let text = tool
+                    .execute(&call.arguments, &bench.context(), &|| false)
+                    .unwrap();
+                serde_json::from_str(&text).unwrap()
+            };
+            let answer = run(&bench.upper, "initial");
+            assert_eq!(answer["stage"]["status"], "sealed", "{answer}");
+            let revision = downstream_revision(&answer);
+
+            let same_reply = run(&bench.lower, &revision);
+            assert_eq!(same_reply["status"], "stale", "{same_reply}");
+            assert_eq!(bench.starts(LOWER), 0);
+
+            for_provider_worker().unwrap();
+            let next = run(&bench.lower, &revision);
+            assert_eq!(next["stage"]["status"], "sealed", "{next}");
+        }
+
+        /// What a terminal holds after the writes it gets while a tool runs.
+        fn screen_after(writes: &[&str]) -> Vec<String> {
+            let mut lines = vec![String::new()];
+            for write in writes {
+                let mut rest = *write;
+                while let Some(c) = rest.chars().next() {
+                    if let Some(after) = rest.strip_prefix("\x1b[2K") {
+                        *lines.last_mut().unwrap() = String::new();
+                        rest = after;
+                        continue;
+                    }
+                    rest = &rest[c.len_utf8()..];
+                    match c {
+                        '\r' => {
+                            // Every writer here clears right after a return, so the column
+                            // never matters.
+                        }
+                        '\n' => lines.push(String::new()),
+                        other => lines.last_mut().unwrap().push(other),
+                    }
+                }
+            }
+            lines
+        }
+
+        const SPINNER_FRAME: &str = "\r\x1b[2K| tool ProposeUpper 2s";
+
+        /// The spinner leaves its frame with no newline. A block written as it stands would start
+        /// on that line.
+        #[test]
+        fn the_notice_starts_on_a_line_of_its_own_and_the_spinner_goes_on_below_it() {
+            let notice = "stage record refused: corrupt\n  ledger: /state/ledger.json";
+            let block = super::super::stage_refusal_block(notice, true);
+            let screen = screen_after(&[SPINNER_FRAME, &block, SPINNER_FRAME]);
+            assert_eq!(
+                screen,
+                [
+                    "stage record refused: corrupt",
+                    "  ledger: /state/ledger.json",
+                    "| tool ProposeUpper 2s",
+                ]
+            );
+            // Without the clear, the first line would have the frame in front of it.
+            let plain = format!("{notice}\n");
+            let broken = screen_after(&[SPINNER_FRAME, &plain]);
+            assert_eq!(
+                broken[0],
+                format!("| tool ProposeUpper 2s{}", "stage record refused: corrupt")
+            );
+
+            // Piped or logged, there is nothing to clear and no control character at all.
+            let piped = super::super::stage_refusal_block(notice, false);
+            assert_eq!(piped, plain);
+        }
+
+        /// A name is the operator's and a path can hold anything. None of it moves a cursor.
+        #[test]
+        fn no_control_character_of_a_name_reaches_the_terminal() {
+            let data = json!({
+                "code": "fixed_input_changed",
+                "input": "fixed/\x1b[2J\x1b[1;1Hnew\rline\u{7}.json",
+                "ledger_path": "/state/a\nb/ledger.json",
+                "recovery": "only `--fresh-session` goes on",
+            });
+            let block = super::super::stage_refusal_block(
+                &super::super::stage_refusal_notice(&data),
+                false,
+            );
+            assert!(!block.contains('\x1b'), "{block:?}");
+            assert!(!block.contains('\r'), "{block:?}");
+            assert!(!block.contains('\u{7}'), "{block:?}");
+            assert!(
+                block.contains("changed input: fixed/?[2J?[1;1Hnew?line?.json"),
+                "{block:?}"
+            );
+            assert!(
+                block.contains("ledger: /state/a?b/ledger.json"),
+                "{block:?}"
+            );
+            assert_eq!(block.lines().count(), 4, "one line for each: {block:?}");
         }
 
         /// T9: another call on the same bytes is the whole procedure, not row 1.

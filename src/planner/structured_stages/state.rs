@@ -318,22 +318,14 @@ pub(crate) enum TerminalFailure {
     Pin,
     Process,
     Path,
-    Cancelled,
-    /// A commit stopped before any intent was written, so no rename can have happened. After an
-    /// intent the only report is a [`CommitObservation`].
-    CommitBeforeIntent,
 }
 
+/// The type decides what can be answered with another submission. After an intent the only report
+/// is a [`CommitObservation`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AttemptFailure {
     Check(CheckFailureKind),
     Terminal(TerminalFailure),
-}
-
-impl AttemptFailure {
-    pub(crate) const fn is_resubmittable(self) -> bool {
-        matches!(self, Self::Check(_))
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -444,6 +436,7 @@ impl StageVerdict {
 }
 
 /// The read-only identity a later budget can attach to a cost (G5).
+#[allow(dead_code, reason = "G5's way in: its budget is what will read this")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AttemptIdentity {
     pub(crate) run_nonce: String,
@@ -619,6 +612,7 @@ impl StageMachine {
 
     /// The latest attempt of a target, read-only. `None` until one started. An attempt under
     /// way answers with the generation it started on.
+    #[allow(dead_code, reason = "G5's way in: its budget is what will call this")]
     pub(crate) fn attempt_identity(&self, key: &TargetKey) -> Option<AttemptIdentity> {
         let record = self.record(key)?;
         if record.attempts_used == 0 {
@@ -1882,12 +1876,21 @@ mod tests {
 
     #[test]
     fn only_the_check_failures_are_resubmittable_and_the_type_decides() {
+        let report = |failure| {
+            let mut machine = machine(two_stage_contract());
+            let bytes = FakeBytes::default().with("fixed/source.json", b"fixed source");
+            let ticket = start(&mut machine, &bytes, 1, "a");
+            machine.record_failure(&ticket, failure)
+        };
         for kind in [
             CheckFailureKind::Failed,
             CheckFailureKind::NotRun,
             CheckFailureKind::Unknown,
         ] {
-            assert!(AttemptFailure::Check(kind).is_resubmittable());
+            assert_eq!(
+                report(AttemptFailure::Check(kind)),
+                FailureDecision::Resubmit(kind)
+            );
         }
         for kind in [
             TerminalFailure::SecretValueInOutput,
@@ -1895,10 +1898,11 @@ mod tests {
             TerminalFailure::Pin,
             TerminalFailure::Process,
             TerminalFailure::Path,
-            TerminalFailure::Cancelled,
-            TerminalFailure::CommitBeforeIntent,
         ] {
-            assert!(!AttemptFailure::Terminal(kind).is_resubmittable());
+            assert_eq!(
+                report(AttemptFailure::Terminal(kind)),
+                FailureDecision::EndRun(kind)
+            );
         }
     }
 
@@ -2571,9 +2575,9 @@ mod tests {
         let (ticket, _) = at_commit(&mut machine, &mut bytes, 3);
         let before = machine.clone();
         for failure in [
-            AttemptFailure::Terminal(TerminalFailure::CommitBeforeIntent),
+            AttemptFailure::Terminal(TerminalFailure::Binding),
             AttemptFailure::Terminal(TerminalFailure::Process),
-            AttemptFailure::Terminal(TerminalFailure::Cancelled),
+            AttemptFailure::Terminal(TerminalFailure::Path),
             AttemptFailure::Check(CheckFailureKind::Failed),
         ] {
             assert_eq!(
