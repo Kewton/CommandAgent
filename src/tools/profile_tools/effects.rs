@@ -1893,14 +1893,22 @@ field() { printf '%s' "$request" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }
     /// A value the run has no way to judge is not an empty set: nothing starts.
     #[test]
     fn secrets_that_cannot_be_read_stop_the_call_before_the_process() {
+        // Too short to be held as a secret, which is why it cannot be read, and no word that a
+        // backtrace, a path or a symbol could show.
+        const UNREADABLE: &str = "Zq7_x3";
+        assert!(UNREADABLE.len() < crate::sensitive_data::MIN_GENERIC_SECRET_LEN);
         let bench = bench(&good_script());
-        std::fs::write(bench.workspace.join(".env"), "DUMMY_API_KEY=short\n").unwrap();
+        std::fs::write(
+            bench.workspace.join(".env"),
+            format!("DUMMY_API_KEY={UNREADABLE}\n"),
+        )
+        .unwrap();
         let error = bench.call().unwrap_err();
         assert_eq!(kind(&error), RefusalKind::EffectEnvRefused, "{error:#}");
         assert_eq!(bench.starts(), 0);
         assert_eq!(bench.saved(), None);
         assert!(
-            !format!("{error:#} {error:?}").contains("short"),
+            !format!("{error:#} {error:?}").contains(UNREADABLE),
             "{error:#}"
         );
     }
