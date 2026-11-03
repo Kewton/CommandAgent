@@ -86,7 +86,7 @@ pub(crate) struct HostToolFacts {
 /// The facts about a run that decide whether stages may be declared in it at all.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct StageRunFacts {
-    pub(crate) bash_retained: bool,
+    /// False for `--sandbox off`, for `auto` with no backend, and when no policy is installed.
     pub(crate) os_sandbox_enforced: bool,
     pub(crate) workflow_child: bool,
 }
@@ -116,7 +116,7 @@ pub(crate) enum ContractRefusalKind {
     SchemaNarrowedByUpstream,
     InvalidLimit,
     WidenedLimit,
-    SandboxOffWithBash,
+    OsSandboxNotEnforced,
     WorkflowChild,
 }
 
@@ -198,14 +198,15 @@ impl StageContract {
     }
 }
 
-/// Bash can reach the ledger when no OS boundary holds it (D6), and a workflow child's
-/// obligations have no owner in this version (D12).
-pub(crate) fn refuse_for_run(facts: StageRunFacts) -> Result<(), ContractRefusal> {
+/// With no OS boundary, every command the run executes can reach the ledger: Bash, and also a
+/// plan's verify and a dependency setup, so taking Bash away would not close it (D6). A workflow
+/// child's obligations have no owner in this version (D12).
+fn refuse_for_run(facts: StageRunFacts) -> Result<(), ContractRefusal> {
     if facts.workflow_child {
         return Err(refused(ContractRefusalKind::WorkflowChild, ""));
     }
-    if facts.bash_retained && !facts.os_sandbox_enforced {
-        return Err(refused(ContractRefusalKind::SandboxOffWithBash, ""));
+    if !facts.os_sandbox_enforced {
+        return Err(refused(ContractRefusalKind::OsSandboxNotEnforced, ""));
     }
     Ok(())
 }
@@ -569,11 +570,14 @@ fn admitted_inputs(
     Ok(inputs)
 }
 
-/// Runs before any provider call. `Err` names what is wrong and nothing is kept.
+/// Runs before any provider call. `Err` names what is wrong and nothing is kept. The run's facts
+/// are an argument so that no caller can get a contract without having answered them.
 pub(crate) fn admit(
+    run: StageRunFacts,
     declaration: &StageSetDeclaration,
     facts: &[HostToolFacts],
 ) -> Result<StageContract, ContractRefusal> {
+    refuse_for_run(run)?;
     if declaration.stages.is_empty() {
         return Err(refused(ContractRefusalKind::NoStages, ""));
     }
@@ -629,13 +633,14 @@ pub(crate) fn admit(
 
 #[cfg(test)]
 mod tests {
-    use super::super::test_support::{facts, one_target, two_stage_contract};
+    use super::super::test_support::{
+        admit_enforced as admit, facts, one_target, two_stage_contract,
+    };
     use super::{
         ContractRefusalKind, HOST_MAX_ATTEMPTS_PER_RUN, HOST_MAX_ATTEMPTS_PER_TARGET,
         HOST_MAX_DEADLINE_SECONDS, HostToolFacts, MAX_EDGES, MAX_ID_BYTES, MAX_INPUTS_PER_TOOL,
         MAX_REQUIRED_CHECKS, MAX_STAGES, MAX_TARGETS, NarrowedStageLimits, StageDeclaration,
-        StageRunFacts, StageSetDeclaration, TargetDeclaration, TargetKey, admit, normalize_path,
-        refuse_for_run,
+        StageRunFacts, StageSetDeclaration, TargetDeclaration, TargetKey, normalize_path,
     };
 
     fn set(stages: Vec<StageDeclaration>) -> StageSetDeclaration {
@@ -1080,21 +1085,34 @@ mod tests {
     }
 
     #[test]
-    fn a_run_without_an_os_boundary_keeps_stages_only_without_bash() {
-        let facts = |bash_retained, os_sandbox_enforced, workflow_child| StageRunFacts {
-            bash_retained,
+    fn no_contract_comes_out_of_a_run_without_an_os_boundary_or_in_a_workflow_child() {
+        let declaration = set(vec![one_target("s", "t")]);
+        let tools = [facts("t", "out/a", &[])];
+        let run = |os_sandbox_enforced, workflow_child| StageRunFacts {
             os_sandbox_enforced,
             workflow_child,
         };
+        let kind_for = |facts| super::admit(facts, &declaration, &tools).unwrap_err().kind;
         assert_eq!(
-            refuse_for_run(facts(true, false, false)).unwrap_err().kind,
-            ContractRefusalKind::SandboxOffWithBash
+            kind_for(run(false, false)),
+            ContractRefusalKind::OsSandboxNotEnforced
         );
-        assert!(refuse_for_run(facts(false, false, false)).is_ok());
-        assert!(refuse_for_run(facts(true, true, false)).is_ok());
         assert_eq!(
-            refuse_for_run(facts(false, true, true)).unwrap_err().kind,
+            kind_for(run(true, true)),
             ContractRefusalKind::WorkflowChild
+        );
+        assert_eq!(
+            kind_for(run(false, true)),
+            ContractRefusalKind::WorkflowChild
+        );
+        assert!(super::admit(run(true, false), &declaration, &tools).is_ok());
+
+        // The run is judged first: the refusal does not depend on what was declared.
+        assert_eq!(
+            super::admit(run(false, false), &set(vec![]), &tools)
+                .unwrap_err()
+                .kind,
+            ContractRefusalKind::OsSandboxNotEnforced
         );
     }
 

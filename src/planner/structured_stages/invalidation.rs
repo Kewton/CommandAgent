@@ -32,7 +32,8 @@ pub(crate) fn downstream_closure(contract: &StageContract, stage: &str) -> BTree
 }
 
 /// Takes the current state from everything below `stage` and gives each a new generation, so
-/// an attempt started before this change can no longer finish. Attempts stay counted.
+/// an attempt started before this change can no longer finish. Attempts stay counted. An attempt
+/// past its intent keeps its way out: its rename may have happened, and its commit is told so.
 pub(crate) fn invalidate_downstream(
     contract: &StageContract,
     records: &mut [TargetRecord],
@@ -45,7 +46,7 @@ pub(crate) fn invalidate_downstream(
             continue;
         }
         record.retire_current_receipt();
-        record.in_flight = None;
+        record.drop_unless_intent();
         record.phase = Phase::NotReady;
         record.unverified_reason = None;
         record.generation += 1;
@@ -56,10 +57,10 @@ pub(crate) fn invalidate_downstream(
 
 #[cfg(test)]
 mod tests {
-    use super::super::test_support::{facts, one_target};
+    use super::super::test_support::{admit_enforced as admit, facts, one_target};
     use super::downstream_closure;
     use crate::planner::structured_stages::contract::{
-        NarrowedStageLimits, StageContract, StageSetDeclaration, admit,
+        NarrowedStageLimits, StageContract, StageSetDeclaration,
     };
 
     /// `root → left → join`, `root → right → join`, `join → tail`, and `apart` on its own.

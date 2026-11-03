@@ -54,8 +54,8 @@ mod test_support {
     use sha2::{Digest, Sha256};
 
     use super::contract::{
-        HostToolFacts, NarrowedStageLimits, StageContract, StageDeclaration, StageLimits,
-        StageSetDeclaration, TargetDeclaration, TargetKey, admit,
+        ContractRefusal, HostToolFacts, NarrowedStageLimits, StageContract, StageDeclaration,
+        StageLimits, StageRunFacts, StageSetDeclaration, TargetDeclaration, TargetKey, admit,
     };
     use super::receipt::{CheckResult, CheckStatus, InputDigest, ReceiptParts, ToolPins};
     use super::state::{
@@ -64,6 +64,21 @@ mod test_support {
     };
     use crate::tools::profile_tools::commit::CommitReceipt;
     use crate::tools::profile_tools::protocol::RECEIPT_PROTOCOL;
+
+    /// The admission, in a run an OS boundary holds and no workflow owns.
+    pub(crate) fn admit_enforced(
+        declaration: &StageSetDeclaration,
+        tools: &[HostToolFacts],
+    ) -> Result<StageContract, ContractRefusal> {
+        admit(
+            StageRunFacts {
+                os_sandbox_enforced: true,
+                workflow_child: false,
+            },
+            declaration,
+            tools,
+        )
+    }
 
     pub(crate) fn digest(text: &str) -> String {
         sha_of(text.as_bytes())
@@ -143,7 +158,7 @@ mod test_support {
             facts(&first_tool, first.2, &[fixed]),
             facts(&second_tool, second.2, &[first.2]),
         ];
-        admit(&declaration, &tools).unwrap()
+        admit_enforced(&declaration, &tools).unwrap()
     }
 
     pub(crate) fn two_stage_contract() -> StageContract {

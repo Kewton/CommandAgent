@@ -137,11 +137,27 @@ impl TargetRecord {
         }
     }
 
+    /// The state only. An attempt under way is the caller's to judge.
     pub(crate) fn lower_to_unverified(&mut self, reason: UnverifiedReason) {
         self.retire_current_receipt();
-        self.in_flight = None;
         self.phase = Phase::Unverified;
         self.unverified_reason = Some(reason);
+    }
+
+    /// True once a rename may have happened. Only `record_commit` ends such an attempt in a live
+    /// process, so that nothing forgets it (S15). A new process judges it by the bytes.
+    pub(crate) fn has_recorded_intent(&self) -> bool {
+        matches!(
+            self.in_flight.as_ref().map(|in_flight| &in_flight.progress),
+            Some(InFlightProgress::IntentRecorded { .. })
+        )
+    }
+
+    /// Ends an attempt that has not reached its intent. It can no longer finish.
+    pub(crate) fn drop_unless_intent(&mut self) {
+        if !self.has_recorded_intent() {
+            self.in_flight = None;
+        }
     }
 
     fn drop_in_flight(&mut self) {
@@ -235,6 +251,8 @@ pub(crate) enum BeginDecision {
     },
     AttemptsExhausted(ExhaustedLimit),
     DeadlineExceeded,
+    /// The last attempt on this target wrote its intent and has not been told how it ended.
+    Refused(StageRefusal),
 }
 
 impl BeginDecision {
@@ -247,11 +265,15 @@ impl BeginDecision {
         !self.starts_process()
     }
 
-    /// Only the limits and a changed fixed input end the run by themselves.
+    /// The limits, a changed fixed input, and an unfinished intent end the run by themselves: no
+    /// later call can get past any of them.
     pub(crate) fn ends_run(&self) -> bool {
         matches!(
             self,
-            Self::AttemptsExhausted(_) | Self::DeadlineExceeded | Self::FixedInputChanged { .. }
+            Self::AttemptsExhausted(_)
+                | Self::DeadlineExceeded
+                | Self::FixedInputChanged { .. }
+                | Self::Refused(_)
         )
     }
 }
@@ -274,7 +296,9 @@ pub(crate) enum TerminalFailure {
     Process,
     Path,
     Cancelled,
-    Commit,
+    /// A commit stopped before any intent was written, so no rename can have happened. After an
+    /// intent the only report is a [`CommitObservation`].
+    CommitBeforeIntent,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -365,10 +389,28 @@ pub(crate) struct ObligationStatus {
 #[must_use]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct StageVerdict {
-    pub(crate) complete: bool,
-    pub(crate) obligations: Vec<ObligationStatus>,
-    pub(crate) invalidated: Vec<TargetKey>,
-    pub(crate) ledger_intact: bool,
+    complete: bool,
+    obligations: Vec<ObligationStatus>,
+    invalidated: Vec<TargetKey>,
+    ledger_intact: bool,
+}
+
+impl StageVerdict {
+    pub(crate) fn complete(&self) -> bool {
+        self.complete
+    }
+
+    pub(crate) fn obligations(&self) -> &[ObligationStatus] {
+        &self.obligations
+    }
+
+    pub(crate) fn invalidated(&self) -> &[TargetKey] {
+        &self.invalidated
+    }
+
+    pub(crate) fn ledger_intact(&self) -> bool {
+        self.ledger_intact
+    }
 }
 
 /// The read-only identity a later budget can attach to a cost (G5).
@@ -611,6 +653,7 @@ impl StageMachine {
         let mut inputs = request.inputs.clone();
         inputs.sort();
         record.phase == Phase::Sealed
+            && receipt.generation == record.generation
             && receipt.run_nonce == self.snapshot.run_nonce
             && receipt.process_nonce == self.snapshot.process_nonce
             && receipt.arguments_sha256 == request.arguments_sha256
@@ -683,6 +726,10 @@ impl StageMachine {
         let Some(index) = self.index_of(key) else {
             return BeginDecision::UnknownTarget;
         };
+        // Before anything is recorded: this call changes nothing about an unfinished intent.
+        if self.snapshot.targets[index].has_recorded_intent() {
+            return BeginDecision::Refused(StageRefusal::OutOfOrder);
+        }
         self.snapshot.latest_clock_ms = self.snapshot.latest_clock_ms.max(request.now_ms);
         if self.deadline_passed() {
             return BeginDecision::DeadlineExceeded;
@@ -873,6 +920,9 @@ impl StageMachine {
         let record = &mut self.snapshot.targets[index];
         if !Self::is_in_flight(record, ticket) {
             return FailureDecision::Refused(StageRefusal::Stale);
+        }
+        if record.has_recorded_intent() {
+            return FailureDecision::Refused(StageRefusal::OutOfOrder);
         }
         record.drop_in_flight();
         match failure {
@@ -1075,6 +1125,7 @@ impl StageMachine {
             };
             let record = &mut self.snapshot.targets[index];
             record.generation += 1;
+            record.drop_unless_intent();
             record.lower_to_unverified(reason);
             let key = record.key.clone();
             invalidated.push(key.clone());
@@ -1129,12 +1180,12 @@ mod tests {
 
     use super::super::contract::{
         NarrowedStageLimits, StageContract, StageSetDeclaration, TargetDeclaration, TargetKey,
-        admit,
     };
-    use super::super::receipt::{CheckResult, CheckStatus, StageReceipt};
+    use super::super::receipt::{CheckResult, CheckStatus, StageReceipt, is_sha256_hex};
     use super::super::test_support::{
-        FakeBytes, commit_for, digest, document_index_contract, facts, key, one_target,
-        passed_checks, request_for, seal, setting_object_contract, sha_of, two_stage_contract,
+        FakeBytes, admit_enforced as admit, commit_for, digest, document_index_contract, facts,
+        key, one_target, passed_checks, request_for, seal, setting_object_contract, sha_of,
+        two_stage_contract,
     };
     use super::{
         AttemptFailure, AttemptRequest, AttemptTicket, BeginDecision, CheckFailureKind,
@@ -1268,14 +1319,25 @@ mod tests {
         assert_eq!(receipt.input_revision, revision);
         assert_eq!(receipt.run_nonce, "run-a");
         assert_eq!((receipt.attempt, receipt.generation), (1, 1));
-        let CommitDecision::Sealed { receipt_sha256, .. } = decision else {
+        let CommitDecision::Sealed {
+            revision: answered,
+            receipt_sha256,
+            invalidated,
+        } = decision
+        else {
             panic!("sealed");
         };
-        assert_eq!(receipt_sha256, receipt.sha256());
+        assert!(is_sha256_hex(&receipt_sha256));
+        assert_eq!(answered, machine.revision_of(&alpha()).unwrap());
+        assert_ne!(answered, INITIAL_REVISION);
+        assert_eq!(invalidated, vec![beta()]);
     }
 
+    /// The same machine over stage sets that differ only in their names and paths. It shows the
+    /// names mean nothing to the machine. It is not the evidence for two kinds of profile: that
+    /// takes real manifests through the public entry, in the corpus.
     #[test]
-    fn two_kinds_of_profile_run_on_the_same_machine() {
+    fn the_machine_does_not_care_what_a_stage_set_names_its_stages() {
         for (contract, first, second, fixed) in [
             (
                 setting_object_contract(),
@@ -1405,6 +1467,10 @@ mod tests {
         let mut machine = base.clone();
         machine.snapshot_mut().process_nonce = "process-b".to_string();
         assert!(starts(&mut machine, "args-a", &same_bytes, unchanged));
+        // The receipt is of another generation than the target's.
+        let mut machine = base.clone();
+        machine.snapshot_mut().targets[0].generation += 1;
+        assert!(starts(&mut machine, "args-a", &same_bytes, unchanged));
         // Not sealed any more.
         let mut machine = base.clone();
         let verdict = machine.judge(&bytes.with("out/alpha.json", b"edited"));
@@ -1417,6 +1483,9 @@ mod tests {
     fn d7_row_two_is_a_new_version_that_takes_the_downstream_with_it() {
         let (mut machine, mut bytes) = both_sealed();
         let attempts = machine.snapshot().attempts_used;
+        let upstream = machine.record(&alpha()).unwrap().generation;
+        let downstream = machine.record(&beta()).unwrap().generation;
+        let downstream_revision = machine.revision_of(&beta()).unwrap();
         seal(
             &mut machine,
             &alpha(),
@@ -1428,7 +1497,11 @@ mod tests {
         );
         assert_eq!(machine.snapshot().attempts_used, attempts + 1);
         assert_eq!(phase(&machine, &alpha()), Phase::Sealed);
+        assert_eq!(machine.record(&alpha()).unwrap().generation, upstream + 1);
         assert_eq!(phase(&machine, &beta()), Phase::NotReady);
+        // The downstream's generation moves too, so its old revision no longer starts anything.
+        assert_eq!(machine.record(&beta()).unwrap().generation, downstream + 1);
+        assert_ne!(machine.revision_of(&beta()).unwrap(), downstream_revision);
         assert!(machine.record(&beta()).unwrap().current_receipt.is_none());
         assert_eq!(machine.record(&beta()).unwrap().history.len(), 1);
         assert!(!machine.judge(&bytes).complete);
@@ -1746,7 +1819,7 @@ mod tests {
             TerminalFailure::Process,
             TerminalFailure::Path,
             TerminalFailure::Cancelled,
-            TerminalFailure::Commit,
+            TerminalFailure::CommitBeforeIntent,
         ] {
             assert!(!AttemptFailure::Terminal(kind).is_resubmittable());
         }
@@ -2165,12 +2238,34 @@ mod tests {
     fn the_verdict_compares_bytes_and_a_change_takes_the_target_and_its_downstream() {
         let (mut machine, bytes) = both_sealed();
         assert!(machine.judge(&bytes).complete);
+        let generation = machine.record(&alpha()).unwrap().generation;
+        let revision = machine.revision_of(&alpha()).unwrap();
 
         let verdict = machine.judge(&bytes.with("out/alpha.json", b"edited with Write"));
         assert!(!verdict.complete);
         assert_eq!(verdict.invalidated, vec![alpha(), beta()]);
         assert_eq!(phase(&machine, &alpha()), Phase::Unverified);
         assert_eq!(phase(&machine, &beta()), Phase::NotReady);
+        // A call that still holds the revision from before the edit is told about the new one.
+        assert_eq!(machine.record(&alpha()).unwrap().generation, generation + 1);
+        let output = bytes.observe_path("out/alpha.json");
+        let contract = machine.contract().clone();
+        assert!(matches!(
+            machine.begin(
+                &alpha(),
+                request_for(
+                    &contract,
+                    &alpha(),
+                    &revision,
+                    &bytes,
+                    9,
+                    NOW,
+                    "args-a",
+                    &output,
+                ),
+            ),
+            BeginDecision::Stale { .. }
+        ));
 
         // Putting the bytes back does not restore anything.
         assert!(!machine.judge(&bytes).complete);
@@ -2350,16 +2445,17 @@ mod tests {
 
         let (mut machine, mut bytes) = both_sealed();
         let attempts = machine.snapshot().attempts_used;
+        let generation = machine.record(&alpha()).unwrap().generation;
+        let downstream = machine.record(&beta()).unwrap().generation;
         let (ticket, _) = at_commit(&mut machine, &mut bytes, 3);
         assert_eq!(
             machine.record_commit(&ticket, CommitObservation::NotAdopted),
             Ok(CommitDecision::NotAdopted)
         );
         let record = machine.record(&alpha()).unwrap();
-        assert_eq!(
-            record.generation,
-            machine.record(&alpha()).unwrap().generation
-        );
+        assert_eq!(record.generation, generation);
+        assert!(record.in_flight.is_none());
+        assert_eq!(machine.record(&beta()).unwrap().generation, downstream);
         assert_eq!(record.phase, Phase::Sealed);
         assert_eq!(
             machine.snapshot().attempts_used,
@@ -2383,6 +2479,184 @@ mod tests {
             Err(StageRefusal::Stale)
         );
         assert_eq!(machine.snapshot(), after.snapshot());
+    }
+
+    #[test]
+    fn a_failure_report_cannot_end_an_attempt_whose_rename_may_have_happened() {
+        let (mut machine, mut bytes) = both_sealed();
+        let generation = machine.record(&alpha()).unwrap().generation;
+        let (ticket, _) = at_commit(&mut machine, &mut bytes, 3);
+        let before = machine.clone();
+        for failure in [
+            AttemptFailure::Terminal(TerminalFailure::CommitBeforeIntent),
+            AttemptFailure::Terminal(TerminalFailure::Process),
+            AttemptFailure::Terminal(TerminalFailure::Cancelled),
+            AttemptFailure::Check(CheckFailureKind::Failed),
+        ] {
+            assert_eq!(
+                machine.record_failure(&ticket, failure),
+                FailureDecision::Refused(StageRefusal::OutOfOrder),
+                "{failure:?}"
+            );
+            assert_eq!(machine.snapshot(), before.snapshot(), "{failure:?}");
+        }
+        // The way out is still there, and it moves the generation.
+        machine
+            .record_commit(&ticket, CommitObservation::OutcomeUnknown)
+            .unwrap();
+        assert_eq!(machine.record(&alpha()).unwrap().generation, generation + 1);
+        assert_eq!(phase(&machine, &beta()), Phase::NotReady);
+    }
+
+    #[test]
+    fn a_next_call_cannot_replace_an_attempt_whose_rename_may_have_happened() {
+        let (mut machine, mut bytes) = both_sealed();
+        at_commit(&mut machine, &mut bytes, 3);
+        let before = machine.clone();
+        let revision = machine.revision_of(&alpha()).unwrap();
+        let output = bytes.observe_path("out/alpha.json");
+        let contract = machine.contract().clone();
+        let decision = machine.begin(
+            &alpha(),
+            request_for(
+                &contract,
+                &alpha(),
+                &revision,
+                &bytes,
+                4,
+                NOW + 1,
+                "next",
+                &output,
+            ),
+        );
+        assert_eq!(decision, BeginDecision::Refused(StageRefusal::OutOfOrder));
+        assert!(decision.ends_run());
+        assert_eq!(machine.snapshot(), before.snapshot());
+        // Another target is not held up by it.
+        assert_eq!(phase(&machine, &beta()), Phase::Sealed);
+    }
+
+    #[test]
+    fn an_upstream_commit_leaves_a_downstream_intent_its_way_out() {
+        let (mut machine, mut bytes) = both_sealed();
+        let revision = machine.revision_of(&beta()).unwrap();
+        let output = bytes.observe_path("out/beta.json");
+        let contract = machine.contract().clone();
+        let ticket = proceed(machine.begin(
+            &beta(),
+            request_for(&contract, &beta(), &revision, &bytes, 3, NOW, "b2", &output),
+        ));
+        let candidate = sha_of(b"beta v2");
+        assert_eq!(
+            machine.record_local_result(
+                &ticket,
+                &candidate,
+                passed_checks(&contract, &beta()),
+                &output,
+            ),
+            LocalDecision::ReadyToCommit
+        );
+        machine.record_intent(&ticket, output.sha256()).unwrap();
+        let in_flight = machine.record(&beta()).unwrap().in_flight.clone().unwrap();
+        seal(
+            &mut machine,
+            &alpha(),
+            b"alpha v2",
+            &mut bytes,
+            4,
+            NOW,
+            "a2",
+        );
+        assert!(machine.record(&beta()).unwrap().has_recorded_intent());
+
+        let commit = commit_for(
+            &contract,
+            &beta(),
+            &in_flight.pins,
+            &in_flight.schema_sha256,
+            &in_flight.input_revision,
+            &candidate,
+        );
+        let decision = machine
+            .record_commit(&ticket, CommitObservation::Stood(Box::new(commit)))
+            .unwrap();
+        assert!(matches!(
+            decision,
+            CommitDecision::StoodUnverified {
+                reason: UnverifiedReason::DependencyChanged,
+                ..
+            }
+        ));
+        assert_eq!(phase(&machine, &beta()), Phase::Unverified);
+    }
+
+    #[test]
+    fn a_judgment_leaves_an_intent_its_way_out_and_drops_an_earlier_attempt() {
+        let (mut machine, mut bytes) = both_sealed();
+        let (ticket, _) = at_commit(&mut machine, &mut bytes, 3);
+        assert!(!machine.judge(&bytes).complete);
+        assert_eq!(phase(&machine, &alpha()), Phase::Unverified);
+        assert!(machine.record(&alpha()).unwrap().has_recorded_intent());
+        machine
+            .record_commit(&ticket, CommitObservation::OutcomeUnknown)
+            .unwrap();
+
+        let (mut machine, bytes) = both_sealed();
+        let started = start(&mut machine, &bytes, 3, "other");
+        assert!(
+            !machine
+                .judge(&bytes.with("out/alpha.json", b"edited"))
+                .complete
+        );
+        assert!(machine.record(&alpha()).unwrap().in_flight.is_none());
+        assert_eq!(machine.cas_check(&started), Err(StageRefusal::Stale));
+    }
+
+    #[test]
+    fn a_failed_check_on_an_unverified_target_ends_as_proposed_and_keeps_the_reason() {
+        let (mut machine, bytes) = both_sealed();
+        let edited = bytes.with("out/alpha.json", b"edited");
+        assert!(!machine.judge(&edited).complete);
+        assert_eq!(phase(&machine, &alpha()), Phase::Unverified);
+
+        let ticket = start(&mut machine, &edited, 3, "again");
+        let output = edited.observe_path("out/alpha.json");
+        assert_eq!(
+            machine.record_local_result(&ticket, &sha_of(b"bad"), Vec::new(), &output),
+            LocalDecision::Resubmit(CheckFailureKind::NotRun)
+        );
+        let record = machine.record(&alpha()).unwrap();
+        assert_eq!(record.phase, Phase::Proposed);
+        assert_eq!(
+            record.unverified_reason,
+            Some(UnverifiedReason::BytesChanged)
+        );
+        assert!(!machine.judge(&edited).complete);
+    }
+
+    #[test]
+    fn a_candidate_like_the_sealed_digest_still_commits_when_the_file_no_longer_holds_it() {
+        let (mut machine, bytes) = both_sealed();
+        let ticket = start(&mut machine, &bytes, 3, "other");
+        let edited = ObservedBytes::Present(b"edited behind the host".to_vec());
+        let checks = passed_checks(machine.contract(), &alpha());
+        assert_eq!(
+            machine.record_local_result(&ticket, &sha_of(b"alpha v1"), checks, &edited),
+            LocalDecision::ReadyToCommit
+        );
+    }
+
+    #[test]
+    fn a_candidate_other_than_the_sealed_digest_goes_on_to_a_commit() {
+        let (mut machine, bytes) = both_sealed();
+        let ticket = start(&mut machine, &bytes, 3, "other");
+        let output = bytes.observe_path("out/alpha.json");
+        let checks = passed_checks(machine.contract(), &alpha());
+        assert_eq!(
+            machine.record_local_result(&ticket, &sha_of(b"alpha v2"), checks, &output),
+            LocalDecision::ReadyToCommit
+        );
+        assert!(machine.record_intent(&ticket, output.sha256()).is_ok());
     }
 
     #[test]

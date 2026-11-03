@@ -10,6 +10,9 @@
 //! that cannot be read, is a refusal: a count is never rebuilt, and never starts again at zero
 //! on a resume.
 //!
+//! A fresh start replaces an earlier run's file only at its first `begin`. Opening alone, as a
+//! preflight or a probe does, changes no byte of it.
+//!
 //! `flock` on an open descriptor refuses a second holder, in another process or through another
 //! descriptor of this one, and goes away with its holder. A stale lock file cannot exist. A
 //! process that dies with a child between fork and exec leaves the lock for that moment, and a
@@ -52,16 +55,20 @@ const MAX_LEDGER_BYTES: u64 = 8 << 20;
 pub(crate) enum LedgerEntry {
     /// A new process that is not a resume. Only here do the counts start over.
     Fresh,
-    /// `--resume` or `runs resume`. The ledger must be there.
+    /// `--resume`, `runs resume`, or `/resume` in a new process. The ledger must be there.
     Resume,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum LedgerRefusal {
     Missing,
     Corrupt,
     Held,
     ContractChanged,
+    /// Only a fresh session goes on from here. Names the input, not its content.
+    FixedInputChanged {
+        path: String,
+    },
     StateDirInsideWorkspace,
     /// The file is not what this process last wrote.
     Diverged,
@@ -76,6 +83,7 @@ impl From<SavedRefusal> for LedgerRefusal {
     fn from(refusal: SavedRefusal) -> Self {
         match refusal {
             SavedRefusal::ContractChanged => Self::ContractChanged,
+            SavedRefusal::FixedInputChanged { path } => Self::FixedInputChanged { path },
             SavedRefusal::WrongSchema
             | SavedRefusal::TargetsDiffer
             | SavedRefusal::CountsInconsistent => Self::Corrupt,
@@ -97,6 +105,11 @@ fn resolved_with_missing_tail(path: &Path) -> Result<PathBuf, LedgerRefusal> {
                 return Ok(resolved);
             }
             Err(error) if error.kind() == ErrorKind::NotFound => {
+                // A link that points at nothing is not a name yet to be made: it leads wherever
+                // its target is created.
+                if fs::symlink_metadata(current).is_ok() {
+                    return Err(LedgerRefusal::Unavailable);
+                }
                 let name = match current.components().next_back() {
                     Some(Component::Normal(name)) => name.to_os_string(),
                     _ => return Err(LedgerRefusal::Unavailable),
@@ -162,7 +175,9 @@ fn decode(bytes: &[u8]) -> Result<MachineSnapshot, LedgerRefusal> {
 struct Store {
     directory: PathBuf,
     lock: File,
-    last_written_sha256: Option<String>,
+    /// What the file should hold now: what this process last wrote or, before its first write,
+    /// what it found. `None` only when nothing should be there yet.
+    expected_sha256: Option<String>,
 }
 
 impl Drop for Store {
@@ -191,7 +206,7 @@ impl Store {
             .create(true)
             .truncate(false)
             .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
             .open(directory.join(LOCK_FILE))
             .map_err(unavailable)?;
         // SAFETY: `lock` is an open descriptor this function owns, and flock only uses it.
@@ -209,16 +224,17 @@ impl Store {
         Ok(Self {
             directory,
             lock,
-            last_written_sha256: None,
+            expected_sha256: None,
         })
     }
 
     /// `None` only when nothing is there. A symlink, or something too large to be a ledger, is
-    /// damage.
+    /// damage. `O_NONBLOCK` is for a FIFO in its place: the open returns, and the file-type check
+    /// below refuses it, instead of waiting with every other entry behind this one.
     fn read_file(&self) -> Result<Option<Vec<u8>>, LedgerRefusal> {
         let opened = OpenOptions::new()
             .read(true)
-            .custom_flags(libc::O_NOFOLLOW)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
             .open(self.directory.join(LEDGER_FILE));
         let file = match opened {
             Ok(file) => file,
@@ -244,16 +260,20 @@ impl Store {
 
     /// Temporary, fsync, rename, fsync of the directory: on return it survives a crash, and a
     /// crash before that leaves the previous version whole. Only the lock holder writes, so one
-    /// temporary name is enough and a crash cannot leave others behind.
+    /// temporary name is enough and a crash cannot leave others behind. What the next read would
+    /// call damage is not written at all.
     fn write(&mut self, snapshot: &MachineSnapshot) -> Result<(), LedgerRefusal> {
         let bytes = encode(snapshot)?;
+        if bytes.len() as u64 > MAX_LEDGER_BYTES {
+            return Err(LedgerRefusal::Unavailable);
+        }
         let temporary = self.directory.join(LEDGER_TEMPORARY);
         let mut file = OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(true)
             .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
             .open(&temporary)
             .map_err(unavailable)?;
         file.write_all(&bytes).map_err(unavailable)?;
@@ -263,21 +283,22 @@ impl Store {
         File::open(&self.directory)
             .and_then(|directory| directory.sync_all())
             .map_err(unavailable)?;
-        self.last_written_sha256 = Some(sha256_hex(&bytes));
+        self.expected_sha256 = Some(sha256_hex(&bytes));
         Ok(())
     }
 
-    fn holds_what_was_written(&self, bytes: &[u8]) -> bool {
-        self.last_written_sha256.as_deref() == Some(sha256_hex(bytes).as_str())
+    fn holds_what_is_expected(&self, bytes: &[u8]) -> bool {
+        self.expected_sha256.as_deref() == Some(sha256_hex(bytes).as_str())
     }
 
-    /// Before anything is built on the state: the file is what this process left there.
+    /// Before anything is built on the state: the file is what this process left there or, on a
+    /// fresh start not yet begun, what it found there.
     fn verify_unchanged(&self) -> Result<(), LedgerRefusal> {
-        let bytes = self.read_file()?.ok_or(LedgerRefusal::Missing)?;
-        if self.holds_what_was_written(&bytes) {
-            Ok(())
-        } else {
-            Err(LedgerRefusal::Diverged)
+        match self.read_file()? {
+            None if self.expected_sha256.is_none() => Ok(()),
+            None => Err(LedgerRefusal::Missing),
+            Some(bytes) if self.holds_what_is_expected(&bytes) => Ok(()),
+            Some(_) => Err(LedgerRefusal::Diverged),
         }
     }
 }
@@ -289,6 +310,9 @@ pub(crate) struct StageLedger {
     machine: StageMachine,
     store: Store,
     failed: Option<LedgerRefusal>,
+    /// A fresh start that has not reached its first `begin`. The machine exists only here; the
+    /// file still holds whatever the previous run left.
+    fresh_not_begun: bool,
 }
 
 impl StageLedger {
@@ -296,18 +320,26 @@ impl StageLedger {
         &mut self,
         change: impl FnOnce(&mut StageMachine) -> R,
     ) -> Result<R, LedgerRefusal> {
-        if let Some(refusal) = self.failed {
-            return Err(refusal);
+        self.apply_writing(false, change)
+    }
+
+    fn apply_writing<R>(
+        &mut self,
+        write_regardless: bool,
+        change: impl FnOnce(&mut StageMachine) -> R,
+    ) -> Result<R, LedgerRefusal> {
+        if let Some(refusal) = &self.failed {
+            return Err(refusal.clone());
         }
         if let Err(refusal) = self.store.verify_unchanged() {
-            self.failed = Some(refusal);
+            self.failed = Some(refusal.clone());
             return Err(refusal);
         }
         let mut next = self.machine.clone();
         let result = change(&mut next);
-        if next.snapshot() != self.machine.snapshot() {
+        if write_regardless || next.snapshot() != self.machine.snapshot() {
             if let Err(refusal) = self.store.write(next.snapshot()) {
-                self.failed = Some(refusal);
+                self.failed = Some(refusal.clone());
                 return Err(refusal);
             }
             self.machine = next;
@@ -315,13 +347,17 @@ impl StageLedger {
         Ok(result)
     }
 
-    /// The D7 table and the limits. On `Proceed`, the attempt is on disk before this returns.
+    /// The D7 table and the limits. On `Proceed`, the attempt is on disk before this returns. The
+    /// first call of a fresh start is what replaces the previous run's file, whatever it answers.
     pub(crate) fn begin(
         &mut self,
         key: &TargetKey,
         request: AttemptRequest<'_>,
     ) -> Result<BeginDecision, LedgerRefusal> {
-        self.apply(|machine| machine.begin(key, request))
+        let decision =
+            self.apply_writing(self.fresh_not_begun, |machine| machine.begin(key, request))?;
+        self.fresh_not_begun = false;
+        Ok(decision)
     }
 
     pub(crate) fn record_local_result(
@@ -396,23 +432,33 @@ impl StageLedger {
     /// Taken again by a later session in this process. A file changed under us loses the
     /// states and gives no count back; a file gone or damaged is a refusal.
     fn reconcile(&mut self, contract: &StageContract) -> Result<(), LedgerRefusal> {
-        if let Some(refusal) = self.failed {
-            return Err(refusal);
+        if let Some(refusal) = &self.failed {
+            return Err(refusal.clone());
         }
         if self.machine.contract().sha256() != contract.sha256() {
             return Err(LedgerRefusal::ContractChanged);
         }
         let outcome = self.reconcile_with_file();
-        if let Err(refusal) = outcome {
-            self.failed = Some(refusal);
+        if let Err(refusal) = &outcome {
+            self.failed = Some(refusal.clone());
         }
         outcome
     }
 
     fn reconcile_with_file(&mut self) -> Result<(), LedgerRefusal> {
-        let bytes = self.store.read_file()?.ok_or(LedgerRefusal::Missing)?;
-        if self.store.holds_what_was_written(&bytes) {
+        let Some(bytes) = self.store.read_file()? else {
+            return if self.store.expected_sha256.is_none() {
+                Ok(())
+            } else {
+                Err(LedgerRefusal::Missing)
+            };
+        };
+        if self.store.holds_what_is_expected(&bytes) {
             return Ok(());
+        }
+        // Not begun, there is no run of this process to take counts into.
+        if self.fresh_not_begun {
+            return Err(LedgerRefusal::Diverged);
         }
         let disk = decode(&bytes)?;
         validate_saved(&disk, self.machine.contract())?;
@@ -447,38 +493,47 @@ fn new_nonce() -> String {
 fn open_new(directory: PathBuf, request: &LedgerRequest<'_>) -> Result<StageLedger, LedgerRefusal> {
     let mut store = Store::open(directory)?;
     let existing = store.read_file()?;
-    let machine = match (request.entry, existing) {
-        (LedgerEntry::Resume, None) => return Err(LedgerRefusal::Missing),
-        (LedgerEntry::Resume, Some(bytes)) => lower_saved(
-            decode(&bytes)?,
-            &request.contract,
-            &ResumeFacts {
-                process_nonce: new_nonce(),
-                now_ms: request.now_ms,
-                bytes: request.bytes,
-                pins: request.pins,
-            },
-        )?,
+    match (request.entry, existing) {
+        (LedgerEntry::Resume, None) => Err(LedgerRefusal::Missing),
+        (LedgerEntry::Resume, Some(bytes)) => {
+            let machine = lower_saved(
+                decode(&bytes)?,
+                &request.contract,
+                &ResumeFacts {
+                    process_nonce: new_nonce(),
+                    now_ms: request.now_ms,
+                    bytes: request.bytes,
+                    pins: request.pins,
+                },
+            )?;
+            store.write(machine.snapshot())?;
+            Ok(StageLedger {
+                machine,
+                store,
+                failed: None,
+                fresh_not_begun: false,
+            })
+        }
         (LedgerEntry::Fresh, existing) => {
             // Starting over is the operator's to choose, on a record that can be read. A
             // damaged one stays until the operator has looked at it.
             if let Some(bytes) = existing {
                 decode(&bytes)?;
+                store.expected_sha256 = Some(sha256_hex(&bytes));
             }
-            StageMachine::new(
-                request.contract.clone(),
-                new_nonce(),
-                new_nonce(),
-                request.now_ms,
-            )
+            Ok(StageLedger {
+                machine: StageMachine::new(
+                    request.contract.clone(),
+                    new_nonce(),
+                    new_nonce(),
+                    request.now_ms,
+                ),
+                store,
+                failed: None,
+                fresh_not_begun: true,
+            })
         }
-    };
-    store.write(machine.snapshot())?;
-    Ok(StageLedger {
-        machine,
-        store,
-        failed: None,
-    })
+    }
 }
 
 type HeldLedger = Arc<Mutex<StageLedger>>;
@@ -526,22 +581,23 @@ pub(crate) fn process_ledgers() -> &'static LedgerRegistry {
 mod tests {
     use std::collections::BTreeMap;
     use std::fs;
+    use std::os::unix::ffi::OsStrExt;
     use std::os::unix::fs::PermissionsExt;
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
 
     use super::super::contract::{
-        NarrowedStageLimits, StageContract, StageSetDeclaration, TargetKey, admit,
+        NarrowedStageLimits, StageContract, StageSetDeclaration, TargetKey,
     };
     use super::super::receipt::sha256_hex;
     use super::super::resume::AdmittedPins;
     use super::super::state::{
         AttemptTicket, BeginDecision, BytesSource, CommitObservation, LocalDecision,
-        MachineSnapshot, Phase, StageRefusal, UnverifiedReason,
+        MachineSnapshot, Phase, StageMachine, StageRefusal, UnverifiedReason,
     };
     use super::super::test_support::{
-        FakeBytes, commit_for, facts, key, one_target, passed_checks, pins_for, request_for,
-        schema_for, sha_of, two_stage_contract,
+        FakeBytes, admit_enforced as admit, commit_for, facts, key, one_target, passed_checks,
+        pins_for, request_for, schema_for, sha_of, two_stage_contract,
     };
     use super::{
         LEDGER_FILE, LEDGER_LEAF, LEDGER_TEMPORARY, LOCK_FILE, LedgerEntry, LedgerRefusal,
@@ -751,13 +807,13 @@ mod tests {
         let held = both_sealed(&mut world);
         let mut ledger = held.lock().unwrap();
         let verdict = ledger.verdict(&world.bytes);
-        assert!(verdict.complete);
-        assert!(verdict.ledger_intact);
+        assert!(verdict.complete());
+        assert!(verdict.ledger_intact());
 
         let edited = world.bytes.with("out/alpha.json", b"edited");
         let verdict = ledger.verdict(&edited);
-        assert!(!verdict.complete);
-        assert_eq!(verdict.invalidated, vec![alpha(), beta()]);
+        assert!(!verdict.complete());
+        assert_eq!(verdict.invalidated(), [alpha(), beta()]);
         // What the judgment lowered is on disk.
         let saved = world.saved();
         assert_eq!(saved.targets[0].phase, Phase::Unverified);
@@ -848,6 +904,7 @@ mod tests {
         for entry in [LedgerEntry::Fresh, LedgerEntry::Resume] {
             assert_eq!(world.process(entry).unwrap_err(), LedgerRefusal::Held);
         }
+        start(&mut held.lock().unwrap(), &alpha(), &world.bytes, 1, "a");
         drop(held);
         drop(first);
         assert!(world.directory().join(LOCK_FILE).exists());
@@ -874,12 +931,274 @@ mod tests {
         let snapshot = ledger.machine.snapshot().clone();
         assert_ne!(snapshot.run_nonce, old_run);
         assert_eq!(snapshot.attempts_used, 0);
-        assert!(!ledger.verdict(&world.bytes).complete);
+        assert!(!ledger.verdict(&world.bytes).complete());
         // A result still on its way from the earlier run is another run's.
         assert_eq!(
             ledger.cas_check(&old_ticket).unwrap(),
             Err(StageRefusal::OtherRun)
         );
+    }
+
+    #[test]
+    fn opening_fresh_leaves_the_previous_ledger_alone_until_the_first_begin() {
+        let mut world = world();
+        let held = both_sealed(&mut world);
+        let counts = held.lock().unwrap().machine.snapshot().attempts_used;
+        drop(held);
+        let previous = fs::read(world.file()).unwrap();
+
+        // A process that only opens it, such as a preflight, and then ends.
+        let held = world.process(LedgerEntry::Fresh).unwrap();
+        assert!(fs::read(world.file()).unwrap() == previous, "after opening");
+        drop(held);
+        assert!(fs::read(world.file()).unwrap() == previous, "after ending");
+
+        let resumed = world.process(LedgerEntry::Resume).unwrap();
+        assert_eq!(
+            resumed.lock().unwrap().machine.snapshot().attempts_used,
+            counts,
+            "the counts are still there for a resume"
+        );
+    }
+
+    #[test]
+    fn a_fresh_start_not_yet_begun_is_not_taken_for_a_changed_file() {
+        let mut world = world();
+        let held = both_sealed(&mut world);
+        let old_run = held.lock().unwrap().machine.snapshot().run_nonce.clone();
+        drop(held);
+
+        let registry = LedgerRegistry::default();
+        let held = registry.open(&world.request(LedgerEntry::Fresh)).unwrap();
+        {
+            let mut ledger = held.lock().unwrap();
+            let verdict = ledger.verdict(&world.bytes);
+            assert!(verdict.ledger_intact());
+            assert!(!verdict.complete());
+            assert_eq!(ledger.failed, None);
+        }
+        // A later session in this process, before anything began.
+        assert!(registry.open(&world.request(LedgerEntry::Resume)).is_ok());
+
+        let mut ledger = held.lock().unwrap();
+        start(&mut ledger, &alpha(), &world.bytes, 1, "a");
+        assert_eq!(ledger.failed, None);
+        let saved = world.saved();
+        assert_ne!(saved.run_nonce, old_run, "the first begin replaced it");
+        assert_eq!(saved.attempts_used, 1);
+        assert!(ledger.verdict(&world.bytes).ledger_intact());
+    }
+
+    #[test]
+    fn a_fresh_start_with_nothing_before_it_writes_nothing_until_the_first_begin() {
+        let world = world();
+        let registry = LedgerRegistry::default();
+        let held = registry.open(&world.request(LedgerEntry::Fresh)).unwrap();
+        assert!(!world.file().exists());
+        assert!(held.lock().unwrap().verdict(&world.bytes).ledger_intact());
+        assert!(registry.open(&world.request(LedgerEntry::Fresh)).is_ok());
+        assert!(!world.file().exists());
+
+        start(&mut held.lock().unwrap(), &alpha(), &world.bytes, 1, "a");
+        assert!(world.file().exists());
+    }
+
+    #[test]
+    fn a_first_begin_that_starts_nothing_still_replaces_the_previous_run() {
+        let mut world = world();
+        let held = both_sealed(&mut world);
+        let old_run = held.lock().unwrap().machine.snapshot().run_nonce.clone();
+        drop(held);
+
+        let held = world.process(LedgerEntry::Fresh).unwrap();
+        let mut ledger = held.lock().unwrap();
+        let contract = ledger.contract().clone();
+        let output = world.bytes.observe("out/beta.json");
+        let decision = ledger
+            .begin(
+                &beta(),
+                request_for(
+                    &contract,
+                    &beta(),
+                    "initial",
+                    &world.bytes,
+                    1,
+                    NOW,
+                    "b",
+                    &output,
+                ),
+            )
+            .unwrap();
+        assert!(matches!(decision, BeginDecision::NotReady { .. }));
+        let saved = world.saved();
+        assert_ne!(saved.run_nonce, old_run);
+        assert_eq!(saved.attempts_used, 0);
+    }
+
+    #[test]
+    fn a_first_begin_that_cannot_write_leaves_the_previous_run_and_starts_nothing() {
+        let mut world = world();
+        let held = both_sealed(&mut world);
+        drop(held);
+        let previous = fs::read(world.file()).unwrap();
+
+        let held = world.process(LedgerEntry::Fresh).unwrap();
+        fs::create_dir(world.directory().join(LEDGER_TEMPORARY)).unwrap();
+        let mut ledger = held.lock().unwrap();
+        let contract = ledger.contract().clone();
+        let output = world.bytes.observe("out/alpha.json");
+        let attempted = ledger.begin(
+            &alpha(),
+            request_for(
+                &contract,
+                &alpha(),
+                "initial",
+                &world.bytes,
+                1,
+                NOW,
+                "a",
+                &output,
+            ),
+        );
+        assert_eq!(attempted.unwrap_err(), LedgerRefusal::Unavailable);
+        assert!(fs::read(world.file()).unwrap() == previous);
+        assert!(!ledger.verdict(&world.bytes).ledger_intact());
+    }
+
+    #[test]
+    fn a_file_that_changes_under_a_fresh_start_not_yet_begun_stops_it() {
+        let mut world = world();
+        let held = both_sealed(&mut world);
+        drop(held);
+        let registry = LedgerRegistry::default();
+        let held = registry.open(&world.request(LedgerEntry::Fresh)).unwrap();
+        let mut saved = world.saved();
+        saved.attempts_used += 1;
+        world.save(&saved);
+        assert_eq!(
+            registry
+                .open(&world.request(LedgerEntry::Resume))
+                .unwrap_err(),
+            LedgerRefusal::Diverged
+        );
+        assert!(!held.lock().unwrap().verdict(&world.bytes).complete());
+    }
+
+    #[test]
+    fn a_resume_after_a_fixed_input_changed_is_refused_by_name_and_only_a_fresh_start_goes_on() {
+        let mut world = world();
+        let held = both_sealed(&mut world);
+        drop(held);
+        let previous = fs::read(world.file()).unwrap();
+
+        world.bytes.put("fixed/source.json", b"quietly rewritten");
+        assert_eq!(
+            world.process(LedgerEntry::Resume).unwrap_err(),
+            LedgerRefusal::FixedInputChanged {
+                path: "fixed/source.json".to_string()
+            }
+        );
+        assert!(fs::read(world.file()).unwrap() == previous, "nothing moved");
+
+        // The refusal holds for as long as the input differs, and leaves no lock behind.
+        assert!(matches!(
+            world.process(LedgerEntry::Resume).unwrap_err(),
+            LedgerRefusal::FixedInputChanged { .. }
+        ));
+        let held = world.process(LedgerEntry::Fresh).unwrap();
+        let mut ledger = held.lock().unwrap();
+        start(&mut ledger, &alpha(), &world.bytes, 1, "a");
+        assert_eq!(world.saved().attempts_used, 1);
+    }
+
+    /// Stands for the call hanging: a blocking open would never send.
+    fn within_a_bound<T: Send + 'static>(call: impl FnOnce() -> T + Send + 'static) -> T {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = sender.send(call());
+        });
+        receiver
+            .recv_timeout(std::time::Duration::from_secs(60))
+            .expect("the call did not return")
+    }
+
+    fn make_fifo(path: &Path) {
+        let path = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+        // SAFETY: `path` is a valid C string that outlives the call, which keeps no reference.
+        assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+    }
+
+    #[test]
+    fn a_fifo_in_place_of_the_ledger_is_damage_and_does_not_hang_the_open() {
+        let mut world = world();
+        let held = both_sealed(&mut world);
+        drop(held);
+        let file = world.file();
+        fs::remove_file(&file).unwrap();
+        make_fifo(&file);
+        for entry in [LedgerEntry::Resume, LedgerEntry::Fresh] {
+            let world = World {
+                _root: tempfile::tempdir().unwrap(),
+                workspace: world.workspace.clone(),
+                state_dir: world.state_dir.clone(),
+                contract: world.contract.clone(),
+                pins: world.pins.clone(),
+                bytes: world.bytes.clone(),
+            };
+            let outcome = within_a_bound(move || world.process(entry).map(|_| ()));
+            assert_eq!(outcome, Err(LedgerRefusal::Corrupt), "{entry:?}");
+        }
+    }
+
+    #[test]
+    fn a_fifo_in_place_of_the_temporary_is_a_failed_write_and_does_not_hang_it() {
+        let world = world();
+        let held = world.process(LedgerEntry::Fresh).unwrap();
+        make_fifo(&world.directory().join(LEDGER_TEMPORARY));
+        let bytes = world.bytes.clone();
+        let outcome = within_a_bound(move || {
+            let mut ledger = held.lock().unwrap();
+            let contract = ledger.contract().clone();
+            let output = bytes.observe("out/alpha.json");
+            ledger
+                .begin(
+                    &alpha(),
+                    request_for(&contract, &alpha(), "initial", &bytes, 1, NOW, "a", &output),
+                )
+                .map(|_| ())
+        });
+        assert_eq!(outcome, Err(LedgerRefusal::Unavailable));
+    }
+
+    #[test]
+    fn a_record_too_large_to_read_back_is_never_written() {
+        let root = tempfile::tempdir().unwrap();
+        let mut store = Store::open(root.path().join("ledger")).unwrap();
+        let contract = Arc::new(two_stage_contract());
+        let sized = |bytes: usize| {
+            let base = StageMachine::new(contract.clone(), String::new(), "p".to_string(), NOW);
+            let mut snapshot = base.snapshot().clone();
+            let empty = encode(&snapshot).unwrap().len();
+            snapshot.run_nonce = "n".repeat(bytes - empty);
+            assert_eq!(encode(&snapshot).unwrap().len(), bytes);
+            snapshot
+        };
+        let limit = super::MAX_LEDGER_BYTES as usize;
+
+        store.write(&sized(limit - 1)).unwrap();
+        store.write(&sized(limit)).unwrap();
+        let at_the_limit = store.read_file().unwrap().unwrap();
+        assert_eq!(decode(&at_the_limit).unwrap(), sized(limit));
+
+        assert_eq!(
+            store.write(&sized(limit + 1)).unwrap_err(),
+            LedgerRefusal::Unavailable
+        );
+        assert!(
+            store.read_file().unwrap().unwrap() == at_the_limit,
+            "the record before it is what stays"
+        );
+        assert!(store.verify_unchanged().is_ok());
     }
 
     #[test]
@@ -897,10 +1216,10 @@ mod tests {
         assert_eq!(after.attempts_used, before.attempts_used);
         assert_eq!(after.started_at_ms, before.started_at_ms);
         let verdict = ledger.verdict(&world.bytes);
-        assert!(!verdict.complete);
+        assert!(!verdict.complete());
         assert!(
             verdict
-                .obligations
+                .obligations()
                 .iter()
                 .all(|status| status.phase == Phase::Unverified)
         );
@@ -944,7 +1263,7 @@ mod tests {
             assert!(record.in_flight.is_none());
             let phase = ledger.machine.record(&beta()).unwrap().phase;
             assert_eq!(phase == Phase::NotReady, downstream);
-            assert!(!ledger.verdict(&world.bytes).complete, "never sealed");
+            assert!(!ledger.verdict(&world.bytes).complete(), "never sealed");
         }
     }
 
@@ -1056,6 +1375,7 @@ mod tests {
         // That refusal did not cost the ledger anything.
         world.contract = original;
         assert!(registry.open(&world.request(LedgerEntry::Resume)).is_ok());
+        start(&mut held.lock().unwrap(), &alpha(), &world.bytes, 1, "a");
         drop(held);
         drop(registry);
 
@@ -1092,8 +1412,8 @@ mod tests {
         {
             let mut ledger = held.lock().unwrap();
             let verdict = ledger.verdict(&world.bytes);
-            assert!(!verdict.complete, "every target is sealed, and still no");
-            assert!(!verdict.ledger_intact);
+            assert!(!verdict.complete(), "every target is sealed, and still no");
+            assert!(!verdict.ledger_intact());
             let contract = ledger.contract().clone();
             let revision = ledger.revision_of(&alpha()).unwrap();
             let output = world.bytes.observe("out/alpha.json");
@@ -1147,8 +1467,8 @@ mod tests {
         // Putting something readable back does not lift it.
         let mut ledger = held.lock().unwrap();
         let verdict = ledger.verdict(&world.bytes);
-        assert!(!verdict.complete);
-        assert!(!verdict.ledger_intact);
+        assert!(!verdict.complete());
+        assert!(!verdict.ledger_intact());
     }
 
     #[test]
@@ -1168,7 +1488,7 @@ mod tests {
         world.save(&saved);
         let mut ledger = held.lock().unwrap();
         let verdict = ledger.verdict(&world.bytes);
-        assert!(!verdict.complete);
+        assert!(!verdict.complete());
         assert_eq!(ledger.failed, Some(LedgerRefusal::Diverged));
     }
 
@@ -1207,8 +1527,8 @@ mod tests {
                 Some(UnverifiedReason::LedgerDiverged)
             );
             let verdict = ledger.verdict(&world.bytes);
-            assert!(verdict.ledger_intact);
-            assert!(!verdict.complete);
+            assert!(verdict.ledger_intact());
+            assert!(!verdict.complete());
         }
     }
 
@@ -1249,10 +1569,10 @@ mod tests {
         assert_eq!(ledger.machine.snapshot().attempts_used, before);
         let verdict = ledger.verdict(&world.bytes);
         assert!(
-            !verdict.complete,
+            !verdict.complete(),
             "no success once the record cannot be kept"
         );
-        assert!(!verdict.ledger_intact);
+        assert!(!verdict.ledger_intact());
     }
 
     #[test]
@@ -1287,6 +1607,7 @@ mod tests {
     fn the_files_are_for_the_owner_only() {
         let world = world();
         let held = world.process(LedgerEntry::Fresh).unwrap();
+        start(&mut held.lock().unwrap(), &alpha(), &world.bytes, 1, "a");
         for path in [world.file(), world.directory().join(LOCK_FILE)] {
             let mode = fs::metadata(path).unwrap().permissions().mode() & 0o777;
             assert_eq!(mode, 0o600);
@@ -1342,6 +1663,68 @@ mod tests {
     }
 
     #[test]
+    fn a_dotted_path_that_exists_is_judged_by_where_it_leads() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = root.path().join("workspace");
+        let outside = root.path().join("state");
+        fs::create_dir(&workspace).unwrap();
+        fs::create_dir(&outside).unwrap();
+
+        let into_the_workspace = outside.join("..").join("workspace").join("x");
+        assert_eq!(
+            refuse_state_dir_inside_workspace(&into_the_workspace, &workspace),
+            Err(LedgerRefusal::StateDirInsideWorkspace)
+        );
+        let out_of_the_workspace = workspace.join("..").join("state").join("x");
+        assert_eq!(
+            refuse_state_dir_inside_workspace(&out_of_the_workspace, &workspace),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn a_link_that_points_at_nothing_is_no_state_dir() {
+        let world = world();
+        let link = world.workspace.parent().unwrap().join("link");
+        let target = world.workspace.join(".later");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        assert_eq!(
+            refuse_state_dir_inside_workspace(&link, &world.workspace),
+            Err(LedgerRefusal::Unavailable)
+        );
+        // Further down the link, the same.
+        assert_eq!(
+            refuse_state_dir_inside_workspace(&link.join("below"), &world.workspace),
+            Err(LedgerRefusal::Unavailable)
+        );
+        let mut request = world.request(LedgerEntry::Fresh);
+        request.state_dir = &link;
+        assert_eq!(
+            LedgerRegistry::default().open(&request).unwrap_err(),
+            LedgerRefusal::Unavailable
+        );
+        assert!(!target.exists(), "nothing was made behind the link");
+    }
+
+    /// Only where the volume folds case: on another, the two spellings are two directories.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn another_case_of_the_workspace_name_is_still_the_workspace() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = root.path().join("workspace");
+        fs::create_dir(&workspace).unwrap();
+        let other_case = root.path().join("WORKSPACE");
+        if !other_case.exists() {
+            return;
+        }
+        assert_eq!(
+            refuse_state_dir_inside_workspace(&other_case.join("x"), &workspace),
+            Err(LedgerRefusal::StateDirInsideWorkspace)
+        );
+    }
+
+    #[test]
     fn opening_with_a_state_dir_in_the_workspace_creates_nothing() {
         let world = world();
         let inside = world.workspace.join(".state");
@@ -1382,6 +1765,7 @@ mod tests {
     fn a_ledger_lives_below_its_own_leaf_of_the_state_dir() {
         let world = world();
         let held = world.process(LedgerEntry::Fresh).unwrap();
+        start(&mut held.lock().unwrap(), &alpha(), &world.bytes, 1, "a");
         let directory = world.directory();
         assert!(directory.starts_with(world.state_dir.join(LEDGER_LEAF)));
         assert!(!directory.starts_with(&world.workspace));

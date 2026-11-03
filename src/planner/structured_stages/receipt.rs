@@ -202,7 +202,9 @@ impl StageReceipt {
 #[cfg(test)]
 mod tests {
     use super::super::test_support::{commit_receipt, digest, parts};
-    use super::{CommitReceipt, ReceiptRefusal, StageReceipt, is_sha256_hex};
+    use super::{
+        CommitReceipt, DependencyPin, InputDigest, ReceiptRefusal, StageReceipt, is_sha256_hex,
+    };
 
     #[test]
     fn the_stage_receipt_shares_the_commit_digest_and_keeps_the_commit_unchanged() {
@@ -298,23 +300,133 @@ mod tests {
             change(&mut receipt);
             receipt.sha256()
         };
+        // Naming every field here means a new one cannot be added without being listed below.
+        let StageReceipt {
+            schema: _,
+            run_nonce: _,
+            process_nonce: _,
+            stage: _,
+            target: _,
+            attempt: _,
+            generation: _,
+            pins: _,
+            schema_sha256: _,
+            input_revision: _,
+            inputs: _,
+            inputs_sha256: _,
+            dependencies: _,
+            dependencies_sha256: _,
+            arguments_sha256: _,
+            candidate_sha256: _,
+            committed_sha256: _,
+            commit_request_id: _,
+            checks: _,
+            commit: _,
+        } = &base;
         let digests = [
-            changed(&|r| r.run_nonce = "other".to_string()),
-            changed(&|r| r.stage = "other".to_string()),
-            changed(&|r| r.target = "other".to_string()),
-            changed(&|r| r.attempt += 1),
-            changed(&|r| r.generation += 1),
-            changed(&|r| r.pins.descriptor_sha256 = "other".to_string()),
-            changed(&|r| r.schema_sha256 = "other".to_string()),
-            changed(&|r| r.inputs_sha256 = "other".to_string()),
-            changed(&|r| r.dependencies_sha256 = "other".to_string()),
-            changed(&|r| r.candidate_sha256 = "other".to_string()),
-            changed(&|r| r.committed_sha256 = "other".to_string()),
-            changed(&|r| r.checks.clear()),
+            ("schema", changed(&|r| r.schema = "other".to_string())),
+            ("run", changed(&|r| r.run_nonce = "other".to_string())),
+            (
+                "process",
+                changed(&|r| r.process_nonce = "other".to_string()),
+            ),
+            ("stage", changed(&|r| r.stage = "other".to_string())),
+            ("target", changed(&|r| r.target = "other".to_string())),
+            ("attempt", changed(&|r| r.attempt += 1)),
+            ("generation", changed(&|r| r.generation += 1)),
+            ("tool", changed(&|r| r.pins.tool_id = "other".to_string())),
+            (
+                "version",
+                changed(&|r| r.pins.tool_version = "other".to_string()),
+            ),
+            (
+                "descriptor",
+                changed(&|r| r.pins.descriptor_sha256 = "other".to_string()),
+            ),
+            (
+                "runtime",
+                changed(&|r| r.pins.runtime_sha256 = "other".to_string()),
+            ),
+            (
+                "schema digest",
+                changed(&|r| r.schema_sha256 = "other".to_string()),
+            ),
+            (
+                "input revision",
+                changed(&|r| r.input_revision = "other".to_string()),
+            ),
+            (
+                "inputs",
+                changed(&|r| {
+                    r.inputs.push(InputDigest {
+                        path: "other".to_string(),
+                        sha256: "other".to_string(),
+                    });
+                }),
+            ),
+            (
+                "inputs digest",
+                changed(&|r| r.inputs_sha256 = "other".to_string()),
+            ),
+            (
+                "dependencies",
+                changed(&|r| {
+                    r.dependencies.push(DependencyPin {
+                        stage: "other".to_string(),
+                        target: "other".to_string(),
+                        generation: 1,
+                        committed_sha256: "other".to_string(),
+                    });
+                }),
+            ),
+            (
+                "dependencies digest",
+                changed(&|r| r.dependencies_sha256 = "other".to_string()),
+            ),
+            (
+                "arguments",
+                changed(&|r| r.arguments_sha256 = "other".to_string()),
+            ),
+            (
+                "candidate",
+                changed(&|r| r.candidate_sha256 = "other".to_string()),
+            ),
+            (
+                "committed",
+                changed(&|r| r.committed_sha256 = "other".to_string()),
+            ),
+            (
+                "request",
+                changed(&|r| r.commit_request_id = "other".to_string()),
+            ),
+            ("checks", changed(&|r| r.checks.clear())),
         ];
-        for value in digests {
-            assert_ne!(value, base.sha256());
+        for (name, value) in digests {
+            assert_ne!(value, base.sha256(), "{name}");
         }
+    }
+
+    #[test]
+    fn the_inputs_and_dependencies_reach_the_digests_in_one_order() {
+        let candidate = digest("candidate");
+        let first = InputDigest {
+            path: "a".to_string(),
+            sha256: digest("a"),
+        };
+        let second = InputDigest {
+            path: "b".to_string(),
+            sha256: digest("b"),
+        };
+        let bound = |inputs: Vec<InputDigest>| {
+            let mut given = parts(&candidate);
+            given.inputs = inputs;
+            StageReceipt::bind(given, commit_receipt(&candidate))
+                .unwrap()
+                .inputs_sha256
+        };
+        let forward = bound(vec![first.clone(), second.clone()]);
+        assert_eq!(forward, bound(vec![second.clone(), first.clone()]));
+        assert_ne!(forward, bound(vec![first]));
     }
 
     #[test]

@@ -3,6 +3,10 @@
 //! A saved record is never evidence. Attempts and generations are kept so nothing refills, and
 //! the real bytes decide how far a target falls. No target comes out sealed, whatever the file
 //! says; each must pass its required checks again in this process (D11).
+//!
+//! The one thing a resume does not lower past is a changed fixed input: it is refused, and only
+//! a fresh session goes on (P5). A target that never started has no pin to compare, so a change
+//! to its fixed inputs cannot be seen, and its first attempt pins what is there then.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -15,12 +19,16 @@ use super::state::{
     StageMachine, TargetRecord, UnverifiedReason,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SavedRefusal {
     WrongSchema,
     ContractChanged,
     TargetsDiffer,
     CountsInconsistent,
+    /// A fixed input is no longer what the run first adopted. Names the input, not its content.
+    FixedInputChanged {
+        path: String,
+    },
 }
 
 /// A tool's pins as admitted in this process.
@@ -134,10 +142,25 @@ fn judge_saved_receipt(
     input_moved.then_some(UnverifiedReason::InputChanged)
 }
 
-fn fixed_input_moved(record: &TargetRecord, facts: &ResumeFacts<'_>) -> bool {
-    record.fixed_inputs.iter().flatten().any(|input| {
-        facts.bytes.observe(&input.path).sha256().as_deref() != Some(input.sha256.as_str())
-    })
+/// The pins hold what each target's first attempt adopted. An input from upstream is not among
+/// them: its change is an invalidation, handled below.
+fn refuse_changed_fixed_input(
+    saved: &MachineSnapshot,
+    facts: &ResumeFacts<'_>,
+) -> Result<(), SavedRefusal> {
+    let pins = saved
+        .targets
+        .iter()
+        .filter_map(|record| record.fixed_inputs.as_ref())
+        .flatten();
+    for pin in pins {
+        if facts.bytes.observe(&pin.path).sha256().as_deref() != Some(pin.sha256.as_str()) {
+            return Err(SavedRefusal::FixedInputChanged {
+                path: pin.path.clone(),
+            });
+        }
+    }
+    Ok(())
 }
 
 fn lower_one(
@@ -153,11 +176,7 @@ fn lower_one(
     } else {
         judge_saved_receipt(record, &observed, tool_id, facts)
     };
-    let inputs_moved = fixed_input_moved(record, facts);
-    let reason = interrupted
-        .reason
-        .or(saved)
-        .or(inputs_moved.then_some(UnverifiedReason::InputChanged));
+    let reason = interrupted.reason.or(saved);
     let moved = reason.is_some();
     let held_a_state = record.current_receipt.is_some()
         || matches!(record.phase, Phase::Sealed | Phase::Unverified);
@@ -171,14 +190,13 @@ fn lower_one(
             record.lower_to_unverified(kept.unwrap_or(UnverifiedReason::Resumed));
         }
         None => {
-            record.in_flight = None;
             if record.phase == Phase::LocallyValid {
                 record.phase = Phase::Proposed;
             }
         }
     }
-    // The next attempt adopts what is there now, and has lost any state resting on the old.
-    record.fixed_inputs = None;
+    // Whatever it was, it has been judged, and the process it ran in is gone.
+    record.in_flight = None;
     moved
 }
 
@@ -189,6 +207,7 @@ pub(super) fn lower_saved(
     facts: &ResumeFacts<'_>,
 ) -> Result<StageMachine, SavedRefusal> {
     validate_saved(&saved, contract)?;
+    refuse_changed_fixed_input(&saved, facts)?;
     let mut snapshot = saved;
     snapshot.process_nonce = facts.process_nonce.clone();
     snapshot.latest_clock_ms = snapshot.latest_clock_ms.max(facts.now_ms);
@@ -212,9 +231,9 @@ pub(super) fn lower_saved(
 }
 
 /// The file changed under a live process. The higher count wins on each line, and since the
-/// file was not what this process wrote, nothing here is vouched for any more.
+/// file was not what this process wrote, nothing here is vouched for any more. An attempt past
+/// its intent keeps its way out, as in [`TargetRecord::drop_unless_intent`].
 pub(crate) fn absorb_diverged(held: &mut MachineSnapshot, disk: &MachineSnapshot) {
-    held.attempts_used = held.attempts_used.max(disk.attempts_used);
     held.started_at_ms = held.started_at_ms.min(disk.started_at_ms);
     held.latest_clock_ms = held.latest_clock_ms.max(disk.latest_clock_ms);
     held.last_commit_turn = None;
@@ -225,13 +244,19 @@ pub(crate) fn absorb_diverged(held: &mut MachineSnapshot, disk: &MachineSnapshot
             record.generation = record.generation.max(saved.generation);
         }
         record.generation += 1;
-        record.in_flight = None;
+        record.drop_unless_intent();
         if record.phase == Phase::Sealed || record.current_receipt.is_some() {
             record.lower_to_unverified(UnverifiedReason::LedgerDiverged);
         } else if record.phase == Phase::LocallyValid {
             record.phase = Phase::Proposed;
         }
     }
+    // The total keeps to at least the sum of its lines, or a later resume could not read it.
+    let counted = held
+        .targets
+        .iter()
+        .fold(0u32, |sum, record| sum.saturating_add(record.attempts_used));
+    held.attempts_used = held.attempts_used.max(disk.attempts_used).max(counted);
 }
 
 #[cfg(test)]
@@ -242,12 +267,12 @@ mod tests {
     use super::super::contract::{StageContract, TargetKey};
     use super::super::receipt::{CheckResult, CheckStatus};
     use super::super::state::{
-        BeginDecision, LocalDecision, MachineSnapshot, ObservedBytes, Phase, StageMachine,
-        UnverifiedReason,
+        BeginDecision, ExhaustedLimit, LocalDecision, MachineSnapshot, ObservedBytes, Phase,
+        StageMachine, UnverifiedReason,
     };
     use super::super::test_support::{
-        FakeBytes, key, passed_checks, pins_for, request_for, schema_for, seal, sha_of,
-        two_stage_contract,
+        FakeBytes, current_inputs, key, passed_checks, pins_for, request_for, schema_for, seal,
+        sha_of, two_stage_contract,
     };
     use super::{
         AdmittedPins, ResumeFacts, SavedRefusal, absorb_diverged, lower_saved, validate_saved,
@@ -342,7 +367,7 @@ mod tests {
             assert_eq!(record.history.len(), 1);
             assert!(record.history[0].commit.is_none());
         }
-        assert!(!resumed.judge(&bytes).complete);
+        assert!(!resumed.judge(&bytes).complete());
     }
 
     #[test]
@@ -363,13 +388,13 @@ mod tests {
         let contract = machine.contract().clone();
         let mut resumed = resume(forged.clone(), &contract, &bytes);
         assert_eq!(phase(&resumed, &beta()), Phase::Unverified);
-        assert!(!resumed.judge(&bytes).complete);
+        assert!(!resumed.judge(&bytes).complete());
 
         // And with the upstream's receipt pasted in.
         forged.targets[1].current_receipt = forged.targets[0].current_receipt.clone();
         let mut resumed = resume(forged, &contract, &bytes);
         assert_ne!(phase(&resumed, &beta()), Phase::Sealed);
-        assert!(!resumed.judge(&bytes).complete);
+        assert!(!resumed.judge(&bytes).complete());
     }
 
     #[test]
@@ -431,17 +456,9 @@ mod tests {
     }
 
     #[test]
-    fn a_changed_input_or_output_is_named_and_takes_the_downstream() {
+    fn a_changed_output_is_named_and_takes_the_downstream() {
         let (machine, bytes) = both_sealed();
         let contract = machine.contract().clone();
-
-        let edited_input = bytes.with("fixed/source.json", b"rewritten");
-        let resumed = resume(saved(&machine), &contract, &edited_input);
-        assert_eq!(
-            reason(&resumed, &alpha()),
-            Some(UnverifiedReason::InputChanged)
-        );
-        assert_eq!(phase(&resumed, &beta()), Phase::NotReady);
 
         let edited_output = bytes.with("out/alpha.json", b"rewritten");
         let resumed = resume(saved(&machine), &contract, &edited_output);
@@ -524,7 +541,7 @@ mod tests {
         assert_eq!(phase(&resumed, &beta()), Phase::NotReady);
         assert_eq!(resumed.record(&alpha()).unwrap().attempts_used, 2);
         assert!(resumed.record(&alpha()).unwrap().in_flight.is_none());
-        assert!(!resumed.judge(&on_disk).complete);
+        assert!(!resumed.judge(&on_disk).complete());
     }
 
     #[test]
@@ -539,7 +556,7 @@ mod tests {
         assert_eq!(reason(&resumed, &alpha()), Some(UnverifiedReason::Resumed));
         assert_eq!(resumed.record(&alpha()).unwrap().attempts_used, 2);
         assert_eq!(generation(&resumed, &beta()), generation(&machine, &beta()));
-        assert!(!resumed.judge(&bytes).complete);
+        assert!(!resumed.judge(&bytes).complete());
     }
 
     #[test]
@@ -561,7 +578,7 @@ mod tests {
                 generation(&machine, &alpha()) + 1
             );
             assert_eq!(phase(&resumed, &beta()), Phase::NotReady);
-            assert!(!resumed.judge(&damage).complete);
+            assert!(!resumed.judge(&damage).complete());
         }
     }
 
@@ -718,7 +735,7 @@ mod tests {
             NOW + 2,
             "b",
         );
-        assert!(resumed.judge(&bytes).complete);
+        assert!(resumed.judge(&bytes).complete());
         assert_eq!(resumed.snapshot().attempts_used, 4);
         let receipt = resumed
             .record(&beta())
@@ -752,7 +769,194 @@ mod tests {
                 &output,
             ),
         );
-        assert!(decision.ends_run(), "{decision:?}");
+        assert_eq!(
+            decision,
+            BeginDecision::AttemptsExhausted(ExhaustedLimit::Target)
+        );
+        assert_eq!(resumed.record(&alpha()).unwrap().attempts_used, limit);
+    }
+
+    #[test]
+    fn a_later_turn_number_from_an_earlier_process_blocks_nothing() {
+        let (machine, bytes) = both_sealed();
+        assert_eq!(machine.snapshot().last_commit_turn, Some(2));
+        let contract = machine.contract().clone();
+        let mut resumed = resume(saved(&machine), &contract, &bytes);
+        assert_eq!(resumed.snapshot().last_commit_turn, None);
+        // The turn the earlier process last committed in means nothing to this one.
+        let revision = resumed.revision_of(&alpha()).unwrap();
+        let output = bytes.observe_path("out/alpha.json");
+        assert!(
+            resumed
+                .begin(
+                    &alpha(),
+                    request_for(
+                        &contract,
+                        &alpha(),
+                        &revision,
+                        &bytes,
+                        2,
+                        NOW + 2,
+                        "a",
+                        &output,
+                    ),
+                )
+                .starts_process()
+        );
+    }
+
+    #[test]
+    fn a_second_resume_keeps_every_count_and_loses_nothing_it_had() {
+        let (machine, bytes) = both_sealed();
+        let contract = machine.contract().clone();
+        let first = resume(saved(&machine), &contract, &bytes);
+        let second = resume(saved(&first), &contract, &bytes);
+        assert_eq!(second.snapshot().attempts_used, 2);
+        for target in [alpha(), beta()] {
+            let record = second.record(&target).unwrap();
+            assert_eq!(record.phase, Phase::Unverified);
+            assert_eq!(record.unverified_reason, Some(UnverifiedReason::Resumed));
+            assert_eq!(record.attempts_used, 1);
+            assert_eq!(record.generation, generation(&machine, &target));
+            assert_eq!(record.history.len(), 1);
+        }
+        assert_eq!(second.snapshot().run_nonce, "run-a");
+        assert!(second.record(&alpha()).unwrap().fixed_inputs.is_some());
+    }
+
+    fn resume_outcome(
+        machine: &StageMachine,
+        bytes: &FakeBytes,
+    ) -> Result<StageMachine, SavedRefusal> {
+        let contract = machine.contract().clone();
+        let pins = current_pins(&contract);
+        lower_saved(
+            saved(machine),
+            &contract,
+            &ResumeFacts {
+                process_nonce: "process-c".to_string(),
+                now_ms: NOW + 1,
+                bytes,
+                pins: &pins,
+            },
+        )
+    }
+
+    #[test]
+    fn a_fixed_input_changed_before_a_later_resume_refuses_that_one_too() {
+        let (machine, bytes) = both_sealed();
+        let contract = machine.contract().clone();
+        let first = resume(saved(&machine), &contract, &bytes);
+        let changed = bytes.with("fixed/source.json", b"rewritten after the first resume");
+        assert_eq!(
+            resume_outcome(&first, &changed).unwrap_err(),
+            SavedRefusal::FixedInputChanged {
+                path: "fixed/source.json".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn a_fixed_input_gone_or_unreadable_refuses_the_resume_as_well() {
+        let (machine, bytes) = both_sealed();
+        for damaged in [
+            bytes.without("fixed/source.json"),
+            bytes.unreadable("fixed/source.json"),
+        ] {
+            assert_eq!(
+                resume_outcome(&machine, &damaged).unwrap_err(),
+                SavedRefusal::FixedInputChanged {
+                    path: "fixed/source.json".to_string()
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn a_changed_upstream_output_is_an_invalidation_and_not_a_refusal() {
+        // The downstream's input is the upstream's output. The same kind of edit as above, on an
+        // input that has an owner, lowers instead of refusing.
+        let (machine, bytes) = both_sealed();
+        let edited = bytes.with("out/alpha.json", b"edited behind the host");
+        let resumed = resume_outcome(&machine, &edited).unwrap();
+        assert_eq!(phase(&resumed, &alpha()), Phase::Unverified);
+        assert_eq!(
+            reason(&resumed, &alpha()),
+            Some(UnverifiedReason::BytesChanged)
+        );
+        assert_eq!(phase(&resumed, &beta()), Phase::NotReady);
+        assert!(
+            resumed
+                .record(&beta())
+                .unwrap()
+                .fixed_inputs
+                .iter()
+                .flatten()
+                .next()
+                .is_none(),
+            "the downstream pinned nothing: all its input comes from upstream"
+        );
+    }
+
+    #[test]
+    fn a_target_that_never_started_has_no_pin_so_its_changed_input_is_not_seen() {
+        let machine = StageMachine::new(
+            Arc::new(two_stage_contract()),
+            "run-a".to_string(),
+            "process-a".to_string(),
+            NOW,
+        );
+        let mut bytes = FakeBytes::default();
+        bytes.put("fixed/source.json", b"as the first process saw it");
+        let changed = bytes.with("fixed/source.json", b"changed before anything started");
+        let contract = machine.contract().clone();
+        let mut resumed = resume_outcome(&machine, &changed).unwrap();
+        assert_eq!(phase(&resumed, &alpha()), Phase::NotReady);
+        assert_eq!(generation(&resumed, &alpha()), 0);
+
+        // Its first attempt pins what is there now, and from then on it is held to that.
+        let mut held = changed.clone();
+        seal(&mut resumed, &alpha(), b"first", &mut held, 1, NOW + 2, "a");
+        assert_eq!(
+            resumed.record(&alpha()).unwrap().fixed_inputs,
+            Some(current_inputs(&contract, &alpha(), &changed))
+        );
+        let again = held.with("fixed/source.json", b"changed once more");
+        assert!(matches!(
+            resume_outcome(&resumed, &again).unwrap_err(),
+            SavedRefusal::FixedInputChanged { .. }
+        ));
+    }
+
+    #[test]
+    fn a_file_that_diverged_gives_no_time_back_and_keeps_the_highest_generation() {
+        let (mut held, _) = both_sealed();
+        let mut disk = held.snapshot().clone();
+        disk.started_at_ms = NOW - 100;
+        disk.latest_clock_ms = NOW + 900;
+        disk.targets[1].generation = 30;
+        absorb_diverged(held.snapshot_mut(), &disk);
+        assert_eq!(held.snapshot().started_at_ms, NOW - 100);
+        assert_eq!(held.snapshot().latest_clock_ms, NOW + 900);
+        assert_eq!(held.record(&beta()).unwrap().generation, 31);
+
+        // The other way round, this process's values stand.
+        let (mut held, _) = both_sealed();
+        let mut disk = held.snapshot().clone();
+        disk.started_at_ms = NOW + 100;
+        disk.latest_clock_ms = NOW - 100;
+        absorb_diverged(held.snapshot_mut(), &disk);
+        assert_eq!(held.snapshot().started_at_ms, NOW);
+        assert_eq!(held.snapshot().latest_clock_ms, NOW);
+    }
+
+    #[test]
+    fn a_file_that_diverged_leaves_an_intent_its_way_out() {
+        let (mut machine, _) = intent_recorded();
+        let disk = machine.snapshot().clone();
+        absorb_diverged(machine.snapshot_mut(), &disk);
+        assert!(machine.record(&alpha()).unwrap().has_recorded_intent());
+        assert_eq!(phase(&machine, &alpha()), Phase::Unverified);
     }
 
     #[test]
@@ -841,16 +1045,53 @@ mod tests {
     }
 
     #[test]
-    fn a_check_status_in_a_saved_receipt_is_only_a_record() {
+    fn counts_taken_from_a_file_stay_a_record_the_next_resume_can_read() {
+        let (mut held, _) = both_sealed();
+        let contract = held.contract().clone();
+        let mut disk = held.snapshot().clone();
+        disk.targets[0].attempts_used = 0;
+        disk.targets[1].attempts_used = 5;
+        disk.attempts_used = 5;
+        absorb_diverged(held.snapshot_mut(), &disk);
+        assert_eq!(held.record(&alpha()).unwrap().attempts_used, 1);
+        assert_eq!(held.record(&beta()).unwrap().attempts_used, 5);
+        assert_eq!(validate_saved(held.snapshot(), &contract), Ok(()));
+        assert_eq!(held.snapshot().attempts_used, 6);
+    }
+
+    #[test]
+    fn a_changed_fixed_input_refuses_the_resume() {
         let (machine, bytes) = both_sealed();
+        let changed = bytes.with("fixed/source.json", b"rewritten while nobody watched");
+        assert_eq!(
+            resume_outcome(&machine, &changed).unwrap_err(),
+            SavedRefusal::FixedInputChanged {
+                path: "fixed/source.json".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn a_forged_check_list_in_a_saved_receipt_gets_no_further_than_the_honest_one() {
+        let (machine, bytes) = both_sealed();
+        let contract = machine.contract().clone();
+        let honest = resume(saved(&machine), &contract, &bytes);
         let mut forged = saved(&machine);
         let receipt = forged.targets[0].current_receipt.as_mut().unwrap();
         receipt.checks = vec![CheckResult {
             id: "claimed".to_string(),
             status: CheckStatus::Passed,
         }];
-        let contract = machine.contract().clone();
         let resumed = resume(forged, &contract, &bytes);
+        for target in [alpha(), beta()] {
+            assert_eq!(phase(&resumed, &target), phase(&honest, &target));
+            assert_eq!(reason(&resumed, &target), reason(&honest, &target));
+            assert_eq!(generation(&resumed, &target), generation(&honest, &target));
+        }
         assert_eq!(phase(&resumed, &alpha()), Phase::Unverified);
+        // It stays only as a record, where no judgment reads it.
+        let record = resumed.record(&alpha()).unwrap();
+        assert!(record.current_receipt.is_none());
+        assert_eq!(record.history[0].checks[0].id, "claimed");
     }
 }
