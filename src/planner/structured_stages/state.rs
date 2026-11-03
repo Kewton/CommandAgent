@@ -124,7 +124,7 @@ pub(crate) struct TargetRecord {
     pub(crate) reported: BTreeMap<u32, String>,
     /// The fixed inputs as G2 adopted them, set for every target at the run's first `begin`,
     /// whether that target has run or not. A change is refused, not adopted. A change made before
-    /// that first `begin` cannot be seen: nothing was held to compare it with.
+    /// G2's first admission cannot be seen: what is there then is what gets adopted.
     pub(crate) fixed_inputs: Option<Vec<InputDigest>>,
 }
 
@@ -196,6 +196,9 @@ pub(crate) struct MachineSnapshot {
     pub(crate) latest_clock_ms: u64,
     pub(crate) attempts_used: u32,
     pub(crate) last_commit_turn: Option<u64>,
+    /// A secret reached a process's output. Kept with the run: comparing again from a later
+    /// command or a resume would make the comparison an oracle for the value.
+    pub(crate) ended_by_secret_value: bool,
     pub(crate) targets: Vec<TargetRecord>,
 }
 
@@ -270,6 +273,8 @@ pub(crate) enum BeginDecision {
     DeadlineExceeded,
     /// The last attempt on this target wrote its intent and has not been told how it ended.
     Refused(StageRefusal),
+    /// A secret reached an output earlier in this run. Only a fresh run goes on.
+    EndedBySecretValue,
 }
 
 impl BeginDecision {
@@ -291,6 +296,7 @@ impl BeginDecision {
                 | Self::DeadlineExceeded
                 | Self::FixedInputChanged { .. }
                 | Self::Refused(_)
+                | Self::EndedBySecretValue
         )
     }
 }
@@ -564,6 +570,7 @@ impl StageMachine {
             latest_clock_ms: now_ms,
             attempts_used: 0,
             last_commit_turn: None,
+            ended_by_secret_value: false,
             targets,
         };
         Self { contract, snapshot }
@@ -768,6 +775,9 @@ impl StageMachine {
         let Some(index) = self.index_of(key) else {
             return BeginDecision::UnknownTarget;
         };
+        if self.snapshot.ended_by_secret_value {
+            return BeginDecision::EndedBySecretValue;
+        }
         // Before anything is recorded: this call changes nothing about an unfinished intent.
         if self.snapshot.targets[index].has_recorded_intent() {
             return BeginDecision::Refused(StageRefusal::OutOfOrder);
@@ -966,6 +976,9 @@ impl StageMachine {
             return FailureDecision::Refused(StageRefusal::OutOfOrder);
         }
         record.drop_in_flight();
+        if failure == AttemptFailure::Terminal(TerminalFailure::SecretValueInOutput) {
+            self.snapshot.ended_by_secret_value = true;
+        }
         match failure {
             AttemptFailure::Check(kind) => FailureDecision::Resubmit(kind),
             AttemptFailure::Terminal(kind) => FailureDecision::EndRun(kind),
@@ -1192,6 +1205,7 @@ impl StageMachine {
             .any(TargetRecord::has_recorded_intent);
         StageVerdict {
             complete: !intent_open
+                && !self.snapshot.ended_by_secret_value
                 && !obligations.is_empty()
                 && obligations
                     .iter()
@@ -2786,6 +2800,70 @@ mod tests {
             FailureDecision::Resubmit(CheckFailureKind::Unknown)
         );
         assert_eq!(phase(&machine, &alpha()), Phase::Unverified);
+    }
+
+    /// T4: a commit that adopted nothing leaves an unverified target where it was.
+    #[test]
+    fn a_commit_not_adopted_on_an_unverified_target_goes_back_to_unverified() {
+        let (mut machine, bytes) = both_sealed();
+        let edited = bytes.with("out/alpha.json", b"edited");
+        assert!(!machine.judge(&edited).complete);
+        let generation = machine.record(&alpha()).unwrap().generation;
+        let ticket = start(&mut machine, &edited, 3, "again");
+        let output = edited.observe_path("out/alpha.json");
+        let checks = passed_checks(machine.contract(), &alpha());
+        assert_eq!(
+            machine.record_local_result(&ticket, &sha_of(b"good"), checks, &output),
+            LocalDecision::ReadyToCommit
+        );
+        machine.record_intent(&ticket, output.sha256()).unwrap();
+        assert_eq!(
+            machine.record_commit(&ticket, CommitObservation::NotAdopted),
+            Ok(CommitDecision::NotAdopted)
+        );
+        let record = machine.record(&alpha()).unwrap();
+        assert_eq!(record.phase, Phase::Unverified);
+        assert_eq!(
+            record.unverified_reason,
+            Some(UnverifiedReason::BytesChanged)
+        );
+        assert_eq!(record.generation, generation);
+    }
+
+    /// F6: a secret ends the run for every later call on any target, and nothing else does.
+    #[test]
+    fn a_secret_in_an_output_is_kept_with_the_run_and_nothing_starts_after_it() {
+        let (mut machine, bytes) = both_sealed();
+        let ticket = start(&mut machine, &bytes, 3, "other");
+        assert_eq!(
+            machine.record_failure(
+                &ticket,
+                AttemptFailure::Terminal(TerminalFailure::SecretValueInOutput)
+            ),
+            FailureDecision::EndRun(TerminalFailure::SecretValueInOutput)
+        );
+        assert!(machine.snapshot().ended_by_secret_value);
+        let attempts = machine.snapshot().attempts_used;
+        let contract = machine.contract().clone();
+        for target in [alpha(), beta()] {
+            let revision = machine.revision_of(&target).unwrap();
+            let output = bytes.observe_path(&contract.target(&target).unwrap().output_path);
+            let decision = machine.begin(
+                &target,
+                request_for(&contract, &target, &revision, &bytes, 4, NOW, "x", &output),
+            );
+            assert_eq!(decision, BeginDecision::EndedBySecretValue);
+            assert!(decision.ends_run());
+        }
+        assert_eq!(machine.snapshot().attempts_used, attempts);
+        assert!(!machine.judge(&bytes).complete, "nor does the run complete");
+
+        // Another terminal failure is not kept this way.
+        let (mut machine, bytes) = both_sealed();
+        let ticket = start(&mut machine, &bytes, 3, "other");
+        machine.record_failure(&ticket, AttemptFailure::Terminal(TerminalFailure::Process));
+        assert!(!machine.snapshot().ended_by_secret_value);
+        assert!(machine.judge(&bytes).complete);
     }
 
     #[test]

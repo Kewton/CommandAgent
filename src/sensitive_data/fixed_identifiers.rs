@@ -427,6 +427,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "step_verify_repair",
     "string_too_long",
     "string_too_short",
+    "structured_stage_refused",
     "success",
     "successful_bash_after_prompt",
     "successful_bash_since_latest_edit",

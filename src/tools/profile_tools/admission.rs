@@ -161,7 +161,83 @@ pub struct AdmittedProfileTools {
     stages: Option<Arc<StageRun>>,
 }
 
+#[cfg(test)]
 impl AdmittedProfileTools {
+    pub(super) fn without_stages_for_test() -> Self {
+        Self {
+            bindings: Vec::new(),
+            builtin_tools: Vec::new(),
+            tools: Vec::new(),
+            receipts: Arc::default(),
+            schema_tools: Arc::new(ReceiveState::default()),
+            proposals: Vec::new(),
+            commits: Arc::default(),
+            stages: None,
+        }
+    }
+
+    /// One stage over a tool no process backs: enough for what is judged before any call.
+    pub(super) fn with_stage_set_for_test(workspace: &Path) -> Self {
+        use crate::planner::structured_stages::contract::{
+            NarrowedStageLimits, StageDeclaration, StageSetDeclaration, TargetDeclaration,
+        };
+        let draft = StageContractDraft::new(
+            &StageSetDeclaration {
+                stages: vec![StageDeclaration {
+                    id: "only".to_string(),
+                    targets: vec![TargetDeclaration {
+                        id: "main".to_string(),
+                        tool_id: "a-tool".to_string(),
+                    }],
+                    depends_on: Vec::new(),
+                    required_checks: Vec::new(),
+                }],
+                limits: NarrowedStageLimits::default(),
+            },
+            &[HostToolFacts {
+                tool_id: "a-tool".to_string(),
+                output_id: "artifact".to_string(),
+                output_path: "out/a.json".to_string(),
+                schema_inputs: Vec::new(),
+                has_revision_argument: false,
+                has_compiler: false,
+                required_checks: vec!["shape".to_string()],
+                limits: StageLimits {
+                    attempts_per_target: 2,
+                    attempts_per_run: 2,
+                    deadline_seconds: 60,
+                },
+            }],
+        )
+        .unwrap();
+        Self {
+            stages: Some(Arc::new(StageRun::new(
+                draft,
+                BTreeMap::new(),
+                workspace.to_path_buf(),
+                "a-profile".to_string(),
+                Arc::default(),
+            ))),
+            ..Self::without_stages_for_test()
+        }
+    }
+}
+
+impl AdmittedProfileTools {
+    /// The same question as a session's, for an entry about to spend a provider call. Off for a
+    /// set with no stage.
+    pub(crate) fn preflight_stage_run(
+        &self,
+        config: &crate::config::Config,
+    ) -> Result<(), ProfileToolRefusal> {
+        match &self.stages {
+            Some(stages) => stages
+                .judge_run(StageRunFacts::of_session(config), &config.state_dir)
+                .map(|_| ()),
+            None => Ok(()),
+        }
+    }
+
     /// What a declared stage set needs from the session it runs in. Every session asks again:
     /// the run's OS boundary and whether this is a workflow child are read now, not kept.
     pub(crate) fn bind_stage_session(
@@ -462,6 +538,9 @@ fn stage_run(
             .iter()
             .find(|tool| tool.tool_id() == tool_id)
             .ok_or_else(|| stage_refused(tool_id, "is not an admitted proposal tool"))?;
+        if let Some(target) = draft.target_for_tool(tool_id) {
+            tool.matches_target(target)?;
+        }
         members.insert(tool_id.to_string(), tool.stage_member()?);
         staged.push(tool.clone());
     }

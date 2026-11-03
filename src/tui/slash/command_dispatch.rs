@@ -144,7 +144,7 @@ pub(super) fn run_command(
                 planner,
                 execution,
                 &resume.plan,
-                config,
+                &config_resuming(config, &resume.resumed_from),
                 ui,
             )?;
             Ok(format!(
@@ -180,6 +180,13 @@ pub(super) fn run_command(
     }
 }
 
+/// A plan run by `/resume` is a resume to everything below it that asks.
+fn config_resuming(config: &Config, resumed_from: &str) -> Config {
+    let mut resuming = config.clone();
+    resuming.resume = Some(resumed_from.to_string());
+    resuming
+}
+
 fn confirm_resume(config: &Config, resume: &crate::runs::ResumePlan) -> anyhow::Result<()> {
     let card = resume.confirmation_card();
     if config.yes {
@@ -198,5 +205,34 @@ fn confirm_resume(config: &Config, resume: &crate::runs::ResumePlan) -> anyhow::
         Ok(())
     } else {
         bail!("resume cancelled by user")
+    }
+}
+
+#[cfg(test)]
+mod resume_entry_tests {
+    use std::path::Path;
+
+    use super::config_resuming;
+    use crate::planner::structured_stages::ledger::LedgerEntry;
+
+    #[test]
+    fn a_plan_run_by_resume_says_so_and_a_fresh_session_still_wins() {
+        let mut config =
+            crate::tools::profile_tools::effects::config_for_test(Path::new("/nonexistent"));
+        assert_eq!(LedgerEntry::of_config(&config), LedgerEntry::Fresh);
+        let resuming = config_resuming(&config, "018f3333");
+        assert_eq!(resuming.resume.as_deref(), Some("018f3333"));
+        assert_eq!(LedgerEntry::of_config(&resuming), LedgerEntry::Resume);
+        // Only this one field differs, and the original is left as it was.
+        assert_eq!(config.resume, None);
+        let mut same = resuming;
+        same.resume = None;
+        assert_eq!(format!("{same:?}"), format!("{config:?}"));
+
+        config.fresh_session = true;
+        assert_eq!(
+            LedgerEntry::of_config(&config_resuming(&config, "018f3333")),
+            LedgerEntry::Fresh
+        );
     }
 }

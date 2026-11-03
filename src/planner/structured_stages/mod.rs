@@ -39,11 +39,25 @@ pub(crate) fn contract_refused(refusal: ContractRefusal) -> ProfileToolRefusal {
     )
 }
 
+/// A fixed sentence by kind, with the path and the input's name in `data`: a later step reads a
+/// message by its words, and a word in a path could make this end look like something to retry.
 pub(crate) fn ledger_refused(refusal: LedgerRefusal) -> ProfileToolRefusal {
-    ProfileToolRefusal::new(
-        RefusalKind::StageLedgerRefused,
-        format!("the record of this run's stages: {refusal:?}"),
-    )
+    let mut data = serde_json::json!({
+        "code": refusal.code(),
+        "recovery": refusal.recovery(),
+    });
+    if let LedgerRefusal::FixedInputChanged { path } = &refusal {
+        data["input"] = serde_json::Value::String(path.clone());
+    }
+    ProfileToolRefusal {
+        kind: RefusalKind::StageLedgerRefused,
+        reason: format!(
+            "the record of this run's stages cannot be used: {}. {}",
+            refusal.code(),
+            refusal.recovery()
+        ),
+        data: Some(data),
+    }
 }
 
 /// One tool of a stage set: its pins as admitted, and the guard holding its adopted inputs.
@@ -102,6 +116,31 @@ impl StageRun {
         }
     }
 
+    /// Whether this run may hold stages at all, with the values in force now. An entry can ask
+    /// this before it spends a provider call. It keeps nothing.
+    pub(crate) fn judge_run(
+        &self,
+        run: StageRunFacts,
+        state_dir: &Path,
+    ) -> Result<StageContract, ProfileToolRefusal> {
+        let contract = self.draft.for_run(run).map_err(contract_refused)?;
+        ledger::refuse_state_dir_inside_workspace(state_dir, &self.workspace)
+            .map_err(ledger_refused)?;
+        Ok(contract)
+    }
+
+    /// Where the operator finds the record, on a refusal about it.
+    pub(crate) fn with_ledger_path(&self, mut refusal: ProfileToolRefusal) -> ProfileToolRefusal {
+        let session = self.session.lock().unwrap_or_else(PoisonError::into_inner);
+        if let (Some(data), Some(session)) = (refusal.data.as_mut(), session.as_ref())
+            && let Some(file) =
+                ledger::ledger_file(&session.state_dir, &self.workspace, &self.profile)
+        {
+            data["ledger_path"] = serde_json::Value::String(file.display().to_string());
+        }
+        refusal
+    }
+
     /// What only a session can answer, asked anew for each one.
     pub(crate) fn bind_session(
         &self,
@@ -109,9 +148,7 @@ impl StageRun {
         state_dir: &Path,
         entry: LedgerEntry,
     ) -> Result<(), ProfileToolRefusal> {
-        let contract = self.draft.for_run(run).map_err(contract_refused)?;
-        ledger::refuse_state_dir_inside_workspace(state_dir, &self.workspace)
-            .map_err(ledger_refused)?;
+        let contract = self.judge_run(run, state_dir)?;
         *self.session.lock().unwrap_or_else(PoisonError::into_inner) = Some(StageSession {
             contract: Arc::new(contract),
             state_dir: state_dir.to_path_buf(),

@@ -199,6 +199,9 @@ impl RefusalKind {
 pub struct ProfileToolRefusal {
     pub kind: RefusalKind,
     pub reason: String,
+    /// What an operator needs and a message must not carry. It reaches the event and the
+    /// display. `reason` stays words a later step may read.
+    pub(crate) data: Option<serde_json::Value>,
 }
 
 impl ProfileToolRefusal {
@@ -206,6 +209,7 @@ impl ProfileToolRefusal {
         Self {
             kind,
             reason: reason.into(),
+            data: None,
         }
     }
 }

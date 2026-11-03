@@ -6,8 +6,9 @@
 //!
 //! The one thing a resume does not lower past is a changed fixed input: it is refused, and only
 //! a fresh session goes on (P5). The run's first `begin` pins every target's fixed inputs as G2
-//! adopted them, so a target that has not run is held to them too. A change made before that
-//! first `begin` cannot be seen: no pin exists yet, and the first `begin` pins what is there then.
+//! adopted them, so a target that has not run is held to them too, and a change after G2's first
+//! admission differs from its pin. A change before that admission cannot be seen: what is there
+//! then is what gets adopted and pinned.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -247,6 +248,7 @@ pub(crate) fn absorb_diverged(held: &mut MachineSnapshot, disk: &MachineSnapshot
     held.started_at_ms = held.started_at_ms.min(disk.started_at_ms);
     held.latest_clock_ms = held.latest_clock_ms.max(disk.latest_clock_ms);
     held.last_commit_turn = None;
+    held.ended_by_secret_value |= disk.ended_by_secret_value;
     for record in &mut held.targets {
         let saved = disk.targets.iter().find(|saved| saved.key == record.key);
         if let Some(saved) = saved {
@@ -1069,7 +1071,106 @@ mod tests {
         );
     }
 
-    /// The limit of the pin: nothing was held before the first `begin`.
+    /// An attempt under way on `alpha`, as a crash or a diverged file would find it.
+    fn mid_attempt(machine: &mut StageMachine, bytes: &FakeBytes) {
+        let contract = machine.contract().clone();
+        let revision = machine.revision_of(&alpha()).unwrap();
+        let output = bytes.observe_path("out/alpha.json");
+        let decision = machine.begin(
+            &alpha(),
+            request_for(
+                &contract,
+                &alpha(),
+                &revision,
+                bytes,
+                3,
+                NOW,
+                "again",
+                &output,
+            ),
+        );
+        assert!(
+            matches!(decision, BeginDecision::Proceed(_)),
+            "{decision:?}"
+        );
+        assert_eq!(phase(machine, &alpha()), Phase::Proposed);
+    }
+
+    fn unverified_mid_attempt() -> (StageMachine, FakeBytes) {
+        let (mut machine, bytes) = both_sealed();
+        let edited = bytes.with("out/alpha.json", b"edited behind the host");
+        assert!(!machine.judge(&edited).complete());
+        mid_attempt(&mut machine, &edited);
+        (machine, edited)
+    }
+
+    fn never_held_mid_attempt() -> (StageMachine, FakeBytes) {
+        let mut machine = StageMachine::new(
+            Arc::new(two_stage_contract()),
+            "run-a".to_string(),
+            "process-a".to_string(),
+            NOW,
+        );
+        let mut bytes = FakeBytes::default();
+        bytes.put("fixed/source.json", b"fixed source");
+        mid_attempt(&mut machine, &bytes);
+        (machine, bytes)
+    }
+
+    /// T4: the phase and the reason agree, whichever way the attempt was found.
+    #[test]
+    fn an_attempt_found_on_a_resume_leaves_the_phase_and_the_reason_in_agreement() {
+        let (machine, bytes) = unverified_mid_attempt();
+        let contract = machine.contract().clone();
+        let resumed = resume(saved(&machine), &contract, &bytes);
+        assert_eq!(phase(&resumed, &alpha()), Phase::Unverified);
+        assert_eq!(
+            reason(&resumed, &alpha()),
+            Some(UnverifiedReason::BytesChanged)
+        );
+
+        let (machine, bytes) = never_held_mid_attempt();
+        let contract = machine.contract().clone();
+        let resumed = resume(saved(&machine), &contract, &bytes);
+        assert_eq!(phase(&resumed, &alpha()), Phase::Proposed);
+        assert_eq!(reason(&resumed, &alpha()), None);
+    }
+
+    #[test]
+    fn an_attempt_found_under_a_diverged_file_leaves_the_phase_and_the_reason_in_agreement() {
+        let (mut machine, _) = unverified_mid_attempt();
+        let disk = machine.snapshot().clone();
+        absorb_diverged(machine.snapshot_mut(), &disk);
+        assert_eq!(phase(&machine, &alpha()), Phase::Unverified);
+        assert_eq!(
+            reason(&machine, &alpha()),
+            Some(UnverifiedReason::BytesChanged)
+        );
+
+        let (mut machine, _) = never_held_mid_attempt();
+        let disk = machine.snapshot().clone();
+        absorb_diverged(machine.snapshot_mut(), &disk);
+        assert_eq!(phase(&machine, &alpha()), Phase::Proposed);
+        assert_eq!(reason(&machine, &alpha()), None);
+    }
+
+    /// F6: what ended the run goes on ending it, from a resume and from a diverged file.
+    #[test]
+    fn a_secret_ending_the_run_survives_a_resume_and_a_diverged_file() {
+        let (mut machine, bytes) = both_sealed();
+        machine.snapshot_mut().ended_by_secret_value = true;
+        let contract = machine.contract().clone();
+        let resumed = resume(saved(&machine), &contract, &bytes);
+        assert!(resumed.snapshot().ended_by_secret_value);
+
+        let (mut held, _) = both_sealed();
+        let mut disk = held.snapshot().clone();
+        disk.ended_by_secret_value = true;
+        absorb_diverged(held.snapshot_mut(), &disk);
+        assert!(held.snapshot().ended_by_secret_value);
+    }
+
+    /// The limit of the pin: a change before G2 first adopted the input is what gets pinned.
     #[test]
     fn a_fixed_input_changed_before_the_first_begin_cannot_be_seen() {
         let machine = StageMachine::new(

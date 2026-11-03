@@ -42,18 +42,8 @@ pub(crate) fn refused_before_gate_one(
     config: &Config,
     execution: &dyn crate::providers::ChatClient,
 ) -> Option<String> {
-    let refused = match super::admit_selected(&config.workspace_root, &config.profile, None) {
-        Ok(None) => return None,
-        Ok(Some(admitted)) => admitted
-            .preflight_schema_tools(config, execution.profile_tool_schema_wire())
-            .err()?,
-        Err(refusal)
-            if refusal.kind.is_schema_tool_reason() || refusal.kind.is_effect_tool_reason() =>
-        {
-            refusal
-        }
-        Err(_) => return None,
-    };
+    let admitted = super::admit_selected(&config.workspace_root, &config.profile, None);
+    let refused = refusal_before_gate_one(admitted, config, execution)?;
     Some(crate::tui::status::render_task_failure_block(
         &crate::tui::status::TaskFailureBlock {
             task_status: "failed".to_string(),
@@ -68,6 +58,26 @@ pub(crate) fn refused_before_gate_one(
     ))
 }
 
+fn refusal_before_gate_one(
+    admitted: Result<Option<AdmittedProfileTools>, ProfileToolRefusal>,
+    config: &Config,
+    execution: &dyn crate::providers::ChatClient,
+) -> Option<ProfileToolRefusal> {
+    match admitted {
+        Ok(None) => None,
+        Ok(Some(admitted)) => admitted
+            .preflight_schema_tools(config, execution.profile_tool_schema_wire())
+            .and_then(|()| admitted.preflight_stage_run(config))
+            .err(),
+        Err(refusal)
+            if refusal.kind.is_schema_tool_reason() || refusal.kind.is_effect_tool_reason() =>
+        {
+            Some(refusal)
+        }
+        Err(_) => None,
+    }
+}
+
 fn preflight(
     admitted: Option<AdmittedProfileTools>,
     config: &Config,
@@ -75,5 +85,102 @@ fn preflight(
     match admitted {
         Some(admitted) => admitted.preflight_schema_tools(config, super::configured_wire(config)),
         None => Ok(()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use super::refusal_before_gate_one;
+    use crate::config::Config;
+    use crate::providers::{AssistantReply, ChatClient};
+    use crate::state::ConversationMessage;
+    use crate::tools::os_sandbox::{
+        SandboxAvailability, SandboxMode, SandboxPolicy, SandboxTestState, install_for_test,
+    };
+    use crate::tools::profile_tools::RefusalKind;
+    use crate::tools::profile_tools::admission::AdmittedProfileTools;
+    use crate::tools::registry::ToolSpec;
+
+    /// Counts what would be the route classifier's provider call.
+    struct CountingClient(Arc<AtomicUsize>);
+
+    impl ChatClient for CountingClient {
+        fn label(&self) -> &str {
+            "counting"
+        }
+
+        fn boxed_clone(&self) -> Box<dyn ChatClient> {
+            Box::new(Self(self.0.clone()))
+        }
+
+        fn chat(
+            &mut self,
+            _model: &str,
+            _messages: &[ConversationMessage],
+            _tools: &[ToolSpec],
+            _native_tools_enabled: bool,
+        ) -> anyhow::Result<AssistantReply> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            anyhow::bail!("no provider call belongs here")
+        }
+    }
+
+    fn config_outside(root: &Path) -> Config {
+        let workspace = root.join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let mut config = crate::tools::profile_tools::effects::config_for_test(&workspace);
+        config.state_dir = root.join("state");
+        config
+    }
+
+    fn install(root: &Path, mode: SandboxMode) {
+        let tmp = root.join("sandbox/run");
+        std::fs::create_dir_all(&tmp).unwrap();
+        install_for_test(
+            mode,
+            SandboxPolicy::new(&root.join("workspace"), &tmp),
+            SandboxAvailability::Available,
+        );
+    }
+
+    /// The filter stands in front of the route classifier: refusing here is what keeps that
+    /// provider call from happening. A REPL needs a terminal, so the filter itself is what runs.
+    #[test]
+    fn free_text_under_no_os_boundary_stops_at_the_filter_with_no_provider_call() {
+        let _sandbox = SandboxTestState::acquire();
+        let temp = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(temp.path()).unwrap();
+        let config = config_outside(&root);
+        let calls = Arc::new(AtomicUsize::new(0));
+        let client = CountingClient(calls.clone());
+        install(&root, SandboxMode::Off);
+
+        let staged = AdmittedProfileTools::with_stage_set_for_test(&config.workspace_root);
+        let refused = refusal_before_gate_one(Ok(Some(staged)), &config, &client)
+            .expect("the filter refuses");
+        assert_eq!(refused.kind, RefusalKind::StageContractRefused);
+        assert!(refused.to_string().contains("stage_contract_refused"));
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+
+        // The same set under an OS boundary is not this filter's to stop.
+        install(&root, SandboxMode::Auto);
+        let staged = AdmittedProfileTools::with_stage_set_for_test(&config.workspace_root);
+        assert_eq!(
+            refusal_before_gate_one(Ok(Some(staged)), &config, &client),
+            None
+        );
+
+        // No declared stage: the same as ever, under any sandbox.
+        install(&root, SandboxMode::Off);
+        assert_eq!(refusal_before_gate_one(Ok(None), &config, &client), None);
+        let plain = AdmittedProfileTools::without_stages_for_test();
+        assert_eq!(
+            refusal_before_gate_one(Ok(Some(plain)), &config, &client),
+            None
+        );
     }
 }

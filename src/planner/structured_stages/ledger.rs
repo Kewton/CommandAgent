@@ -40,6 +40,8 @@ use super::receipt::{CheckResult, sha256_hex};
 use super::resume::{
     AdmittedPins, ResumeFacts, SavedRefusal, absorb_diverged, lower_saved, validate_saved,
 };
+use crate::tools::os_sandbox::SandboxPolicy;
+
 use super::state::{
     AttemptFailure, AttemptIdentity, AttemptRequest, AttemptTicket, BeginDecision, BytesSource,
     CommitDecision, CommitObservation, FailureDecision, LocalDecision, MachineSnapshot,
@@ -56,8 +58,20 @@ const MAX_LEDGER_BYTES: u64 = 8 << 20;
 pub(crate) enum LedgerEntry {
     /// A new process that is not a resume. Only here do the counts start over.
     Fresh,
-    /// `--resume`, `runs resume`, or `/resume` in a new process. The ledger must be there.
+    /// `--resume`, or `/resume` in a new process. The ledger must be there.
     Resume,
+}
+
+impl LedgerEntry {
+    /// The same reading as the session store: a fresh session wins over a resume. `/resume`
+    /// reaches here too, by setting `resume` on the config it runs the plan with.
+    pub(crate) fn of_config(config: &crate::config::Config) -> Self {
+        if !config.fresh_session && config.resume.is_some() {
+            Self::Resume
+        } else {
+            Self::Fresh
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -71,9 +85,51 @@ pub(crate) enum LedgerRefusal {
         path: String,
     },
     StateDirInsideWorkspace,
+    /// A dependency cache, which the OS boundary leaves commands free to write.
+    StateDirWritableByCommands,
     /// The file is not what this process last wrote.
     Diverged,
     Unavailable,
+}
+
+impl LedgerRefusal {
+    pub(crate) const fn code(&self) -> &'static str {
+        match self {
+            Self::Missing => "missing",
+            Self::Corrupt => "corrupt",
+            Self::Held => "held",
+            Self::ContractChanged => "contract_changed",
+            Self::FixedInputChanged { .. } => "fixed_input_changed",
+            Self::StateDirInsideWorkspace => "state_dir_inside_workspace",
+            Self::StateDirWritableByCommands => "state_dir_writable_by_commands",
+            Self::Diverged => "diverged",
+            Self::Unavailable => "unavailable",
+        }
+    }
+
+    /// Fixed words, safe for a message.
+    pub(crate) const fn recovery(&self) -> &'static str {
+        match self {
+            Self::Missing => "A resume needs the run's record; `--fresh-session` starts over",
+            Self::Corrupt => {
+                "It stays in place to be looked at; move it away and start a new session"
+            }
+            Self::Held => "Another process holds it; wait for that process to end",
+            Self::ContractChanged => {
+                "The declared stages are not the ones it was written under; `--fresh-session` starts over"
+            }
+            Self::FixedInputChanged { .. } => {
+                "A fixed input is not what the run pinned; only `--fresh-session` goes on"
+            }
+            Self::StateDirInsideWorkspace | Self::StateDirWritableByCommands => {
+                "Commands of this run can write there; choose a state directory they cannot"
+            }
+            Self::Diverged => {
+                "Something other than this process changed it; `--fresh-session` in a new process starts over"
+            }
+            Self::Unavailable => "It cannot be read or written; check the state directory",
+        }
+    }
 }
 
 fn unavailable(_: std::io::Error) -> LedgerRefusal {
@@ -132,11 +188,57 @@ pub(crate) fn refuse_state_dir_inside_workspace(
     state_dir: &Path,
     workspace: &Path,
 ) -> Result<(), LedgerRefusal> {
+    // The caches this builds are the ones the installed policy resolved from the same home. The
+    // run's own temporary is `<state_dir>/sandbox/run-*`, which holds no ledger, and no accessor
+    // gives the installed value.
+    refuse_state_dir_under_policy(
+        state_dir,
+        workspace,
+        &SandboxPolicy::new(workspace, workspace),
+    )
+}
+
+/// Every place the OS boundary lets a command write, by where the path really leads.
+fn refuse_state_dir_under_policy(
+    state_dir: &Path,
+    workspace: &Path,
+    policy: &SandboxPolicy,
+) -> Result<(), LedgerRefusal> {
     let workspace = fs::canonicalize(workspace).map_err(unavailable)?;
-    if resolved_with_missing_tail(state_dir)?.starts_with(&workspace) {
+    let resolved = resolved_with_missing_tail(state_dir)?;
+    if resolved.starts_with(&workspace) {
         return Err(LedgerRefusal::StateDirInsideWorkspace);
     }
+    let caches = &policy.caches;
+    let writable = [
+        &caches.cargo_registry,
+        &caches.cargo_git,
+        &caches.cargo_package_cache,
+        &caches.npm,
+        &caches.pip,
+        &caches.playwright,
+    ];
+    for root in writable.into_iter().flatten() {
+        let root = fs::canonicalize(root).unwrap_or_else(|_| root.clone());
+        if resolved.starts_with(&root) {
+            return Err(LedgerRefusal::StateDirWritableByCommands);
+        }
+    }
     Ok(())
+}
+
+/// The one directory of a workspace and profile under a state directory.
+fn ledger_directory(state_dir: &Path, canonical_workspace: &Path, profile: &str) -> PathBuf {
+    let mut identity = canonical_workspace.as_os_str().as_bytes().to_vec();
+    identity.push(0);
+    identity.extend_from_slice(profile.as_bytes());
+    state_dir.join(LEDGER_LEAF).join(sha256_hex(&identity))
+}
+
+/// Where a refusal tells the operator to look.
+pub(crate) fn ledger_file(state_dir: &Path, workspace: &Path, profile: &str) -> Option<PathBuf> {
+    let workspace = fs::canonicalize(workspace).ok()?;
+    Some(ledger_directory(state_dir, &workspace, profile).join(LEDGER_FILE))
 }
 
 #[derive(Serialize)]
@@ -700,15 +802,10 @@ impl LedgerRegistry {
     /// new process starts anything over (D10). A resume does move a fresh start that has not
     /// begun onto the previous run, since going on with that run is what it asks for.
     pub(crate) fn open(&self, request: &LedgerRequest<'_>) -> Result<HeldLedger, LedgerRefusal> {
-        refuse_state_dir_inside_workspace(request.state_dir, request.workspace)?;
         let workspace = fs::canonicalize(request.workspace).map_err(unavailable)?;
-        let mut identity = workspace.as_os_str().as_bytes().to_vec();
-        identity.push(0);
-        identity.extend_from_slice(request.profile.as_bytes());
-        let directory = request
-            .state_dir
-            .join(LEDGER_LEAF)
-            .join(sha256_hex(&identity));
+        let directory = ledger_directory(request.state_dir, &workspace, request.profile);
+        // The directory itself, past any link on the way down to it.
+        refuse_state_dir_inside_workspace(&directory, request.workspace)?;
         let mut held = self.held.lock().map_err(|_| LedgerRefusal::Unavailable)?;
         let key = (workspace, request.profile.to_string());
         if let Some(existing) = held.get(&key) {
@@ -756,7 +853,9 @@ mod tests {
         HeldLedger, LEDGER_FILE, LEDGER_LEAF, LEDGER_TEMPORARY, LOCK_FILE, LedgerEntry,
         LedgerRefusal, LedgerRegistry, LedgerRequest, StageLedger, Store, WorkspaceBytes, decode,
         encode, process_ledgers, record_intent, refuse_state_dir_inside_workspace,
+        refuse_state_dir_under_policy,
     };
+    use crate::tools::os_sandbox::SandboxPolicy;
 
     const NOW: u64 = 9_000;
 
@@ -1555,6 +1654,157 @@ mod tests {
         )
         .unwrap();
         assert_eq!(bytes.observe("out/link.json"), ObservedBytes::Unreadable);
+    }
+
+    fn begin_alpha_at(ledger: &mut StageLedger, bytes: &FakeBytes, now: u64) -> BeginDecision {
+        let contract = ledger.contract().clone();
+        let revision = ledger.revision_of(&alpha()).unwrap();
+        let output = bytes.observe("out/alpha.json");
+        ledger
+            .begin(
+                &alpha(),
+                request_for(&contract, &alpha(), &revision, bytes, 1, now, "a", &output),
+            )
+            .unwrap()
+    }
+
+    /// T7: the clock starts at the run's first stage call, and no resume starts it again.
+    #[test]
+    fn the_deadline_starts_once_and_a_resume_gives_none_of_it_back() {
+        let world = world();
+        const T0: u64 = 50_000;
+        let deadline_ms = world.contract.limits().deadline_seconds * 1000;
+        let at = |entry, now_ms| {
+            let mut request = world.request(entry);
+            request.now_ms = now_ms;
+            LedgerRegistry::default().open(&request).unwrap()
+        };
+
+        let held = at(LedgerEntry::Fresh, T0);
+        assert!(matches!(
+            begin_alpha_at(&mut held.lock().unwrap(), &world.bytes, T0),
+            BeginDecision::Proceed(_)
+        ));
+        assert_eq!(world.saved().started_at_ms, T0);
+        drop(held);
+
+        // A later process, ten seconds on.
+        let held = at(LedgerEntry::Resume, T0 + 10_000);
+        assert_eq!(held.lock().unwrap().machine.snapshot().started_at_ms, T0);
+        assert!(matches!(
+            begin_alpha_at(
+                &mut held.lock().unwrap(),
+                &world.bytes,
+                T0 + deadline_ms - 1
+            ),
+            BeginDecision::Proceed(_)
+        ));
+        assert_eq!(
+            begin_alpha_at(&mut held.lock().unwrap(), &world.bytes, T0 + deadline_ms),
+            BeginDecision::DeadlineExceeded
+        );
+        drop(held);
+
+        // A fresh open that a resume takes up in the same process: the saved start, not its own.
+        let registry = LedgerRegistry::default();
+        let mut fresh = world.request(LedgerEntry::Fresh);
+        fresh.now_ms = T0 + 90_000;
+        let opened = registry.open(&fresh).unwrap();
+        assert_eq!(
+            opened.lock().unwrap().machine.snapshot().started_at_ms,
+            T0 + 90_000
+        );
+        let mut resume = world.request(LedgerEntry::Resume);
+        resume.now_ms = T0 + 90_000;
+        let resumed = registry.open(&resume).unwrap();
+        assert_eq!(resumed.lock().unwrap().machine.snapshot().started_at_ms, T0);
+    }
+
+    #[test]
+    fn the_deadline_cannot_be_declared_past_the_hosts_limit() {
+        use super::super::contract::{ContractRefusalKind, HOST_MAX_DEADLINE_SECONDS};
+        let at_limit = StageSetDeclaration {
+            stages: vec![one_target("only", "t")],
+            limits: NarrowedStageLimits {
+                deadline_seconds: Some(HOST_MAX_DEADLINE_SECONDS),
+                ..NarrowedStageLimits::default()
+            },
+        };
+        let tool = facts("t", "out/t", &[]);
+        assert!(admit(&at_limit, std::slice::from_ref(&tool)).is_ok());
+        let over = StageSetDeclaration {
+            limits: NarrowedStageLimits {
+                deadline_seconds: Some(HOST_MAX_DEADLINE_SECONDS + 1),
+                ..NarrowedStageLimits::default()
+            },
+            ..at_limit
+        };
+        assert_eq!(
+            admit(&over, std::slice::from_ref(&tool)).unwrap_err().kind,
+            ContractRefusalKind::WidenedLimit
+        );
+        let mut floor_over = tool;
+        floor_over.limits.deadline_seconds = HOST_MAX_DEADLINE_SECONDS + 1;
+        let plain = StageSetDeclaration {
+            limits: NarrowedStageLimits::default(),
+            ..over
+        };
+        assert_eq!(
+            admit(&plain, &[floor_over]).unwrap_err().kind,
+            ContractRefusalKind::InvalidLimit
+        );
+    }
+
+    #[test]
+    fn fresh_wins_over_resume_and_neither_means_fresh() {
+        let mut config =
+            crate::tools::profile_tools::effects::config_for_test(Path::new("/nonexistent"));
+        assert_eq!(LedgerEntry::of_config(&config), LedgerEntry::Fresh);
+        config.resume = Some("a-saved-session".to_string());
+        assert_eq!(LedgerEntry::of_config(&config), LedgerEntry::Resume);
+        config.fresh_session = true;
+        assert_eq!(LedgerEntry::of_config(&config), LedgerEntry::Fresh);
+    }
+
+    #[test]
+    fn a_ledger_directory_linked_into_the_workspace_is_refused_and_nothing_is_written_there() {
+        let world = world();
+        let linked = world.workspace.join("linked");
+        fs::create_dir(&linked).unwrap();
+        fs::create_dir_all(&world.state_dir).unwrap();
+        std::os::unix::fs::symlink(&linked, world.state_dir.join(LEDGER_LEAF)).unwrap();
+        assert_eq!(
+            world.process(LedgerEntry::Fresh).unwrap_err(),
+            LedgerRefusal::StateDirInsideWorkspace
+        );
+        assert_eq!(fs::read_dir(&linked).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn a_state_dir_commands_may_write_as_a_dependency_cache_is_refused() {
+        let root = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(root.path()).unwrap();
+        let (workspace, home) = (root.join("workspace"), root.join("home"));
+        fs::create_dir_all(&workspace).unwrap();
+        fs::create_dir_all(home.join(".npm/below")).unwrap();
+        let policy = SandboxPolicy::with_home(&workspace, &root.join("tmp"), home.clone());
+        assert!(policy.caches.npm.is_some(), "{:?}", policy.caches);
+        for inside in [home.join(".npm"), home.join(".npm/below/state")] {
+            assert_eq!(
+                refuse_state_dir_under_policy(&inside, &workspace, &policy),
+                Err(LedgerRefusal::StateDirWritableByCommands),
+                "{}",
+                inside.display()
+            );
+        }
+        for outside in [home.join("state"), home.join(".npm-other")] {
+            assert_eq!(
+                refuse_state_dir_under_policy(&outside, &workspace, &policy),
+                Ok(()),
+                "{}",
+                outside.display()
+            );
+        }
     }
 
     #[test]

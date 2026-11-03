@@ -649,6 +649,10 @@ impl StageContractDraft {
             .collect()
     }
 
+    pub(crate) fn target_for_tool(&self, tool_id: &str) -> Option<&AdmittedTarget> {
+        self.contract.target_for_tool(tool_id)
+    }
+
     pub(crate) fn tool_ids(&self) -> impl Iterator<Item = &str> {
         self.contract
             .targets()
