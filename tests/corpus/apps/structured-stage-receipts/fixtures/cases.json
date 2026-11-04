@@ -72,7 +72,12 @@
       "seals_are_progress_to_the_loop_and_stale_calls_are_not",
       "a_prompt_that_leaves_a_stage_open_is_held_and_then_refused",
       "a_touched_output_moves_nothing_and_completes_nothing",
-      "stages_left_open_get_no_final_repairs_of_their_own"
+      "stages_left_open_get_no_final_repairs_of_their_own",
+      "two_reads_after_every_stage_is_sealed_end_the_session",
+      "an_answer_that_moved_nothing_goes_back_with_no_obligation_open",
+      "a_plan_with_no_step_answers_for_no_stage_and_is_no_success",
+      "a_final_repair_that_seals_and_changes_a_source_is_asked_again",
+      "a_final_repair_whose_stage_output_then_changes_is_no_success"
     ]},
     {"row": 5, "says": "cancel at the commit, resume, a broken record, and a swapped pin adopt only the current version; a tool with no OS limit makes no valid receipt, and an unknown cost is not zero", "tests": [
       "a_commit_cancelled_after_the_rename_or_not_durable_moves_the_generation_without_a_seal",

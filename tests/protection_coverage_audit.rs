@@ -174,10 +174,14 @@ const STRUCTURED_STAGE_REQUIRED: &[(usize, &str)] = &[
         6,
         "crate::planner::structured_stages::refuse_unmet_plan(config)?;",
     ),
-    // The final repair's clock takes no clock from a test, so its value is held here.
+    // The final repair's clock takes no clock from a test, so its value and its use are held here.
     (
         7,
         "FINAL_ACCEPTANCE_REPAIR_WALL_CLOCK_CAP: Duration = Duration::from_secs(240)",
+    ),
+    (
+        2,
+        "repair_started.elapsed() > FINAL_ACCEPTANCE_REPAIR_WALL_CLOCK_CAP",
     ),
 ];
 

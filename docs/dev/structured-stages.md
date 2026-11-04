@@ -219,12 +219,24 @@ Each row names what an operator sees and what to do.
   starts, and at the seventh it asks for a write, before the limit of 8 calls.
 - **Counts per session.** The hold's count and the count of calls that start nothing go back to
   zero with each session. The session's iteration budget and the ledger's attempts still hold.
-- **A final repair cannot finish a stage (N8 of stage 3, wider than first thought).** Measured: a
-  final repair that seals the open stage, on the right revision, changes nothing the repair's before
-  and after compare (those look at source files, and skip `out/`), so
-  `final_acceptance_repair_no_source_change` and `reprobe_skipped` end the repair with no new judgment.
-  The run fails with `stage_incomplete` about a stage that is sealed by then. It is a failure and not
-  a false pass. To recover: submit every stage in the plan's own steps; a repair does not finish one.
+- **A final repair that seals a stage and changes nothing compared (N8 of stage 3, #986).** Measured
+  (`a_final_repair_that_seals_the_open_stage_still_ends_as_a_failure`): a final repair that seals the
+  open stage, on the right revision, and changes nothing the repair's before and after compare ends
+  with no new judgment, through `final_acceptance_repair_no_source_change` and `reprobe_skipped`. The
+  run fails with a message that calls the stage unmet although it is sealed by then, which misleads.
+  It is a failure and not a false pass.
+  - What is compared: the files a walk of the workspace finds with `.ts`, `.tsx`, `.js`, `.jsx`,
+    `.mjs`, `.cjs`, `.css`, or `.py`, or with a few config names such as `package.json`, skipping dot
+    directories and names such as `out`, `build`, and `target`, and the profile's expected and
+    route-bound paths. When an admitted artifact check ran, the artifacts the profile declares and
+    the names that check recorded are compared too, whatever their extension or directory. A stage
+    output such as `out/lower.json` is none of these unless such a check names it.
+  - If the repair also changes a compared file, acceptance asks again and judges the seal by the bytes
+    there at that moment (`a_final_repair_that_seals_and_changes_a_source_is_asked_again`). Measured
+    only with both in one reply: a repair session whose required file exists ends at its first batch of
+    tools, so a write in one attempt and the seal in the next ends as above.
+  - To recover: submit every stage in the plan's own steps. A repair finishes one only if the same
+    reply also changes a compared file.
   A repair called on the wrong revision gets `stale`, and on an `Implement` repair with a missing
   write it can end at `model_stagnation:read_only_loop` first. Seals a resume lowered are not met at
   final acceptance either, and that run is no success.
@@ -255,8 +267,8 @@ Each row names what an operator sees and what to do.
   code and the audit. An overlay on `generic`, whose level has room, cannot be compared: an overlay
   has no `profile_tools` table to declare stages in, and `generic` cannot be an overlay's base.
 - **The final repair's clock.** Its 240 seconds use the real clock, so no test reaches that limit. The
-  value is held by the audit, and `final_acceptance.rs` reads nothing of the stages. Its two attempts
-  are measured, with two stages open.
+  value and its use are held by the audit, and `final_acceptance.rs` reads nothing of the stages. Its
+  two attempts are measured, with two stages open.
 - **A fix's order.** A fix judges its stages again after its adjudication's file and event, so it can
   end as a non-success after an adjudication that reads well. No `ultra_plan_complete` follows.
 - **The off comparison.** One ultra row is recorded with speculation off (`profile_explicit = false`)

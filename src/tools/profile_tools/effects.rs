@@ -4752,6 +4752,149 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                     .find(|line| line.contains("\"event\":\"ultra_final_acceptance_failed\""))
                     .expect("final acceptance failed");
                 assert!(failed.contains("\"max_attempts\":2"), "{failed}");
+                let exhausted = events
+                    .lines()
+                    .find(|line| line.contains("\"event\":\"final_acceptance_repair_exhausted\""))
+                    .expect("the repair ran out");
+                assert!(
+                    exhausted.contains("\"exhausted_reason\":\"bounded_repair_exhausted\""),
+                    "the budget is what stopped it: {exhausted}"
+                );
+            }
+
+            /// The revision the upper stage's seal named, as a model has it in its history.
+            fn revision_the_upper_seal_named(body: &Value) -> String {
+                messages(body)
+                    .iter()
+                    .filter(|message| message["role"] == "tool")
+                    .filter_map(|message| message["content"].as_str())
+                    .filter_map(|text| serde_json::from_str::<Value>(text).ok())
+                    .find_map(|answer| {
+                        answer["stage"]["downstream"][0]["revision"]
+                            .as_str()
+                            .map(str::to_string)
+                    })
+                    .expect("the seal's answer is in the history")
+            }
+
+            /// The plan's steps leave the lower stage open. The final repair's first reply seals
+            /// that stage and makes these writes. It has to be one reply: a repair with its
+            /// required file there ends at its first batch of tools.
+            fn a_repair_that_seals_and_writes(
+                writes: &'static [(&'static str, &'static str)],
+            ) -> Responder {
+                let steps = ultra_steps(false);
+                let replied = Arc::new(AtomicBool::new(false));
+                Arc::new(move |index, body| {
+                    if !body
+                        .to_string()
+                        .contains("Repair the final acceptance failure")
+                        || !body["tools"].to_string().contains(UPPER_TOOL)
+                    {
+                        return steps(index, body);
+                    }
+                    if replied.swap(true, Ordering::SeqCst) {
+                        return text_reply("done");
+                    }
+                    let revision = revision_the_upper_seal_named(body);
+                    let mut calls = vec![(
+                        LOWER_TOOL,
+                        json!({"mode": "fast", "expected_revision": revision}),
+                    )];
+                    calls.extend(writes.iter().map(|(path, content)| {
+                        ("Write", json!({"path": path, "content": content}))
+                    }));
+                    calls_reply(&calls)
+                })
+            }
+
+            /// The other side of the known limit below. A repair that also changes a compared file
+            /// has final acceptance asked again, and a new judgment is what ends it as a success.
+            /// That judgment reads the bytes there at the time.
+            #[test]
+            fn a_final_repair_that_seals_and_changes_a_source_is_asked_again() {
+                const NAME: &str = "a_final_repair_that_seals_and_changes_a_source_is_asked_again";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                world
+                    .ultra_as(
+                        WRITES_PROFILE,
+                        true,
+                        a_repair_that_seals_and_writes(&[("repair.py", "# the repair\n")]),
+                    )
+                    .expect("asked again, with every stage sealed");
+                let events = world.events();
+                for first_judgment_only in [
+                    "\"event\":\"final_acceptance_repair_start\"",
+                    "\"event\":\"structured_stage_incomplete\"",
+                ] {
+                    assert_eq!(
+                        events.matches(first_judgment_only).count(),
+                        1,
+                        "{first_judgment_only}: {events}"
+                    );
+                }
+                assert!(!events.contains("\"reprobe_skipped\":true"), "{events}");
+                let again = events
+                    .lines()
+                    .find(|line| line.contains("\"event\":\"final_acceptance_cycle_complete\""))
+                    .expect("no new judgment");
+                assert!(again.contains("\"ok\":true"), "{again}");
+                assert!(again.contains("repair.py"), "{again}");
+                let complete = events
+                    .lines()
+                    .rfind(|line| line.contains("\"event\":\"ultra_plan_complete\""))
+                    .expect("the run's end");
+                assert!(complete.contains("\"ok\":true"), "{complete}");
+
+                // The same judgment, on other bytes.
+                let mut config = world.config("http://127.0.0.1:9");
+                config.profile = WRITES_PROFILE.to_string();
+                assert_eq!(
+                    crate::planner::structured_stages::final_gate_failure(&config),
+                    None
+                );
+                std::fs::write(world.root.join(LOWER_OUTPUT), "changed after the seal\n").unwrap();
+                let failure = crate::planner::structured_stages::final_gate_failure(&config)
+                    .expect("the seal no longer stands for these bytes");
+                assert!(failure.contains("stage_incomplete"), "{failure}");
+                assert!(failure.contains("lower/main"), "{failure}");
+            }
+
+            /// The control: the same reply, which also changes the stage's output after sealing it.
+            /// The end of the repair's session judges those bytes before acceptance can ask.
+            #[test]
+            fn a_final_repair_whose_stage_output_then_changes_is_no_success() {
+                const NAME: &str = "a_final_repair_whose_stage_output_then_changes_is_no_success";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                let error = world
+                    .ultra_as(
+                        WRITES_PROFILE,
+                        true,
+                        a_repair_that_seals_and_writes(&[
+                            ("repair.py", "# the repair\n"),
+                            (LOWER_OUTPUT, "changed after the seal\n"),
+                        ]),
+                    )
+                    .expect_err("the seal no longer stands for these bytes");
+                assert!(error.contains("repair failed"), "{error}");
+                assert!(error.contains("stage_incomplete"), "{error}");
+                assert!(error.contains("lower/main"), "{error}");
+                let events = world.events();
+                let unmet = events
+                    .lines()
+                    .rfind(|line| line.contains("\"event\":\"structured_stage_incomplete\""))
+                    .expect("the session's end asked");
+                assert!(unmet.contains("\"phase\":\"unverified\""), "{unmet}");
+                assert!(
+                    !events.contains("\"event\":\"final_acceptance_cycle_complete\""),
+                    "{events}"
+                );
             }
 
             /// A known limit, measured. A final repair that seals the open stage changes nothing the
@@ -4783,19 +4926,7 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                             _ => text_reply("done"),
                         };
                     }
-                    // The revision the upper stage's seal named, as a model has it in its history.
-                    let revision = messages(body)
-                        .iter()
-                        .filter(|message| message["role"] == "tool")
-                        .filter_map(|message| message["content"].as_str())
-                        .filter_map(|text| serde_json::from_str::<Value>(text).ok())
-                        .find_map(|answer| {
-                            answer["stage"]["downstream"][0]["revision"]
-                                .as_str()
-                                .map(str::to_string)
-                        })
-                        .expect("the seal's answer is in the history");
-                    submit(LOWER_TOOL, "fast", &revision)
+                    submit(LOWER_TOOL, "fast", &revision_the_upper_seal_named(body))
                 });
                 let error = world.ultra(responder).expect_err("the known limit");
                 assert!(error.contains("stage_incomplete"), "{error}");
@@ -4891,8 +5022,8 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                 );
             }
 
-            /// `stage_has_unmet_obligation`: a Read after a commit would end this run. With a stage
-            /// open it is asked again instead.
+            /// `stage_has_unmet_obligation`: the second Read of a committed output would end this
+            /// run (the control below). With a stage open it is asked again instead.
             #[test]
             fn a_read_after_a_commit_goes_on_while_a_stage_is_open() {
                 let Some(world) =
@@ -4903,12 +5034,109 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                 let _live = world.enter();
                 let responder: Responder = Arc::new(|index, _| match index {
                     1 => submit(UPPER_TOOL, "fast", "initial"),
-                    2 => call_reply("Read", &json!({"path": UPPER_OUTPUT})),
+                    2 | 3 => call_reply("Read", &json!({"path": UPPER_OUTPUT})),
                     _ => text_reply("stopping"),
                 });
                 let (requests, result) = world.prompt(responder);
                 assert_stage_incomplete(&result);
-                assert!(requests.len() > 2, "ended at the Read: {}", requests.len());
+                assert!(
+                    requests.len() > 3,
+                    "ended at the second Read: {}",
+                    requests.len()
+                );
+                assert!(
+                    !world
+                        .events()
+                        .contains("post_write_read_confirmation_completed")
+                );
+            }
+
+            /// The control of the test above: the same two Reads with every stage sealed do end the
+            /// session there, so those Reads are the ones that path counts.
+            #[test]
+            fn two_reads_after_every_stage_is_sealed_end_the_session() {
+                let Some(world) =
+                    one_process("two_reads_after_every_stage_is_sealed_end_the_session")
+                else {
+                    return;
+                };
+                let _live = world.enter();
+                let responder: Responder = Arc::new(|index, body| match index {
+                    1 => submit(UPPER_TOOL, "fast", "initial"),
+                    2 => submit(LOWER_TOOL, "fast", &revision_below(&last_answer(body))),
+                    3 | 4 => call_reply("Read", &json!({"path": UPPER_OUTPUT})),
+                    _ => text_reply("stopping"),
+                });
+                let (requests, result) = world.prompt(responder);
+                result.unwrap();
+                assert_eq!(requests.len(), 4);
+                assert!(
+                    world
+                        .events()
+                        .contains("post_write_read_confirmation_completed"),
+                    "{}",
+                    world.events()
+                );
+            }
+
+            /// `unread` in the tool-only hold: nothing is open, and the answer still goes back to
+            /// the model. This step's one call moves nothing, so only an unread answer can hold it.
+            #[test]
+            fn an_answer_that_moved_nothing_goes_back_with_no_obligation_open() {
+                let Some(world) =
+                    one_process("an_answer_that_moved_nothing_goes_back_with_no_obligation_open")
+                else {
+                    return;
+                };
+                let _live = world.enter();
+                let responder: Responder = Arc::new(|index, body| match index {
+                    1 => submit(UPPER_TOOL, "fast", "initial"),
+                    2 => submit(LOWER_TOOL, "fast", "initial"),
+                    3 => {
+                        let answer = last_answer(body);
+                        submit(LOWER_TOOL, "fast", answer["revision"].as_str().unwrap())
+                    }
+                    4 => {
+                        let answer = last_answer(body);
+                        submit(
+                            LOWER_TOOL,
+                            "fast",
+                            answer["stage"]["revision"].as_str().unwrap(),
+                        )
+                    }
+                    _ => text_reply("done"),
+                });
+                let steps = vec![
+                    step("Submit the upper stage", "step-upper"),
+                    step("Submit the lower stage", "step-lower"),
+                    step("Submit the lower stage again", "step-again"),
+                ];
+                let (requests, result) = world.plan(steps, responder);
+                result.unwrap();
+                assert_eq!(requests.len(), 5, "ended at the tool's answer");
+                let last = &requests[4];
+                assert_eq!(last_answer(last)["status"], "no_change", "{last}");
+                assert!(!last.to_string().contains(HOLD), "nothing was open: {last}");
+            }
+
+            /// `stages_declared_without_a_read`, on every OS: with no step there is no session, so
+            /// nothing bound the stages, and they are declared all the same.
+            #[test]
+            fn a_plan_with_no_step_answers_for_no_stage_and_is_no_success() {
+                let Some(world) =
+                    one_process("a_plan_with_no_step_answers_for_no_stage_and_is_no_success")
+                else {
+                    return;
+                };
+                let _live = world.enter();
+                let (requests, result) =
+                    world.plan(Vec::new(), Arc::new(|_, _| text_reply("nobody asked")));
+                assert_eq!(requests.len(), 0);
+                let error = result.expect_err("no stage was ever bound");
+                assert!(
+                    error.contains("stage_incomplete: no_session_bound_the_declared_stages"),
+                    "{error}"
+                );
             }
 
             /// An implement step's stagnation notices, with a file nothing here writes.
@@ -5383,6 +5611,27 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                         "type": "function",
                         "function": {"name": name, "arguments": arguments.to_string()},
                     }],
+                }}]})
+                .to_string()
+            }
+
+            /// One reply with several calls, run in this order.
+            fn calls_reply(calls: &[(&str, Value)]) -> String {
+                let calls = calls
+                    .iter()
+                    .enumerate()
+                    .map(|(index, (name, arguments))| {
+                        json!({
+                            "id": format!("call-{index}"),
+                            "type": "function",
+                            "function": {"name": name, "arguments": arguments.to_string()},
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                json!({"choices": [{"message": {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": calls,
                 }}]})
                 .to_string()
             }
