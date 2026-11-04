@@ -6,11 +6,14 @@ bytes and every check the operator requires passed. A new upstream version takes
 that state away from everything below it. What a model or a tool says never
 decides this.
 
-Without a declaration none of this runs: nothing is written here, no contents are
-read, and the wire, the events, and the artifacts of a run stay as they were
-(`tests/corpus/apps/structured-stage-receipts/`). One lookup remains: a run whose pack
-was left to admission, with no stage in it, also resolves the workspace's path, and
-reads no contents to do so (see "What this costs a run with no stage").
+Without a declaration none of this runs: nothing is written here, and the wire, the
+events, and the artifacts of a run stay as they were
+(`tests/corpus/apps/structured-stage-receipts/`). A run with no pack, or with a decoded
+pack, reads no contents for this. A run whose pack was left to admission, with no stage
+in it, also resolves the workspace's path. Its final gate reads the pack's contents when
+no admission of this process recorded it, and a pack that cannot be used then ends that
+run as a failure (see "A pack only admission can read" and "What this costs a run with no
+stage").
 
 ## Design
 
@@ -103,6 +106,12 @@ profile of their own, so when either one declares stages, a plan naming another 
 at the entry of an ultra plan run, before any provider call: `stage_contract_refused`. The names are
 compared as profiles, so `next.js` and `nextjs` are one. A generated plan already has the config's
 profile, and the one change during a run, a promotion, moves both.
+
+Two forms of this say something else or come about unasked. A pack of stages for the plan's profile,
+under a config of another, stops first, when the config's admission finds the pack is not its own:
+`selected_pack_invalid`, with no names compared and no provider call. A plan file with no `profile:` is
+read as `generic`, so `--profile P`, with stages in `P`, refuses it although the file names no profile.
+To run it: write `profile: P` in the file.
 
 ## Declaring stages
 
@@ -266,9 +275,22 @@ Each row names what an operator sees and what to do.
     a record of no stage. It is one more change during a run.
 - **A plan of a name this process does not know.** A plan naming a profile no registered root declares
   has stages the process cannot know of, and those are outside what the host holds: nothing here asks
-  about them. Leaving out `--extension-root` is one way there. This is on the side of a false success.
+  about them. Leaving out `--extension-root` is one way there. This is on the side of a false success,
+  and only when the config has no stage either: a config with stages refuses such a plan like any other.
 - **A plan of another profile with no stage.** With no stage on either side, the two names may differ as
   they always did, and the run is reported as the plan's profile.
+- **`cli` with stages.** Write `--profile python-cli` for a run with stages. The catalog lists `cli` as an
+  alias of `python-cli`, but the entry's comparison keeps `cli` as it is, so a plan named `python-cli`
+  under `--profile cli` is refused at the entry: `stage_contract_refused`. This refusal is false, and on
+  the side of no success (`plan_profile_the_cli_alias_is_falsely_refused_with_stages`). A run with no
+  stage is not affected.
+- **What a refused `/resume` leaves.** By reading the code, what comes before the entry's refusal writes
+  `tui_command_start` and `resume_start` to the events, and `recovery_plan_auto_run_configured` with
+  automatic runs above 0. The refusal then adds `tui_command_stop`, with `ok` false, and `loop_stop`, as
+  any failed command does. Which events appear is measured; that a later run's success rests on none of
+  them is a reading of what reads them. No record or session comes of it. One thing is wrong to read:
+  a later command with the same events file shows `- Resumed from:` with the refused resume's value, and
+  so does its `tui_command_stop`. That is a display error, and the code did this before stages.
 - **A pack only admission can read.** A confirmed TUI dispatch, or a selection inherited in the
   environment, says nothing in memory about stages. A session that admits such a pack with no stage
   records that in final acceptance's table. The table belongs to the process and not to a run: a later
