@@ -252,6 +252,29 @@ mod tests {
         assert!(hold.has_unmet_obligation(), "it is still not met");
     }
 
+    /// M9: no submission can mend a record that cannot be vouched for, so nothing is held. The
+    /// funnel ends the run, and no hold is spent on the way.
+    #[test]
+    fn a_shortfall_no_submission_can_mend_sends_nobody_back() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(temp.path()).unwrap();
+        let file = crate::planner::structured_stages::ledger::ledger_file(
+            &root.join("state"),
+            &{
+                std::fs::create_dir_all(root.join("workspace")).unwrap();
+                root.join("workspace")
+            },
+            "a-profile",
+        )
+        .unwrap();
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, b"not a record").unwrap();
+        let hold = hold_over(bound_run(&temp), StageScope::All);
+        assert!(hold.has_unmet_obligation());
+        assert_eq!(hold.feedback(), None);
+        assert_eq!(hold.holds.get(), 0, "no hold was spent");
+    }
+
     #[test]
     fn a_step_answers_only_for_the_stages_it_called() {
         let temp = tempfile::tempdir().unwrap();

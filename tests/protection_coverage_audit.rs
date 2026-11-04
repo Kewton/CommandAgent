@@ -131,7 +131,82 @@ const PROTECTION_RULES: &[ProtectionRule] = &[
         ],
         audit: audit_extension_supply_writes,
     },
+    ProtectionRule {
+        category: "structured_stage_completion",
+        site_predicate: "the ways a run with a declared stage set can end as a success",
+        required_wrapper: "StageFunnel / refuse_unmet_plan / final_gate_failure over StageLedger::verdict",
+        allowlist: &[
+            "src/minimal_loop/loop_run.rs",
+            "src/planner/runner/driver.rs",
+            "src/planner/runner/phase/flow.rs",
+            "src/planner/adjudication/create.rs",
+            "src/planner/structured_stages/mod.rs",
+            "src/planner/structured_stages/contract.rs",
+        ],
+        audit: audit_structured_stage_completion,
+    },
 ];
+
+/// One required line for each end, and for the single judgment they all come to.
+const STRUCTURED_STAGE_REQUIRED: &[(usize, &str)] = &[
+    (
+        0,
+        "stages.finish(run_session_planned(run, options, &mut plan), config)",
+    ),
+    (
+        1,
+        "crate::planner::structured_stages::refuse_unmet_plan(config)",
+    ),
+    (
+        2,
+        "crate::planner::structured_stages::refuse_unmet_plan(config)?;",
+    ),
+    (
+        3,
+        "crate::planner::structured_stages::final_gate_failure(config)",
+    ),
+    (4, "StageScope::All => verdict.complete(),"),
+    (4, "if !verdict.ledger_intact() {"),
+    (5, "ContractRefusalKind::RecoversByItself"),
+];
+
+fn audit_structured_stage_completion(corpus: &AuditCorpus, rule: &ProtectionRule) -> Vec<String> {
+    STRUCTURED_STAGE_REQUIRED
+        .iter()
+        .filter_map(|(index, required)| {
+            let path = rule.allowlist[*index];
+            (!production_text(corpus.file(path)).contains(required))
+                .then(|| format!("{path} is missing `{required}`"))
+        })
+        .collect()
+}
+
+/// Each way around the G4 ends fails the rule, one file changed at a time.
+#[test]
+fn structured_stage_completion_rejects_each_weakened_variant() {
+    let real = AuditCorpus::from_manifest_dir();
+    let rule = PROTECTION_RULES
+        .iter()
+        .find(|rule| rule.category == "structured_stage_completion")
+        .unwrap();
+    assert!(
+        (rule.audit)(&real, rule).is_empty(),
+        "{:?}",
+        (rule.audit)(&real, rule)
+    );
+    for (index, required) in STRUCTURED_STAGE_REQUIRED {
+        let path = rule.allowlist[*index];
+        let mut changed = AuditCorpus {
+            files: real.files.clone(),
+        };
+        let text = real.file(path).replace(required, "");
+        changed.files.insert(path.to_string(), text);
+        assert!(
+            !(rule.audit)(&changed, rule).is_empty(),
+            "{path} without `{required}` passed"
+        );
+    }
+}
 
 #[test]
 fn protection_coverage_table_is_green_for_current_tree() {

@@ -225,6 +225,11 @@ pub(crate) fn stages_declared_without_a_read(profile: &str) -> bool {
             .is_some_and(|declared| declared.stages.is_some())
 }
 
+#[cfg(test)]
+pub(super) fn manifest_declaration_for_test(profile: &str) -> Option<ProfileToolDeclaration> {
+    profile_declaration(profile)
+}
+
 fn profile_declaration(profile: &str) -> Option<ProfileToolDeclaration> {
     let extension = crate::planner::extension_profiles::find(profile)?;
     MANIFEST_DECLARATIONS

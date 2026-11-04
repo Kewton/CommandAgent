@@ -22,6 +22,8 @@ const UNKNOWN_TOOL_PROFILE: &str = "stage-unknown-tool";
 const NO_ARGUMENT_PROFILE: &str = "stage-no-argument";
 #[cfg(target_os = "macos")]
 const MARKER_NAME_PROFILE: &str = "stage-marker-name";
+#[cfg(target_os = "macos")]
+const ENTRY_PROFILE: &str = "stage-entry";
 const UPPER_TOOL_ID: &str = "stage-upper-tool";
 const LOWER_TOOL_ID: &str = "stage-lower-tool";
 const BARE_TOOL_ID: &str = "stage-bare-tool";
@@ -79,6 +81,12 @@ fn manifest(profile: &str, tools: &[&str], stages: &[(&str, &str)]) -> String {
 }
 
 fn extension() {
+    // Each time: the off control registers a root of its own, as the base it was recorded on has
+    // to be able to read it.
+    commandagent::planner::extension_profiles::register(extension_root()).unwrap();
+}
+
+fn extension_root() -> &'static Path {
     static ROOT: OnceLock<PathBuf> = OnceLock::new();
     ROOT.get_or_init(|| {
         let root = std::fs::canonicalize(tempfile::tempdir().unwrap().keep()).unwrap();
@@ -94,6 +102,17 @@ fn extension() {
             std::fs::write(
                 directory.join("manifest.toml"),
                 manifest(MARKER_NAME_PROFILE, &both, &marked),
+            )
+            .unwrap();
+            // A preset an entry can run as it is: an ultra plan needs two phases.
+            let directory = root.join(format!("profiles/{ENTRY_PROFILE}"));
+            std::fs::create_dir_all(&directory).unwrap();
+            std::fs::write(
+                directory.join("manifest.toml"),
+                manifest(ENTRY_PROFILE, &both, &walk).replace(
+                    "phases = [\n  { id = \"implementation\", prompt = \"Write the notes for {goal}.\" },\n]",
+                    "phases = [\n  { id = \"first\", prompt = \"Phase-first: submit the upper stage for {goal}.\" },\n  { id = \"second\", prompt = \"Phase-second: submit the lower stage for {goal}.\" },\n]",
+                ),
             )
             .unwrap();
         }
@@ -123,7 +142,7 @@ fn extension() {
         }
         commandagent::planner::extension_profiles::register(&root).unwrap();
         root
-    });
+    })
 }
 
 /// Passes unless the arguments ask it not to. Bash has no digest or base64 builtin, so both are
@@ -324,6 +343,741 @@ fn a_stage_tool_without_its_operators_floor_is_refused_at_admission() {
     assert!(error.contains("floor"), "{error}");
 }
 
+/// The off control: runs with no stage declaration, through the public session and plan entries,
+/// against what the base commit's production code did with the same replies. It runs on every OS.
+mod off_control {
+    use std::collections::{BTreeMap, VecDeque};
+    use std::io::{Read as _, Write as _};
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex, OnceLock};
+
+    use commandagent::config::{
+        Action, Config, ConfigFieldSources, NarrationMode, OllamaThink, OpenAiApi, PlanPreset,
+        PromptLayout, Provider, ToolProtocol,
+    };
+    use commandagent::minimal_loop::loop_run::run_session_with_outcome_with_ui;
+    use commandagent::planner::adjudication::contract::IntentId;
+    use commandagent::planner::runner::{run_step_plan, run_ultra_plan};
+    use commandagent::planner::step_plan::{PlanStep, StepPlan};
+    use commandagent::planner::ultra_plan::{UltraPhase, UltraPlan};
+    use commandagent::providers::client_from_config;
+    use commandagent::sensitive_data::{SecretCatalog, install_scope};
+    use commandagent::state::SessionSnapshot;
+    use commandagent::tools::profile_tools::{
+        ProfileToolReadExecutor, ReadToolOutput, register_read_executor,
+    };
+    use commandagent::tui::NOOP_UI;
+    use serde_json::{Value, json};
+
+    use super::{REGISTRY_ENV, lock, sha256};
+
+    const OFF_GOLDEN: &str =
+        include_str!("corpus/apps/structured-stage-receipts/fixtures/off-golden.json");
+    const CASES: &str = include_str!("corpus/apps/structured-stage-receipts/fixtures/cases.json");
+    const MANIFEST: &str =
+        include_str!("corpus/apps/structured-stage-receipts/source-manifest.json");
+    const BASE_SHA: &str = "d2360125210564351f30e42bbc1a9f5e51f2b3cc";
+    const DUMMY_SECRET: &str = "fake-dummy-credential-975-not-a-real-key";
+    const FLAT_PROFILE: &str = "stage-off-flat";
+    const FLAT_TOOL: &str = "stage-off-flat-read";
+    const FLAT_RUNTIME: &str = "stage-off-flat-runtime";
+    const FLAT_PARAMETERS: &str = r#"[{"name":"path","kind":"workspace_path","required":true,"description":"Workspace-relative file."}]"#;
+    /// Next to the secret: the words this feature made fixed, as text a run can carry.
+    const RESERVED_WORDS_PROMPT: &str = "Check fake-dummy-credential-975-not-a-real-key next to stage_incomplete structured_stage_incomplete structured_stage_refused structured_stage_unmet.";
+
+    fn set_env(name: &str, value: Option<&str>) {
+        // SAFETY: every env mutation in this binary holds `LOCK`.
+        unsafe {
+            match value {
+                Some(value) => std::env::set_var(name, value),
+                None => std::env::remove_var(name),
+            }
+        }
+    }
+
+    struct FakeHttp {
+        url: String,
+        requests: Arc<Mutex<Vec<String>>>,
+        replies: Arc<Mutex<VecDeque<String>>>,
+        stop: Arc<AtomicBool>,
+        thread: Option<std::thread::JoinHandle<()>>,
+    }
+
+    impl FakeHttp {
+        fn start(replies: Vec<String>) -> Self {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let url = format!("http://{}", listener.local_addr().unwrap());
+            let requests: Arc<Mutex<Vec<String>>> = Arc::default();
+            let replies = Arc::new(Mutex::new(VecDeque::from(replies)));
+            let stop = Arc::new(AtomicBool::new(false));
+            let thread = {
+                let (requests, replies, stop) = (requests.clone(), replies.clone(), stop.clone());
+                std::thread::spawn(move || {
+                    while !stop.load(Ordering::SeqCst) {
+                        match listener.accept() {
+                            Ok((stream, _)) => serve(stream, &requests, &replies),
+                            Err(_) => std::thread::sleep(std::time::Duration::from_millis(2)),
+                        }
+                    }
+                })
+            };
+            Self {
+                url,
+                requests,
+                replies,
+                stop,
+                thread: Some(thread),
+            }
+        }
+
+        fn finish(mut self) -> (Vec<String>, usize) {
+            self.stop.store(true, Ordering::SeqCst);
+            self.thread.take().unwrap().join().unwrap();
+            let requests = self.requests.lock().unwrap().clone();
+            let unused = self.replies.lock().unwrap().len();
+            (requests, unused)
+        }
+    }
+
+    fn serve(
+        mut stream: std::net::TcpStream,
+        requests: &Mutex<Vec<String>>,
+        replies: &Mutex<VecDeque<String>>,
+    ) {
+        stream.set_nonblocking(false).unwrap();
+        let mut bytes = Vec::new();
+        let mut chunk = [0u8; 8192];
+        let body_start = loop {
+            let read = stream.read(&mut chunk).unwrap_or(0);
+            if read == 0 {
+                return;
+            }
+            bytes.extend_from_slice(&chunk[..read]);
+            if let Some(position) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
+                break position + 4;
+            }
+        };
+        let head = String::from_utf8_lossy(&bytes[..body_start]).to_ascii_lowercase();
+        let length = head
+            .lines()
+            .find_map(|line| line.strip_prefix("content-length:"))
+            .and_then(|value| value.trim().parse::<usize>().ok())
+            .unwrap_or(0);
+        while bytes.len() < body_start + length {
+            let read = stream.read(&mut chunk).unwrap_or(0);
+            if read == 0 {
+                break;
+            }
+            bytes.extend_from_slice(&chunk[..read]);
+        }
+        requests
+            .lock()
+            .unwrap()
+            .push(String::from_utf8_lossy(&bytes[body_start..]).to_string());
+        let reply = replies
+            .lock()
+            .unwrap()
+            .pop_front()
+            .unwrap_or_else(|| text_reply("script exhausted"));
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{reply}",
+            reply.len()
+        );
+        let _ = stream.write_all(response.as_bytes());
+    }
+
+    fn text_reply(content: &str) -> String {
+        json!({"choices": [{"message": {"role": "assistant", "content": content}}]}).to_string()
+    }
+
+    fn tool_reply(name: &str, raw: &str) -> String {
+        json!({"choices": [{"message": {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{
+                "id": "call-0",
+                "type": "function",
+                "function": {"name": name, "arguments": raw},
+            }],
+        }}]})
+        .to_string()
+    }
+
+    fn write_reply() -> String {
+        tool_reply("Write", r#"{"path":"notes.txt","content":"the notes\n"}"#)
+    }
+
+    fn step_plan_reply(goal: &str, id: &str) -> String {
+        text_reply(
+            &json!({"goal": goal, "steps": [{
+                "id": id,
+                "kind": "implement",
+                "expected_result": "pass",
+                "instruction": goal,
+                "expected_paths": ["notes.txt"],
+                "verify": [],
+            }]})
+            .to_string(),
+        )
+    }
+
+    struct FlatReader;
+
+    impl std::fmt::Debug for FlatReader {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("FlatReader")
+        }
+    }
+
+    impl ProfileToolReadExecutor for FlatReader {
+        fn read(&self, _root: &Path, arguments: &Value) -> anyhow::Result<ReadToolOutput> {
+            Ok(ReadToolOutput {
+                text: format!("flat read of {arguments}"),
+                usage: None,
+            })
+        }
+    }
+
+    /// A root the base can read too: a tool set with no stage in it.
+    fn register_off_extension() {
+        static ROOT: OnceLock<PathBuf> = OnceLock::new();
+        let root = ROOT.get_or_init(|| {
+            let root = std::fs::canonicalize(tempfile::tempdir().unwrap().keep()).unwrap();
+            let directory = root.join(format!("profiles/{FLAT_PROFILE}"));
+            std::fs::create_dir_all(&directory).unwrap();
+            std::fs::write(
+                directory.join("manifest.toml"),
+                format!(
+                    "[metadata]\nid = \"{FLAT_PROFILE}\"\ndisplay_name = \"Stage off\"\nschema_version = \"v2\"\ntask_family = \"generic\"\n[plan]\nintent = \"create\"\nphases = [\n  {{ id = \"implementation\", prompt = \"Write the notes for {{goal}}.\" }},\n]\n[artifacts]\nrequired = [\"notes.txt\"]\n[guidance.variants.contract]\ntriggers = [{{ condition = \"always\" }}]\nmessages = {{ instruction = \"Write notes.txt.\" }}\n[[checks.final]]\nid = \"scaffold_files_present\"\nparams = {{ files = [\"notes.txt\"] }}\n[profile_tools]\nschema_version = \"profile-tool.declaration/v1\"\nbuiltin_tools = [\"Read\", \"Write\"]\ntools = [\n  {{ id = \"{FLAT_TOOL}\", effect = \"read\" }},\n]\n"
+                ),
+            )
+            .unwrap();
+            register_read_executor(FLAT_RUNTIME, Arc::new(FlatReader));
+            root
+        });
+        commandagent::planner::extension_profiles::register(root).unwrap();
+    }
+
+    fn flat_registry() -> tempfile::TempDir {
+        let registry = tempfile::tempdir().unwrap();
+        let directory = registry.path().join("profile-tools");
+        std::fs::create_dir_all(&directory).unwrap();
+        let descriptor = json!({
+            "protocol": "profile-tool.descriptor/v1",
+            "tool_id": FLAT_TOOL,
+            "name": "ReadFlatConfig",
+            "version": "1.0.0",
+            "description": "Read one configuration object.",
+            "effect": "read",
+            "parameters": serde_json::from_str::<Value>(FLAT_PARAMETERS).unwrap(),
+            "schema_sha256": sha256(FLAT_PARAMETERS.as_bytes()),
+            "runtime": {"kind": "in_process", "id": FLAT_RUNTIME},
+            "limits": {"max_input_bytes": 1024, "max_output_bytes": 4096},
+        });
+        std::fs::write(
+            directory.join(format!("{FLAT_TOOL}.json")),
+            descriptor.to_string(),
+        )
+        .unwrap();
+        registry
+    }
+
+    fn base_config(root: &Path, evidence: &Path, profile: &str, url: &str) -> Config {
+        Config {
+            workspace_root: root.to_path_buf(),
+            state_dir: evidence.join("state"),
+            eval_events_path: Some(evidence.join("events.jsonl")),
+            completion_contract_path: None,
+            yes: true,
+            offline: false,
+            context_budget: 100_000,
+            model: "m".to_string(),
+            provider: Provider::LmStudio,
+            tool_protocol: None,
+            openai_api: OpenAiApi::ChatCompletions,
+            prompt_layout: PromptLayout::Stable,
+            plan_preset: PlanPreset::None,
+            intent_override: None,
+            planner_model: "m".to_string(),
+            planner_provider: Provider::LmStudio,
+            planner_think: Some(OllamaThink::False),
+            classifier_model: "m".to_string(),
+            classifier_provider: Provider::LmStudio,
+            openai_compatible: None,
+            ollama_host: "http://localhost:11434".to_string(),
+            ollama_think: None,
+            lm_studio_host: url.to_string(),
+            num_predict: 100,
+            max_iterations: 8,
+            recovery_plan_auto_runs: 0,
+            chat_timeout_secs: 30,
+            chat_timeout_source: "override:test".to_string(),
+            field_sources: ConfigFieldSources::default(),
+            chat_retries: 1,
+            stream: false,
+            resume: None,
+            fresh_session: false,
+            no_footer: false,
+            narration: NarrationMode::Normal,
+            profile: profile.to_string(),
+            profile_explicit: true,
+            profile_inference: None,
+            style: "default".to_string(),
+            action: Action::Repl,
+        }
+    }
+
+    const NORMALIZED_NUMBER_FIELDS: [&str; 6] = [
+        "epoch",
+        "occurred_at_epoch_ms",
+        "duration_ms",
+        "elapsed_ms",
+        "estimated_prompt_tokens_sent",
+        "estimated_stable_prefix_chars",
+    ];
+
+    fn normalize_text(paths: &[(&Path, &str)], url: &str, text: &str) -> String {
+        let mut text = text.replace(url, "<URL>");
+        for (path, marker) in paths {
+            text = text.replace(&path.display().to_string(), marker);
+        }
+        for (pattern, replacement) in [
+            (r"elapsed_ms: [0-9]+", "elapsed_ms: <N>"),
+            (r"total_duration_ms=[0-9]+", "total_duration_ms=<N>"),
+            (r#""epoch": ?[0-9]+"#, r#""epoch":"<N>""#),
+            (
+                r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+                "<ID>",
+            ),
+        ] {
+            text = regex::Regex::new(pattern)
+                .unwrap()
+                .replace_all(&text, replacement)
+                .into_owned();
+        }
+        text
+    }
+
+    fn normalize_value(paths: &[(&Path, &str)], url: &str, value: &Value) -> Value {
+        match value {
+            Value::Object(object) => Value::Object(
+                object
+                    .iter()
+                    .map(|(key, value)| {
+                        let value = if NORMALIZED_NUMBER_FIELDS.contains(&key.as_str())
+                            && value.is_number()
+                        {
+                            json!("<N>")
+                        } else {
+                            normalize_value(paths, url, value)
+                        };
+                        (key.clone(), value)
+                    })
+                    .collect(),
+            ),
+            Value::Array(items) => Value::Array(
+                items
+                    .iter()
+                    .map(|item| normalize_value(paths, url, item))
+                    .collect(),
+            ),
+            Value::String(text) => Value::String(normalize_text(paths, url, text)),
+            other => other.clone(),
+        }
+    }
+
+    fn artifacts(root: &Path) -> BTreeMap<String, String> {
+        let mut files = BTreeMap::new();
+        let mut pending = vec![root.to_path_buf()];
+        while let Some(directory) = pending.pop() {
+            for entry in std::fs::read_dir(directory).unwrap().flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    pending.push(path);
+                } else {
+                    let relative = path.strip_prefix(root).unwrap().display().to_string();
+                    let text = String::from_utf8_lossy(&std::fs::read(&path).unwrap()).to_string();
+                    files.insert(relative, text);
+                }
+            }
+        }
+        files
+    }
+
+    #[derive(Clone, Copy)]
+    enum Entry {
+        Session,
+        TextSession,
+        StepPlan,
+        Ultra,
+        Investigate,
+        Fix,
+    }
+
+    struct OffRow {
+        id: &'static str,
+        profile: &'static str,
+        entry: Entry,
+        prompt: &'static str,
+        replies: fn() -> Vec<String>,
+    }
+
+    /// What this feature changed the wiring of: a session, a plain plan, an ultra plan and its
+    /// final acceptance, and the two ends that have none.
+    const OFF_ROWS: [OffRow; 8] = [
+        OffRow {
+            id: "chat-native-write-and-read",
+            profile: "generic",
+            entry: Entry::Session,
+            prompt: "Write notes.txt and read it.",
+            replies: || {
+                vec![
+                    write_reply(),
+                    tool_reply("Read", r#"{"path":"notes.txt"}"#),
+                    text_reply("done"),
+                ]
+            },
+        },
+        OffRow {
+            id: "text-xml-write",
+            profile: "generic",
+            entry: Entry::TextSession,
+            prompt: "Write notes.txt.",
+            replies: || {
+                vec![
+                    text_reply(
+                        "<anvil_tool_call name=\"Write\">{\"path\":\"notes.txt\",\"content\":\"a\"}</anvil_tool_call>",
+                    ),
+                    text_reply("done"),
+                ]
+            },
+        },
+        OffRow {
+            id: "flat-extension-read",
+            profile: FLAT_PROFILE,
+            entry: Entry::Session,
+            prompt: "Read the settings.",
+            replies: || {
+                vec![
+                    tool_reply("ReadFlatConfig", r#"{"path":"settings.json"}"#),
+                    text_reply("done"),
+                ]
+            },
+        },
+        OffRow {
+            id: "dummy-secret-next-to-reserved-words",
+            profile: "generic",
+            entry: Entry::Session,
+            prompt: RESERVED_WORDS_PROMPT,
+            replies: || {
+                vec![
+                    tool_reply(
+                        "Write",
+                        r#"{"path":"notes.txt","content":"stage_incomplete fake-dummy-credential-975-not-a-real-key structured_stage_refused"}"#,
+                    ),
+                    text_reply("structured_stage_unmet done"),
+                ]
+            },
+        },
+        OffRow {
+            id: "step-plan-write",
+            profile: "generic",
+            entry: Entry::StepPlan,
+            prompt: "Write the notes.",
+            replies: || vec![write_reply(), text_reply("done")],
+        },
+        OffRow {
+            id: "ultra-plan-two-phases",
+            profile: "generic",
+            entry: Entry::Ultra,
+            prompt: "Write the notes.",
+            replies: || {
+                vec![
+                    step_plan_reply("Write the notes", "step-first"),
+                    write_reply(),
+                    text_reply("done"),
+                    step_plan_reply("Write the notes again", "step-second"),
+                    write_reply(),
+                    text_reply("done"),
+                ]
+            },
+        },
+        OffRow {
+            id: "investigate-end",
+            profile: "generic",
+            entry: Entry::Investigate,
+            prompt: "Find out why it fails.",
+            replies: || {
+                vec![
+                    text_reply(
+                        &json!({"goal": "reproduce", "steps": [{
+                            "id": "step-reproduce",
+                            "kind": "verify",
+                            "expected_result": "fail",
+                            "instruction": "Reproduce the failure",
+                            "expected_paths": [],
+                            "verify": ["test -f no-such-marker"],
+                        }]})
+                        .to_string(),
+                    ),
+                    step_plan_reply("Write the notes", "step-report"),
+                    write_reply(),
+                    text_reply("done"),
+                ]
+            },
+        },
+        OffRow {
+            id: "fix-end",
+            profile: "generic",
+            entry: Entry::Fix,
+            prompt: "Fix the missing notes.",
+            replies: || {
+                vec![
+                    text_reply(
+                        &json!({"goal": "reproduce", "steps": [{
+                            "id": "step-reproduce",
+                            "kind": "verify",
+                            "expected_result": "fail",
+                            "instruction": "Reproduce the failure",
+                            "expected_paths": [],
+                            "verify": ["test -f notes.txt"],
+                        }]})
+                        .to_string(),
+                    ),
+                    step_plan_reply("Write the notes", "step-repair"),
+                    write_reply(),
+                    text_reply("done"),
+                ]
+            },
+        },
+    ];
+
+    fn plan_of(row: &OffRow, intent: &str) -> UltraPlan {
+        UltraPlan {
+            goal: row.prompt.to_string(),
+            profile: row.profile.to_string(),
+            style: "default".to_string(),
+            intent: intent.to_string(),
+            phases: vec![
+                UltraPhase {
+                    id: "first".to_string(),
+                    prompt: "Phase-first: do the first part.".to_string(),
+                },
+                UltraPhase {
+                    id: "second".to_string(),
+                    prompt: "Phase-second: do the second part.".to_string(),
+                },
+            ],
+        }
+    }
+
+    fn outcome_of(row: &OffRow, config: &Config, paths: &[(&Path, &str)], url: &str) -> Value {
+        let mut client = client_from_config(config, false).unwrap();
+        let summary = |result: anyhow::Result<String>| match result {
+            Ok(summary) => json!({"summary": normalize_text(paths, url, &summary)}),
+            Err(error) => json!({"error": normalize_text(paths, url, &format!("{error:#}"))}),
+        };
+        match row.entry {
+            Entry::Session | Entry::TextSession => match run_session_with_outcome_with_ui(
+                client.as_mut(),
+                &mut SessionSnapshot::new(),
+                row.prompt,
+                &[],
+                config,
+                &NOOP_UI,
+            ) {
+                Ok(outcome) => json!({
+                    "stop_reason": format!("{:?}", outcome.stop_reason),
+                    "final_text": outcome.final_text,
+                    "iterations": outcome.iterations,
+                    "tool_calls": outcome.tool_calls,
+                    "changed_paths": outcome.changed_paths,
+                }),
+                Err(error) => json!({"error": normalize_text(paths, url, &format!("{error:#}"))}),
+            },
+            Entry::StepPlan => {
+                let plan = StepPlan {
+                    goal: row.prompt.to_string(),
+                    steps: vec![PlanStep {
+                        id: "step-write".to_string(),
+                        kind: "implement".to_string(),
+                        expected_result: "pass".to_string(),
+                        instruction: "Write notes.txt".to_string(),
+                        expected_paths: vec!["notes.txt".to_string()],
+                        verify: Vec::new(),
+                    }],
+                };
+                summary(run_step_plan(client.as_mut(), &plan, config))
+            }
+            Entry::Ultra | Entry::Investigate | Entry::Fix => {
+                let intent = match row.entry {
+                    Entry::Investigate => "investigate",
+                    Entry::Fix => "fix",
+                    _ => "create",
+                };
+                let mut planner = client_from_config(config, true).unwrap();
+                summary(run_ultra_plan(
+                    planner.as_mut(),
+                    client.as_mut(),
+                    &plan_of(row, intent),
+                    config,
+                ))
+            }
+        }
+    }
+
+    fn record_off_row(row: &OffRow) -> Value {
+        let workspace = tempfile::tempdir().unwrap();
+        let evidence = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(workspace.path()).unwrap();
+        let evidence = std::fs::canonicalize(evidence.path()).unwrap();
+        std::fs::write(root.join("settings.json"), "{\"mode\":\"fast\"}").unwrap();
+        let http = FakeHttp::start((row.replies)());
+        let url = http.url.clone();
+        let mut config = base_config(&root, &evidence, row.profile, &url);
+        match row.entry {
+            Entry::TextSession => config.tool_protocol = Some(ToolProtocol::Text),
+            Entry::Investigate => config.intent_override = Some(IntentId::Investigate),
+            _ => {}
+        }
+        let registry = flat_registry();
+        set_env(
+            REGISTRY_ENV,
+            (row.profile == FLAT_PROFILE).then(|| registry.path().to_str().unwrap()),
+        );
+        let mut catalog = SecretCatalog::new();
+        catalog
+            .register_credential("DUMMY_API_KEY", DUMMY_SECRET)
+            .unwrap();
+        install_scope(catalog, Some(&root), config.eval_events_path.as_deref());
+        let paths = [
+            (root.as_path(), "<ROOT>"),
+            (evidence.as_path(), "<EVIDENCE>"),
+        ];
+        let outcome = outcome_of(row, &config, &paths, &url);
+        set_env(REGISTRY_ENV, None);
+        let (requests, unused) = http.finish();
+        let requests = requests
+            .iter()
+            .map(|body| normalize_text(&paths, &url, body))
+            .collect::<Vec<_>>();
+        let events = std::fs::read_to_string(evidence.join("events.jsonl"))
+            .unwrap_or_default()
+            .lines()
+            .map(|line| {
+                let value: Value = serde_json::from_str(line).unwrap();
+                normalize_value(&paths, &url, &value).to_string()
+            })
+            .collect::<Vec<_>>();
+        json!({
+            "id": row.id,
+            "outcome": outcome,
+            "requests": requests,
+            "events": events,
+            "artifacts": artifacts(&root)
+                .into_iter()
+                .map(|(path, text)| (
+                    normalize_text(&paths, &url, &path),
+                    normalize_text(&paths, &url, &text),
+                ))
+                .collect::<BTreeMap<_, _>>(),
+            "unused_replies": unused,
+        })
+    }
+
+    /// Acceptance 6: the requests, events, outcome, and artifacts of the base.
+    #[test]
+    fn off_wire_events_and_artifacts_match_the_base_recording_byte_for_byte() {
+        let _guard = lock();
+        register_off_extension();
+        let golden: Value = serde_json::from_str(OFF_GOLDEN).unwrap();
+        for row in &OFF_ROWS {
+            let recorded = record_off_row(row);
+            let old = golden["rows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|old| old["id"] == row.id)
+                .unwrap_or_else(|| panic!("no golden row {}", row.id));
+            for key in ["outcome", "requests", "artifacts", "unused_replies"] {
+                assert_eq!(recorded[key], old[key], "{}: {key}", row.id);
+            }
+            let (new, old) = (
+                recorded["events"].as_array().unwrap(),
+                old["events"].as_array().unwrap(),
+            );
+            for (index, (new, old)) in new.iter().zip(old).enumerate() {
+                assert_eq!(new, old, "{}: event {index}", row.id);
+            }
+            assert_eq!(new.len(), old.len(), "{}: event count", row.id);
+        }
+    }
+
+    #[test]
+    fn the_corpus_manifest_pins_its_fixtures() {
+        let manifest: Value = serde_json::from_str(MANIFEST).unwrap();
+        assert_eq!(
+            manifest["fixture_sha256"]["cases.json"],
+            sha256(CASES.as_bytes())
+        );
+        assert_eq!(
+            manifest["fixture_sha256"]["off-golden.json"],
+            sha256(OFF_GOLDEN.as_bytes())
+        );
+        assert_eq!(manifest["base_sha"], BASE_SHA);
+    }
+
+    /// The corpus says which tests stand for each acceptance row. A renamed test fails here.
+    #[test]
+    fn the_corpus_names_what_runs() {
+        let cases: Value = serde_json::from_str(CASES).unwrap();
+        let golden: Value = serde_json::from_str(OFF_GOLDEN).unwrap();
+        let ids = |rows: &Value| {
+            rows.as_array()
+                .unwrap()
+                .iter()
+                .map(|row| row["id"].as_str().unwrap().to_string())
+                .collect::<Vec<_>>()
+        };
+        let off = OFF_ROWS
+            .iter()
+            .map(|row| row.id.to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(ids(&golden["rows"]), off);
+        assert_eq!(ids(&cases["off"]), off);
+
+        let sources = [
+            include_str!("structured_stage_receipts.rs"),
+            include_str!("../src/tools/profile_tools/effects.rs"),
+            include_str!("../src/planner/structured_stages/ledger.rs"),
+            include_str!("../src/planner/structured_stages/state.rs"),
+            include_str!("../src/planner/structured_stages/invalidation.rs"),
+            include_str!("../src/planner/structured_stages/resume.rs"),
+            include_str!("../src/planner/structured_stages/contract.rs"),
+            include_str!("../src/planner/structured_stages/mod.rs"),
+            include_str!(
+                "../src/minimal_loop/loop_run/implementation_completion/structured_stage_completion.rs"
+            ),
+            include_str!("../src/tools/profile_tools/pre_run.rs"),
+        ];
+        let rows = cases["acceptance"].as_array().unwrap();
+        assert_eq!(rows.len(), 6);
+        for row in rows {
+            let tests = row["tests"].as_array().unwrap();
+            assert!(!tests.is_empty(), "{row}");
+            for test in tests {
+                let name = format!("fn {}(", test.as_str().unwrap());
+                assert!(
+                    sources.iter().any(|source| source.contains(&name)),
+                    "{name} names nothing that runs"
+                );
+            }
+        }
+    }
+}
+
 #[cfg(not(target_os = "macos"))]
 #[test]
 fn where_the_strict_isolation_does_not_exist_a_stage_tool_is_unavailable() {
@@ -352,6 +1106,7 @@ mod with_the_strict_isolation {
     };
     use commandagent::minimal_loop::loop_run::run_session_with_outcome_with_ui;
     use commandagent::planner::adjudication::contract::IntentId;
+    use commandagent::planner::adjudication::investigate::InvestigationBindingEvidence;
     use commandagent::planner::runner::{run_step_plan, run_ultra_plan};
     use commandagent::planner::step_plan::{PlanStep, StepPlan};
     use commandagent::planner::ultra_plan::{UltraPhase, UltraPlan};
@@ -366,8 +1121,9 @@ mod with_the_strict_isolation {
     use serde_json::{Value, json};
 
     use super::{
-        BARE_TOOL_ID, CANDIDATE, Env, FIXED_INPUT, LOWER_OUTPUT, LOWER_TOOL, MARKER_NAME_PROFILE,
-        NO_ARGUMENT_PROFILE, UPPER_OUTPUT, UPPER_TOOL, WALK_PROFILE, floor, lock,
+        BARE_TOOL_ID, CANDIDATE, ENTRY_PROFILE, Env, FIXED_INPUT, LOWER_OUTPUT, LOWER_TOOL,
+        MARKER_NAME_PROFILE, NO_ARGUMENT_PROFILE, UPPER_OUTPUT, UPPER_TOOL, WALK_PROFILE, floor,
+        lock,
     };
 
     type Responder = Arc<dyn Fn(usize, &Value) -> String + Send + Sync>;
@@ -1024,71 +1780,388 @@ mod with_the_strict_isolation {
         assert_eq!(notices, 0, "{events}");
     }
 
-    /// T-B (B2): an investigation ends at its own adjudication and has no final acceptance.
-    #[test]
-    fn an_investigation_that_leaves_a_stage_open_is_no_success() {
-        let _guard = lock();
-        let env = Env::new();
-        env.write_walk_tools(Some(floor()));
-        install_sandbox(&env);
-        std::fs::create_dir_all(env.root.join("output")).unwrap();
-        std::fs::write(env.root.join("output/diagnosis.md"), "# Diagnosis\n").unwrap();
-        let reproduce = json!({"goal": "reproduce", "steps": [{
-            "id": "step-reproduce",
-            "kind": "verify",
-            "expected_result": "fail",
-            "instruction": "Reproduce the failure",
-            "expected_paths": [],
-            "verify": ["false"],
-        }]});
-        let report = json!({"goal": "report", "steps": [{
-            "id": "step-setup",
-            "kind": "setup",
-            "expected_result": "pass",
-            "instruction": "Submit the upper stage",
-            "expected_paths": [],
-            "verify": [],
-        }]});
+    /// A plan of the given intent: a reproducer that fails first, the upper stage, and the lower
+    /// stage if asked for. Everything its own adjudication asks for is in place, so what is left
+    /// to say no is the stages. The controls with every stage sealed show that.
+    fn run_intent(
+        env: &Env,
+        intent: &str,
+        reproducer: &'static str,
+        seal_lower: bool,
+    ) -> anyhow::Result<String> {
+        std::fs::write(env.root.join("notes.txt"), "the notes\n").unwrap();
         let responder: Responder = Arc::new(move |_, body| {
+            let text = body.to_string();
             if !body["tools"].to_string().contains(UPPER_TOOL) {
-                let wanted = if body.to_string().contains("Phase-report") {
-                    &report
+                if text.contains("Phase-reproduce") {
+                    return text_reply(
+                        &json!({"goal": "reproduce", "steps": [{
+                            "id": "step-reproduce",
+                            "kind": "verify",
+                            "expected_result": "fail",
+                            "instruction": "Reproduce the failure",
+                            "expected_paths": [],
+                            "verify": [reproducer],
+                        }]})
+                        .to_string(),
+                    );
+                }
+                let goal = if text.contains("Phase-lower") {
+                    "Submit the lower stage"
                 } else {
-                    &reproduce
+                    "Submit the upper stage"
                 };
-                return text_reply(&wanted.to_string());
+                return text_reply(&one_step_plan(goal).to_string());
             }
-            if !has_tool_answer(body) {
-                return tool_reply(UPPER_TOOL, "good", "initial");
+            if !text.contains("Submit the lower stage") {
+                return if has_tool_answer(body) {
+                    text_reply("done")
+                } else {
+                    tool_reply(UPPER_TOOL, "good", "initial")
+                };
             }
-            text_reply("done")
+            let answer = last_tool_answer(body);
+            if answer["status"] == "stale" {
+                tool_reply(LOWER_TOOL, "good", answer["revision"].as_str().unwrap())
+            } else if answer["path"] == LOWER_OUTPUT {
+                text_reply("done")
+            } else {
+                tool_reply(LOWER_TOOL, "good", "initial")
+            }
         });
         let http = FakeHttp::start(responder);
-        let mut config = config(&env, WALK_PROFILE, &http.url);
-        config.intent_override = Some(IntentId::Investigate);
+        let mut config = config(env, WALK_PROFILE, &http.url);
+        if intent == "investigate" {
+            config.intent_override = Some(IntentId::Investigate);
+        }
         let mut planner = client_from_config(&config, true).unwrap();
         let mut execution = client_from_config(&config, false).unwrap();
+        let phase = |id: &str, prompt: &str| UltraPhase {
+            id: id.to_string(),
+            prompt: prompt.to_string(),
+        };
+        let mut phases = vec![
+            phase("reproduce", "Phase-reproduce: reproduce the failure."),
+            phase("upper", "Phase-upper: submit the upper stage."),
+        ];
+        if seal_lower {
+            phases.push(phase("lower", "Phase-lower: submit the lower stage."));
+        }
         let plan = UltraPlan {
             goal: "Find out why it fails".to_string(),
             profile: WALK_PROFILE.to_string(),
             style: "default".to_string(),
-            intent: "investigate".to_string(),
-            phases: vec![
-                UltraPhase {
-                    id: "reproduce".to_string(),
-                    prompt: "Phase-reproduce: reproduce the failure.".to_string(),
-                },
-                UltraPhase {
-                    id: "report".to_string(),
-                    prompt: "Phase-report: submit the upper stage.".to_string(),
-                },
-            ],
+            intent: intent.to_string(),
+            phases,
         };
         let result = run_ultra_plan(planner.as_mut(), execution.as_mut(), &plan, &config);
         http.finish();
+        result
+    }
+
+    /// What an investigation's own adjudication takes as enough: a report and a binding with no
+    /// claim in it, which it calls partial and lets through.
+    fn write_investigation_evidence(env: &Env) {
+        std::fs::create_dir_all(env.root.join("output")).unwrap();
+        std::fs::write(env.root.join("output/diagnosis.md"), "# Diagnosis\n").unwrap();
+        std::fs::create_dir_all(env.root.join("evidence")).unwrap();
+        std::fs::write(
+            env.root.join("evidence/investigation-binding.json"),
+            serde_json::to_vec(&InvestigationBindingEvidence::new(Vec::new())).unwrap(),
+        )
+        .unwrap();
+    }
+
+    fn intent_env() -> Env {
+        let env = Env::new();
+        env.write_walk_tools(Some(floor()));
+        install_sandbox(&env);
+        env
+    }
+
+    /// T-B (B2): an investigation ends at its own adjudication and has no final acceptance.
+    #[test]
+    fn an_investigation_that_leaves_a_stage_open_is_no_success() {
+        let _guard = lock();
+        let env = intent_env();
+        write_investigation_evidence(&env);
+        let result = run_intent(&env, "investigate", "test -f no-such-marker", false);
         reset_for_test();
         let error = result.expect_err("the lower stage was never submitted");
-        assert!(error.to_string().contains("stage_incomplete"), "{error:#}");
+        assert!(
+            error.to_string().contains("stage_incomplete"),
+            "another reason would say nothing about the stages: {error:#}"
+        );
+        assert!(error.to_string().contains("lower/main"), "{error:#}");
+    }
+
+    #[test]
+    fn an_investigation_that_seals_every_stage_succeeds() {
+        let _guard = lock();
+        let env = intent_env();
+        write_investigation_evidence(&env);
+        let result = run_intent(&env, "investigate", "test -f no-such-marker", true);
+        reset_for_test();
+        let summary = result.unwrap_or_else(|error| panic!("{error:#}"));
+        assert!(summary.contains("complete"), "{summary}");
+    }
+
+    /// T-B (B2): a fix ends at its own adjudication too. The reproducer asks for the upper stage's
+    /// output, so sealing that stage is what passes it.
+    #[test]
+    fn a_fix_that_leaves_a_stage_open_is_no_success() {
+        let _guard = lock();
+        let env = intent_env();
+        let result = run_intent(&env, "fix", "test -f out/upper.json", false);
+        reset_for_test();
+        let error = result.expect_err("the lower stage was never submitted");
+        assert!(
+            error.to_string().contains("stage_incomplete"),
+            "another reason would say nothing about the stages: {error:#}"
+        );
+        assert!(error.to_string().contains("lower/main"), "{error:#}");
+    }
+
+    #[test]
+    fn a_fix_that_seals_every_stage_succeeds() {
+        let _guard = lock();
+        let env = intent_env();
+        let result = run_intent(&env, "fix", "test -f out/upper.json", true);
+        reset_for_test();
+        let summary = result.unwrap_or_else(|error| panic!("{error:#}"));
+        assert!(summary.contains("complete"), "{summary}");
+    }
+
+    /// The child takes only what is named here, and `output` waits for it.
+    fn binary(env: &Env, url: &str, arguments: &[&str]) -> std::process::Output {
+        let home = tempfile::tempdir().unwrap();
+        std::process::Command::new(env!("CARGO_BIN_EXE_commandagent"))
+            .arg("--extension-root")
+            .arg(super::extension_root())
+            .args(["--model", "m", "--chat-retries", "0"])
+            .args(["--provider", "lm-studio", "--lm-studio-host", url, "--yes"])
+            .args(["--max-iterations", "8"])
+            .arg("--state-dir")
+            .arg(env.evidence.join("state"))
+            .args(["--profile", ENTRY_PROFILE])
+            .args(arguments)
+            .current_dir(&env.root)
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin")
+            .env("HOME", home.path())
+            .env(super::REGISTRY_ENV, &env.registry)
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap()
+    }
+
+    /// An entry's plan and a model that submits what its step says. `seal_lower` false leaves
+    /// the lower stage to nobody. The request for the plan is the one that offers no tool.
+    fn entry_responder(seal_lower: bool) -> Responder {
+        Arc::new(move |_, body| {
+            let text = body.to_string();
+            if !body["tools"].to_string().contains(UPPER_TOOL) {
+                let goal = if text.contains("Phase-second") {
+                    "Submit the lower stage"
+                } else {
+                    "Submit the upper stage"
+                };
+                return text_reply(&one_step_plan(goal).to_string());
+            }
+            ultra_submission(seal_lower, &text, body)
+        })
+    }
+
+    fn ultra_submission(seal_lower: bool, text: &str, body: &Value) -> String {
+        if !text.contains("Submit the lower stage") {
+            return if has_tool_answer(body) {
+                text_reply("done")
+            } else {
+                tool_reply(UPPER_TOOL, "good", "initial")
+            };
+        }
+        if !seal_lower {
+            let answered = body["messages"]
+                .as_array()
+                .and_then(|messages| messages.last())
+                .is_some_and(|message| message["role"] == "tool");
+            return if answered {
+                text_reply("done")
+            } else {
+                read_reply(FIXED_INPUT)
+            };
+        }
+        let answer = last_tool_answer(body);
+        if answer["status"] == "stale" {
+            tool_reply(LOWER_TOOL, "good", answer["revision"].as_str().unwrap())
+        } else if answer["path"] == LOWER_OUTPUT {
+            text_reply("done")
+        } else {
+            tool_reply(LOWER_TOOL, "good", "initial")
+        }
+    }
+
+    /// `--prompt` on the binary: the model submits both stages, or stops after the first.
+    #[test]
+    fn the_binary_on_prompt_succeeds_only_with_every_stage_sealed() {
+        let _guard = lock();
+        for seal_lower in [true, false] {
+            let env = Env::new();
+            env.write_walk_tools(Some(floor()));
+            let http = FakeHttp::start(Arc::new(move |index, body| match index {
+                1 => tool_reply(UPPER_TOOL, "good", "initial"),
+                2 if seal_lower => {
+                    let answer = last_tool_answer(body);
+                    let revision = answer["stage"]["downstream"][0]["revision"]
+                        .as_str()
+                        .unwrap()
+                        .to_string();
+                    tool_reply(LOWER_TOOL, "good", &revision)
+                }
+                _ => text_reply("All stages are sealed and every check passed."),
+            }));
+            let output = binary(&env, &http.url, &["--prompt", "Submit both stages."]);
+            http.finish();
+            assert_entry("--prompt", seal_lower, &output, &env);
+        }
+    }
+
+    fn assert_entry(entry: &str, sealed: bool, output: &std::process::Output, env: &Env) {
+        let said = format!(
+            "{entry} sealed={sealed}: {}\n--- stdout\n{}\n--- stderr\n{}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+        assert_eq!(output.status.success(), sealed, "{said}");
+        assert!(env.root.join(UPPER_OUTPUT).exists(), "{said}");
+        assert_eq!(env.root.join(LOWER_OUTPUT).exists(), sealed, "{said}");
+    }
+
+    /// `--ultra-plan-run` on the binary.
+    #[test]
+    fn the_binary_on_generated_plans_succeeds_only_with_every_stage_sealed() {
+        let _guard = lock();
+        for seal_lower in [true, false] {
+            let env = Env::new();
+            env.write_walk_tools(Some(floor()));
+            std::fs::write(env.root.join("notes.txt"), "the notes\n").unwrap();
+            let http = FakeHttp::start(entry_responder(seal_lower));
+            let output = binary(&env, &http.url, &["--ultra-plan-run", "Submit the stages"]);
+            http.finish();
+            assert_entry("--ultra-plan-run", seal_lower, &output, &env);
+        }
+    }
+
+    /// `--plan-run` generates one plan, so its one step seals what it can. The stage below it stays
+    /// open, and the plan's end says so: its control with both sealed is `/run-plan` below.
+    #[test]
+    fn the_binary_on_plan_run_refuses_a_stage_left_open() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor()));
+        let http = FakeHttp::start(entry_responder(false));
+        let output = binary(&env, &http.url, &["--plan-run", "Submit the upper stage"]);
+        http.finish();
+        assert_entry("--plan-run", false, &output, &env);
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("stage_incomplete"),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    /// `--run-plan` on the binary, and `/run-plan` through the slash command it shares.
+    #[test]
+    fn a_plan_file_succeeds_only_with_every_stage_sealed() {
+        let _guard = lock();
+        let two_steps: Responder = Arc::new(|index, body| match index {
+            1 => tool_reply(UPPER_TOOL, "good", "initial"),
+            2 => tool_reply(LOWER_TOOL, "good", "initial"),
+            _ => {
+                let answer = last_tool_answer(body);
+                match answer["revision"].as_str() {
+                    Some(revision) if answer["status"] == "stale" => {
+                        tool_reply(LOWER_TOOL, "good", revision)
+                    }
+                    _ => text_reply("done"),
+                }
+            }
+        });
+        let one_step: Responder = Arc::new(|index, _| match index {
+            1 => tool_reply(UPPER_TOOL, "good", "initial"),
+            _ => text_reply("done"),
+        });
+        let step_yaml = |id: &str, what: &str| {
+            format!(
+                "  - id: \"{id}\"\n    kind: \"setup\"\n    expected_result: \"pass\"\n    instruction: \"{what}\"\n    expected_paths: []\n    verify: []\n"
+            )
+        };
+        let upper = step_yaml("step-upper", "Submit the upper stage");
+        let lower = step_yaml("step-lower", "Submit the lower stage");
+        for (sealed, responder, steps) in [
+            (true, two_steps, format!("{upper}{lower}")),
+            (false, one_step, upper.clone()),
+        ] {
+            // The binary.
+            let env = Env::new();
+            env.write_walk_tools(Some(floor()));
+            let plan = format!("goal: \"Submit the stages\"\nsteps:\n{steps}");
+            std::fs::write(env.root.join("steps.yaml"), &plan).unwrap();
+            let http = FakeHttp::start(responder.clone());
+            let output = binary(&env, &http.url, &["--run-plan", "steps.yaml"]);
+            http.finish();
+            assert_entry("--run-plan", sealed, &output, &env);
+
+            // The slash command.
+            let env = Env::new();
+            env.write_walk_tools(Some(floor()));
+            install_sandbox(&env);
+            std::fs::write(env.root.join("steps.yaml"), &plan).unwrap();
+            let http = FakeHttp::start(responder);
+            let config = config(&env, WALK_PROFILE, &http.url);
+            let mut planner = client_from_config(&config, true).unwrap();
+            let mut execution = client_from_config(&config, false).unwrap();
+            let result = handle_command(
+                "/run-plan steps.yaml",
+                &config,
+                planner.as_mut(),
+                execution.as_mut(),
+                &NOOP_UI,
+            );
+            http.finish();
+            reset_for_test();
+            assert_eq!(result.is_ok(), sealed, "/run-plan: {result:?}");
+            assert_eq!(env.root.join(LOWER_OUTPUT).exists(), sealed, "/run-plan");
+        }
+    }
+
+    /// `/ultra-plan-run` is the command a REPL's `/confirm` dispatches once Gate 1 is through.
+    #[test]
+    fn the_command_a_confirmation_dispatches_succeeds_only_with_every_stage_sealed() {
+        let _guard = lock();
+        for seal_lower in [true, false] {
+            let env = Env::new();
+            env.write_walk_tools(Some(floor()));
+            install_sandbox(&env);
+            std::fs::write(env.root.join("notes.txt"), "the notes\n").unwrap();
+            let http = FakeHttp::start(entry_responder(seal_lower));
+            let mut config = config(&env, ENTRY_PROFILE, &http.url);
+            config.plan_preset = PlanPreset::Profile;
+            let mut planner = client_from_config(&config, true).unwrap();
+            let mut execution = client_from_config(&config, false).unwrap();
+            let command = format!("/ultra-plan-run --profile {ENTRY_PROFILE} Submit the stages");
+            let result = handle_command(
+                &command,
+                &config,
+                planner.as_mut(),
+                execution.as_mut(),
+                &NOOP_UI,
+            );
+            http.finish();
+            reset_for_test();
+            assert_eq!(result.is_ok(), seal_lower, "{result:?}");
+        }
     }
 
     /// B4: a treatment runs in a workspace of its own. The run is refused before any call.

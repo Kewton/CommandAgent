@@ -1,0 +1,17 @@
+{
+  "issue": "#975",
+  "owner": "src/planner/structured_stages/ and src/minimal_loop/loop_run/implementation_completion/structured_stage_completion.rs: stages over propose-artifacts tools, bound to host receipts and input revisions, through the public session, planner, and CLI entries",
+  "base_sha": "d2360125210564351f30e42bbc1a9f5e51f2b3cc",
+  "origin": "synthetic",
+  "synthetic_source": {
+    "cases": "hand-written generic profiles (a settings object and a document index), operator descriptors, fixed scripts, and raw replies; none is copied from a run, a benchmark task, or an issue evidence file",
+    "base_observation": "fixtures/off-golden.json was written by running the public session and plan entries against the production code of base_sha, with the recorder README.md describes, in a copy of that commit; the expectations of the off rows therefore do not come from the new implementation",
+    "excluded": "no live model, real key, external provider, Jev call, benchmark task, grader input, expected answer, generated code, run record, or host path is stored here"
+  },
+  "derived_fixture": "tests/structured_stage_receipts.rs reads fixtures/cases.json and fixtures/off-golden.json",
+  "regenerate_digests": "shasum -a 256 fixtures/cases.json fixtures/off-golden.json",
+  "fixture_sha256": {
+    "cases.json": "604d8729f3a397fde80e9473301a907c35f1af6d3a08738842a3502c30e0d9da",
+    "off-golden.json": "96caa436c269fe4e2fd551716a9ec4efb851283ddea74308271ea7250fdd2949"
+  }
+}

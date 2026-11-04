@@ -1,0 +1,101 @@
+{
+  "issue": "#975",
+  "kind": "synthetic",
+  "profiles": [
+    {"id": "config-object-profile", "kind": "synthetic", "profile": "stage-session-config", "stages": ["upper", "lower"], "outputs": ["out/upper.json", "out/lower.json"]},
+    {"id": "document-index-profile", "kind": "synthetic", "profile": "stage-session-index", "stages": ["upper", "lower"], "outputs": ["index/upper.json", "index/lower.json"]}
+  ],
+  "events": [
+    {"event": "structured_stage_incomplete", "code": "obligations_unmet", "when": "a run with an open stage wants to end as a success"},
+    {"event": "structured_stage_incomplete", "code": "ledger_refused", "when": "a judgment finds the record cannot be used, with its path and way out under record"},
+    {"event": "structured_stage_refused", "code": "ended_by_secret_value", "when": "a new process that did not ask would replace a record a secret ended"}
+  ],
+  "refusals": [
+    {"id": "no OS boundary", "refusal": "stage_contract_refused", "kind": "OsSandboxNotEnforced"},
+    {"id": "a workflow child", "refusal": "stage_contract_refused", "kind": "WorkflowChild"},
+    {"id": "a run that may recover by itself", "refusal": "stage_contract_refused", "kind": "RecoversByItself"},
+    {"id": "a stage left open", "refusal": "stage_incomplete", "kind": "obligations_unmet"},
+    {"id": "a record that cannot be used", "refusal": "stage_incomplete", "kind": "ledger_refused"},
+    {"id": "a resume with no record", "refusal": "stage_ledger_refused", "kind": "missing"},
+    {"id": "a fixed input changed", "refusal": "stage_ledger_refused", "kind": "fixed_input_changed"},
+    {"id": "a record a secret ended", "refusal": "stage_ledger_refused", "kind": "ended_by_secret_value"},
+    {"id": "too many calls that start nothing", "refusal": "stage_run_ended", "kind": "no_progress_limit"},
+    {"id": "the deadline", "refusal": "stage_run_ended", "kind": "deadline_exceeded"},
+    {"id": "the target's attempts", "refusal": "stage_run_ended", "kind": "attempts_exhausted_for_target"}
+  ],
+  "entries": [
+    {"entry": "--prompt", "sealed_and_open": "the_binary_on_prompt_succeeds_only_with_every_stage_sealed", "where": "macOS"},
+    {"entry": "--plan-run", "sealed_and_open": "the_binary_on_plan_run_refuses_a_stage_left_open", "where": "macOS, open only: one generated plan is one step here"},
+    {"entry": "--run-plan and /run-plan", "sealed_and_open": "a_plan_file_succeeds_only_with_every_stage_sealed", "where": "macOS"},
+    {"entry": "--ultra-plan-run", "sealed_and_open": "the_binary_on_generated_plans_succeeds_only_with_every_stage_sealed", "where": "macOS"},
+    {"entry": "/ultra-plan-run, which a REPL's /confirm dispatches", "sealed_and_open": "the_command_a_confirmation_dispatches_succeeds_only_with_every_stage_sealed", "where": "macOS; the terminal part of Gate 1 is not driven"},
+    {"entry": "a session, a step plan, an ultra plan, /resume", "sealed_and_open": "tools::profile_tools::effects::tests::stages::sessions", "where": "every OS, with the launch unconfined in a test build"}
+  ],
+  "acceptance": [
+    {"row": 1, "says": "a fake provider and a two-stage graph reach every check passed, and the digests agree, in two profiles", "tests": [
+      "two_stages_go_through_real_tool_calls_and_the_lower_reads_what_the_upper_committed",
+      "a_settings_object_and_a_document_index_walk_the_same_machine",
+      "a_target_walks_the_phases_and_the_receipt_digests_agree",
+      "the_machine_does_not_care_what_a_stage_set_names_its_stages"
+    ]},
+    {"row": 2, "says": "a change above takes the receipts below, across levels and branches, and keeps what does not depend on it; final is no success until it is checked again", "tests": [
+      "row_two_another_call_is_a_new_version_that_takes_the_stage_below_with_it",
+      "the_closure_reaches_every_level_and_every_branch",
+      "the_closure_takes_only_what_lies_below",
+      "a_change_to_the_last_stage_keeps_what_is_above_it",
+      "only_the_ledger_decides_whether_a_run_succeeds",
+      "an_ultra_plan_that_leaves_a_stage_open_fails_at_final_acceptance",
+      "a_step_plan_that_leaves_a_stage_open_is_refused_at_its_end"
+    ]},
+    {"row": 3, "says": "stale, replayed, foreign, forged, broken, changed, unknown, or unrun all refused with no false pass; the same submission moves nothing, and conflicting content is refused", "tests": [
+      "row_three_an_older_revision_is_stale_and_row_four_an_unknown_one_is_refused",
+      "a_later_call_in_the_reply_that_committed_is_stale",
+      "a_commit_receipt_replayed_after_the_commit_is_stale",
+      "a_late_or_foreign_result_changes_nothing",
+      "a_commit_that_does_not_describe_the_attempt_seals_nothing",
+      "a_forged_check_list_in_a_saved_receipt_gets_no_further_than_the_honest_one",
+      "a_tampered_record_cannot_lower_a_count_or_raise_a_state_in_a_live_process",
+      "an_input_that_is_not_what_the_upstream_adopted_is_refused",
+      "required_checks_must_match_exactly",
+      "row_one_the_same_call_on_the_sealed_bytes_changes_nothing_and_starts_nothing",
+      "the_same_report_is_a_replay_and_another_is_a_conflict"
+    ]},
+    {"row": 4, "says": "reading, checking, the same bad candidate, a touched file, or unrelated writes do not complete; resubmission stops at the limits and the final repair's budget does not come back for each stage", "tests": [
+      "repeating_a_stale_call_is_counted_and_ends_the_run_at_its_limit",
+      "a_chain_longer_than_the_limit_can_be_listed_in_one_reply",
+      "the_same_bad_candidate_runs_out_at_the_limit_and_never_progresses",
+      "submissions_stop_at_the_operators_limit_with_no_process_past_it",
+      "the_run_limit_holds_across_targets_and_revisions_give_nothing_back",
+      "unrelated_bytes_and_repeated_judgments_move_nothing",
+      "a_read_after_a_commit_does_not_end_a_run_with_a_stage_open",
+      "seals_are_progress_to_the_loop_and_stale_calls_are_not",
+      "a_prompt_that_leaves_a_stage_open_is_held_and_then_refused"
+    ]},
+    {"row": 5, "says": "cancel at the commit, resume, a broken record, and a swapped pin adopt only the current version; a tool with no OS limit makes no valid receipt, and an unknown cost is not zero", "tests": [
+      "a_commit_cancelled_after_the_rename_or_not_durable_moves_the_generation_without_a_seal",
+      "a_restarted_process_that_resumes_keeps_its_counts_and_seals_nothing",
+      "resume_in_a_new_process_goes_on_with_the_run",
+      "a_swapped_pin_or_schema_moves_the_generation_and_stays_unverified",
+      "a_record_found_broken_by_a_judgment_says_where_it_is_and_what_to_do",
+      "a_session_that_cannot_answer_for_its_run_gets_no_stages",
+      "no_contract_comes_out_of_a_run_that_may_recover_by_itself",
+      "where_the_strict_isolation_does_not_exist_a_stage_tool_is_unavailable",
+      "usage_stays_unknown"
+    ]},
+    {"row": 6, "says": "the off control matches byte for byte, existing profiles keep their positive and negative rows, and sealed never becomes Full or a release pass", "tests": [
+      "off_wire_events_and_artifacts_match_the_base_recording_byte_for_byte",
+      "final_acceptance_asks_for_every_obligation_and_only_a_bound_set_is_asked",
+      "an_ultra_plan_that_seals_every_stage_succeeds"
+    ]}
+  ],
+  "off": [
+    {"id": "chat-native-write-and-read"},
+    {"id": "text-xml-write"},
+    {"id": "flat-extension-read"},
+    {"id": "dummy-secret-next-to-reserved-words"},
+    {"id": "step-plan-write"},
+    {"id": "ultra-plan-two-phases"},
+    {"id": "investigate-end"},
+    {"id": "fix-end"}
+  ]
+}

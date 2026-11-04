@@ -781,7 +781,12 @@ impl ProposalTool {
             // Past the intent the permit has answered already, and this is refused as stale.
             if let Ok(mut held) = locked(&ledger) {
                 let failure = terminal_failure(error.kind, notes.secret_in_output);
-                let _ = held.record_failure(&ticket, AttemptFailure::Terminal(failure));
+                let recorded = held.record_failure(&ticket, AttemptFailure::Terminal(failure));
+                // Without its mark on disk a later process would go on comparing the value, so
+                // what failed here is the record, and the operator has to hear that.
+                if let (true, Err(refusal)) = (notes.secret_in_output, recorded) {
+                    return Err(ledger_refused(refusal));
+                }
             }
         }
         outcome
@@ -2126,6 +2131,7 @@ field() { printf '%s' "$request" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }
                 r#"request=$(cat)
 echo started >> "$MARKS/started-{tool}"
 printf '%s' "$request" > "$MARKS/request-{tool}"
+[ -f "$MARKS/clobber" ] && printf changed > "$(cat "$MARKS/clobber")"
 field() {{ printf '%s' "$request" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }}
 checks='[{{"id":"shape","status":"passed"}}]'
 [ -f "$MARKS/checks-{tool}" ] && checks=$(cat "$MARKS/checks-{tool}")
@@ -4023,6 +4029,1256 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                 .open_ledger(1, &WorkspaceBytes::new(&bench.workspace))
                 .unwrap_err();
             assert_eq!(refusal.kind, RefusalKind::StageContractRefused);
+        }
+
+        /// M18: at the limit, a call that ends the run for its own reason keeps that reason.
+        #[test]
+        fn at_the_limit_a_call_that_ends_the_run_says_why_it_did() {
+            let bench = stage_bench_with(1);
+            let answer = bench.seal_upper();
+            let current = answer["stage"]["revision"].as_str().unwrap().to_string();
+            for _ in 0..7 {
+                let stale = bench.call(&bench.upper, "other", "initial").unwrap();
+                assert_eq!(stale["status"], "stale");
+            }
+            let error = bench.call(&bench.upper, "other", &current).unwrap_err();
+            assert_eq!(kind(&error), RefusalKind::StageRunEnded, "{error:#}");
+            assert!(
+                error.to_string().contains("attempts_exhausted_for_target"),
+                "{error:#}"
+            );
+        }
+
+        /// Section 5: a secret's mark that could not be saved must not pass for one that was. A
+        /// later process would read the old file and start comparing again.
+        #[test]
+        fn a_secret_whose_mark_cannot_be_saved_says_the_record_is_what_failed() {
+            let bench = stage_bench();
+            let mut catalog = crate::sensitive_data::SecretCatalog::new();
+            catalog.register_credential("DUMMY_API_KEY", DUMMY).unwrap();
+            crate::sensitive_data::install_scope(catalog, Some(&bench.workspace), None);
+            let file = crate::planner::structured_stages::ledger::ledger_file(
+                &bench.workspace.parent().unwrap().join("state"),
+                &bench.workspace,
+                PROFILE,
+            )
+            .unwrap();
+            bench.mark("clobber", &file.display().to_string());
+            bench.mark(
+                &format!("diagnostics-{UPPER}"),
+                &json!([{"code": "note", "message": DUMMY}]).to_string(),
+            );
+            let error = bench.call(&bench.upper, "fast", "initial").unwrap_err();
+            assert_eq!(kind(&error), RefusalKind::StageLedgerRefused, "{error:#}");
+            assert!(error.to_string().contains("diverged"), "{error:#}");
+            assert!(!error.to_string().contains(DUMMY), "{error:#}");
+        }
+
+        /// The history's real function, not the snippet it calls: an answer has to survive what
+        /// a name the history redacts does to it, on every OS.
+        #[test]
+        fn what_the_real_history_keeps_of_a_commit_still_says_it_sealed() {
+            let bench = stage_bench();
+            let answer = bench.seal_upper();
+            let kept = crate::state::tool_history::history_content(
+                Some("ProposeUpper"),
+                &answer.to_string(),
+            );
+            let kept: Value = serde_json::from_str(&kept).unwrap();
+            assert_eq!(kept["stage"]["status"], "sealed", "{kept}");
+            assert_eq!(kept["stage"]["revision"], answer["stage"]["revision"]);
+
+            let long = json!({"status": "resubmit", "note": "x".repeat(4000)}).to_string();
+            let cut = crate::state::tool_history::history_content(Some("ProposeUpper"), &long);
+            assert!(cut.chars().count() <= MODEL_RESULT_CHARS, "{cut}");
+            let answered = super::super::fit_for_model(
+                json!({"status": "resubmit", "code": "check_failed", "note": "x".repeat(4000)}),
+                "/note",
+                json!({"status": "resubmit", "code": "check_failed"}),
+            );
+            let kept = crate::state::tool_history::history_content(Some("P"), &answered);
+            let kept: Value = serde_json::from_str(&kept).unwrap();
+            assert_eq!(kept["code"], "check_failed", "{kept}");
+            assert_eq!(kept["truncated"], true, "{kept}");
+        }
+
+        /// A cooked terminal, as with `COMMANDAGENT_NO_INTERRUPT` or a stdin that is no terminal:
+        /// it turns each line feed into a return and a line feed, on top of the block's own.
+        #[test]
+        fn the_notice_goes_through_a_cooked_pty_with_its_left_edge() {
+            use std::io::{Read, Write};
+            use std::os::fd::{FromRawFd, OwnedFd};
+            let (mut master, mut slave) = (-1, -1);
+            // SAFETY: all five are valid for this call, and the three nulls mean no name and
+            // default settings, which are cooked.
+            let opened = unsafe {
+                libc::openpty(
+                    &raw mut master,
+                    &raw mut slave,
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                )
+            };
+            assert_eq!(opened, 0, "{}", std::io::Error::last_os_error());
+            // SAFETY: `openpty` returned these two and nothing else owns them.
+            let master = unsafe { OwnedFd::from_raw_fd(master) };
+            // SAFETY: as above.
+            let slave = unsafe { OwnedFd::from_raw_fd(slave) };
+            let block = super::super::stage_refusal_block(NOTICE, true);
+            let mut writer = std::fs::File::from(slave.try_clone().unwrap());
+            writer.write_all(block.as_bytes()).unwrap();
+            // Every line feed gains a return, and the block holds two.
+            let mut read = vec![0; block.len() + 2];
+            std::fs::File::from(master).read_exact(&mut read).unwrap();
+            drop(writer);
+            drop(slave);
+            let text = std::str::from_utf8(&read).unwrap();
+            assert!(text.contains("\r\r\n"), "{text:?}");
+            let screen = screen_after(&[text]);
+            assert_eq!(screen[0], "stage record refused: corrupt");
+            assert_eq!(screen[1], "  ledger: /state/ledger.json");
+        }
+
+        /// Whole sessions through the real admission, on every OS: the operator's files, a
+        /// provider on 127.0.0.1, and the unconfined launch only a test build has. What these ask
+        /// of the process is global (the registry variable and the registered profiles), so each
+        /// runs in a process of its own, and the rest of this test binary never sees them.
+        mod sessions {
+            use std::io::{Read as _, Write as _};
+            use std::path::{Path, PathBuf};
+            use std::process::{Command, Stdio};
+            use std::sync::atomic::{AtomicBool, Ordering};
+            use std::sync::{Arc, Mutex};
+
+            use serde_json::{Value, json};
+
+            use super::super::super::super::descriptor::directory_pin;
+            use super::super::super::super::isolation::test_hook::{Unconfined, unconfined};
+            use super::{LOWER, LOWER_OUTPUT, UPPER, UPPER_OUTPUT, script, sha256};
+            use crate::config::{Config, OllamaThink};
+            use crate::minimal_loop::loop_run::run_session_with_outcome_with_ui;
+            use crate::planner::runner::{run_step_plan, run_ultra_plan};
+            use crate::planner::step_plan::{PlanStep, StepPlan};
+            use crate::planner::ultra_plan::{UltraPhase, UltraPlan};
+            use crate::providers::client_from_config;
+            use crate::state::SessionSnapshot;
+            use crate::tools::os_sandbox::{
+                SandboxAvailability, SandboxMode, SandboxPolicy, SandboxTestState, install_for_test,
+            };
+            use crate::tui::NOOP_UI;
+
+            const WORLD_ENV: &str = "STAGE_SESSION_WORLD";
+            const ROLE_ENV: &str = "STAGE_SESSION_ROLE";
+            const REGISTRY_ENV: &str = "COMMANDAGENT_ADAPTER_CONFIG_ROOT";
+            const PROFILE: &str = "stage-session-config";
+            const INDEX_PROFILE: &str = "stage-session-index";
+            const UPPER_TOOL: &str = "ProposeUpper";
+            const LOWER_TOOL: &str = "ProposeLower";
+            const FIXED: &str = "fixed/seed.json";
+            const HOLD: &str = "Stage obligations are not met:";
+            const CHILD_LIMIT: std::time::Duration = std::time::Duration::from_secs(120);
+
+            struct World {
+                root: PathBuf,
+                evidence: PathBuf,
+                marks: PathBuf,
+                base: PathBuf,
+            }
+
+            /// What a scene needs alive: the installed boundary and the unconfined launch.
+            struct Live {
+                _sandbox: SandboxTestState,
+                _unconfined: Unconfined,
+            }
+
+            impl World {
+                fn at(base: &Path) -> Self {
+                    Self {
+                        root: base.join("workspace"),
+                        evidence: base.join("evidence"),
+                        marks: base.join("marks"),
+                        base: base.to_path_buf(),
+                    }
+                }
+
+                fn enter(&self) -> Live {
+                    crate::planner::extension_profiles::register(&self.base.join("extension"))
+                        .unwrap();
+                    let sandbox = SandboxTestState::acquire();
+                    let tmp = self.evidence.join("sandbox/run");
+                    std::fs::create_dir_all(&tmp).unwrap();
+                    install_for_test(
+                        SandboxMode::Auto,
+                        SandboxPolicy::new(&self.root, &tmp),
+                        SandboxAvailability::Available,
+                    );
+                    Live {
+                        _sandbox: sandbox,
+                        _unconfined: unconfined(),
+                    }
+                }
+
+                fn events(&self) -> String {
+                    std::fs::read_to_string(self.evidence.join("events.jsonl")).unwrap_or_default()
+                }
+
+                fn config(&self, url: &str) -> Config {
+                    let mut config = super::super::super::config_for_test(&self.root);
+                    config.state_dir = self.evidence.join("state");
+                    config.eval_events_path = Some(self.evidence.join("events.jsonl"));
+                    config.yes = true;
+                    config.offline = false;
+                    config.context_budget = 100_000;
+                    config.planner_think = Some(OllamaThink::False);
+                    config.lm_studio_host = url.to_string();
+                    config.num_predict = 100;
+                    config.max_iterations = 8;
+                    config.chat_timeout_secs = 30;
+                    config.chat_retries = 1;
+                    config.profile = PROFILE.to_string();
+                    config
+                }
+
+                /// A prompt, as `--prompt` runs it.
+                fn prompt(&self, responder: Responder) -> (Vec<Value>, Result<(), String>) {
+                    let http = FakeHttp::start(responder);
+                    let config = self.config(&http.url);
+                    let mut client = client_from_config(&config, false).unwrap();
+                    let result = run_session_with_outcome_with_ui(
+                        client.as_mut(),
+                        &mut SessionSnapshot::new(),
+                        "Submit both stages.",
+                        &[],
+                        &config,
+                        &NOOP_UI,
+                    )
+                    .map(|_| ())
+                    .map_err(|error| format!("{error:#}"));
+                    (http.finish(), result)
+                }
+
+                fn plan(
+                    &self,
+                    steps: Vec<PlanStep>,
+                    responder: Responder,
+                ) -> (Vec<Value>, Result<String, String>) {
+                    let http = FakeHttp::start(responder);
+                    let config = self.config(&http.url);
+                    let mut client = client_from_config(&config, false).unwrap();
+                    let plan = StepPlan {
+                        goal: "Submit the stages.".to_string(),
+                        steps,
+                    };
+                    let result = run_step_plan(client.as_mut(), &plan, &config)
+                        .map_err(|error| format!("{error:#}"));
+                    (http.finish(), result)
+                }
+
+                fn ultra(&self, responder: Responder) -> Result<String, String> {
+                    std::fs::write(self.root.join("notes.txt"), "the notes\n").unwrap();
+                    let http = FakeHttp::start(responder);
+                    let config = self.config(&http.url);
+                    let mut planner = client_from_config(&config, true).unwrap();
+                    let mut execution = client_from_config(&config, false).unwrap();
+                    let plan = UltraPlan {
+                        goal: "Submit the stages".to_string(),
+                        profile: PROFILE.to_string(),
+                        style: "default".to_string(),
+                        intent: "create".to_string(),
+                        phases: vec![
+                            UltraPhase {
+                                id: "first".to_string(),
+                                prompt: "Phase-first: submit the upper stage.".to_string(),
+                            },
+                            UltraPhase {
+                                id: "second".to_string(),
+                                prompt: "Phase-second: submit the lower stage.".to_string(),
+                            },
+                        ],
+                    };
+                    let result =
+                        run_ultra_plan(planner.as_mut(), execution.as_mut(), &plan, &config)
+                            .map_err(|error| format!("{error:#}"));
+                    http.finish();
+                    result
+                }
+            }
+
+            fn manifest(profile: &str, upper: &str, lower: &str) -> String {
+                format!(
+                    "[metadata]\nid = \"{profile}\"\ndisplay_name = \"Stage session\"\nschema_version = \"v2\"\ntask_family = \"generic\"\n[plan]\nintent = \"create\"\nphases = [\n  {{ id = \"implementation\", prompt = \"Write the notes for {{goal}}.\" }},\n]\n[artifacts]\nrequired = [\"notes.txt\"]\n[guidance.variants.contract]\ntriggers = [{{ condition = \"always\" }}]\nmessages = {{ instruction = \"Write notes.txt.\" }}\n[[checks.final]]\nid = \"scaffold_files_present\"\nparams = {{ files = [\"notes.txt\"] }}\n[profile_tools]\nschema_version = \"profile-tool.declaration/v2\"\nbuiltin_tools = [\"Read\"]\ntools = [\n  {{ id = \"{upper}\", effect = \"propose-artifacts\" }},\n  {{ id = \"{lower}\", effect = \"propose-artifacts\" }},\n]\n[profile_tools.stages]\nstages = [\n  {{ id = \"upper\", targets = [{{ id = \"main\", tool_id = \"{upper}\" }}] }},\n  {{ id = \"lower\", targets = [{{ id = \"main\", tool_id = \"{lower}\" }}] }},\n]\n"
+                )
+            }
+
+            fn write_descriptor(base: &Path, tool: (&str, &str, &str), inputs: &[&str]) {
+                let (id, name, output) = tool;
+                let directory = base.join("tools").join(id);
+                std::fs::create_dir_all(&directory).unwrap();
+                let tool_script = directory.join("tool.sh");
+                std::fs::write(&tool_script, script(id)).unwrap();
+                let shell = std::fs::canonicalize("/bin/sh").unwrap();
+                let schema = json!({
+                    "protocol": "profile-tool.schema/v1",
+                    "root": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["mode", "expected_revision"],
+                        "properties": {
+                            "mode": {"type": "string"},
+                            "expected_revision": {"type": "string"},
+                        },
+                    },
+                    "inputs": inputs,
+                });
+                let descriptor = json!({
+                    "protocol": "profile-tool.descriptor/v1",
+                    "tool_id": id,
+                    "name": name,
+                    "version": "1.0.0",
+                    "description": "Propose one artifact for a synthetic fixture.",
+                    "effect": "propose-artifacts",
+                    "parameters": [],
+                    "schema_sha256": sha256(serde_json::to_string(&schema).unwrap().as_bytes()),
+                    "schema": schema,
+                    "runtime": {"kind": "pinned_process", "id": "fixed-script"},
+                    "limits": {"max_input_bytes": 1 << 20, "max_output_bytes": 64 * 1024},
+                    "process": {
+                        "protocol": "profile-tool.process/v1",
+                        "executable": {
+                            "path": shell,
+                            "sha256": sha256(&std::fs::read(&shell).unwrap()),
+                        },
+                        "dependency_directories": [{
+                            "path": directory,
+                            "sha256": directory_pin(&directory).unwrap(),
+                        }],
+                        "argv": [tool_script],
+                        "cwd": directory,
+                        "env": {"MARKS": base.join("marks")},
+                        "limits": {"timeout_ms": 20_000, "max_result_bytes": 64 * 1024},
+                        "outputs": [{"id": "artifact", "path": output}],
+                    },
+                    "stage": {
+                        "required_checks": ["shape"],
+                        "attempts_per_target": 8,
+                        "attempts_per_run": 32,
+                        "deadline_seconds": 600,
+                    },
+                });
+                std::fs::write(
+                    base.join(format!("registry/profile-tools/{id}.json")),
+                    descriptor.to_string(),
+                )
+                .unwrap();
+            }
+
+            /// The operator's files, in a directory the child is told about.
+            fn prepared() -> tempfile::TempDir {
+                let temp = tempfile::tempdir().unwrap();
+                let base = std::fs::canonicalize(temp.path()).unwrap();
+                for directory in [
+                    "workspace/fixed",
+                    "evidence",
+                    "marks",
+                    "registry/profile-tools",
+                ] {
+                    std::fs::create_dir_all(base.join(directory)).unwrap();
+                }
+                std::fs::write(base.join("workspace").join(FIXED), b"a fixed seed").unwrap();
+                let profiles = [
+                    (PROFILE, UPPER, LOWER),
+                    (INDEX_PROFILE, "stage-index-upper", "stage-index-lower"),
+                ];
+                for (id, upper, lower) in profiles {
+                    let profile = base.join(format!("extension/profiles/{id}"));
+                    std::fs::create_dir_all(&profile).unwrap();
+                    std::fs::write(profile.join("manifest.toml"), manifest(id, upper, lower))
+                        .unwrap();
+                }
+                write_descriptor(&base, (UPPER, UPPER_TOOL, UPPER_OUTPUT), &[FIXED]);
+                write_descriptor(
+                    &base,
+                    (LOWER, LOWER_TOOL, LOWER_OUTPUT),
+                    &[UPPER_OUTPUT, FIXED],
+                );
+                write_descriptor(
+                    &base,
+                    ("stage-index-upper", "ProposeIndexUpper", "index/upper.json"),
+                    &[FIXED],
+                );
+                write_descriptor(
+                    &base,
+                    ("stage-index-lower", "ProposeIndexLower", "index/lower.json"),
+                    &["index/upper.json", FIXED],
+                );
+                temp
+            }
+
+            struct Child {
+                success: bool,
+                stdout: String,
+                stderr: Vec<u8>,
+            }
+
+            /// This test again in a process of its own. It takes only what is named here, and is
+            /// stopped by its own PID if it does not end.
+            fn run_child(name: &str, base: &Path, env: &[(&str, &str)]) -> Child {
+                run_child_writing(name, base, env, false)
+            }
+
+            /// Its stderr goes to a file or, what it writes being short, to a pipe.
+            fn run_child_writing(
+                name: &str,
+                base: &Path,
+                env: &[(&str, &str)],
+                to_a_pipe: bool,
+            ) -> Child {
+                let log = base.join(format!("child-{}.log", uuid::Uuid::now_v7()));
+                let err = base.join(format!("child-{}.err", uuid::Uuid::now_v7()));
+                let path = format!("{}::{name}", module_path!().split_once("::").unwrap().1);
+                let mut command = Command::new(std::env::current_exe().unwrap());
+                command
+                    .args(["--exact", path.as_str(), "--test-threads=1", "--nocapture"])
+                    .env_clear()
+                    .env("PATH", "/usr/bin:/bin")
+                    .env("HOME", base.join("evidence"))
+                    .env(WORLD_ENV, base)
+                    .env(REGISTRY_ENV, base.join("registry"))
+                    .stdin(Stdio::null())
+                    .stdout(std::fs::File::create(&log).unwrap())
+                    .stderr(if to_a_pipe {
+                        Stdio::piped()
+                    } else {
+                        Stdio::from(std::fs::File::create(&err).unwrap())
+                    });
+                for (key, value) in env {
+                    command.env(key, value);
+                }
+                let mut child = Command::spawn(&mut command).unwrap();
+                let started = std::time::Instant::now();
+                let status = loop {
+                    if let Some(status) = child.try_wait().unwrap() {
+                        break status;
+                    }
+                    if started.elapsed() > CHILD_LIMIT {
+                        child.kill().unwrap();
+                        child.wait().unwrap();
+                        panic!("{name} did not end");
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                };
+                let mut stderr = std::fs::read(&err).unwrap_or_default();
+                if let Some(mut pipe) = child.stderr.take() {
+                    pipe.read_to_end(&mut stderr).unwrap();
+                }
+                Child {
+                    success: status.success(),
+                    stdout: std::fs::read_to_string(&log).unwrap_or_default(),
+                    stderr,
+                }
+            }
+
+            /// The world in the child. In the parent it runs the child and answers `None`.
+            fn one_process(name: &str) -> Option<World> {
+                if let Some(base) = std::env::var_os(WORLD_ENV) {
+                    return Some(World::at(Path::new(&base)));
+                }
+                let temp = prepared();
+                let base = std::fs::canonicalize(temp.path()).unwrap();
+                let child = run_child(name, &base, &[]);
+                assert!(
+                    child.success,
+                    "{name}: {}\n{}",
+                    child.stdout,
+                    String::from_utf8_lossy(&child.stderr)
+                );
+                None
+            }
+
+            type Responder = Arc<dyn Fn(usize, &Value) -> String + Send + Sync>;
+
+            struct FakeHttp {
+                url: String,
+                requests: Arc<Mutex<Vec<Value>>>,
+                stop: Arc<AtomicBool>,
+                thread: Option<std::thread::JoinHandle<()>>,
+            }
+
+            impl FakeHttp {
+                fn start(responder: Responder) -> Self {
+                    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+                    listener.set_nonblocking(true).unwrap();
+                    let url = format!("http://{}", listener.local_addr().unwrap());
+                    let requests: Arc<Mutex<Vec<Value>>> = Arc::default();
+                    let stop = Arc::new(AtomicBool::new(false));
+                    let thread = {
+                        let (requests, stop) = (requests.clone(), stop.clone());
+                        std::thread::spawn(move || {
+                            while !stop.load(Ordering::SeqCst) {
+                                match listener.accept() {
+                                    Ok((stream, _)) => serve(stream, &requests, &responder),
+                                    Err(_) => {
+                                        std::thread::sleep(std::time::Duration::from_millis(2));
+                                    }
+                                }
+                            }
+                        })
+                    };
+                    Self {
+                        url,
+                        requests,
+                        stop,
+                        thread: Some(thread),
+                    }
+                }
+
+                fn finish(mut self) -> Vec<Value> {
+                    self.stop.store(true, Ordering::SeqCst);
+                    self.thread.take().unwrap().join().unwrap();
+                    self.requests.lock().unwrap().clone()
+                }
+            }
+
+            fn serve(
+                mut stream: std::net::TcpStream,
+                requests: &Mutex<Vec<Value>>,
+                responder: &Responder,
+            ) {
+                stream.set_nonblocking(false).unwrap();
+                let mut bytes = Vec::new();
+                let mut chunk = [0u8; 8192];
+                let body_start = loop {
+                    let read = stream.read(&mut chunk).unwrap_or(0);
+                    if read == 0 {
+                        return;
+                    }
+                    bytes.extend_from_slice(&chunk[..read]);
+                    if let Some(at) = bytes.windows(4).position(|part| part == b"\r\n\r\n") {
+                        break at + 4;
+                    }
+                };
+                let head = String::from_utf8_lossy(&bytes[..body_start]).to_ascii_lowercase();
+                let length = head
+                    .lines()
+                    .find_map(|line| line.strip_prefix("content-length:"))
+                    .and_then(|value| value.trim().parse::<usize>().ok())
+                    .unwrap_or(0);
+                while bytes.len() < body_start + length {
+                    let read = stream.read(&mut chunk).unwrap_or(0);
+                    if read == 0 {
+                        break;
+                    }
+                    bytes.extend_from_slice(&chunk[..read]);
+                }
+                let body: Value =
+                    serde_json::from_slice(&bytes[body_start..]).unwrap_or(Value::Null);
+                let index = {
+                    let mut requests = requests.lock().unwrap();
+                    requests.push(body.clone());
+                    requests.len()
+                };
+                let reply = responder(index, &body);
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{reply}",
+                    reply.len()
+                );
+                let _ = stream.write_all(response.as_bytes());
+            }
+
+            fn text_reply(content: &str) -> String {
+                json!({"choices": [{"message": {"role": "assistant", "content": content}}]})
+                    .to_string()
+            }
+
+            fn call_reply(name: &str, arguments: &Value) -> String {
+                json!({"choices": [{"message": {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [{
+                        "id": "call-0",
+                        "type": "function",
+                        "function": {"name": name, "arguments": arguments.to_string()},
+                    }],
+                }}]})
+                .to_string()
+            }
+
+            fn submit(name: &str, mode: &str, revision: &str) -> String {
+                call_reply(name, &json!({"mode": mode, "expected_revision": revision}))
+            }
+
+            fn messages(body: &Value) -> &[Value] {
+                body["messages"].as_array().map_or(&[], Vec::as_slice)
+            }
+
+            fn has_answer(body: &Value) -> bool {
+                messages(body).iter().any(|m| m["role"] == "tool")
+            }
+
+            fn last_answer(body: &Value) -> Value {
+                let text = messages(body)
+                    .iter()
+                    .rev()
+                    .find(|m| m["role"] == "tool")
+                    .and_then(|m| m["content"].as_str())
+                    .unwrap_or_else(|| panic!("no answer: {body}"));
+                serde_json::from_str(text).unwrap_or_else(|_| panic!("not data: {text}"))
+            }
+
+            fn revision_below(answer: &Value) -> String {
+                answer["stage"]["downstream"][0]["revision"]
+                    .as_str()
+                    .unwrap_or_else(|| panic!("no revision below: {answer}"))
+                    .to_string()
+            }
+
+            fn step(instruction: &str, id: &str) -> PlanStep {
+                PlanStep {
+                    id: id.to_string(),
+                    kind: "setup".to_string(),
+                    expected_result: "pass".to_string(),
+                    instruction: instruction.to_string(),
+                    expected_paths: Vec::new(),
+                    verify: Vec::new(),
+                }
+            }
+
+            /// The upper, and the lower on the revision the seal's answer named.
+            fn seals_both() -> Responder {
+                Arc::new(|index, body| match index {
+                    1 => submit(UPPER_TOOL, "fast", "initial"),
+                    2 => submit(LOWER_TOOL, "fast", &revision_below(&last_answer(body))),
+                    _ => text_reply("done"),
+                })
+            }
+
+            /// The upper, and then only the claim.
+            fn stops_after_the_upper() -> Responder {
+                Arc::new(|index, _| match index {
+                    1 => submit(UPPER_TOOL, "fast", "initial"),
+                    _ => text_reply("All stages are sealed and every check passed."),
+                })
+            }
+
+            /// A step on the lower stage: its first call is stale and the answer says what to use.
+            fn two_steps() -> Responder {
+                Arc::new(|index, body| match index {
+                    1 => submit(UPPER_TOOL, "fast", "initial"),
+                    2 => submit(LOWER_TOOL, "fast", "initial"),
+                    _ => {
+                        let answer = last_answer(body);
+                        match answer["revision"].as_str() {
+                            Some(revision) if answer["status"] == "stale" => {
+                                submit(LOWER_TOOL, "fast", revision)
+                            }
+                            _ => text_reply("done"),
+                        }
+                    }
+                })
+            }
+
+            fn ultra_steps(submit_lower: bool) -> Responder {
+                Arc::new(move |_, body| {
+                    let text = body.to_string();
+                    if !body["tools"].to_string().contains(UPPER_TOOL) {
+                        let goal = if text.contains("Phase-second") {
+                            "Submit the lower stage"
+                        } else {
+                            "Submit the upper stage"
+                        };
+                        return text_reply(
+                            &json!({"goal": goal, "steps": [{
+                                "id": "step-setup",
+                                "kind": "setup",
+                                "expected_result": "pass",
+                                "instruction": goal,
+                                "expected_paths": [],
+                                "verify": [],
+                            }]})
+                            .to_string(),
+                        );
+                    }
+                    if !text.contains("Submit the lower stage") {
+                        return if has_answer(body) {
+                            text_reply("done")
+                        } else {
+                            submit(UPPER_TOOL, "fast", "initial")
+                        };
+                    }
+                    if !submit_lower {
+                        let answered = messages(body)
+                            .last()
+                            .is_some_and(|message| message["role"] == "tool");
+                        return if answered {
+                            text_reply("done")
+                        } else {
+                            call_reply("Read", &json!({"path": FIXED}))
+                        };
+                    }
+                    let answer = last_answer(body);
+                    if answer["status"] == "stale" {
+                        submit(LOWER_TOOL, "fast", answer["revision"].as_str().unwrap())
+                    } else if answer["path"] == LOWER_OUTPUT {
+                        text_reply("done")
+                    } else {
+                        submit(LOWER_TOOL, "fast", "initial")
+                    }
+                })
+            }
+
+            fn assert_stage_incomplete<T: std::fmt::Debug>(result: &Result<T, String>) {
+                let error = result.as_ref().expect_err("no success with a stage open");
+                assert!(error.contains("stage_incomplete"), "{error}");
+            }
+
+            /// `--prompt`: every stage sealed is a success. `enter_stage_run` and `scope_of`'s
+            /// `All` are what ask, and a set nobody entered would not ask at all.
+            #[test]
+            fn a_prompt_that_seals_every_stage_succeeds() {
+                let Some(world) = one_process("a_prompt_that_seals_every_stage_succeeds") else {
+                    return;
+                };
+                let _live = world.enter();
+                let (requests, result) = world.prompt(seals_both());
+                result.unwrap();
+                assert_eq!(requests.len(), 3);
+                assert!(world.root.join(LOWER_OUTPUT).is_file());
+            }
+
+            /// The hold sends the claim back, and the funnel refuses what the hold could not mend.
+            #[test]
+            fn a_prompt_that_leaves_a_stage_open_is_held_and_then_refused() {
+                let Some(world) =
+                    one_process("a_prompt_that_leaves_a_stage_open_is_held_and_then_refused")
+                else {
+                    return;
+                };
+                let _live = world.enter();
+                let (requests, result) = world.prompt(stops_after_the_upper());
+                assert_stage_incomplete(&result);
+                assert!(requests.len() >= 3, "{}", requests.len());
+                assert!(
+                    requests[2].to_string().contains(HOLD),
+                    "the claim was answered: {}",
+                    requests[2]
+                );
+                assert!(world.events().contains("structured_stage_incomplete"));
+            }
+
+            /// F5: a setup step can end at a tool result. A failed check must not end it unread.
+            #[test]
+            fn a_failed_check_in_a_setup_step_goes_back_to_its_model() {
+                let Some(world) =
+                    one_process("a_failed_check_in_a_setup_step_goes_back_to_its_model")
+                else {
+                    return;
+                };
+                let _live = world.enter();
+                let marks = world.marks.join(format!("checks-{UPPER}"));
+                std::fs::write(&marks, r#"[{"id":"shape","status":"failed"}]"#).unwrap();
+                let responder: Responder = Arc::new(move |index, body| match index {
+                    1 => submit(UPPER_TOOL, "fast", "initial"),
+                    2 => {
+                        assert_eq!(last_answer(body)["status"], "resubmit", "{body}");
+                        std::fs::remove_file(&marks).unwrap();
+                        submit(UPPER_TOOL, "fast", "initial")
+                    }
+                    _ => text_reply("done"),
+                });
+                let (requests, _) = world.plan(
+                    vec![step("Submit the upper stage", "step-setup")],
+                    responder,
+                );
+                assert!(requests.len() >= 2, "no second request");
+                assert!(world.root.join(UPPER_OUTPUT).is_file());
+            }
+
+            /// `/plan-run`: the end of a plain step plan answers for what no step called.
+            #[test]
+            fn a_step_plan_that_leaves_a_stage_open_is_refused_at_its_end() {
+                let Some(world) =
+                    one_process("a_step_plan_that_leaves_a_stage_open_is_refused_at_its_end")
+                else {
+                    return;
+                };
+                let _live = world.enter();
+                let responder: Responder = Arc::new(|index, _| match index {
+                    1 => submit(UPPER_TOOL, "fast", "initial"),
+                    _ => text_reply("done"),
+                });
+                let (_, result) = world.plan(
+                    vec![step("Submit the upper stage", "step-setup")],
+                    responder,
+                );
+                assert_stage_incomplete(&result);
+                assert!(result.unwrap_err().contains("lower/main"));
+            }
+
+            /// A first step that leaves the lower open is not refused by itself: that is `scope_of`
+            /// giving a step `Touched`. The plan's end then finds everything sealed.
+            #[test]
+            fn a_step_plan_that_seals_every_stage_succeeds() {
+                let Some(world) = one_process("a_step_plan_that_seals_every_stage_succeeds") else {
+                    return;
+                };
+                let _live = world.enter();
+                let steps = vec![
+                    step("Submit the upper stage", "step-upper"),
+                    step("Submit the lower stage", "step-lower"),
+                ];
+                let (_, result) = world.plan(steps, two_steps());
+                result.unwrap();
+                assert!(world.root.join(LOWER_OUTPUT).is_file());
+            }
+
+            /// `remember_bound` and the final gate: a session that left nothing for the gate to
+            /// find would fail this control.
+            #[test]
+            fn an_ultra_plan_that_seals_every_stage_succeeds() {
+                let Some(world) = one_process("an_ultra_plan_that_seals_every_stage_succeeds")
+                else {
+                    return;
+                };
+                let _live = world.enter();
+                let summary = world.ultra(ultra_steps(true)).unwrap();
+                assert!(summary.contains("complete"), "{summary}");
+                assert!(world.root.join(LOWER_OUTPUT).is_file());
+            }
+
+            /// Each step passes, and only the final gate sees the stage nobody called.
+            #[test]
+            fn an_ultra_plan_that_leaves_a_stage_open_fails_at_final_acceptance() {
+                let Some(world) =
+                    one_process("an_ultra_plan_that_leaves_a_stage_open_fails_at_final_acceptance")
+                else {
+                    return;
+                };
+                let _live = world.enter();
+                world
+                    .ultra(ultra_steps(false))
+                    .expect_err("the lower stage was never submitted");
+                let events = world.events();
+                let failed = events
+                    .lines()
+                    .find(|line| line.contains("\"event\":\"ultra_final_acceptance_failed\""))
+                    .expect("the steps passed and acceptance is what refused");
+                assert!(failed.contains("stage_incomplete"), "{failed}");
+                assert!(failed.contains("lower/main"), "{failed}");
+            }
+
+            /// `config_resuming`: `/resume` in a new process goes on with the run. A start over
+            /// would have taken `initial` as current and spent an attempt.
+            #[test]
+            fn resume_in_a_new_process_goes_on_with_the_run() {
+                const NAME: &str = "resume_in_a_new_process_goes_on_with_the_run";
+                let Some(base) = std::env::var_os(WORLD_ENV) else {
+                    let temp = prepared();
+                    let base = std::fs::canonicalize(temp.path()).unwrap();
+                    for role in ["first", "second"] {
+                        let child = run_child(NAME, &base, &[(ROLE_ENV, role)]);
+                        assert!(child.success, "{role}: {}", child.stdout);
+                    }
+                    return;
+                };
+                let world = World::at(Path::new(&base));
+                let _live = world.enter();
+                if std::env::var_os(ROLE_ENV).is_some_and(|role| role == "first") {
+                    let (_, result) = world.prompt(stops_after_the_upper());
+                    assert_stage_incomplete(&result);
+                    assert_eq!(saved_attempts(&world), 1);
+                    return;
+                }
+                let plans = world.root.join(".anvil/plans");
+                std::fs::create_dir_all(&plans).unwrap();
+                std::fs::write(
+                    plans.join("recovery.yaml"),
+                    format!(
+                        "goal: \"finish\"\nprofile: \"{PROFILE}\"\nphases:\n  - id: \"finish\"\n    prompt: \"Submit the upper stage.\"\n  - id: \"after\"\n    prompt: \"Submit the lower stage.\"\n"
+                    ),
+                )
+                .unwrap();
+                let http = FakeHttp::start(Arc::new(|_, body| {
+                    if !body["tools"].to_string().contains(UPPER_TOOL) {
+                        return text_reply(
+                            &json!({"goal": "finish", "steps": [{
+                                "id": "step-setup",
+                                "kind": "setup",
+                                "expected_result": "pass",
+                                "instruction": "Submit the upper stage",
+                                "expected_paths": [],
+                                "verify": [],
+                            }]})
+                            .to_string(),
+                        );
+                    }
+                    if has_answer(body) {
+                        return text_reply("stopping here");
+                    }
+                    submit(UPPER_TOOL, "fast", "initial")
+                }));
+                let config = world.config(&http.url);
+                let mut planner = client_from_config(&config, true).unwrap();
+                let mut execution = client_from_config(&config, false).unwrap();
+                let result = crate::tui::slash::handle_command(
+                    "/resume .anvil/plans/recovery.yaml",
+                    &config,
+                    planner.as_mut(),
+                    execution.as_mut(),
+                    &NOOP_UI,
+                );
+                let requests = http.finish();
+                let first = requests
+                    .iter()
+                    .find(|body| has_answer(body))
+                    .map(last_answer)
+                    .unwrap_or_else(|| panic!("no answer: {result:?}"));
+                assert_eq!(first["status"], "stale", "{first}");
+                assert_eq!(saved_attempts(&world), 1, "no attempt came back");
+                assert!(result.is_err(), "the obligations are still open");
+            }
+
+            fn saved_attempts(world: &World) -> u64 {
+                let leaf = world.evidence.join("state/structured-stages");
+                let directory = std::fs::read_dir(leaf)
+                    .unwrap()
+                    .next()
+                    .unwrap()
+                    .unwrap()
+                    .path();
+                let saved: Value =
+                    serde_json::from_slice(&std::fs::read(directory.join("ledger.json")).unwrap())
+                        .unwrap();
+                saved["body"]["attempts_used"].as_u64().unwrap()
+            }
+
+            /// What the loop's own count of missing-artifact stagnation says after `batches`
+            /// replies with a file still missing. Read by the responder, before any later text.
+            fn artifact_notices_after(world: &World, batches: Vec<Responder>) -> usize {
+                const NOTICE: &str = "\"event\":\"artifact_stagnation_feedback\"";
+                let seen = Arc::new(Mutex::new(None));
+                let (kept, events) = (seen.clone(), world.evidence.join("events.jsonl"));
+                let count = batches.len();
+                let before = world.events().matches(NOTICE).count();
+                let responder: Responder = Arc::new(move |index, body| {
+                    if index > count {
+                        let mut kept = kept.lock().unwrap();
+                        if kept.is_none() {
+                            let text = std::fs::read_to_string(&events).unwrap_or_default();
+                            *kept = Some(text.matches(NOTICE).count() - before);
+                        }
+                        return text_reply("stopping");
+                    }
+                    batches[index - 1](index, body)
+                });
+                let http = FakeHttp::start(responder);
+                let config = world.config(&http.url);
+                let mut client = client_from_config(&config, false).unwrap();
+                let _ = run_session_with_outcome_with_ui(
+                    client.as_mut(),
+                    &mut SessionSnapshot::new(),
+                    "Submit the stage and write the notes.",
+                    &["notes.txt".to_string()],
+                    &config,
+                    &NOOP_UI,
+                );
+                http.finish();
+                seen.lock().unwrap().expect("the session went on")
+            }
+
+            /// N5: each seal is a move, so three of them are no stagnation. The control below is
+            /// the same three batches with no seal in them.
+            #[test]
+            fn seals_are_progress_to_the_loop_and_stale_calls_are_not() {
+                let Some(world) =
+                    one_process("seals_are_progress_to_the_loop_and_stale_calls_are_not")
+                else {
+                    return;
+                };
+                let _live = world.enter();
+                let stale: Responder =
+                    Arc::new(|_, _| submit(UPPER_TOOL, "fast", "not-a-revision"));
+                let stalled =
+                    artifact_notices_after(&world, vec![stale.clone(), stale.clone(), stale]);
+                assert!(stalled >= 1, "the control sees nothing: {}", world.events());
+
+                let second = world.marks.join(format!("second-{UPPER}"));
+                let seal: Responder = Arc::new(move |index, body| {
+                    if index == 1 {
+                        return submit(UPPER_TOOL, "fast", "initial");
+                    }
+                    let current = last_answer(body)["stage"]["revision"]
+                        .as_str()
+                        .unwrap()
+                        .to_string();
+                    // Other bytes each time, so each is a commit and a seal.
+                    if index == 2 {
+                        std::fs::write(&second, "on").unwrap();
+                    } else {
+                        std::fs::remove_file(&second).unwrap();
+                    }
+                    submit(UPPER_TOOL, &format!("version-{index}"), &current)
+                });
+                let sealed = artifact_notices_after(&world, vec![seal.clone(), seal.clone(), seal]);
+                assert_eq!(
+                    sealed,
+                    0,
+                    "a seal counted as stagnation: {}",
+                    world.events()
+                );
+            }
+
+            /// The record's notice shows once however often the record is asked about, and a
+            /// stderr that is no terminal gets plain lines: no return, no escape.
+            #[test]
+            fn the_notice_shows_once_and_as_plain_lines_where_there_is_no_terminal() {
+                const NAME: &str =
+                    "the_notice_shows_once_and_as_plain_lines_where_there_is_no_terminal";
+                let Some(base) = std::env::var_os(WORLD_ENV) else {
+                    let plain: &[(&str, &str)] = &[];
+                    let no_interrupt: &[(&str, &str)] = &[("COMMANDAGENT_NO_INTERRUPT", "1")];
+                    for (env, to_a_pipe) in [(plain, false), (plain, true), (no_interrupt, false)] {
+                        let temp = prepared();
+                        let base = std::fs::canonicalize(temp.path()).unwrap();
+                        let child = run_child_writing(NAME, &base, env, to_a_pipe);
+                        assert!(child.success, "{}", child.stdout);
+                        let stderr = String::from_utf8(child.stderr).unwrap();
+                        assert_eq!(stderr.matches("stage record refused: corrupt").count(), 1);
+                        assert!(!stderr.contains('\r'), "{stderr:?}");
+                        assert!(!stderr.contains('\x1b'), "{stderr:?}");
+                        let lines = stderr
+                            .lines()
+                            .skip_while(|line| !line.starts_with("stage record refused:"))
+                            .collect::<Vec<_>>();
+                        assert!(lines[1].starts_with("  ledger: "), "{stderr:?}");
+                        assert!(lines[2].starts_with("  to recover: "), "{stderr:?}");
+                    }
+                    return;
+                };
+                let world = World::at(Path::new(&base));
+                let _live = world.enter();
+                let (_, result) = world.prompt(seals_both());
+                result.unwrap();
+                let file = crate::planner::structured_stages::ledger::ledger_file(
+                    &world.evidence.join("state"),
+                    &world.root,
+                    PROFILE,
+                )
+                .unwrap();
+                std::fs::write(file, b"not a record").unwrap();
+                let config = world.config("http://127.0.0.1:9");
+                for _ in 0..2 {
+                    let failure =
+                        crate::planner::structured_stages::final_gate_failure(&config).unwrap();
+                    assert!(failure.contains("ledger_refused"), "{failure}");
+                }
+            }
+
+            /// Acceptance 1: a settings object and a document index go through the same machine,
+            /// and what was adopted is what the receipt and the record name.
+            #[test]
+            fn a_settings_object_and_a_document_index_walk_the_same_machine() {
+                let Some(world) =
+                    one_process("a_settings_object_and_a_document_index_walk_the_same_machine")
+                else {
+                    return;
+                };
+                let _live = world.enter();
+                let run = |profile: &str, upper: &'static str, lower: &'static str| {
+                    let seen: Arc<Mutex<Vec<Value>>> = Arc::default();
+                    let kept = seen.clone();
+                    let http = FakeHttp::start(Arc::new(move |index, body| match index {
+                        1 => submit(upper, "fast", "initial"),
+                        2 => {
+                            let answer = last_answer(body);
+                            kept.lock().unwrap().push(answer.clone());
+                            submit(lower, "fast", &revision_below(&answer))
+                        }
+                        3 => {
+                            kept.lock().unwrap().push(last_answer(body));
+                            text_reply("done")
+                        }
+                        _ => text_reply("done"),
+                    }));
+                    let mut config = world.config(&http.url);
+                    config.profile = profile.to_string();
+                    let mut client = client_from_config(&config, false).unwrap();
+                    run_session_with_outcome_with_ui(
+                        client.as_mut(),
+                        &mut SessionSnapshot::new(),
+                        "Submit both stages.",
+                        &[],
+                        &config,
+                        &NOOP_UI,
+                    )
+                    .unwrap();
+                    http.finish();
+                    seen.lock().unwrap().clone()
+                };
+                for answers in [
+                    run(PROFILE, UPPER_TOOL, LOWER_TOOL),
+                    run(INDEX_PROFILE, "ProposeIndexUpper", "ProposeIndexLower"),
+                ] {
+                    assert_eq!(answers.len(), 2);
+                    for answer in answers {
+                        assert_eq!(answer["stage"]["status"], "sealed", "{answer}");
+                        let path = answer["path"].as_str().unwrap();
+                        let bytes = std::fs::read(world.root.join(path)).unwrap();
+                        assert_eq!(answer["committed_sha256"], sha256(&bytes), "{answer}");
+                    }
+                }
+                assert!(world.root.join("index/upper.json").is_file());
+                assert!(world.root.join("index/lower.json").is_file());
+                // A record for each profile, and each names what it adopted.
+                let leaf = world.evidence.join("state/structured-stages");
+                assert_eq!(std::fs::read_dir(leaf).unwrap().count(), 2);
+            }
+
+            /// A run resumed in a new process has its seals lowered with the bytes unchanged, and
+            /// final acceptance does not take them as met. Whatever its repair then does, this is
+            /// no success.
+            #[test]
+            fn seals_a_resume_lowered_are_not_met_at_final_acceptance() {
+                const NAME: &str = "seals_a_resume_lowered_are_not_met_at_final_acceptance";
+                let Some(base) = std::env::var_os(WORLD_ENV) else {
+                    let temp = prepared();
+                    let base = std::fs::canonicalize(temp.path()).unwrap();
+                    for role in ["first", "second"] {
+                        let child = run_child(NAME, &base, &[(ROLE_ENV, role)]);
+                        assert!(
+                            child.success,
+                            "{role}: {}",
+                            String::from_utf8_lossy(&child.stderr)
+                        );
+                    }
+                    return;
+                };
+                let world = World::at(Path::new(&base));
+                let _live = world.enter();
+                if std::env::var_os(ROLE_ENV).is_some_and(|role| role == "first") {
+                    let (_, result) = world.prompt(seals_both());
+                    result.unwrap();
+                    return;
+                }
+                std::fs::write(world.root.join("notes.txt"), "the notes\n").unwrap();
+                let http = FakeHttp::start(Arc::new(|_, body| {
+                    if !body["tools"].to_string().contains(UPPER_TOOL) {
+                        let goal = "Look at the seed";
+                        return text_reply(
+                            &json!({"goal": goal, "steps": [{
+                                "id": "step-inspect",
+                                "kind": "setup",
+                                "expected_result": "pass",
+                                "instruction": goal,
+                                "expected_paths": [],
+                                "verify": [],
+                            }]})
+                            .to_string(),
+                        );
+                    }
+                    if !body
+                        .to_string()
+                        .contains("Repair the final acceptance failure")
+                    {
+                        let answered = messages(body)
+                            .last()
+                            .is_some_and(|message| message["role"] == "tool");
+                        return if answered {
+                            text_reply("done")
+                        } else {
+                            call_reply("Read", &json!({"path": FIXED}))
+                        };
+                    }
+                    let Some(last) = messages(body).last().filter(|m| m["role"] == "tool") else {
+                        return submit(UPPER_TOOL, "fast", "initial");
+                    };
+                    let answer: Value =
+                        serde_json::from_str(last["content"].as_str().unwrap_or("{}"))
+                            .unwrap_or_default();
+                    match (answer["status"].as_str(), answer["path"].as_str()) {
+                        (Some("stale"), _) if answer["revision"].is_string() => {
+                            let tool = if body.to_string().contains("\"path\":\"out/upper.json\"") {
+                                LOWER_TOOL
+                            } else {
+                                UPPER_TOOL
+                            };
+                            submit(tool, "fast", answer["revision"].as_str().unwrap())
+                        }
+                        (_, Some(UPPER_OUTPUT)) => submit(LOWER_TOOL, "fast", "initial"),
+                        _ => text_reply("done"),
+                    }
+                }));
+                let mut config = world.config(&http.url);
+                config.resume = Some("a-saved-run".to_string());
+                let mut planner = client_from_config(&config, true).unwrap();
+                let mut execution = client_from_config(&config, false).unwrap();
+                let plan = UltraPlan {
+                    goal: "Look again".to_string(),
+                    profile: PROFILE.to_string(),
+                    style: "default".to_string(),
+                    intent: "create".to_string(),
+                    phases: vec![
+                        UltraPhase {
+                            id: "first".to_string(),
+                            prompt: "Phase-first: look at the seed.".to_string(),
+                        },
+                        UltraPhase {
+                            id: "second".to_string(),
+                            prompt: "Phase-second: look at the seed again.".to_string(),
+                        },
+                    ],
+                };
+                let result = run_ultra_plan(planner.as_mut(), execution.as_mut(), &plan, &config);
+                http.finish();
+                result.expect_err("a seal a resume lowered is not a seal");
+                let events = world.events();
+                let unmet = events
+                    .lines()
+                    .find(|line| line.contains("\"event\":\"structured_stage_incomplete\""))
+                    .expect("final acceptance asked");
+                assert!(unmet.contains("\"phase\":\"unverified\""), "{unmet}");
+                assert!(events.contains("\"event\":\"final_acceptance_repair_start\""));
+            }
+
+            /// M17: a pack's declaration counts too, for the run where no session ever bound.
+            #[test]
+            fn final_acceptance_finds_stages_a_selected_pack_declares() {
+                use super::super::super::super::selection::{
+                    self, PackSelection, ResolvedDeclaration,
+                };
+                let Some(world) =
+                    one_process("final_acceptance_finds_stages_a_selected_pack_declares")
+                else {
+                    return;
+                };
+                let _live = world.enter();
+                assert!(!selection::stages_declared_without_a_read("generic"));
+                let chosen = PackSelection {
+                    directory: world.base.join("pack"),
+                    id: "a-pack".to_string(),
+                    version: "1.0.0".to_string(),
+                    hash: "sha256:none".to_string(),
+                };
+                // SAFETY: this process runs this one test, on this one thread.
+                unsafe {
+                    std::env::set_var("COMMANDAGENT_PACK_DIRECTORY", &chosen.directory);
+                    std::env::set_var("COMMANDAGENT_PACK_ID", &chosen.id);
+                    std::env::set_var("COMMANDAGENT_PACK_VERSION", &chosen.version);
+                    std::env::set_var("COMMANDAGENT_PACK_HASH", &chosen.hash);
+                }
+                let declared = crate::planner::extension_profiles::find(PROFILE)
+                    .and_then(|_| selection::manifest_declaration_for_test(PROFILE))
+                    .unwrap();
+                let pack_profile = crate::planner::pack::PackProfile::PythonCli;
+                let _installed = selection::install_declaration(
+                    chosen,
+                    Some(ResolvedDeclaration {
+                        pack_profile,
+                        tools: Some(declared),
+                    }),
+                );
+                assert!(selection::stages_declared_without_a_read("generic"));
+            }
         }
     }
 
