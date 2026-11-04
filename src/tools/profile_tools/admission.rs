@@ -28,7 +28,9 @@ use crate::planner::structured_stages::contract::{
     self as stage_contract, HostToolFacts, StageContractDraft, StageLimits, StageRunFacts,
 };
 use crate::planner::structured_stages::ledger::{LedgerEntry, process_ledgers};
-use crate::planner::structured_stages::{StageRun, contract_refused};
+use crate::planner::structured_stages::{
+    DeclaredStagesUnread, StageIdentity, StageRun, contract_refused,
+};
 use crate::tools::extension::{ExtensionExecutor, ExtensionNetworkAccess, ExtensionTool};
 use crate::tools::registry::ToolRegistry;
 
@@ -504,6 +506,13 @@ fn stage_draft(
     selected: &SelectedTools,
     workspace: &Path,
 ) -> Result<Option<StageContractDraft>, ProfileToolRefusal> {
+    Ok(stage_draft_and_descriptors(selected, workspace)?.map(|(draft, _)| draft))
+}
+
+fn stage_draft_and_descriptors(
+    selected: &SelectedTools,
+    workspace: &Path,
+) -> Result<Option<(StageContractDraft, Vec<LoadedDescriptor>)>, ProfileToolRefusal> {
     let Some(declaration) = &selected.stages else {
         return Ok(None);
     };
@@ -514,17 +523,55 @@ fn stage_draft(
         .map(|target| target.tool_id.as_str())
         .collect::<BTreeSet<_>>();
     let mut facts = Vec::with_capacity(staged.len());
+    let mut descriptors = Vec::with_capacity(staged.len());
     for (tool_id, declared) in &selected.tools {
         if staged.contains(tool_id.as_str()) && declared.effect == effects::EFFECT_PROPOSE_ARTIFACTS
         {
             let loaded =
                 descriptor::load(tool_id, workspace).map_err(effects::with_effect_origin)?;
             facts.push(host_tool_facts(&loaded.descriptor)?);
+            descriptors.push(loaded);
         }
     }
     StageContractDraft::new(declaration, &facts)
-        .map(Some)
+        .map(|draft| Some((draft, descriptors)))
         .map_err(contract_refused)
+}
+
+/// What the stages declared now are, for a record's seals to be held to. It only reads: no input,
+/// no adoption, no probe, no stage run, no ledger, and `Ok(None)` is a declaration with no stage.
+/// A descriptor's digest covers what it says and not what it points at, so the bytes of a process
+/// are held to their pins here too.
+pub(crate) fn declared_stage_identity(
+    workspace: &Path,
+    profile: &str,
+) -> Result<Option<StageIdentity>, DeclaredStagesUnread> {
+    let selected = selection::selected(profile, PackSource::Environment)
+        .map_err(|_| DeclaredStagesUnread::SelectedPack)?;
+    let Some(selected) = selected else {
+        return Ok(None);
+    };
+    let unread = |_| DeclaredStagesUnread::Stages;
+    let Some((draft, loaded)) =
+        stage_draft_and_descriptors(&selected, workspace).map_err(unread)?
+    else {
+        return Ok(None);
+    };
+    let mut descriptors = BTreeMap::new();
+    for tool in loaded {
+        let process = tool
+            .descriptor
+            .process
+            .as_ref()
+            .ok_or(DeclaredStagesUnread::Stages)?;
+        descriptor::verify_process_pins(process, &tool.descriptor.tool_id, workspace)
+            .map_err(unread)?;
+        descriptors.insert(tool.descriptor.tool_id, tool.sha256);
+    }
+    Ok(Some(StageIdentity {
+        contract_sha256: draft.contract_sha256(),
+        descriptors,
+    }))
 }
 
 /// Joins the admitted tools to their stage set. Only now does the process's ledger table come

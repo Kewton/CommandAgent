@@ -28,6 +28,7 @@ use resume::AdmittedPins;
 use state::{AttemptRequest, BytesSource, ObservedBytes};
 
 use crate::config::Config;
+use crate::tools::profile_tools::admission::declared_stage_identity;
 use crate::tools::profile_tools::commit::CommitReceipt;
 use crate::tools::profile_tools::schema::binding::AdoptedInputs;
 use crate::tools::profile_tools::schema::invocation::SchemaGuard;
@@ -222,6 +223,23 @@ enum BoundAdmission {
     NoStages,
 }
 
+const NO_SESSION_BOUND: &str = "stage_incomplete: no_session_bound_the_declared_stages";
+
+/// What a stage set's seals were made under: its contract, and each tool's descriptor bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct StageIdentity {
+    pub(crate) contract_sha256: String,
+    /// By tool ID.
+    pub(crate) descriptors: BTreeMap<String, String>,
+}
+
+/// Why the stages declared now could not be told.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DeclaredStagesUnread {
+    SelectedPack,
+    Stages,
+}
+
 /// Another pack selection is another set of stages: one's seals say nothing about the other's. So
 /// is another declaration of the profile, which a later extension root can make of the same name.
 type BoundKey = (PathBuf, String, Option<&'static str>, Option<PackSelection>);
@@ -266,7 +284,8 @@ pub(crate) fn remember_admission_without_stages(config: &Config) {
 /// lower a report. A pass here says nothing wider than that the obligations were met (D8). A run
 /// memory says has no stage, with no declaration and no pack or a decoded pack with none, returns
 /// at the first line, having read no table and touched no file. A pack only an admission can read
-/// goes on to resolve the workspace's path and look in the table, the pack's bytes untouched.
+/// goes on to resolve the workspace's path and look in the table. A record of stages is then held
+/// to what is declared now, which reads the declaration; a record of no stage reads nothing more.
 pub(crate) fn final_gate_failure(config: &Config) -> Option<String> {
     let pack = selection::selection_that_may_hold_stages(&config.profile)?;
     let bound = bound_key(&config.workspace_root, &config.profile, pack).and_then(|key| {
@@ -278,6 +297,9 @@ pub(crate) fn final_gate_failure(config: &Config) -> Option<String> {
     });
     match bound {
         Some(BoundAdmission::Stages(run)) => {
+            if let Some(failure) = run.seals_are_of_another_contract(&config.profile) {
+                return Some(failure.to_string());
+            }
             let shortfall = run.judge(StageScope::All)?;
             run.report_shortfall(&shortfall, config.eval_events_path.as_deref());
             Some(shortfall.to_refusal().to_string())
@@ -288,8 +310,8 @@ pub(crate) fn final_gate_failure(config: &Config) -> Option<String> {
 }
 
 /// The table has nothing for this key: no session of this process admitted it, or the workspace's
-/// path cannot be resolved to look. Only now, and only when memory says nothing of a declaration,
-/// does the gate read the pack. What it finds is kept nowhere, so a later gate reads it again.
+/// path cannot be resolved to look. Only when memory says nothing of a declaration does the gate
+/// read the pack here. What it finds is kept nowhere, so a later gate reads it again.
 fn no_session_failure(profile: &str) -> Option<String> {
     let declared = selection::stages_declared_without_a_read(profile)
         || match selection::selected_stages_by_reading(profile) {
@@ -298,7 +320,7 @@ fn no_session_failure(profile: &str) -> Option<String> {
                 return Some("stage_incomplete: the_selected_pack_cannot_be_read".to_string());
             }
         };
-    declared.then(|| "stage_incomplete: no_session_bound_the_declared_stages".to_string())
+    declared.then(|| NO_SESSION_BOUND.to_string())
 }
 
 /// What one verdict says for one scope.
@@ -379,6 +401,32 @@ impl StageRun {
             notes: Mutex::new(Vec::new()),
             calls_without_process: AtomicUsize::new(0),
             record_notice_shown: AtomicBool::new(false),
+        }
+    }
+
+    /// Why this run's seals do not answer for the stages declared now, before its record is opened.
+    /// With no session since, nothing else compares them: a seal is judged by its bytes alone.
+    fn seals_are_of_another_contract(&self, profile: &str) -> Option<&'static str> {
+        let admitted = StageIdentity {
+            contract_sha256: self.draft.contract_sha256(),
+            descriptors: self
+                .members
+                .iter()
+                .map(|(tool, member)| {
+                    let descriptor = member.pins.pins.descriptor_sha256.clone();
+                    (tool.clone(), descriptor)
+                })
+                .collect(),
+        };
+        match declared_stage_identity(&self.workspace, profile) {
+            Ok(Some(declared)) if declared == admitted => None,
+            Ok(_) => Some(NO_SESSION_BOUND),
+            Err(DeclaredStagesUnread::SelectedPack) => {
+                Some("stage_incomplete: the_selected_pack_cannot_be_read")
+            }
+            Err(DeclaredStagesUnread::Stages) => {
+                Some("stage_incomplete: the_declared_stages_cannot_be_read")
+            }
         }
     }
 

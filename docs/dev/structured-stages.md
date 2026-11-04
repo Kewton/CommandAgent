@@ -205,8 +205,11 @@ Each row names what an operator sees and what to do.
   either is not asked about them and reads no record. Going back to A finds A's stages as they were. The
   record is still one per workspace and profile, so a session of B calling a stage after A in that
   process gets `contract_changed`, which only a new process puts right.
-- **Another declaration in one process.** A Config built for another extension root replaces the
-  registered profiles, so one name can come to mean another manifest. Final acceptance's table is keyed
+- **Another declaration in one process.** By reading the code, no production path reaches another
+  extension root within one process: `register` is called once per process, by the one mode that runs,
+  and only the library API and tests call it again. Registering concurrently is not supported, which
+  also no production path does (read). A later root would replace the registered profiles, so one name
+  could come to mean another manifest. Final acceptance's table is keyed
   by the manifest's hash too, taken from memory. Neither a seal nor a "no stage" answer of one
   declaration passes another, whose run with no session ends as `no_session_bound_the_declared_stages`
   when it declares stages. Going back finds the first declaration's record as it was. The same bytes
@@ -214,11 +217,36 @@ Each row names what an operator sees and what to do.
   only in its wording is also no success until a session binds it. A builtin profile has no hash, and no
   root can declare its name. The record is still one per workspace and profile and nothing is removed
   from it, so a session of the new declaration calling a stage gets `contract_changed`.
+- **What a record's seals are held to.** Before it opens a record, final acceptance's gate compares
+  what the record's run was admitted under with what is declared now: the stage contract's digest, and
+  the digest of each staged tool's descriptor. Any difference is
+  `no_session_bound_the_declared_stages`, with the record left as it was. That covers another registry
+  root and a descriptor file edited in place, as measured, whether the change alters a tool's upstream
+  inputs, its required checks, or any other byte. Without this, a run with no session passed on the old
+  seals: a seal is judged by the bytes it covers, and the entry's own check does not refuse a tool whose
+  upstream inputs changed. A session of the changed contract still stops at `contract_changed`.
+  - A descriptor's digest holds what the descriptor says, and not the contents of what it points at. So
+    the gate also holds those to their pins: the files in `dependencies`, the executable, and the pinned
+    directories. Bytes off their pin, a descriptor that cannot be read, and a contract now refused end as
+    `the_declared_stages_cannot_be_read`. A selected pack that cannot be used ends as
+    `the_selected_pack_cannot_be_read`. The same bytes put back pass again. New bytes with a new pin are
+    another descriptor, so `no_session_bound_the_declared_stages`.
+  - It only reads. It adopts no input, runs no probe, starts no process, and opens no record.
+  - What it costs a run with stages: each time the gate asks, it reads each staged tool's descriptor and
+    hashes its dependencies, executable, and pinned directories, and reads a pack left to admission.
+  - A descriptor changed only in its description or spacing is no success until a session binds it, and
+    the entry refuses such a session while the first adoption stands.
+  - A compiled schema is not compared. What it adds to a descriptor's digest is the compiler, and only
+    the library API can put another compiler under the same ID.
+  - A descriptor changed during a `--prompt` session is judged by that session's contract, and is out of
+    scope here. In a plan, a change not put back is `no_session_bound_the_declared_stages` even after a
+    session has run, which stretches what those words say.
+  - `state_dir` is no part of the table's key, so another value finds the same record (read, no test).
 - **A pack only admission can read.** A confirmed TUI dispatch, or a selection inherited in the
   environment, says nothing in memory about stages. A session that admits such a pack with no stage
   records that in final acceptance's table. The table belongs to the process and not to a run: a later
   run with the same workspace, profile, declaration, and selection uses the record, whether or not it
-  ran a session of its own. The final gate reads the selected pack only when the current key has no
+  ran a session of its own. Apart from comparing a record of stages, as above, the final gate reads the selected pack only when the current key has no
   record and memory cannot say whether stages are declared. Two ways there: no session of this process
   admitted that key, as in a first plan whose steps all short-circuit, or the workspace's path cannot be
   resolved, so that a record could be neither kept nor found, even after a session. What the read finds

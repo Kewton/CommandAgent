@@ -84,6 +84,21 @@
       "a_restarted_process_that_resumes_keeps_its_counts_and_seals_nothing",
       "resume_in_a_new_process_goes_on_with_the_run",
       "a_swapped_pin_or_schema_moves_the_generation_and_stays_unverified",
+      "identity_a_registry_root_dropping_an_upstream_is_no_success_with_no_session",
+      "identity_a_descriptor_rewritten_in_place_is_no_success_with_no_session",
+      "identity_an_upstream_added_to_a_descriptor_is_no_success_with_no_session",
+      "identity_changed_required_checks_are_refused_at_the_entry_and_by_the_gate",
+      "identity_a_stage_descriptor_gone_is_no_success",
+      "identity_a_stage_packs_bytes_gone_is_no_success",
+      "identity_a_descriptor_changed_after_the_session_is_no_success_until_restored",
+      "identity_the_same_contract_passes_after_its_session",
+      "identity_a_session_of_the_changed_contract_stops_at_the_record",
+      "identity_a_changed_contract_is_no_success_at_the_gate",
+      "identity_the_gate_adopts_and_starts_nothing",
+      "identity_a_dependency_changed_under_its_pin_is_unreadable_until_restored",
+      "identity_a_dependency_repinned_is_no_success_until_restored",
+      "identity_a_process_directory_changed_under_its_pin_is_unreadable_until_restored",
+      "identity_an_executable_changed_under_its_pin_is_unreadable_until_restored",
       "a_record_found_broken_by_a_judgment_says_where_it_is_and_what_to_do",
       "a_session_that_cannot_answer_for_its_run_gets_no_stages",
       "no_contract_comes_out_of_a_run_that_may_recover_by_itself",
@@ -128,7 +143,8 @@
       "transition_a_pack_rewritten_in_place_has_no_record",
       "transition_a_decoded_pack_leaves_no_record_for_itself_undecoded",
       "transition_a_decoded_value_coming_or_going_keeps_the_record",
-      "transition_a_builtin_profile_finds_its_pack_record_under_any_root"
+      "transition_a_builtin_profile_finds_its_pack_record_under_any_root",
+      "transition_another_builtin_profile_with_the_same_pack_has_no_record"
     ]}
   ],
   "off": [

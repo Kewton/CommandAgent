@@ -97,6 +97,12 @@ fn adoptions() -> std::sync::MutexGuard<'static, BTreeMap<AdoptionKey, Arc<Adopt
     ADOPTIONS.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// How many adoptions this process holds, for a test that something adopts nothing.
+#[cfg(test)]
+pub(crate) fn adoption_count_for_test() -> usize {
+    adoptions().len()
+}
+
 /// The identity of one tool as admitted.
 pub(crate) struct ToolPins<'a> {
     pub(crate) tool_id: &'a str,

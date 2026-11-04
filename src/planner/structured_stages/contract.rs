@@ -648,6 +648,11 @@ impl StageContractDraft {
         Ok(self.contract.clone())
     }
 
+    /// The contract's digest. A run's facts only refuse a contract, so they are no part of it.
+    pub(crate) fn contract_sha256(&self) -> String {
+        self.contract.sha256()
+    }
+
     /// The inputs of a tool that some stage's output feeds. G2 waits for a receipt for these.
     pub(crate) fn upstream_inputs(&self, tool_id: &str) -> BTreeSet<String> {
         self.contract

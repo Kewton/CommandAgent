@@ -7682,6 +7682,457 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                 assert_eq!(world.gate(BARE_PROFILE), None, "its value says no stage");
             }
 
+            fn both_stages_declared() -> String {
+                format!(
+                    "profile_tools:\n  schema_version: profile-tool.declaration/v2\n  builtin_tools: [Read]\n  tools:\n    - id: {UPPER}\n      effect: propose-artifacts\n    - id: {LOWER}\n      effect: propose-artifacts\n  stages:\n    stages:\n      - id: upper\n        targets:\n          - id: main\n            tool_id: {UPPER}\n      - id: lower\n        targets:\n          - id: main\n            tool_id: {LOWER}\n"
+                )
+            }
+
+            /// Profile name, with nothing else to tell them apart: two builtin profiles have no
+            /// declaration's hash, and the pack is the same. One's record, open or sealed, says
+            /// nothing of the other. The value decoded for the pack answers without a read.
+            #[test]
+            fn transition_another_builtin_profile_with_the_same_pack_has_no_record() {
+                const NAME: &str =
+                    "transition_another_builtin_profile_with_the_same_pack_has_no_record";
+                const BOUND: &str = "python-cli";
+                const OTHER: &str = "data";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                assert!(crate::planner::extension_profiles::find(BOUND).is_none());
+                assert!(crate::planner::extension_profiles::find(OTHER).is_none());
+                let pack = world.pack_for(
+                    BOUND,
+                    "stage-pack-of-two-builtins",
+                    &both_stages_declared(),
+                    Installed::Decoded,
+                );
+                let _pack = crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&pack)).unwrap();
+                // Each builtin's own final contract has its say. The gate is what is asked.
+                let upper = world.plan_as(BOUND, the_upper(), stops_after_the_upper());
+                assert!(upper.is_err(), "{upper:?}");
+                let open = world.gate(BOUND).unwrap();
+                assert!(open.contains("1 unmet: lower/main"), "{open}");
+                assert_eq!(world.gate(OTHER).as_deref(), Some(NO_SESSION));
+                let lower = world.plan_as(BOUND, the_lower(), seals_the_lower());
+                assert!(lower.is_err(), "{lower:?}");
+                assert_eq!(
+                    world.gate(BOUND),
+                    None,
+                    "every stage of the record is sealed"
+                );
+                assert_eq!(world.gate(OTHER).as_deref(), Some(NO_SESSION));
+            }
+
+            /// Whether a record's seals are for the contract declared now, asked at the gate.
+            const DECLARED_UNREADABLE: &str =
+                "stage_incomplete: the_declared_stages_cannot_be_read";
+
+            impl World {
+                fn descriptor_file(&self, tool: &str) -> PathBuf {
+                    self.base
+                        .join(format!("registry/profile-tools/{tool}.json"))
+                }
+
+                fn edit_descriptor(&self, tool: &str, edit: impl FnOnce(&mut Value)) {
+                    let file = self.descriptor_file(tool);
+                    let mut descriptor: Value =
+                        serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+                    edit(&mut descriptor);
+                    std::fs::write(&file, descriptor.to_string()).unwrap();
+                }
+
+                fn seal_both(&self) {
+                    let (_, sealed) = self.plan(both_stages(), two_steps());
+                    sealed.unwrap();
+                    assert_eq!(self.gate(PROFILE), None);
+                }
+
+                /// This process's registry, with its descriptors as they are now, under `root`.
+                fn registry_at(&self, root: &str) -> PathBuf {
+                    let root = self.base.join(root);
+                    let tools = root.join("profile-tools");
+                    std::fs::create_dir_all(&tools).unwrap();
+                    for tool in [UPPER, LOWER] {
+                        std::fs::copy(
+                            self.descriptor_file(tool),
+                            tools.join(format!("{tool}.json")),
+                        )
+                        .unwrap();
+                    }
+                    root
+                }
+            }
+
+            fn reading(inputs: &Value) -> impl FnOnce(&mut Value) + '_ {
+                move |descriptor| {
+                    descriptor["schema"]["inputs"] = inputs.clone();
+                    descriptor["schema_sha256"] = json!(sha256(
+                        serde_json::to_string(&descriptor["schema"])
+                            .unwrap()
+                            .as_bytes()
+                    ));
+                }
+            }
+
+            fn use_registry(root: &Path) {
+                // SAFETY: this process runs this one test, on this one thread.
+                unsafe {
+                    std::env::set_var(REGISTRY_ENV, root);
+                }
+            }
+
+            /// Another registry root, whose lower tool no longer reads the upper's output.
+            #[test]
+            fn identity_a_registry_root_dropping_an_upstream_is_no_success_with_no_session() {
+                const NAME: &str =
+                    "identity_a_registry_root_dropping_an_upstream_is_no_success_with_no_session";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                world.seal_both();
+                let record = std::fs::read(world.record_of(PROFILE)).unwrap();
+                let original = std::fs::read(world.descriptor_file(LOWER)).unwrap();
+                world.edit_descriptor(LOWER, reading(&json!([FIXED])));
+                let root = world.registry_at("registry-two");
+                std::fs::write(world.descriptor_file(LOWER), original).unwrap();
+                use_registry(&root);
+                let (_, result) = world.plan(Vec::new(), nobody());
+                let error = result.expect_err("nothing bound this contract");
+                assert!(error.contains(NO_SESSION), "{error}");
+                assert_eq!(std::fs::read(world.record_of(PROFILE)).unwrap(), record);
+            }
+
+            /// The same root, the operator's file edited in place, as in a long-lived process.
+            #[test]
+            fn identity_a_descriptor_rewritten_in_place_is_no_success_with_no_session() {
+                const NAME: &str =
+                    "identity_a_descriptor_rewritten_in_place_is_no_success_with_no_session";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                world.seal_both();
+                let record = std::fs::read(world.record_of(PROFILE)).unwrap();
+                world.edit_descriptor(LOWER, reading(&json!([FIXED])));
+                let (_, result) = world.plan(Vec::new(), nobody());
+                let error = result.expect_err("nothing bound this contract");
+                assert!(error.contains(NO_SESSION), "{error}");
+                assert_eq!(std::fs::read(world.record_of(PROFILE)).unwrap(), record);
+            }
+
+            /// The other way: a tool that read no stage's output now reads one.
+            #[test]
+            fn identity_an_upstream_added_to_a_descriptor_is_no_success_with_no_session() {
+                const NAME: &str =
+                    "identity_an_upstream_added_to_a_descriptor_is_no_success_with_no_session";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                world.edit_descriptor(LOWER, reading(&json!([FIXED])));
+                let _live = world.enter();
+                world.seal_both();
+                world.edit_descriptor(LOWER, reading(&json!([UPPER_OUTPUT, FIXED])));
+                let (_, result) = world.plan(Vec::new(), nobody());
+                let error = result.expect_err("nothing bound this contract");
+                assert!(error.contains(NO_SESSION), "{error}");
+            }
+
+            /// The same upstream set: the entry refuses it as before, and the gate does on its own,
+            /// for a change that comes after the entry's check.
+            #[test]
+            fn identity_changed_required_checks_are_refused_at_the_entry_and_by_the_gate() {
+                const NAME: &str =
+                    "identity_changed_required_checks_are_refused_at_the_entry_and_by_the_gate";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                world.seal_both();
+                world.edit_descriptor(LOWER, |descriptor| {
+                    descriptor["stage"]["required_checks"] = json!(["shape", "another-check"]);
+                });
+                assert_eq!(world.gate(PROFILE).as_deref(), Some(NO_SESSION));
+                let (_, result) = world.plan(Vec::new(), nobody());
+                let error = result.expect_err("the entry compares the descriptor");
+                assert!(error.contains("schema_mismatch"), "{error}");
+            }
+
+            #[test]
+            fn identity_a_stage_descriptor_gone_is_no_success() {
+                const NAME: &str = "identity_a_stage_descriptor_gone_is_no_success";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                world.seal_both();
+                std::fs::remove_file(world.descriptor_file(LOWER)).unwrap();
+                assert_eq!(world.gate(PROFILE).as_deref(), Some(DECLARED_UNREADABLE));
+            }
+
+            /// A pack left to admission is read for what it declares now, and it cannot be.
+            #[test]
+            fn identity_a_stage_packs_bytes_gone_is_no_success() {
+                const NAME: &str = "identity_a_stage_packs_bytes_gone_is_no_success";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let world = world.with_bare_profile();
+                let _live = world.enter();
+                let pack = world.stage_pack(
+                    "stage-pack-then-gone",
+                    (UPPER, LOWER),
+                    Installed::LeftToAdmission,
+                );
+                let _pack = crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&pack)).unwrap();
+                world.plan_bare(both_stages(), two_steps()).unwrap();
+                assert_eq!(world.gate(BARE_PROFILE), None);
+                std::fs::remove_file(pack.directory.join("eval.yaml")).unwrap();
+                assert_eq!(world.gate(BARE_PROFILE).as_deref(), Some(CANNOT_READ));
+            }
+
+            /// After a session too, and for any byte of the descriptor. The same bytes back are the
+            /// same contract.
+            #[test]
+            fn identity_a_descriptor_changed_after_the_session_is_no_success_until_restored() {
+                const NAME: &str =
+                    "identity_a_descriptor_changed_after_the_session_is_no_success_until_restored";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                world.seal_both();
+                let file = world.descriptor_file(LOWER);
+                let original = std::fs::read(&file).unwrap();
+                world.edit_descriptor(LOWER, |descriptor| {
+                    descriptor["description"] = json!("Reworded, and nothing else.");
+                });
+                assert_eq!(world.gate(PROFILE).as_deref(), Some(NO_SESSION));
+                std::fs::write(&file, original).unwrap();
+                assert_eq!(world.gate(PROFILE), None);
+            }
+
+            /// The control: the same contract passes, also from another root with the same bytes.
+            #[test]
+            fn identity_the_same_contract_passes_after_its_session() {
+                const NAME: &str = "identity_the_same_contract_passes_after_its_session";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                world.seal_both();
+                let (_, again) = world.plan(Vec::new(), nobody());
+                assert!(again.is_ok(), "{again:?}");
+                use_registry(&world.registry_at("registry-same-bytes"));
+                assert_eq!(world.gate(PROFILE), None);
+                let (_, moved) = world.plan(Vec::new(), nobody());
+                assert!(moved.is_ok(), "{moved:?}");
+            }
+
+            /// The control: a session of the changed contract gets as far as the record.
+            #[test]
+            fn identity_a_session_of_the_changed_contract_stops_at_the_record() {
+                const NAME: &str = "identity_a_session_of_the_changed_contract_stops_at_the_record";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                world.seal_both();
+                world.edit_descriptor(LOWER, reading(&json!([FIXED])));
+                let (_, prompted) = world.prompt(nobody());
+                let error = prompted.expect_err("the record is of another contract");
+                assert!(error.contains("ledger_refused"), "{error}");
+                let gate = world.gate(PROFILE).unwrap();
+                assert!(gate.contains("ledger_refused"), "{gate}");
+            }
+
+            /// The gate's own answer on a contract changed under a record.
+            #[test]
+            fn identity_a_changed_contract_is_no_success_at_the_gate() {
+                const NAME: &str = "identity_a_changed_contract_is_no_success_at_the_gate";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                world.seal_both();
+                world.edit_descriptor(LOWER, reading(&json!([FIXED])));
+                assert_eq!(world.gate(PROFILE).as_deref(), Some(NO_SESSION));
+            }
+
+            /// The control: whatever the gate answers, it admits nothing, starts nothing, and
+            /// writes nothing. This asks nothing of the answer itself: on a contract that matches,
+            /// on one that does not, and on a pin the process no longer holds.
+            #[test]
+            fn identity_the_gate_adopts_and_starts_nothing() {
+                const NAME: &str = "identity_the_gate_adopts_and_starts_nothing";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                world.seal_both();
+                let adoption_count =
+                    super::super::super::super::schema::binding::adoption_count_for_test;
+                let adoptions = adoption_count();
+                let starts = (world.starts(UPPER), world.starts(LOWER));
+                let record = std::fs::read(world.record_of(PROFILE)).unwrap();
+                let unchanged = |scene: &str| {
+                    assert_eq!(adoption_count(), adoptions, "{scene}");
+                    assert_eq!(
+                        (world.starts(UPPER), world.starts(LOWER)),
+                        starts,
+                        "{scene}"
+                    );
+                    assert_eq!(
+                        std::fs::read(world.record_of(PROFILE)).unwrap(),
+                        record,
+                        "{scene}"
+                    );
+                };
+                let _ = world.gate(PROFILE);
+                unchanged("the same contract");
+                let file = world.descriptor_file(LOWER);
+                let original = std::fs::read(&file).unwrap();
+                world.edit_descriptor(LOWER, reading(&json!([FIXED])));
+                let _ = world.gate(PROFILE);
+                unchanged("another contract");
+                std::fs::write(&file, original).unwrap();
+                std::fs::write(world.tool_script(LOWER), "#!/bin/sh\nexit 3\n").unwrap();
+                let _ = world.gate(PROFILE);
+                unchanged("a process directory off its pin");
+            }
+
+            impl World {
+                fn tool_script(&self, tool: &str) -> PathBuf {
+                    self.base.join(format!("tools/{tool}/tool.sh"))
+                }
+
+                fn descriptor_sha(&self, tool: &str) -> String {
+                    super::super::super::super::descriptor::load(tool, &self.root)
+                        .unwrap()
+                        .sha256
+                }
+
+                /// The lower tool pins a file of its own, in the descriptor's `dependencies`.
+                fn with_a_pinned_library(&self) -> PathBuf {
+                    let library = self.base.join("lower-tool-library.txt");
+                    std::fs::write(&library, "the library as first pinned\n").unwrap();
+                    self.pin_library(&library);
+                    library
+                }
+
+                fn pin_library(&self, library: &Path) {
+                    let pin = sha256(&std::fs::read(library).unwrap());
+                    self.edit_descriptor(LOWER, |descriptor| {
+                        descriptor["dependencies"] = json!([{"path": library, "sha256": pin}]);
+                    });
+                }
+
+                /// The lower tool runs an executable of its own, whose bytes a test can change. A
+                /// script: a system may kill a copy of its own shell.
+                fn with_an_executable_of_its_own(&self) -> PathBuf {
+                    use std::os::unix::fs::PermissionsExt as _;
+                    let directory = self.base.join("lower-tool-bin");
+                    std::fs::create_dir_all(&directory).unwrap();
+                    let executable = directory.join("run-the-script");
+                    std::fs::write(&executable, "#!/bin/sh\nexec /bin/sh \"$@\"\n").unwrap();
+                    std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755))
+                        .unwrap();
+                    let pin = sha256(&std::fs::read(&executable).unwrap());
+                    self.edit_descriptor(LOWER, |descriptor| {
+                        descriptor["process"]["executable"] =
+                            json!({"path": executable, "sha256": pin});
+                    });
+                    executable
+                }
+            }
+
+            /// A pinned file's bytes alone. The descriptor's bytes do not change, and its digest
+            /// cannot be compared here at all: `descriptor::load` refuses first. The same bytes back
+            /// pass again.
+            #[test]
+            fn identity_a_dependency_changed_under_its_pin_is_unreadable_until_restored() {
+                const NAME: &str =
+                    "identity_a_dependency_changed_under_its_pin_is_unreadable_until_restored";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let library = world.with_a_pinned_library();
+                let _live = world.enter();
+                world.seal_both();
+                let original = std::fs::read(&library).unwrap();
+                std::fs::write(&library, "the library, changed\n").unwrap();
+                assert_eq!(world.gate(PROFILE).as_deref(), Some(DECLARED_UNREADABLE));
+                std::fs::write(&library, original).unwrap();
+                assert_eq!(world.gate(PROFILE), None);
+            }
+
+            /// A pinned file and its pin together: the descriptor's digest is what changed.
+            #[test]
+            fn identity_a_dependency_repinned_is_no_success_until_restored() {
+                const NAME: &str = "identity_a_dependency_repinned_is_no_success_until_restored";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let library = world.with_a_pinned_library();
+                let _live = world.enter();
+                world.seal_both();
+                let before = world.descriptor_sha(LOWER);
+                let original = std::fs::read(&library).unwrap();
+                std::fs::write(&library, "the library, changed and pinned\n").unwrap();
+                world.pin_library(&library);
+                assert_ne!(world.descriptor_sha(LOWER), before);
+                assert_eq!(world.gate(PROFILE).as_deref(), Some(NO_SESSION));
+                std::fs::write(&library, original).unwrap();
+                world.pin_library(&library);
+                assert_eq!(world.descriptor_sha(LOWER), before);
+                assert_eq!(world.gate(PROFILE), None);
+            }
+
+            /// The script the tool runs, in a directory the process pins. The descriptor's digest
+            /// stays the same, so only the pin says the bytes moved.
+            #[test]
+            fn identity_a_process_directory_changed_under_its_pin_is_unreadable_until_restored() {
+                const NAME: &str = "identity_a_process_directory_changed_under_its_pin_is_unreadable_until_restored";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                world.seal_both();
+                let before = world.descriptor_sha(LOWER);
+                let script = world.tool_script(LOWER);
+                let original = std::fs::read(&script).unwrap();
+                std::fs::write(&script, "#!/bin/sh\nexit 3\n").unwrap();
+                assert_eq!(world.descriptor_sha(LOWER), before);
+                assert_eq!(world.gate(PROFILE).as_deref(), Some(DECLARED_UNREADABLE));
+                std::fs::write(&script, original).unwrap();
+                assert_eq!(world.gate(PROFILE), None);
+            }
+
+            /// The executable's bytes alone, the same way.
+            #[test]
+            fn identity_an_executable_changed_under_its_pin_is_unreadable_until_restored() {
+                const NAME: &str =
+                    "identity_an_executable_changed_under_its_pin_is_unreadable_until_restored";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let executable = world.with_an_executable_of_its_own();
+                let _live = world.enter();
+                world.seal_both();
+                let before = world.descriptor_sha(LOWER);
+                let original = std::fs::read(&executable).unwrap();
+                let mut changed = original.clone();
+                changed.extend_from_slice(b"one more byte");
+                std::fs::write(&executable, changed).unwrap();
+                assert_eq!(world.descriptor_sha(LOWER), before);
+                assert_eq!(world.gate(PROFILE).as_deref(), Some(DECLARED_UNREADABLE));
+                std::fs::write(&executable, original).unwrap();
+                assert_eq!(world.gate(PROFILE), None);
+            }
+
             /// `find` says nothing for a builtin profile, whichever root is registered, and no root
             /// can declare that name. A pack's record for it stays found.
             #[test]
@@ -7697,9 +8148,7 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                 let pack = world.pack_for(
                     BUILTIN,
                     "stage-pack-for-a-builtin",
-                    &format!(
-                        "profile_tools:\n  schema_version: profile-tool.declaration/v2\n  builtin_tools: [Read]\n  tools:\n    - id: {UPPER}\n      effect: propose-artifacts\n    - id: {LOWER}\n      effect: propose-artifacts\n  stages:\n    stages:\n      - id: upper\n        targets:\n          - id: main\n            tool_id: {UPPER}\n      - id: lower\n        targets:\n          - id: main\n            tool_id: {LOWER}\n"
-                    ),
+                    &both_stages_declared(),
                     Installed::Decoded,
                 );
                 {
