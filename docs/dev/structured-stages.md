@@ -238,9 +238,19 @@ Each row names what an operator sees and what to do.
   same path.
 - **What a seal means (D8).** A seal says the stage's obligations were met. It is not final
   acceptance's Full and not a release pass, and nothing turns it into one: assurance reads nothing
-  of the stages, and the gate only lowers a report. A profile whose own final checks pass can still
-  report `assurance_level: full` with its stages sealed. That level is its checks', not the seal's,
-  and with those checks failing the same seals make no success.
+  of the stages, and the gate only lowers a report. The level on `ultra_plan_complete` comes from
+  the kind of profile: it is not the result of a check, and not a seal. Only a run that passed final
+  acceptance reaches it. A manifest profile with no base runtime reports `full` there, with or without
+  stages. Final acceptance's own level is a separate value. A run with every stage sealed and a run of
+  the same profile with no stage declaration end at the same two levels, and with the profile's final
+  checks failing the same seals make no success.
+- **A fix's order.** A fix judges its stages again after its adjudication's file and event, so it can
+  end as a non-success after an adjudication that reads well. No `ultra_plan_complete` follows.
+- **The off comparison.** One ultra row is recorded with speculation off (`profile_explicit = false`)
+  and compared whole. Another runs with speculation on, as an explicit profile does. There, only
+  `provider_request` and `provider_response` may fall anywhere among the other events, and only between
+  `speculative_phase_plan_started` and `speculative_phase_plan_adopted`, compared as a multiset of
+  whole lines. The requests are compared per thread, each thread's in its own order.
 - **Evidence.** The process runs only on macOS, so **a stage's success end to end is exercised only
   locally on macOS. A green CI is no evidence of a stage's success.** Linux runs the same sessions
   in its unit tests with an unconfined launch only a test build has.

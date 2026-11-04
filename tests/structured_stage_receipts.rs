@@ -396,28 +396,50 @@ mod off_control {
         }
     }
 
+    /// The requests and replies of one thread of a run, in that thread's order.
+    #[derive(Default)]
+    struct Lane {
+        requests: Mutex<Vec<String>>,
+        replies: Mutex<VecDeque<String>>,
+    }
+
     struct FakeHttp {
         url: String,
-        requests: Arc<Mutex<Vec<String>>>,
-        replies: Arc<Mutex<VecDeque<String>>>,
+        main: Arc<Lane>,
+        plans: Arc<Lane>,
         stop: Arc<AtomicBool>,
         thread: Option<std::thread::JoinHandle<()>>,
     }
 
+    struct Heard {
+        requests: Vec<String>,
+        plan_requests: Vec<String>,
+        unused: usize,
+    }
+
     impl FakeHttp {
-        fn start(replies: Vec<String>) -> Self {
+        /// `plans`, when there are any, answer the requests that offer no tool: a phase's plan,
+        /// which may come from a thread of its own. Which of two threads arrives first is not
+        /// something a reply should depend on, or a recording show.
+        fn start(replies: Vec<String>, plans: Vec<String>) -> Self {
             let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
             listener.set_nonblocking(true).unwrap();
             let url = format!("http://{}", listener.local_addr().unwrap());
-            let requests: Arc<Mutex<Vec<String>>> = Arc::default();
-            let replies = Arc::new(Mutex::new(VecDeque::from(replies)));
+            let split = !plans.is_empty();
+            let lane = |replies: Vec<String>| {
+                Arc::new(Lane {
+                    requests: Mutex::default(),
+                    replies: Mutex::new(VecDeque::from(replies)),
+                })
+            };
+            let (main, plans) = (lane(replies), lane(plans));
             let stop = Arc::new(AtomicBool::new(false));
             let thread = {
-                let (requests, replies, stop) = (requests.clone(), replies.clone(), stop.clone());
+                let (main, plans, stop) = (main.clone(), plans.clone(), stop.clone());
                 std::thread::spawn(move || {
                     while !stop.load(Ordering::SeqCst) {
                         match listener.accept() {
-                            Ok((stream, _)) => serve(stream, &requests, &replies),
+                            Ok((stream, _)) => serve(stream, &main, split.then_some(&*plans)),
                             Err(_) => std::thread::sleep(std::time::Duration::from_millis(2)),
                         }
                     }
@@ -425,27 +447,32 @@ mod off_control {
             };
             Self {
                 url,
-                requests,
-                replies,
+                main,
+                plans,
                 stop,
                 thread: Some(thread),
             }
         }
 
-        fn finish(mut self) -> (Vec<String>, usize) {
+        fn finish(mut self) -> Heard {
             self.stop.store(true, Ordering::SeqCst);
             self.thread.take().unwrap().join().unwrap();
-            let requests = self.requests.lock().unwrap().clone();
-            let unused = self.replies.lock().unwrap().len();
-            (requests, unused)
+            Heard {
+                requests: self.main.requests.lock().unwrap().clone(),
+                plan_requests: self.plans.requests.lock().unwrap().clone(),
+                unused: self.main.replies.lock().unwrap().len()
+                    + self.plans.replies.lock().unwrap().len(),
+            }
         }
     }
 
-    fn serve(
-        mut stream: std::net::TcpStream,
-        requests: &Mutex<Vec<String>>,
-        replies: &Mutex<VecDeque<String>>,
-    ) {
+    fn offers_no_tool(body: &str) -> bool {
+        serde_json::from_str::<Value>(body)
+            .ok()
+            .is_some_and(|body| body["tools"].as_array().is_none_or(Vec::is_empty))
+    }
+
+    fn serve(mut stream: std::net::TcpStream, main: &Lane, plans: Option<&Lane>) {
         stream.set_nonblocking(false).unwrap();
         let mut bytes = Vec::new();
         let mut chunk = [0u8; 8192];
@@ -472,11 +499,11 @@ mod off_control {
             }
             bytes.extend_from_slice(&chunk[..read]);
         }
-        requests
-            .lock()
-            .unwrap()
-            .push(String::from_utf8_lossy(&bytes[body_start..]).to_string());
-        let reply = replies
+        let body = String::from_utf8_lossy(&bytes[body_start..]).to_string();
+        let lane = plans.filter(|_| offers_no_tool(&body)).unwrap_or(main);
+        lane.requests.lock().unwrap().push(body);
+        let reply = lane
+            .replies
             .lock()
             .unwrap()
             .pop_front()
@@ -712,6 +739,8 @@ mod off_control {
         TextSession,
         StepPlan,
         Ultra,
+        /// As an explicit profile runs: the next phase's plan is asked for on another thread.
+        UltraSpeculating,
         Investigate,
         Fix,
     }
@@ -724,9 +753,21 @@ mod off_control {
         replies: fn() -> Vec<String>,
     }
 
+    /// For a row with two threads: what answers the requests that offer no tool.
+    fn plans_of(row: &OffRow) -> Vec<String> {
+        if matches!(row.entry, Entry::UltraSpeculating) {
+            vec![
+                step_plan_reply("Write the notes", "step-first"),
+                step_plan_reply("Write the notes again", "step-second"),
+            ]
+        } else {
+            Vec::new()
+        }
+    }
+
     /// What this feature changed the wiring of: a session, a plain plan, an ultra plan and its
     /// final acceptance, and the two ends that have none.
-    const OFF_ROWS: [OffRow; 8] = [
+    const OFF_ROWS: [OffRow; 9] = [
         OffRow {
             id: "chat-native-write-and-read",
             profile: "generic",
@@ -799,6 +840,20 @@ mod off_control {
                     write_reply(),
                     text_reply("done"),
                     step_plan_reply("Write the notes again", "step-second"),
+                    write_reply(),
+                    text_reply("done"),
+                ]
+            },
+        },
+        OffRow {
+            id: "ultra-plan-speculating",
+            profile: "generic",
+            entry: Entry::UltraSpeculating,
+            prompt: "Write the notes.",
+            replies: || {
+                vec![
+                    write_reply(),
+                    text_reply("done"),
                     write_reply(),
                     text_reply("done"),
                 ]
@@ -911,7 +966,7 @@ mod off_control {
                 };
                 summary(run_step_plan(client.as_mut(), &plan, config))
             }
-            Entry::Ultra | Entry::Investigate | Entry::Fix => {
+            Entry::Ultra | Entry::UltraSpeculating | Entry::Investigate | Entry::Fix => {
                 let intent = match row.entry {
                     Entry::Investigate => "investigate",
                     Entry::Fix => "fix",
@@ -931,7 +986,8 @@ mod off_control {
     fn deterministic_config(row: &OffRow, config: &mut Config) {
         // An ultra plan on an explicit profile plans its next phase on another thread, whose
         // provider events can land anywhere among this one's. A profile that may yet be promoted
-        // plans in line, so the recording has one order.
+        // plans in line, so this row has one order, compared whole. `UltraSpeculating` is the
+        // other way, with `events_match`.
         if matches!(row.entry, Entry::Ultra) {
             config.profile_explicit = false;
         }
@@ -943,7 +999,7 @@ mod off_control {
         let root = std::fs::canonicalize(workspace.path()).unwrap();
         let evidence = std::fs::canonicalize(evidence.path()).unwrap();
         std::fs::write(root.join("settings.json"), "{\"mode\":\"fast\"}").unwrap();
-        let http = FakeHttp::start((row.replies)());
+        let http = FakeHttp::start((row.replies)(), plans_of(row));
         let url = http.url.clone();
         let mut config = base_config(&root, &evidence, row.profile, &url);
         match row.entry {
@@ -974,20 +1030,24 @@ mod off_control {
             row.id
         );
         set_env(REGISTRY_ENV, None);
-        let (requests, unused) = http.finish();
-        let requests = requests
-            .iter()
-            .map(|body| normalize_text(&paths, &url, body))
-            .collect::<Vec<_>>();
-        let events = std::fs::read_to_string(evidence.join("events.jsonl"))
-            .unwrap_or_default()
-            .lines()
-            .map(|line| {
-                let value: Value = serde_json::from_str(line).unwrap();
-                normalize_value(&paths, &url, &value).to_string()
-            })
-            .collect::<Vec<_>>();
-        json!({
+        let heard = http.finish();
+        let normalized = |bodies: &[String]| {
+            bodies
+                .iter()
+                .map(|body| normalize_text(&paths, &url, body))
+                .collect::<Vec<_>>()
+        };
+        let requests = normalized(&heard.requests);
+        let plan_requests = normalized(&heard.plan_requests);
+        let unused = heard.unused;
+        // One value after another, not one per line: two threads can leave two values on a line.
+        let events = serde_json::Deserializer::from_str(
+            &std::fs::read_to_string(evidence.join("events.jsonl")).unwrap_or_default(),
+        )
+        .into_iter::<Value>()
+        .map(|value| normalize_value(&paths, &url, &value.unwrap()).to_string())
+        .collect::<Vec<_>>();
+        let mut recorded = json!({
             "id": row.id,
             "outcome": outcome,
             "requests": requests,
@@ -1000,7 +1060,193 @@ mod off_control {
                 ))
                 .collect::<BTreeMap<_, _>>(),
             "unused_replies": unused,
-        })
+        });
+        // Each thread's requests in that thread's order, and only for a row with two threads.
+        if !plan_requests.is_empty() {
+            recorded["plan_requests"] = json!(plan_requests);
+        }
+        recorded
+    }
+
+    /// The two events a provider client writes itself. The thread that asks for the next phase's
+    /// plan (`pipeline.rs`) has no events path of its own, but the client it clones does, so these
+    /// two, and only these, come from that thread and land anywhere among the main thread's.
+    const EVENTS_OF_THE_OTHER_THREAD: [&str; 2] = ["provider_request", "provider_response"];
+    const OTHER_THREAD_STARTS: &str = "speculative_phase_plan_started";
+    const OTHER_THREAD_ENDS: &str = "speculative_phase_plan_adopted";
+
+    fn lines_of(events: &[Value]) -> Vec<&str> {
+        events.iter().map(|line| line.as_str().unwrap()).collect()
+    }
+
+    fn event_name(line: &str) -> String {
+        serde_json::from_str::<Value>(line)
+            .ok()
+            .and_then(|value| value["event"].as_str().map(str::to_string))
+            .unwrap_or_default()
+    }
+
+    fn position_of(events: &[&str], name: &str) -> Result<usize, String> {
+        events
+            .iter()
+            .position(|line| event_name(line) == name)
+            .ok_or_else(|| format!("no {name}"))
+    }
+
+    /// Byte for byte, in order, but for one thing: between the other thread's start and its
+    /// adoption, the events it can write may fall anywhere among the others. There they are
+    /// compared as a multiset of whole lines. Nothing is left out, and outside those two lines
+    /// nothing is allowed to move.
+    fn events_match(new: &[&str], old: &[&str]) -> Result<(), String> {
+        let (new_start, new_end) = (
+            position_of(new, OTHER_THREAD_STARTS)?,
+            position_of(new, OTHER_THREAD_ENDS)?,
+        );
+        let (old_start, old_end) = (
+            position_of(old, OTHER_THREAD_STARTS)?,
+            position_of(old, OTHER_THREAD_ENDS)?,
+        );
+        if new[..new_start] != old[..old_start] {
+            return Err("the events before the other thread's start differ".to_string());
+        }
+        if new[new_end..] != old[old_end..] {
+            return Err("the events from the adoption on differ".to_string());
+        }
+        let parts = |range: &[&str]| {
+            let (mut movable, mut fixed): (Vec<String>, Vec<String>) = (Vec::new(), Vec::new());
+            for line in range {
+                if EVENTS_OF_THE_OTHER_THREAD.contains(&event_name(line).as_str()) {
+                    movable.push((*line).to_string());
+                } else {
+                    fixed.push((*line).to_string());
+                }
+            }
+            movable.sort();
+            (movable, fixed)
+        };
+        let (new_movable, new_fixed) = parts(&new[new_start..new_end]);
+        let (old_movable, old_fixed) = parts(&old[old_start..old_end]);
+        if new_fixed != old_fixed {
+            return Err("the main thread's events between them differ or moved".to_string());
+        }
+        if new_movable != old_movable {
+            return Err("the provider events between them are not the same lines".to_string());
+        }
+        Ok(())
+    }
+
+    /// What the comparison above lets through, and what it does not.
+    #[test]
+    fn only_the_other_threads_events_may_move_and_only_within_their_range() {
+        let line = |event: &str, note: &str| json!({"event": event, "note": note}).to_string();
+        let start = line(OTHER_THREAD_STARTS, "");
+        let end = line(OTHER_THREAD_ENDS, "");
+        let (before, a, b, after) = (
+            line("before", ""),
+            line("main_a", ""),
+            line("main_b", ""),
+            line("after", ""),
+        );
+        let (request, response) = (
+            line("provider_request", "p"),
+            line("provider_response", "p"),
+        );
+        let old = [
+            before.as_str(),
+            start.as_str(),
+            a.as_str(),
+            request.as_str(),
+            b.as_str(),
+            response.as_str(),
+            end.as_str(),
+            after.as_str(),
+        ];
+        assert_eq!(events_match(&old, &old), Ok(()));
+
+        // Its own events anywhere between the two lines.
+        let moved = [
+            before.as_str(),
+            start.as_str(),
+            request.as_str(),
+            response.as_str(),
+            a.as_str(),
+            b.as_str(),
+            end.as_str(),
+            after.as_str(),
+        ];
+        assert_eq!(events_match(&moved, &old), Ok(()));
+
+        // Any other event out of order.
+        let swapped = [
+            before.as_str(),
+            start.as_str(),
+            b.as_str(),
+            request.as_str(),
+            a.as_str(),
+            response.as_str(),
+            end.as_str(),
+            after.as_str(),
+        ];
+        assert!(
+            events_match(&swapped, &old).is_err(),
+            "the main thread's order"
+        );
+
+        // Another content in one of its events.
+        let changed_line = line("provider_request", "changed");
+        let changed = [
+            before.as_str(),
+            start.as_str(),
+            a.as_str(),
+            changed_line.as_str(),
+            b.as_str(),
+            response.as_str(),
+            end.as_str(),
+            after.as_str(),
+        ];
+        assert!(events_match(&changed, &old).is_err(), "its content");
+
+        // One missing: a count of lines is not all this looks at.
+        let missing = [
+            before.as_str(),
+            start.as_str(),
+            a.as_str(),
+            b.as_str(),
+            response.as_str(),
+            end.as_str(),
+            after.as_str(),
+        ];
+        assert!(events_match(&missing, &old).is_err(), "one fewer");
+
+        // Out of its range, on either side.
+        let early = [
+            before.as_str(),
+            request.as_str(),
+            start.as_str(),
+            a.as_str(),
+            b.as_str(),
+            response.as_str(),
+            end.as_str(),
+            after.as_str(),
+        ];
+        assert!(events_match(&early, &old).is_err(), "before the start");
+        let late = [
+            before.as_str(),
+            start.as_str(),
+            a.as_str(),
+            request.as_str(),
+            b.as_str(),
+            end.as_str(),
+            response.as_str(),
+            after.as_str(),
+        ];
+        assert!(events_match(&late, &old).is_err(), "after the adoption");
+
+        // And only those two names move.
+        assert_eq!(
+            EVENTS_OF_THE_OTHER_THREAD,
+            ["provider_request", "provider_response"]
+        );
     }
 
     /// Acceptance 6: the requests, events, outcome, and artifacts of the base.
@@ -1017,13 +1263,28 @@ mod off_control {
                 .iter()
                 .find(|old| old["id"] == row.id)
                 .unwrap_or_else(|| panic!("no golden row {}", row.id));
-            for key in ["outcome", "requests", "artifacts", "unused_replies"] {
+            for key in [
+                "outcome",
+                "requests",
+                "plan_requests",
+                "artifacts",
+                "unused_replies",
+            ] {
                 assert_eq!(recorded[key], old[key], "{}: {key}", row.id);
             }
             let (new, old) = (
                 recorded["events"].as_array().unwrap(),
                 old["events"].as_array().unwrap(),
             );
+            if matches!(row.entry, Entry::UltraSpeculating) {
+                assert_eq!(
+                    events_match(&lines_of(new), &lines_of(old)),
+                    Ok(()),
+                    "{}",
+                    row.id
+                );
+                continue;
+            }
             for (index, (new, old)) in new.iter().zip(old).enumerate() {
                 assert_eq!(new, old, "{}: event {index}", row.id);
             }

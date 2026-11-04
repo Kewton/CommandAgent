@@ -48,6 +48,7 @@ fixtures/off-golden.json = [
   "\"id\": \"dummy-secret-next-to-reserved-words\"",
   "\"id\": \"step-plan-write\"",
   "\"id\": \"ultra-plan-two-phases\"",
+  "\"id\": \"ultra-plan-speculating\"",
   "\"id\": \"investigate-end\"",
   "\"id\": \"fix-end\""
 ]

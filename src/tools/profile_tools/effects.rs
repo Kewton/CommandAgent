@@ -4285,6 +4285,7 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
             const REGISTRY_ENV: &str = "COMMANDAGENT_ADAPTER_CONFIG_ROOT";
             const PROFILE: &str = "stage-session-config";
             const INDEX_PROFILE: &str = "stage-session-index";
+            const PLAIN_PROFILE: &str = "stage-session-plain";
             const UPPER_TOOL: &str = "ProposeUpper";
             const LOWER_TOOL: &str = "ProposeLower";
             const FIXED: &str = "fixed/seed.json";
@@ -4396,16 +4397,26 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                     notes: bool,
                     responder: Responder,
                 ) -> Result<String, String> {
+                    self.ultra_as(PROFILE, notes, responder)
+                }
+
+                fn ultra_as(
+                    &self,
+                    profile: &str,
+                    notes: bool,
+                    responder: Responder,
+                ) -> Result<String, String> {
                     if notes {
                         std::fs::write(self.root.join("notes.txt"), "the notes\n").unwrap();
                     }
                     let http = FakeHttp::start(responder);
-                    let config = self.config(&http.url);
+                    let mut config = self.config(&http.url);
+                    config.profile = profile.to_string();
                     let mut planner = client_from_config(&config, true).unwrap();
                     let mut execution = client_from_config(&config, false).unwrap();
                     let plan = UltraPlan {
                         goal: "Submit the stages".to_string(),
-                        profile: PROFILE.to_string(),
+                        profile: profile.to_string(),
                         style: "default".to_string(),
                         intent: "create".to_string(),
                         phases: vec![
@@ -4518,6 +4529,17 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                     std::fs::write(profile.join("manifest.toml"), manifest(id, upper, lower))
                         .unwrap();
                 }
+                // The first manifest with its stage declaration taken out, and the schema version
+                // that goes with having none.
+                let whole = manifest(PLAIN_PROFILE, UPPER, LOWER);
+                let plain = whole
+                    .split("[profile_tools.stages]")
+                    .next()
+                    .unwrap()
+                    .replace("profile-tool.declaration/v2", "profile-tool.declaration/v1");
+                let profile = base.join(format!("extension/profiles/{PLAIN_PROFILE}"));
+                std::fs::create_dir_all(&profile).unwrap();
+                std::fs::write(profile.join("manifest.toml"), plain).unwrap();
                 write_descriptor(&base, (UPPER, UPPER_TOOL, UPPER_OUTPUT), &[FIXED]);
                 write_descriptor(
                     &base,
@@ -4543,8 +4565,9 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                 stderr: Vec<u8>,
             }
 
-            /// This test again in a process of its own. It takes only what is named here, and is
-            /// stopped by its own PID if it does not end.
+            /// This test again in a process of its own, through the bounded runner: it gets what is
+            /// named here and what that runner lets through, and its group is stopped if it does
+            /// not end.
             fn run_child(name: &str, base: &Path, env: &[(&str, &str)]) -> Child {
                 run_child_writing(name, base, env, false)
             }
@@ -4616,7 +4639,8 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                 for (key, value) in env {
                     command.env(key, value);
                 }
-                // In a session of its own, so a timeout takes its tool's process with it.
+                // A timeout stops this child's process group. A tool's process is in a group of
+                // its own and stays, until its short script ends with its stdin closed.
                 let output =
                     crate::bounded_process::run_with_timeout(&mut command, CHILD_LIMIT).unwrap();
                 assert_eq!(
@@ -5022,6 +5046,127 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                 } else {
                     assert_stage_incomplete(&result);
                 }
+            }
+
+            /// T1 of stage 4b, where every OS runs it: a fix's reproducer that rewrites what a stage
+            /// sealed leaves bytes the seal does not stand for.
+            #[test]
+            fn a_fix_whose_reproducer_rewrites_a_sealed_output_is_refused_at_its_end() {
+                let Some(world) = one_process(
+                    "a_fix_whose_reproducer_rewrites_a_sealed_output_is_refused_at_its_end",
+                ) else {
+                    return;
+                };
+                let _live = world.enter();
+                std::fs::write(
+                    world.root.join("rewrite.sh"),
+                    "test -f out/upper.json || exit 1\n[ ! -f out/lower.json ] || printf x >> out/lower.json\n",
+                )
+                .unwrap();
+                let result = run_intent(&world, "fix", "sh rewrite.sh", true);
+                assert_stage_incomplete(&result);
+                assert!(result.unwrap_err().contains("lower/main"));
+            }
+
+            /// The same two steps, on tools with no stage: each answers once and that is all.
+            fn each_tool_once() -> Responder {
+                Arc::new(|_, body| {
+                    let text = body.to_string();
+                    if !body["tools"].to_string().contains(UPPER_TOOL) {
+                        let goal = if text.contains("Phase-second") {
+                            "Submit the lower stage"
+                        } else {
+                            "Submit the upper stage"
+                        };
+                        return text_reply(
+                            &json!({"goal": goal, "steps": [{
+                                "id": "step-setup",
+                                "kind": "setup",
+                                "expected_result": "pass",
+                                "instruction": goal,
+                                "expected_paths": [],
+                                "verify": [],
+                            }]})
+                            .to_string(),
+                        );
+                    }
+                    if messages(body)
+                        .last()
+                        .is_some_and(|message| message["role"] == "tool")
+                    {
+                        return text_reply("done");
+                    }
+                    let tool = if text.contains("Submit the lower stage") {
+                        LOWER_TOOL
+                    } else {
+                        UPPER_TOOL
+                    };
+                    submit(tool, "fast", "initial")
+                })
+            }
+
+            /// The level of each of the two events that report one, in this run's last.
+            fn levels(events: &str) -> (String, String) {
+                let level_of = |name: &str| {
+                    let line = events
+                        .lines()
+                        .rfind(|line| line.contains(&format!("\"event\":\"{name}\"")))
+                        .unwrap_or_else(|| panic!("no {name}: {events}"));
+                    let value: Value = serde_json::from_str(line).unwrap();
+                    value["assurance_level"].as_str().unwrap().to_string()
+                };
+                (
+                    level_of("ultra_final_acceptance"),
+                    level_of("ultra_plan_complete"),
+                )
+            }
+
+            /// Acceptance 6: a seal raises no level. The same profile with its stage declaration
+            /// taken out, and nothing else, ends at the same two levels as with every stage sealed.
+            #[test]
+            fn a_seal_raises_no_assurance_level() {
+                const NAME: &str = "a_seal_raises_no_assurance_level";
+                let Some(base) = world_base() else {
+                    let run = |role: &str| {
+                        let temp = prepared();
+                        let base = std::fs::canonicalize(temp.path()).unwrap();
+                        let child = run_child(NAME, &base, &[(ROLE_ENV, role)]);
+                        assert!(
+                            child.success,
+                            "{role}: {}",
+                            String::from_utf8_lossy(&child.stderr)
+                        );
+                        let events =
+                            std::fs::read_to_string(base.join("evidence/events.jsonl")).unwrap();
+                        levels(&events)
+                    };
+                    let sealed = run("sealed");
+                    assert_eq!(run("plain"), sealed, "the stages changed a level");
+                    assert_eq!(
+                        sealed.1, "full",
+                        "what a manifest profile reports: {sealed:?}"
+                    );
+                    return;
+                };
+                let world = World::at(Path::new(&base));
+                let _live = world.enter();
+                let sealed = std::env::var_os(ROLE_ENV).is_some_and(|role| role == "sealed");
+                if sealed {
+                    world.ultra_as(PROFILE, true, ultra_steps(true)).unwrap();
+                } else {
+                    // With no stage above it, the lower tool's input has to be there to be adopted.
+                    std::fs::create_dir_all(world.root.join("out")).unwrap();
+                    std::fs::write(world.root.join(UPPER_OUTPUT), b"{\"version\":1}\n").unwrap();
+                    world
+                        .ultra_as(PLAIN_PROFILE, true, each_tool_once())
+                        .unwrap();
+                }
+                assert!(world.root.join(LOWER_OUTPUT).is_file(), "both tools ran");
+                assert_eq!(
+                    world.evidence.join("state/structured-stages").exists(),
+                    sealed,
+                    "only the declared run has a record"
+                );
             }
 
             /// A child the world's variable did not reach fails at once, and starts nothing. The

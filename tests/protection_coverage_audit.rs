@@ -142,6 +142,7 @@ const PROTECTION_RULES: &[ProtectionRule] = &[
             "src/planner/adjudication/create.rs",
             "src/planner/structured_stages/mod.rs",
             "src/planner/structured_stages/contract.rs",
+            "src/planner/fix_runtime.rs",
         ],
         audit: audit_structured_stage_completion,
     },
@@ -168,6 +169,10 @@ const STRUCTURED_STAGE_REQUIRED: &[(usize, &str)] = &[
     (4, "StageScope::All => verdict.complete(),"),
     (4, "if !verdict.ledger_intact() {"),
     (5, "ContractRefusalKind::RecoversByItself"),
+    (
+        6,
+        "crate::planner::structured_stages::refuse_unmet_plan(config)?;",
+    ),
 ];
 
 fn audit_structured_stage_completion(corpus: &AuditCorpus, rule: &ProtectionRule) -> Vec<String> {
@@ -186,13 +191,35 @@ fn audit_structured_stage_completion(corpus: &AuditCorpus, rule: &ProtectionRule
 #[test]
 fn assurance_reads_nothing_of_the_stages() {
     let corpus = AuditCorpus::from_manifest_dir();
+    // Where a level is made. The two reads here are the gate in final acceptance and the check
+    // ahead of an intent's own end; both can only refuse.
+    let allowed: &[(&str, usize)] = &[
+        ("src/planner/adjudication/create.rs", 1),
+        ("src/planner/runner/phase/flow.rs", 1),
+    ];
+    let mut looked_at = 0;
     for (path, text) in corpus.src_rust_files() {
-        if path.starts_with("src/planner/adjudication/") {
+        let makes_a_level = path.starts_with("src/planner/adjudication/")
+            || path.starts_with("src/planner/profiles/")
+            || matches!(
+                path.as_str(),
+                "src/planner/assurance.rs"
+                    | "src/planner/profile.rs"
+                    | "src/planner/profile_behavior.rs"
+                    | "src/planner/profile_admission.rs"
+                    | "src/planner/runner/phase/flow.rs"
+            );
+        if makes_a_level {
+            looked_at += 1;
             let hits = production_text(text).matches("structured_stages").count();
-            let allowed = usize::from(path == "src/planner/adjudication/create.rs");
-            assert_eq!(hits, allowed, "{path}");
+            let expected = allowed
+                .iter()
+                .find(|(file, _)| *file == path.as_str())
+                .map_or(0, |(_, count)| *count);
+            assert_eq!(hits, expected, "{path}");
         }
     }
+    assert!(looked_at > allowed.len(), "only {looked_at} files");
 }
 
 /// Each way around the G4 ends fails the rule, one file changed at a time.

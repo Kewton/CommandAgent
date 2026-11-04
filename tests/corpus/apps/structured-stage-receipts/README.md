@@ -52,11 +52,21 @@ Nothing is left out. Inside the recording, exactly these are replaced by a place
 - Inside strings, and in the names of artifacts: the two temporary roots, the fake's loopback URL,
   generated UUIDs, `elapsed_ms: N`, `total_duration_ms=N`, and `"epoch":N` in an evidence file.
 
-The row `ultra-plan-two-phases` runs with `profile_explicit = false`. An explicit profile plans its
-next phase on another thread, whose provider events can land anywhere among the main thread's, so
-that order was not a property of the code. This setting plans in line and gives one order; no event
-is left out and no order is normalized. Against a recording with speculation, the difference is the
-three `speculative_phase_*` events and where one `provider_request` falls.
+Two ultra rows differ in one thing:
+
+- `ultra-plan-two-phases` runs with `profile_explicit = false`, which plans in line and gives one
+  order. Nothing is left out and no order is normalized.
+- `ultra-plan-speculating` runs as an explicit profile does: the next phase's plan is asked for on
+  another thread. Its client writes `provider_request` and `provider_response`, which can land
+  anywhere among the main thread's events. Those two, and only between
+  `speculative_phase_plan_started` and `speculative_phase_plan_adopted`, are compared as a multiset of
+  whole lines; everything else is compared in order, byte for byte. The test
+  `only_the_other_threads_events_may_move_and_only_within_their_range` holds that comparison to this.
+  A request is matched to its reply by whether it offers a tool, and each thread's requests are kept
+  in their own list and order, because which thread arrives first is not fixed either.
+
+Two threads can also leave two values on one line of the events file, so the recorder reads values
+and not lines.
 
 The row `investigate-end` ends at `investigation reproducer was not identified`, before that intent's
 end, on the base and now alike. The row `fix-end` reaches its end.

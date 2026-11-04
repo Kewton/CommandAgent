@@ -44,7 +44,8 @@
       "the_closure_takes_only_what_lies_below",
       "a_change_to_the_last_stage_keeps_what_is_above_it",
       "a_new_upper_version_leaves_the_end_unsuccessful_until_the_lower_is_checked_again",
-      "a_fix_whose_reproducer_rewrites_a_sealed_output_is_no_success"
+      "a_fix_whose_reproducer_rewrites_a_sealed_output_is_no_success",
+      "a_fix_whose_reproducer_rewrites_a_sealed_output_is_refused_at_its_end"
     ]},
     {"row": 3, "says": "stale, replayed, foreign, forged, broken, changed, unknown, or unrun all refused with no false pass; the same submission moves nothing, and conflicting content is refused", "tests": [
       "row_three_an_older_revision_is_stale_and_row_four_an_unknown_one_is_refused",
@@ -88,7 +89,9 @@
       "off_wire_events_and_artifacts_match_the_base_recording_byte_for_byte",
       "final_acceptance_asks_for_every_obligation_and_only_a_bound_set_is_asked",
       "an_ultra_plan_that_seals_every_stage_succeeds",
-      "sealing_every_stage_does_not_stand_in_for_final_acceptance"
+      "sealing_every_stage_does_not_stand_in_for_final_acceptance",
+      "a_seal_raises_no_assurance_level",
+      "only_the_other_threads_events_may_move_and_only_within_their_range"
     ]}
   ],
   "off": [
@@ -98,6 +101,7 @@
     {"id": "dummy-secret-next-to-reserved-words"},
     {"id": "step-plan-write"},
     {"id": "ultra-plan-two-phases"},
+    {"id": "ultra-plan-speculating"},
     {"id": "investigate-end"},
     {"id": "fix-end"}
   ]
