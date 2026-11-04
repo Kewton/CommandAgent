@@ -969,6 +969,9 @@ pub fn run_step_plan_with_ui(
     )
     .map(|outcome| outcome.summary)
     .map_err(|err| anyhow::anyhow!("{}", err.message))
+    .and_then(|summary| {
+        crate::planner::structured_stages::refuse_unmet_plan(config).map(|()| summary)
+    })
 }
 
 pub(super) fn missing_final_artifacts(root: &Path, required_paths: &[String]) -> Vec<String> {

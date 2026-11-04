@@ -297,7 +297,7 @@ pub fn run_ultra_plan_with_ui(
     config: &Config,
     ui: &dyn InteractionUi,
 ) -> anyhow::Result<String> {
-    crate::tools::profile_tools::refuse_for_client(config, &*execution)?;
+    crate::tools::profile_tools::refuse_plan_for_client(&plan.profile, config, &*execution)?;
     let preset_plan = crate::planner::ultra_preset::is_profile_preset_plan(config, plan);
     let mut active_plan = plan.clone();
     let mut active_config = config.clone();
@@ -673,6 +673,10 @@ pub fn run_ultra_plan_with_ui(
             &mut setup_authority_state,
         )?;
         phase_machine.phase_committed(true, &plan.intent)?;
+    }
+    // These two end at their own adjudication, with no final acceptance to judge the stages.
+    if fix_runtime.is_some() || investigation_runtime.is_some() {
+        crate::planner::structured_stages::refuse_unmet_plan(config)?;
     }
     if let Some(runtime) = fix_runtime {
         let result = runtime.finish(config, plan);

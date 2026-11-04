@@ -152,6 +152,22 @@ impl ToolRegistry {
             .collect()
     }
 
+    /// Issue #975: whether a declared stage names this tool.
+    pub(crate) fn is_stage_tool(&self, name: &str) -> bool {
+        self.proposals
+            .get(name)
+            .is_some_and(|proposal| proposal.has_stage())
+    }
+
+    /// Issue #975: what stage calls did since the last call. The loop's only view of them: it
+    /// never reads an answer's text.
+    pub(crate) fn take_stage_notes(&self) -> Vec<crate::planner::structured_stages::StageNote> {
+        self.proposals
+            .values()
+            .flat_map(|proposal| proposal.take_stage_notes())
+            .collect()
+    }
+
     pub fn execute(
         &self,
         name: &str,

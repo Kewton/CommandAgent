@@ -8,14 +8,15 @@
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use serde_json::{Map, Value};
 
+use super::super::commit::CommitReceipt;
 use super::super::descriptor::{RegistryBinding, verify_descriptor_pin};
 use super::super::{ProfileToolRefusal, RefusalKind};
-use super::binding::Adoption;
+use super::binding::{AdoptedInputs, Adoption};
 use super::raw_json::{self, DecodeError, DecodeLimits};
 use super::validate::{self, Violation};
 use crate::config::{Config, ToolProtocol};
@@ -41,6 +42,8 @@ struct Receipt {
 pub(crate) struct Shared {
     in_session: AtomicBool,
     receipts: Mutex<Vec<Receipt>>,
+    /// Which reply of the model this session is on.
+    reply: AtomicU64,
 }
 
 impl Shared {
@@ -85,12 +88,28 @@ impl SchemaGuard {
     }
 
     /// G3: the adopted values a process request is bound to.
-    pub(crate) fn adopted_inputs(&self) -> &[super::SchemaInput] {
-        self.adoption.inputs()
+    pub(crate) fn adopted(&self) -> Arc<AdoptedInputs> {
+        self.adoption.adopted()
     }
 
-    pub(crate) fn adopted_revision(&self) -> &str {
-        self.adoption.input_revision()
+    pub(crate) fn declared_inputs(&self) -> &[String] {
+        self.adoption.declared_inputs()
+    }
+
+    /// G4: an upstream's commit, for the input it feeds.
+    pub(crate) fn readopt(&self, receipt: &CommitReceipt) -> Result<(), ProfileToolRefusal> {
+        self.adoption.readopt(receipt)
+    }
+
+    /// G4: which reply of the model this call came in. Calls of one reply share a number, and
+    /// the number only grows across every session of the process. A direct caller of the registry
+    /// has no replies, so each of its calls is one of its own.
+    pub(crate) fn reply_number(&self) -> u64 {
+        if self.shared.in_session.load(Ordering::SeqCst) {
+            self.shared.reply.load(Ordering::SeqCst)
+        } else {
+            next_reply_number()
+        }
     }
 
     pub(crate) fn adopted_schema_sha256(&self) -> &str {
@@ -299,10 +318,20 @@ pub(crate) fn enter_session(state: Arc<ReceiveState>) -> SessionScope {
     }
 }
 
+/// Never hands out a number twice in a process, whichever session asks.
+fn next_reply_number() -> u64 {
+    static REPLY_NUMBER: AtomicU64 = AtomicU64::new(0);
+    REPLY_NUMBER.fetch_add(1, Ordering::SeqCst) + 1
+}
+
 /// A new provider call starts a new turn. Its worker thread gets the same state.
 pub(crate) fn for_provider_worker() -> Option<Arc<ReceiveState>> {
     let state = current()?;
     state.shared.clear();
+    state
+        .shared
+        .reply
+        .store(next_reply_number(), Ordering::SeqCst);
     Some(state)
 }
 
@@ -555,6 +584,33 @@ mod text_reply_tests {
             assert_eq!(reply.content, form, "the reply was parsed");
             assert!(state.shared.take("T").is_none(), "{form}: a receipt exists");
         }
+    }
+}
+
+/// The number a stage's revision check uses to tell one reply of the model from the next.
+#[cfg(test)]
+mod reply_number_tests {
+    use std::sync::Arc;
+
+    use super::text_reply_tests::schema_state;
+    use super::{enter_session, for_provider_worker};
+
+    #[test]
+    fn calls_of_one_reply_share_a_number_and_the_next_reply_has_a_higher_one() {
+        let state = Arc::new(schema_state());
+        let guard = state.guards["T"].clone();
+
+        // No session: nothing groups the calls, so no two share a number.
+        let outside = guard.reply_number();
+        assert!(guard.reply_number() > outside);
+
+        let _scope = enter_session(state);
+        for_provider_worker().unwrap();
+        let first = guard.reply_number();
+        assert_eq!(guard.reply_number(), first);
+        assert!(first > outside);
+        for_provider_worker().unwrap();
+        assert!(guard.reply_number() > first);
     }
 }
 

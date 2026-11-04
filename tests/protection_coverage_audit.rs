@@ -131,7 +131,158 @@ const PROTECTION_RULES: &[ProtectionRule] = &[
         ],
         audit: audit_extension_supply_writes,
     },
+    ProtectionRule {
+        category: "structured_stage_completion",
+        site_predicate: "the ways a run with a declared stage set can end as a success",
+        required_wrapper: "StageFunnel / refuse_unmet_plan / final_gate_failure over StageLedger::verdict",
+        allowlist: &[
+            "src/minimal_loop/loop_run.rs",
+            "src/planner/runner/driver.rs",
+            "src/planner/runner/phase/flow.rs",
+            "src/planner/adjudication/create.rs",
+            "src/planner/structured_stages/mod.rs",
+            "src/planner/structured_stages/contract.rs",
+            "src/planner/fix_runtime.rs",
+            "src/planner/final_acceptance.rs",
+        ],
+        audit: audit_structured_stage_completion,
+    },
 ];
+
+/// One required line for each end, and for the single judgment they all come to.
+const STRUCTURED_STAGE_REQUIRED: &[(usize, &str)] = &[
+    (
+        0,
+        "stages.finish(run_session_planned(run, options, &mut plan), config)",
+    ),
+    (
+        1,
+        "crate::planner::structured_stages::refuse_unmet_plan(config)",
+    ),
+    (
+        2,
+        "crate::planner::structured_stages::refuse_unmet_plan(config)?;",
+    ),
+    (
+        3,
+        "crate::planner::structured_stages::final_gate_failure(config)",
+    ),
+    (4, "StageScope::All => verdict.complete(),"),
+    (4, "if !verdict.ledger_intact() {"),
+    (5, "ContractRefusalKind::RecoversByItself"),
+    (
+        6,
+        "crate::planner::structured_stages::refuse_unmet_plan(config)?;",
+    ),
+    // The final repair's clock takes no clock from a test, so its value and its use are held here.
+    (
+        7,
+        "FINAL_ACCEPTANCE_REPAIR_WALL_CLOCK_CAP: Duration = Duration::from_secs(240)",
+    ),
+    (
+        2,
+        "repair_started.elapsed() > FINAL_ACCEPTANCE_REPAIR_WALL_CLOCK_CAP",
+    ),
+];
+
+fn audit_structured_stage_completion(corpus: &AuditCorpus, rule: &ProtectionRule) -> Vec<String> {
+    let mut violations = STRUCTURED_STAGE_REQUIRED
+        .iter()
+        .filter_map(|(index, required)| {
+            let path = rule.allowlist[*index];
+            (!production_text(corpus.file(path)).contains(required))
+                .then(|| format!("{path} is missing `{required}`"))
+        })
+        .collect::<Vec<_>>();
+    // The final repair's budget is one budget: nothing there may count by stage.
+    let repair = rule.allowlist[7];
+    if production_text(corpus.file(repair)).contains("structured_stages") {
+        violations.push(format!("{repair} reads the stages"));
+    }
+    violations
+}
+
+/// T5b (acceptance 6): assurance reads nothing of the stages. The one read is the gate that can
+/// only lower a report, so a seal has no way into Full or a release pass.
+#[test]
+fn assurance_reads_nothing_of_the_stages() {
+    let corpus = AuditCorpus::from_manifest_dir();
+    // Where a level is made. The two reads here are the gate in final acceptance and the check
+    // ahead of an intent's own end; both can only refuse.
+    let allowed: &[(&str, usize)] = &[
+        ("src/planner/adjudication/create.rs", 1),
+        ("src/planner/runner/phase/flow.rs", 1),
+    ];
+    let mut looked_at = 0;
+    for (path, text) in corpus.src_rust_files() {
+        let makes_a_level = path.starts_with("src/planner/adjudication/")
+            || path.starts_with("src/planner/profiles/")
+            || matches!(
+                path.as_str(),
+                "src/planner/assurance.rs"
+                    | "src/planner/profile.rs"
+                    | "src/planner/profile_behavior.rs"
+                    | "src/planner/profile_admission.rs"
+                    | "src/planner/runner/phase/flow.rs"
+            );
+        if makes_a_level {
+            looked_at += 1;
+            let production = production_text(text);
+            for other_name in ["stages_declared_without_a_read", "StageRun"] {
+                assert!(!production.contains(other_name), "{path}: {other_name}");
+            }
+            let hits = production.matches("structured_stages").count();
+            let expected = allowed
+                .iter()
+                .find(|(file, _)| *file == path.as_str())
+                .map_or(0, |(_, count)| *count);
+            assert_eq!(hits, expected, "{path}");
+        }
+    }
+    assert!(looked_at > allowed.len(), "only {looked_at} files");
+}
+
+/// Each way around the G4 ends fails the rule, one file changed at a time.
+#[test]
+fn structured_stage_completion_rejects_each_weakened_variant() {
+    let real = AuditCorpus::from_manifest_dir();
+    let rule = PROTECTION_RULES
+        .iter()
+        .find(|rule| rule.category == "structured_stage_completion")
+        .unwrap();
+    assert!(
+        (rule.audit)(&real, rule).is_empty(),
+        "{:?}",
+        (rule.audit)(&real, rule)
+    );
+    for (index, required) in STRUCTURED_STAGE_REQUIRED {
+        let path = rule.allowlist[*index];
+        let mut changed = AuditCorpus {
+            files: real.files.clone(),
+        };
+        let text = real.file(path).replace(required, "");
+        changed.files.insert(path.to_string(), text);
+        assert!(
+            !(rule.audit)(&changed, rule).is_empty(),
+            "{path} without `{required}` passed"
+        );
+    }
+    let repair = rule.allowlist[7];
+    let mut changed = AuditCorpus {
+        files: real.files.clone(),
+    };
+    changed.files.insert(
+        repair.to_string(),
+        format!(
+            "{}\nuse crate::planner::structured_stages::StageRun;\n",
+            real.file(repair)
+        ),
+    );
+    assert!(
+        !(rule.audit)(&changed, rule).is_empty(),
+        "a final repair that reads the stages passed"
+    );
+}
 
 #[test]
 fn protection_coverage_table_is_green_for_current_tree() {

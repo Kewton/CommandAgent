@@ -36,6 +36,9 @@ out Write, Edit, and Bash. An eval pack uses the same fields in YAML under
 `profile_tools:`. When the profile and its selected pack both declare, the builtin
 set is their intersection and a tool ID in both is refused.
 
+Stages over `propose-artifacts` tools use `profile-tool.declaration/v2`: see
+[Structured stages](structured-stages.md).
+
 ## Descriptor
 
 ```json

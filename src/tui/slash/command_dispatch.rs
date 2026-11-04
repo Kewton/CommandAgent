@@ -144,7 +144,7 @@ pub(super) fn run_command(
                 planner,
                 execution,
                 &resume.plan,
-                config,
+                &crate::planner::structured_stages::config_resuming(config, &resume.resumed_from),
                 ui,
             )?;
             Ok(format!(

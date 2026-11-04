@@ -17,6 +17,7 @@ use super::schema::SchemaInput;
 use super::schema::raw_json::{self, DecodeLimits};
 use super::{ProfileToolRefusal, RefusalKind};
 use crate::planner::artifact_contract_checks::protocol as adapter_protocol;
+use crate::planner::structured_stages::receipt::{CheckResult, CheckStatus};
 
 pub const PROCESS_PROTOCOL: &str = "profile-tool.process/v1";
 pub const REQUEST_PROTOCOL: &str = "profile-tool.request/v1";
@@ -441,6 +442,116 @@ pub(crate) fn verify_result(
     output: &OutputDeclaration,
     max_result_bytes: usize,
 ) -> Result<AcceptedResult, Rejection> {
+    let document = verify_envelope(stdout, stderr_bytes, binding, max_result_bytes)?;
+    let diagnostics = decode_diagnostics(&document["diagnostics"])?;
+    check_statuses(&document["checks"]).map_err(Rejection::new)?;
+    accepted_output(&document, output, stdout, diagnostics)
+}
+
+/// A stage tool's result, bound to its request, with its check outcomes not yet judged. Who may
+/// answer a failed check with another submission is the state machine's to say, by ID.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct StageResult {
+    pub(crate) checks: Vec<CheckResult>,
+    document: Value,
+}
+
+pub(crate) fn verify_stage_result(
+    stdout: &[u8],
+    stderr_bytes: usize,
+    binding: &Binding,
+    max_result_bytes: usize,
+) -> Result<StageResult, Rejection> {
+    let document = verify_envelope(stdout, stderr_bytes, binding, max_result_bytes)?;
+    let checks = check_list(&document["checks"]).map_err(Rejection::new)?;
+    Ok(StageResult { checks, document })
+}
+
+impl StageResult {
+    /// The candidate, for a result whose checks hold, within the limits of any accepted one.
+    pub(crate) fn accepted(
+        &self,
+        stdout: &[u8],
+        output: &OutputDeclaration,
+    ) -> Result<AcceptedResult, Rejection> {
+        let diagnostics = decode_diagnostics(&self.document["diagnostics"])?;
+        accepted_output(&self.document, output, stdout, diagnostics)
+    }
+
+    /// What goes back to a model whose submission failed a check. It reaches here only after the
+    /// secret check on the process's whole output, and stays a data field.
+    pub(crate) fn resubmit_diagnostics(&self) -> BoundedDiagnostics {
+        bounded_diagnostics(&self.document["diagnostics"])
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct BoundedDiagnostics {
+    pub(crate) items: Vec<Diagnostic>,
+    pub(crate) truncated: bool,
+}
+
+fn cut_to_bytes(text: &str, limit: usize) -> (&str, bool) {
+    if text.len() <= limit {
+        return (text, false);
+    }
+    let mut end = limit;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    (&text[..end], true)
+}
+
+/// The first of them, each cut to its limits. A process can say more than this and it still goes
+/// back as a failed check, which is why going over is not a rejection here.
+fn bounded_diagnostics(value: &Value) -> BoundedDiagnostics {
+    let items = value.as_array().map_or(&[][..], Vec::as_slice);
+    let mut bounded = BoundedDiagnostics {
+        items: Vec::new(),
+        truncated: items.len() > MAX_DIAGNOSTICS,
+    };
+    for item in items.iter().take(MAX_DIAGNOSTICS) {
+        let text = |key: &str| item.get(key).and_then(Value::as_str);
+        let (Some(code), Some(message)) = (text("code"), text("message")) else {
+            bounded.truncated = true;
+            continue;
+        };
+        let (code, code_cut) = cut_to_bytes(code, MAX_DIAGNOSTIC_CODE_BYTES);
+        let (message, message_cut) = cut_to_bytes(message, MAX_DIAGNOSTIC_MESSAGE_BYTES);
+        bounded.truncated |= code_cut || message_cut;
+        bounded.items.push(Diagnostic {
+            code: code.to_string(),
+            message: message.to_string(),
+        });
+    }
+    bounded
+}
+
+/// Exactly the declared output, and the digests a commit takes.
+fn accepted_output(
+    document: &Value,
+    output: &OutputDeclaration,
+    stdout: &[u8],
+    diagnostics: Vec<Diagnostic>,
+) -> Result<AcceptedResult, Rejection> {
+    let (output_id, bytes) = decode_output(&document["outputs"], output).map_err(Rejection::new)?;
+    Ok(AcceptedResult {
+        output_id,
+        committed_sha256: format!("{:x}", Sha256::digest(&bytes)),
+        bytes,
+        result_sha256: format!("{:x}", Sha256::digest(stdout)),
+        diagnostics,
+    })
+}
+
+/// Everything a result must hold before anything it says is read: its size, its form, and the
+/// values that bind it to this request.
+fn verify_envelope(
+    stdout: &[u8],
+    stderr_bytes: usize,
+    binding: &Binding,
+    max_result_bytes: usize,
+) -> Result<Value, Rejection> {
     if stdout.len().saturating_add(stderr_bytes) > max_result_bytes {
         return Err(Rejection::new("result_too_large"));
     }
@@ -500,16 +611,7 @@ pub(crate) fn verify_result(
             return Err(Rejection::new(code));
         }
     }
-    let diagnostics = decode_diagnostics(&object["diagnostics"])?;
-    check_statuses(&object["checks"]).map_err(Rejection::new)?;
-    let (output_id, bytes) = decode_output(&object["outputs"], output).map_err(Rejection::new)?;
-    Ok(AcceptedResult {
-        output_id,
-        committed_sha256: format!("{:x}", Sha256::digest(&bytes)),
-        bytes,
-        result_sha256: format!("{:x}", Sha256::digest(stdout)),
-        diagnostics,
-    })
+    Ok(document)
 }
 
 fn decode_diagnostics(value: &Value) -> Result<Vec<Diagnostic>, Rejection> {
@@ -572,6 +674,45 @@ fn check_statuses(value: &Value) -> Result<(), &'static str> {
         }
     }
     Ok(())
+}
+
+/// Every check a process reported, by ID, each with a status it could report. Whether they are
+/// the ones required is compared elsewhere. A list that is not one of these is no report at all.
+fn check_list(value: &Value) -> Result<Vec<CheckResult>, &'static str> {
+    let items = value.as_array().ok_or("checks_invalid")?;
+    if items.is_empty() {
+        return Err("no_checks");
+    }
+    if items.len() > MAX_CHECKS {
+        return Err("too_many_checks");
+    }
+    let mut seen = BTreeSet::new();
+    let mut checks = Vec::with_capacity(items.len());
+    for item in items {
+        let object = item
+            .as_object()
+            .filter(|object| object.len() == 2)
+            .ok_or("checks_invalid")?;
+        let id = object
+            .get("id")
+            .and_then(Value::as_str)
+            .ok_or("checks_invalid")?;
+        if !seen.insert(id) {
+            return Err("duplicate_check");
+        }
+        let status = match object.get("status").and_then(Value::as_str) {
+            Some("passed") => CheckStatus::Passed,
+            Some("failed") => CheckStatus::Failed,
+            Some("not_run") => CheckStatus::NotRun,
+            Some("unknown") => CheckStatus::Unknown,
+            _ => return Err("check_status_invalid"),
+        };
+        checks.push(CheckResult {
+            id: id.to_string(),
+            status,
+        });
+    }
+    Ok(checks)
 }
 
 /// Exactly the declared output, once, with bytes that match the digest beside them.
@@ -665,6 +806,128 @@ pub(crate) fn decode_base64(text: &str) -> Option<Vec<u8>> {
         }
     }
     Some(decoded)
+}
+
+#[cfg(test)]
+mod bounded_diagnostics_tests {
+    use serde_json::{Value, json};
+
+    use super::{
+        MAX_DIAGNOSTIC_CODE_BYTES, MAX_DIAGNOSTIC_MESSAGE_BYTES, MAX_DIAGNOSTICS,
+        bounded_diagnostics, check_list,
+    };
+    use crate::planner::structured_stages::receipt::{CheckResult, CheckStatus};
+
+    fn items(count: usize) -> Value {
+        Value::Array(
+            (0..count)
+                .map(|index| json!({"code": format!("c{index}"), "message": "m"}))
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn the_count_holds_at_its_edge() {
+        for (count, kept, truncated) in [
+            (MAX_DIAGNOSTICS - 1, MAX_DIAGNOSTICS - 1, false),
+            (MAX_DIAGNOSTICS, MAX_DIAGNOSTICS, false),
+            (MAX_DIAGNOSTICS + 1, MAX_DIAGNOSTICS, true),
+        ] {
+            let bounded = bounded_diagnostics(&items(count));
+            assert_eq!(bounded.items.len(), kept, "{count}");
+            assert_eq!(bounded.truncated, truncated, "{count}");
+        }
+    }
+
+    #[test]
+    fn a_code_and_a_message_are_cut_at_their_edges() {
+        for (extra, truncated) in [(-1i64, false), (0, false), (1, true)] {
+            let size = |limit: usize| usize::try_from(limit as i64 + extra).unwrap();
+            let message = "m".repeat(size(MAX_DIAGNOSTIC_MESSAGE_BYTES));
+            let bounded = bounded_diagnostics(&json!([{"code": "c", "message": message}]));
+            assert_eq!(bounded.truncated, truncated, "message {extra}");
+            assert_eq!(
+                bounded.items[0].message.len(),
+                size(MAX_DIAGNOSTIC_MESSAGE_BYTES).min(MAX_DIAGNOSTIC_MESSAGE_BYTES)
+            );
+
+            let code = "c".repeat(size(MAX_DIAGNOSTIC_CODE_BYTES));
+            let bounded = bounded_diagnostics(&json!([{"code": code, "message": "m"}]));
+            assert_eq!(bounded.truncated, truncated, "code {extra}");
+            assert_eq!(
+                bounded.items[0].code.len(),
+                size(MAX_DIAGNOSTIC_CODE_BYTES).min(MAX_DIAGNOSTIC_CODE_BYTES)
+            );
+        }
+    }
+
+    #[test]
+    fn a_cut_never_splits_a_character() {
+        let message = "é".repeat(MAX_DIAGNOSTIC_MESSAGE_BYTES);
+        let bounded = bounded_diagnostics(&json!([{"code": "c", "message": message}]));
+        assert!(bounded.truncated);
+        assert_eq!(bounded.items[0].message.len(), MAX_DIAGNOSTIC_MESSAGE_BYTES);
+        let message = format!("a{}", "é".repeat(MAX_DIAGNOSTIC_MESSAGE_BYTES));
+        let bounded = bounded_diagnostics(&json!([{"code": "c", "message": message}]));
+        assert_eq!(
+            bounded.items[0].message.len(),
+            MAX_DIAGNOSTIC_MESSAGE_BYTES - 1
+        );
+    }
+
+    #[test]
+    fn what_is_not_a_diagnostic_is_left_out_and_said_to_be() {
+        let bounded =
+            bounded_diagnostics(&json!(["plain", {"code": "c"}, {"code": "c", "message": "m"}]));
+        assert!(bounded.truncated);
+        assert_eq!(bounded.items.len(), 1);
+        assert_eq!(bounded_diagnostics(&json!("not a list")).items.len(), 0);
+    }
+
+    #[test]
+    fn the_check_list_gives_every_id_and_refuses_what_is_no_report() {
+        assert_eq!(
+            check_list(&json!([
+                {"id": "a", "status": "passed"},
+                {"id": "b", "status": "failed"},
+                {"id": "c", "status": "not_run"},
+                {"id": "d", "status": "unknown"},
+            ]))
+            .unwrap(),
+            [
+                ("a", CheckStatus::Passed),
+                ("b", CheckStatus::Failed),
+                ("c", CheckStatus::NotRun),
+                ("d", CheckStatus::Unknown),
+            ]
+            .map(|(id, status)| CheckResult {
+                id: id.to_string(),
+                status,
+            })
+        );
+        for (value, code) in [
+            (json!("no"), "checks_invalid"),
+            (json!([]), "no_checks"),
+            (json!([{"id": "a"}]), "checks_invalid"),
+            (
+                json!([{"id": "a", "status": "passed"}, {"id": "a", "status": "passed"}]),
+                "duplicate_check",
+            ),
+            (
+                json!([{"id": "a", "status": "accepted"}]),
+                "check_status_invalid",
+            ),
+        ] {
+            assert_eq!(check_list(&value).unwrap_err(), code, "{value}");
+        }
+        let too_many = (0..=super::MAX_CHECKS)
+            .map(|index| json!({"id": format!("c{index}"), "status": "passed"}))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            check_list(&Value::Array(too_many)).unwrap_err(),
+            "too_many_checks"
+        );
+    }
 }
 
 #[cfg(test)]

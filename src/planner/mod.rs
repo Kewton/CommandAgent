@@ -65,6 +65,7 @@ pub mod state_binding_scan;
 pub(crate) mod step_material;
 pub mod step_plan;
 pub(crate) mod step_plan_finalize;
+pub(crate) mod structured_stages;
 pub mod ultra_plan;
 pub mod ultra_preset;
 pub mod verify;

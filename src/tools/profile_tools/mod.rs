@@ -94,6 +94,14 @@ pub enum RefusalKind {
     ProcessFailed,
     ResultRejected,
     CommitFailed,
+    /// A declared stage set cannot be admitted, here or for this session.
+    StageContractRefused,
+    /// A stage tool's record of attempts cannot be vouched for.
+    StageLedgerRefused,
+    /// A limit, a changed fixed input, or an unfinished commit: no later call can get past it.
+    StageRunEnded,
+    /// A session wanted to end with a stage obligation it answers for unmet.
+    StageIncomplete,
 }
 
 impl RefusalKind {
@@ -127,6 +135,8 @@ impl RefusalKind {
                 | Self::EffectOutputRefused
                 | Self::EffectPathRefused
                 | Self::EffectEnvRefused
+                | Self::StageContractRefused
+                | Self::StageLedgerRefused
         )
     }
 
@@ -180,6 +190,10 @@ impl RefusalKind {
             Self::ProcessFailed => "process_failed",
             Self::ResultRejected => "result_rejected",
             Self::CommitFailed => "commit_failed",
+            Self::StageContractRefused => "stage_contract_refused",
+            Self::StageLedgerRefused => "stage_ledger_refused",
+            Self::StageRunEnded => "stage_run_ended",
+            Self::StageIncomplete => "stage_incomplete",
         }
     }
 }
@@ -188,6 +202,9 @@ impl RefusalKind {
 pub struct ProfileToolRefusal {
     pub kind: RefusalKind,
     pub reason: String,
+    /// What an operator needs and a message must not carry. It reaches the event and the
+    /// display. `reason` stays words a later step may read.
+    pub(crate) data: Option<serde_json::Value>,
 }
 
 impl ProfileToolRefusal {
@@ -195,6 +212,7 @@ impl ProfileToolRefusal {
         Self {
             kind,
             reason: reason.into(),
+            data: None,
         }
     }
 }
@@ -219,8 +237,36 @@ pub(crate) fn refuse_for_client(
     config: &crate::config::Config,
     client: &dyn crate::providers::ChatClient,
 ) -> anyhow::Result<()> {
+    refuse_plan_for_client(&config.profile, config, client)
+}
+
+/// `--profile` stays as typed, and a preset's plan has the canonical name.
+fn names_the_same_profile(one: &str, other: &str) -> bool {
+    let canonical = crate::planner::profile::canonical_profile_name;
+    canonical(one) == canonical(other)
+}
+
+/// The same check for a plan in hand. A run is reported as its plan's profile, and its stages are
+/// asked of its config's, so the two must be one when either declares stages. It reads nothing
+/// more: a pack only the config's admission reads, and the plan's name is asked of memory.
+pub(crate) fn refuse_plan_for_client(
+    plan_profile: &str,
+    config: &crate::config::Config,
+    client: &dyn crate::providers::ChatClient,
+) -> anyhow::Result<()> {
+    let mut declared = false;
     if let Some(admitted) = admit_selected(&config.workspace_root, &config.profile, None)? {
         admitted.preflight_schema_tools(config, client.profile_tool_schema_wire())?;
+        declared = admitted.stage_run().is_some();
+    }
+    if !names_the_same_profile(plan_profile, &config.profile)
+        && (declared || selection::stages_declared_without_a_read(plan_profile))
+    {
+        return Err(ProfileToolRefusal::new(
+            RefusalKind::StageContractRefused,
+            "a plan names another profile than the run, and stages are declared",
+        )
+        .into());
     }
     Ok(())
 }

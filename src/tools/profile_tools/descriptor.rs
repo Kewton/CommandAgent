@@ -58,6 +58,20 @@ pub struct Descriptor {
     /// the descriptor's bytes, so its digest pins this too.
     #[serde(default)]
     pub process: Option<ProcessDeclaration>,
+    /// What a stage over this tool is held to (G4). A stage set declared over a tool without
+    /// this is refused. Nothing reads it otherwise.
+    #[serde(default)]
+    pub stage: Option<StageFloor>,
+}
+
+/// The operator's floor for one stage target. A declaration can add a check and narrow a limit.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StageFloor {
+    pub required_checks: Vec<String>,
+    pub attempts_per_target: u32,
+    pub attempts_per_run: u32,
+    pub deadline_seconds: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

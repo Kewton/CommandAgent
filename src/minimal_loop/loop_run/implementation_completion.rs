@@ -3,9 +3,12 @@ use std::collections::BTreeMap;
 use sha2::{Digest, Sha256};
 
 use super::*;
+use crate::planner::structured_stages::StageNote;
 
 mod repair_artifact_completion;
+pub(super) mod structured_stage_completion;
 use repair_artifact_completion::{LegacyRead, RepairArtifactCompletion};
+use structured_stage_completion::{STAGE_HOLD_PREFIX, StageHold};
 
 impl RunSessionOptions {
     pub(crate) fn final_acceptance_repair() -> Self {
@@ -23,11 +26,14 @@ impl RunSessionOptions {
 pub(super) struct ImplementationCompletion {
     initial_hashes: BTreeMap<String, Option<String>>,
     repair: RepairArtifactCompletion,
+    stage_hold: StageHold,
 }
 
 impl ImplementationCompletion {
     pub(super) fn blocking_reason(feedback: &str) -> &'static str {
-        if feedback.starts_with("Recovery repair remains unresolved:") {
+        if feedback.starts_with(STAGE_HOLD_PREFIX) {
+            "structured_stage_unmet"
+        } else if feedback.starts_with("Recovery repair remains unresolved:") {
             "recovery_repair_unresolved"
         } else if feedback.starts_with("Final repair is incomplete:") {
             "final_repair_artifact_unchanged"
@@ -41,8 +47,12 @@ impl ImplementationCompletion {
         // Taken first, so a session of another kind leaves no binding behind;
         // it reads nothing unless the session is eligible.
         let repair = RepairArtifactCompletion::capture(root, options);
+        let stage_hold = StageHold::capture(options);
         if options.step_kind != Some(RunSessionStepKind::Implement) {
-            return Self::default();
+            return Self {
+                stage_hold,
+                ..Self::default()
+            };
         }
         let initial_hashes = paths
             .iter()
@@ -57,7 +67,23 @@ impl ImplementationCompletion {
         Self {
             initial_hashes,
             repair,
+            stage_hold,
         }
+    }
+
+    /// F5 of Issue #975: a step that could end at a tool result goes back to its model while a
+    /// stage it called is unmet or an answer has not been read.
+    pub(super) fn stage_holds_tool_only_completion(&self) -> bool {
+        self.stage_hold.holds_tool_only_completion()
+    }
+
+    pub(super) fn stage_has_unmet_obligation(&self) -> bool {
+        self.stage_hold.has_unmet_obligation()
+    }
+
+    /// Takes in what stage calls did. True when one moved a stage.
+    pub(super) fn absorb_stage_notes(&self, notes: Vec<StageNote>) -> bool {
+        self.stage_hold.absorb_notes(notes)
     }
 
     /// The step paths with their current reading: bound targets through the
@@ -177,6 +203,9 @@ impl ImplementationCompletion {
         options: &RunSessionOptions,
         write_seen: bool,
     ) -> Option<String> {
+        if let Some(feedback) = self.stage_hold.feedback() {
+            return Some(feedback);
+        }
         if let Some(obligation) = &options.recovery_obligation
             && let Some(feedback) = obligation.feedback(config, options)
         {

@@ -7,7 +7,7 @@
 //! as unavailable. Nothing here lifts acceptance or assurance: a receipt records
 //! that a tool ran, never that an artifact or stage passed.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -24,6 +24,13 @@ use super::schema::binding::{self as schema_binding, ToolPins};
 use super::schema::invocation::{self, ReceiveState, SchemaGuard};
 use super::selection::{self, DeclaredTool, PackSource, SelectedTools};
 use super::{ProfileToolRefusal, RefusalKind};
+use crate::planner::structured_stages::contract::{
+    self as stage_contract, HostToolFacts, StageContractDraft, StageLimits, StageRunFacts,
+};
+use crate::planner::structured_stages::ledger::{LedgerEntry, process_ledgers};
+use crate::planner::structured_stages::{
+    DeclaredStagesUnread, StageIdentity, StageRun, contract_refused,
+};
 use crate::tools::extension::{ExtensionExecutor, ExtensionNetworkAccess, ExtensionTool};
 use crate::tools::registry::ToolRegistry;
 
@@ -152,9 +159,106 @@ pub struct AdmittedProfileTools {
     schema_tools: Arc<ReceiveState>,
     proposals: Vec<Arc<ProposalTool>>,
     commits: Arc<Mutex<Vec<CommitReceipt>>>,
+    /// `None` without a stage declaration, and then nothing below touches a ledger.
+    stages: Option<Arc<StageRun>>,
+}
+
+#[cfg(test)]
+impl AdmittedProfileTools {
+    pub(super) fn without_stages_for_test() -> Self {
+        Self {
+            bindings: Vec::new(),
+            builtin_tools: Vec::new(),
+            tools: Vec::new(),
+            receipts: Arc::default(),
+            schema_tools: Arc::new(ReceiveState::default()),
+            proposals: Vec::new(),
+            commits: Arc::default(),
+            stages: None,
+        }
+    }
+
+    /// One stage over a tool no process backs: enough for what is judged before any call.
+    pub(super) fn with_stage_set_for_test(workspace: &Path) -> Self {
+        use crate::planner::structured_stages::contract::{
+            NarrowedStageLimits, StageDeclaration, StageSetDeclaration, TargetDeclaration,
+        };
+        let draft = StageContractDraft::new(
+            &StageSetDeclaration {
+                stages: vec![StageDeclaration {
+                    id: "only".to_string(),
+                    targets: vec![TargetDeclaration {
+                        id: "main".to_string(),
+                        tool_id: "a-tool".to_string(),
+                    }],
+                    depends_on: Vec::new(),
+                    required_checks: Vec::new(),
+                }],
+                limits: NarrowedStageLimits::default(),
+            },
+            &[HostToolFacts {
+                tool_id: "a-tool".to_string(),
+                output_id: "artifact".to_string(),
+                output_path: "out/a.json".to_string(),
+                schema_inputs: Vec::new(),
+                has_revision_argument: false,
+                has_compiler: false,
+                required_checks: vec!["shape".to_string()],
+                limits: StageLimits {
+                    attempts_per_target: 2,
+                    attempts_per_run: 2,
+                    deadline_seconds: 60,
+                },
+            }],
+        )
+        .unwrap();
+        Self {
+            stages: Some(Arc::new(StageRun::new(
+                draft,
+                BTreeMap::new(),
+                workspace.to_path_buf(),
+                "a-profile".to_string(),
+                Arc::default(),
+            ))),
+            ..Self::without_stages_for_test()
+        }
+    }
 }
 
 impl AdmittedProfileTools {
+    pub(crate) fn stage_run(&self) -> Option<Arc<StageRun>> {
+        self.stages.clone()
+    }
+
+    /// The same question as a session's, for an entry about to spend a provider call. Off for a
+    /// set with no stage.
+    pub(crate) fn preflight_stage_run(
+        &self,
+        config: &crate::config::Config,
+    ) -> Result<(), ProfileToolRefusal> {
+        match &self.stages {
+            Some(stages) => stages
+                .judge_run(StageRunFacts::of_session(config), &config.state_dir)
+                .map(|_| ()),
+            None => Ok(()),
+        }
+    }
+
+    /// What a declared stage set needs from the session it runs in. Every session asks again:
+    /// the run's OS boundary and whether this is a workflow child are read now, not kept.
+    pub(crate) fn bind_stage_session(
+        &self,
+        config: &crate::config::Config,
+        entry: LedgerEntry,
+    ) -> Result<(), ProfileToolRefusal> {
+        match &self.stages {
+            Some(stages) => {
+                stages.bind_session(StageRunFacts::of_session(config), &config.state_dir, entry)
+            }
+            None => Ok(()),
+        }
+    }
+
     /// Off for every set without a schema tool or a proposal tool. Every entry reaches
     /// this before its first provider call.
     pub(crate) fn preflight_schema_tools(
@@ -263,8 +367,9 @@ fn admit(
     let mut bindings = Vec::with_capacity(selected.tools.len());
     let mut tools = Vec::with_capacity(selected.tools.len());
     let mut schema_tools = ReceiveState::default();
-    let mut proposals = Vec::new();
+    let mut proposals: Vec<Arc<ProposalTool>> = Vec::new();
     let commits: Arc<Mutex<Vec<CommitReceipt>>> = Arc::default();
+    let draft = stage_draft(&selected, workspace)?;
     for (tool_id, declared) in &selected.tools {
         let loaded = descriptor::load(tool_id, workspace).map_err(|error| {
             if declared.effect == effects::EFFECT_PROPOSE_ARTIFACTS {
@@ -276,11 +381,15 @@ fn admit(
         if loaded.descriptor.effect == effects::EFFECT_PROPOSE_ARTIFACTS
             && loaded.descriptor.runtime.kind == effects::RUNTIME_PINNED_PROCESS
         {
+            let upstream = draft
+                .as_ref()
+                .map(|draft| draft.upstream_inputs(tool_id))
+                .unwrap_or_default();
             let tool = admit_proposal(
                 &loaded,
                 declared,
                 (profile, run_id.clone()),
-                workspace,
+                (workspace, &upstream),
                 &mut schema_tools,
                 (receipts.clone(), commits.clone()),
                 &mut bindings,
@@ -292,8 +401,13 @@ fn admit(
         let executor = admit_one(&loaded.descriptor, declared)?;
         let mut binding = binding(&loaded, declared, profile, run_id.clone())?;
         let arguments = descriptor::closed_arguments(&loaded.descriptor)?;
-        let schema_guard =
-            admit_schema(&loaded, &mut binding, workspace, profile, &mut schema_tools)?;
+        let schema_guard = admit_schema(
+            &loaded,
+            &mut binding,
+            (workspace, &BTreeSet::new()),
+            profile,
+            &mut schema_tools,
+        )?;
         let pinned = PinnedReadExecutor {
             binding: binding.clone(),
             descriptor: loaded.descriptor.clone(),
@@ -318,6 +432,10 @@ fn admit(
         bindings.push(binding);
         tools.push(tool);
     }
+    let stages = match draft {
+        Some(draft) => Some(stage_run(draft, &proposals, workspace, profile)?),
+        None => None,
+    };
     Ok(AdmittedProfileTools {
         bindings,
         builtin_tools: selected.builtin_tools.into_iter().collect(),
@@ -326,7 +444,168 @@ fn admit(
         schema_tools: Arc::new(schema_tools),
         proposals,
         commits,
+        stages,
     })
+}
+
+fn stage_refused(tool: &str, reason: &str) -> ProfileToolRefusal {
+    ProfileToolRefusal::new(
+        RefusalKind::StageContractRefused,
+        format!("tool `{tool}` {reason}"),
+    )
+}
+
+/// The one place an operator's descriptor becomes what a stage set is judged on. A commit
+/// names its output as declared and the state machine compares normalized paths, so a spelling
+/// that normalizes to something else would make every commit of the tool fail to bind.
+fn host_tool_facts(descriptor: &Descriptor) -> Result<HostToolFacts, ProfileToolRefusal> {
+    let tool = descriptor.tool_id.as_str();
+    let floor = descriptor
+        .stage
+        .as_ref()
+        .ok_or_else(|| stage_refused(tool, "has no `stage` floor from its operator"))?;
+    let schema = descriptor
+        .schema
+        .as_ref()
+        .ok_or_else(|| stage_refused(tool, "has no schema"))?;
+    let process = descriptor
+        .process
+        .as_ref()
+        .filter(|process| process.outputs.len() == 1)
+        .ok_or_else(|| stage_refused(tool, "has no single output"))?;
+    let shape = schema_binding::declared_shape(schema, tool)?;
+    let output = process.single_output();
+    let one_spelling = |path: &str| {
+        stage_contract::normalize_path(path).is_ok_and(|normalized| normalized == path)
+    };
+    if !one_spelling(&output.path) || !shape.inputs.iter().all(|path| one_spelling(path)) {
+        return Err(stage_refused(
+            tool,
+            "declares a path that is not in its one normal spelling",
+        ));
+    }
+    Ok(HostToolFacts {
+        tool_id: descriptor.tool_id.clone(),
+        output_id: output.id.clone(),
+        output_path: output.path.clone(),
+        schema_inputs: shape.inputs,
+        has_revision_argument: shape.has_revision_argument,
+        has_compiler: shape.has_compiler,
+        required_checks: floor.required_checks.clone(),
+        limits: StageLimits {
+            attempts_per_target: floor.attempts_per_target,
+            attempts_per_run: floor.attempts_per_run,
+            deadline_seconds: floor.deadline_seconds,
+        },
+    })
+}
+
+/// A declared stage set, judged before any input is adopted: an input that a stage's output
+/// feeds is not there yet on a first run, and G2 has to know not to wait for it. Off reads nothing.
+fn stage_draft(
+    selected: &SelectedTools,
+    workspace: &Path,
+) -> Result<Option<StageContractDraft>, ProfileToolRefusal> {
+    Ok(stage_draft_and_descriptors(selected, workspace)?.map(|(draft, _)| draft))
+}
+
+fn stage_draft_and_descriptors(
+    selected: &SelectedTools,
+    workspace: &Path,
+) -> Result<Option<(StageContractDraft, Vec<LoadedDescriptor>)>, ProfileToolRefusal> {
+    let Some(declaration) = &selected.stages else {
+        return Ok(None);
+    };
+    let staged = declaration
+        .stages
+        .iter()
+        .flat_map(|stage| stage.targets.iter())
+        .map(|target| target.tool_id.as_str())
+        .collect::<BTreeSet<_>>();
+    let mut facts = Vec::with_capacity(staged.len());
+    let mut descriptors = Vec::with_capacity(staged.len());
+    for (tool_id, declared) in &selected.tools {
+        if staged.contains(tool_id.as_str()) && declared.effect == effects::EFFECT_PROPOSE_ARTIFACTS
+        {
+            let loaded =
+                descriptor::load(tool_id, workspace).map_err(effects::with_effect_origin)?;
+            facts.push(host_tool_facts(&loaded.descriptor)?);
+            descriptors.push(loaded);
+        }
+    }
+    StageContractDraft::new(declaration, &facts)
+        .map(|draft| Some((draft, descriptors)))
+        .map_err(contract_refused)
+}
+
+/// What the stages declared now are, for a record's seals to be held to. It only reads: no input,
+/// no adoption, no probe, no stage run, no ledger, and `Ok(None)` is a declaration with no stage.
+/// A descriptor's digest covers what it says and not what it points at, so the bytes of a process
+/// are held to their pins here too.
+pub(crate) fn declared_stage_identity(
+    workspace: &Path,
+    profile: &str,
+) -> Result<Option<StageIdentity>, DeclaredStagesUnread> {
+    let selected = selection::selected(profile, PackSource::Environment)
+        .map_err(|_| DeclaredStagesUnread::SelectedPack)?;
+    let Some(selected) = selected else {
+        return Ok(None);
+    };
+    let unread = |_| DeclaredStagesUnread::Stages;
+    let Some((draft, loaded)) =
+        stage_draft_and_descriptors(&selected, workspace).map_err(unread)?
+    else {
+        return Ok(None);
+    };
+    let mut descriptors = BTreeMap::new();
+    for tool in loaded {
+        let process = tool
+            .descriptor
+            .process
+            .as_ref()
+            .ok_or(DeclaredStagesUnread::Stages)?;
+        descriptor::verify_process_pins(process, &tool.descriptor.tool_id, workspace)
+            .map_err(unread)?;
+        descriptors.insert(tool.descriptor.tool_id, tool.sha256);
+    }
+    Ok(Some(StageIdentity {
+        contract_sha256: draft.contract_sha256(),
+        descriptors,
+    }))
+}
+
+/// Joins the admitted tools to their stage set. Only now does the process's ledger table come
+/// into it, and only because a declaration is there.
+fn stage_run(
+    draft: StageContractDraft,
+    proposals: &[Arc<ProposalTool>],
+    workspace: &Path,
+    profile: &str,
+) -> Result<Arc<StageRun>, ProfileToolRefusal> {
+    let mut members = BTreeMap::new();
+    let mut staged = Vec::new();
+    for tool_id in draft.tool_ids() {
+        let tool = proposals
+            .iter()
+            .find(|tool| tool.tool_id() == tool_id)
+            .ok_or_else(|| stage_refused(tool_id, "is not an admitted proposal tool"))?;
+        if let Some(target) = draft.target_for_tool(tool_id) {
+            tool.matches_target(target)?;
+        }
+        members.insert(tool_id.to_string(), tool.stage_member()?);
+        staged.push(tool.clone());
+    }
+    let run = Arc::new(StageRun::new(
+        draft,
+        members,
+        workspace.to_path_buf(),
+        profile.to_string(),
+        process_ledgers(),
+    ));
+    for tool in staged {
+        tool.attach_stage(run.clone());
+    }
+    Ok(run)
 }
 
 /// G3: the checks that need no run context, then the same schema adoption as any tool. A
@@ -335,21 +614,26 @@ fn admit_proposal(
     loaded: &LoadedDescriptor,
     declared: &DeclaredTool,
     (profile, run_id): (&str, Option<String>),
-    workspace: &Path,
+    (workspace, upstream): (&Path, &BTreeSet<String>),
     schema_tools: &mut ReceiveState,
     (receipts, commits): (Receipts, Arc<Mutex<Vec<CommitReceipt>>>),
     bindings: &mut Vec<AdmittedToolBinding>,
 ) -> Result<ProposalTool, ProfileToolRefusal> {
     let (declaration, pins) = effects::admit_process(&loaded.descriptor, declared, workspace)?;
     let mut admitted = binding(loaded, declared, profile, run_id)?;
-    let guard = admit_schema(loaded, &mut admitted, workspace, profile, schema_tools)?.ok_or_else(
-        || {
-            ProfileToolRefusal::new(
-                RefusalKind::InvalidDescriptor,
-                format!("tool `{}` needs a schema", admitted.tool_id),
-            )
-        },
-    )?;
+    let guard = admit_schema(
+        loaded,
+        &mut admitted,
+        (workspace, upstream),
+        profile,
+        schema_tools,
+    )?
+    .ok_or_else(|| {
+        ProfileToolRefusal::new(
+            RefusalKind::InvalidDescriptor,
+            format!("tool `{}` needs a schema", admitted.tool_id),
+        )
+    })?;
     let tool = ProposalTool::new(ProposalParts {
         name: admitted.name.clone(),
         description: loaded.descriptor.description.clone(),
@@ -376,7 +660,7 @@ fn admit_proposal(
 fn admit_schema(
     loaded: &LoadedDescriptor,
     binding: &mut AdmittedToolBinding,
-    workspace: &Path,
+    (workspace, upstream): (&Path, &BTreeSet<String>),
     profile: &str,
     schema_tools: &mut ReceiveState,
 ) -> Result<Option<Arc<SchemaGuard>>, ProfileToolRefusal> {
@@ -389,8 +673,9 @@ fn admit_schema(
         descriptor_sha256: &binding.descriptor_sha256,
         max_input_bytes: binding.max_input_bytes,
     };
-    let adoption = schema_binding::adopt(schema, &pins, workspace, profile)?;
-    binding.input_revision = Some(adoption.input_revision().to_string());
+    let adoption =
+        schema_binding::adopt_with_upstream(schema, &pins, workspace, profile, upstream)?;
+    binding.input_revision = Some(adoption.adopted().revision.clone());
     binding.adopted_schema_sha256 = Some(adoption.schema().sha256().to_string());
     Ok(Some(schema_tools.add(
         &binding.name,
@@ -585,5 +870,90 @@ impl ExtensionExecutor for PinnedReadExecutor {
         }
         self.record(true, true, output.usage);
         Ok(output.text)
+    }
+}
+
+#[cfg(test)]
+mod stage_facts_tests {
+    use serde_json::{Value, json};
+
+    use super::super::RefusalKind;
+    use super::host_tool_facts;
+    use crate::tools::profile_tools::descriptor::Descriptor;
+
+    fn descriptor(output: &str, input: &str, stage: Option<Value>) -> Descriptor {
+        let mut value = json!({
+            "protocol": "profile-tool.descriptor/v1",
+            "tool_id": "t",
+            "name": "T",
+            "version": "1",
+            "description": "d",
+            "effect": "propose-artifacts",
+            "parameters": [],
+            "schema": {
+                "protocol": "profile-tool.schema/v1",
+                "root": {"type": "object", "additionalProperties": false, "properties": {}},
+                "inputs": [input],
+            },
+            "schema_sha256": "a".repeat(64),
+            "runtime": {"kind": "pinned_process", "id": "x"},
+            "limits": {"max_input_bytes": 1, "max_output_bytes": 1},
+            "process": {
+                "protocol": "profile-tool.process/v1",
+                "executable": {"path": "/x", "sha256": "b".repeat(64)},
+                "argv": [],
+                "cwd": "/",
+                "limits": {"timeout_ms": 1, "max_result_bytes": 1},
+                "outputs": [{"id": "artifact", "path": output}],
+            },
+        });
+        if let Some(stage) = stage {
+            value["stage"] = stage;
+        }
+        serde_json::from_value(value).unwrap()
+    }
+
+    fn floor() -> Option<Value> {
+        Some(json!({
+            "required_checks": ["shape"],
+            "attempts_per_target": 3,
+            "attempts_per_run": 9,
+            "deadline_seconds": 60,
+        }))
+    }
+
+    #[test]
+    fn the_facts_are_the_operators_values_as_declared() {
+        let facts = host_tool_facts(&descriptor("out/a.json", "fixed/b.json", floor())).unwrap();
+        assert_eq!(facts.output_path, "out/a.json");
+        assert_eq!(facts.output_id, "artifact");
+        assert_eq!(facts.schema_inputs, ["fixed/b.json"]);
+        assert_eq!(facts.required_checks, ["shape"]);
+        assert_eq!(facts.limits.attempts_per_target, 3);
+        assert_eq!(facts.limits.attempts_per_run, 9);
+        assert_eq!(facts.limits.deadline_seconds, 60);
+        assert!(!facts.has_compiler);
+        assert!(!facts.has_revision_argument);
+    }
+
+    /// A commit names the path as declared and a receipt compares it normalized.
+    #[test]
+    fn a_path_in_any_other_spelling_is_refused_before_a_commit_could_fail_on_it() {
+        for (output, input) in [
+            ("./out/a.json", "fixed/b.json"),
+            ("out//a.json", "fixed/b.json"),
+            ("out/a.json", "./fixed/b.json"),
+            ("out/a.json", "fixed//b.json"),
+            ("out/./a.json", "fixed/b.json"),
+        ] {
+            let refusal = host_tool_facts(&descriptor(output, input, floor())).unwrap_err();
+            assert_eq!(refusal.kind, RefusalKind::StageContractRefused, "{output}");
+        }
+    }
+
+    #[test]
+    fn a_tool_with_no_floor_from_its_operator_is_refused() {
+        let refusal = host_tool_facts(&descriptor("out/a.json", "fixed/b.json", None)).unwrap_err();
+        assert_eq!(refusal.kind, RefusalKind::StageContractRefused);
     }
 }
