@@ -87,7 +87,9 @@ pub(crate) struct Adoption {
     schema: CompiledSchema,
 }
 
-type AdoptionKey = (PathBuf, String, String);
+/// A tool that reads a stage's output and the same tool outside that stage set adopt different
+/// things, so neither is measured against the other's. Within one set the comparison stands.
+type AdoptionKey = (PathBuf, String, String, BTreeSet<String>);
 
 static ADOPTIONS: Mutex<BTreeMap<AdoptionKey, Arc<Adoption>>> = Mutex::new(BTreeMap::new());
 
@@ -128,10 +130,11 @@ pub(crate) fn adopt_with_upstream(
         workspace.to_path_buf(),
         profile.to_string(),
         pins.tool_id.to_string(),
+        upstream.clone(),
     );
     let existing = adoptions().get(&key).cloned();
     if let Some(existing) = existing {
-        existing.verify_admission(pins, upstream)?;
+        existing.verify_admission(pins)?;
         return Ok(existing);
     }
     let declaration = SchemaDeclaration::decode(schema, pins.tool_id)?;
@@ -165,7 +168,7 @@ pub(crate) fn adopt_with_upstream(
         schema,
     });
     let held = adoptions().entry(key).or_insert(adoption).clone();
-    held.verify_admission(pins, upstream)?;
+    held.verify_admission(pins)?;
     Ok(held)
 }
 
@@ -233,15 +236,8 @@ impl Adoption {
         Ok(())
     }
 
-    fn verify_admission(
-        &self,
-        pins: &ToolPins<'_>,
-        upstream: &BTreeSet<String>,
-    ) -> Result<(), ProfileToolRefusal> {
-        if self.descriptor_sha256 != pins.descriptor_sha256
-            || self.tool_version != pins.version
-            || self.upstream != *upstream
-        {
+    fn verify_admission(&self, pins: &ToolPins<'_>) -> Result<(), ProfileToolRefusal> {
+        if self.descriptor_sha256 != pins.descriptor_sha256 || self.tool_version != pins.version {
             return Err(ProfileToolRefusal::new(
                 RefusalKind::SchemaMismatch,
                 format!(
@@ -478,6 +474,7 @@ fn bind_revision_argument(
 mod readopt_tests {
     use std::collections::BTreeSet;
     use std::path::{Path, PathBuf};
+    use std::sync::Arc;
 
     use serde_json::{Value, json};
     use sha2::{Digest, Sha256};
@@ -661,10 +658,13 @@ mod readopt_tests {
         );
     }
 
+    /// #975 B1: another upstream set is an adoption of its own, so a pack with no stage is not
+    /// refused for what a stage pack adopted. Each holds to what it adopted, and neither takes the
+    /// other's way through: only the reader of a stage's output takes up a new version.
     #[test]
-    fn a_later_admission_with_another_upstream_set_is_refused() {
+    fn a_later_admission_with_another_upstream_set_adopts_on_its_own() {
         let (_temp, root) = workspace();
-        adopt_with_upstream(
+        let reader = adopt_with_upstream(
             &schema(&[UPSTREAM, FIXED]),
             &pins(),
             &root,
@@ -673,14 +673,91 @@ mod readopt_tests {
         )
         .unwrap();
         write(&root, UPSTREAM, b"present");
-        let refusal = adopt(
+        let plain = adopt(
             &schema(&[UPSTREAM, FIXED]),
             &pins(),
             &root,
             "readopt-profile",
         )
-        .unwrap_err();
-        assert_eq!(refusal.kind, RefusalKind::SchemaMismatch);
+        .unwrap();
+        assert!(!Arc::ptr_eq(&reader, &plain));
+        assert_eq!(
+            plain.adopted().inputs.len(),
+            2,
+            "the bytes there now, as fixed"
+        );
+        assert_eq!(
+            reader.adopted().inputs.len(),
+            1,
+            "the reader moved on nothing"
+        );
+
+        write(&root, UPSTREAM, b"rewritten");
+        assert_eq!(
+            plain
+                .readopt(&receipt_for(UPSTREAM, b"rewritten"))
+                .unwrap_err()
+                .kind,
+            RefusalKind::InputRevisionMismatch
+        );
+        assert_eq!(
+            plain.verify("before_execution").unwrap_err().kind,
+            RefusalKind::InputRevisionMismatch
+        );
+        reader.verify("before_execution").unwrap();
+        reader
+            .readopt(&receipt_for(UPSTREAM, b"rewritten"))
+            .unwrap();
+    }
+
+    /// The comparison a later admission makes within one upstream set is as strict as it was.
+    #[test]
+    fn a_later_admission_with_the_same_upstream_set_is_held_to_the_pins() {
+        let (_temp, root) = workspace();
+        let first = adopt_with_upstream(
+            &schema(&[UPSTREAM, FIXED]),
+            &pins(),
+            &root,
+            "readopt-held",
+            &upstream(),
+        )
+        .unwrap();
+        let again = adopt_with_upstream(
+            &schema(&[UPSTREAM, FIXED]),
+            &pins(),
+            &root,
+            "readopt-held",
+            &upstream(),
+        )
+        .unwrap();
+        assert!(Arc::ptr_eq(&first, &again));
+        let held = pins();
+        let another_descriptor = "e".repeat(64);
+        let cases = [
+            ToolPins {
+                descriptor_sha256: &another_descriptor,
+                ..pins()
+            },
+            ToolPins {
+                version: "9.9.9",
+                ..pins()
+            },
+        ];
+        for changed in &cases {
+            assert_ne!(
+                (changed.descriptor_sha256, changed.version),
+                (held.descriptor_sha256, held.version)
+            );
+            let refusal = adopt_with_upstream(
+                &schema(&[UPSTREAM, FIXED]),
+                changed,
+                &root,
+                "readopt-held",
+                &upstream(),
+            )
+            .unwrap_err();
+            assert_eq!(refusal.kind, RefusalKind::SchemaMismatch);
+        }
     }
 
     #[test]

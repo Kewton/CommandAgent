@@ -225,6 +225,29 @@ pub(crate) fn stages_declared_without_a_read(profile: &str) -> bool {
             .is_some_and(|declared| declared.stages.is_some())
 }
 
+/// This run's pack selection, for a final gate that may have stages to ask about. `None` is a run
+/// with none, known from the environment and memory: no profile declaration, and no pack or a pack
+/// whose decoded value has no stage. A selection with no decoded value is not known either way.
+pub(crate) fn selection_that_may_hold_stages(profile: &str) -> Option<Option<PackSelection>> {
+    let pack = pack_selection_from_environment();
+    let installed = pack.as_ref().and_then(installed_declaration);
+    let unknown = pack.is_some() && installed.is_none();
+    let may_hold = unknown || stages_declared_without_a_read(profile);
+    may_hold.then_some(pack)
+}
+
+/// The selection only an admission can read, for it to say what it found. `None` otherwise.
+pub(crate) fn selection_left_to_admission() -> Option<PackSelection> {
+    pack_selection_from_environment().filter(|pack| installed_declaration(pack).is_none())
+}
+
+/// The read a run makes only when no session read the selection for it. A selection that cannot be
+/// read is an `Err`, as in a session: it must not turn a declaration off.
+pub(crate) fn selected_stages_by_reading(profile: &str) -> Result<bool, ProfileToolRefusal> {
+    selected(profile, PackSource::Environment)
+        .map(|selected| selected.is_some_and(|selected| selected.stages.is_some()))
+}
+
 #[cfg(test)]
 pub(super) fn manifest_declaration_for_test(profile: &str) -> Option<ProfileToolDeclaration> {
     profile_declaration(profile)
@@ -240,7 +263,7 @@ fn profile_declaration(profile: &str) -> Option<ProfileToolDeclaration> {
 }
 
 /// One selected pack: the variables the pack runtime reads.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct PackSelection {
     pub(crate) directory: PathBuf,
     pub(crate) id: String,
@@ -267,7 +290,7 @@ pub(super) enum PackSource {
     None,
 }
 
-fn pack_selection_from_environment() -> Option<PackSelection> {
+pub(crate) fn pack_selection_from_environment() -> Option<PackSelection> {
     let value = |name: &str| std::env::var_os(name)?.into_string().ok();
     Some(PackSelection {
         directory: PathBuf::from(value(PACK_DIRECTORY_ENV)?),

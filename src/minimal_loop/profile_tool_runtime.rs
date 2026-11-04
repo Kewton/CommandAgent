@@ -12,6 +12,7 @@ use super::context::{RunSessionOptions, RunSessionStepKind};
 use super::implementation_completion::structured_stage_completion::enter_stage_run;
 use crate::config::Config;
 use crate::planner::structured_stages::ledger::LedgerEntry;
+use crate::planner::structured_stages::remember_admission_without_stages;
 use crate::providers::ChatClient;
 use crate::state::ToolCall;
 use crate::tools::profile_tools::admit_selected;
@@ -37,10 +38,15 @@ pub(super) fn session_registry(
             if let Some(run) = admitted.stage_run() {
                 run.remember_bound();
                 enter_stage_run(run);
+            } else {
+                remember_admission_without_stages(config);
             }
             Ok((admitted.registry()?, admitted.enter_session()))
         }
-        None => Ok((ToolRegistry::default(), None)),
+        None => {
+            remember_admission_without_stages(config);
+            Ok((ToolRegistry::default(), None))
+        }
     }
 }
 

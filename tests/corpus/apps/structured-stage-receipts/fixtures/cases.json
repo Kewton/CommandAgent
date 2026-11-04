@@ -91,13 +91,29 @@
       "a_tool_with_no_os_limit_leaves_no_receipt",
       "usage_stays_unknown"
     ]},
-    {"row": 6, "says": "the off control matches byte for byte, existing profiles keep their positive and negative rows, and sealed never becomes Full or a release pass", "tests": [
+    {"row": 6, "says": "the off control matches byte for byte, also after a pack with stages in the same process; another pack's seals pass no other pack; existing profiles keep their positive and negative rows, and sealed never becomes Full or a release pass", "tests": [
       "off_wire_events_and_artifacts_match_the_base_recording_byte_for_byte",
       "final_acceptance_asks_for_every_obligation_and_only_a_bound_set_is_asked",
       "an_ultra_plan_that_seals_every_stage_succeeds",
       "sealing_every_stage_does_not_stand_in_for_final_acceptance",
       "a_seal_raises_no_assurance_level",
-      "only_the_other_threads_events_may_move_and_only_within_their_range"
+      "only_the_other_threads_events_may_move_and_only_within_their_range",
+      "b1_a_plan_with_no_stage_succeeds_after_a_pack_left_a_stage_open",
+      "b1_a_plan_with_no_stage_succeeds_after_a_confirmed_pack_left_a_stage_open",
+      "b1_a_plan_with_no_stage_reads_no_record_of_the_pack_before_it",
+      "b1_off_makes_no_stage_directory_and_does_not_read_one",
+      "b1_off_after_a_pack_does_not_read_an_unreadable_stage_directory",
+      "b1_a_second_pack_with_no_session_is_not_passed_by_the_first_packs_seals",
+      "b1_a_second_confirmed_pack_with_no_session_is_read_and_not_passed",
+      "b1_a_confirmed_pack_with_no_session_is_no_success",
+      "b1_a_plan_whose_steps_all_short_circuit_runs_no_session_and_is_no_success",
+      "b1_a_confirmed_pack_with_no_stage_is_not_read_again_after_its_session",
+      "b1_a_confirmed_pack_with_no_stage_is_read_when_no_session_ran",
+      "b1_a_pack_again_after_a_run_with_no_stage_still_has_its_stage_open",
+      "b1_a_seal_a_changed_output_took_stays_taken_in_a_later_session",
+      "b1_a_pack_with_the_same_tools_and_no_stage_is_admitted_after_a_stage_pack",
+      "a_later_admission_with_the_same_upstream_set_is_held_to_the_pins",
+      "b1_another_upstream_set_stops_at_contract_changed_and_starts_no_process"
     ]}
   ],
   "off": [

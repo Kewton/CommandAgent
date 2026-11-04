@@ -1385,6 +1385,7 @@ mod off_control {
                 "../src/minimal_loop/loop_run/implementation_completion/structured_stage_completion.rs"
             ),
             include_str!("../src/tools/profile_tools/pre_run.rs"),
+            include_str!("../src/tools/profile_tools/schema/binding.rs"),
         ];
         let rows = cases["acceptance"].as_array().unwrap();
         assert_eq!(rows.len(), 6);
@@ -2035,8 +2036,9 @@ mod with_the_strict_isolation {
         assert!(events.contains("structured_stage_incomplete"), "{events}");
     }
 
-    /// `post_write_read_confirmation_completed` ends a run at a Read after a commit. With a stage
-    /// open, that end would give the model no chance to go on: it is held back and asked again.
+    /// `post_write_read_confirmation_completed` ends a run at the second Read after a commit. With
+    /// a stage open, that end would give the model no chance to go on: it is held back and asked
+    /// again. `two_reads_after_every_stage_is_sealed_end_the_session` is the control.
     #[test]
     fn a_read_after_a_commit_does_not_end_a_run_with_a_stage_open() {
         let _guard = lock();
@@ -2045,13 +2047,22 @@ mod with_the_strict_isolation {
         install_sandbox(&env);
         let responder: Responder = Arc::new(move |index, _| match index {
             1 => tool_reply(UPPER_TOOL, "good", "initial"),
-            2 => read_reply(UPPER_OUTPUT),
+            2 | 3 => read_reply(UPPER_OUTPUT),
             _ => text_reply("stopping"),
         });
         let (requests, result) = run(&env, WALK_PROFILE, responder);
         reset_for_test();
         assert_not_a_success(&result, "the lower stage is open");
-        assert!(requests.len() > 2, "ended at the Read: {}", requests.len());
+        assert!(
+            requests.len() > 3,
+            "ended at the second Read: {}",
+            requests.len()
+        );
+        let events = std::fs::read_to_string(env.evidence.join("events.jsonl")).unwrap();
+        assert!(
+            !events.contains("post_write_read_confirmation_completed"),
+            "{events}"
+        );
     }
 
     /// An implement step counts what starts no process as reading (S8), and a seal as a move. The

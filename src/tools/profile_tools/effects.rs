@@ -3519,36 +3519,6 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
             stage_incomplete(funnel(&bench, StageScope::All), "obligations_unmet");
         }
 
-        #[test]
-        fn final_acceptance_asks_for_every_obligation_and_only_a_bound_set_is_asked() {
-            let bench = stage_bench();
-            let mut config = super::super::config_for_test(&bench.workspace);
-            config.profile = PROFILE.to_string();
-            assert_eq!(
-                crate::planner::structured_stages::final_gate_failure(&config),
-                None
-            );
-
-            bench.run.remember_bound();
-            let failure = crate::planner::structured_stages::final_gate_failure(&config).unwrap();
-            assert!(
-                failure.contains("stage_incomplete: obligations_unmet"),
-                "{failure}"
-            );
-
-            let answer = bench.seal_upper();
-            assert!(
-                crate::planner::structured_stages::final_gate_failure(&config).is_some(),
-                "a step's seal is not the whole set"
-            );
-            let revision = downstream_revision(&answer);
-            bench.call(&bench.lower, "fast", &revision).unwrap();
-            assert_eq!(
-                crate::planner::structured_stages::final_gate_failure(&config),
-                None
-            );
-        }
-
         /// S8: a call that starts nothing spends no attempt, so it needs a limit of its own.
         #[test]
         fn repeating_a_stale_call_is_counted_and_ends_the_run_at_its_limit() {
@@ -6342,6 +6312,826 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                     }),
                 );
                 assert!(selection::stages_declared_without_a_read("generic"));
+            }
+
+            /// B1: what a run after a pack's run finds. The profile declares nothing, so whatever
+            /// stages a run has come from the pack it selected.
+            const BARE_PROFILE: &str = "stage-session-bare";
+
+            /// How the selection was installed: `--pack` decodes the pack first, a confirmed TUI
+            /// dispatch (`with_confirmed_pack`) leaves that to admission.
+            #[derive(Clone, Copy, PartialEq)]
+            enum Installed {
+                Decoded,
+                LeftToAdmission,
+            }
+
+            impl World {
+                fn with_bare_profile(self) -> Self {
+                    let whole = manifest(BARE_PROFILE, UPPER, LOWER);
+                    let bare = whole.split("[profile_tools]").next().unwrap();
+                    let profile = self.base.join(format!("extension/profiles/{BARE_PROFILE}"));
+                    std::fs::create_dir_all(&profile).unwrap();
+                    std::fs::write(profile.join("manifest.toml"), bare).unwrap();
+                    self
+                }
+
+                fn plan_bare(
+                    &self,
+                    steps: Vec<PlanStep>,
+                    responder: Responder,
+                ) -> Result<String, String> {
+                    let http = FakeHttp::start(responder);
+                    let mut config = self.config(&http.url);
+                    config.profile = BARE_PROFILE.to_string();
+                    let mut client = client_from_config(&config, false).unwrap();
+                    let plan = StepPlan {
+                        goal: "Look at the seed.".to_string(),
+                        steps,
+                    };
+                    let result = run_step_plan(client.as_mut(), &plan, &config)
+                        .map_err(|error| format!("{error:#}"));
+                    http.finish();
+                    result
+                }
+
+                fn stage_pack(
+                    &self,
+                    id: &str,
+                    tools: (&str, &str),
+                    installed: Installed,
+                ) -> crate::cli_pack::ResolvedPack {
+                    let (upper, lower) = tools;
+                    let declaration = format!(
+                        "profile_tools:\n  schema_version: profile-tool.declaration/v2\n  builtin_tools: [Read]\n  tools:\n    - id: {upper}\n      effect: propose-artifacts\n    - id: {lower}\n      effect: propose-artifacts\n  stages:\n    stages:\n      - id: upper\n        targets:\n          - id: main\n            tool_id: {upper}\n      - id: lower\n        targets:\n          - id: main\n            tool_id: {lower}\n"
+                    );
+                    self.pack_declaring(id, &declaration, installed)
+                }
+
+                /// A pack with no stage, as a confirmed dispatch installs it. Its admission comes to
+                /// nothing, or to a set of tools with no stage: `session_registry` has an arm for each.
+                fn packs_with_no_stage(&self, id: &str) -> [crate::cli_pack::ResolvedPack; 2] {
+                    [
+                        self.pack_declaring(
+                            &format!("{id}-checks"),
+                            "checks:\n  - id: command_check\n    at:\n      kind: final_acceptance\n    params:\n      argv: [test, -f, fixed/seed.json]\n      cwd: workspace\n      expect:\n        exit_code: 0\n        stdout_regex: '^$'\n        max_bytes: 1024\n",
+                            Installed::LeftToAdmission,
+                        ),
+                        self.pack_declaring(
+                            &format!("{id}-tools"),
+                            "profile_tools:\n  schema_version: profile-tool.declaration/v1\n  builtin_tools: [Read]\n",
+                            Installed::LeftToAdmission,
+                        ),
+                    ]
+                }
+
+                fn pack_declaring(
+                    &self,
+                    id: &str,
+                    declaration: &str,
+                    installed: Installed,
+                ) -> crate::cli_pack::ResolvedPack {
+                    let directory = self.base.join("packs").join(id).join("1.0.0");
+                    std::fs::create_dir_all(&directory).unwrap();
+                    let eval = format!(
+                        "schema_version: commandagent.pack.eval/v0\npack:\n  id: {id}\n  version: 1.0.0\n  profile: {BARE_PROFILE}\n  intent: create\n{declaration}"
+                    );
+                    std::fs::write(directory.join("eval.yaml"), &eval).unwrap();
+                    let hash = crate::planner::pack::exact_byte_hash(None, Some(eval.as_bytes()));
+                    std::fs::write(directory.join("pack.sha256"), format!("{hash}\n")).unwrap();
+                    let declared = (installed == Installed::Decoded).then(|| {
+                        let loaded =
+                            crate::planner::pack::load_declared_directory(&directory).unwrap();
+                        crate::tools::profile_tools::selection::ResolvedDeclaration {
+                            pack_profile: loaded.pack.identity.profile,
+                            tools: loaded.profile_tools,
+                        }
+                    });
+                    crate::cli_pack::ResolvedPack {
+                        id: id.to_string(),
+                        version: "1.0.0".to_string(),
+                        hash,
+                        source: crate::cli_pack::SelectionSource::Repository,
+                        directory,
+                        declared,
+                    }
+                }
+
+                fn stage_events(&self) -> usize {
+                    self.events()
+                        .matches("\"event\":\"structured_stage_")
+                        .count()
+                }
+            }
+
+            /// A step that reads a file and stops: it calls no stage.
+            fn reads_and_stops() -> Responder {
+                Arc::new(|_, body| {
+                    let answered = messages(body)
+                        .last()
+                        .is_some_and(|message| message["role"] == "tool");
+                    if answered {
+                        text_reply("done")
+                    } else {
+                        call_reply("Read", &json!({"path": FIXED}))
+                    }
+                })
+            }
+
+            fn looks() -> Vec<PlanStep> {
+                vec![step("Look at the seed", "step-look")]
+            }
+
+            /// The pack's run ends with its lower stage open.
+            fn leave_the_lower_open(world: &World, pack: &crate::cli_pack::ResolvedPack) {
+                let _pack = crate::cli_pack::RuntimeEnvironmentGuard::install(Some(pack)).unwrap();
+                let upper = vec![step("Submit the upper stage", "step-upper")];
+                let first = world.plan_bare(upper, stops_after_the_upper());
+                assert_stage_incomplete(&first);
+            }
+
+            /// The control: the same run with no pack before it, on the same fixture.
+            #[test]
+            fn b1_control_a_plan_with_no_stage_alone_succeeds() {
+                let Some(world) = one_process("b1_control_a_plan_with_no_stage_alone_succeeds")
+                else {
+                    return;
+                };
+                let world = world.with_bare_profile();
+                let _live = world.enter();
+                let result = world.plan_bare(looks(), reads_and_stops());
+                assert!(result.is_ok(), "{result:?}");
+                assert_eq!(world.stage_events(), 0, "{}", world.events());
+            }
+
+            /// `--pack`: the guard goes, and with it the run's stages.
+            #[test]
+            fn b1_a_plan_with_no_stage_succeeds_after_a_pack_left_a_stage_open() {
+                let Some(world) =
+                    one_process("b1_a_plan_with_no_stage_succeeds_after_a_pack_left_a_stage_open")
+                else {
+                    return;
+                };
+                let world = world.with_bare_profile();
+                let _live = world.enter();
+                let pack = world.stage_pack("stage-pack-first", (UPPER, LOWER), Installed::Decoded);
+                leave_the_lower_open(&world, &pack);
+                let before = world.stage_events();
+                let second = world.plan_bare(looks(), reads_and_stops());
+                assert_eq!(
+                    (second.is_ok(), world.stage_events() - before),
+                    (true, 0),
+                    "{second:?}"
+                );
+            }
+
+            /// The path of `with_confirmed_pack`: the guard with nothing decoded, then no pack.
+            #[test]
+            fn b1_a_plan_with_no_stage_succeeds_after_a_confirmed_pack_left_a_stage_open() {
+                const NAME: &str =
+                    "b1_a_plan_with_no_stage_succeeds_after_a_confirmed_pack_left_a_stage_open";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let world = world.with_bare_profile();
+                let _live = world.enter();
+                let pack = world.stage_pack(
+                    "stage-pack-confirmed",
+                    (UPPER, LOWER),
+                    Installed::LeftToAdmission,
+                );
+                leave_the_lower_open(&world, &pack);
+                let before = world.stage_events();
+                let second = world.plan_bare(looks(), reads_and_stops());
+                assert_eq!(
+                    (second.is_ok(), world.stage_events() - before),
+                    (true, 0),
+                    "{second:?}"
+                );
+            }
+
+            /// A record the run with no stage has no business with: damaged, and it does not care.
+            #[test]
+            fn b1_a_plan_with_no_stage_reads_no_record_of_the_pack_before_it() {
+                let Some(world) =
+                    one_process("b1_a_plan_with_no_stage_reads_no_record_of_the_pack_before_it")
+                else {
+                    return;
+                };
+                let world = world.with_bare_profile();
+                let _live = world.enter();
+                let pack =
+                    world.stage_pack("stage-pack-record", (UPPER, LOWER), Installed::Decoded);
+                leave_the_lower_open(&world, &pack);
+                let file = crate::planner::structured_stages::ledger::ledger_file(
+                    &world.evidence.join("state"),
+                    &world.root,
+                    BARE_PROFILE,
+                )
+                .unwrap();
+                assert!(file.is_file(), "the pack's run left a record");
+                std::fs::write(&file, b"a record damaged on purpose").unwrap();
+                let before = world.stage_events();
+                let second = world.plan_bare(looks(), reads_and_stops());
+                assert_eq!(
+                    (second.is_ok(), world.stage_events() - before),
+                    (true, 0),
+                    "{second:?}"
+                );
+                assert_eq!(
+                    std::fs::read(&file).unwrap(),
+                    b"a record damaged on purpose"
+                );
+            }
+
+            /// Pack A sealed everything. Pack B declares other stages and no session bound them.
+            #[test]
+            fn b1_a_second_pack_with_no_session_is_not_passed_by_the_first_packs_seals() {
+                const NAME: &str =
+                    "b1_a_second_pack_with_no_session_is_not_passed_by_the_first_packs_seals";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let world = world.with_bare_profile();
+                let _live = world.enter();
+                let first =
+                    world.stage_pack("stage-pack-sealed", (UPPER, LOWER), Installed::Decoded);
+                let second = world.stage_pack(
+                    "stage-pack-unbound",
+                    ("stage-index-upper", "stage-index-lower"),
+                    Installed::Decoded,
+                );
+                {
+                    let _pack =
+                        crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&first)).unwrap();
+                    let steps = vec![
+                        step("Submit the upper stage", "step-upper"),
+                        step("Submit the lower stage", "step-lower"),
+                    ];
+                    world.plan_bare(steps, two_steps()).unwrap();
+                }
+                {
+                    let _pack =
+                        crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&second)).unwrap();
+                    let result = world.plan_bare(Vec::new(), Arc::new(|_, _| text_reply("nobody")));
+                    let error = result.expect_err("no session bound the second pack's stages");
+                    assert!(
+                        error.contains("stage_incomplete: no_session_bound_the_declared_stages"),
+                        "{error}"
+                    );
+                }
+                // The second pack's failure takes nothing from the first.
+                let _pack =
+                    crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&first)).unwrap();
+                let again = world.plan_bare(Vec::new(), Arc::new(|_, _| text_reply("nobody")));
+                assert!(again.is_ok(), "{again:?}");
+            }
+
+            /// Pack A left a stage open, and pack B's session calls its own stage.
+            #[test]
+            fn b1_a_second_packs_session_is_measured_after_the_first_packs_record() {
+                const NAME: &str =
+                    "b1_a_second_packs_session_is_measured_after_the_first_packs_record";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let world = world.with_bare_profile();
+                let _live = world.enter();
+                let first =
+                    world.stage_pack("stage-pack-earlier", (UPPER, LOWER), Installed::Decoded);
+                let second = world.stage_pack(
+                    "stage-pack-later",
+                    ("stage-index-upper", "stage-index-lower"),
+                    Installed::Decoded,
+                );
+                leave_the_lower_open(&world, &first);
+                let _pack =
+                    crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&second)).unwrap();
+                let steps = vec![step("Submit the upper stage", "step-upper")];
+                let result = world.plan_bare(
+                    steps,
+                    Arc::new(|index, _| match index {
+                        1 => submit("ProposeIndexUpper", "fast", "initial"),
+                        _ => text_reply("done"),
+                    }),
+                );
+                let error = result.expect_err("the process holds the first pack's record");
+                assert!(error.contains("stage_ledger_refused"), "{error}");
+                assert!(error.contains("contract_changed"), "{error}");
+            }
+
+            /// The pack's session bound stages, and what is in memory says none are declared: only
+            /// the bound run keeps this from a success, so "not declared in memory" cannot be off.
+            #[test]
+            fn b1_a_confirmed_packs_stages_are_not_known_without_a_read() {
+                const NAME: &str = "b1_a_confirmed_packs_stages_are_not_known_without_a_read";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let world = world.with_bare_profile();
+                let _live = world.enter();
+                let pack = world.stage_pack(
+                    "stage-pack-unknown",
+                    (UPPER, LOWER),
+                    Installed::LeftToAdmission,
+                );
+                let _pack = crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&pack)).unwrap();
+                let upper = vec![step("Submit the upper stage", "step-upper")];
+                assert_stage_incomplete(&world.plan_bare(upper, stops_after_the_upper()));
+                assert!(
+                    !crate::tools::profile_tools::selection::stages_declared_without_a_read(
+                        BARE_PROFILE
+                    ),
+                    "the candidate would answer `None` here"
+                );
+                let mut config = world.config("http://127.0.0.1:9");
+                config.profile = BARE_PROFILE.to_string();
+                let failure = crate::planner::structured_stages::final_gate_failure(&config)
+                    .expect("the open stage is what refuses");
+                assert!(failure.contains("lower/main"), "{failure}");
+            }
+
+            /// A confirmed pack whose run has no session: nothing bound, nothing in memory.
+            #[test]
+            fn b1_a_confirmed_pack_with_no_session_is_no_success() {
+                let Some(world) = one_process("b1_a_confirmed_pack_with_no_session_is_no_success")
+                else {
+                    return;
+                };
+                let world = world.with_bare_profile();
+                let _live = world.enter();
+                let pack = world.stage_pack(
+                    "stage-pack-no-session",
+                    (UPPER, LOWER),
+                    Installed::LeftToAdmission,
+                );
+                let _pack = crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&pack)).unwrap();
+                let result = world.plan_bare(Vec::new(), Arc::new(|_, _| text_reply("nobody")));
+                let error = result.expect_err("the pack declares stages");
+                assert!(error.contains("stage_incomplete"), "{error}");
+            }
+
+            /// The table beside `BOUND_RUNS`: a pack with the same tools and no stage, after a pack
+            /// whose stage fed one of them.
+            #[test]
+            fn b1_a_pack_with_the_same_tools_and_no_stage_is_admitted_after_a_stage_pack() {
+                const NAME: &str =
+                    "b1_a_pack_with_the_same_tools_and_no_stage_is_admitted_after_a_stage_pack";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let world = world.with_bare_profile();
+                let _live = world.enter();
+                let first =
+                    world.stage_pack("stage-pack-feeds", (UPPER, LOWER), Installed::Decoded);
+                leave_the_lower_open(&world, &first);
+                let plain = world.pack_declaring(
+                    "stage-pack-plain",
+                    &format!(
+                        "profile_tools:\n  schema_version: profile-tool.declaration/v1\n  builtin_tools: [Read]\n  tools:\n    - id: {UPPER}\n      effect: propose-artifacts\n    - id: {LOWER}\n      effect: propose-artifacts\n"
+                    ),
+                    Installed::LeftToAdmission,
+                );
+                let _pack =
+                    crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&plain)).unwrap();
+                let result = world.plan_bare(looks(), reads_and_stops());
+                assert!(result.is_ok(), "{result:?}");
+            }
+
+            /// A run with no stage neither makes the directory the stages keep their records in nor
+            /// looks at what is there.
+            #[test]
+            fn b1_off_makes_no_stage_directory_and_does_not_read_one() {
+                let Some(world) =
+                    one_process("b1_off_makes_no_stage_directory_and_does_not_read_one")
+                else {
+                    return;
+                };
+                let world = world.with_bare_profile();
+                let _live = world.enter();
+                let directory = world.evidence.join("state/structured-stages");
+                let first = world.plan_bare(looks(), reads_and_stops());
+                assert!(first.is_ok(), "{first:?}");
+                assert!(!directory.exists(), "an off run made the stages' directory");
+                unreadable_in_the_way(&directory);
+                let second = world.plan_bare(looks(), reads_and_stops());
+                assert!(second.is_ok(), "{second:?}");
+                assert_eq!(world.stage_events(), 0, "{}", world.events());
+                assert!(directory.is_file(), "left as it was put there");
+            }
+
+            /// The same, with a pack's records already in the process and on the disk.
+            #[test]
+            fn b1_off_after_a_pack_does_not_read_an_unreadable_stage_directory() {
+                const NAME: &str =
+                    "b1_off_after_a_pack_does_not_read_an_unreadable_stage_directory";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let world = world.with_bare_profile();
+                let _live = world.enter();
+                let pack = world.stage_pack("stage-pack-moved", (UPPER, LOWER), Installed::Decoded);
+                leave_the_lower_open(&world, &pack);
+                let directory = world.evidence.join("state/structured-stages");
+                std::fs::rename(&directory, world.evidence.join("state/moved-away")).unwrap();
+                unreadable_in_the_way(&directory);
+                let before = world.stage_events();
+                let second = world.plan_bare(looks(), reads_and_stops());
+                assert_eq!(
+                    (second.is_ok(), world.stage_events() - before),
+                    (true, 0),
+                    "{second:?}"
+                );
+                assert!(directory.is_file(), "left as it was put there");
+            }
+
+            /// A file no one may read, where a directory would go.
+            fn unreadable_in_the_way(path: &Path) {
+                use std::os::unix::fs::PermissionsExt as _;
+                std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                std::fs::write(path, "not a directory\n").unwrap();
+                std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o000)).unwrap();
+            }
+
+            /// A confirmed pack with no stage: its session read it, so the gate does not.
+            #[test]
+            fn b1_a_confirmed_pack_with_no_stage_is_not_read_again_after_its_session() {
+                const NAME: &str =
+                    "b1_a_confirmed_pack_with_no_stage_is_not_read_again_after_its_session";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let world = world.with_bare_profile();
+                let _live = world.enter();
+                let mut config = world.config("http://127.0.0.1:9");
+                config.profile = BARE_PROFILE.to_string();
+                for pack in world.packs_with_no_stage("stage-pack-read-once") {
+                    let _pack =
+                        crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&pack)).unwrap();
+                    let result = world.plan_bare(looks(), reads_and_stops());
+                    assert!(result.is_ok(), "{}: {result:?}", pack.id);
+                    std::fs::remove_file(pack.directory.join("eval.yaml")).unwrap();
+                    assert_eq!(
+                        crate::planner::structured_stages::final_gate_failure(&config),
+                        None,
+                        "{}",
+                        pack.id
+                    );
+                }
+                assert_eq!(world.stage_events(), 0, "{}", world.events());
+            }
+
+            /// The control: with no session of it, the gate is what reads the pack.
+            #[test]
+            fn b1_a_confirmed_pack_with_no_stage_is_read_when_no_session_ran() {
+                let Some(world) =
+                    one_process("b1_a_confirmed_pack_with_no_stage_is_read_when_no_session_ran")
+                else {
+                    return;
+                };
+                let world = world.with_bare_profile();
+                let _live = world.enter();
+                let mut config = world.config("http://127.0.0.1:9");
+                config.profile = BARE_PROFILE.to_string();
+                for pack in world.packs_with_no_stage("stage-pack-read-by-gate") {
+                    let _pack =
+                        crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&pack)).unwrap();
+                    assert_eq!(
+                        crate::planner::structured_stages::final_gate_failure(&config),
+                        None,
+                        "{}: it reads the pack, and there is no stage in it",
+                        pack.id
+                    );
+                    std::fs::remove_file(pack.directory.join("eval.yaml")).unwrap();
+                    assert_eq!(
+                        crate::planner::structured_stages::final_gate_failure(&config).as_deref(),
+                        Some("stage_incomplete: the_selected_pack_cannot_be_read"),
+                        "{}: a pack it cannot read does not turn a declaration off",
+                        pack.id
+                    );
+                }
+            }
+
+            /// Where a real entry runs no session: every step of a saved plan already passes. A
+            /// pack's stages are not met by that, however it was installed.
+            #[test]
+            fn b1_a_plan_whose_steps_all_short_circuit_runs_no_session_and_is_no_success() {
+                const NAME: &str =
+                    "b1_a_plan_whose_steps_all_short_circuit_runs_no_session_and_is_no_success";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let world = world.with_bare_profile();
+                let _live = world.enter();
+                std::fs::write(world.root.join("done.txt"), "already there\n").unwrap();
+                let verified = || PlanStep {
+                    id: "verify-existing".to_string(),
+                    kind: "verify".to_string(),
+                    expected_result: "pass".to_string(),
+                    instruction: "Verify done.txt exists".to_string(),
+                    expected_paths: vec!["done.txt".to_string()],
+                    verify: vec!["test -f done.txt".to_string()],
+                };
+                for (id, installed) in [
+                    ("stage-pack-short-decoded", Installed::Decoded),
+                    ("stage-pack-short-confirmed", Installed::LeftToAdmission),
+                ] {
+                    let pack = world.stage_pack(id, (UPPER, LOWER), installed);
+                    let _pack =
+                        crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&pack)).unwrap();
+                    let before = world.events().matches("step_short_circuited").count();
+                    let result = world.plan_bare(
+                        vec![verified()],
+                        Arc::new(|_, _| panic!("a step asked the provider")),
+                    );
+                    let error = result.expect_err("the pack declares stages");
+                    assert!(
+                        error.contains("stage_incomplete: no_session_bound_the_declared_stages"),
+                        "{id}: {error}"
+                    );
+                    assert_eq!(
+                        world.events().matches("step_short_circuited").count() - before,
+                        1,
+                        "{id}"
+                    );
+                }
+                // And a pack with no stage is still a success, read only because no session did.
+                for pack in world.packs_with_no_stage("stage-pack-short-plain") {
+                    let _pack =
+                        crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&pack)).unwrap();
+                    let plain = world.plan_bare(
+                        vec![verified()],
+                        Arc::new(|_, _| panic!("a step asked the provider")),
+                    );
+                    assert!(plain.is_ok(), "{}: {plain:?}", pack.id);
+                }
+            }
+
+            /// A, a run with no stage, A again: the first A's open stage is still open, and what it
+            /// sealed is still sealed.
+            #[test]
+            fn b1_a_pack_again_after_a_run_with_no_stage_still_has_its_stage_open() {
+                const NAME: &str =
+                    "b1_a_pack_again_after_a_run_with_no_stage_still_has_its_stage_open";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let world = world.with_bare_profile();
+                let _live = world.enter();
+                let pack =
+                    world.stage_pack("stage-pack-return", (UPPER, LOWER), Installed::Decoded);
+                leave_the_lower_open(&world, &pack);
+                let between = world.plan_bare(looks(), reads_and_stops());
+                assert!(between.is_ok(), "{between:?}");
+                let _pack = crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&pack)).unwrap();
+                let again = world.plan_bare(Vec::new(), Arc::new(|_, _| text_reply("nobody")));
+                let error = again.expect_err("its lower stage is still open");
+                assert!(error.contains("1 unmet: lower/main"), "{error}");
+                let session = world.plan_bare(looks(), reads_and_stops());
+                let error = session.expect_err("a later session of it asks the same");
+                assert!(error.contains("1 unmet: lower/main"), "{error}");
+            }
+
+            /// What a changed output took stays taken across a run with no stage and a later
+            /// session, with the bytes put back: no seal comes back by itself.
+            #[test]
+            fn b1_a_seal_a_changed_output_took_stays_taken_in_a_later_session() {
+                const NAME: &str = "b1_a_seal_a_changed_output_took_stays_taken_in_a_later_session";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let world = world.with_bare_profile();
+                let _live = world.enter();
+                let pack = world.stage_pack("stage-pack-lost", (UPPER, LOWER), Installed::Decoded);
+                {
+                    let _pack =
+                        crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&pack)).unwrap();
+                    let steps = vec![
+                        step("Submit the upper stage", "step-upper"),
+                        step("Submit the lower stage", "step-lower"),
+                    ];
+                    world.plan_bare(steps, two_steps()).unwrap();
+                }
+                let output = world.root.join(LOWER_OUTPUT);
+                let sealed = std::fs::read(&output).unwrap();
+                std::fs::write(&output, "changed after the seal\n").unwrap();
+                let between = world.plan_bare(looks(), reads_and_stops());
+                assert!(between.is_ok(), "the run with no stage: {between:?}");
+                let _pack = crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&pack)).unwrap();
+                let session = world.plan_bare(looks(), reads_and_stops());
+                let error = session.expect_err("the seal no longer stands for these bytes");
+                assert!(error.contains("lower/main"), "{error}");
+                let events = world.events();
+                let unmet = events
+                    .lines()
+                    .rfind(|line| line.contains("\"event\":\"structured_stage_incomplete\""))
+                    .expect("the gate asked");
+                assert!(unmet.contains("\"phase\":\"unverified\""), "{unmet}");
+                std::fs::write(&output, sealed).unwrap();
+                let restored = world.plan_bare(looks(), reads_and_stops());
+                let error = restored.expect_err("the same bytes bring no seal back");
+                assert!(error.contains("lower/main"), "{error}");
+            }
+
+            /// A tool whose upstream inputs differ in another stage set: the admission lets it in on
+            /// an adoption of its own, and its first stage call stops at the record. No process
+            /// starts, nothing is sealed, and the first set is left as it was.
+            #[test]
+            fn b1_another_upstream_set_stops_at_contract_changed_and_starts_no_process() {
+                const NAME: &str =
+                    "b1_another_upstream_set_stops_at_contract_changed_and_starts_no_process";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let world = world.with_bare_profile();
+                let _live = world.enter();
+                let starts = |tool: &str| {
+                    std::fs::read_to_string(world.marks.join(format!("started-{tool}")))
+                        .map_or(0, |marks| marks.lines().count())
+                };
+                let first =
+                    world.stage_pack("stage-pack-chained", (UPPER, LOWER), Installed::Decoded);
+                // The lower tool alone: what fed it as a stage's output is a fixed input here.
+                let second = world.pack_declaring(
+                    "stage-pack-lower-alone",
+                    &format!(
+                        "profile_tools:\n  schema_version: profile-tool.declaration/v2\n  builtin_tools: [Read]\n  tools:\n    - id: {LOWER}\n      effect: propose-artifacts\n  stages:\n    stages:\n      - id: lower\n        targets:\n          - id: main\n            tool_id: {LOWER}\n"
+                    ),
+                    Installed::Decoded,
+                );
+                leave_the_lower_open(&world, &first);
+                assert_eq!(starts(UPPER), 1);
+                let file = crate::planner::structured_stages::ledger::ledger_file(
+                    &world.evidence.join("state"),
+                    &world.root,
+                    BARE_PROFILE,
+                )
+                .unwrap();
+                let record = std::fs::read(&file).unwrap();
+                {
+                    let _pack =
+                        crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&second)).unwrap();
+                    let steps = vec![step("Submit the lower stage", "step-lower")];
+                    let called = Arc::new(AtomicBool::new(false));
+                    let saw = called.clone();
+                    let result = world.plan_bare(
+                        steps,
+                        Arc::new(move |index, _| {
+                            if index == 1 {
+                                saw.store(true, Ordering::SeqCst);
+                                submit(LOWER_TOOL, "fast", "initial")
+                            } else {
+                                text_reply("done")
+                            }
+                        }),
+                    );
+                    assert!(called.load(Ordering::SeqCst), "the session did start");
+                    let error = result.expect_err("the record is of another declaration");
+                    assert!(error.contains("stage_ledger_refused"), "{error}");
+                    assert!(error.contains("contract_changed"), "{error}");
+                }
+                assert_eq!(starts(LOWER), 0, "no process for a call the record refused");
+                assert_eq!(starts(UPPER), 1);
+                assert!(!world.root.join(LOWER_OUTPUT).exists(), "nothing committed");
+                assert_eq!(std::fs::read(&file).unwrap(), record, "nothing recorded");
+                let _pack =
+                    crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&first)).unwrap();
+                let again = world.plan_bare(Vec::new(), Arc::new(|_, _| text_reply("nobody")));
+                let error = again.expect_err("the first set's lower stage is still open");
+                assert!(error.contains("1 unmet: lower/main"), "{error}");
+            }
+
+            /// A pack whose value nothing decoded after another pack: neither reads the other's.
+            #[test]
+            fn b1_a_second_confirmed_pack_with_no_session_is_read_and_not_passed() {
+                const NAME: &str =
+                    "b1_a_second_confirmed_pack_with_no_session_is_read_and_not_passed";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let world = world.with_bare_profile();
+                let _live = world.enter();
+                let first = world.stage_pack(
+                    "stage-pack-sealed-first",
+                    (UPPER, LOWER),
+                    Installed::Decoded,
+                );
+                let second = world.stage_pack(
+                    "stage-pack-confirmed-next",
+                    ("stage-index-upper", "stage-index-lower"),
+                    Installed::LeftToAdmission,
+                );
+                {
+                    let _pack =
+                        crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&first)).unwrap();
+                    let steps = vec![
+                        step("Submit the upper stage", "step-upper"),
+                        step("Submit the lower stage", "step-lower"),
+                    ];
+                    world.plan_bare(steps, two_steps()).unwrap();
+                }
+                let _pack =
+                    crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&second)).unwrap();
+                let result = world.plan_bare(Vec::new(), Arc::new(|_, _| text_reply("nobody")));
+                let error = result.expect_err("no session bound the second pack's stages");
+                assert!(
+                    error.contains("stage_incomplete: no_session_bound_the_declared_stages"),
+                    "{error}"
+                );
+            }
+
+            /// The lower stage, on the revision the stale answer to the first call names.
+            fn seals_the_lower() -> Responder {
+                Arc::new(|index, body| match index {
+                    1 => submit(LOWER_TOOL, "fast", "initial"),
+                    _ => {
+                        let answer = last_answer(body);
+                        match answer["revision"].as_str() {
+                            Some(revision) if answer["status"] == "stale" => {
+                                submit(LOWER_TOOL, "fast", revision)
+                            }
+                            _ => text_reply("done"),
+                        }
+                    }
+                })
+            }
+
+            /// A run with no declaration is never asked. A declared set is asked before anything
+            /// bound it, after a session that called nothing, after a seal that is not the whole
+            /// set, and passes once every obligation is met.
+            #[test]
+            fn final_acceptance_asks_for_every_obligation_and_only_a_bound_set_is_asked() {
+                const NAME: &str =
+                    "final_acceptance_asks_for_every_obligation_and_only_a_bound_set_is_asked";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let world = world.with_bare_profile();
+                let _live = world.enter();
+                let mut bare = world.config("http://127.0.0.1:9");
+                bare.profile = BARE_PROFILE.to_string();
+                assert_eq!(
+                    crate::planner::structured_stages::final_gate_failure(&bare),
+                    None
+                );
+                let config = world.config("http://127.0.0.1:9");
+                let gate = || crate::planner::structured_stages::final_gate_failure(&config);
+                let failure = gate().unwrap();
+                assert!(
+                    failure.contains("stage_incomplete: no_session_bound_the_declared_stages"),
+                    "{failure}"
+                );
+
+                let (_, looked) = world.plan(looks(), reads_and_stops());
+                assert_stage_incomplete(&looked);
+                let failure = gate().unwrap();
+                assert!(
+                    failure.contains("stage_incomplete: obligations_unmet"),
+                    "{failure}"
+                );
+
+                let upper = vec![step("Submit the upper stage", "step-upper")];
+                let (_, sealed) = world.plan(upper, stops_after_the_upper());
+                assert_stage_incomplete(&sealed);
+                assert!(gate().is_some(), "a step's seal is not the whole set");
+
+                let lower = vec![step("Submit the lower stage", "step-lower")];
+                let (_, result) = world.plan(lower, seals_the_lower());
+                result.unwrap();
+                assert_eq!(gate(), None);
+                assert_eq!(
+                    crate::planner::structured_stages::final_gate_failure(&bare),
+                    None
+                );
+            }
+
+            /// The same pack again, with no session: what today's table gives it.
+            #[test]
+            fn b1_the_same_pack_again_finds_its_own_stages() {
+                let Some(world) = one_process("b1_the_same_pack_again_finds_its_own_stages") else {
+                    return;
+                };
+                let world = world.with_bare_profile();
+                let _live = world.enter();
+                let pack = world.stage_pack("stage-pack-again", (UPPER, LOWER), Installed::Decoded);
+                leave_the_lower_open(&world, &pack);
+                {
+                    let _pack =
+                        crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&pack)).unwrap();
+                    let again = world.plan_bare(Vec::new(), Arc::new(|_, _| text_reply("nobody")));
+                    let error = again.expect_err("its lower stage is still open");
+                    assert!(error.contains("lower/main"), "{error}");
+                    // The upper is sealed already: only the lower is left.
+                    let steps = vec![step("Submit the lower stage", "step-lower")];
+                    world.plan_bare(steps, seals_the_lower()).unwrap();
+                }
+                let _pack = crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&pack)).unwrap();
+                let sealed = world.plan_bare(Vec::new(), Arc::new(|_, _| text_reply("nobody")));
+                assert!(sealed.is_ok(), "{sealed:?}");
+                std::fs::write(world.root.join(LOWER_OUTPUT), "changed after the seal\n").unwrap();
+                let moved = world.plan_bare(Vec::new(), Arc::new(|_, _| text_reply("nobody")));
+                let error = moved.expect_err("the seal no longer stands for these bytes");
+                assert!(error.contains("lower/main"), "{error}");
             }
         }
     }

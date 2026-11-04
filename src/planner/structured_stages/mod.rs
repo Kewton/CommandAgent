@@ -31,6 +31,7 @@ use crate::config::Config;
 use crate::tools::profile_tools::commit::CommitReceipt;
 use crate::tools::profile_tools::schema::binding::AdoptedInputs;
 use crate::tools::profile_tools::schema::invocation::SchemaGuard;
+use crate::tools::profile_tools::selection::{self, PackSelection};
 use crate::tools::profile_tools::{ProfileToolRefusal, RefusalKind};
 
 pub(crate) fn contract_refused(refusal: ContractRefusal) -> ProfileToolRefusal {
@@ -213,33 +214,78 @@ pub(crate) fn config_resuming(config: &Config, resumed_from: &str) -> Config {
 /// without this only the session's iteration budget would stop a model repeating them (S8).
 const MAX_CALLS_WITHOUT_PROCESS: usize = 8;
 
-type BoundRuns = BTreeMap<(PathBuf, String), Arc<StageRun>>;
+/// What a session's admission left for the one judgment made outside a session.
+#[derive(Debug, Clone)]
+enum BoundAdmission {
+    Stages(Arc<StageRun>),
+    /// A selection only an admission can read, read by a session, with no stage in it.
+    NoStages,
+}
 
-/// The stage set each workspace and profile last bound in this process, for the one judgment made
-/// outside a session. Empty without a stage declaration.
-static BOUND_RUNS: Mutex<BoundRuns> = Mutex::new(BTreeMap::new());
+/// Another pack selection is another set of stages: one's seals say nothing about the other's.
+type BoundKey = (PathBuf, String, Option<PackSelection>);
+
+/// What each workspace, profile, and pack selection last admitted in this process. Without a stage
+/// declaration and without a selection only an admission can read, nothing comes here.
+static BOUND_RUNS: Mutex<BTreeMap<BoundKey, BoundAdmission>> = Mutex::new(BTreeMap::new());
+
+fn remember(workspace: &Path, profile: &str, pack: Option<PackSelection>, bound: BoundAdmission) {
+    if let Ok(workspace) = std::fs::canonicalize(workspace) {
+        BOUND_RUNS
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert((workspace, profile.to_string(), pack), bound);
+    }
+}
+
+/// A session admitted no stage. A later final gate need not read the selection to know that.
+pub(crate) fn remember_admission_without_stages(config: &Config) {
+    if let Some(pack) = selection::selection_left_to_admission() {
+        remember(
+            &config.workspace_root,
+            &config.profile,
+            Some(pack),
+            BoundAdmission::NoStages,
+        );
+    }
+}
 
 /// Final acceptance's question: every obligation of the set, by the bytes there now. It can only
-/// lower a report. A pass here says nothing wider than that the obligations were met (D8).
+/// lower a report. A pass here says nothing wider than that the obligations were met (D8). A run
+/// with no stages returns at the first line, having read no table and no file.
 pub(crate) fn final_gate_failure(config: &Config) -> Option<String> {
-    let bound = {
-        let runs = BOUND_RUNS.lock().unwrap_or_else(PoisonError::into_inner);
-        if runs.is_empty() {
-            None
-        } else {
-            let workspace = std::fs::canonicalize(&config.workspace_root).ok();
-            workspace.and_then(|workspace| runs.get(&(workspace, config.profile.clone())).cloned())
+    let pack = selection::selection_that_may_hold_stages(&config.profile)?;
+    let bound = std::fs::canonicalize(&config.workspace_root)
+        .ok()
+        .and_then(|workspace| {
+            BOUND_RUNS
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .get(&(workspace, config.profile.clone(), pack))
+                .cloned()
+        });
+    match bound {
+        Some(BoundAdmission::Stages(run)) => {
+            let shortfall = run.judge(StageScope::All)?;
+            run.report_shortfall(&shortfall, config.eval_events_path.as_deref());
+            Some(shortfall.to_refusal().to_string())
         }
-    };
-    let Some(run) = bound else {
-        return crate::tools::profile_tools::selection::stages_declared_without_a_read(
-            &config.profile,
-        )
-        .then(|| "stage_incomplete: no_session_bound_the_declared_stages".to_string());
-    };
-    let shortfall = run.judge(StageScope::All)?;
-    run.report_shortfall(&shortfall, config.eval_events_path.as_deref());
-    Some(shortfall.to_refusal().to_string())
+        Some(BoundAdmission::NoStages) => None,
+        None => no_session_failure(&config.profile),
+    }
+}
+
+/// No session of this selection admitted anything. Only now, and only for a selection nothing in
+/// memory speaks for, does the gate read the pack.
+fn no_session_failure(profile: &str) -> Option<String> {
+    let declared = selection::stages_declared_without_a_read(profile)
+        || match selection::selected_stages_by_reading(profile) {
+            Ok(declared) => declared,
+            Err(_) => {
+                return Some("stage_incomplete: the_selected_pack_cannot_be_read".to_string());
+            }
+        };
+    declared.then(|| "stage_incomplete: no_session_bound_the_declared_stages".to_string())
 }
 
 /// What one verdict says for one scope.
@@ -456,12 +502,12 @@ impl StageRun {
 
     /// For the judgment final acceptance makes once sessions are over.
     pub(crate) fn remember_bound(self: &Arc<Self>) {
-        if let Ok(workspace) = std::fs::canonicalize(&self.workspace) {
-            BOUND_RUNS
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .insert((workspace, self.profile.clone()), self.clone());
-        }
+        remember(
+            &self.workspace,
+            &self.profile,
+            selection::pack_selection_from_environment(),
+            BoundAdmission::Stages(self.clone()),
+        );
     }
 
     /// The ledger as of now, and the contract it is held to. Never called during an admission.

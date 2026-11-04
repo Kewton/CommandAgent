@@ -193,9 +193,25 @@ Each row names what an operator sees and what to do.
   `--fresh-session` in a new process.
 - **Another declaration (contract_changed).** A resume or a later session of this process, under
   stages the record was not written under: `stage_ledger_refused: contract_changed`. To recover:
-  `--fresh-session`, or any new process that does not resume.
+  `--fresh-session`, or any new process that does not resume. A tool declared again in a stage set
+  where it has other upstream inputs used to be refused at admission. It is now refused here, at its
+  first stage call: the session starts, the tool's process does not, and no seal is left
+  (`b1_another_upstream_set_stops_at_contract_changed_and_starts_no_process`).
 - **One record per workspace and profile.** Another profile declaring the same tool, or a copy of
   the workspace, starts a record of its own, with no counts and no secret's mark.
+- **Another pack in one process.** A process can run several selections, as a REPL does. Each pack
+  selection is a set of stages of its own to final acceptance: the seals of pack A do not pass pack B,
+  whose run with no session ends as `no_session_bound_the_declared_stages`, and a run with no stage after
+  either is not asked about them and reads no record. Going back to A finds A's stages as they were. The
+  record is still one per workspace and profile, so a session of B calling a stage after A in that
+  process gets `contract_changed`, which only a new process puts right.
+- **A pack only admission can read.** A confirmed TUI dispatch, or a selection inherited in the
+  environment, says nothing in memory about stages. A session that admits such a pack with no stage
+  records that, so its final gate reads nothing. A run where no session ever ran, such as a plan whose
+  steps all short-circuit, has its final gate read the selected pack once for each time it asks, and a
+  pack it cannot read ends as `the_selected_pack_cannot_be_read`. For a run with no stage this failure,
+  with no session and a selected pack that cannot be read, is the one way its result differs from a
+  build without stages. The read before it is what such a run does extra; a run with no pack reads nothing.
 - **A fixed input changed (P5, R2).** A resume finding a changed fixed input is refused:
   `stage_ledger_refused: fixed_input_changed`. To recover: `--fresh-session`, or any new process
   that does not resume. A change before the first `begin` cannot be seen, because nothing was
@@ -229,14 +245,20 @@ Each row names what an operator sees and what to do.
     `.mjs`, `.cjs`, `.css`, or `.py`, or with a few config names such as `package.json`, skipping dot
     directories and names such as `out`, `build`, and `target`, and the profile's expected and
     route-bound paths. When an admitted artifact check ran, the artifacts the profile declares and
-    the names that check recorded are compared too, whatever their extension or directory. A stage
-    output such as `out/lower.json` is none of these unless such a check names it.
+    the names that check recorded are compared too, past the walk's usual limits on extension and on
+    generated directories. The limits on paths remain: a dot directory, `node_modules`, or a credential
+    path is not compared, and the counts of candidates and of bytes still bound what is
+    (`artifact_repair_paths.rs`, `repair_workspace_snapshot.rs`). A stage output such as
+    `out/lower.json` is none of these unless such a check names it.
   - If the repair also changes a compared file, acceptance asks again and judges the seal by the bytes
     there at that moment (`a_final_repair_that_seals_and_changes_a_source_is_asked_again`). Measured
-    only with both in one reply: a repair session whose required file exists ends at its first batch of
-    tools, so a write in one attempt and the seal in the next ends as above.
-  - To recover: submit every stage in the plan's own steps. A repair finishes one only if the same
-    reply also changes a compared file.
+    on one form only, a profile that keeps `Write` with its required file already there, and only with
+    both in one reply: that repair session ended at its first batch of tools, so a write in one attempt
+    and the seal in the next ended as above. This is what that form did and not a rule of the repair: a
+    session has other feedback that sends a model back for another reply
+    (`loop_run.rs`, `implementation_completion.rs`), and there the seal may come in a later reply.
+  - To recover: submit every stage in the plan's own steps. In the form measured, a repair finished one
+    only when the same reply also changed a compared file.
   A repair called on the wrong revision gets `stale`, and on an `Implement` repair with a missing
   write it can end at `model_stagnation:read_only_loop` first. Seals a resume lowered are not met at
   final acceptance either, and that run is no success.
