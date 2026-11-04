@@ -15,6 +15,7 @@
     {"id": "a workflow child", "refusal": "stage_contract_refused", "kind": "WorkflowChild"},
     {"id": "a run that may recover by itself", "refusal": "stage_contract_refused", "kind": "RecoversByItself"},
     {"id": "a stage left open", "refusal": "stage_incomplete", "kind": "obligations_unmet"},
+    {"id": "a final repair that sealed the open stage, not asked again", "refusal": "stage_incomplete", "kind": "obligations_unmet"},
     {"id": "a record that cannot be used", "refusal": "stage_incomplete", "kind": "ledger_refused"},
     {"id": "a resume with no record", "refusal": "stage_ledger_refused", "kind": "missing"},
     {"id": "a fixed input changed", "refusal": "stage_ledger_refused", "kind": "fixed_input_changed"},

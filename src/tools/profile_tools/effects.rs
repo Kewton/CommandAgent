@@ -4286,6 +4286,7 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
             const PROFILE: &str = "stage-session-config";
             const INDEX_PROFILE: &str = "stage-session-index";
             const PLAIN_PROFILE: &str = "stage-session-plain";
+            const WRITES_PROFILE: &str = "stage-session-writes";
             const UPPER_TOOL: &str = "ProposeUpper";
             const LOWER_TOOL: &str = "ProposeLower";
             const FIXED: &str = "fixed/seed.json";
@@ -4540,6 +4541,14 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                 let profile = base.join(format!("extension/profiles/{PLAIN_PROFILE}"));
                 std::fs::create_dir_all(&profile).unwrap();
                 std::fs::write(profile.join("manifest.toml"), plain).unwrap();
+                // The first manifest, keeping a tool that changes a file with no stage.
+                let writes = manifest(WRITES_PROFILE, UPPER, LOWER).replace(
+                    "builtin_tools = [\"Read\"]",
+                    "builtin_tools = [\"Read\", \"Write\"]",
+                );
+                let profile = base.join(format!("extension/profiles/{WRITES_PROFILE}"));
+                std::fs::create_dir_all(&profile).unwrap();
+                std::fs::write(profile.join("manifest.toml"), writes).unwrap();
                 write_descriptor(&base, (UPPER, UPPER_TOOL, UPPER_OUTPUT), &[FIXED]);
                 write_descriptor(
                     &base,
@@ -4690,7 +4699,11 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                     return;
                 };
                 let _live = world.enter();
-                let responder: Responder = Arc::new(|_, body| {
+                // A repair that keeps changing a file and never calls a stage, so each attempt
+                // ends well, the bytes moved, and final acceptance still says no. Only the budget
+                // can stop this.
+                let written = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+                let responder: Responder = Arc::new(move |_, body| {
                     if !body["tools"].to_string().contains(UPPER_TOOL) {
                         return text_reply(
                             &json!({"goal": "Look", "steps": [{
@@ -4702,28 +4715,104 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                     }
                     let answered = messages(body).last().is_some_and(|m| m["role"] == "tool");
                     if answered {
-                        text_reply("done")
-                    } else {
-                        call_reply("Read", &json!({"path": FIXED}))
+                        return text_reply("done");
                     }
+                    if body
+                        .to_string()
+                        .contains("Repair the final acceptance failure")
+                    {
+                        let round = written.fetch_add(1, Ordering::SeqCst);
+                        return call_reply(
+                            "Write",
+                            // A source file, the kind the repair's before and after compares.
+                            &json!({"path": "repair.py", "content": format!("# round {round}\n")}),
+                        );
+                    }
+                    call_reply("Read", &json!({"path": FIXED}))
                 });
-                world.ultra(responder).expect_err("two stages are open");
+                world
+                    .ultra_as(WRITES_PROFILE, true, responder)
+                    .expect_err("two stages are open");
                 let events = world.events();
                 let unmet = events
                     .lines()
-                    .find(|line| line.contains("\"event\":\"structured_stage_incomplete\""))
+                    .rfind(|line| line.contains("\"event\":\"structured_stage_incomplete\""))
                     .expect("final acceptance asked");
                 assert!(
                     unmet.contains("upper") && unmet.contains("lower"),
-                    "{unmet}"
+                    "both still open at the end: {unmet}"
                 );
                 let starts = events
                     .matches("\"event\":\"final_acceptance_repair_start\"")
                     .count();
-                assert!(
-                    (1..=2).contains(&starts),
-                    "{starts}: two stages, the one budget"
+                // `FINAL_ACCEPTANCE_REPAIR_MAX_ATTEMPTS`, which this module cannot name.
+                assert_eq!(starts, 2, "two stages, the one budget, all of it: {events}");
+                let failed = events
+                    .lines()
+                    .find(|line| line.contains("\"event\":\"ultra_final_acceptance_failed\""))
+                    .expect("final acceptance failed");
+                assert!(failed.contains("\"max_attempts\":2"), "{failed}");
+            }
+
+            /// A known limit, measured. A final repair that seals the open stage changes nothing the
+            /// repair's before and after compare, so acceptance does not ask again and the run ends
+            /// as a failure about a stage that is sealed by then. A failure, not a false pass.
+            #[test]
+            fn a_final_repair_that_seals_the_open_stage_still_ends_as_a_failure() {
+                const NAME: &str =
+                    "a_final_repair_that_seals_the_open_stage_still_ends_as_a_failure";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                let steps = ultra_steps(false);
+                let responder: Responder = Arc::new(move |index, body| {
+                    let text = body.to_string();
+                    if !text.contains("Repair the final acceptance failure")
+                        || !body["tools"].to_string().contains(UPPER_TOOL)
+                    {
+                        return steps(index, body);
+                    }
+                    let last = messages(body).last();
+                    if last.is_some_and(|message| message["role"] == "tool") {
+                        let answer = last_answer(body);
+                        return match answer["revision"].as_str() {
+                            Some(revision) if answer["status"] == "stale" => {
+                                submit(LOWER_TOOL, "fast", revision)
+                            }
+                            _ => text_reply("done"),
+                        };
+                    }
+                    // The revision the upper stage's seal named, as a model has it in its history.
+                    let revision = messages(body)
+                        .iter()
+                        .filter(|message| message["role"] == "tool")
+                        .filter_map(|message| message["content"].as_str())
+                        .filter_map(|text| serde_json::from_str::<Value>(text).ok())
+                        .find_map(|answer| {
+                            answer["stage"]["downstream"][0]["revision"]
+                                .as_str()
+                                .map(str::to_string)
+                        })
+                        .expect("the seal's answer is in the history");
+                    submit(LOWER_TOOL, "fast", &revision)
+                });
+                let error = world.ultra(responder).expect_err("the known limit");
+                assert!(error.contains("stage_incomplete"), "{error}");
+                // The stage is sealed by now, and the run never asked again.
+                let config = world.config("http://127.0.0.1:9");
+                assert_eq!(
+                    crate::planner::structured_stages::final_gate_failure(&config),
+                    None,
+                    "{error}"
                 );
+                let events = world.events();
+                assert!(
+                    events
+                        .contains("\"failure_kind\":\"final_acceptance_repair_no_source_change\""),
+                    "{events}"
+                );
+                assert!(events.contains("\"reprobe_skipped\":true"), "{events}");
             }
 
             /// V9: on a real terminal the notice is what the terminal needs. This asks through the

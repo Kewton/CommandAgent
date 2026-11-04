@@ -59,11 +59,14 @@ Two ultra rows differ in one thing:
 - `ultra-plan-speculating` runs as an explicit profile does: the next phase's plan is asked for on
   another thread. Its client writes `provider_request` and `provider_response`, which can land
   anywhere among the main thread's events. Those two, and only between
-  `speculative_phase_plan_started` and `speculative_phase_plan_adopted`, are compared as a multiset of
-  whole lines; everything else is compared in order, byte for byte. The test
+  `speculative_phase_plan_started` and `speculative_phase_plan_adopted`, may move among the others;
+  they keep their order between themselves, because one thread writes them. Everything else is
+  compared in order, byte for byte. The test
   `only_the_other_threads_events_may_move_and_only_within_their_range` holds that comparison to this.
-  A request is matched to its reply by whether it offers a tool, and each thread's requests are kept
-  in their own list and order, because which thread arrives first is not fixed either.
+  The requests go in two lists, by whether a request offers a tool, each in its order. A plan's request
+  from the main thread goes in the plans' list too. This is for the replies: a single queue of replies
+  gave a plan's request a reply meant for a step (`done`, then a `planner_error`). The order across the
+  two lists is not compared.
 
 Two threads can also leave two values on one line of the events file, so the recorder reads values
 and not lines.

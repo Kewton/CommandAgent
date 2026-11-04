@@ -396,7 +396,7 @@ mod off_control {
         }
     }
 
-    /// The requests and replies of one thread of a run, in that thread's order.
+    /// One list of requests and the replies they get, in the order they came.
     #[derive(Default)]
     struct Lane {
         requests: Mutex<Vec<String>>,
@@ -418,9 +418,8 @@ mod off_control {
     }
 
     impl FakeHttp {
-        /// `plans`, when there are any, answer the requests that offer no tool: a phase's plan,
-        /// which may come from a thread of its own. Which of two threads arrives first is not
-        /// something a reply should depend on, or a recording show.
+        /// `plans`, when there are any, answer the requests that offer no tool, whichever thread
+        /// sends them. With one queue, a plan's request could get a reply meant for a step.
         fn start(replies: Vec<String>, plans: Vec<String>) -> Self {
             let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
             listener.set_nonblocking(true).unwrap();
@@ -1061,7 +1060,7 @@ mod off_control {
                 .collect::<BTreeMap<_, _>>(),
             "unused_replies": unused,
         });
-        // Each thread's requests in that thread's order, and only for a row with two threads.
+        // The requests that offered no tool, in their order, and only for a row that splits them.
         if !plan_requests.is_empty() {
             recorded["plan_requests"] = json!(plan_requests);
         }
@@ -1094,9 +1093,9 @@ mod off_control {
     }
 
     /// Byte for byte, in order, but for one thing: between the other thread's start and its
-    /// adoption, the events it can write may fall anywhere among the others. There they are
-    /// compared as a multiset of whole lines. Nothing is left out, and outside those two lines
-    /// nothing is allowed to move.
+    /// adoption, the events it can write may fall anywhere among the others. One thread writes
+    /// them, so they keep their order among themselves, and each line is compared whole. Nothing
+    /// is left out, and outside those two lines nothing is allowed to move.
     fn events_match(new: &[&str], old: &[&str]) -> Result<(), String> {
         let (new_start, new_end) = (
             position_of(new, OTHER_THREAD_STARTS)?,
@@ -1121,7 +1120,6 @@ mod off_control {
                     fixed.push((*line).to_string());
                 }
             }
-            movable.sort();
             (movable, fixed)
         };
         let (new_movable, new_fixed) = parts(&new[new_start..new_end]);
@@ -1242,6 +1240,53 @@ mod off_control {
         ];
         assert!(events_match(&late, &old).is_err(), "after the adoption");
 
+        // Only the content changed, on either side of the range.
+        let (other_before, other_after) = (line("before", "x"), line("after", "x"));
+        let prefix_changed = [
+            other_before.as_str(),
+            start.as_str(),
+            a.as_str(),
+            request.as_str(),
+            b.as_str(),
+            response.as_str(),
+            end.as_str(),
+            after.as_str(),
+        ];
+        assert!(
+            events_match(&prefix_changed, &old).is_err(),
+            "before the range"
+        );
+        let suffix_changed = [
+            before.as_str(),
+            start.as_str(),
+            a.as_str(),
+            request.as_str(),
+            b.as_str(),
+            response.as_str(),
+            end.as_str(),
+            other_after.as_str(),
+        ];
+        assert!(
+            events_match(&suffix_changed, &old).is_err(),
+            "after the range"
+        );
+
+        // One thread writes them: a response ahead of its request is another run.
+        let response_first = [
+            before.as_str(),
+            start.as_str(),
+            a.as_str(),
+            response.as_str(),
+            b.as_str(),
+            request.as_str(),
+            end.as_str(),
+            after.as_str(),
+        ];
+        assert!(
+            events_match(&response_first, &old).is_err(),
+            "their own order"
+        );
+
         // And only those two names move.
         assert_eq!(
             EVENTS_OF_THE_OTHER_THREAD,
@@ -1277,6 +1322,8 @@ mod off_control {
                 old["events"].as_array().unwrap(),
             );
             if matches!(row.entry, Entry::UltraSpeculating) {
+                // Whether the order really moved this time, for a count over many runs.
+                eprintln!("off-order: {}", if new == old { "same" } else { "moved" });
                 assert_eq!(
                     events_match(&lines_of(new), &lines_of(old)),
                     Ok(()),
