@@ -147,6 +147,17 @@ mod tests {
         );
     }
 
+    /// The spellings `--profile` keeps, against the canonical name a preset's plan has.
+    #[test]
+    fn the_same_name_in_two_spellings() {
+        let same = crate::tools::profile_tools::names_the_same_profile;
+        assert!(same("next.js", "nextjs"));
+        assert!(same("py-cli", "python-cli"));
+        assert!(same(" Stage-Named-Profile ", "stage-named-profile"));
+        assert!(!same("nextjs", "python-cli"));
+        assert!(!same("stage-named-profile", "stage-another-profile"));
+    }
+
     /// The filter stands in front of the route classifier: refusing here is what keeps that
     /// provider call from happening. A REPL needs a terminal, so the filter itself is what runs.
     #[test]

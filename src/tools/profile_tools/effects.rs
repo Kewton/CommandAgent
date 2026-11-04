@@ -7676,10 +7676,17 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                     world.plan_bare(looks(), reads_and_stops()).unwrap();
                 }
                 let known = world.checks_pack("stage-pack-then-known", Installed::Decoded);
-                let _pack =
-                    crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&known)).unwrap();
-                std::fs::remove_file(known.directory.join("eval.yaml")).unwrap();
-                assert_eq!(world.gate(BARE_PROFILE), None, "its value says no stage");
+                assert_eq!(known.hash, left.hash);
+                {
+                    let _pack =
+                        crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&known)).unwrap();
+                    std::fs::remove_file(known.directory.join("eval.yaml")).unwrap();
+                    assert_eq!(world.gate(BARE_PROFILE), None, "its value says no stage");
+                }
+                // No value now, and no bytes to read: only the record can say this, and a read
+                // would end as `CANNOT_READ`.
+                let _pack = crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&left)).unwrap();
+                assert_eq!(world.gate(BARE_PROFILE), None, "its record says no stage");
             }
 
             fn both_stages_declared() -> String {
@@ -8177,6 +8184,406 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                 assert!(looked.is_err(), "{looked:?}");
                 std::fs::remove_file(checks.directory.join("eval.yaml")).unwrap();
                 assert_eq!(world.gate(BUILTIN), None, "its session read it");
+            }
+
+            /// What the host says of a plan that names another profile than the run's. The words
+            /// are fixed: a plan file's strings stay out of them.
+            const PLAN_OF_ANOTHER_PROFILE: &str = "stage_contract_refused: a plan names another profile than the run, and stages are declared";
+
+            /// Any planner asked gets one step to do, and any session reads one file and stops.
+            fn one_step_and_done() -> Responder {
+                Arc::new(|_, body| {
+                    if body["tools"].as_array().is_none_or(Vec::is_empty) {
+                        return text_reply(
+                            &json!({"goal": "Look", "steps": [{
+                                "id": "step-setup",
+                                "kind": "setup",
+                                "expected_result": "pass",
+                                "instruction": "Look",
+                                "expected_paths": [],
+                                "verify": [],
+                            }]})
+                            .to_string(),
+                        );
+                    }
+                    let answered = messages(body)
+                        .last()
+                        .is_some_and(|message| message["role"] == "tool");
+                    if answered {
+                        text_reply("done")
+                    } else {
+                        call_reply("Read", &json!({"path": FIXED}))
+                    }
+                })
+            }
+
+            impl World {
+                /// A plan that names `named`, as a saved plan does, under a config of `under`.
+                fn plan_named(
+                    &self,
+                    named: &str,
+                    under: &str,
+                    automatic_runs: u8,
+                ) -> (Vec<Value>, Result<String, String>) {
+                    std::fs::write(self.root.join("notes.txt"), "the notes\n").unwrap();
+                    let http = FakeHttp::start(one_step_and_done());
+                    let mut config = self.config(&http.url);
+                    config.profile = under.to_string();
+                    config.recovery_plan_auto_runs = automatic_runs;
+                    let mut planner = client_from_config(&config, true).unwrap();
+                    let mut execution = client_from_config(&config, false).unwrap();
+                    let plan = UltraPlan {
+                        goal: "Look at the seed".to_string(),
+                        profile: named.to_string(),
+                        style: "default".to_string(),
+                        intent: "create".to_string(),
+                        phases: vec![
+                            UltraPhase {
+                                id: "first".to_string(),
+                                prompt: "Phase-first: look at the seed.".to_string(),
+                            },
+                            UltraPhase {
+                                id: "second".to_string(),
+                                prompt: "Phase-second: look at the seed again.".to_string(),
+                            },
+                        ],
+                    };
+                    let result = crate::planner::auto_recovery::run_plan_with_ui(
+                        planner.as_mut(),
+                        execution.as_mut(),
+                        &plan,
+                        &config,
+                        &NOOP_UI,
+                    )
+                    .map_err(|error| format!("{error:#}"));
+                    (http.finish(), result)
+                }
+            }
+
+            fn assert_the_plan_is_refused(requests: &[Value], result: Result<String, String>) {
+                let error = result.expect_err("the stages of the plan's profile were not asked");
+                assert!(
+                    error.contains(PLAN_OF_ANOTHER_PROFILE),
+                    "{} requests: {error}",
+                    requests.len()
+                );
+                assert_eq!(requests.len(), 0, "no provider call comes first");
+            }
+
+            /// B1, the first form: the config has no stage, so nothing asks about the plan's, and
+            /// the run would be reported as the plan's profile.
+            #[test]
+            fn plan_profile_a_stage_plan_under_a_config_with_none_is_refused() {
+                const NAME: &str = "plan_profile_a_stage_plan_under_a_config_with_none_is_refused";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                let (requests, result) = world.plan_named(PROFILE, "generic", 0);
+                assert_the_plan_is_refused(&requests, result);
+                assert!(!world.events().contains("\"event\":\"ultra_plan_complete\""));
+            }
+
+            /// B1, the second form: the config's seals stand, and say nothing of the plan's stages.
+            #[test]
+            fn plan_profile_another_stage_profile_is_not_answered_by_these_seals() {
+                const NAME: &str =
+                    "plan_profile_another_stage_profile_is_not_answered_by_these_seals";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                world.seal_both();
+                let record = std::fs::read(world.record_of(PROFILE)).unwrap();
+                let (requests, result) = world.plan_named(INDEX_PROFILE, PROFILE, 0);
+                assert_the_plan_is_refused(&requests, result);
+                assert_eq!(std::fs::read(world.record_of(PROFILE)).unwrap(), record);
+                assert_eq!(world.gate(PROFILE), None, "its own seals still stand");
+            }
+
+            /// B1, as it comes about: `/ultra-plan-run --profile P` is that command's, so a later
+            /// `/resume` of its recovery plan has the REPL's config.
+            #[test]
+            fn plan_profile_resume_of_a_stage_plan_is_refused() {
+                const NAME: &str = "plan_profile_resume_of_a_stage_plan_is_refused";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                std::fs::write(world.root.join("notes.txt"), "the notes\n").unwrap();
+                let plans = world.root.join(".anvil/plans");
+                std::fs::create_dir_all(&plans).unwrap();
+                std::fs::write(
+                    plans.join("recovery.yaml"),
+                    format!(
+                        "goal: \"finish\"\nprofile: \"{PROFILE}\"\nphases:\n  - id: \"finish\"\n    prompt: \"Look at the seed.\"\n  - id: \"after\"\n    prompt: \"Look at the seed again.\"\n"
+                    ),
+                )
+                .unwrap();
+                let http = FakeHttp::start(one_step_and_done());
+                let mut config = world.config(&http.url);
+                config.profile = "generic".to_string();
+                let mut planner = client_from_config(&config, true).unwrap();
+                let mut execution = client_from_config(&config, false).unwrap();
+                let result = crate::tui::slash::handle_command(
+                    "/resume .anvil/plans/recovery.yaml",
+                    &config,
+                    planner.as_mut(),
+                    execution.as_mut(),
+                    &NOOP_UI,
+                )
+                .map_err(|error| format!("{error:#}"));
+                let requests = http.finish();
+                assert_the_plan_is_refused(&requests, result);
+            }
+
+            /// A pack's stages are the config's to answer for. Its seals stand, and the plan names
+            /// another profile. This was no success before the entry asked either: a phase's entry
+            /// holds a pack to the plan's profile. The entry says so first now, with no provider
+            /// call.
+            fn a_stage_pack_refuses_a_plan_of_another_profile(world: World, installed: Installed) {
+                let world = world.with_bare_profile();
+                let _live = world.enter();
+                let pack =
+                    world.stage_pack("stage-pack-under-another-plan", (UPPER, LOWER), installed);
+                let _pack = crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&pack)).unwrap();
+                world.plan_bare(both_stages(), two_steps()).unwrap();
+                assert_eq!(world.gate(BARE_PROFILE), None);
+                let (requests, result) = world.plan_named(PLAIN_PROFILE, BARE_PROFILE, 0);
+                assert_the_plan_is_refused(&requests, result);
+            }
+
+            #[test]
+            fn plan_profile_a_decoded_stage_pack_refuses_a_plan_of_another_profile() {
+                const NAME: &str =
+                    "plan_profile_a_decoded_stage_pack_refuses_a_plan_of_another_profile";
+                if let Some(world) = one_process(NAME) {
+                    a_stage_pack_refuses_a_plan_of_another_profile(world, Installed::Decoded);
+                }
+            }
+
+            #[test]
+            fn plan_profile_an_undecoded_stage_pack_refuses_a_plan_of_another_profile() {
+                const NAME: &str =
+                    "plan_profile_an_undecoded_stage_pack_refuses_a_plan_of_another_profile";
+                if let Some(world) = one_process(NAME) {
+                    a_stage_pack_refuses_a_plan_of_another_profile(
+                        world,
+                        Installed::LeftToAdmission,
+                    );
+                }
+            }
+
+            /// A refusal at the entry gives a run that may recover by itself nothing to recover.
+            #[test]
+            fn plan_profile_is_refused_with_recovery_runs_too() {
+                const NAME: &str = "plan_profile_is_refused_with_recovery_runs_too";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                let (requests, result) = world.plan_named(PROFILE, "generic", 1);
+                assert_the_plan_is_refused(&requests, result);
+                assert!(
+                    !world
+                        .events()
+                        .contains("\"event\":\"recovery_plan_auto_run_start\"")
+                );
+            }
+
+            /// The control: with no stage on either side, the names may differ as they always did.
+            #[test]
+            fn plan_profile_no_stage_on_either_side_goes_on() {
+                const NAME: &str = "plan_profile_no_stage_on_either_side_goes_on";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let world = world.with_bare_profile();
+                let _live = world.enter();
+                // With no stage, what the lower tool reads is a fixed input like any other, and
+                // whichever name the plan has, its admission needs it there.
+                let (_, unread) = world.plan_named(PLAIN_PROFILE, PLAIN_PROFILE, 0);
+                let error = unread.expect_err("the tool's input is not there yet");
+                assert!(error.contains("input_revision_unavailable"), "{error}");
+                let upper_output = world.root.join(UPPER_OUTPUT);
+                std::fs::create_dir_all(upper_output.parent().unwrap()).unwrap();
+                std::fs::write(upper_output, "the upper tool's output, as a fixed input\n")
+                    .unwrap();
+                for (named, under) in [(BARE_PROFILE, "generic"), ("generic", PLAIN_PROFILE)] {
+                    let (requests, result) = world.plan_named(named, under, 0);
+                    assert!(result.is_ok(), "{named} under {under}: {result:?}");
+                    assert!(!requests.is_empty(), "{named} under {under}");
+                }
+            }
+
+            /// The control: a plan of the profile that has the stages goes on.
+            #[test]
+            fn plan_profile_the_same_stage_profile_goes_on() {
+                const NAME: &str = "plan_profile_the_same_stage_profile_goes_on";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                world.seal_both();
+                let (requests, result) = world.plan_named(PROFILE, PROFILE, 0);
+                assert!(result.is_ok(), "{result:?}");
+                assert!(!requests.is_empty());
+            }
+
+            /// The control: `--profile` is kept as it was typed and a preset's plan has the
+            /// canonical name, so this is one profile. What it goes on to is its own final contract.
+            #[test]
+            fn plan_profile_an_alias_of_the_same_profile_goes_on() {
+                const NAME: &str = "plan_profile_an_alias_of_the_same_profile_goes_on";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                let pack = world.pack_for(
+                    "python-cli",
+                    "stage-pack-under-an-alias",
+                    &both_stages_declared(),
+                    Installed::Decoded,
+                );
+                let _pack = crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&pack)).unwrap();
+                let (requests, result) = world.plan_named("python-cli", "py-cli", 0);
+                assert!(!requests.is_empty(), "{result:?}");
+                if let Err(error) = &result {
+                    assert!(!error.contains(PLAN_OF_ANOTHER_PROFILE), "{error}");
+                    assert!(!error.contains("selected pack is for"), "{error}");
+                }
+            }
+
+            /// N1: only the contract's digest tells these apart. The same manifest hash and the same
+            /// descriptors, another contract. This puts another declaration in memory under the same
+            /// hash, which no production path does.
+            #[test]
+            fn identity_another_contract_with_the_same_descriptors_is_no_success() {
+                const NAME: &str =
+                    "identity_another_contract_with_the_same_descriptors_is_no_success";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                world.seal_both();
+                let manifest = std::fs::read_to_string(
+                    world
+                        .base
+                        .join(format!("extension/profiles/{PROFILE}/manifest.toml")),
+                )
+                .unwrap();
+                let mut narrowed =
+                    crate::tools::profile_tools::selection::manifest_declaration_for_test(PROFILE)
+                        .unwrap();
+                narrowed.stages.as_mut().unwrap().limits.attempts_per_target = Some(1);
+                crate::tools::profile_tools::selection::record_manifest_declaration(
+                    &manifest, narrowed,
+                );
+                assert_eq!(world.gate(PROFILE).as_deref(), Some(NO_SESSION));
+            }
+
+            /// N1, on the production path: another descriptor at an admission's first read and the
+            /// first again at its second. Adoption holds the second, so it stands, and every stage
+            /// seals. The contract came from the first, whose digest nothing else keeps.
+            #[test]
+            fn identity_a_descriptor_replaced_between_an_admissions_reads_is_no_success() {
+                const NAME: &str =
+                    "identity_a_descriptor_replaced_between_an_admissions_reads_is_no_success";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                let file = world.descriptor_file(LOWER);
+                let first = std::fs::read(&file).unwrap();
+                world.edit_descriptor(LOWER, |descriptor| {
+                    descriptor["stage"]["attempts_per_target"] = json!(7);
+                });
+                let reads = std::rc::Rc::new(std::cell::Cell::new(0_usize));
+                let counted = reads.clone();
+                let swapped = file.clone();
+                let name = file.file_name().unwrap().to_os_string();
+                let hook = crate::tools::dir_fd::test_hook::install(move |component| {
+                    if component.file_name() == Some(name.as_os_str()) {
+                        counted.set(counted.get() + 1);
+                        if counted.get() == 2 {
+                            std::fs::write(&swapped, &first).unwrap();
+                        }
+                    }
+                });
+                let (_, result) = world.prompt(two_steps());
+                drop(hook);
+                assert!(result.is_ok(), "{} reads: {result:?}", reads.get());
+                assert!(reads.get() >= 2, "{} reads", reads.get());
+                assert!(world.record_of(PROFILE).exists());
+                assert_eq!(world.gate(PROFILE).as_deref(), Some(NO_SESSION));
+            }
+
+            /// N3: what is asked is the stages' tools. A proposal tool in no stage is no part of a
+            /// contract or of what the gate compares, whatever becomes of its descriptor.
+            #[test]
+            fn identity_a_proposal_tool_outside_the_stages_is_no_part_of_it() {
+                const NAME: &str = "identity_a_proposal_tool_outside_the_stages_is_no_part_of_it";
+                const WITH_OUTSIDE: &str = "stage-session-with-an-outside-tool";
+                const OUTSIDE: &str = "stage-tool-in-no-stage";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let lower = format!("{{ id = \"{LOWER}\", effect = \"propose-artifacts\" }},\n");
+                let manifest = manifest(WITH_OUTSIDE, UPPER, LOWER).replace(
+                    &lower,
+                    &format!(
+                        "{lower}  {{ id = \"{OUTSIDE}\", effect = \"propose-artifacts\" }},\n"
+                    ),
+                );
+                assert!(manifest.contains(OUTSIDE));
+                let profile = world
+                    .base
+                    .join(format!("extension/profiles/{WITH_OUTSIDE}"));
+                std::fs::create_dir_all(&profile).unwrap();
+                std::fs::write(profile.join("manifest.toml"), manifest).unwrap();
+                write_descriptor(
+                    &world.base,
+                    (OUTSIDE, "ProposeOutside", "outside/third.json"),
+                    &[FIXED],
+                );
+                let _live = world.enter();
+                world
+                    .plan_as(WITH_OUTSIDE, both_stages(), two_steps())
+                    .unwrap();
+                assert_eq!(world.gate(WITH_OUTSIDE), None);
+                world.edit_descriptor(OUTSIDE, |descriptor| {
+                    descriptor["description"] = json!("Reworded, and in no stage.");
+                });
+                assert_eq!(world.gate(WITH_OUTSIDE), None);
+                std::fs::remove_file(world.descriptor_file(OUTSIDE)).unwrap();
+                assert_eq!(world.gate(WITH_OUTSIDE), None);
+            }
+
+            /// A session of another descriptor takes the table's place of the first, even when the
+            /// record then refuses it. So the same bytes back are not yet what the seals were made
+            /// under, in this table's eyes, and it is a session of the first that puts it right.
+            #[test]
+            fn identity_a_refused_session_of_another_descriptor_takes_the_tables_place() {
+                const NAME: &str =
+                    "identity_a_refused_session_of_another_descriptor_takes_the_tables_place";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                world.seal_both();
+                let record = std::fs::read(world.record_of(PROFILE)).unwrap();
+                let file = world.descriptor_file(LOWER);
+                let original = std::fs::read(&file).unwrap();
+                world.edit_descriptor(LOWER, reading(&json!([FIXED])));
+                let (_, prompted) = world.prompt(nobody());
+                let error = prompted.expect_err("the record is of another contract");
+                assert!(error.contains("ledger_refused"), "{error}");
+                std::fs::write(&file, original).unwrap();
+                assert_eq!(world.gate(PROFILE).as_deref(), Some(NO_SESSION));
+                assert_eq!(std::fs::read(world.record_of(PROFILE)).unwrap(), record);
+                let (_, again) = world.plan(looks(), reads_and_stops());
+                assert!(again.is_ok(), "{again:?}");
+                assert_eq!(world.gate(PROFILE), None);
             }
         }
     }

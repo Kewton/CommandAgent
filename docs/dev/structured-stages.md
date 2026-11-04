@@ -6,9 +6,11 @@ bytes and every check the operator requires passed. A new upstream version takes
 that state away from everything below it. What a model or a tool says never
 decides this.
 
-Without a declaration none of this runs: nothing is read or written here, and the
-wire, the events, and the artifacts of a run stay as they were
-(`tests/corpus/apps/structured-stage-receipts/`).
+Without a declaration none of this runs: nothing is written here, no contents are
+read, and the wire, the events, and the artifacts of a run stay as they were
+(`tests/corpus/apps/structured-stage-receipts/`). One lookup remains: a run whose pack
+was left to admission, with no stage in it, also resolves the workspace's path, and
+reads no contents to do so (see "What this costs a run with no stage").
 
 ## Design
 
@@ -94,6 +96,13 @@ plan's end:
 | `--ultra-plan-run`, `/ultra-plan-run`, a confirmed REPL request | Final acceptance, whose report gets the failure |
 | The `fix` intent | Before its own adjudication, and again after its reproducer and regression commands have run, before it reports completion |
 | The `investigate` intent | Before its own adjudication, which runs no command |
+
+The profile that is reported is the profile the stages are asked of. A run is scored and reported
+as its plan's profile, and its stages are asked of its config's. A plan file and `/resume` bring a
+profile of their own, so when either one declares stages, a plan naming another profile is refused
+at the entry of an ultra plan run, before any provider call: `stage_contract_refused`. The names are
+compared as profiles, so `next.js` and `nextjs` are one. A generated plan already has the config's
+profile, and the one change during a run, a promotion, moves both.
 
 ## Declaring stages
 
@@ -229,19 +238,37 @@ Each row names what an operator sees and what to do.
     the gate also holds those to their pins: the files in `dependencies`, the executable, and the pinned
     directories. Bytes off their pin, a descriptor that cannot be read, and a contract now refused end as
     `the_declared_stages_cannot_be_read`. A selected pack that cannot be used ends as
-    `the_selected_pack_cannot_be_read`. The same bytes put back pass again. New bytes with a new pin are
-    another descriptor, so `no_session_bound_the_declared_stages`.
-  - It only reads. It adopts no input, runs no probe, starts no process, and opens no record.
+    `the_selected_pack_cannot_be_read`. The same bytes put back pass again, as long as no session of
+    another descriptor came in between: such a session takes the table's place of the first, even when
+    the record then refuses it (`ledger_refused`). The gate then says
+    `no_session_bound_the_declared_stages` over seals still in the record, until a session of the first
+    descriptor binds it again. New bytes with a new pin are another descriptor, so
+    `no_session_bound_the_declared_stages`.
+  - What the pins do not hold: bytes in a place the sandbox lets a tool read, such as `/usr/lib`; what a
+    symlink inside a pinned directory points at, of which only the link's text is pinned; a file's mode;
+    and the host's own binary.
+  - The comparison only reads. It adopts no input, runs no probe, starts no process, and opens no record.
+    When what it compares matches, the gate goes on to open the record and judge it, as it always did.
+    A test of the whole gate can only see that the record's bytes stayed the same.
   - What it costs a run with stages: each time the gate asks, it reads each staged tool's descriptor and
     hashes its dependencies, executable, and pinned directories, and reads a pack left to admission.
   - A descriptor changed only in its description or spacing is no success until a session binds it, and
     the entry refuses such a session while the first adoption stands.
   - A compiled schema is not compared. What it adds to a descriptor's digest is the compiler, and only
     the library API can put another compiler under the same ID.
-  - A descriptor changed during a `--prompt` session is judged by that session's contract, and is out of
-    scope here. In a plan, a change not put back is `no_session_bound_the_declared_stages` even after a
-    session has run, which stretches what those words say.
+  - A descriptor changed during a `--prompt` session is judged by that session's contract. So a check
+    added to a descriptor after every stage sealed and before the last reply still lets the session
+    succeed. This is on the side of a false success. A plan's run stops at the final gate: there, a change
+    not put back is `no_session_bound_the_declared_stages` even after a session has run, which stretches
+    what those words say.
   - `state_dir` is no part of the table's key, so another value finds the same record (read, no test).
+  - A pack rewritten after a session, with the same selection in the environment, is not read again by
+    a record of no stage. It is one more change during a run.
+- **A plan of a name this process does not know.** A plan naming a profile no registered root declares
+  has stages the process cannot know of, and those are outside what the host holds: nothing here asks
+  about them. Leaving out `--extension-root` is one way there. This is on the side of a false success.
+- **A plan of another profile with no stage.** With no stage on either side, the two names may differ as
+  they always did, and the run is reported as the plan's profile.
 - **A pack only admission can read.** A confirmed TUI dispatch, or a selection inherited in the
   environment, says nothing in memory about stages. A session that admits such a pack with no stage
   records that in final acceptance's table. The table belongs to the process and not to a run: a later

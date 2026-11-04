@@ -11,7 +11,7 @@
   "derived_fixture": "tests/structured_stage_receipts.rs reads fixtures/cases.json and fixtures/off-golden.json",
   "regenerate_digests": "shasum -a 256 fixtures/cases.json fixtures/off-golden.json",
   "fixture_sha256": {
-    "cases.json": "567060f3fda05e55d0401f4085016f5fd17d0a5291265894acfa20bb1b7ebce4",
+    "cases.json": "ddc67047277f1761e280e0af147dadb8e2443821e5a93f8e36cff9ba2950075d",
     "off-golden.json": "8e00b47bfe5dbe2b0d3f557248b327d6cc731b1a8217ee341ebcbadd152091d1"
   }
 }
