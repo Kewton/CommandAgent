@@ -113,7 +113,22 @@
       "b1_a_seal_a_changed_output_took_stays_taken_in_a_later_session",
       "b1_a_pack_with_the_same_tools_and_no_stage_is_admitted_after_a_stage_pack",
       "a_later_admission_with_the_same_upstream_set_is_held_to_the_pins",
-      "b1_another_upstream_set_stops_at_contract_changed_and_starts_no_process"
+      "b1_another_upstream_set_stops_at_contract_changed_and_starts_no_process",
+      "transition_a_no_stage_record_does_not_pass_a_declaration_with_stages",
+      "transition_a_session_binds_a_new_declaration_after_a_no_stage_record",
+      "transition_old_seals_do_not_pass_another_declaration_with_no_session",
+      "transition_another_declarations_session_stops_at_contract_changed",
+      "transition_going_back_after_another_declarations_session_finds_the_first_record",
+      "transition_a_declaration_with_no_stage_answers_for_itself",
+      "transition_the_same_manifest_under_another_root_keeps_its_stages",
+      "transition_a_manifest_changed_only_in_wording_is_bound_by_a_session",
+      "transition_the_same_manifest_under_another_root_keeps_a_no_stage_record",
+      "transition_another_workspace_has_no_record_and_a_link_to_this_one_does",
+      "transition_another_profile_name_has_no_record",
+      "transition_a_pack_rewritten_in_place_has_no_record",
+      "transition_a_decoded_pack_leaves_no_record_for_itself_undecoded",
+      "transition_a_decoded_value_coming_or_going_keeps_the_record",
+      "transition_a_builtin_profile_finds_its_pack_record_under_any_root"
     ]}
   ],
   "off": [

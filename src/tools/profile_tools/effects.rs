@@ -6341,9 +6341,18 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                     steps: Vec<PlanStep>,
                     responder: Responder,
                 ) -> Result<String, String> {
+                    self.plan_as(BARE_PROFILE, steps, responder)
+                }
+
+                fn plan_as(
+                    &self,
+                    profile: &str,
+                    steps: Vec<PlanStep>,
+                    responder: Responder,
+                ) -> Result<String, String> {
                     let http = FakeHttp::start(responder);
                     let mut config = self.config(&http.url);
-                    config.profile = BARE_PROFILE.to_string();
+                    config.profile = profile.to_string();
                     let mut client = client_from_config(&config, false).unwrap();
                     let plan = StepPlan {
                         goal: "Look at the seed.".to_string(),
@@ -6391,10 +6400,20 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                     declaration: &str,
                     installed: Installed,
                 ) -> crate::cli_pack::ResolvedPack {
+                    self.pack_for(BARE_PROFILE, id, declaration, installed)
+                }
+
+                fn pack_for(
+                    &self,
+                    profile: &str,
+                    id: &str,
+                    declaration: &str,
+                    installed: Installed,
+                ) -> crate::cli_pack::ResolvedPack {
                     let directory = self.base.join("packs").join(id).join("1.0.0");
                     std::fs::create_dir_all(&directory).unwrap();
                     let eval = format!(
-                        "schema_version: commandagent.pack.eval/v0\npack:\n  id: {id}\n  version: 1.0.0\n  profile: {BARE_PROFILE}\n  intent: create\n{declaration}"
+                        "schema_version: commandagent.pack.eval/v0\npack:\n  id: {id}\n  version: 1.0.0\n  profile: {profile}\n  intent: create\n{declaration}"
                     );
                     std::fs::write(directory.join("eval.yaml"), &eval).unwrap();
                     let hash = crate::planner::pack::exact_byte_hash(None, Some(eval.as_bytes()));
@@ -7132,6 +7151,583 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                 let moved = world.plan_bare(Vec::new(), Arc::new(|_, _| text_reply("nobody")));
                 let error = moved.expect_err("the seal no longer stands for these bytes");
                 assert!(error.contains("lower/main"), "{error}");
+            }
+
+            /// What one process does when a part of the table's key changes under it, as a REPL or
+            /// a server can: a Config built for another extension root replaces the profiles.
+            const NO_SESSION: &str = "stage_incomplete: no_session_bound_the_declared_stages";
+            const CANNOT_READ: &str = "stage_incomplete: the_selected_pack_cannot_be_read";
+
+            impl World {
+                /// `profile` as another extension root declares it, registered as a Config does.
+                fn declare_under(&self, root: &str, profile: &str, manifest: &str) {
+                    let directory = self.base.join(root).join("profiles").join(profile);
+                    std::fs::create_dir_all(&directory).unwrap();
+                    std::fs::write(directory.join("manifest.toml"), manifest).unwrap();
+                    self.register_again(root);
+                }
+
+                fn register_again(&self, root: &str) {
+                    crate::planner::extension_profiles::register(&self.base.join(root)).unwrap();
+                }
+
+                fn gate_at(&self, workspace: &Path, profile: &str) -> Option<String> {
+                    let mut config = self.config("http://127.0.0.1:9");
+                    config.workspace_root = workspace.to_path_buf();
+                    config.profile = profile.to_string();
+                    crate::planner::structured_stages::final_gate_failure(&config)
+                }
+
+                fn gate(&self, profile: &str) -> Option<String> {
+                    self.gate_at(&self.root, profile)
+                }
+
+                fn checks_pack(
+                    &self,
+                    id: &str,
+                    installed: Installed,
+                ) -> crate::cli_pack::ResolvedPack {
+                    self.pack_declaring(id, CHECKS_ONLY, installed)
+                }
+
+                fn record_of(&self, profile: &str) -> PathBuf {
+                    crate::planner::structured_stages::ledger::ledger_file(
+                        &self.evidence.join("state"),
+                        &self.root,
+                        profile,
+                    )
+                    .unwrap()
+                }
+
+                fn starts(&self, tool: &str) -> usize {
+                    std::fs::read_to_string(self.marks.join(format!("started-{tool}")))
+                        .map_or(0, |marks| marks.lines().count())
+                }
+            }
+
+            const CHECKS_ONLY: &str = "checks:\n  - id: command_check\n    at:\n      kind: final_acceptance\n    params:\n      argv: [test, -f, fixed/seed.json]\n      cwd: workspace\n      expect:\n        exit_code: 0\n        stdout_regex: '^$'\n        max_bytes: 1024\n";
+
+            /// The first manifest declaring its lower tool alone: another contract, the same tools.
+            fn lower_alone(profile: &str) -> String {
+                let whole = manifest(profile, UPPER, LOWER);
+                let head = whole.split("[profile_tools]").next().unwrap();
+                format!(
+                    "{head}[profile_tools]\nschema_version = \"profile-tool.declaration/v2\"\nbuiltin_tools = [\"Read\"]\ntools = [\n  {{ id = \"{LOWER}\", effect = \"propose-artifacts\" }},\n]\n[profile_tools.stages]\nstages = [\n  {{ id = \"lower\", targets = [{{ id = \"main\", tool_id = \"{LOWER}\" }}] }},\n]\n"
+                )
+            }
+
+            fn with_no_declaration(profile: &str) -> String {
+                let whole = manifest(profile, UPPER, LOWER);
+                whole.split("[profile_tools]").next().unwrap().to_string()
+            }
+
+            fn nobody() -> Responder {
+                Arc::new(|_, _| text_reply("nobody"))
+            }
+
+            fn both_stages() -> Vec<PlanStep> {
+                vec![
+                    step("Submit the upper stage", "step-upper"),
+                    step("Submit the lower stage", "step-lower"),
+                ]
+            }
+
+            fn the_upper() -> Vec<PlanStep> {
+                vec![step("Submit the upper stage", "step-upper")]
+            }
+
+            fn the_lower() -> Vec<PlanStep> {
+                vec![step("Submit the lower stage", "step-lower")]
+            }
+
+            /// Declaration: a record that says "no stage" answers for the declaration it was read
+            /// under, and a later one with stages and no session is no success.
+            #[test]
+            fn transition_a_no_stage_record_does_not_pass_a_declaration_with_stages() {
+                const NAME: &str =
+                    "transition_a_no_stage_record_does_not_pass_a_declaration_with_stages";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let world = world.with_bare_profile();
+                let _live = world.enter();
+                let packs = world.packs_with_no_stage("stage-pack-before-the-swap");
+                for pack in &packs {
+                    let _pack =
+                        crate::cli_pack::RuntimeEnvironmentGuard::install(Some(pack)).unwrap();
+                    let result = world.plan_bare(looks(), reads_and_stops());
+                    assert!(result.is_ok(), "{}: {result:?}", pack.id);
+                    assert_eq!(world.gate(BARE_PROFILE), None, "{}", pack.id);
+                }
+                world.declare_under(
+                    "extension-two",
+                    BARE_PROFILE,
+                    &manifest(BARE_PROFILE, UPPER, LOWER),
+                );
+                for pack in &packs {
+                    let _pack =
+                        crate::cli_pack::RuntimeEnvironmentGuard::install(Some(pack)).unwrap();
+                    let result = world.plan_bare(Vec::new(), nobody());
+                    let error = result.expect_err(&pack.id);
+                    assert!(error.contains(NO_SESSION), "{}: {error}", pack.id);
+                }
+                assert!(!world.record_of(BARE_PROFILE).exists(), "nothing recorded");
+                // The declaration it was read under still has its answer.
+                world.register_again("extension");
+                let _pack =
+                    crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&packs[0])).unwrap();
+                assert_eq!(world.gate(BARE_PROFILE), None);
+            }
+
+            /// Declaration, with a session: it binds the new stages, and they can be met.
+            #[test]
+            fn transition_a_session_binds_a_new_declaration_after_a_no_stage_record() {
+                const NAME: &str =
+                    "transition_a_session_binds_a_new_declaration_after_a_no_stage_record";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let world = world.with_bare_profile();
+                let _live = world.enter();
+                let pack = world.checks_pack("stage-pack-then-bound", Installed::LeftToAdmission);
+                let _pack = crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&pack)).unwrap();
+                world.plan_bare(looks(), reads_and_stops()).unwrap();
+                world.declare_under(
+                    "extension-two",
+                    BARE_PROFILE,
+                    &manifest(BARE_PROFILE, UPPER, LOWER),
+                );
+                world.plan_bare(both_stages(), two_steps()).unwrap();
+                assert_eq!(world.gate(BARE_PROFILE), None);
+                std::fs::write(world.root.join(LOWER_OUTPUT), "changed after the seal\n").unwrap();
+                let moved = world.gate(BARE_PROFILE).unwrap();
+                assert!(moved.contains("lower/main"), "{moved}");
+            }
+
+            /// Declaration: the old run's seals, all there, say nothing of a later contract.
+            #[test]
+            fn transition_old_seals_do_not_pass_another_declaration_with_no_session() {
+                const NAME: &str =
+                    "transition_old_seals_do_not_pass_another_declaration_with_no_session";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                let (_, sealed) = world.plan(both_stages(), two_steps());
+                sealed.unwrap();
+                assert_eq!(world.gate(PROFILE), None);
+                let file = world.record_of(PROFILE);
+                let record = std::fs::read(&file).unwrap();
+                world.declare_under("extension-two", PROFILE, &lower_alone(PROFILE));
+                let (_, result) = world.plan(Vec::new(), nobody());
+                let error = result.expect_err("nothing bound this declaration");
+                assert!(error.contains(NO_SESSION), "{error}");
+                assert_eq!(std::fs::read(&file).unwrap(), record, "the record stays");
+                // The first declaration finds its seals, for its own bytes.
+                world.register_again("extension");
+                assert_eq!(world.gate(PROFILE), None);
+                assert_eq!(std::fs::read(&file).unwrap(), record, "the record stays");
+            }
+
+            /// The upper left open under the first declaration, then a session of another one that
+            /// calls a stage: the one record per workspace and profile stops it.
+            fn another_declarations_session_is_stopped(world: &World) {
+                let (_, first) = world.plan(the_upper(), stops_after_the_upper());
+                assert_stage_incomplete(&first);
+                assert_eq!(world.starts(UPPER), 1);
+                let file = world.record_of(PROFILE);
+                let record = std::fs::read(&file).unwrap();
+                world.declare_under("extension-two", PROFILE, &lower_alone(PROFILE));
+                let called = Arc::new(AtomicBool::new(false));
+                let saw = called.clone();
+                let (_, result) = world.plan(
+                    the_lower(),
+                    Arc::new(move |index, _| {
+                        if index == 1 {
+                            saw.store(true, Ordering::SeqCst);
+                            submit(LOWER_TOOL, "fast", "initial")
+                        } else {
+                            text_reply("done")
+                        }
+                    }),
+                );
+                assert!(called.load(Ordering::SeqCst), "the session did start");
+                let error = result.expect_err("the record is of another declaration");
+                assert!(error.contains("stage_ledger_refused"), "{error}");
+                assert!(error.contains("contract_changed"), "{error}");
+                assert_eq!(world.starts(LOWER), 0, "no process for a refused call");
+                assert_eq!(world.starts(UPPER), 1);
+                assert!(!world.root.join(LOWER_OUTPUT).exists(), "nothing committed");
+                assert_eq!(std::fs::read(&file).unwrap(), record, "nothing recorded");
+            }
+
+            /// Declaration, with a session. And the gate of that declaration, after it.
+            #[test]
+            fn transition_another_declarations_session_stops_at_contract_changed() {
+                const NAME: &str =
+                    "transition_another_declarations_session_stops_at_contract_changed";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                another_declarations_session_is_stopped(&world);
+                let refused = world.gate(PROFILE).unwrap();
+                assert!(refused.contains("ledger_refused"), "{refused}");
+            }
+
+            /// Declaration, going back: what the refused session left is under its own declaration,
+            /// so the first one's gate still names the stage it left open.
+            #[test]
+            fn transition_going_back_after_another_declarations_session_finds_the_first_record() {
+                const NAME: &str = "transition_going_back_after_another_declarations_session_finds_the_first_record";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                another_declarations_session_is_stopped(&world);
+                world.register_again("extension");
+                let open = world.gate(PROFILE).unwrap();
+                assert!(open.contains("1 unmet: lower/main"), "{open}");
+            }
+
+            /// Declaration: stages taken out of it, or the profile gone from the root. What is left
+            /// is the selected pack, and the old run's open stage is not this run's.
+            #[test]
+            fn transition_a_declaration_with_no_stage_answers_for_itself() {
+                const NAME: &str = "transition_a_declaration_with_no_stage_answers_for_itself";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                let pack = world.pack_for(
+                    PROFILE,
+                    "stage-pack-under-stages",
+                    CHECKS_ONLY,
+                    Installed::LeftToAdmission,
+                );
+                let upper_open = || {
+                    let (_, first) = world.plan(the_upper(), stops_after_the_upper());
+                    assert_stage_incomplete(&first);
+                };
+                {
+                    let _pack =
+                        crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&pack)).unwrap();
+                    upper_open();
+                }
+                world.declare_under("extension-two", PROFILE, &with_no_declaration(PROFILE));
+                {
+                    let _pack =
+                        crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&pack)).unwrap();
+                    assert_eq!(world.gate(PROFILE), None, "with the pack selected");
+                }
+                assert_eq!(world.gate(PROFILE), None, "with no pack");
+                let (_, looked) = world.plan(looks(), reads_and_stops());
+                assert!(looked.is_ok(), "{looked:?}");
+                // A root that does not declare it: `find` says nothing.
+                world.declare_under(
+                    "extension-three",
+                    INDEX_PROFILE,
+                    &manifest(INDEX_PROFILE, "stage-index-upper", "stage-index-lower"),
+                );
+                assert!(crate::planner::extension_profiles::find(PROFILE).is_none());
+                assert_eq!(world.gate(PROFILE), None, "with no declaration");
+                {
+                    // A pack for a profile no root declares does not parse.
+                    let _pack =
+                        crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&pack)).unwrap();
+                    assert_eq!(world.gate(PROFILE).as_deref(), Some(CANNOT_READ));
+                }
+                // The first declaration, and its open stage, as they were.
+                world.register_again("extension");
+                let _pack = crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&pack)).unwrap();
+                let open = world.gate(PROFILE).unwrap();
+                assert!(open.contains("1 unmet: lower/main"), "{open}");
+            }
+
+            /// Root: the same bytes under another root are the same declaration, for a set of stages.
+            #[test]
+            fn transition_the_same_manifest_under_another_root_keeps_its_stages() {
+                const NAME: &str =
+                    "transition_the_same_manifest_under_another_root_keeps_its_stages";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                let (_, first) = world.plan(the_upper(), stops_after_the_upper());
+                assert_stage_incomplete(&first);
+                world.declare_under("extension-two", PROFILE, &manifest(PROFILE, UPPER, LOWER));
+                let open = world.gate(PROFILE).unwrap();
+                assert!(open.contains("1 unmet: lower/main"), "{open}");
+                let (_, sealed) = world.plan(the_lower(), seals_the_lower());
+                sealed.unwrap();
+                assert_eq!(world.gate(PROFILE), None);
+            }
+
+            /// Root: another byte is another declaration, whatever the byte says. With no session
+            /// that is no success. A session binds it, and the seals are all still there.
+            #[test]
+            fn transition_a_manifest_changed_only_in_wording_is_bound_by_a_session() {
+                const NAME: &str =
+                    "transition_a_manifest_changed_only_in_wording_is_bound_by_a_session";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                let (_, sealed) = world.plan(both_stages(), two_steps());
+                sealed.unwrap();
+                let reworded = manifest(PROFILE, UPPER, LOWER)
+                    .replace("Stage session", "Stage session, reworded");
+                world.declare_under("extension-two", PROFILE, &reworded);
+                assert_eq!(world.gate(PROFILE).as_deref(), Some(NO_SESSION));
+                let (_, looked) = world.plan(looks(), reads_and_stops());
+                assert!(looked.is_ok(), "{looked:?}");
+                assert_eq!(world.gate(PROFILE), None);
+            }
+
+            /// Root: and for what a session found in a pack, which is not read again.
+            #[test]
+            fn transition_the_same_manifest_under_another_root_keeps_a_no_stage_record() {
+                const NAME: &str =
+                    "transition_the_same_manifest_under_another_root_keeps_a_no_stage_record";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let world = world.with_bare_profile();
+                let _live = world.enter();
+                let pack = world.checks_pack("stage-pack-two-roots", Installed::LeftToAdmission);
+                let _pack = crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&pack)).unwrap();
+                world.plan_bare(looks(), reads_and_stops()).unwrap();
+                world.declare_under(
+                    "extension-two",
+                    BARE_PROFILE,
+                    &with_no_declaration(BARE_PROFILE),
+                );
+                std::fs::remove_file(pack.directory.join("eval.yaml")).unwrap();
+                assert_eq!(world.gate(BARE_PROFILE), None);
+            }
+
+            /// Workspace: canonical, so another name for it is the same one and another is not.
+            #[test]
+            fn transition_another_workspace_has_no_record_and_a_link_to_this_one_does() {
+                const NAME: &str =
+                    "transition_another_workspace_has_no_record_and_a_link_to_this_one_does";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let world = world.with_bare_profile();
+                let _live = world.enter();
+                let other = world.base.join("workspace-two");
+                std::fs::create_dir_all(&other).unwrap();
+                let link = world.base.join("workspace-link");
+                std::os::unix::fs::symlink(&world.root, &link).unwrap();
+                let (_, sealed) = world.plan(both_stages(), two_steps());
+                sealed.unwrap();
+                assert_eq!(world.gate_at(&link, PROFILE), None);
+                assert_eq!(
+                    world.gate_at(&other, PROFILE).as_deref(),
+                    Some(NO_SESSION),
+                    "the seals are of the other workspace"
+                );
+                let pack = world.checks_pack("stage-pack-two-places", Installed::LeftToAdmission);
+                let _pack = crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&pack)).unwrap();
+                world.plan_bare(looks(), reads_and_stops()).unwrap();
+                assert_eq!(
+                    world.gate_at(&other, BARE_PROFILE),
+                    None,
+                    "it reads the pack"
+                );
+                std::fs::remove_file(pack.directory.join("eval.yaml")).unwrap();
+                assert_eq!(world.gate_at(&world.root, BARE_PROFILE), None);
+                assert_eq!(world.gate_at(&link, BARE_PROFILE), None);
+                assert_eq!(
+                    world.gate_at(&other, BARE_PROFILE).as_deref(),
+                    Some(CANNOT_READ)
+                );
+                // A path that cannot be resolved finds no record, so the gate reads the pack.
+                let gone = world.base.join("workspace-gone");
+                assert_eq!(
+                    world.gate_at(&gone, BARE_PROFILE).as_deref(),
+                    Some(CANNOT_READ)
+                );
+            }
+
+            /// Profile name: neither kind of record answers for another name.
+            #[test]
+            fn transition_another_profile_name_has_no_record() {
+                const NAME: &str = "transition_another_profile_name_has_no_record";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let world = world.with_bare_profile();
+                let _live = world.enter();
+                let (_, sealed) = world.plan(both_stages(), two_steps());
+                sealed.unwrap();
+                assert_eq!(world.gate(PROFILE), None);
+                assert_eq!(world.gate(INDEX_PROFILE).as_deref(), Some(NO_SESSION));
+                assert_eq!(world.gate(PLAIN_PROFILE), None);
+                assert_eq!(world.gate(BARE_PROFILE), None);
+                let pack = world.checks_pack("stage-pack-two-names", Installed::LeftToAdmission);
+                let _pack = crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&pack)).unwrap();
+                world.plan_bare(looks(), reads_and_stops()).unwrap();
+                assert_eq!(world.gate(INDEX_PROFILE).as_deref(), Some(NO_SESSION));
+                std::fs::remove_file(pack.directory.join("eval.yaml")).unwrap();
+                assert_eq!(world.gate(BARE_PROFILE), None);
+                assert_eq!(world.gate(PLAIN_PROFILE).as_deref(), Some(CANNOT_READ));
+            }
+
+            /// Pack: its directory, id, and version the same, its bytes another. Neither kind of
+            /// record answers for those.
+            #[test]
+            fn transition_a_pack_rewritten_in_place_has_no_record() {
+                const NAME: &str = "transition_a_pack_rewritten_in_place_has_no_record";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let world = world.with_bare_profile();
+                let _live = world.enter();
+                let tools = (UPPER, LOWER);
+                let checks = world.checks_pack("stage-pack-rewritten", Installed::LeftToAdmission);
+                {
+                    let _pack =
+                        crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&checks)).unwrap();
+                    world.plan_bare(looks(), reads_and_stops()).unwrap();
+                }
+                let stages =
+                    world.stage_pack("stage-pack-rewritten", tools, Installed::LeftToAdmission);
+                assert_eq!(stages.directory, checks.directory);
+                assert_ne!(stages.hash, checks.hash);
+                {
+                    let _pack =
+                        crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&stages)).unwrap();
+                    assert_eq!(world.gate(BARE_PROFILE).as_deref(), Some(NO_SESSION));
+                }
+                let first = world.stage_pack("stage-pack-stages-first", tools, Installed::Decoded);
+                leave_the_lower_open(&world, &first);
+                let second = world.pack_declaring(
+                    "stage-pack-stages-first",
+                    &format!(
+                        "profile_tools:\n  schema_version: profile-tool.declaration/v2\n  builtin_tools: [Read]\n  tools:\n    - id: {LOWER}\n      effect: propose-artifacts\n  stages:\n    stages:\n      - id: lower\n        targets:\n          - id: main\n            tool_id: {LOWER}\n"
+                    ),
+                    Installed::LeftToAdmission,
+                );
+                assert_eq!(second.directory, first.directory);
+                let _pack =
+                    crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&second)).unwrap();
+                assert_eq!(world.gate(BARE_PROFILE).as_deref(), Some(NO_SESSION));
+            }
+
+            /// Decode: a decoded pack with no stage leaves no record. Nothing vouches for the same
+            /// pack later with no decoded value, so the gate reads it, and it cannot.
+            #[test]
+            fn transition_a_decoded_pack_leaves_no_record_for_itself_undecoded() {
+                const NAME: &str =
+                    "transition_a_decoded_pack_leaves_no_record_for_itself_undecoded";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let world = world.with_bare_profile();
+                let _live = world.enter();
+                let decoded = world.checks_pack("stage-pack-decoded-first", Installed::Decoded);
+                {
+                    let _pack =
+                        crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&decoded)).unwrap();
+                    world.plan_bare(looks(), reads_and_stops()).unwrap();
+                    assert_eq!(world.gate(BARE_PROFILE), None);
+                }
+                let left =
+                    world.checks_pack("stage-pack-decoded-first", Installed::LeftToAdmission);
+                assert_eq!(left.hash, decoded.hash);
+                let _pack = crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&left)).unwrap();
+                std::fs::remove_file(left.directory.join("eval.yaml")).unwrap();
+                assert_eq!(world.gate(BARE_PROFILE).as_deref(), Some(CANNOT_READ));
+            }
+
+            /// Decode: whether a value was decoded is no part of which pack it is.
+            #[test]
+            fn transition_a_decoded_value_coming_or_going_keeps_the_record() {
+                const NAME: &str = "transition_a_decoded_value_coming_or_going_keeps_the_record";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let world = world.with_bare_profile();
+                let _live = world.enter();
+                let tools = (UPPER, LOWER);
+                let decoded = world.stage_pack("stage-pack-both-ways", tools, Installed::Decoded);
+                leave_the_lower_open(&world, &decoded);
+                let left =
+                    world.stage_pack("stage-pack-both-ways", tools, Installed::LeftToAdmission);
+                assert_eq!(left.hash, decoded.hash);
+                {
+                    let _pack =
+                        crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&left)).unwrap();
+                    let open = world.gate(BARE_PROFILE).unwrap();
+                    assert!(open.contains("1 unmet: lower/main"), "{open}");
+                    world.plan_bare(the_lower(), seals_the_lower()).unwrap();
+                }
+                {
+                    let _pack =
+                        crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&decoded)).unwrap();
+                    assert_eq!(world.gate(BARE_PROFILE), None);
+                }
+                let left = world.checks_pack("stage-pack-then-known", Installed::LeftToAdmission);
+                {
+                    let _pack =
+                        crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&left)).unwrap();
+                    world.plan_bare(looks(), reads_and_stops()).unwrap();
+                }
+                let known = world.checks_pack("stage-pack-then-known", Installed::Decoded);
+                let _pack =
+                    crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&known)).unwrap();
+                std::fs::remove_file(known.directory.join("eval.yaml")).unwrap();
+                assert_eq!(world.gate(BARE_PROFILE), None, "its value says no stage");
+            }
+
+            /// `find` says nothing for a builtin profile, whichever root is registered, and no root
+            /// can declare that name. A pack's record for it stays found.
+            #[test]
+            fn transition_a_builtin_profile_finds_its_pack_record_under_any_root() {
+                const NAME: &str =
+                    "transition_a_builtin_profile_finds_its_pack_record_under_any_root";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                const BUILTIN: &str = "python-cli";
+                let _live = world.enter();
+                assert!(crate::planner::extension_profiles::find(BUILTIN).is_none());
+                let pack = world.pack_for(
+                    BUILTIN,
+                    "stage-pack-for-a-builtin",
+                    &format!(
+                        "profile_tools:\n  schema_version: profile-tool.declaration/v2\n  builtin_tools: [Read]\n  tools:\n    - id: {UPPER}\n      effect: propose-artifacts\n    - id: {LOWER}\n      effect: propose-artifacts\n  stages:\n    stages:\n      - id: upper\n        targets:\n          - id: main\n            tool_id: {UPPER}\n      - id: lower\n        targets:\n          - id: main\n            tool_id: {LOWER}\n"
+                    ),
+                    Installed::Decoded,
+                );
+                {
+                    let _pack =
+                        crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&pack)).unwrap();
+                    assert_eq!(world.gate(BUILTIN).as_deref(), Some(NO_SESSION));
+                    // This profile's own final contract has its say first. The gate is what is asked.
+                    let first = world.plan_as(BUILTIN, the_upper(), stops_after_the_upper());
+                    assert!(first.is_err(), "{first:?}");
+                    let open = world.gate(BUILTIN).unwrap();
+                    assert!(open.contains("1 unmet: lower/main"), "{open}");
+                    world.declare_under("extension-two", PROFILE, &lower_alone(PROFILE));
+                    let open = world.gate(BUILTIN).unwrap();
+                    assert!(open.contains("1 unmet: lower/main"), "{open}");
+                }
+                assert_eq!(world.gate(BUILTIN), None, "with no pack it has no stage");
+                let checks = world.pack_for(
+                    BUILTIN,
+                    "stage-pack-builtin-checks",
+                    CHECKS_ONLY,
+                    Installed::LeftToAdmission,
+                );
+                let _pack =
+                    crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&checks)).unwrap();
+                let looked = world.plan_as(BUILTIN, looks(), reads_and_stops());
+                assert!(looked.is_err(), "{looked:?}");
+                std::fs::remove_file(checks.directory.join("eval.yaml")).unwrap();
+                assert_eq!(world.gate(BUILTIN), None, "its session read it");
             }
         }
     }

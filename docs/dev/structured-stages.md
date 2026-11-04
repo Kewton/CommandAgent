@@ -205,13 +205,32 @@ Each row names what an operator sees and what to do.
   either is not asked about them and reads no record. Going back to A finds A's stages as they were. The
   record is still one per workspace and profile, so a session of B calling a stage after A in that
   process gets `contract_changed`, which only a new process puts right.
+- **Another declaration in one process.** A Config built for another extension root replaces the
+  registered profiles, so one name can come to mean another manifest. Final acceptance's table is keyed
+  by the manifest's hash too, taken from memory. Neither a seal nor a "no stage" answer of one
+  declaration passes another, whose run with no session ends as `no_session_bound_the_declared_stages`
+  when it declares stages. Going back finds the first declaration's record as it was. The same bytes
+  under another root are the same declaration, and another byte is another one, so a manifest changed
+  only in its wording is also no success until a session binds it. A builtin profile has no hash, and no
+  root can declare its name. The record is still one per workspace and profile and nothing is removed
+  from it, so a session of the new declaration calling a stage gets `contract_changed`.
 - **A pack only admission can read.** A confirmed TUI dispatch, or a selection inherited in the
   environment, says nothing in memory about stages. A session that admits such a pack with no stage
-  records that, so its final gate reads nothing. A run where no session ever ran, such as a plan whose
-  steps all short-circuit, has its final gate read the selected pack once for each time it asks, and a
-  pack it cannot read ends as `the_selected_pack_cannot_be_read`. For a run with no stage this failure,
-  with no session and a selected pack that cannot be read, is the one way its result differs from a
-  build without stages. The read before it is what such a run does extra; a run with no pack reads nothing.
+  records that in final acceptance's table. The table belongs to the process and not to a run: a later
+  run with the same workspace, profile, declaration, and selection uses the record, whether or not it
+  ran a session of its own. The final gate reads the selected pack only when the current key has no
+  record and memory cannot say whether stages are declared. Two ways there: no session of this process
+  admitted that key, as in a first plan whose steps all short-circuit, or the workspace's path cannot be
+  resolved, so that a record could be neither kept nor found, even after a session. What the read finds
+  is not kept, so each such gate reads again. `the_selected_pack_cannot_be_read` is what that read ends
+  as when the pack cannot be used: its files cannot be read, it fails verification (retired, identity,
+  hash, pin), or the merge with the profile's declaration is refused.
+- **What this costs a run with no stage.** Against a build without stages, its result differs in one
+  way: the failure above. What it looks at differs too. A run with no pack, or with a decoded pack, and
+  no declared stage returns at the gate's first line and looks at nothing. A run whose pack was left to
+  admission, with no stage in it, also resolves the workspace's path (`canonicalize`) once in each
+  session and once in each final gate; that looks at no pack, schema, or record bytes. Its gate reads the
+  pack only as above.
 - **A fixed input changed (P5, R2).** A resume finding a changed fixed input is refused:
   `stage_ledger_refused: fixed_input_changed`. To recover: `--fresh-session`, or any new process
   that does not resume. A change before the first `begin` cannot be seen, because nothing was

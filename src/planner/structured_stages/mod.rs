@@ -12,7 +12,7 @@
 //! - [`ledger`] keeps attempts and generations across sessions and for a later process.
 //!
 //! [`StageRun`] joins them to a set of admitted tools. A tool in no declared stage never reaches
-//! any of this, so a run with no stage declaration reads and writes nothing here.
+//! any of this, so a run with no stage declaration reads and writes no record here.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -222,19 +222,31 @@ enum BoundAdmission {
     NoStages,
 }
 
-/// Another pack selection is another set of stages: one's seals say nothing about the other's.
-type BoundKey = (PathBuf, String, Option<PackSelection>);
+/// Another pack selection is another set of stages: one's seals say nothing about the other's. So
+/// is another declaration of the profile, which a later extension root can make of the same name.
+type BoundKey = (PathBuf, String, Option<&'static str>, Option<PackSelection>);
 
-/// What each workspace, profile, and pack selection last admitted in this process. Without a stage
-/// declaration and without a selection only an admission can read, nothing comes here.
+/// What each workspace, profile, declaration, and pack selection last admitted in this process.
+/// Without a stage declaration and without a selection only an admission can read, nothing comes
+/// here.
 static BOUND_RUNS: Mutex<BTreeMap<BoundKey, BoundAdmission>> = Mutex::new(BTreeMap::new());
 
+/// The one place a key is made, so a record and the gate that looks for it name a run alike. The
+/// declaration is the registered manifest's hash, from memory: a builtin profile has none, and no
+/// root can declare its name. `None` is a workspace whose path cannot be resolved.
+fn bound_key(workspace: &Path, profile: &str, pack: Option<PackSelection>) -> Option<BoundKey> {
+    let workspace = std::fs::canonicalize(workspace).ok()?;
+    let declaration =
+        crate::planner::extension_profiles::find(profile).map(|found| found.manifest_hash);
+    Some((workspace, profile.to_string(), declaration, pack))
+}
+
 fn remember(workspace: &Path, profile: &str, pack: Option<PackSelection>, bound: BoundAdmission) {
-    if let Ok(workspace) = std::fs::canonicalize(workspace) {
+    if let Some(key) = bound_key(workspace, profile, pack) {
         BOUND_RUNS
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .insert((workspace, profile.to_string(), pack), bound);
+            .insert(key, bound);
     }
 }
 
@@ -252,18 +264,18 @@ pub(crate) fn remember_admission_without_stages(config: &Config) {
 
 /// Final acceptance's question: every obligation of the set, by the bytes there now. It can only
 /// lower a report. A pass here says nothing wider than that the obligations were met (D8). A run
-/// with no stages returns at the first line, having read no table and no file.
+/// memory says has no stage, with no declaration and no pack or a decoded pack with none, returns
+/// at the first line, having read no table and touched no file. A pack only an admission can read
+/// goes on to resolve the workspace's path and look in the table, the pack's bytes untouched.
 pub(crate) fn final_gate_failure(config: &Config) -> Option<String> {
     let pack = selection::selection_that_may_hold_stages(&config.profile)?;
-    let bound = std::fs::canonicalize(&config.workspace_root)
-        .ok()
-        .and_then(|workspace| {
-            BOUND_RUNS
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .get(&(workspace, config.profile.clone(), pack))
-                .cloned()
-        });
+    let bound = bound_key(&config.workspace_root, &config.profile, pack).and_then(|key| {
+        BOUND_RUNS
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&key)
+            .cloned()
+    });
     match bound {
         Some(BoundAdmission::Stages(run)) => {
             let shortfall = run.judge(StageScope::All)?;
@@ -275,8 +287,9 @@ pub(crate) fn final_gate_failure(config: &Config) -> Option<String> {
     }
 }
 
-/// No session of this selection admitted anything. Only now, and only for a selection nothing in
-/// memory speaks for, does the gate read the pack.
+/// The table has nothing for this key: no session of this process admitted it, or the workspace's
+/// path cannot be resolved to look. Only now, and only when memory says nothing of a declaration,
+/// does the gate read the pack. What it finds is kept nowhere, so a later gate reads it again.
 fn no_session_failure(profile: &str) -> Option<String> {
     let declared = selection::stages_declared_without_a_read(profile)
         || match selection::selected_stages_by_reading(profile) {
