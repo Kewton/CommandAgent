@@ -118,6 +118,10 @@ fn test_control_env_allowed(key: &str) -> bool {
         "COMMANDAGENT_BROWSER_PROBE_MOCK_PORT",
         "COMMANDAGENT_BROWSER_PROBE_MOCK_STATUS",
         "COMMANDAGENT_BROWSER_PROBE_MOCK_DELAY_MS",
+        "STAGE_SESSION_WORLD",
+        "STAGE_SESSION_ROLE",
+        "COMMANDAGENT_ADAPTER_CONFIG_ROOT",
+        "COMMANDAGENT_NO_INTERRUPT",
     ]
     .iter()
     .any(|current| crate::env_compat::matches_current_or_legacy(key, current))

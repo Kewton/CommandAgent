@@ -181,6 +181,20 @@ fn audit_structured_stage_completion(corpus: &AuditCorpus, rule: &ProtectionRule
         .collect()
 }
 
+/// T5b (acceptance 6): assurance reads nothing of the stages. The one read is the gate that can
+/// only lower a report, so a seal has no way into Full or a release pass.
+#[test]
+fn assurance_reads_nothing_of_the_stages() {
+    let corpus = AuditCorpus::from_manifest_dir();
+    for (path, text) in corpus.src_rust_files() {
+        if path.starts_with("src/planner/adjudication/") {
+            let hits = production_text(text).matches("structured_stages").count();
+            let allowed = usize::from(path == "src/planner/adjudication/create.rs");
+            assert_eq!(hits, allowed, "{path}");
+        }
+    }
+}
+
 /// Each way around the G4 ends fails the rule, one file changed at a time.
 #[test]
 fn structured_stage_completion_rejects_each_weakened_variant() {

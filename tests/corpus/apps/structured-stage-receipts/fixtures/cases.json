@@ -25,7 +25,7 @@
   ],
   "entries": [
     {"entry": "--prompt", "sealed_and_open": "the_binary_on_prompt_succeeds_only_with_every_stage_sealed", "where": "macOS"},
-    {"entry": "--plan-run", "sealed_and_open": "the_binary_on_plan_run_refuses_a_stage_left_open", "where": "macOS, open only: one generated plan is one step here"},
+    {"entry": "--plan-run", "sealed_and_open": "the_binary_on_plan_run_succeeds_with_every_stage_sealed, the_binary_on_plan_run_refuses_a_stage_left_open", "where": "macOS"},
     {"entry": "--run-plan and /run-plan", "sealed_and_open": "a_plan_file_succeeds_only_with_every_stage_sealed", "where": "macOS"},
     {"entry": "--ultra-plan-run", "sealed_and_open": "the_binary_on_generated_plans_succeeds_only_with_every_stage_sealed", "where": "macOS"},
     {"entry": "/ultra-plan-run, which a REPL's /confirm dispatches", "sealed_and_open": "the_command_a_confirmation_dispatches_succeeds_only_with_every_stage_sealed", "where": "macOS; the terminal part of Gate 1 is not driven"},
@@ -43,9 +43,8 @@
       "the_closure_reaches_every_level_and_every_branch",
       "the_closure_takes_only_what_lies_below",
       "a_change_to_the_last_stage_keeps_what_is_above_it",
-      "only_the_ledger_decides_whether_a_run_succeeds",
-      "an_ultra_plan_that_leaves_a_stage_open_fails_at_final_acceptance",
-      "a_step_plan_that_leaves_a_stage_open_is_refused_at_its_end"
+      "a_new_upper_version_leaves_the_end_unsuccessful_until_the_lower_is_checked_again",
+      "a_fix_whose_reproducer_rewrites_a_sealed_output_is_no_success"
     ]},
     {"row": 3, "says": "stale, replayed, foreign, forged, broken, changed, unknown, or unrun all refused with no false pass; the same submission moves nothing, and conflicting content is refused", "tests": [
       "row_three_an_older_revision_is_stale_and_row_four_an_unknown_one_is_refused",
@@ -67,9 +66,11 @@
       "submissions_stop_at_the_operators_limit_with_no_process_past_it",
       "the_run_limit_holds_across_targets_and_revisions_give_nothing_back",
       "unrelated_bytes_and_repeated_judgments_move_nothing",
-      "a_read_after_a_commit_does_not_end_a_run_with_a_stage_open",
+      "a_read_after_a_commit_goes_on_while_a_stage_is_open",
       "seals_are_progress_to_the_loop_and_stale_calls_are_not",
-      "a_prompt_that_leaves_a_stage_open_is_held_and_then_refused"
+      "a_prompt_that_leaves_a_stage_open_is_held_and_then_refused",
+      "a_touched_output_moves_nothing_and_completes_nothing",
+      "stages_left_open_get_no_final_repairs_of_their_own"
     ]},
     {"row": 5, "says": "cancel at the commit, resume, a broken record, and a swapped pin adopt only the current version; a tool with no OS limit makes no valid receipt, and an unknown cost is not zero", "tests": [
       "a_commit_cancelled_after_the_rename_or_not_durable_moves_the_generation_without_a_seal",
@@ -80,12 +81,14 @@
       "a_session_that_cannot_answer_for_its_run_gets_no_stages",
       "no_contract_comes_out_of_a_run_that_may_recover_by_itself",
       "where_the_strict_isolation_does_not_exist_a_stage_tool_is_unavailable",
+      "a_tool_with_no_os_limit_leaves_no_receipt",
       "usage_stays_unknown"
     ]},
     {"row": 6, "says": "the off control matches byte for byte, existing profiles keep their positive and negative rows, and sealed never becomes Full or a release pass", "tests": [
       "off_wire_events_and_artifacts_match_the_base_recording_byte_for_byte",
       "final_acceptance_asks_for_every_obligation_and_only_a_bound_set_is_asked",
-      "an_ultra_plan_that_seals_every_stage_succeeds"
+      "an_ultra_plan_that_seals_every_stage_succeeds",
+      "sealing_every_stage_does_not_stand_in_for_final_acceptance"
     ]}
   ],
   "off": [

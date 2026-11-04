@@ -2132,6 +2132,7 @@ field() { printf '%s' "$request" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }
 echo started >> "$MARKS/started-{tool}"
 printf '%s' "$request" > "$MARKS/request-{tool}"
 [ -f "$MARKS/clobber" ] && printf changed > "$(cat "$MARKS/clobber")"
+[ -f "$MARKS/broken" ] && {{ printf 'not a result'; exit 0; }}
 field() {{ printf '%s' "$request" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }}
 checks='[{{"id":"shape","status":"passed"}}]'
 [ -f "$MARKS/checks-{tool}" ] && checks=$(cat "$MARKS/checks-{tool}")
@@ -4031,6 +4032,115 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
             assert_eq!(refusal.kind, RefusalKind::StageContractRefused);
         }
 
+        /// T3 (acceptance 4): a new time on a real file moves nothing and completes nothing.
+        #[test]
+        fn a_touched_output_moves_nothing_and_completes_nothing() {
+            let bench = stage_bench();
+            let touch = |path: &str| {
+                let file = std::fs::File::options()
+                    .write(true)
+                    .open(bench.workspace.join(path))
+                    .unwrap();
+                file.set_modified(
+                    std::time::SystemTime::now() + std::time::Duration::from_secs(60),
+                )
+                .unwrap();
+            };
+            let answer = bench.seal_upper();
+            let before = bench.status(&upper_key());
+            touch(UPPER_OUTPUT);
+            assert_eq!(bench.status(&upper_key()), before);
+            stage_incomplete(funnel(&bench, StageScope::All), "obligations_unmet");
+
+            std::fs::create_dir_all(bench.workspace.join(LOWER_OUTPUT).parent().unwrap()).unwrap();
+            std::fs::write(bench.workspace.join(LOWER_OUTPUT), b"made by hand").unwrap();
+            touch(LOWER_OUTPUT);
+            stage_incomplete(funnel(&bench, StageScope::All), "obligations_unmet");
+
+            std::fs::remove_file(bench.workspace.join(LOWER_OUTPUT)).unwrap();
+            bench
+                .call(&bench.lower, "fast", &downstream_revision(&answer))
+                .unwrap();
+            touch(LOWER_OUTPUT);
+            assert!(
+                funnel(&bench, StageScope::All).is_ok(),
+                "the bytes are the same"
+            );
+        }
+
+        /// T4 (acceptance 2): a new version above leaves the end unsuccessful until the stage
+        /// below is checked again.
+        #[test]
+        fn a_new_upper_version_leaves_the_end_unsuccessful_until_the_lower_is_checked_again() {
+            let bench = stage_bench();
+            let first = bench.seal_upper();
+            bench
+                .call(&bench.lower, "fast", &downstream_revision(&first))
+                .unwrap();
+            assert!(funnel(&bench, StageScope::All).is_ok(), "control");
+
+            bench.mark(&format!("second-{UPPER}"), "");
+            let current = first["stage"]["revision"].as_str().unwrap();
+            let second = bench.call(&bench.upper, "slow", current).unwrap();
+            let error = funnel(&bench, StageScope::All).unwrap_err().to_string();
+            assert!(
+                error.contains("stage_incomplete: obligations_unmet"),
+                "{error}"
+            );
+            assert!(error.contains("lower/main"), "{error}");
+
+            bench
+                .call(&bench.lower, "fast", &downstream_revision(&second))
+                .unwrap();
+            assert!(funnel(&bench, StageScope::All).is_ok(), "checked again");
+        }
+
+        /// Acceptance 5, counted: a launch with no OS limit starts nothing, adopts nothing, and
+        /// leaves no receipt that a tool ran or a target's state that one was adopted.
+        #[test]
+        fn a_tool_with_no_os_limit_leaves_no_receipt() {
+            use super::super::super::isolation::test_hook::{DescriptorFault, descriptor_fault};
+            let bench = stage_bench();
+            {
+                let _fault = descriptor_fault(DescriptorFault::MarkRefused);
+                let error = bench.call(&bench.upper, "fast", "initial").unwrap_err();
+                assert_eq!(kind(&error), RefusalKind::EffectUnavailable, "{error:#}");
+            }
+            assert_eq!(bench.starts(UPPER), 0);
+            assert_eq!(bench.saved(UPPER_OUTPUT), None);
+            let ran = bench
+                .upper
+                .receipts
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|receipt| receipt.executed || receipt.ok)
+                .count();
+            assert_eq!(ran, 0, "no tool ran");
+            assert_eq!(bench.upper.commits.lock().unwrap().len(), 0, "no commit");
+            let saved = saved_ledger(&bench);
+            assert!(!saved.contains("\"committed_sha256\""), "{saved}");
+            assert_ne!(bench.status(&upper_key()).0, Phase::Sealed);
+            stage_incomplete(funnel(&bench, StageScope::All), "obligations_unmet");
+        }
+
+        /// V3: only a secret's mark makes the record the thing that failed. Any other refusal
+        /// keeps its own kind, whatever became of the record.
+        #[test]
+        fn a_refusal_with_no_secret_keeps_its_kind_when_the_record_cannot_be_written() {
+            let bench = stage_bench();
+            let file = crate::planner::structured_stages::ledger::ledger_file(
+                &bench.workspace.parent().unwrap().join("state"),
+                &bench.workspace,
+                PROFILE,
+            )
+            .unwrap();
+            bench.mark("clobber", &file.display().to_string());
+            bench.mark("broken", "");
+            let error = bench.call(&bench.upper, "fast", "initial").unwrap_err();
+            assert_eq!(kind(&error), RefusalKind::ResultRejected, "{error:#}");
+        }
+
         /// M18: at the limit, a call that ends the run for its own reason keeps that reason.
         #[test]
         fn at_the_limit_a_call_that_ends_the_run_says_why_it_did() {
@@ -4168,6 +4278,8 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
             };
             use crate::tui::NOOP_UI;
 
+            /// A filter that matches no test, so a child can tell it is one with no variable.
+            const CHILD_MARK: &str = "--skip=__stage_session_child__";
             const WORLD_ENV: &str = "STAGE_SESSION_WORLD";
             const ROLE_ENV: &str = "STAGE_SESSION_ROLE";
             const REGISTRY_ENV: &str = "COMMANDAGENT_ADAPTER_CONFIG_ROOT";
@@ -4276,7 +4388,17 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                 }
 
                 fn ultra(&self, responder: Responder) -> Result<String, String> {
-                    std::fs::write(self.root.join("notes.txt"), "the notes\n").unwrap();
+                    self.ultra_with_notes(true, responder)
+                }
+
+                fn ultra_with_notes(
+                    &self,
+                    notes: bool,
+                    responder: Responder,
+                ) -> Result<String, String> {
+                    if notes {
+                        std::fs::write(self.root.join("notes.txt"), "the notes\n").unwrap();
+                    }
                     let http = FakeHttp::start(responder);
                     let config = self.config(&http.url);
                     let mut planner = client_from_config(&config, true).unwrap();
@@ -4434,16 +4556,52 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                 env: &[(&str, &str)],
                 to_a_pipe: bool,
             ) -> Child {
+                start_child(name, base, env, to_a_pipe, true)
+            }
+
+            /// Whether this process is a child some parent here started.
+            fn is_a_child() -> bool {
+                std::env::args().any(|argument| argument == CHILD_MARK)
+            }
+
+            /// The world's directory, in a child. A child the variable did not reach must not
+            /// take itself for a parent: it would start another, and that one another.
+            fn world_base() -> Option<std::ffi::OsString> {
+                if let Some(base) = std::env::var_os(WORLD_ENV) {
+                    return Some(base);
+                }
+                assert!(
+                    !is_a_child(),
+                    "the world's variable did not reach this child: it must not start another"
+                );
+                None
+            }
+
+            fn start_child(
+                name: &str,
+                base: &Path,
+                env: &[(&str, &str)],
+                to_a_pipe: bool,
+                with_world: bool,
+            ) -> Child {
+                // The second stop: whatever got past `world_base`, no child starts a child. It
+                // leaves a mark for the test below to find.
+                if is_a_child() {
+                    if let Some(mark) = std::env::var_os(ROLE_ENV) {
+                        std::fs::write(mark, "tried to start another").unwrap();
+                    }
+                    panic!("a child must not start another");
+                }
                 let log = base.join(format!("child-{}.log", uuid::Uuid::now_v7()));
                 let err = base.join(format!("child-{}.err", uuid::Uuid::now_v7()));
                 let path = format!("{}::{name}", module_path!().split_once("::").unwrap().1);
                 let mut command = Command::new(std::env::current_exe().unwrap());
                 command
                     .args(["--exact", path.as_str(), "--test-threads=1", "--nocapture"])
+                    .arg(CHILD_MARK)
                     .env_clear()
                     .env("PATH", "/usr/bin:/bin")
                     .env("HOME", base.join("evidence"))
-                    .env(WORLD_ENV, base)
                     .env(REGISTRY_ENV, base.join("registry"))
                     .stdin(Stdio::null())
                     .stdout(std::fs::File::create(&log).unwrap())
@@ -4452,28 +4610,24 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                     } else {
                         Stdio::from(std::fs::File::create(&err).unwrap())
                     });
+                if with_world {
+                    command.env(WORLD_ENV, base);
+                }
                 for (key, value) in env {
                     command.env(key, value);
                 }
-                let mut child = Command::spawn(&mut command).unwrap();
-                let started = std::time::Instant::now();
-                let status = loop {
-                    if let Some(status) = child.try_wait().unwrap() {
-                        break status;
-                    }
-                    if started.elapsed() > CHILD_LIMIT {
-                        child.kill().unwrap();
-                        child.wait().unwrap();
-                        panic!("{name} did not end");
-                    }
-                    std::thread::sleep(std::time::Duration::from_millis(10));
-                };
+                // In a session of its own, so a timeout takes its tool's process with it.
+                let output =
+                    crate::bounded_process::run_with_timeout(&mut command, CHILD_LIMIT).unwrap();
+                assert_eq!(
+                    output.kind,
+                    crate::bounded_process::BoundedProcessOutcomeKind::Exited,
+                    "{name} did not end"
+                );
                 let mut stderr = std::fs::read(&err).unwrap_or_default();
-                if let Some(mut pipe) = child.stderr.take() {
-                    pipe.read_to_end(&mut stderr).unwrap();
-                }
+                stderr.extend_from_slice(&output.stderr);
                 Child {
-                    success: status.success(),
+                    success: output.success(),
                     stdout: std::fs::read_to_string(&log).unwrap_or_default(),
                     stderr,
                 }
@@ -4481,7 +4635,7 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
 
             /// The world in the child. In the parent it runs the child and answers `None`.
             fn one_process(name: &str) -> Option<World> {
-                if let Some(base) = std::env::var_os(WORLD_ENV) {
+                if let Some(base) = world_base() {
                     return Some(World::at(Path::new(&base)));
                 }
                 let temp = prepared();
@@ -4493,7 +4647,402 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                     child.stdout,
                     String::from_utf8_lossy(&child.stderr)
                 );
+                // Each start leaves a log here: one test, one child.
+                let logs = std::fs::read_dir(&base)
+                    .unwrap()
+                    .flatten()
+                    .filter(|entry| entry.file_name().to_string_lossy().ends_with(".log"))
+                    .count();
+                assert_eq!(logs, 1, "{name}");
                 None
+            }
+
+            /// T2 (acceptance 4): two stages open get the one repair budget final acceptance has,
+            /// and not one each.
+            #[test]
+            fn stages_left_open_get_no_final_repairs_of_their_own() {
+                const NAME: &str = "stages_left_open_get_no_final_repairs_of_their_own";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                let responder: Responder = Arc::new(|_, body| {
+                    if !body["tools"].to_string().contains(UPPER_TOOL) {
+                        return text_reply(
+                            &json!({"goal": "Look", "steps": [{
+                                "id": "step-setup", "kind": "setup", "expected_result": "pass",
+                                "instruction": "Look", "expected_paths": [], "verify": [],
+                            }]})
+                            .to_string(),
+                        );
+                    }
+                    let answered = messages(body).last().is_some_and(|m| m["role"] == "tool");
+                    if answered {
+                        text_reply("done")
+                    } else {
+                        call_reply("Read", &json!({"path": FIXED}))
+                    }
+                });
+                world.ultra(responder).expect_err("two stages are open");
+                let events = world.events();
+                let unmet = events
+                    .lines()
+                    .find(|line| line.contains("\"event\":\"structured_stage_incomplete\""))
+                    .expect("final acceptance asked");
+                assert!(
+                    unmet.contains("upper") && unmet.contains("lower"),
+                    "{unmet}"
+                );
+                let starts = events
+                    .matches("\"event\":\"final_acceptance_repair_start\"")
+                    .count();
+                assert!(
+                    (1..=2).contains(&starts),
+                    "{starts}: two stages, the one budget"
+                );
+            }
+
+            /// V9: on a real terminal the notice is what the terminal needs. This asks through the
+            /// way the host picks, and not by passing `true`.
+            #[test]
+            fn a_terminal_on_stderr_gets_the_notice_with_its_returns() {
+                use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+                const NAME: &str = "a_terminal_on_stderr_gets_the_notice_with_its_returns";
+                if world_base().is_some() {
+                    super::super::super::show_stage_refusal(&json!({
+                        "code": "corrupt",
+                        "ledger_path": "/state/ledger.json",
+                    }));
+                    return;
+                }
+                let (mut master, mut slave) = (-1, -1);
+                // SAFETY: all five are valid for this call, and the nulls mean no name and
+                // default settings.
+                let opened = unsafe {
+                    libc::openpty(
+                        &raw mut master,
+                        &raw mut slave,
+                        std::ptr::null_mut(),
+                        std::ptr::null_mut(),
+                        std::ptr::null_mut(),
+                    )
+                };
+                assert_eq!(opened, 0, "{}", std::io::Error::last_os_error());
+                // SAFETY: `openpty` returned these two and nothing else owns them.
+                let master = unsafe { OwnedFd::from_raw_fd(master) };
+                // SAFETY: as above.
+                let slave = unsafe { OwnedFd::from_raw_fd(slave) };
+                // SAFETY: an all-zero `termios` is a valid value for `tcgetattr` to fill in.
+                let mut modes = unsafe { std::mem::zeroed::<libc::termios>() };
+                // SAFETY: `slave` is open and `modes` is a valid place to write.
+                let got = unsafe { libc::tcgetattr(slave.as_raw_fd(), &raw mut modes) };
+                assert_eq!(got, 0);
+                // SAFETY: `modes` was just filled in.
+                unsafe { libc::cfmakeraw(&raw mut modes) };
+                // SAFETY: `slave` is open and `modes` is valid.
+                let set =
+                    unsafe { libc::tcsetattr(slave.as_raw_fd(), libc::TCSANOW, &raw const modes) };
+                assert_eq!(set, 0);
+
+                let temp = prepared();
+                let base = std::fs::canonicalize(temp.path()).unwrap();
+                let path = format!("{}::{NAME}", module_path!().split_once("::").unwrap().1);
+                let mut command = Command::new(std::env::current_exe().unwrap());
+                command
+                    .args(["--exact", path.as_str(), "--test-threads=1", "--nocapture"])
+                    .arg(CHILD_MARK)
+                    .env_clear()
+                    .env("PATH", "/usr/bin:/bin")
+                    .env(WORLD_ENV, &base)
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(std::fs::File::from(slave.try_clone().unwrap()));
+                let output =
+                    crate::bounded_process::run_with_timeout(&mut command, CHILD_LIMIT).unwrap();
+                assert!(output.success(), "{:?}", output.kind);
+                // SAFETY: `master` is open; this only sets a flag on it.
+                let flagged =
+                    unsafe { libc::fcntl(master.as_raw_fd(), libc::F_SETFL, libc::O_NONBLOCK) };
+                assert_eq!(flagged, 0);
+                let mut bytes = vec![0; 4096];
+                let read = std::fs::File::from(master).read(&mut bytes).unwrap();
+                drop(slave);
+                let text = String::from_utf8_lossy(&bytes[..read]);
+                assert!(
+                    text.contains("\r\x1b[2Kstage record refused: corrupt\r\n"),
+                    "{text:?}"
+                );
+                assert!(
+                    text.contains("  ledger: /state/ledger.json\r\n"),
+                    "{text:?}"
+                );
+            }
+
+            /// `stage_has_unmet_obligation`: a Read after a commit would end this run. With a stage
+            /// open it is asked again instead.
+            #[test]
+            fn a_read_after_a_commit_goes_on_while_a_stage_is_open() {
+                let Some(world) =
+                    one_process("a_read_after_a_commit_goes_on_while_a_stage_is_open")
+                else {
+                    return;
+                };
+                let _live = world.enter();
+                let responder: Responder = Arc::new(|index, _| match index {
+                    1 => submit(UPPER_TOOL, "fast", "initial"),
+                    2 => call_reply("Read", &json!({"path": UPPER_OUTPUT})),
+                    _ => text_reply("stopping"),
+                });
+                let (requests, result) = world.prompt(responder);
+                assert_stage_incomplete(&result);
+                assert!(requests.len() > 2, "ended at the Read: {}", requests.len());
+            }
+
+            /// An implement step's stagnation notices, with a file nothing here writes.
+            fn notices_of(world: &World, replies: Vec<&'static str>) -> usize {
+                let second = world.marks.join(format!("second-{UPPER}"));
+                let responder: Responder =
+                    Arc::new(move |index, body| match replies.get(index - 1) {
+                        Some(&"seal") => {
+                            let _ = std::fs::remove_file(&second);
+                            let current = last_answer_or_initial(body);
+                            submit(UPPER_TOOL, "fast", &current)
+                        }
+                        Some(&"nothing") => submit(UPPER_TOOL, "fast", "not-a-revision"),
+                        _ => text_reply("stopping"),
+                    });
+                let mut implement = step("Submit the upper stage", "step-implement");
+                implement.kind = "implement".to_string();
+                implement.expected_paths = vec!["notes.txt".to_string()];
+                let before = world
+                    .events()
+                    .matches("\"event\":\"read_only_stagnation_feedback\"")
+                    .count();
+                let _ = world.plan(vec![implement], responder);
+                world
+                    .events()
+                    .matches("\"event\":\"read_only_stagnation_feedback\"")
+                    .count()
+                    - before
+            }
+
+            fn last_answer_or_initial(body: &Value) -> String {
+                if has_answer(body) {
+                    let answer = last_answer(body);
+                    if let Some(revision) = answer["revision"].as_str() {
+                        return revision.to_string();
+                    }
+                }
+                "initial".to_string()
+            }
+
+            /// `is_stage_tool`: calls that start nothing read as stagnation.
+            #[test]
+            fn calls_that_start_nothing_count_as_reading_to_the_loop() {
+                let Some(world) =
+                    one_process("calls_that_start_nothing_count_as_reading_to_the_loop")
+                else {
+                    return;
+                };
+                let _live = world.enter();
+                let notices = notices_of(&world, vec!["nothing", "nothing", "nothing", "nothing"]);
+                assert!(notices >= 1, "{}", world.events());
+            }
+
+            /// `batch_all_read_only_tools`: a seal between them starts the count over.
+            #[test]
+            fn a_seal_starts_the_loops_count_over() {
+                let Some(world) = one_process("a_seal_starts_the_loops_count_over") else {
+                    return;
+                };
+                let _live = world.enter();
+                let notices = notices_of(
+                    &world,
+                    vec!["nothing", "nothing", "seal", "nothing", "nothing"],
+                );
+                assert_eq!(notices, 0, "{}", world.events());
+            }
+
+            /// A plan of the given intent, as an operator's run would make it: a reproducer that
+            /// fails first, then the stages. Its own adjudication gets what it asks for.
+            fn run_intent(
+                world: &World,
+                intent: &str,
+                reproducer: &'static str,
+                seal_lower: bool,
+            ) -> Result<String, String> {
+                std::fs::write(world.root.join("notes.txt"), "the notes\n").unwrap();
+                let responder: Responder = Arc::new(move |_, body| {
+                    let text = body.to_string();
+                    if !body["tools"].to_string().contains(UPPER_TOOL) {
+                        if text.contains("Phase-reproduce") {
+                            return text_reply(
+                                &json!({"goal": "reproduce", "steps": [{
+                                    "id": "step-reproduce",
+                                    "kind": "verify",
+                                    "expected_result": "fail",
+                                    "instruction": "Reproduce the failure",
+                                    "expected_paths": [],
+                                    "verify": [reproducer],
+                                }]})
+                                .to_string(),
+                            );
+                        }
+                        let goal = if text.contains("Phase-lower") {
+                            "Submit the lower stage"
+                        } else {
+                            "Submit the upper stage"
+                        };
+                        return text_reply(
+                            &json!({"goal": goal, "steps": [{
+                                "id": "step-setup",
+                                "kind": "setup",
+                                "expected_result": "pass",
+                                "instruction": goal,
+                                "expected_paths": [],
+                                "verify": [],
+                            }]})
+                            .to_string(),
+                        );
+                    }
+                    if !text.contains("Submit the lower stage") {
+                        return if has_answer(body) {
+                            text_reply("done")
+                        } else {
+                            submit(UPPER_TOOL, "fast", "initial")
+                        };
+                    }
+                    let answer = last_answer(body);
+                    if answer["status"] == "stale" {
+                        submit(LOWER_TOOL, "fast", answer["revision"].as_str().unwrap())
+                    } else if answer["path"] == LOWER_OUTPUT {
+                        text_reply("done")
+                    } else {
+                        submit(LOWER_TOOL, "fast", "initial")
+                    }
+                });
+                let http = FakeHttp::start(responder);
+                let mut config = world.config(&http.url);
+                if intent == "investigate" {
+                    config.intent_override =
+                        Some(crate::planner::adjudication::contract::IntentId::Investigate);
+                }
+                let mut planner = client_from_config(&config, true).unwrap();
+                let mut execution = client_from_config(&config, false).unwrap();
+                let phase = |id: &str, prompt: &str| UltraPhase {
+                    id: id.to_string(),
+                    prompt: prompt.to_string(),
+                };
+                let mut phases = vec![
+                    phase("reproduce", "Phase-reproduce: reproduce the failure."),
+                    phase("upper", "Phase-upper: submit the upper stage."),
+                ];
+                if seal_lower {
+                    phases.push(phase("lower", "Phase-lower: submit the lower stage."));
+                }
+                let plan = UltraPlan {
+                    goal: "Find out why it fails".to_string(),
+                    profile: PROFILE.to_string(),
+                    style: "default".to_string(),
+                    intent: intent.to_string(),
+                    phases,
+                };
+                let result = run_ultra_plan(planner.as_mut(), execution.as_mut(), &plan, &config)
+                    .map_err(|error| format!("{error:#}"));
+                http.finish();
+                result
+            }
+
+            fn write_investigation_evidence(world: &World) {
+                std::fs::create_dir_all(world.root.join("output")).unwrap();
+                std::fs::write(world.root.join("output/diagnosis.md"), "# Diagnosis\n").unwrap();
+                std::fs::create_dir_all(world.root.join("evidence")).unwrap();
+                std::fs::write(
+                    world.root.join("evidence/investigation-binding.json"),
+                    serde_json::to_vec(
+                        &crate::planner::adjudication::investigate::InvestigationBindingEvidence::new(
+                            Vec::new(),
+                        ),
+                    )
+                    .unwrap(),
+                )
+                .unwrap();
+            }
+
+            #[test]
+            fn a_fix_succeeds_only_with_every_stage_sealed() {
+                const NAME: &str = "a_fix_succeeds_only_with_every_stage_sealed";
+                let Some(base) = world_base() else {
+                    for role in ["open", "sealed"] {
+                        let temp = prepared();
+                        let base = std::fs::canonicalize(temp.path()).unwrap();
+                        let child = run_child(NAME, &base, &[(ROLE_ENV, role)]);
+                        assert!(
+                            child.success,
+                            "{role}: {}",
+                            String::from_utf8_lossy(&child.stderr)
+                        );
+                    }
+                    return;
+                };
+                let world = World::at(Path::new(&base));
+                let _live = world.enter();
+                let sealed = std::env::var_os(ROLE_ENV).is_some_and(|role| role == "sealed");
+                let result = run_intent(&world, "fix", "test -f out/upper.json", sealed);
+                if sealed {
+                    assert!(result.unwrap().contains("complete"));
+                } else {
+                    assert_stage_incomplete(&result);
+                }
+            }
+
+            #[test]
+            fn an_investigation_succeeds_only_with_every_stage_sealed() {
+                const NAME: &str = "an_investigation_succeeds_only_with_every_stage_sealed";
+                let Some(base) = world_base() else {
+                    for role in ["open", "sealed"] {
+                        let temp = prepared();
+                        let base = std::fs::canonicalize(temp.path()).unwrap();
+                        let child = run_child(NAME, &base, &[(ROLE_ENV, role)]);
+                        assert!(
+                            child.success,
+                            "{role}: {}",
+                            String::from_utf8_lossy(&child.stderr)
+                        );
+                    }
+                    return;
+                };
+                let world = World::at(Path::new(&base));
+                let _live = world.enter();
+                write_investigation_evidence(&world);
+                let sealed = std::env::var_os(ROLE_ENV).is_some_and(|role| role == "sealed");
+                let result = run_intent(&world, "investigate", "test -f no-such-marker", sealed);
+                if sealed {
+                    assert!(result.unwrap().contains("complete"));
+                } else {
+                    assert_stage_incomplete(&result);
+                }
+            }
+
+            /// A child the world's variable did not reach fails at once, and starts nothing. The
+            /// mark is what the second stop would leave, so a chain cannot go past one child even
+            /// if the first stop is gone.
+            #[test]
+            fn a_child_the_world_did_not_reach_starts_nothing_more() {
+                const NAME: &str = "a_child_the_world_did_not_reach_starts_nothing_more";
+                if is_a_child() {
+                    one_process(NAME);
+                    panic!("this child went on as if it were a parent");
+                }
+                let temp = prepared();
+                let base = std::fs::canonicalize(temp.path()).unwrap();
+                let mark = base.join("tried");
+                let role = mark.display().to_string();
+                let child = start_child(NAME, &base, &[(ROLE_ENV, role.as_str())], false, false);
+                assert!(!child.success, "{}", child.stdout);
+                let stderr = String::from_utf8_lossy(&child.stderr);
+                assert!(stderr.contains("did not reach this child"), "{stderr}");
+                assert!(!mark.exists(), "it tried to start another: {stderr}");
             }
 
             type Responder = Arc<dyn Fn(usize, &Value) -> String + Send + Sync>;
@@ -4846,6 +5395,38 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                 assert!(world.root.join(LOWER_OUTPUT).is_file());
             }
 
+            /// T5 (acceptance 6): a seal stands in for nothing else. Every stage sealed, and the
+            /// profile's own final check fails: no success, and no level is reported for one.
+            #[test]
+            fn sealing_every_stage_does_not_stand_in_for_final_acceptance() {
+                let Some(world) =
+                    one_process("sealing_every_stage_does_not_stand_in_for_final_acceptance")
+                else {
+                    return;
+                };
+                let _live = world.enter();
+                world
+                    .ultra_with_notes(false, ultra_steps(true))
+                    .expect_err("the profile's own file is missing");
+                assert!(
+                    world.root.join(LOWER_OUTPUT).is_file(),
+                    "both stages sealed"
+                );
+                let events = world.events();
+                assert!(
+                    !events.contains("\"event\":\"structured_stage_incomplete\""),
+                    "the stages are not what refused: {events}"
+                );
+                let complete = events
+                    .lines()
+                    .filter(|line| line.contains("\"event\":\"ultra_plan_complete\""))
+                    .collect::<Vec<_>>();
+                assert!(
+                    complete.iter().all(|line| line.contains("\"ok\":false")),
+                    "{complete:?}"
+                );
+            }
+
             /// Each step passes, and only the final gate sees the stage nobody called.
             #[test]
             fn an_ultra_plan_that_leaves_a_stage_open_fails_at_final_acceptance() {
@@ -4872,7 +5453,7 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
             #[test]
             fn resume_in_a_new_process_goes_on_with_the_run() {
                 const NAME: &str = "resume_in_a_new_process_goes_on_with_the_run";
-                let Some(base) = std::env::var_os(WORLD_ENV) else {
+                let Some(base) = world_base() else {
                     let temp = prepared();
                     let base = std::fs::canonicalize(temp.path()).unwrap();
                     for role in ["first", "second"] {
@@ -5034,7 +5615,7 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
             fn the_notice_shows_once_and_as_plain_lines_where_there_is_no_terminal() {
                 const NAME: &str =
                     "the_notice_shows_once_and_as_plain_lines_where_there_is_no_terminal";
-                let Some(base) = std::env::var_os(WORLD_ENV) else {
+                let Some(base) = world_base() else {
                     let plain: &[(&str, &str)] = &[];
                     let no_interrupt: &[(&str, &str)] = &[("COMMANDAGENT_NO_INTERRUPT", "1")];
                     for (env, to_a_pipe) in [(plain, false), (plain, true), (no_interrupt, false)] {
@@ -5140,7 +5721,7 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
             #[test]
             fn seals_a_resume_lowered_are_not_met_at_final_acceptance() {
                 const NAME: &str = "seals_a_resume_lowered_are_not_met_at_final_acceptance";
-                let Some(base) = std::env::var_os(WORLD_ENV) else {
+                let Some(base) = world_base() else {
                     let temp = prepared();
                     let base = std::fs::canonicalize(temp.path()).unwrap();
                     for role in ["first", "second"] {

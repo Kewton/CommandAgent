@@ -92,7 +92,8 @@ plan's end:
 | `--prompt` | The funnel |
 | `--plan-run`, `--run-plan`, `/plan-run`, `/run-plan` | The end of `run_step_plan_with_ui` |
 | `--ultra-plan-run`, `/ultra-plan-run`, a confirmed REPL request | Final acceptance, whose report gets the failure |
-| The `fix` and `investigate` intents | Before their own adjudication |
+| The `fix` intent | Before its own adjudication, and again after its reproducer and regression commands have run, before it reports completion |
+| The `investigate` intent | Before its own adjudication, which runs no command |
 
 ## Declaring stages
 
@@ -115,7 +116,9 @@ stages = [
 ```
 
 An edge between stages comes from the schemas: a tool whose `schema.inputs` names another tool's
-output depends on that tool's stage. Declared limits can only narrow.
+output depends on that tool's stage. A stage can also list `depends_on`, and `required_checks` adds
+to what the operator requires. Declared limits can only narrow, under `[profile_tools.stages.limits]`.
+An eval pack carries the same fields in YAML under `profile_tools.stages`.
 
 The operator's descriptor carries the floor. Without it the tool is refused at admission:
 
@@ -137,10 +140,11 @@ ends the run with `failure_code`, and the model gets no chance to resubmit.
 
 ## `--fresh-session`
 
-`--fresh-session` starts the stages over, replacing the record at the first stage call. It wins
-over `--resume` and `/resume`. It is the only thing that removes the mark a secret value left.
-Without it, a new process that does not resume starts the counts and the deadline over, except on
-such a record, which it refuses.
+`--fresh-session` starts the stages over, replacing a record it can read at the first stage call.
+It wins over `--resume` and `/resume`. It is the only operation of a run that removes the mark a
+secret value left; moving or deleting the file by hand removes it too. Without it, a new process
+that does not resume starts the counts and the deadline over, except on such a record, which it
+refuses. A damaged record is refused either way (below).
 
 ## Known limits
 
@@ -156,10 +160,13 @@ Each row names what an operator sees and what to do.
   `--recovery-plan-auto-runs 0`.
 - **Entries before the session (F8).** An entry that calls a provider before `session_registry`
   gets the refusals for no OS boundary (D6, `OsSandboxNotEnforced`) and for a workflow child (D12,
-  `WorkflowChild`) after that call.
+  `WorkflowChild`) after that call. The same goes for `RecoversByItself`: only the REPL's filter for
+  free text refuses before the first provider call, and `--ultra-plan-run` is refused at the session.
+  Measured on `--recovery-plan-auto-runs 1 --ultra-plan-run`: one request for the phase's plan, no
+  treatment, no second attempt.
 - **A wrong declaration's wording (F10).** The text serde prints for an invalid declaration now
   lists `stage` and `stages`. This is the one wording that changes for a run with no stages.
-- **Packs (N6).** `stages_declared_without_a_read` does not see a pack passed as `Selected`, or a
+- **Packs (N6), by reading the code, not measured.** `stages_declared_without_a_read` does not see a pack passed as `Selected`, or a
   pack it would have to read from its bytes as another profile. It matters only for a run where no
   session ever bound: then final acceptance does not report
   `stage_incomplete: no_session_bound_the_declared_stages`.
@@ -180,6 +187,13 @@ Each row names what an operator sees and what to do.
 
 - **Missing.** `--resume` with no ledger, including for a session that never ran a stage, is
   refused: `stage_ledger_refused: missing`. To recover: `--fresh-session`.
+- **A damaged record.** `stage_ledger_refused: corrupt`, on any entry, `--fresh-session` included:
+  it stays to be looked at. To recover: move the file the notice names away, then start a new session.
+- **A record that changed underneath (diverged).** `stage_ledger_refused: diverged`. To recover:
+  `--fresh-session` in a new process.
+- **Another declaration (contract_changed).** A resume or a later session of this process, under
+  stages the record was not written under: `stage_ledger_refused: contract_changed`. To recover:
+  `--fresh-session`, or any new process that does not resume.
 - **One record per workspace and profile.** Another profile declaring the same tool, or a copy of
   the workspace, starts a record of its own, with no counts and no secret's mark.
 - **A fixed input changed (P5, R2).** A resume finding a changed fixed input is refused:
@@ -200,13 +214,22 @@ Each row names what an operator sees and what to do.
   that still says what happened, with `truncated: true`.
 - **`--prompt` (P1).** A session holds until everything is sealed, so a question asked on a stage
   profile ends as a non-success after at most 8 holds. Ask questions on another profile.
-- **`Implement` steps (N4).** A resubmission there counts as read-only to the loop's stagnation
-  count. From the third in a row the read-only intervention starts, and at the seventh it asks for
-  a write, before the limit of 8 calls.
+- **`Implement` steps (N4), by reading the code, not measured.** A resubmission there counts as
+  read-only to the loop's stagnation count. From the third in a row the read-only intervention
+  starts, and at the seventh it asks for a write, before the limit of 8 calls.
+- **Counts per session.** The hold's count and the count of calls that start nothing go back to
+  zero with each session. The session's iteration budget and the ledger's attempts still hold.
 - **The same bytes again (N8 of stage 3).** Not measured on the path this was found on, where a
   repair seals with the same bytes and `reprobe_skipped` ends the repair with no new judgment.
   Measured: seals a resume lowered are not met at final acceptance, and the run is no success. In
   that run the repair ended with `model_stagnation:read_only_loop` before any new seal.
+
+### The terminal
+
+- **The notice and the footer.** The record's notice shows once for each `StageRun`, and a session
+  makes a new one, so a repair's session can show it again. Its race with the footer's drawing is not
+  checked under load. Measured with `TerminalUi`, a spinner, and a footer in an ignored test under
+  tmux, five times, not in a real REPL.
 
 ### What the host cannot see
 
@@ -214,7 +237,10 @@ Each row names what an operator sees and what to do.
   judgment. Only macOS has real isolation. Case and Unicode aliases of a path are not judged as the
   same path.
 - **What a seal means (D8).** A seal says the stage's obligations were met. It is not final
-  acceptance's Full and not a release pass, and nothing turns it into one.
+  acceptance's Full and not a release pass, and nothing turns it into one: assurance reads nothing
+  of the stages, and the gate only lowers a report. A profile whose own final checks pass can still
+  report `assurance_level: full` with its stages sealed. That level is its checks', not the seal's,
+  and with those checks failing the same seals make no success.
 - **Evidence.** The process runs only on macOS, so **a stage's success end to end is exercised only
   locally on macOS. A green CI is no evidence of a stage's success.** Linux runs the same sessions
   in its unit tests with an unconfined launch only a test build has.

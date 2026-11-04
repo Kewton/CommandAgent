@@ -928,6 +928,15 @@ mod off_control {
         }
     }
 
+    fn deterministic_config(row: &OffRow, config: &mut Config) {
+        // An ultra plan on an explicit profile plans its next phase on another thread, whose
+        // provider events can land anywhere among this one's. A profile that may yet be promoted
+        // plans in line, so the recording has one order.
+        if matches!(row.entry, Entry::Ultra) {
+            config.profile_explicit = false;
+        }
+    }
+
     fn record_off_row(row: &OffRow) -> Value {
         let workspace = tempfile::tempdir().unwrap();
         let evidence = tempfile::tempdir().unwrap();
@@ -942,6 +951,7 @@ mod off_control {
             Entry::Investigate => config.intent_override = Some(IntentId::Investigate),
             _ => {}
         }
+        deterministic_config(row, &mut config);
         let registry = flat_registry();
         set_env(
             REGISTRY_ENV,
@@ -957,6 +967,12 @@ mod off_control {
             (evidence.as_path(), "<EVIDENCE>"),
         ];
         let outcome = outcome_of(row, &config, &paths, &url);
+        // T6: off makes no new sidecar, and nothing in the state directory is this feature's.
+        assert!(
+            !evidence.join("state/structured-stages").exists(),
+            "{}: a run with no stage left a record",
+            row.id
+        );
         set_env(REGISTRY_ENV, None);
         let (requests, unused) = http.finish();
         let requests = requests
@@ -1236,7 +1252,7 @@ mod with_the_strict_isolation {
                 "type": "function",
                 "function": {
                     "name": "Read",
-                    "arguments": json!({"file_path": path}).to_string(),
+                    "arguments": json!({"path": path}).to_string(),
                 },
             }],
         }}]})
@@ -1932,6 +1948,84 @@ mod with_the_strict_isolation {
         assert!(summary.contains("complete"), "{summary}");
     }
 
+    /// T1: a fix's own commands run after the steps. A reproducer that rewrites what a stage
+    /// sealed leaves bytes the seal does not stand for.
+    #[test]
+    fn a_fix_whose_reproducer_rewrites_a_sealed_output_is_no_success() {
+        let _guard = lock();
+        let env = intent_env();
+        std::fs::write(
+            env.root.join("rewrite.sh"),
+            "test -f out/upper.json || exit 1\n[ ! -f out/lower.json ] || printf x >> out/lower.json\n",
+        )
+        .unwrap();
+        let result = run_intent(&env, "fix", "sh rewrite.sh", true);
+        reset_for_test();
+        let error = result.expect_err("the seal no longer stands for the bytes");
+        assert!(error.to_string().contains("stage_incomplete"), "{error:#}");
+        assert!(error.to_string().contains("lower/main"), "{error:#}");
+    }
+
+    /// T7: `--plan-run` with a plan of two steps seals both.
+    #[test]
+    fn the_binary_on_plan_run_succeeds_with_every_stage_sealed() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor()));
+        let step = |id: &str, what: &str| {
+            json!({"id": id, "kind": "setup", "expected_result": "pass", "instruction": what,
+                   "expected_paths": [], "verify": []})
+        };
+        let plan = json!({"goal": "Submit the stages", "steps": [
+            step("step-upper", "Submit the upper stage"),
+            step("step-lower", "Submit the lower stage"),
+        ]});
+        let http = FakeHttp::start(Arc::new(move |index, body| match index {
+            1 => text_reply(&plan.to_string()),
+            2 => tool_reply(UPPER_TOOL, "good", "initial"),
+            3 => tool_reply(LOWER_TOOL, "good", "initial"),
+            _ => {
+                let answer = last_tool_answer(body);
+                match answer["revision"].as_str() {
+                    Some(revision) if answer["status"] == "stale" => {
+                        tool_reply(LOWER_TOOL, "good", revision)
+                    }
+                    _ => text_reply("done"),
+                }
+            }
+        }));
+        let output = binary(&env, &http.url, &["--plan-run", "Submit the stages"]);
+        http.finish();
+        assert_entry("--plan-run", true, &output, &env);
+    }
+
+    /// T8: what a stage set with automatic recovery spends before it is refused: the phase's plan,
+    /// as the known limit says, and no treatment and no second try.
+    #[test]
+    fn a_generated_plan_that_may_recover_by_itself_makes_no_treatment() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor()));
+        std::fs::write(env.root.join("notes.txt"), "the notes\n").unwrap();
+        let http = FakeHttp::start(entry_responder(true));
+        let output = binary(
+            &env,
+            &http.url,
+            &[
+                "--recovery-plan-auto-runs",
+                "1",
+                "--ultra-plan-run",
+                "Submit the stages",
+            ],
+        );
+        let requests = http.finish();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(!output.status.success(), "{stderr}");
+        assert!(stderr.contains("RecoversByItself"), "{stderr}");
+        assert!(!env.root.join(".commandagent/recovery-treatments").exists());
+        assert_eq!(requests.len(), 1, "spent: {}", requests.len());
+    }
+
     /// The child takes only what is named here, and `output` waits for it.
     fn binary(env: &Env, url: &str, arguments: &[&str]) -> std::process::Output {
         let home = tempfile::tempdir().unwrap();
@@ -2034,6 +2128,13 @@ mod with_the_strict_isolation {
             String::from_utf8_lossy(&output.stderr),
         );
         assert_eq!(output.status.success(), sealed, "{said}");
+        if !sealed {
+            assert!(
+                String::from_utf8_lossy(&output.stderr).contains("stage_incomplete")
+                    || String::from_utf8_lossy(&output.stdout).contains("stage_incomplete"),
+                "another reason would say nothing about the stages: {said}"
+            );
+        }
         assert!(env.root.join(UPPER_OUTPUT).exists(), "{said}");
         assert_eq!(env.root.join(LOWER_OUTPUT).exists(), sealed, "{said}");
     }

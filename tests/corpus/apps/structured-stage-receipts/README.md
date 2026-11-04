@@ -52,10 +52,18 @@ Nothing is left out. Inside the recording, exactly these are replaced by a place
 - Inside strings, and in the names of artifacts: the two temporary roots, the fake's loopback URL,
   generated UUIDs, `elapsed_ms: N`, `total_duration_ms=N`, and `"epoch":N` in an evidence file.
 
+The row `ultra-plan-two-phases` runs with `profile_explicit = false`. An explicit profile plans its
+next phase on another thread, whose provider events can land anywhere among the main thread's, so
+that order was not a property of the code. This setting plans in line and gives one order; no event
+is left out and no order is normalized. Against a recording with speculation, the difference is the
+three `speculative_phase_*` events and where one `provider_request` falls.
+
 The row `investigate-end` ends at `investigation reproducer was not identified`, before that intent's
 end, on the base and now alike. The row `fix-end` reaches its end.
 
 `dummy-secret-next-to-reserved-words` is there for the four words this feature made fixed identifiers.
+
+The comparison also asserts that no row leaves `state/structured-stages` in its state directory.
 
 ## Which test runs where
 
