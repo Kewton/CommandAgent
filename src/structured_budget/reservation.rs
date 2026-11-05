@@ -223,6 +223,8 @@ pub(crate) enum LatchReason {
     InterruptedAfterStart,
     /// The response was settled after the run's deadline. Its cost counts; the run did not make it.
     ResponseAfterDeadline,
+    /// The same for a final repair's send, after the window of the final repairs.
+    ResponseAfterFinalRepairWindow,
 }
 
 /// The first reason the wallet stopped. There is no way to clear it.
@@ -258,7 +260,7 @@ pub(crate) enum BudgetRefusal {
     AlreadyBound,
     BindingStageDiffers,
     BytesChanged,
-    /// A body went out and the report says no prompt tokens came in.
+    /// A body went out and the report says no prompt tokens came in, or that it cost nothing.
     UsageInconsistent,
     IllegalTransition {
         from: AttemptState,
@@ -308,24 +310,6 @@ pub(crate) struct Reservation {
     pub(crate) amount: Money,
 }
 
-/// What a POST needs: the bytes that were reserved, from a start that is on the record. Only a
-/// start gives one out.
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) struct StartedPermit<'a> {
-    physical: PhysicalId,
-    body: &'a [u8],
-}
-
-impl<'a> StartedPermit<'a> {
-    pub(crate) fn physical(&self) -> PhysicalId {
-        self.physical
-    }
-
-    pub(crate) fn body(&self) -> &'a [u8] {
-        self.body
-    }
-}
-
 /// What the limits are asked about.
 enum Demand<'a> {
     Send {
@@ -355,7 +339,7 @@ pub(crate) struct WalletState {
 }
 
 impl WalletState {
-    pub(crate) fn new(
+    pub(super) fn new(
         policy: &RunBudgetPolicy,
         workspace_sha256: String,
         profile: Option<String>,
@@ -553,7 +537,7 @@ impl WalletState {
     }
 
     /// A reservation of the request's bytes, on the record before anything is sent.
-    pub(crate) fn reserve(
+    pub(super) fn reserve(
         &mut self,
         policy: &RunBudgetPolicy,
         request: &ReserveRequest<'_>,
@@ -636,15 +620,30 @@ impl WalletState {
         Ok(attempt)
     }
 
+    /// Whether the time the ledger last observed is past the run's deadline.
+    pub(super) fn past_the_deadline(&self, policy: &RunBudgetPolicy) -> bool {
+        self.clock.high_water_elapsed_ms > policy.limits.wall_ms
+    }
+
+    /// Whether the time the ledger last observed is past the window of the final repairs, which
+    /// runs from the first of them. It holds only for a final repair's send.
+    pub(super) fn past_the_final_repair_window(&self, policy: &RunBudgetPolicy) -> bool {
+        self.clock.final_repair_started_ms.is_some_and(|began| {
+            self.clock.high_water_elapsed_ms.saturating_sub(began) > policy.limits.final_repair_ms
+        })
+    }
+
     /// `reserved` to `started`, for the same bytes that were reserved and inside the deadline as
-    /// the ledger last observed it. The permit carries those bytes to the POST.
-    pub(crate) fn start<'a>(
+    /// the ledger last observed it, and a final repair's send inside its window too. It gives out
+    /// nothing: only `BudgetLedger::start`, with the start on disk, gives out what a POST needs.
+    pub(super) fn start(
         &mut self,
         policy: &RunBudgetPolicy,
         physical: PhysicalId,
-        body: &'a [u8],
-    ) -> Result<StartedPermit<'a>, BudgetRefusal> {
-        let past_deadline = self.clock.high_water_elapsed_ms > policy.limits.wall_ms;
+        body: &[u8],
+    ) -> Result<(), BudgetRefusal> {
+        let past_deadline = self.past_the_deadline(policy);
+        let past_window = self.past_the_final_repair_window(policy);
         let attempt = self.attempt_in(physical, AttemptState::Reserved, AttemptState::Started)?;
         if attempt.body_sha256 != sha256_hex(body) {
             return Err(BudgetRefusal::BytesChanged);
@@ -652,19 +651,22 @@ impl WalletState {
         if past_deadline {
             return Err(BudgetRefusal::WallExceeded);
         }
+        if past_window && attempt.final_repair.is_some() {
+            return Err(BudgetRefusal::FinalRepairWallExceeded);
+        }
         attempt.state = AttemptState::Started;
-        Ok(StartedPermit { physical, body })
+        Ok(())
     }
 
     /// `reserved` to `released`: the one way a reservation goes back, and nothing has left.
-    pub(crate) fn release(&mut self, physical: PhysicalId) -> Result<(), BudgetRefusal> {
+    pub(super) fn release(&mut self, physical: PhysicalId) -> Result<(), BudgetRefusal> {
         let attempt = self.attempt_in(physical, AttemptState::Reserved, AttemptState::Released)?;
         attempt.state = AttemptState::Released;
         Ok(())
     }
 
     /// `started` to `unknown`. The reservation stays held and the wallet stops.
-    pub(crate) fn mark_unknown(
+    pub(super) fn mark_unknown(
         &mut self,
         physical: PhysicalId,
         reason: UnknownReason,
@@ -679,7 +681,7 @@ impl WalletState {
     /// One submission the host looked at. It costs no send, and it does not escape the counts or
     /// the clock, which it starts if nothing has yet. Its `source`, when it came from a response,
     /// must be a settled one.
-    pub(crate) fn record_submission(
+    pub(super) fn record_submission(
         &mut self,
         policy: &RunBudgetPolicy,
         kind: LogicalKind,
@@ -717,7 +719,7 @@ impl WalletState {
 
     /// Ties G4's attempt to a submission of its stage after the fact, once. The same value again
     /// is no change.
-    pub(crate) fn bind_attempt(
+    pub(super) fn bind_attempt(
         &mut self,
         logical: LogicalId,
         binding: AttemptBinding,
@@ -741,7 +743,7 @@ impl WalletState {
 
     /// What a process finds of one that ended: a reservation that never left goes back, and a
     /// started send may have left, so it is unknown and the wallet stops.
-    pub(crate) fn recover_after_process_end(&mut self) {
+    pub(super) fn recover_after_process_end(&mut self) {
         let mut interrupted = None;
         for attempt in &mut self.attempts {
             match attempt.state {
@@ -866,10 +868,11 @@ impl WalletState {
                     record.late == attempt.unknown_reason.is_some()
                         && (!record.late || self.latch.is_some())
                         && Self::settlement_is_consistent(policy, record)
-                        && !Self::hides_the_prompt(
+                        && !Self::report_hides_the_body(
                             policy,
                             attempt.input_bound,
                             record.prompt_tokens,
+                            record.consumed,
                         )
                         && (self.latch.is_some()
                             || (record.consumed <= attempt.reserved
@@ -893,7 +896,7 @@ mod tests {
     use super::super::policy::RunBudgetPolicy;
     use super::super::settlement::{KnownBilling, ReportedUsage, UnknownReason};
     use super::super::test_support::{
-        BODY, FakeClock, policy, policy_value, policy_with, request, route, stage_kind,
+        BODY, FakeClock, Rng, policy, policy_value, policy_with, request, route, stage_kind,
     };
     use super::{
         AmountError, AttemptRecord, AttemptState, BudgetRefusal, LatchReason, Money, Reservation,
@@ -968,7 +971,7 @@ mod tests {
         }
 
         fn start(&mut self, id: PhysicalId) -> Result<(), BudgetRefusal> {
-            self.wallet.start(&self.policy, id, BODY).map(|_| ())
+            self.wallet.start(&self.policy, id, BODY)
         }
 
         fn complete(&mut self, id: PhysicalId) -> ResponseIdentity {
@@ -1263,8 +1266,9 @@ mod tests {
         assert_eq!(world.reserve(), Err(BudgetRefusal::PhysicalExceeded));
     }
 
-    /// The provider reports zero here, and the tariff's non-zero rates still use the cap up: the
-    /// rates cannot be zero, and a body has prompt tokens.
+    /// The provider reports zero here, and the tariff still uses the cap up, because this report
+    /// has uncached prompt tokens and the input rate cannot be zero. The cached rate can: a report
+    /// that comes to nothing that way is `a_body_that_comes_to_nothing_is_not_known...`.
     #[test]
     fn sends_with_no_submission_stop_at_the_cost_cap_when_the_provider_bills_nothing() {
         let mut world = World::new(policy_with(|v| {
@@ -1693,20 +1697,11 @@ mod tests {
         let before = world.wallet.clone();
         let other = [b'y'; 100];
         assert_eq!(
-            world.wallet.start(&world.policy, id, &other).map(|_| ()),
+            world.wallet.start(&world.policy, id, &other),
             Err(BudgetRefusal::BytesChanged)
         );
         assert_eq!(world.wallet, before);
         assert_eq!(world.start(id), Ok(()));
-    }
-
-    #[test]
-    fn a_start_gives_out_the_permit_with_the_reserved_bytes() {
-        let mut world = World::new(policy());
-        let id = world.reserve().unwrap().physical;
-        let permit = world.wallet.start(&world.policy, id, BODY).unwrap();
-        assert_eq!(permit.physical(), id);
-        assert_eq!(permit.body(), BODY.as_slice());
     }
 
     /// The ledger observes the clock before it calls the wallet; here the test does.
@@ -2239,18 +2234,6 @@ mod tests {
         assert!(world.wallet.is_consistent(&exact));
     }
 
-    /// A seeded step for the walk below, with no new dependency.
-    struct Rng(u64);
-
-    impl Rng {
-        fn next(&mut self) -> u64 {
-            self.0 ^= self.0 << 13;
-            self.0 ^= self.0 >> 7;
-            self.0 ^= self.0 << 17;
-            self.0
-        }
-    }
-
     fn walk_step(
         world: &mut World,
         rng: &mut Rng,
@@ -2361,12 +2344,13 @@ mod tests {
 
     /// Every operation in random order, on a fixed seed. After every step what the code wrote
     /// passes the check, survives the file, and, with no latch, is inside every limit, stated here
-    /// without going through the check.
+    /// without going through the check. Reports past their reservations latch most walks before
+    /// they reach a limit: what reaches them all is `a_walk_through_the_file...` in `ledger.rs`.
     #[test]
     fn a_seeded_walk_of_every_operation_stays_consistent_and_inside_the_limits() {
         let (mut latched, mut done, mut refused) = (0_u64, 0_u64, 0_u64);
         for seed in 1..=400_u64 {
-            let mut rng = Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
+            let mut rng = Rng::seeded(seed);
             let mut world = World::new(policy_with(|v| {
                 v["limits"]["physical_sends"] = json!(6);
                 v["limits"]["logical_global"] = json!(9);

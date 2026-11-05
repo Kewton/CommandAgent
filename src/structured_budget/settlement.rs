@@ -5,9 +5,15 @@
 //! is no path that settles a send at zero because something was missing.
 //!
 //! A report of no prompt tokens for a body that went out is not known either, whatever it says it
-//! cost: a proxy that fills in zeros is the way an unobserved bill would be used up as nothing.
+//! cost: a proxy that fills in zeros is the way an unobserved bill would be used up as nothing. The
+//! same goes for a report of a body that comes to nothing at all, which only a cached rate of zero
+//! can price. [`WalletState::report_hides_the_body`] is the one statement of both, for a report and
+//! for a record. The price of it: a real response that was all cached at a free rate, with no
+//! output and nothing billed, stops the wallet.
+//!
 //! [`WalletState::settle_reported`] is the one call that takes a report and leaves the send either
-//! settled or unknown.
+//! settled or unknown, a report whose amount is past counting included. Its only refusals are for
+//! a send that was not out to be reported on.
 //!
 //! What is consumed is the larger of the billed amount and the tariff's figure. The fields stay
 //! apart, and the billed one is never rewritten. `consumed` is what the limits are judged on;
@@ -146,57 +152,56 @@ pub(crate) enum SettleReport {
 }
 
 impl WalletState {
-    /// The report of a send that carried a body, read as no prompt tokens. The bound is the body's
-    /// bytes and the overhead, so past the overhead there were bytes.
-    pub(super) fn hides_the_prompt(
+    /// A send that carried a body cannot have read no prompt tokens or have cost nothing. The bound
+    /// is the body's bytes and the overhead, so past the overhead there were bytes.
+    pub(super) fn report_hides_the_body(
         policy: &RunBudgetPolicy,
         input_bound: u64,
         prompt_tokens: u64,
+        consumed: Money,
     ) -> bool {
-        prompt_tokens == 0 && input_bound > policy.input_overhead
+        input_bound > policy.input_overhead && (prompt_tokens == 0 || consumed == Money::ZERO)
     }
 
-    /// Takes one response's report. What is not known leaves the send `unknown`, holding its
-    /// reservation, and stops the wallet; a late report that is not known changes nothing.
-    pub(crate) fn settle_reported(
+    /// Takes one response's report. What is not known, which includes what [`Self::settle`] cannot
+    /// take as known, leaves the send `unknown`, holding its reservation, and stops the wallet. A
+    /// late report that is not known changes nothing.
+    pub(super) fn settle_reported(
         &mut self,
         policy: &RunBudgetPolicy,
         physical: PhysicalId,
         reported: &ReportedUsage<'_>,
     ) -> Result<SettleReport, BudgetRefusal> {
         let attempt = self.attempt(physical).ok_or(BudgetRefusal::NoSuchSend)?;
-        let (from, input_bound) = (attempt.state, attempt.input_bound);
+        let from = attempt.state;
         if !matches!(from, AttemptState::Started | AttemptState::Unknown) {
             return Err(BudgetRefusal::IllegalTransition {
                 from,
                 to: AttemptState::Settled,
             });
         }
-        let billing = KnownBilling::from_reported(reported).and_then(|billing| {
-            if Self::hides_the_prompt(policy, input_bound, billing.prompt_tokens) {
-                Err(UnknownReason::UsageInconsistent)
-            } else {
-                Ok(billing)
-            }
-        });
-        match billing {
-            Ok(billing) => self
-                .settle(policy, physical, &billing)
-                .map(SettleReport::Settled),
-            Err(reason) => {
-                if from == AttemptState::Started {
-                    self.mark_unknown(physical, reason)?;
+        let reason = match KnownBilling::from_reported(reported) {
+            Err(reason) => reason,
+            Ok(billing) => match self.settle(policy, physical, &billing) {
+                Ok(outcome) => return Ok(SettleReport::Settled(outcome)),
+                // `settle` refuses before it changes anything, so the send is as it was.
+                Err(BudgetRefusal::UsageInconsistent | BudgetRefusal::Overflow) => {
+                    UnknownReason::UsageInconsistent
                 }
-                Ok(SettleReport::Unknown(reason))
-            }
+                Err(other) => return Err(other),
+            },
+        };
+        if from == AttemptState::Started {
+            self.mark_unknown(physical, reason)?;
         }
+        Ok(SettleReport::Unknown(reason))
     }
 
     /// `started` or `unknown` to `settled`, once. A late settlement leaves the latch set, and an
-    /// amount past the reservation keeps its value and sets it. A response after the deadline, as
-    /// the ledger last observed it, is settled at its cost and is not a success. Replacing a
-    /// reservation with the known amount is not a release.
-    pub(crate) fn settle(
+    /// amount past the reservation keeps its value and sets it. A response after the deadline, or a
+    /// final repair's after its window, as the ledger last observed it, is settled at its cost and
+    /// is not a success. Replacing a reservation with the known amount is not a release.
+    pub(super) fn settle(
         &mut self,
         policy: &RunBudgetPolicy,
         physical: PhysicalId,
@@ -210,11 +215,12 @@ impl WalletState {
                 to: AttemptState::Settled,
             });
         }
-        let (reserved, input_bound, output_bound) =
-            (attempt.reserved, attempt.input_bound, attempt.output_bound);
-        if Self::hides_the_prompt(policy, input_bound, billing.prompt_tokens) {
-            return Err(BudgetRefusal::UsageInconsistent);
-        }
+        let (reserved, input_bound, output_bound, is_final_repair) = (
+            attempt.reserved,
+            attempt.input_bound,
+            attempt.output_bound,
+            attempt.final_repair.is_some(),
+        );
         let computed = computed_charge(
             &policy.tariff,
             billing.prompt_tokens,
@@ -222,6 +228,9 @@ impl WalletState {
             billing.cached_tokens,
         )?;
         let consumed = billing.billed.max(computed);
+        if Self::report_hides_the_body(policy, input_bound, billing.prompt_tokens, consumed) {
+            return Err(BudgetRefusal::UsageInconsistent);
+        }
         // What the wallet would then have spent has to be a number before anything changes.
         self.spent()?
             .checked_add(consumed)
@@ -251,8 +260,11 @@ impl WalletState {
         if billing.completion_tokens > output_bound {
             self.set_latch(LatchReason::OutputOverBound, physical);
         }
-        if self.clock.high_water_elapsed_ms > policy.limits.wall_ms {
+        if self.past_the_deadline(policy) {
             self.set_latch(LatchReason::ResponseAfterDeadline, physical);
+        }
+        if is_final_repair && self.past_the_final_repair_window(policy) {
+            self.set_latch(LatchReason::ResponseAfterFinalRepairWindow, physical);
         }
         Ok(SettleOutcome {
             response: ResponseIdentity::of_settled(physical),
@@ -614,6 +626,153 @@ mod tests {
             matches!(settled, Ok(SettleReport::Settled(_))),
             "{settled:?}"
         );
+    }
+
+    /// What reaches a report at all: an exponent of 20 digits is too large in one direction, is
+    /// next to nothing in the other, and a leading zero is no number.
+    #[test]
+    fn a_billed_cost_is_held_to_its_range_and_grammar_at_the_edges_a_report_can_reach() {
+        assert!(BilledCostUsd::from_json_token("1e99999999999999999999").is_none());
+        assert!(BilledCostUsd::from_json_token("1e-99999999999999999999").is_some());
+        assert!(BilledCostUsd::from_json_token("01").is_none());
+    }
+
+    fn free_cached_input() -> RunBudgetPolicy {
+        policy_with(|v| v["tariff"]["cached_input_per_million"] = serde_json::json!("0"))
+    }
+
+    /// `report` with this many of the prompt tokens cached.
+    fn cached_report<'a>(
+        amount: &'a BilledCostUsd,
+        prompt: u64,
+        completion: u64,
+        cached: u64,
+    ) -> ReportedUsage<'a> {
+        ReportedUsage {
+            cached_tokens: Some(cached),
+            ..report(amount, prompt, completion)
+        }
+    }
+
+    #[test]
+    fn a_body_that_comes_to_nothing_is_not_known_when_it_is_all_cached_at_a_free_rate() {
+        let policy = free_cached_input();
+        let amount = cost("0");
+        let (mut wallet, id) = started(&policy);
+        assert_eq!(
+            wallet.settle_reported(&policy, id, &cached_report(&amount, 100, 0, 100)),
+            Ok(SettleReport::Unknown(UnknownReason::UsageInconsistent))
+        );
+        let attempt = wallet.attempt(id).unwrap();
+        assert_eq!(attempt.state, AttemptState::Unknown);
+        assert_eq!(
+            attempt.unknown_reason,
+            Some(UnknownReason::UsageInconsistent)
+        );
+        assert_eq!(wallet.latch().unwrap().reason, LatchReason::UnknownBilling);
+        assert_eq!(wallet.held().unwrap(), money("0.00072"));
+        assert_eq!(wallet.spent().unwrap(), Money::ZERO);
+        assert_eq!(wallet.success_gate(), Err(BudgetRefusal::Latched));
+    }
+
+    #[test]
+    fn a_body_that_comes_to_nothing_is_refused_on_the_direct_way_too() {
+        let policy = free_cached_input();
+        let (mut wallet, id) = started(&policy);
+        let before = wallet.clone();
+        let amount = cost("0");
+        let billing = KnownBilling::from_reported(&cached_report(&amount, 100, 0, 100)).unwrap();
+        assert_eq!(
+            wallet.settle(&policy, id, &billing).map(|_| ()),
+            Err(BudgetRefusal::UsageInconsistent)
+        );
+        assert_eq!(wallet, before);
+    }
+
+    /// One thing that is not nothing, in each row, and the same free rate: each of them is known.
+    #[test]
+    fn a_free_cached_rate_settles_whatever_else_the_report_has() {
+        let policy = free_cached_input();
+        for (token, prompt, completion, cached, consumed) in [
+            // An output token.
+            ("0", 100, 1, 100, "0.00001"),
+            // An uncached prompt token.
+            ("0", 100, 0, 99, "0.000002"),
+            // A billed amount.
+            ("0.000001", 100, 0, 100, "0.000001"),
+        ] {
+            let amount = cost(token);
+            let (mut wallet, id) = started(&policy);
+            let settled = wallet
+                .settle_reported(
+                    &policy,
+                    id,
+                    &cached_report(&amount, prompt, completion, cached),
+                )
+                .unwrap();
+            let SettleReport::Settled(outcome) = settled else {
+                panic!("{token} {prompt} {completion} {cached}: {settled:?}");
+            };
+            assert_eq!(outcome.consumed, money(consumed), "{token}");
+            assert!(wallet.latch().is_none(), "{token}");
+            assert!(wallet.is_consistent(&policy), "{token}");
+        }
+    }
+
+    #[test]
+    fn a_report_of_an_amount_past_counting_leaves_the_send_unknown_and_stops_the_wallet() {
+        let policy = policy_with(|v| {
+            v["tariff"]["output_per_million"] = serde_json::json!("1000");
+        });
+        let amount = cost("0");
+        let (mut wallet, id) = started(&policy);
+        assert_eq!(
+            wallet.settle_reported(&policy, id, &report(&amount, 1, u64::MAX - 1)),
+            Ok(SettleReport::Unknown(UnknownReason::UsageInconsistent))
+        );
+        assert_eq!(wallet.attempt(id).unwrap().state, AttemptState::Unknown);
+        assert_eq!(wallet.latch().unwrap().reason, LatchReason::UnknownBilling);
+        // (110 * 2 + 50 * 1000) per million, at this policy's output rate.
+        assert_eq!(wallet.held().unwrap(), money("0.05022"));
+        assert_eq!(wallet.success_gate(), Err(BudgetRefusal::Latched));
+        assert!(wallet.is_consistent(&policy));
+
+        // Late, it changes nothing, and a report that can be counted still settles it.
+        let before = wallet.clone();
+        assert_eq!(
+            wallet.settle_reported(&policy, id, &report(&amount, 1, u64::MAX - 1)),
+            Ok(SettleReport::Unknown(UnknownReason::UsageInconsistent))
+        );
+        assert_eq!(wallet, before);
+        assert!(matches!(
+            wallet.settle_reported(&policy, id, &report(&amount, 1, 1)),
+            Ok(SettleReport::Settled(_))
+        ));
+    }
+
+    #[test]
+    fn a_report_past_what_the_wallet_can_count_leaves_the_send_unknown() {
+        let policy = policy();
+        let (mut wallet, first) = started(&policy);
+        wallet.settle(&policy, first, &known("0", 1, 1)).unwrap();
+        let wire = route();
+        let body = request(&wire);
+        let mut clock = RunClock::new(FakeClock::at(1_000));
+        let second = wallet.reserve(&policy, &body, &mut clock).unwrap().physical;
+        wallet.start(&policy, second, body.body).unwrap();
+        wallet
+            .attempt_mut(first)
+            .unwrap()
+            .settlement
+            .as_mut()
+            .unwrap()
+            .consumed = Money::from_units(u128::MAX);
+        let amount = cost("0");
+        assert_eq!(
+            wallet.settle_reported(&policy, second, &report(&amount, 1, 1)),
+            Ok(SettleReport::Unknown(UnknownReason::UsageInconsistent))
+        );
+        assert_eq!(wallet.attempt(second).unwrap().state, AttemptState::Unknown);
     }
 
     #[test]

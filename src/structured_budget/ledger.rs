@@ -11,6 +11,9 @@
 //! or a caller cannot point it elsewhere. What it cannot vouch for it refuses, and after that it
 //! refuses everything.
 //!
+//! The directory that is judged is the directory that is used: both take a [`WalletDirectory`],
+//! and only the policy makes one.
+//!
 //! Known limits: someone with the same user ID, outside the sandbox and before a run, can delete
 //! the file or put an older one back. A fresh start then cannot tell; a resume is refused when the
 //! file is gone. The same goes for an operator who rewrites `ledger_dir` in a policy: there is no
@@ -19,7 +22,9 @@
 //!
 //! A profile the operator named is pinned, in its canonical name, by the first run that names one.
 //! One that was only inferred is not: it can change as a run writes files, and it names no wallet.
-//! So a run with no explicit profile continues the same wallet, whatever it infers.
+//! So a run with no explicit profile continues the same wallet, whatever it infers. The name is
+//! read by `canonical_profile_name`, the function a stage contract's check compares with, so the
+//! two see one identity. Under it `cli` is not `python-cli`.
 //!
 //! The file holds counts, digests, amounts, fixed words, the profile's name, and G4's stage and
 //! target names and run nonce: no prompt, response body, key, or header, and the workspace only as
@@ -30,7 +35,7 @@ use std::io::{ErrorKind, Read, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -39,10 +44,9 @@ use serde_json::value::RawValue;
 use super::clock::{BudgetClock, RunClock};
 use super::identity::{AttemptBinding, LogicalId, LogicalKind, PhysicalId, SubmissionSource};
 use super::policy::RunBudgetPolicy;
-use super::reservation::{BudgetRefusal, Reservation, ReserveRequest, StartedPermit, WalletState};
+use super::reservation::{BudgetRefusal, Reservation, ReserveRequest, WalletState};
 use super::settlement::{KnownBilling, ReportedUsage, SettleOutcome, SettleReport, UnknownReason};
 use crate::planner::profile::canonical_profile_name;
-use crate::planner::profile_descriptor::descriptor_for_name;
 use crate::planner::structured_stages::ledger::{
     LedgerRefusal as StageLedgerRefusal, refuse_state_dir_inside_workspace,
 };
@@ -64,6 +68,8 @@ pub(crate) enum LedgerRefusal {
     PolicyChanged,
     WorkspaceChanged,
     ProfileChanged,
+    /// An explicit profile with nothing in its name.
+    ProfileBlank,
     DirectoryInsideWorkspace,
     DirectoryWritableByCommands,
     /// Gone from under this handle during the run.
@@ -118,9 +124,50 @@ pub(crate) struct BudgetLedger {
     failed: Option<LedgerRefusal>,
 }
 
+/// What a POST needs: the bytes that were reserved, from a start that is on disk. Only
+/// [`BudgetLedger::start`] makes one, and its fields keep anything outside this file from it.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct StartedPermit<'a> {
+    physical: PhysicalId,
+    body: &'a [u8],
+}
+
+impl<'a> StartedPermit<'a> {
+    pub(crate) fn physical(&self) -> PhysicalId {
+        self.physical
+    }
+
+    pub(crate) fn body(&self) -> &'a [u8] {
+        self.body
+    }
+}
+
+mod wallet_directory {
+    use std::path::{Path, PathBuf};
+
+    use super::super::policy::RunBudgetPolicy;
+
+    /// The one directory of a wallet. Its field keeps every other path from being one, so what is
+    /// checked cannot be other than what is opened.
+    #[derive(Debug)]
+    pub(super) struct WalletDirectory(PathBuf);
+
+    impl WalletDirectory {
+        pub(super) fn of(policy: &RunBudgetPolicy) -> Self {
+            Self(policy.ledger_dir.join(&policy.budget_id))
+        }
+
+        pub(super) fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+}
+
+use wallet_directory::WalletDirectory;
+
 #[derive(Debug)]
 struct Store {
-    directory: PathBuf,
+    directory: WalletDirectory,
     lock: File,
     expected_sha256: Option<String>,
 }
@@ -151,12 +198,13 @@ const fn fits_a_ledger(bytes: u64) -> bool {
     bytes <= MAX_LEDGER_BYTES
 }
 
-/// The one name of a profile, by the tables the product already has.
-fn canonical_explicit_profile(name: &str) -> String {
-    descriptor_for_name(name).map_or_else(
-        || canonical_profile_name(name),
-        |descriptor| descriptor.canonical.to_string(),
-    )
+/// The one name of a profile, as a stage contract's check reads it, or the refusal of no name.
+fn canonical_explicit_profile(name: &str) -> Result<String, LedgerRefusal> {
+    let canonical = canonical_profile_name(name);
+    if canonical.is_empty() {
+        return Err(LedgerRefusal::ProfileBlank);
+    }
+    Ok(canonical)
 }
 
 #[derive(Serialize)]
@@ -192,13 +240,13 @@ fn decode(bytes: &[u8]) -> Result<WalletState, LedgerRefusal> {
 }
 
 impl Store {
-    fn open(directory: PathBuf) -> Result<Self, LedgerRefusal> {
+    fn open(directory: WalletDirectory) -> Result<Self, LedgerRefusal> {
         DirBuilder::new()
             .recursive(true)
             .mode(0o700)
-            .create(&directory)
+            .create(directory.path())
             .map_err(unavailable)?;
-        let metadata = fs::symlink_metadata(&directory).map_err(unavailable)?;
+        let metadata = fs::symlink_metadata(directory.path()).map_err(unavailable)?;
         if !metadata.is_dir() {
             return Err(LedgerRefusal::Unavailable);
         }
@@ -209,7 +257,7 @@ impl Store {
             .truncate(false)
             .mode(0o600)
             .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-            .open(directory.join(LOCK_FILE))
+            .open(directory.path().join(LOCK_FILE))
             .map_err(unavailable)?;
         if !lock.metadata().map_err(unavailable)?.is_file() {
             return Err(LedgerRefusal::Unavailable);
@@ -234,7 +282,7 @@ impl Store {
         let opened = OpenOptions::new()
             .read(true)
             .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-            .open(self.directory.join(LEDGER_FILE));
+            .open(self.directory.path().join(LEDGER_FILE));
         let file = match opened {
             Ok(file) => file,
             Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
@@ -263,7 +311,7 @@ impl Store {
         if !fits_a_ledger(bytes.len() as u64) {
             return Err(LedgerRefusal::Unavailable);
         }
-        let temporary = self.directory.join(LEDGER_TEMPORARY);
+        let temporary = self.directory.path().join(LEDGER_TEMPORARY);
         let mut file = OpenOptions::new()
             .write(true)
             .create(true)
@@ -275,8 +323,8 @@ impl Store {
         file.write_all(&bytes).map_err(unavailable)?;
         file.sync_all().map_err(unavailable)?;
         drop(file);
-        fs::rename(&temporary, self.directory.join(LEDGER_FILE)).map_err(unavailable)?;
-        File::open(&self.directory)
+        fs::rename(&temporary, self.directory.path().join(LEDGER_FILE)).map_err(unavailable)?;
+        File::open(self.directory.path())
             .and_then(|directory| directory.sync_all())
             .map_err(unavailable)?;
         self.expected_sha256 = Some(sha256_hex(&bytes));
@@ -287,7 +335,7 @@ impl Store {
     /// file replaced under a holder would let the next process hold another one.
     fn verify_unchanged(&self) -> Result<(), LedgerRefusal> {
         let held = self.lock.metadata().map_err(unavailable)?;
-        let same_lock = fs::symlink_metadata(self.directory.join(LOCK_FILE))
+        let same_lock = fs::symlink_metadata(self.directory.path().join(LOCK_FILE))
             .is_ok_and(|found| found.dev() == held.dev() && found.ino() == held.ino());
         if !same_lock {
             return Err(LedgerRefusal::Vanished);
@@ -301,14 +349,16 @@ impl Store {
 }
 
 /// The checks G4 made for its own ledger: a directory commands of the run can write proves nothing.
-fn refuse_directory(directory: &Path, workspace: &Path) -> Result<(), LedgerRefusal> {
-    refuse_state_dir_inside_workspace(directory, workspace).map_err(|refusal| match refusal {
-        StageLedgerRefusal::StateDirInsideWorkspace => LedgerRefusal::DirectoryInsideWorkspace,
-        StageLedgerRefusal::StateDirWritableByCommands => {
-            LedgerRefusal::DirectoryWritableByCommands
-        }
-        _ => LedgerRefusal::Unavailable,
-    })
+fn refuse_directory(directory: &WalletDirectory, workspace: &Path) -> Result<(), LedgerRefusal> {
+    refuse_state_dir_inside_workspace(directory.path(), workspace).map_err(
+        |refusal| match refusal {
+            StageLedgerRefusal::StateDirInsideWorkspace => LedgerRefusal::DirectoryInsideWorkspace,
+            StageLedgerRefusal::StateDirWritableByCommands => {
+                LedgerRefusal::DirectoryWritableByCommands
+            }
+            _ => LedgerRefusal::Unavailable,
+        },
+    )
 }
 
 /// The wallet already on disk, held to the declaration and the run that opened it.
@@ -342,11 +392,15 @@ fn continue_wallet(
 impl BudgetLedger {
     pub(crate) fn open(request: LedgerOpen<'_>) -> Result<Self, LedgerRefusal> {
         let policy = request.policy;
-        refuse_directory(&policy.ledger_dir, request.workspace)?;
+        let directory = WalletDirectory::of(&policy);
+        refuse_directory(&directory, request.workspace)?;
         let workspace = fs::canonicalize(request.workspace).map_err(unavailable)?;
         let workspace_sha256 = sha256_hex(workspace.as_os_str().as_bytes());
-        let explicit_profile = request.explicit_profile.map(canonical_explicit_profile);
-        let mut store = Store::open(policy.ledger_dir.join(&policy.budget_id))?;
+        let explicit_profile = request
+            .explicit_profile
+            .map(canonical_explicit_profile)
+            .transpose()?;
+        let mut store = Store::open(directory)?;
         let wallet = match store.read_file()? {
             Some(bytes) => {
                 let found = continue_wallet(
@@ -431,7 +485,8 @@ impl BudgetLedger {
         physical: PhysicalId,
         body: &'a [u8],
     ) -> Result<StartedPermit<'a>, LedgerFailure> {
-        self.apply(|wallet, policy, _| wallet.start(policy, physical, body))
+        self.apply(|wallet, policy, _| wallet.start(policy, physical, body))?;
+        Ok(StartedPermit { physical, body })
     }
 
     pub(crate) fn release(&mut self, physical: PhysicalId) -> Result<(), LedgerFailure> {
@@ -489,6 +544,7 @@ impl BudgetLedger {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use std::fs;
     use std::os::fd::AsRawFd;
     use std::path::{Path, PathBuf};
@@ -496,15 +552,21 @@ mod tests {
 
     use serde_json::{Value, json};
 
-    use super::super::identity::{LogicalKind, PhysicalId};
+    use super::super::identity::{
+        FinalRepairClaim, FinalRepairId, LogicalKind, PhysicalId, ResponseIdentity, SendPurpose,
+    };
     use super::super::policy::RunBudgetPolicy;
     use super::super::reservation::{AttemptState, BudgetRefusal, LatchReason, Money, WalletState};
     use super::super::settlement::{KnownBilling, ReportedUsage, SettleReport, UnknownReason};
-    use super::super::test_support::{BODY, FakeClock, WALLET, policy_value, request, route};
+    use super::super::test_support::{
+        BODY, FakeClock, Rng, WALLET, policy_value, request, route, stage_kind,
+    };
     use super::{
         BudgetLedger, LEDGER_FILE, LEDGER_TEMPORARY, LOCK_FILE, LedgerEntry, LedgerFailure,
-        LedgerOpen, LedgerRefusal, MAX_LEDGER_BYTES, Store, fits_a_ledger, lock_refusal,
+        LedgerOpen, LedgerRefusal, MAX_LEDGER_BYTES, Store, WalletDirectory, fits_a_ledger,
+        lock_refusal,
     };
+    use crate::planner::profile::canonical_profile_name;
     use crate::planner::structured_stages::receipt::sha256_hex;
     use crate::providers::BilledCostUsd;
 
@@ -633,6 +695,23 @@ mod tests {
         id
     }
 
+    fn reserve_final_repair(
+        ledger: &mut BudgetLedger,
+        claim: FinalRepairClaim,
+    ) -> Result<super::Reservation, LedgerFailure> {
+        let wire = route();
+        let mut body = request(&wire);
+        body.purpose = SendPurpose::FinalRepair;
+        body.final_repair = Some(claim);
+        ledger.reserve(&body)
+    }
+
+    fn new_final_repair(ledger: &mut BudgetLedger) -> PhysicalId {
+        reserve_final_repair(ledger, FinalRepairClaim::New)
+            .unwrap()
+            .physical
+    }
+
     fn on_disk(world: &World) -> serde_json::Value {
         let bytes = fs::read(world.file()).unwrap();
         let envelope: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
@@ -744,7 +823,10 @@ mod tests {
         );
         let second = world.open_naming(None).unwrap();
         assert_eq!(second.wallet().spent().unwrap(), money("0.0006"));
-        assert_eq!(second.store.directory, world.policy.ledger_dir.join(WALLET));
+        assert_eq!(
+            second.store.directory.path(),
+            world.policy.ledger_dir.join(WALLET)
+        );
     }
 
     /// Known limit: the file's digest and the policy's cannot reach a directory with nothing in
@@ -799,7 +881,7 @@ mod tests {
 
     #[test]
     fn the_names_of_one_profile_are_one_profile() {
-        let names = ["python-cli", "py-cli", "python", "py", "cli", " PY-CLI "];
+        let names = ["python-cli", "py-cli", "python", "py", " PY-CLI "];
         for first in names {
             let world = World::new();
             drop(world.open_naming(Some(first)).unwrap());
@@ -812,6 +894,87 @@ mod tests {
                 LedgerRefusal::ProfileChanged,
                 "{first}"
             );
+        }
+    }
+
+    /// `cli` is another name for `python-cli` in the descriptor's table, and not to the check of a
+    /// stage contract, which is the identity a pin has to share.
+    #[test]
+    fn cli_and_python_cli_are_two_profiles_as_a_stage_contract_reads_them() {
+        let world = World::new();
+        drop(world.open_naming(Some("python-cli")).unwrap());
+        assert_eq!(
+            world.open_naming(Some("cli")).unwrap_err(),
+            LedgerRefusal::ProfileChanged
+        );
+
+        let world = World::new();
+        drop(world.open_naming(Some(" CLI ")).unwrap());
+        assert_eq!(on_disk(&world)["profile"], json!("cli"));
+        assert!(world.open_naming(Some("cli")).is_ok());
+        for other in ["python-cli", "py-cli", "py"] {
+            assert_eq!(
+                world.open_naming(Some(other)).unwrap_err(),
+                LedgerRefusal::ProfileChanged,
+                "{other}"
+            );
+        }
+    }
+
+    /// `names_the_same_profile` is `canonical_profile_name` of each side, and it is private to the
+    /// module it decides for. This holds a pin to that same comparison, both ways, over every pair.
+    #[test]
+    fn a_pin_agrees_with_the_comparison_a_stage_contract_makes() {
+        let names = [
+            "python-cli",
+            "py-cli",
+            "py",
+            "python",
+            "cli",
+            "nextjs",
+            "next-js",
+            " Next.JS ",
+            "generic",
+        ];
+        for first in names {
+            for second in names {
+                let world = World::new();
+                drop(world.open_naming(Some(first)).unwrap());
+                let pinned = on_disk(&world)["profile"].as_str().unwrap().to_string();
+                assert_eq!(pinned, canonical_profile_name(first), "{first}");
+                assert_eq!(canonical_profile_name(&pinned), pinned, "{first}");
+                let same = canonical_profile_name(first) == canonical_profile_name(second);
+                let opened = world.open_naming(Some(second)).map(|_| ());
+                let expected = if same {
+                    Ok(())
+                } else {
+                    Err(LedgerRefusal::ProfileChanged)
+                };
+                assert_eq!(opened, expected, "{first} {second}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_blank_explicit_profile_is_refused_and_pins_nothing() {
+        for blank in ["", "   ", "\t\n"] {
+            let world = World::new();
+            assert_eq!(
+                world.open_naming(Some(blank)).unwrap_err(),
+                LedgerRefusal::ProfileBlank,
+                "{blank:?}"
+            );
+            assert!(!world.wallet_dir().exists(), "{blank:?}");
+
+            drop(world.open_naming(None).unwrap());
+            assert_eq!(
+                world.open_naming(Some(blank)).unwrap_err(),
+                LedgerRefusal::ProfileBlank,
+                "{blank:?}"
+            );
+            assert_eq!(on_disk(&world)["profile"], Value::Null, "{blank:?}");
+            // A name is still free to pin it.
+            assert!(world.open_naming(Some("generic")).is_ok(), "{blank:?}");
         }
     }
 
@@ -1111,6 +1274,73 @@ mod tests {
         );
     }
 
+    /// A rate of zero for cached tokens is allowed, and a body that comes to nothing is not: a file
+    /// that says one did is refused with its digest right. Its control, one token of output, opens.
+    #[test]
+    fn a_ledger_with_a_body_settled_at_nothing_is_refused() {
+        let world = World::with(|v| v["tariff"]["cached_input_per_million"] = json!("0"));
+        let mut ledger = world.open(LedgerEntry::Fresh).unwrap();
+        let id = reserve(&mut ledger).unwrap();
+        ledger.start(id, BODY).unwrap();
+        let cost = BilledCostUsd::from_json_token("0").unwrap();
+        let usage = ReportedUsage {
+            cost: Some(&cost),
+            prompt_tokens: Some(100),
+            completion_tokens: Some(1),
+            cached_tokens: Some(100),
+            reasoning_tokens: None,
+        };
+        assert!(matches!(
+            ledger.settle_reported(id, &usage),
+            Ok(SettleReport::Settled(_))
+        ));
+        drop(ledger);
+        drop(world.open(LedgerEntry::Resume).unwrap());
+        world.rewrite(|body| {
+            let settlement = &mut body["attempts"][0]["settlement"];
+            settlement["completion_tokens"] = json!(0);
+            settlement["computed"] = json!("0");
+            settlement["consumed"] = json!("0");
+        });
+        assert_eq!(
+            world.open(LedgerEntry::Resume).unwrap_err(),
+            LedgerRefusal::Corrupt
+        );
+    }
+
+    /// A record whose identity is wrong and whose state is fine: only the first half of the check
+    /// can see it. A larger reservation breaks no limit and is still not what the formula gives.
+    #[test]
+    fn a_ledger_whose_reservation_alone_disagrees_is_refused() {
+        let world = World::new();
+        let mut ledger = world.open(LedgerEntry::Fresh).unwrap();
+        send(&mut ledger);
+        drop(ledger);
+        drop(world.open(LedgerEntry::Resume).unwrap());
+        world.rewrite(|body| body["attempts"][0]["reserved"] = json!("720000000000001"));
+        assert_eq!(
+            world.open(LedgerEntry::Resume).unwrap_err(),
+            LedgerRefusal::Corrupt
+        );
+    }
+
+    /// The other way round: the identity is fine, and only the state's half of the check can see a
+    /// reason on a send that was never unknown.
+    #[test]
+    fn a_ledger_whose_state_alone_disagrees_is_refused() {
+        let world = World::new();
+        let mut ledger = world.open(LedgerEntry::Fresh).unwrap();
+        let id = reserve(&mut ledger).unwrap();
+        ledger.release(id).unwrap();
+        drop(ledger);
+        drop(world.open(LedgerEntry::Resume).unwrap());
+        world.rewrite(|body| body["attempts"][0]["unknown_reason"] = json!("timeout"));
+        assert_eq!(
+            world.open(LedgerEntry::Resume).unwrap_err(),
+            LedgerRefusal::Corrupt
+        );
+    }
+
     #[test]
     fn a_settled_send_with_cached_tokens_reopens() {
         let world = World::new();
@@ -1177,7 +1407,7 @@ mod tests {
     #[test]
     fn a_read_takes_exactly_the_largest_size_and_refuses_one_byte_more() {
         let world = World::new();
-        let store = Store::open(world.wallet_dir()).unwrap();
+        let store = Store::open(WalletDirectory::of(&world.policy)).unwrap();
         let path = world.file();
         let largest = usize::try_from(MAX_LEDGER_BYTES).unwrap();
         fs::write(&path, vec![b' '; largest]).unwrap();
@@ -1191,7 +1421,7 @@ mod tests {
         assert!(fits_a_ledger(MAX_LEDGER_BYTES));
         assert!(!fits_a_ledger(MAX_LEDGER_BYTES + 1));
         let world = World::new();
-        let mut store = Store::open(world.wallet_dir()).unwrap();
+        let mut store = Store::open(WalletDirectory::of(&world.policy)).unwrap();
         let name = "p".repeat(usize::try_from(MAX_LEDGER_BYTES).unwrap());
         let wallet = WalletState::new(&world.policy, "workspace".to_string(), Some(name));
         assert_eq!(store.write(&wallet), Err(LedgerRefusal::Unavailable));
@@ -1346,6 +1576,107 @@ mod tests {
         assert_eq!(ledger.success_gate(), Ok(()));
     }
 
+    /// The window runs from the first final repair, not from the start of the run.
+    #[test]
+    fn a_final_repairs_start_past_its_window_is_refused_and_writes_nothing_and_at_it_passes() {
+        let world = World::with(|v| v["limits"]["final_repair_seconds"] = json!(1));
+        let mut ledger = world.open(LedgerEntry::Fresh).unwrap();
+        send(&mut ledger);
+        world.clock.advance(50_000);
+        let id = new_final_repair(&mut ledger);
+        world.clock.advance(1_000);
+        assert_eq!(ledger.start(id, BODY).unwrap().physical(), id);
+
+        let world = World::with(|v| v["limits"]["final_repair_seconds"] = json!(1));
+        let mut ledger = world.open(LedgerEntry::Fresh).unwrap();
+        let id = new_final_repair(&mut ledger);
+        let before = fs::read(world.file()).unwrap();
+        world.clock.advance(1_001);
+        assert_eq!(
+            ledger.start(id, BODY).map(|_| ()),
+            Err(LedgerFailure::Budget(
+                BudgetRefusal::FinalRepairWallExceeded
+            ))
+        );
+        assert_eq!(fs::read(world.file()).unwrap(), before);
+        // Nothing left, so it goes back.
+        ledger.release(id).unwrap();
+        assert_eq!(ledger.wallet().held().unwrap(), Money::ZERO);
+    }
+
+    #[test]
+    fn a_final_repairs_response_past_its_window_is_settled_at_its_cost_and_is_not_a_success() {
+        let world = World::with(|v| v["limits"]["final_repair_seconds"] = json!(1));
+        let mut ledger = world.open(LedgerEntry::Fresh).unwrap();
+        let id = new_final_repair(&mut ledger);
+        ledger.start(id, BODY).unwrap();
+        world.clock.advance(1_001);
+        ledger.settle(id, &known(100, 40)).unwrap();
+        assert_eq!(ledger.wallet().spent().unwrap(), money("0.0006"));
+        assert_eq!(ledger.wallet().held().unwrap(), Money::ZERO);
+        assert_eq!(
+            ledger.wallet().latch().unwrap().reason,
+            LatchReason::ResponseAfterFinalRepairWindow
+        );
+        assert_eq!(
+            ledger.success_gate(),
+            Err(LedgerFailure::Budget(BudgetRefusal::Latched))
+        );
+        drop(ledger);
+        let mut reopened = world.open(LedgerEntry::Resume).unwrap();
+        assert_eq!(reopened.wallet().spent().unwrap(), money("0.0006"));
+        assert_eq!(
+            reopened.success_gate(),
+            Err(LedgerFailure::Budget(BudgetRefusal::Latched))
+        );
+    }
+
+    #[test]
+    fn a_final_repairs_response_exactly_at_its_window_is_a_success() {
+        let world = World::with(|v| v["limits"]["final_repair_seconds"] = json!(1));
+        let mut ledger = world.open(LedgerEntry::Fresh).unwrap();
+        let id = new_final_repair(&mut ledger);
+        ledger.start(id, BODY).unwrap();
+        world.clock.advance(1_000);
+        ledger.settle(id, &known(100, 40)).unwrap();
+        assert_eq!(ledger.success_gate(), Ok(()));
+    }
+
+    /// Past the window, a send that is not a final repair starts and is answered like any other.
+    #[test]
+    fn a_send_that_is_no_final_repair_is_outside_the_window_both_ways() {
+        let world = World::with(|v| v["limits"]["final_repair_seconds"] = json!(1));
+        let mut ledger = world.open(LedgerEntry::Fresh).unwrap();
+        let repair = new_final_repair(&mut ledger);
+        ledger.start(repair, BODY).unwrap();
+        ledger.settle(repair, &known(100, 40)).unwrap();
+        let id = reserve(&mut ledger).unwrap();
+        world.clock.advance(1_001);
+        ledger.start(id, BODY).unwrap();
+        world.clock.advance(1_000);
+        ledger.settle(id, &known(100, 40)).unwrap();
+        assert_eq!(ledger.success_gate(), Ok(()));
+    }
+
+    /// The compile-time half: a start on a copy is typed to give out nothing, so this line stops
+    /// compiling if it ever gives out anything a POST could use. Only the ledger's start, which
+    /// writes, gives the permit.
+    #[test]
+    fn a_start_on_a_copy_of_the_wallet_gives_out_nothing_and_the_ledgers_gives_the_permit() {
+        let world = World::new();
+        let mut ledger = world.open(LedgerEntry::Fresh).unwrap();
+        let id = reserve(&mut ledger).unwrap();
+        let mut copy = ledger.wallet().clone();
+        let nothing: Result<(), BudgetRefusal> = copy.start(&world.policy, id, BODY);
+        assert_eq!(nothing, Ok(()));
+        assert_eq!(on_disk(&world)["attempts"][0]["state"], json!("reserved"));
+
+        let permit = ledger.start(id, BODY).unwrap();
+        assert_eq!(permit.physical(), id);
+        assert_eq!(permit.body(), BODY.as_slice());
+        assert_eq!(on_disk(&world)["attempts"][0]["state"], json!("started"));
+    }
+
     #[test]
     fn a_ledger_that_vanishes_during_a_run_refuses_everything_and_stays_refused() {
         let world = World::new();
@@ -1482,31 +1813,65 @@ mod tests {
         assert!(world.open_under(world.policy.clone(), None).is_ok());
     }
 
+    /// `ledger_dir` is outside the workspace, and the ID lands the wallet on it: what is judged is
+    /// the directory the wallet is in. Beside it, with the same parent, is where one may live.
+    #[test]
+    fn a_wallet_that_lands_on_the_workspace_by_its_id_is_refused_before_anything_is_made() {
+        let world = World::new();
+        let parent = world.workspace.parent().unwrap().to_path_buf();
+        let parent_text = parent.to_str().unwrap();
+        let on_it = world.declaration("workspace", |v| v["ledger_dir"] = json!(parent_text));
+        assert_eq!(
+            world.open_under(on_it, None).unwrap_err(),
+            LedgerRefusal::DirectoryInsideWorkspace
+        );
+        assert_eq!(fs::read_dir(&world.workspace).unwrap().count(), 0);
+
+        let beside = world.declaration("wallet-beside", |v| v["ledger_dir"] = json!(parent_text));
+        assert!(world.open_under(beside, None).is_ok());
+        assert!(parent.join("wallet-beside").join(LEDGER_FILE).exists());
+    }
+
     const CACHE_CHILD_ROOT: &str = "COMMANDAGENT_TEST_BUDGET_CACHE_ROOT";
 
-    /// Runs only as the child of the test below, whose environment holds a home of its own.
+    fn open_in_a_cache_home(
+        root: &Path,
+        ledger_dir: &Path,
+        id: &str,
+    ) -> Result<BudgetLedger, LedgerRefusal> {
+        let mut value = policy_value();
+        value["budget_id"] = json!(id);
+        value["ledger_dir"] = json!(ledger_dir.to_str().unwrap());
+        let policy = RunBudgetPolicy::decode(value.to_string().as_bytes(), id).unwrap();
+        BudgetLedger::open(LedgerOpen {
+            policy: Arc::new(policy),
+            workspace: &root.join("workspace"),
+            explicit_profile: None,
+            entry: LedgerEntry::Fresh,
+            clock: FakeClock::at(1),
+        })
+    }
+
+    /// Runs only as the child of the test below, whose environment holds a home of its own. The
+    /// cache is reached under `ledger_dir` and by the ID alone, and beside it is the control.
     #[test]
     fn a_ledger_dir_under_a_dependency_cache_child() {
         let Some(root) = std::env::var_os(CACHE_CHILD_ROOT) else {
             return;
         };
         let root = PathBuf::from(root);
-        let inside = root.join("home/.npm/ledgers");
-        let mut value = policy_value();
-        value["ledger_dir"] = json!(inside.to_str().unwrap());
-        let policy = RunBudgetPolicy::decode(value.to_string().as_bytes(), WALLET).unwrap();
-        let refused = BudgetLedger::open(LedgerOpen {
-            policy: Arc::new(policy),
-            workspace: &root.join("workspace"),
-            explicit_profile: None,
-            entry: LedgerEntry::Fresh,
-            clock: FakeClock::at(1),
-        });
-        assert_eq!(
-            refused.unwrap_err(),
-            LedgerRefusal::DirectoryWritableByCommands
-        );
-        assert!(!inside.exists());
+        let home = root.join("home");
+        for (ledger_dir, id) in [
+            (home.join(".npm/ledgers"), WALLET),
+            (home.join(".cargo"), "registry"),
+        ] {
+            assert_eq!(
+                open_in_a_cache_home(&root, &ledger_dir, id).unwrap_err(),
+                LedgerRefusal::DirectoryWritableByCommands,
+                "{id}"
+            );
+        }
+        assert!(open_in_a_cache_home(&root, &home.join(".cargo"), "wallet-beside").is_ok());
     }
 
     /// The check reads `HOME`, so a child has a temporary one and nothing here sees the real one.
@@ -1520,6 +1885,7 @@ mod tests {
         let (_held, base) = root;
         let home = base.join("home");
         fs::create_dir_all(home.join(".npm")).unwrap();
+        fs::create_dir_all(home.join(".cargo/registry")).unwrap();
         fs::create_dir_all(base.join("workspace")).unwrap();
         let output = std::process::Command::new(std::env::current_exe().unwrap())
             .args([
@@ -1538,6 +1904,11 @@ mod tests {
         assert!(output.status.success(), "{stdout}\n{stderr}");
         assert!(stdout.contains("1 passed"), "{stdout}\n{stderr}");
         assert_eq!(fs::read_dir(home.join(".npm")).unwrap().count(), 0);
+        assert_eq!(
+            fs::read_dir(home.join(".cargo/registry")).unwrap().count(),
+            0
+        );
+        assert!(home.join(".cargo/wallet-beside").join(LEDGER_FILE).exists());
     }
 
     #[test]
@@ -1606,32 +1977,248 @@ mod tests {
 
     // ---- no table anywhere ----
 
+    /// Every Rust file at or below a directory.
+    fn rust_files_under(directory: &Path) -> Vec<PathBuf> {
+        let mut found = Vec::new();
+        for entry in fs::read_dir(directory).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                found.extend(rust_files_under(&path));
+            } else if path.extension().is_some_and(|extension| extension == "rs") {
+                found.push(path);
+            }
+        }
+        found
+    }
+
+    /// What a file holds of process-wide state, read up to its line of `mod tests`. Any other
+    /// `#[cfg(test)]` is an item among the rest and ends nothing.
+    fn process_wide_words(source: &str) -> Vec<&'static str> {
+        let production = source
+            .lines()
+            .take_while(|line| line.trim() != "mod tests {")
+            .collect::<Vec<_>>()
+            .join("\n");
+        [
+            "static ",
+            "OnceLock",
+            "LazyLock",
+            "thread_local",
+            "lazy_static",
+        ]
+        .into_iter()
+        .filter(|word| production.contains(word))
+        .collect()
+    }
+
+    #[test]
+    fn the_search_for_process_wide_state_reads_every_level_and_stops_only_at_mod_tests() {
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir_all(root.path().join("deep/er")).unwrap();
+        let deep = root.path().join("deep/er/held-976.rs");
+        fs::write(&deep, "static HELD_976: u8 = 0;\n").unwrap();
+        fs::write(root.path().join("not-rust-976.txt"), "static ").unwrap();
+        assert_eq!(rust_files_under(root.path()), [deep]);
+
+        let after_an_attribute = "#[cfg(test)]\nuse std::fmt;\nstatic HELD_976: u8 = 0;\n";
+        assert_eq!(process_wide_words(after_an_attribute), ["static "]);
+        let in_its_tests =
+            "pub(crate) fn f() {}\n#[cfg(test)]\nmod tests {\n    static T: u8 = 0;\n";
+        assert!(process_wide_words(in_its_tests).is_empty());
+    }
+
     #[test]
     fn nothing_in_this_module_is_process_wide() {
         // Whatever files the module has by now, so a new one cannot be left out.
         let directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/structured_budget");
-        let mut read = Vec::new();
-        for entry in fs::read_dir(&directory).unwrap() {
-            let path = entry.unwrap().path();
-            if path.extension().is_some_and(|extension| extension == "rs") {
-                let source = fs::read_to_string(&path).unwrap();
-                let production = source.split("#[cfg(test)]").next().unwrap().to_string();
-                read.push(path.file_name().unwrap().to_owned());
-                for word in [
-                    "static ",
-                    "OnceLock",
-                    "LazyLock",
-                    "thread_local",
-                    "lazy_static",
-                ] {
-                    assert!(!production.contains(word), "{word} in {}", path.display());
-                }
-            }
+        let files = rust_files_under(&directory);
+        for path in &files {
+            let words = process_wide_words(&fs::read_to_string(path).unwrap());
+            assert!(words.is_empty(), "{words:?} in {}", path.display());
         }
         for known in ["mod.rs", "ledger.rs", "reservation.rs", "clock.rs"] {
-            assert!(read.iter().any(|name| name == known), "{known}: {read:?}");
+            assert!(
+                files.iter().any(|path| path.ends_with(known)),
+                "{known}: {files:?}"
+            );
         }
     }
+
+    /// Reports stay inside their reservations, so a walk gets to the limits instead of to a latch.
+    /// Each seed narrows one limit, through the real file, with processes ending, and has to find
+    /// every limit saying no. A line at the start or at the settling moves the clock, which is what
+    /// gets to the two checks of time after a reservation.
+    #[test]
+    fn a_walk_through_the_file_reaches_every_limit_and_stays_inside_them() {
+        let mut refusals = BTreeMap::<String, u64>::new();
+        let mut reasons = BTreeMap::<String, u64>::new();
+        let mut total_posts = 0_u64;
+        for seed in 1..=WALK_SEEDS {
+            let mut rng = Rng::seeded(seed);
+            let (sends, cost, tokens, wall, attempts, window) = match seed % 5 {
+                0 => (3, "1000", 1_000_000, 100_000, 1, 100_000),
+                1 => (1000, "0.0015", 1_000_000, 100_000, 1, 100_000),
+                2 => (1000, "1000", 450, 100_000, 1, 100_000),
+                3 => (1000, "1000", 1_000_000, 8, 1, 100_000),
+                _ => (1000, "1000", 1_000_000, 100_000, 1000, 1),
+            };
+            let world = World::with(|v| {
+                let limits = &mut v["limits"];
+                limits["physical_sends"] = json!(sends);
+                limits["cost_usd"] = json!(cost);
+                limits["tokens"] = json!(tokens);
+                limits["wall_seconds"] = json!(wall);
+                limits["logical_global"] = json!(4);
+                limits["logical_per_stage"] = json!(1);
+                limits["final_repair_attempts"] = json!(attempts);
+                limits["final_repair_seconds"] = json!(window);
+            });
+            let mut ledger = world.open_naming(None).unwrap();
+            let mut posts = 0_u64;
+            let mut floor = Money::ZERO;
+            let mut last: Option<ResponseIdentity> = None;
+            let mut repair: Option<FinalRepairId> = None;
+            for _ in 0..WALK_STEPS {
+                let held = ledger
+                    .wallet()
+                    .attempts
+                    .iter()
+                    .find(|attempt| {
+                        matches!(
+                            attempt.state,
+                            AttemptState::Reserved | AttemptState::Started
+                        )
+                    })
+                    .map(|attempt| (attempt.physical, attempt.state));
+                let moves_the_clock = match held {
+                    Some((_, AttemptState::Started)) => rng.next().is_multiple_of(3),
+                    Some(_) => rng.next().is_multiple_of(8),
+                    None => false,
+                };
+                if moves_the_clock {
+                    world.clock.advance(3_000);
+                }
+                let result: Result<(), LedgerFailure> = match (rng.next() % 8, held) {
+                    (_, Some((id, AttemptState::Reserved))) => match ledger.start(id, BODY) {
+                        Ok(_) => {
+                            posts += 1;
+                            Ok(())
+                        }
+                        Err(refusal) => {
+                            ledger.release(id).unwrap();
+                            Err(refusal)
+                        }
+                    },
+                    (_, Some((id, _))) => {
+                        let amount = BilledCostUsd::from_json_token("0.0001").unwrap();
+                        let usage = ReportedUsage {
+                            cost: Some(&amount),
+                            prompt_tokens: Some(60),
+                            completion_tokens: Some(20),
+                            ..ReportedUsage::default()
+                        };
+                        ledger.settle_reported(id, &usage).map(|report| {
+                            if let SettleReport::Settled(outcome) = report {
+                                last = Some(outcome.response);
+                            }
+                        })
+                    }
+                    (0 | 1, None) => reserve(&mut ledger).map(|_| ()),
+                    (2, None) => {
+                        let claim = match repair {
+                            Some(id) if rng.next().is_multiple_of(2) => {
+                                FinalRepairClaim::Continue(id)
+                            }
+                            _ => FinalRepairClaim::New,
+                        };
+                        reserve_final_repair(&mut ledger, claim).map(|reservation| {
+                            repair = reservation.final_repair;
+                        })
+                    }
+                    (3, None) => {
+                        let kind = if rng.next().is_multiple_of(2) {
+                            LogicalKind::General
+                        } else {
+                            stage_kind("a")
+                        };
+                        let source = if rng.next().is_multiple_of(2) {
+                            last.map(|response| response.call((rng.next() % 3) as u32))
+                        } else {
+                            None
+                        };
+                        ledger.record_submission(kind, source).map(|_| ())
+                    }
+                    (4, None) => {
+                        world.clock.advance(rng.next() % 2_000);
+                        Ok(())
+                    }
+                    (5, None) if rng.next().is_multiple_of(3) => {
+                        drop(ledger);
+                        world.clock.new_process();
+                        ledger = world.open_naming(None).unwrap();
+                        Ok(())
+                    }
+                    _ => Ok(()),
+                };
+                if let Err(refusal) = result {
+                    *refusals.entry(format!("{refusal:?}")).or_default() += 1;
+                }
+
+                let wallet = ledger.wallet();
+                assert!(posts <= sends, "seed {seed}");
+                let on_record = wallet
+                    .attempts
+                    .iter()
+                    .filter(|attempt| {
+                        !matches!(
+                            attempt.state,
+                            AttemptState::Reserved | AttemptState::Released
+                        )
+                    })
+                    .count() as u64;
+                assert_eq!(on_record, posts, "seed {seed}: every POST is on the record");
+                assert!(wallet.is_consistent(&world.policy), "seed {seed}");
+                assert!(wallet.logical_global_used() <= 4, "seed {seed}");
+                assert!(wallet.logical_stage_used("a") <= 1, "seed {seed}");
+                assert!(wallet.final_repair_used() <= attempts, "seed {seed}");
+                let spent = wallet.spent().unwrap();
+                assert!(spent >= floor, "seed {seed}");
+                floor = spent;
+                if wallet.latch().is_none() {
+                    let money = spent.units() + wallet.held().unwrap().units();
+                    assert!(money <= world.policy.limits.cost.units(), "seed {seed}");
+                    let used = wallet.spent_tokens() + wallet.held_tokens();
+                    assert!(used <= u128::from(tokens as u64), "seed {seed}");
+                }
+            }
+            total_posts += posts;
+            let reason = ledger
+                .wallet()
+                .latch()
+                .map_or("none".to_string(), |latch| format!("{:?}", latch.reason));
+            *reasons.entry(reason).or_default() += 1;
+        }
+        eprintln!("walk posts={total_posts} refusals={refusals:?} reasons={reasons:?}");
+        for reached in [
+            "PhysicalExceeded",
+            "TokensExceeded",
+            "CostExceeded",
+            "WallExceeded",
+            "LogicalGlobalExceeded",
+            "LogicalStageExceeded",
+            "FinalRepairAttemptsExceeded",
+            "FinalRepairWallExceeded",
+        ] {
+            let key = format!("Budget({reached})");
+            assert!(refusals.contains_key(&key), "{reached}: {refusals:?}");
+        }
+        for reached in ["ResponseAfterDeadline", "ResponseAfterFinalRepairWindow"] {
+            assert!(reasons.contains_key(reached), "{reached}: {reasons:?}");
+        }
+    }
+
+    const WALK_SEEDS: u64 = 30;
+    const WALK_STEPS: usize = 60;
 
     #[test]
     fn submissions_count_across_processes() {

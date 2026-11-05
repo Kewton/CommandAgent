@@ -166,4 +166,20 @@ pub(crate) mod test_support {
             stage: name.to_string(),
         }
     }
+
+    /// A seeded step for a walk, with no new dependency.
+    pub(crate) struct Rng(u64);
+
+    impl Rng {
+        pub(crate) fn seeded(seed: u64) -> Self {
+            Self(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1)
+        }
+
+        pub(crate) fn next(&mut self) -> u64 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            self.0
+        }
+    }
 }
