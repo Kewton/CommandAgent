@@ -12,7 +12,8 @@
 //! refuses everything.
 //!
 //! The directory that is judged is the directory that is used: both take a [`WalletDirectory`],
-//! and only the policy makes one.
+//! and only the policy makes one. No name on the way to it is somewhere a command can change, links
+//! and the text of links included. A link out of a command's reach is allowed.
 //!
 //! Known limits: someone with the same user ID, outside the sandbox and before a run, can delete
 //! the file or put an older one back. A fresh start then cannot tell; a resume is refused when the
@@ -35,7 +36,7 @@ use std::io::{ErrorKind, Read, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -56,6 +57,8 @@ const LEDGER_FILE: &str = "ledger.json";
 const LEDGER_TEMPORARY: &str = "ledger.json.tmp";
 const LOCK_FILE: &str = "lock";
 const MAX_LEDGER_BYTES: u64 = 8 << 20;
+/// As many as Linux follows, and more than macOS does. A ring of links stops here.
+const MOST_LINKS_ON_THE_WAY: usize = 40;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LedgerRefusal {
@@ -348,17 +351,76 @@ impl Store {
     }
 }
 
-/// The checks G4 made for its own ledger: a directory commands of the run can write proves nothing.
-fn refuse_directory(directory: &WalletDirectory, workspace: &Path) -> Result<(), LedgerRefusal> {
-    refuse_state_dir_inside_workspace(directory.path(), workspace).map_err(
-        |refusal| match refusal {
-            StageLedgerRefusal::StateDirInsideWorkspace => LedgerRefusal::DirectoryInsideWorkspace,
-            StageLedgerRefusal::StateDirWritableByCommands => {
-                LedgerRefusal::DirectoryWritableByCommands
+/// The check G4 made for its own ledger, of one place: where it really leads.
+fn refuse_place(place: &Path, workspace: &Path) -> Result<(), LedgerRefusal> {
+    refuse_state_dir_inside_workspace(place, workspace).map_err(|refusal| match refusal {
+        StageLedgerRefusal::StateDirInsideWorkspace => LedgerRefusal::DirectoryInsideWorkspace,
+        StageLedgerRefusal::StateDirWritableByCommands => {
+            LedgerRefusal::DirectoryWritableByCommands
+        }
+        _ => LedgerRefusal::Unavailable,
+    })
+}
+
+/// Walks the path as the system does, one name at a time and with no link followed unseen, and
+/// judges each real directory it enters. So a directory holding a name of the way, even a name in
+/// the text of a link, has been judged before that name is read. What is not there yet ends the
+/// walk: nothing below it can be a link, and [`refuse_place`] has already judged the plain tail.
+fn refuse_every_name_on_the_way(
+    directory: &WalletDirectory,
+    workspace: &Path,
+) -> Result<(), LedgerRefusal> {
+    let mut place = PathBuf::new();
+    let mut rest = directory.path().to_path_buf();
+    let mut followed = 0;
+    loop {
+        let mut names = rest.components();
+        let Some(name) = names.next() else {
+            return Ok(());
+        };
+        let after = names.as_path().to_path_buf();
+        rest = match name {
+            Component::RootDir => {
+                place = PathBuf::from(Component::RootDir.as_os_str());
+                after
             }
-            _ => LedgerRefusal::Unavailable,
-        },
-    )
+            Component::CurDir => after,
+            // `place` holds no link, so its parent is the directory the system climbs to, and has
+            // been judged on the way down.
+            Component::ParentDir => {
+                place.pop();
+                after
+            }
+            Component::Prefix(_) => return Err(LedgerRefusal::Unavailable),
+            Component::Normal(name) => {
+                let next = place.join(name);
+                match fs::symlink_metadata(&next) {
+                    Ok(found) if found.is_symlink() => {
+                        followed += 1;
+                        if followed > MOST_LINKS_ON_THE_WAY {
+                            return Err(LedgerRefusal::Unavailable);
+                        }
+                        fs::read_link(&next).map_err(unavailable)?.join(after)
+                    }
+                    Ok(_) => {
+                        refuse_place(&next, workspace)?;
+                        place = next;
+                        after
+                    }
+                    Err(error) if error.kind() == ErrorKind::NotFound => return Ok(()),
+                    Err(error) => return Err(unavailable(error)),
+                }
+            }
+        };
+    }
+}
+
+/// A directory commands of the run can write proves nothing, and neither does a path that runs
+/// through one: the place is judged by where it leads, and every use walks the path again. So both
+/// are judged. Where it leads comes first, so its refusals stay as G4 words them.
+fn refuse_directory(directory: &WalletDirectory, workspace: &Path) -> Result<(), LedgerRefusal> {
+    refuse_place(directory.path(), workspace)?;
+    refuse_every_name_on_the_way(directory, workspace)
 }
 
 /// The wallet already on disk, held to the declaration and the run that opened it.
@@ -544,7 +606,7 @@ impl BudgetLedger {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
     use std::fs;
     use std::os::fd::AsRawFd;
     use std::path::{Path, PathBuf};
@@ -563,8 +625,8 @@ mod tests {
     };
     use super::{
         BudgetLedger, LEDGER_FILE, LEDGER_TEMPORARY, LOCK_FILE, LedgerEntry, LedgerFailure,
-        LedgerOpen, LedgerRefusal, MAX_LEDGER_BYTES, Store, WalletDirectory, fits_a_ledger,
-        lock_refusal,
+        LedgerOpen, LedgerRefusal, MAX_LEDGER_BYTES, MOST_LINKS_ON_THE_WAY, Store, WalletDirectory,
+        fits_a_ledger, lock_refusal, refuse_directory, refuse_every_name_on_the_way,
     };
     use crate::planner::profile::canonical_profile_name;
     use crate::planner::structured_stages::receipt::sha256_hex;
@@ -1832,6 +1894,364 @@ mod tests {
         assert!(parent.join("wallet-beside").join(LEDGER_FILE).exists());
     }
 
+    // ---- every name on the way to it ----
+
+    fn made(path: PathBuf) -> PathBuf {
+        fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    /// `name` as a link to `target`, whether or not the target exists.
+    fn linked(target: impl AsRef<Path>, name: PathBuf) -> PathBuf {
+        fs::create_dir_all(name.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(target, &name).unwrap();
+        name
+    }
+
+    /// Every name under a directory, and no link followed, so that nothing can be made unseen.
+    fn every_name_under(directory: &Path) -> BTreeSet<PathBuf> {
+        let mut found = BTreeSet::new();
+        for entry in fs::read_dir(directory).unwrap() {
+            let path = entry.unwrap().path();
+            if fs::symlink_metadata(&path).unwrap().is_dir() {
+                found.extend(every_name_under(&path));
+            }
+            found.insert(path);
+        }
+        found
+    }
+
+    fn open_at(world: &World, ledger_dir: &Path) -> Result<BudgetLedger, LedgerRefusal> {
+        let text = ledger_dir.to_str().unwrap();
+        let policy = world.declaration(WALLET, |v| v["ledger_dir"] = json!(text));
+        world.open_under(policy, None)
+    }
+
+    /// What a path is judged by has to reach every name a walk of the path uses. Each row has a
+    /// world of its own: what it opens is refused, and nothing appears under the world's directory.
+    /// All the rows run, so that a failure says which of them are wrong.
+    #[test]
+    fn a_way_to_the_wallet_is_judged_by_every_name_on_it() {
+        use LedgerRefusal::{DirectoryInsideWorkspace as Inside, Unavailable};
+        type Way = fn(&Path, &Path) -> PathBuf;
+        let rows: Vec<(&str, Way, LedgerRefusal)> = vec![
+            (
+                "a link in the workspace",
+                |base, workspace| {
+                    let safe = made(base.join("safe"));
+                    linked(safe, workspace.join(".wallets"))
+                },
+                Inside,
+            ),
+            (
+                "a link in the workspace, by a relative text",
+                |base, workspace| {
+                    made(base.join("safe"));
+                    linked("../safe", workspace.join(".wallets"))
+                },
+                Inside,
+            ),
+            (
+                "a link deeper in the workspace",
+                |base, workspace| {
+                    let safe = made(base.join("safe"));
+                    linked(safe, workspace.join("deep/.wallets"))
+                },
+                Inside,
+            ),
+            (
+                "a tail yet to be made, past a link in the workspace",
+                |base, workspace| {
+                    let safe = made(base.join("safe"));
+                    linked(safe, workspace.join(".wallets")).join("more/deep")
+                },
+                Inside,
+            ),
+            (
+                "a link whose text runs through a link in the workspace",
+                |base, workspace| {
+                    let safe = made(base.join("safe"));
+                    made(safe.join("x"));
+                    linked(&safe, workspace.join("m"));
+                    linked(workspace.join("m/x"), base.join("l"))
+                },
+                Inside,
+            ),
+            (
+                "a link whose text ends at a link in the workspace, by its `/.`",
+                |base, workspace| {
+                    let safe = made(base.join("safe"));
+                    linked(&safe, workspace.join("m"));
+                    linked(workspace.join("m/."), base.join("outer"))
+                },
+                Inside,
+            ),
+            (
+                "a link whose text runs through the workspace and climbs out",
+                |base, _| {
+                    made(base.join("safe"));
+                    linked("workspace/../safe", base.join("l"))
+                },
+                Inside,
+            ),
+            (
+                "a link to the workspace",
+                |base, workspace| linked(workspace, base.join("alias")),
+                Inside,
+            ),
+            (
+                "a real directory in the workspace",
+                |_, workspace| made(workspace.join("real")),
+                Inside,
+            ),
+            (
+                "a link to nothing, outside",
+                |base, _| linked(base.join("yet"), base.join("d")),
+                Unavailable,
+            ),
+            (
+                "a link to nothing, in the workspace",
+                |base, workspace| linked(workspace.join("yet"), base.join("d")),
+                Unavailable,
+            ),
+            (
+                "a link through a link in the workspace, to nothing",
+                |base, workspace| {
+                    let safe = made(base.join("safe"));
+                    linked(&safe, workspace.join("m"));
+                    linked(workspace.join("m/x"), base.join("l"))
+                },
+                Unavailable,
+            ),
+            (
+                "a link whose text climbs out of a name that does not exist",
+                |base, _| {
+                    made(base.join("safe"));
+                    linked("missing/../safe", base.join("l"))
+                },
+                Unavailable,
+            ),
+            (
+                "a ring of two links",
+                |base, _| {
+                    linked(base.join("b"), base.join("a"));
+                    linked(base.join("a"), base.join("b"))
+                },
+                Unavailable,
+            ),
+        ];
+        let mut wrong = Vec::new();
+        for (name, way, refusal) in rows {
+            let world = World::new();
+            let base = world.workspace.parent().unwrap().to_path_buf();
+            let ledger_dir = way(&base, &world.workspace);
+            let before = every_name_under(&base);
+            let opened = open_at(&world, &ledger_dir).map(|_| ());
+            let made_anything = every_name_under(&base) != before;
+            if opened != Err(refusal) || made_anything {
+                wrong.push(format!(
+                    "{name}: {opened:?}, made anything: {made_anything}"
+                ));
+            }
+        }
+        assert_eq!(wrong, Vec::<String>::new());
+    }
+
+    /// Links out of a command's reach are what a machine has, and they open, wherever they lead.
+    #[test]
+    fn a_way_through_links_commands_cannot_change_opens_where_it_leads() {
+        type Way = fn(&Path) -> (PathBuf, PathBuf);
+        let rows: Vec<(&str, Way)> = vec![
+            ("one link", |base| {
+                let safe = made(base.join("safe"));
+                (linked(&safe, base.join("link")), safe)
+            }),
+            ("two links", |base| {
+                let safe = made(base.join("safe"));
+                let one = linked(&safe, base.join("one"));
+                (linked(&one, base.join("two")), safe)
+            }),
+            ("a relative text", |base| {
+                let safe = made(base.join("safe"));
+                (linked("safe", base.join("link")), safe)
+            }),
+            ("a text that climbs out and back", |base| {
+                let safe = made(base.join("safe"));
+                let own_name = base.file_name().unwrap().to_str().unwrap();
+                let text = format!("../{own_name}/safe");
+                (linked(text, base.join("link")), safe)
+            }),
+            ("a tail yet to be made", |base| {
+                let safe = made(base.join("safe"));
+                let link = linked(&safe, base.join("link"));
+                (link.join("more/deep"), safe.join("more/deep"))
+            }),
+        ];
+        let mut wrong = Vec::new();
+        for (name, way) in rows {
+            let world = World::new();
+            let base = world.workspace.parent().unwrap().to_path_buf();
+            let (ledger_dir, leads_to) = way(&base);
+            let opened = open_at(&world, &ledger_dir).map(|_| ());
+            let file_there = leads_to.join(WALLET).join(LEDGER_FILE).exists();
+            if opened != Ok(()) || !file_there {
+                wrong.push(format!("{name}: {opened:?}, file there: {file_there}"));
+            }
+        }
+        assert_eq!(wrong, Vec::<String>::new());
+    }
+
+    /// The whole of what a command could do with the link, in the order a run would meet it: there
+    /// is no first wallet, so moving the link has no second one to give out.
+    #[test]
+    fn a_link_in_the_workspace_gives_no_wallet_before_or_after_it_is_moved() {
+        let world = World::new();
+        let base = world.workspace.parent().unwrap().to_path_buf();
+        let (safe, elsewhere) = (made(base.join("safe")), made(base.join("elsewhere")));
+        let link = linked(&safe, world.workspace.join(".wallets"));
+        let text = link.to_str().unwrap();
+        let policy = world.declaration(WALLET, |v| {
+            v["ledger_dir"] = json!(text);
+            v["limits"]["physical_sends"] = json!(1);
+        });
+        assert_eq!(
+            world.open_under(policy.clone(), None).unwrap_err(),
+            LedgerRefusal::DirectoryInsideWorkspace
+        );
+        fs::remove_file(&link).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, &link).unwrap();
+        assert_eq!(
+            world.open_under(policy, None).unwrap_err(),
+            LedgerRefusal::DirectoryInsideWorkspace
+        );
+        assert_eq!(every_name_under(&safe), BTreeSet::new());
+        assert_eq!(every_name_under(&elsewhere), BTreeSet::new());
+    }
+
+    /// A policy cannot spell `..` at all, so only the text of a link brings one to a walk.
+    #[test]
+    fn a_ledger_dir_that_spells_a_climb_is_refused_before_any_walk() {
+        let world = World::new();
+        let base = world.workspace.parent().unwrap().to_path_buf();
+        let spelled = base.join("workspace/../safe");
+        let mut value = policy_value();
+        value["ledger_dir"] = json!(spelled.to_str().unwrap());
+        assert_eq!(
+            RunBudgetPolicy::decode(value.to_string().as_bytes(), WALLET).unwrap_err(),
+            super::super::policy::PolicyRefusal::InvalidLedgerDir
+        );
+    }
+
+    const CACHE_LINK_CHILD_ROOT: &str = "COMMANDAGENT_TEST_BUDGET_CACHE_LINK_ROOT";
+
+    /// Runs only as the child of the test below, whose environment holds a home of its own.
+    #[test]
+    fn a_way_through_a_link_in_a_dependency_cache_child() {
+        let Some(root) = std::env::var_os(CACHE_LINK_CHILD_ROOT) else {
+            return;
+        };
+        let root = PathBuf::from(root);
+        let home = root.join("home");
+        for ledger_dir in [
+            home.join(".cargo/registry/way"),
+            home.join(".npm/way"),
+            root.join("outer"),
+        ] {
+            assert_eq!(
+                open_in_a_cache_home(&root, &ledger_dir, WALLET).unwrap_err(),
+                LedgerRefusal::DirectoryWritableByCommands,
+                "{}",
+                ledger_dir.file_name().unwrap().to_string_lossy()
+            );
+        }
+        assert!(open_in_a_cache_home(&root, &home.join(".cargo/beside"), WALLET).is_ok());
+    }
+
+    /// A cache is a place commands can write, as the workspace is, so a link there is judged by
+    /// the same rule. The check reads `HOME`, so the child has a temporary one.
+    #[test]
+    fn a_way_through_a_link_in_a_dependency_cache_is_refused_before_anything_is_made() {
+        let root = tempfile::tempdir().unwrap();
+        let base = fs::canonicalize(root.path()).unwrap();
+        let home = base.join("home");
+        let registry = made(home.join(".cargo/registry"));
+        made(home.join(".npm"));
+        made(base.join("workspace"));
+        let safe = made(base.join("safe"));
+        made(safe.join("x"));
+        let beside = made(base.join("beside"));
+        linked(&safe, registry.join("way"));
+        linked(&safe, registry.join("m"));
+        linked(&safe, home.join(".npm/way"));
+        linked(registry.join("m/x"), base.join("outer"));
+        linked(&beside, home.join(".cargo/beside"));
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "structured_budget::ledger::tests::a_way_through_a_link_in_a_dependency_cache_child",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env_clear()
+            .env("HOME", &home)
+            .env(CACHE_LINK_CHILD_ROOT, &base)
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{stdout}\n{stderr}");
+        assert!(stdout.contains("1 passed"), "{stdout}\n{stderr}");
+        assert_eq!(every_name_under(&safe), BTreeSet::from([safe.join("x")]));
+        assert!(beside.join(WALLET).join(LEDGER_FILE).exists());
+    }
+
+    /// The walk alone, since the system refuses a ring before [`refuse_directory`] gets to it. A
+    /// wallet's own name is not there yet, so a chain is followed to its end.
+    #[test]
+    fn a_walk_follows_as_many_links_as_it_allows_and_refuses_one_more_and_a_ring() {
+        let world = World::new();
+        let base = world.workspace.parent().unwrap().to_path_buf();
+        let walk = |ledger_dir: &Path| {
+            let text = ledger_dir.to_str().unwrap();
+            let policy = world.declaration(WALLET, |v| v["ledger_dir"] = json!(text));
+            refuse_every_name_on_the_way(&WalletDirectory::of(&policy), &world.workspace)
+        };
+        let mut last = made(base.join("end"));
+        for number in 1..=MOST_LINKS_ON_THE_WAY {
+            last = linked(&last, base.join(format!("chain-{number}")));
+        }
+        assert_eq!(walk(&last), Ok(()));
+        let past = linked(&last, base.join("chain-past"));
+        assert_eq!(walk(&past), Err(LedgerRefusal::Unavailable));
+
+        linked(base.join("ring-b"), base.join("ring-a"));
+        let ring = linked(base.join("ring-a"), base.join("ring-b"));
+        assert_eq!(walk(&ring), Err(LedgerRefusal::Unavailable));
+    }
+
+    /// A path through what the system itself links, as `/tmp` and `/var` on macOS. Nothing is made:
+    /// only the check runs, and the names are not there.
+    #[test]
+    fn a_way_through_the_links_of_the_system_itself_passes() {
+        if cfg!(target_os = "macos") {
+            assert!(fs::symlink_metadata("/tmp").unwrap().is_symlink());
+            assert!(fs::symlink_metadata("/var").unwrap().is_symlink());
+        }
+        let world = World::new();
+        for top in ["/tmp", "/var"] {
+            let ledger_dir = Path::new(top).join("commandagent-976-no-such-name");
+            let text = ledger_dir.to_str().unwrap();
+            let policy = world.declaration(WALLET, |v| v["ledger_dir"] = json!(text));
+            let directory = WalletDirectory::of(&policy);
+            assert_eq!(
+                refuse_directory(&directory, &world.workspace),
+                Ok(()),
+                "{top}"
+            );
+            assert!(!ledger_dir.exists(), "{top}");
+        }
+    }
+
     const CACHE_CHILD_ROOT: &str = "COMMANDAGENT_TEST_BUDGET_CACHE_ROOT";
 
     fn open_in_a_cache_home(
@@ -2044,6 +2464,21 @@ mod tests {
         }
     }
 
+    /// What a reservation or a start that went through has to be inside: the two kinds of refusal
+    /// come from both moves, so a walk that only sees the refusals does not see one of them go.
+    fn inside_its_time(wallet: &WalletState, policy: &RunBudgetPolicy, physical: PhysicalId) {
+        let seen = wallet.clock.high_water_elapsed_ms;
+        assert!(seen <= policy.limits.wall_ms, "{physical:?} at {seen}");
+        if wallet.attempt(physical).unwrap().final_repair.is_some() {
+            let began = wallet.clock.final_repair_started_ms.unwrap();
+            let window = seen.saturating_sub(began);
+            assert!(
+                window <= policy.limits.final_repair_ms,
+                "{physical:?} {window} into the window"
+            );
+        }
+    }
+
     /// Reports stay inside their reservations, so a walk gets to the limits instead of to a latch.
     /// Each seed narrows one limit, through the real file, with processes ending, and has to find
     /// every limit saying no. A line at the start or at the settling moves the clock, which is what
@@ -2102,6 +2537,7 @@ mod tests {
                     (_, Some((id, AttemptState::Reserved))) => match ledger.start(id, BODY) {
                         Ok(_) => {
                             posts += 1;
+                            inside_its_time(ledger.wallet(), &world.policy, id);
                             Ok(())
                         }
                         Err(refusal) => {
@@ -2123,7 +2559,8 @@ mod tests {
                             }
                         })
                     }
-                    (0 | 1, None) => reserve(&mut ledger).map(|_| ()),
+                    (0 | 1, None) => reserve(&mut ledger)
+                        .map(|id| inside_its_time(ledger.wallet(), &world.policy, id)),
                     (2, None) => {
                         let claim = match repair {
                             Some(id) if rng.next().is_multiple_of(2) => {
@@ -2133,6 +2570,7 @@ mod tests {
                         };
                         reserve_final_repair(&mut ledger, claim).map(|reservation| {
                             repair = reservation.final_repair;
+                            inside_its_time(ledger.wallet(), &world.policy, reservation.physical);
                         })
                     }
                     (3, None) => {

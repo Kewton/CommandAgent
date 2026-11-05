@@ -626,7 +626,7 @@ impl WalletState {
     }
 
     /// Whether the time the ledger last observed is past the window of the final repairs, which
-    /// runs from the first of them. It holds only for a final repair's send.
+    /// runs from the first of them. It takes no send: a caller asks it only for a final repair's.
     pub(super) fn past_the_final_repair_window(&self, policy: &RunBudgetPolicy) -> bool {
         self.clock.final_repair_started_ms.is_some_and(|began| {
             self.clock.high_water_elapsed_ms.saturating_sub(began) > policy.limits.final_repair_ms
