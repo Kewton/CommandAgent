@@ -12,8 +12,9 @@
 //! refuses everything.
 //!
 //! The directory that is judged is the directory that is used: both take a [`WalletDirectory`],
-//! and only the policy makes one. No name on the way to it is somewhere a command can change, links
-//! and the text of links included. A link out of a command's reach is allowed.
+//! and only the policy makes one. No name on the way to it is somewhere a command of this run can
+//! change, links and the text of links included, as far as a path can tell: only the path is
+//! judged. A link out of a command's reach is allowed.
 //!
 //! Known limits: someone with the same user ID, outside the sandbox and before a run, can delete
 //! the file or put an older one back. A fresh start then cannot tell; a resume is refused when the
@@ -1983,6 +1984,37 @@ mod tests {
                     let safe = made(base.join("safe"));
                     linked(&safe, workspace.join("m"));
                     linked(workspace.join("m/."), base.join("outer"))
+                },
+                Inside,
+            ),
+            (
+                "a link whose text climbs out and back into a link in the workspace",
+                |base, workspace| {
+                    let safe = made(base.join("safe"));
+                    linked(&safe, workspace.join("m"));
+                    let own_name = base.file_name().unwrap().to_str().unwrap();
+                    let text = format!("../{own_name}/workspace/m/.");
+                    linked(text, base.join("l"))
+                },
+                Inside,
+            ),
+            (
+                "a link whose text starts at `.` and ends at a link in the workspace",
+                |base, workspace| {
+                    let safe = made(base.join("safe"));
+                    linked(&safe, workspace.join("m"));
+                    linked("./workspace/m", base.join("l"))
+                },
+                Inside,
+            ),
+            (
+                "a name past a link, and that name a link to a link in the workspace",
+                |base, workspace| {
+                    let safe = made(base.join("safe"));
+                    linked(&safe, workspace.join("m"));
+                    made(base.join("mid"));
+                    linked(workspace.join("m"), base.join("mid/y"));
+                    linked("mid", base.join("l1")).join("y")
                 },
                 Inside,
             ),
