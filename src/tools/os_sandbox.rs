@@ -818,6 +818,16 @@ pub fn is_applied() -> bool {
     status().is_some_and(|status| status.applied)
 }
 
+/// The workspace the installed policy holds commands in, if one is installed.
+pub(crate) fn installed_workspace_root() -> Option<PathBuf> {
+    let installed = INSTALLED.lock().expect("sandbox state");
+    installed
+        .as_ref()?
+        .policy
+        .as_ref()
+        .map(|policy| policy.workspace_root.clone())
+}
+
 /// The one-time startup warning for `auto` when the backend is unavailable.
 pub fn startup_warning() -> Option<String> {
     let status = status()?;

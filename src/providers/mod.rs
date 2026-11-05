@@ -274,6 +274,7 @@ pub(crate) fn client_from_config_for_role(
     config: &Config,
     role: ProviderRole,
 ) -> anyhow::Result<Box<dyn ChatClient>> {
+    crate::structured_budget::admission::admit_client(config, role)?;
     if config
         .openai_compatible
         .as_ref()

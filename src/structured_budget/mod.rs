@@ -8,20 +8,23 @@
 //!   one: the handle is passed by value.
 //! - A wallet with an unresolved send or a set latch allows no send and no success.
 //!
-//! This stage is the money, the state machine, the ledger, and the clock. Nothing calls it yet: no
-//! HTTP, no wiring, and with no wallet selected nothing here runs at all.
+//! This is the money, the state machine, the ledger, the clock, the one send, and the factory's
+//! refusal. No entry opens a wallet yet, and with no wallet selected nothing here runs at all but
+//! the factory's look at whether one was.
 
 #![allow(
     dead_code,
     reason = "nothing calls this until the transport and the gates are wired in; removed then"
 )]
 
+pub(crate) mod admission;
 pub(crate) mod clock;
 pub(crate) mod identity;
 pub(crate) mod ledger;
 pub(crate) mod policy;
 pub(crate) mod reservation;
 pub(crate) mod settlement;
+pub(crate) mod transport;
 
 #[cfg(test)]
 pub(crate) mod test_support {
