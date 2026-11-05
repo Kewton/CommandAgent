@@ -851,6 +851,7 @@ fn session_error_text_missing_evidence_populates_step_outcome() {
 
 #[test]
 fn final_phase_profile_dependency_repair_runs_in_final_acceptance() {
+    let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
     let dir = tempfile::tempdir().unwrap();
     let events = dir.path().join("events.jsonl");
     let mut cfg = config(dir.path().to_path_buf());
