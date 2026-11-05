@@ -12,14 +12,18 @@
 //! the reservation or the submission. A send takes no logical count, so what stops a send with no
 //! submission is the physical, token, money, and wall limits, all of them required in a policy.
 
+use std::collections::BTreeMap;
+
+use serde::de::{DeserializeOwned, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_json::value::RawValue;
 
 use super::clock::{ClockRecord, RunClock};
 use super::identity::{
     AttemptBinding, FinalRepairClaim, FinalRepairId, LogicalId, LogicalKind, PhysicalId,
     SendPurpose, SubmissionSource,
 };
-use super::policy::{RunBudgetPolicy, Tariff, WireRoute};
+use super::policy::{ROUTE_API_CHAT_COMPLETIONS, RunBudgetPolicy, Tariff, WireRoute};
 use super::settlement::{SettlementRecord, UnknownReason};
 use crate::planner::structured_stages::receipt::sha256_hex;
 use crate::providers::BilledCostUsd;
@@ -250,6 +254,8 @@ pub(crate) enum BudgetRefusal {
     InputBoundExceeded,
     OutputBoundExceeded,
     RouteNotAdmitted,
+    /// The bytes are not one object of the listed keys with one positive count of output tokens.
+    BodyNotAdmitted,
     PurposeDiffers,
     Overflow,
     NoSuchSend,
@@ -292,15 +298,115 @@ pub(crate) struct LogicalRecord {
     pub(crate) attempt: Option<AttemptBinding>,
 }
 
-/// One send about to be made.
+/// One send about to be made. What it costs and where it goes are read off the bytes, under the
+/// policy, and nothing else can say otherwise. `purpose` and `final_repair` are the exception: the
+/// bytes do not carry them, so they stay inputs, and it is the caller's gate that has to hold them.
 #[derive(Debug, Clone)]
 pub(crate) struct ReserveRequest<'a> {
-    pub(crate) route: &'a WireRoute,
     /// The wire bytes. Only their length and digest are kept.
     pub(crate) body: &'a [u8],
-    pub(crate) max_output_tokens: u64,
     pub(crate) purpose: SendPurpose,
     pub(crate) final_repair: Option<FinalRepairClaim>,
+}
+
+/// Every top-level key a body may have. Any other could change what a send costs (`n` does), so
+/// it is refused and not skipped. `messages` and `tools` are not read: their bytes are the bound.
+const WIRE_KEYS: [&str; 7] = [
+    "model",
+    "messages",
+    "max_tokens",
+    "max_completion_tokens",
+    "tools",
+    "reasoning_effort",
+    "provider",
+];
+
+/// What the bytes of a body say about themselves.
+#[derive(Debug, PartialEq, Eq)]
+struct WireBody {
+    route: WireRoute,
+    output_tokens: u64,
+}
+
+/// The members of a JSON object, none of them read yet. A key twice is not an object anything
+/// agrees on: this parser and the one upstream could each take another of the two.
+struct UniqueMembers<'a>(BTreeMap<String, &'a RawValue>);
+
+impl<'de> Deserialize<'de> for UniqueMembers<'de> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Members;
+        impl<'de> Visitor<'de> for Members {
+            type Value = UniqueMembers<'de>;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("an object with no key twice")
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                let mut members = BTreeMap::new();
+                while let Some((key, value)) = map.next_entry::<String, &'de RawValue>()? {
+                    if members.insert(key, value).is_some() {
+                        return Err(serde::de::Error::custom("a key twice"));
+                    }
+                }
+                Ok(UniqueMembers(members))
+            }
+        }
+        deserializer.deserialize_map(Members)
+    }
+}
+
+/// The route the bytes ask for. `only` and `allow_fallbacks` are all a `provider` may hold, and both
+/// have to be there: another key, `order` among them, can send it elsewhere, and leaving a key out
+/// leaves it to the upstream's default.
+fn wire_route(members: &BTreeMap<String, &RawValue>) -> Result<WireRoute, BudgetRefusal> {
+    fn read<T: DeserializeOwned>(
+        members: &BTreeMap<String, &RawValue>,
+        key: &str,
+    ) -> Result<T, BudgetRefusal> {
+        let raw = members.get(key).ok_or(BudgetRefusal::RouteNotAdmitted)?;
+        serde_json::from_str(raw.get()).map_err(|_| BudgetRefusal::RouteNotAdmitted)
+    }
+    let provider = members
+        .get("provider")
+        .ok_or(BudgetRefusal::RouteNotAdmitted)?;
+    let UniqueMembers(provider) =
+        serde_json::from_str(provider.get()).map_err(|_| BudgetRefusal::RouteNotAdmitted)?;
+    if provider.len() != 2 {
+        return Err(BudgetRefusal::RouteNotAdmitted);
+    }
+    Ok(WireRoute {
+        api: ROUTE_API_CHAT_COMPLETIONS.to_string(),
+        model: read(members, "model")?,
+        upstream_only: read(&provider, "only")?,
+        allow_fallbacks: read(&provider, "allow_fallbacks")?,
+        effort: read(members, "reasoning_effort")?,
+    })
+}
+
+/// A body is one JSON object of the listed keys, with one positive count of output tokens. A count
+/// that is not there is not read as zero, and zero is refused: a send always reserves something.
+fn read_wire_body(bytes: &[u8]) -> Result<WireBody, BudgetRefusal> {
+    let UniqueMembers(members) =
+        serde_json::from_slice(bytes).map_err(|_| BudgetRefusal::BodyNotAdmitted)?;
+    if members.keys().any(|key| !WIRE_KEYS.contains(&key.as_str())) {
+        return Err(BudgetRefusal::BodyNotAdmitted);
+    }
+    let count = match (
+        members.get("max_tokens"),
+        members.get("max_completion_tokens"),
+    ) {
+        (Some(count), None) | (None, Some(count)) => count,
+        _ => return Err(BudgetRefusal::BodyNotAdmitted),
+    };
+    let output_tokens = serde_json::from_str::<u64>(count.get())
+        .ok()
+        .filter(|count| *count > 0)
+        .ok_or(BudgetRefusal::BodyNotAdmitted)?;
+    Ok(WireBody {
+        route: wire_route(&members)?,
+        output_tokens,
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -544,7 +650,8 @@ impl WalletState {
         clock: &mut RunClock,
     ) -> Result<Reservation, BudgetRefusal> {
         self.success_gate()?;
-        if !policy.route.admits(request.route) {
+        let wire = read_wire_body(request.body)?;
+        if !policy.route.admits(&wire.route) {
             return Err(BudgetRefusal::RouteNotAdmitted);
         }
         let input_bound = u64::try_from(request.body.len())
@@ -554,13 +661,13 @@ impl WalletState {
         if input_bound > policy.max_input_tokens {
             return Err(BudgetRefusal::InputBoundExceeded);
         }
-        if request.max_output_tokens > policy.max_output_tokens {
+        if wire.output_tokens > policy.max_output_tokens {
             return Err(BudgetRefusal::OutputBoundExceeded);
         }
         let tokens = input_bound
-            .checked_add(request.max_output_tokens)
+            .checked_add(wire.output_tokens)
             .ok_or(BudgetRefusal::Overflow)?;
-        let amount = reservation_amount(&policy.tariff, input_bound, request.max_output_tokens)?;
+        let amount = reservation_amount(&policy.tariff, input_bound, wire.output_tokens)?;
         self.refuse_final_repair_claim(request)?;
         let elapsed_ms = clock.observe(&mut self.clock);
         self.check_limits(
@@ -588,7 +695,7 @@ impl WalletState {
             final_repair,
             body_sha256: sha256_hex(request.body),
             input_bound,
-            output_bound: request.max_output_tokens,
+            output_bound: wire.output_tokens,
             reserved: amount,
             state: AttemptState::Reserved,
             unknown_reason: None,
@@ -896,11 +1003,12 @@ mod tests {
     use super::super::policy::RunBudgetPolicy;
     use super::super::settlement::{KnownBilling, ReportedUsage, UnknownReason};
     use super::super::test_support::{
-        BODY, FakeClock, Rng, policy, policy_value, policy_with, request, route, stage_kind,
+        BODY, FakeClock, Rng, body_asking_for, policy, policy_value, policy_with, request, route,
+        stage_kind,
     };
     use super::{
         AmountError, AttemptRecord, AttemptState, BudgetRefusal, LatchReason, Money, Reservation,
-        WalletState, reservation_amount, within_cap,
+        ReserveRequest, WalletState, read_wire_body, reservation_amount, within_cap,
     };
     use crate::providers::BilledCostUsd;
 
@@ -946,9 +1054,17 @@ mod tests {
         }
 
         fn reserve(&mut self) -> Result<Reservation, BudgetRefusal> {
-            let wire = route();
             self.wallet
-                .reserve(&self.policy, &request(&wire), &mut self.clock)
+                .reserve(&self.policy, &request(), &mut self.clock)
+        }
+
+        /// A reservation of exactly these bytes.
+        fn reserve_bytes(&mut self, bytes: &[u8]) -> Result<Reservation, BudgetRefusal> {
+            let request = ReserveRequest {
+                body: bytes,
+                ..request()
+            };
+            self.wallet.reserve(&self.policy, &request, &mut self.clock)
         }
 
         fn reserve_as(
@@ -956,8 +1072,7 @@ mod tests {
             purpose: SendPurpose,
             final_repair: Option<FinalRepairClaim>,
         ) -> Result<Reservation, BudgetRefusal> {
-            let wire = route();
-            let mut body = request(&wire);
+            let mut body = request();
             body.purpose = purpose;
             body.final_repair = final_repair;
             self.wallet.reserve(&self.policy, &body, &mut self.clock)
@@ -1590,14 +1705,293 @@ mod tests {
     #[test]
     fn a_route_the_policy_does_not_declare_is_refused_before_any_record() {
         let mut world = World::new(policy());
-        let mut wire = route();
-        wire.model = "another".to_string();
-        let body = request(&wire);
+        let body = String::from_utf8(BODY.to_vec())
+            .unwrap()
+            .replace("m-1", "another-976");
         assert_eq!(
-            world.wallet.reserve(&world.policy, &body, &mut world.clock),
+            world.reserve_bytes(body.as_bytes()),
             Err(BudgetRefusal::RouteNotAdmitted)
         );
         assert!(world.wallet.attempts.is_empty());
+    }
+
+    /// The fixture's length is what the amounts in this file are worked from.
+    #[test]
+    fn the_fixture_reserves_its_input_bound_its_tokens_and_its_amount() {
+        assert_eq!(BODY.len(), 106);
+        let mut world = World::new(policy());
+        assert_eq!(world.policy.input_overhead, 4);
+        let reservation = world.reserve().unwrap();
+        assert_eq!(reservation.amount, money("0.00072"));
+        let attempt = world.wallet.attempt(reservation.physical).unwrap();
+        assert_eq!(attempt.input_bound, 110);
+        assert_eq!(attempt.output_bound, 50);
+        assert_eq!(world.wallet.held_tokens(), 160);
+    }
+
+    /// The invariant itself. Two wallets that were told nothing else about the same bytes hold the
+    /// same record, and the control is that other bytes hold another.
+    #[test]
+    fn the_same_bytes_and_policy_are_the_same_reservation() {
+        let record = |bytes: &[u8]| {
+            let mut world = World::new(policy());
+            let id = world.reserve_bytes(bytes).unwrap().physical;
+            world.wallet.attempt(id).unwrap().clone()
+        };
+        assert_eq!(record(BODY), record(BODY));
+        let asked_for_less = body_asking_for(10);
+        let other = record(&asked_for_less);
+        assert_eq!(other.output_bound, 10);
+        assert_ne!(other, record(BODY));
+    }
+
+    #[test]
+    fn a_body_is_read_for_what_it_says_and_nothing_it_does_not() {
+        use BudgetRefusal::{BodyNotAdmitted as Body, RouteNotAdmitted as Route};
+        const REST: &str =
+            r#""reasoning_effort":"low","provider":{"only":["u"],"allow_fallbacks":false}"#;
+        const HEAD: &str = r#""model":"m-1","max_tokens":50"#;
+        let rows: Vec<(&str, String, Result<u64, BudgetRefusal>)> = vec![
+            (
+                "the fixture",
+                String::from_utf8(BODY.to_vec()).unwrap(),
+                Ok(50),
+            ),
+            (
+                "max_completion_tokens alone",
+                format!(r#"{{"model":"m-1","max_completion_tokens":7,{REST}}}"#),
+                Ok(7),
+            ),
+            (
+                "messages and tools",
+                format!(r#"{{{HEAD},"messages":[{{"a":1}}],"tools":[],{REST}}}"#),
+                Ok(50),
+            ),
+            ("nothing at all", String::new(), Err(Body)),
+            ("not JSON", "not json 976".to_string(), Err(Body)),
+            ("an array", "[1]".to_string(), Err(Body)),
+            ("two values", format!("{{{HEAD},{REST}}} {{}}"), Err(Body)),
+            (
+                "a key not listed",
+                format!(r#"{{{HEAD},"n":9,{REST}}}"#),
+                Err(Body),
+            ),
+            (
+                "stream",
+                format!(r#"{{{HEAD},"stream":true,{REST}}}"#),
+                Err(Body),
+            ),
+            (
+                "no count",
+                format!(r#"{{"model":"m-1",{REST}}}"#),
+                Err(Body),
+            ),
+            (
+                "both counts",
+                format!(r#"{{{HEAD},"max_completion_tokens":50,{REST}}}"#),
+                Err(Body),
+            ),
+            (
+                "a count of zero",
+                format!(r#"{{"model":"m-1","max_tokens":0,{REST}}}"#),
+                Err(Body),
+            ),
+            (
+                "a count of zero in the other field",
+                format!(r#"{{"model":"m-1","max_completion_tokens":0,{REST}}}"#),
+                Err(Body),
+            ),
+            (
+                "a count in text",
+                format!(r#"{{"model":"m-1","max_tokens":"50",{REST}}}"#),
+                Err(Body),
+            ),
+            (
+                "a count with a fraction",
+                format!(r#"{{"model":"m-1","max_tokens":50.0,{REST}}}"#),
+                Err(Body),
+            ),
+            (
+                "a negative count",
+                format!(r#"{{"model":"m-1","max_tokens":-50,{REST}}}"#),
+                Err(Body),
+            ),
+            (
+                "a key twice",
+                format!(r#"{{{HEAD},"max_tokens":1,{REST}}}"#),
+                Err(Body),
+            ),
+            (
+                "a key twice under another spelling",
+                format!(r#"{{{HEAD},"max_tokens":1,{REST}}}"#),
+                Err(Body),
+            ),
+            (
+                "no model",
+                format!(r#"{{"max_tokens":50,{REST}}}"#),
+                Err(Route),
+            ),
+            (
+                "no effort",
+                format!(r#"{{{HEAD},"provider":{{"only":["u"],"allow_fallbacks":false}}}}"#),
+                Err(Route),
+            ),
+            (
+                "another effort",
+                format!(
+                    r#"{{{HEAD},"reasoning_effort":"high","provider":{{"only":["u"],"allow_fallbacks":false}}}}"#
+                ),
+                Err(Route),
+            ),
+            (
+                "no provider",
+                format!(r#"{{{HEAD},"reasoning_effort":"low"}}"#),
+                Err(Route),
+            ),
+            (
+                "a provider that is no object",
+                format!(r#"{{{HEAD},"reasoning_effort":"low","provider":"u"}}"#),
+                Err(Route),
+            ),
+            (
+                "order beside the two",
+                format!(
+                    r#"{{{HEAD},"reasoning_effort":"low","provider":{{"only":["u"],"order":["v"],"allow_fallbacks":false}}}}"#
+                ),
+                Err(Route),
+            ),
+            (
+                "order in place of only",
+                format!(
+                    r#"{{{HEAD},"reasoning_effort":"low","provider":{{"order":["u"],"allow_fallbacks":false}}}}"#
+                ),
+                Err(Route),
+            ),
+            (
+                "another key beside the two",
+                format!(
+                    r#"{{{HEAD},"reasoning_effort":"low","provider":{{"only":["u"],"ignore":[],"allow_fallbacks":false}}}}"#
+                ),
+                Err(Route),
+            ),
+            (
+                "no only",
+                format!(
+                    r#"{{{HEAD},"reasoning_effort":"low","provider":{{"allow_fallbacks":false}}}}"#
+                ),
+                Err(Route),
+            ),
+            (
+                "another only",
+                format!(
+                    r#"{{{HEAD},"reasoning_effort":"low","provider":{{"only":["v"],"allow_fallbacks":false}}}}"#
+                ),
+                Err(Route),
+            ),
+            (
+                "fallbacks allowed",
+                format!(
+                    r#"{{{HEAD},"reasoning_effort":"low","provider":{{"only":["u"],"allow_fallbacks":true}}}}"#
+                ),
+                Err(Route),
+            ),
+            (
+                "no word on fallbacks",
+                format!(r#"{{{HEAD},"reasoning_effort":"low","provider":{{"only":["u"]}}}}"#),
+                Err(Route),
+            ),
+            (
+                "fallbacks not a boolean",
+                format!(
+                    r#"{{{HEAD},"reasoning_effort":"low","provider":{{"only":["u"],"allow_fallbacks":"false"}}}}"#
+                ),
+                Err(Route),
+            ),
+            (
+                "a provider key twice",
+                format!(
+                    r#"{{{HEAD},"reasoning_effort":"low","provider":{{"only":["u"],"only":["u"]}}}}"#
+                ),
+                Err(Route),
+            ),
+        ];
+        let mut wrong = Vec::new();
+        for (name, body, expected) in rows {
+            let mut world = World::new(policy());
+            let got = world.reserve_bytes(body.as_bytes()).map(|reservation| {
+                world
+                    .wallet
+                    .attempt(reservation.physical)
+                    .unwrap()
+                    .output_bound
+            });
+            let recorded = world.wallet.attempts.len();
+            if got != expected || recorded != usize::from(expected.is_ok()) {
+                wrong.push(format!("{name}: {got:?}, {recorded} on the record"));
+            }
+        }
+        assert_eq!(wrong, Vec::<String>::new());
+    }
+
+    /// The reader alone answers for the two parts of what it reads. The route's own comparison is
+    /// `Route::admits`, whose words are tested with the policy.
+    #[test]
+    fn what_a_body_says_is_read_exactly() {
+        let read = read_wire_body(BODY).unwrap();
+        assert_eq!(read.route, route());
+        assert_eq!(read.output_tokens, 50);
+    }
+
+    /// The invariant itself: one send reserves more than nothing, with every other source of an
+    /// amount at its least. The rates are the smallest a policy can write, the overhead is zero,
+    /// and the one way left to nothing, a body with no bytes or no output, is refused.
+    #[test]
+    fn a_send_reserves_more_than_nothing_with_no_overhead_and_the_least_rates() {
+        let least = policy_with(|v| {
+            v["input_overhead"] = json!(0);
+            v["tariff"]["input_per_million"] = json!("1e-400");
+            v["tariff"]["cached_input_per_million"] = json!("0");
+            v["tariff"]["cache_write_per_million"] = json!("0");
+            v["tariff"]["output_per_million"] = json!("1e-400");
+            v["tariff"]["request_fee"] = json!("0");
+        });
+        let mut world = World::new(least);
+        let one_token = body_asking_for(1);
+        let reservation = world.reserve_bytes(&one_token).unwrap();
+        assert!(reservation.amount > Money::ZERO, "{reservation:?}");
+
+        let mut world = World::new(policy_with(|v| v["input_overhead"] = json!(0)));
+        assert_eq!(
+            world.reserve_bytes(b""),
+            Err(BudgetRefusal::BodyNotAdmitted)
+        );
+        let no_output = body_asking_for(0);
+        assert_eq!(
+            world.reserve_bytes(&no_output),
+            Err(BudgetRefusal::BodyNotAdmitted)
+        );
+        assert!(world.wallet.attempts.is_empty());
+
+        // So a cost limit of nothing stops every send there can be.
+        let mut world = World::new(policy_with(|v| {
+            v["input_overhead"] = json!(0);
+            v["limits"]["cost_usd"] = json!("0");
+        }));
+        assert_eq!(world.reserve(), Err(BudgetRefusal::CostExceeded));
+        assert_eq!(
+            world.reserve_bytes(b""),
+            Err(BudgetRefusal::BodyNotAdmitted)
+        );
+    }
+
+    /// A body with no `messages` is short, not free: it reserves for what it is, inside its limit.
+    #[test]
+    fn a_body_with_no_messages_reserves_more_than_nothing_inside_its_limit() {
+        assert!(!String::from_utf8_lossy(BODY).contains("messages"));
+        let mut world = World::new(policy_with(|v| v["limits"]["cost_usd"] = json!("0.00072")));
+        let reservation = world.reserve().unwrap();
+        assert!(reservation.amount > Money::ZERO);
+        assert!(reservation.amount <= world.policy.limits.cost);
     }
 
     #[test]
@@ -1611,18 +2005,11 @@ mod tests {
     #[test]
     fn an_output_above_the_policy_is_refused_and_a_lower_one_reserves_less() {
         let mut world = World::new(policy());
-        let wire = route();
-        let mut body = request(&wire);
-        body.max_output_tokens = 51;
         assert_eq!(
-            world.wallet.reserve(&world.policy, &body, &mut world.clock),
+            world.reserve_bytes(&body_asking_for(51)),
             Err(BudgetRefusal::OutputBoundExceeded)
         );
-        body.max_output_tokens = 10;
-        let reservation = world
-            .wallet
-            .reserve(&world.policy, &body, &mut world.clock)
-            .unwrap();
+        let reservation = world.reserve_bytes(&body_asking_for(10)).unwrap();
         // (110 * 2 + 10 * 10) per million.
         assert_eq!(reservation.amount, money("0.00032"));
     }

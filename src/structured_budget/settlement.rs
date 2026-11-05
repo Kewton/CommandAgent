@@ -301,8 +301,9 @@ mod tests {
     use super::super::clock::RunClock;
     use super::super::identity::PhysicalId;
     use super::super::policy::RunBudgetPolicy;
+    use super::super::reservation::ReserveRequest;
     use super::super::reservation::{AttemptState, BudgetRefusal, LatchReason, Money, WalletState};
-    use super::super::test_support::{FakeClock, policy, policy_with, request, route};
+    use super::super::test_support::{FakeClock, policy, policy_with, request};
     use super::{KnownBilling, ReportedUsage, SettleReport, UnknownReason, computed_charge};
     use crate::providers::BilledCostUsd;
 
@@ -326,8 +327,7 @@ mod tests {
     }
 
     fn started(policy: &RunBudgetPolicy) -> (WalletState, PhysicalId) {
-        let wire = route();
-        let body = request(&wire);
+        let body = request();
         let clock = FakeClock::at(1_000);
         let mut clock = RunClock::new(clock);
         let mut wallet = WalletState::new(policy, "workspace".to_string(), None);
@@ -609,22 +609,28 @@ mod tests {
         assert_eq!(wallet.success_gate(), Err(BudgetRefusal::Unresolved));
     }
 
-    /// The overhead alone is not a body: with no bytes, no prompt tokens is possible.
+    /// With no bytes there would be nothing a report of no prompt tokens could hide, and so no
+    /// send of no bytes is reserved: every send that can be reported on carried a body.
     #[test]
-    fn no_prompt_tokens_for_no_body_is_known() {
+    fn no_body_is_refused_so_no_prompt_tokens_is_never_what_a_send_should_report() {
         let policy = policy();
-        let wire = route();
-        let mut body = request(&wire);
-        body.body = b"";
+        let body = ReserveRequest {
+            body: b"",
+            ..request()
+        };
         let mut clock = RunClock::new(FakeClock::at(1_000));
         let mut wallet = WalletState::new(&policy, "workspace".to_string(), None);
-        let id = wallet.reserve(&policy, &body, &mut clock).unwrap().physical;
-        wallet.start(&policy, id, b"").unwrap();
+        assert_eq!(
+            wallet.reserve(&policy, &body, &mut clock),
+            Err(BudgetRefusal::BodyNotAdmitted)
+        );
+        assert!(wallet.attempts.is_empty());
+
+        let (mut wallet, id) = started(&policy);
         let amount = cost("0");
-        let settled = wallet.settle_reported(&policy, id, &report(&amount, 0, 0));
-        assert!(
-            matches!(settled, Ok(SettleReport::Settled(_))),
-            "{settled:?}"
+        assert_eq!(
+            wallet.settle_reported(&policy, id, &report(&amount, 0, 0)),
+            Ok(SettleReport::Unknown(UnknownReason::UsageInconsistent))
         );
     }
 
@@ -755,8 +761,7 @@ mod tests {
         let policy = policy();
         let (mut wallet, first) = started(&policy);
         wallet.settle(&policy, first, &known("0", 1, 1)).unwrap();
-        let wire = route();
-        let body = request(&wire);
+        let body = request();
         let mut clock = RunClock::new(FakeClock::at(1_000));
         let second = wallet.reserve(&policy, &body, &mut clock).unwrap().physical;
         wallet.start(&policy, second, body.body).unwrap();
@@ -817,8 +822,7 @@ mod tests {
     #[test]
     fn a_report_for_a_send_that_was_not_started_is_refused() {
         let policy = policy();
-        let wire = route();
-        let body = request(&wire);
+        let body = request();
         let mut clock = RunClock::new(FakeClock::at(1_000));
         let mut wallet = WalletState::new(&policy, "workspace".to_string(), None);
         let id = wallet.reserve(&policy, &body, &mut clock).unwrap().physical;
@@ -997,8 +1001,7 @@ mod tests {
         let policy = policy();
         let (mut wallet, first) = started(&policy);
         wallet.settle(&policy, first, &known("0", 1, 1)).unwrap();
-        let wire = route();
-        let body = request(&wire);
+        let body = request();
         let mut clock = RunClock::new(FakeClock::at(1_000));
         let second = wallet.reserve(&policy, &body, &mut clock).unwrap().physical;
         wallet.start(&policy, second, body.body).unwrap();

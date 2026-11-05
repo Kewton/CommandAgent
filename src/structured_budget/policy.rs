@@ -319,7 +319,7 @@ mod tests {
         );
         assert_eq!(decoded.max_output_tokens, 50);
         assert_eq!(decoded.max_input_tokens, 1000);
-        assert_eq!(decoded.input_overhead, 10);
+        assert_eq!(decoded.input_overhead, 4);
         assert_eq!(
             decoded.ledger_dir,
             std::path::Path::new("/operator/ledgers")

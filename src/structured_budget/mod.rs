@@ -110,15 +110,15 @@ pub(crate) mod test_support {
             },
             "route": {
                 "api": "chat_completions",
-                "model": "synthetic-model",
-                "upstream_only": ["synthetic-upstream"],
+                "model": "m-1",
+                "upstream_only": ["u"],
                 "allow_fallbacks": false,
                 "effort": "low",
                 "reasoning_in_output": true
             },
             "max_output_tokens": 50,
             "max_input_tokens": 1000,
-            "input_overhead": 10,
+            "input_overhead": 4,
             "ledger_dir": "/operator/ledgers"
         })
     }
@@ -140,22 +140,29 @@ pub(crate) mod test_support {
     pub(crate) fn route() -> WireRoute {
         WireRoute {
             api: "chat_completions".to_string(),
-            model: "synthetic-model".to_string(),
-            upstream_only: vec!["synthetic-upstream".to_string()],
+            model: "m-1".to_string(),
+            upstream_only: vec!["u".to_string()],
             allow_fallbacks: false,
             effort: "low".to_string(),
         }
     }
 
-    /// 100 bytes and the 10 of overhead at 2 per million, 50 of output at 10 per million:
-    /// 720 per million dollars, and 160 tokens.
-    pub(crate) const BODY: &[u8; 100] = &[b'x'; 100];
+    /// 106 bytes and the 4 of overhead at 2 per million, 50 of output at 10 per million: 720 per
+    /// million dollars, and 160 tokens. The shortest body a route can have is 102 bytes, and this
+    /// one holds no `messages`, which a reservation does not ask for.
+    pub(crate) const BODY: &[u8; 106] = br#"{"model":"m-1","max_tokens":50,"reasoning_effort":"low","provider":{"only":["u"],"allow_fallbacks":false}}"#;
 
-    pub(crate) fn request(route: &WireRoute) -> ReserveRequest<'_> {
+    /// [`BODY`] asking for another output. Two digits keep its length.
+    pub(crate) fn body_asking_for(max_tokens: u64) -> Vec<u8> {
+        String::from_utf8(BODY.to_vec())
+            .unwrap()
+            .replace("\"max_tokens\":50", &format!("\"max_tokens\":{max_tokens}"))
+            .into_bytes()
+    }
+
+    pub(crate) fn request() -> ReserveRequest<'static> {
         ReserveRequest {
-            route,
             body: BODY,
-            max_output_tokens: 50,
             purpose: SendPurpose::Executor,
             final_repair: None,
         }

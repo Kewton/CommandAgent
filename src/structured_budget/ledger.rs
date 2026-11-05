@@ -129,7 +129,9 @@ pub(crate) struct BudgetLedger {
 }
 
 /// What a POST needs: the bytes that were reserved, from a start that is on disk. Only
-/// [`BudgetLedger::start`] makes one, and its fields keep anything outside this file from it.
+/// [`BudgetLedger::start`] makes one, and its fields keep anything outside this file from it. It
+/// gives its bytes once, by value, so one permit is one POST.
+#[must_use = "a permit is one POST, and a start with no POST leaves its send unresolved"]
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct StartedPermit<'a> {
     physical: PhysicalId,
@@ -141,7 +143,7 @@ impl<'a> StartedPermit<'a> {
         self.physical
     }
 
-    pub(crate) fn body(&self) -> &'a [u8] {
+    pub(crate) fn into_body(self) -> &'a [u8] {
         self.body
     }
 }
@@ -622,7 +624,7 @@ mod tests {
     use super::super::reservation::{AttemptState, BudgetRefusal, LatchReason, Money, WalletState};
     use super::super::settlement::{KnownBilling, ReportedUsage, SettleReport, UnknownReason};
     use super::super::test_support::{
-        BODY, FakeClock, Rng, WALLET, policy_value, request, route, stage_kind,
+        BODY, FakeClock, Rng, WALLET, policy_value, request, stage_kind,
     };
     use super::{
         BudgetLedger, LEDGER_FILE, LEDGER_TEMPORARY, LOCK_FILE, LedgerEntry, LedgerFailure,
@@ -744,16 +746,14 @@ mod tests {
     }
 
     fn reserve(ledger: &mut BudgetLedger) -> Result<PhysicalId, LedgerFailure> {
-        let wire = route();
-        let body = request(&wire);
         ledger
-            .reserve(&body)
+            .reserve(&request())
             .map(|reservation| reservation.physical)
     }
 
     fn send(ledger: &mut BudgetLedger) -> PhysicalId {
         let id = reserve(ledger).unwrap();
-        ledger.start(id, BODY).unwrap();
+        let _permit = ledger.start(id, BODY).unwrap();
         ledger.settle(id, &known(100, 40)).unwrap();
         id
     }
@@ -762,8 +762,7 @@ mod tests {
         ledger: &mut BudgetLedger,
         claim: FinalRepairClaim,
     ) -> Result<super::Reservation, LedgerFailure> {
-        let wire = route();
-        let mut body = request(&wire);
+        let mut body = request();
         body.purpose = SendPurpose::FinalRepair;
         body.final_repair = Some(claim);
         ledger.reserve(&body)
@@ -1151,7 +1150,7 @@ mod tests {
         let world = World::new();
         let mut first = world.open(LedgerEntry::Fresh).unwrap();
         let id = reserve(&mut first).unwrap();
-        first.start(id, BODY).unwrap();
+        let _permit = first.start(id, BODY).unwrap();
         drop(first);
         for entry in [LedgerEntry::Resume, LedgerEntry::Fresh] {
             let mut second = world.open(entry).unwrap();
@@ -1183,7 +1182,7 @@ mod tests {
         let world = World::new();
         let mut first = world.open(LedgerEntry::Fresh).unwrap();
         let id = reserve(&mut first).unwrap();
-        first.start(id, BODY).unwrap();
+        let _permit = first.start(id, BODY).unwrap();
         first.mark_unknown(id, UnknownReason::Timeout).unwrap();
         first.settle(id, &known(100, 40)).unwrap();
         drop(first);
@@ -1206,7 +1205,7 @@ mod tests {
         let mut ledger = world.open(LedgerEntry::Fresh).unwrap();
         let id = reserve(&mut ledger).unwrap();
         assert_eq!(on_disk(&world)["attempts"][0]["state"], json!("reserved"));
-        ledger.start(id, BODY).unwrap();
+        let _permit = ledger.start(id, BODY).unwrap();
         assert_eq!(on_disk(&world)["attempts"][0]["state"], json!("started"));
         ledger.mark_unknown(id, UnknownReason::Cancelled).unwrap();
         let disk = on_disk(&world);
@@ -1262,12 +1261,11 @@ mod tests {
     fn the_file_holds_no_request_bytes_or_host_path() {
         let world = World::new();
         let mut ledger = world.open(LedgerEntry::Fresh).unwrap();
-        let wire = route();
-        let canary = format!("{:x<100}", "canary-prompt-body-text");
-        let mut body = request(&wire);
+        let canary = r#"{"model":"m-1","max_tokens":50,"reasoning_effort":"low","provider":{"only":["u"],"allow_fallbacks":false},"messages":[{"role":"user","content":"canary-prompt-body-text"}]}"#;
+        let mut body = request();
         body.body = canary.as_bytes();
         let reservation = ledger.reserve(&body).unwrap();
-        ledger
+        let _permit = ledger
             .start(reservation.physical, canary.as_bytes())
             .unwrap();
         ledger.settle(reservation.physical, &known(1, 1)).unwrap();
@@ -1344,7 +1342,7 @@ mod tests {
         let world = World::with(|v| v["tariff"]["cached_input_per_million"] = json!("0"));
         let mut ledger = world.open(LedgerEntry::Fresh).unwrap();
         let id = reserve(&mut ledger).unwrap();
-        ledger.start(id, BODY).unwrap();
+        let _permit = ledger.start(id, BODY).unwrap();
         let cost = BilledCostUsd::from_json_token("0").unwrap();
         let usage = ReportedUsage {
             cost: Some(&cost),
@@ -1409,7 +1407,7 @@ mod tests {
         let world = World::new();
         let mut ledger = world.open(LedgerEntry::Fresh).unwrap();
         let id = reserve(&mut ledger).unwrap();
-        ledger.start(id, BODY).unwrap();
+        let _permit = ledger.start(id, BODY).unwrap();
         let cost = BilledCostUsd::from_json_token("0").unwrap();
         let usage = ReportedUsage {
             cost: Some(&cost),
@@ -1433,7 +1431,7 @@ mod tests {
         let world = World::new();
         let mut ledger = world.open(LedgerEntry::Fresh).unwrap();
         let id = reserve(&mut ledger).unwrap();
-        ledger.start(id, BODY).unwrap();
+        let _permit = ledger.start(id, BODY).unwrap();
         let cost = BilledCostUsd::from_json_token("0").unwrap();
         let usage = ReportedUsage {
             cost: Some(&cost),
@@ -1587,7 +1585,7 @@ mod tests {
         world.clock.advance(1_000);
         let permit = ledger.start(id, BODY).unwrap();
         assert_eq!(permit.physical(), id);
-        assert_eq!(permit.body(), BODY.as_slice());
+        assert_eq!(permit.into_body(), BODY.as_slice());
 
         let world = World::with(|v| v["limits"]["wall_seconds"] = json!(1));
         let mut ledger = world.open(LedgerEntry::Fresh).unwrap();
@@ -1610,7 +1608,7 @@ mod tests {
         let world = World::with(|v| v["limits"]["wall_seconds"] = json!(1));
         let mut ledger = world.open(LedgerEntry::Fresh).unwrap();
         let id = reserve(&mut ledger).unwrap();
-        ledger.start(id, BODY).unwrap();
+        let _permit = ledger.start(id, BODY).unwrap();
         world.clock.advance(1_001);
         ledger.settle(id, &known(100, 40)).unwrap();
         assert_eq!(ledger.wallet().spent().unwrap(), money("0.0006"));
@@ -1633,7 +1631,7 @@ mod tests {
         let world = World::with(|v| v["limits"]["wall_seconds"] = json!(1));
         let mut ledger = world.open(LedgerEntry::Fresh).unwrap();
         let id = reserve(&mut ledger).unwrap();
-        ledger.start(id, BODY).unwrap();
+        let _permit = ledger.start(id, BODY).unwrap();
         world.clock.advance(1_000);
         ledger.settle(id, &known(100, 40)).unwrap();
         assert_eq!(ledger.success_gate(), Ok(()));
@@ -1672,7 +1670,7 @@ mod tests {
         let world = World::with(|v| v["limits"]["final_repair_seconds"] = json!(1));
         let mut ledger = world.open(LedgerEntry::Fresh).unwrap();
         let id = new_final_repair(&mut ledger);
-        ledger.start(id, BODY).unwrap();
+        let _permit = ledger.start(id, BODY).unwrap();
         world.clock.advance(1_001);
         ledger.settle(id, &known(100, 40)).unwrap();
         assert_eq!(ledger.wallet().spent().unwrap(), money("0.0006"));
@@ -1699,7 +1697,7 @@ mod tests {
         let world = World::with(|v| v["limits"]["final_repair_seconds"] = json!(1));
         let mut ledger = world.open(LedgerEntry::Fresh).unwrap();
         let id = new_final_repair(&mut ledger);
-        ledger.start(id, BODY).unwrap();
+        let _permit = ledger.start(id, BODY).unwrap();
         world.clock.advance(1_000);
         ledger.settle(id, &known(100, 40)).unwrap();
         assert_eq!(ledger.success_gate(), Ok(()));
@@ -1711,11 +1709,11 @@ mod tests {
         let world = World::with(|v| v["limits"]["final_repair_seconds"] = json!(1));
         let mut ledger = world.open(LedgerEntry::Fresh).unwrap();
         let repair = new_final_repair(&mut ledger);
-        ledger.start(repair, BODY).unwrap();
+        let _permit = ledger.start(repair, BODY).unwrap();
         ledger.settle(repair, &known(100, 40)).unwrap();
         let id = reserve(&mut ledger).unwrap();
         world.clock.advance(1_001);
-        ledger.start(id, BODY).unwrap();
+        let _permit = ledger.start(id, BODY).unwrap();
         world.clock.advance(1_000);
         ledger.settle(id, &known(100, 40)).unwrap();
         assert_eq!(ledger.success_gate(), Ok(()));
@@ -1736,7 +1734,7 @@ mod tests {
 
         let permit = ledger.start(id, BODY).unwrap();
         assert_eq!(permit.physical(), id);
-        assert_eq!(permit.body(), BODY.as_slice());
+        assert_eq!(permit.into_body(), BODY.as_slice());
         assert_eq!(on_disk(&world)["attempts"][0]["state"], json!("started"));
     }
 
@@ -1848,7 +1846,7 @@ mod tests {
         let world = World::new();
         let mut held = world.open(LedgerEntry::Fresh).unwrap();
         let id = reserve(&mut held).unwrap();
-        held.start(id, BODY).unwrap();
+        let _permit = held.start(id, BODY).unwrap();
         assert_eq!(
             world.open(LedgerEntry::Fresh).unwrap_err(),
             LedgerRefusal::Held
@@ -2174,6 +2172,81 @@ mod tests {
         );
     }
 
+    const HOLDER_CHILD_ROOT: &str = "COMMANDAGENT_TEST_BUDGET_HOLDER_ROOT";
+    const HOLDING_THE_WALLET: &str = "holding-the-wallet-976";
+
+    /// Runs only as the child of the test below: it holds the wallet until the parent says so, by
+    /// closing this process's standard input.
+    #[test]
+    fn a_wallet_held_by_another_process_child() {
+        use std::io::{BufRead, Write};
+        let Some(root) = std::env::var_os(HOLDER_CHILD_ROOT) else {
+            return;
+        };
+        let root = PathBuf::from(root);
+        let _held = open_in_a_cache_home(&root, &root.join("ledgers"), WALLET).unwrap();
+        println!("{HOLDING_THE_WALLET}");
+        std::io::stdout().flush().unwrap();
+        let mut rest = String::new();
+        std::io::stdin().lock().read_line(&mut rest).unwrap();
+    }
+
+    /// Ends only the child this test started, however the test ends.
+    struct OwnChild(std::process::Child);
+
+    impl Drop for OwnChild {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+
+    /// The lock across two real processes, in step by what the child prints and when its input
+    /// closes, so no length of time decides anything. The holder's end frees the wallet.
+    #[test]
+    fn a_wallet_held_by_another_process_is_refused_until_that_process_ends() {
+        use std::io::BufRead;
+        use std::process::Stdio;
+        let root = tempfile::tempdir().unwrap();
+        let base = fs::canonicalize(root.path()).unwrap();
+        let home = made(base.join("home"));
+        made(base.join("workspace"));
+        let ledger_dir = base.join("ledgers");
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "structured_budget::ledger::tests::a_wallet_held_by_another_process_child",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env_clear()
+            .env("HOME", &home)
+            .env(HOLDER_CHILD_ROOT, &base)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map(OwnChild)
+            .unwrap();
+        let input = child.0.stdin.take().unwrap();
+        let output = child.0.stdout.take().unwrap();
+        let mut lines = std::io::BufReader::new(output).lines();
+        assert!(
+            lines.any(|line| line.is_ok_and(|line| line.contains(HOLDING_THE_WALLET))),
+            "the child ended without holding the wallet"
+        );
+
+        assert_eq!(
+            open_in_a_cache_home(&base, &ledger_dir, WALLET).unwrap_err(),
+            LedgerRefusal::Held
+        );
+
+        drop(input);
+        assert!(child.0.wait().unwrap().success());
+        let opened = open_in_a_cache_home(&base, &ledger_dir, WALLET).unwrap();
+        assert_eq!(opened.wallet().physical_used(), 0);
+    }
+
     const CACHE_LINK_CHILD_ROOT: &str = "COMMANDAGENT_TEST_BUDGET_CACHE_LINK_ROOT";
 
     /// Runs only as the child of the test below, whose environment holds a home of its own.
@@ -2420,7 +2493,7 @@ mod tests {
         let mut ledger = world.open(LedgerEntry::Fresh).unwrap();
         let id = reserve(&mut ledger).unwrap();
         world.clock.advance(1_234);
-        ledger.start(id, BODY).unwrap();
+        let _permit = ledger.start(id, BODY).unwrap();
         assert_eq!(
             on_disk(&world)["clock"]["high_water_elapsed_ms"],
             json!(1_234)
@@ -2444,13 +2517,15 @@ mod tests {
     }
 
     /// What a file holds of process-wide state, read up to its line of `mod tests`. Any other
-    /// `#[cfg(test)]` is an item among the rest and ends nothing.
+    /// `#[cfg(test)]` is an item among the rest and ends nothing. A `'static` lifetime holds nothing,
+    /// so it is the one thing taken out of what is read.
     fn process_wide_words(source: &str) -> Vec<&'static str> {
         let production = source
             .lines()
             .take_while(|line| line.trim() != "mod tests {")
             .collect::<Vec<_>>()
-            .join("\n");
+            .join("\n")
+            .replace("'static", "");
         [
             "static ",
             "OnceLock",
@@ -2477,6 +2552,19 @@ mod tests {
         let in_its_tests =
             "pub(crate) fn f() {}\n#[cfg(test)]\nmod tests {\n    static T: u8 = 0;\n";
         assert!(process_wide_words(in_its_tests).is_empty());
+    }
+
+    /// A `'static` lifetime holds nothing. A word `static` in its place in the same source does.
+    #[test]
+    fn a_static_lifetime_is_not_process_wide_and_a_static_item_beside_it_is() {
+        let lifetime = "pub(crate) const fn label(self) -> &'static str { \"a\" }\n";
+        assert!(process_wide_words(lifetime).is_empty());
+        let item = "pub(crate) static HELD_976: u8 = 0;\n";
+        assert_eq!(process_wide_words(item), ["static "]);
+        let both = "const A: &'static str = \"a\";\nstatic HELD_976: u8 = 0;\n";
+        assert_eq!(process_wide_words(both), ["static "]);
+        let one_line = "const A: &'static str = \"a\"; static HELD_976: u8 = 0;\n";
+        assert_eq!(process_wide_words(one_line), ["static "]);
     }
 
     #[test]
