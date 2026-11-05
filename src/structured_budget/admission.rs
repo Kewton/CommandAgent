@@ -186,7 +186,61 @@ mod tests {
                 wrong.push(format!("{name}: {got:?}"));
             }
         }
+
+        // The endpoint is there and is not this role's, so the role would get a built-in client
+        // that nothing counts. The last row is a role it is for.
+        for (left_out, role, expected) in [
+            (
+                "planner_provider",
+                ProviderRole::Planner,
+                Err(NOT_COUNTABLE),
+            ),
+            (
+                "classifier_provider",
+                ProviderRole::Classifier,
+                Err(NOT_COUNTABLE),
+            ),
+            ("provider", ProviderRole::Executor, Err(NOT_COUNTABLE)),
+            (
+                "planner_provider",
+                ProviderRole::Executor,
+                Ok("openai-compatible"),
+            ),
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let base = std::fs::canonicalize(root.path()).unwrap();
+            let mut config = leaving_one_role_out(&base, left_out);
+            holding_a_wallet(&mut config, &base);
+            let applies = config
+                .openai_compatible
+                .as_ref()
+                .is_some_and(|compatible| compatible.applies_to(role));
+            let got = client_from_config_for_role(&config, role)
+                .map(|client| client.label().to_string())
+                .map_err(|error| format!("{error:#}"));
+            let expected = expected.map(str::to_string).map_err(str::to_string);
+            if got != expected || applies != expected.is_ok() {
+                wrong.push(format!("{left_out} {role:?}: {got:?}, applies {applies}"));
+            }
+        }
         assert_eq!(wrong, Vec::<String>::new());
+    }
+
+    /// The endpoint for every role but `left_out`, which is Ollama's.
+    fn leaving_one_role_out(root: &Path, left_out: &str) -> Config {
+        let directory = root.join("workspace").join(".commandagent");
+        std::fs::create_dir_all(&directory).unwrap();
+        let mut preset = "[preset.leftout976]\nmodel = \"m-1\"\nplanner_model = \"m-1\"\nclassifier_model = \"m-1\"\nbase_url = \"http://127.0.0.1:9/v1\"\n".to_string();
+        for key in ["provider", "planner_provider", "classifier_provider"] {
+            let provider = if key == left_out {
+                "ollama"
+            } else {
+                "openai-compatible"
+            };
+            preset.push_str(&format!("{key} = \"{provider}\"\n"));
+        }
+        std::fs::write(directory.join("config.toml"), preset).unwrap();
+        config(root, &["--preset", "leftout976"])
     }
 
     const ENV_CHILD_ROOT: &str = "COMMANDAGENT_TEST_BUDGET_ADMISSION_ROOT";

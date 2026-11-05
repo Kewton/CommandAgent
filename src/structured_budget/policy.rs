@@ -127,6 +127,9 @@ pub(crate) struct Route {
 }
 
 impl Route {
+    /// Whether a body asks for this route. The comparison of `api` always holds: the reader of a
+    /// body fills it in with the one value a policy can hold. A body of another endpoint is stopped
+    /// by the reader's list of keys, not here.
     pub(crate) fn admits(&self, wire: &WireRoute) -> bool {
         !wire.allow_fallbacks
             && wire.api == self.api

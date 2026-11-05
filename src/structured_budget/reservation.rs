@@ -359,6 +359,10 @@ impl<'de> Deserialize<'de> for UniqueMembers<'de> {
 /// The route the bytes ask for. `only` and `allow_fallbacks` are all a `provider` may hold, and both
 /// have to be there: another key, `order` among them, can send it elsewhere, and leaving a key out
 /// leaves it to the upstream's default.
+///
+/// `api` is not read off the bytes, which do not say where they go: it is the one value a policy
+/// can hold, so it always matches. A body of another endpoint is stopped before this, by the list
+/// of keys a body may have.
 fn wire_route(members: &BTreeMap<String, &RawValue>) -> Result<WireRoute, BudgetRefusal> {
     fn read<T: DeserializeOwned>(
         members: &BTreeMap<String, &RawValue>,
@@ -1825,6 +1829,11 @@ mod tests {
                 "a key twice under another spelling",
                 format!(r#"{{{HEAD},"max_tokens":1,{REST}}}"#),
                 Err(Body),
+            ),
+            (
+                "a key once under another spelling",
+                format!(r#"{{"model":"m-1","max_tokens":50,{REST}}}"#),
+                Ok(50),
             ),
             (
                 "no model",
