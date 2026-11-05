@@ -621,8 +621,12 @@ mod tests {
         FinalRepairClaim, FinalRepairId, LogicalKind, PhysicalId, ResponseIdentity, SendPurpose,
     };
     use super::super::policy::RunBudgetPolicy;
-    use super::super::reservation::{AttemptState, BudgetRefusal, LatchReason, Money, WalletState};
-    use super::super::settlement::{KnownBilling, ReportedUsage, SettleReport, UnknownReason};
+    use super::super::reservation::{
+        AttemptState, BudgetRefusal, LatchReason, Money, WalletState, reservation_amount,
+    };
+    use super::super::settlement::{
+        KnownBilling, ReportedUsage, SettleReport, UnknownReason, computed_charge,
+    };
     use super::super::test_support::{
         BODY, FakeClock, Rng, WALLET, policy_value, request, stage_kind,
     };
@@ -1400,6 +1404,83 @@ mod tests {
             world.open(LedgerEntry::Resume).unwrap_err(),
             LedgerRefusal::Corrupt
         );
+    }
+
+    /// Records `reserve` could never write, each settled as nothing read and nothing billed, with
+    /// the digest right: no bytes past the overhead, or no output. The controls are the file as it
+    /// was, and records one byte past the overhead, which open as they did if their report hides
+    /// no body.
+    #[test]
+    fn a_ledger_holding_a_send_reserve_could_never_write_is_refused() {
+        let overhead = policy_value()["input_overhead"].as_u64().unwrap();
+        let read_one = money("0.000002");
+        /// The input bound, the output bound and the prompt tokens of the record.
+        type Record = Option<(u64, u64, u64)>;
+        let rows: [(&str, Record, Result<Money, LedgerRefusal>); 7] = [
+            ("as it was", None, Ok(money("0.0006"))),
+            (
+                "at the overhead, nothing read",
+                Some((overhead, 50, 0)),
+                Err(LedgerRefusal::Corrupt),
+            ),
+            (
+                "no input at all, nothing read",
+                Some((0, 50, 0)),
+                Err(LedgerRefusal::Corrupt),
+            ),
+            (
+                "at the overhead with no output, nothing read",
+                Some((overhead, 0, 0)),
+                Err(LedgerRefusal::Corrupt),
+            ),
+            (
+                "one past the overhead, nothing read",
+                Some((overhead + 1, 50, 0)),
+                Err(LedgerRefusal::Corrupt),
+            ),
+            (
+                "one past the overhead, one read",
+                Some((overhead + 1, 50, 1)),
+                Ok(read_one),
+            ),
+            (
+                "one past the overhead and one output, one read",
+                Some((overhead + 1, 1, 1)),
+                Ok(read_one),
+            ),
+        ];
+        let mut wrong = Vec::new();
+        for (name, record, expected) in rows {
+            let world = World::new();
+            let mut ledger = world.open(LedgerEntry::Fresh).unwrap();
+            send(&mut ledger);
+            drop(ledger);
+            if let Some((input_bound, output_bound, prompt_tokens)) = record {
+                let tariff = &world.policy.tariff;
+                let reserved = reservation_amount(tariff, input_bound, output_bound).unwrap();
+                let computed = computed_charge(tariff, prompt_tokens, 0, None).unwrap();
+                world.rewrite(|body| {
+                    let attempt = &mut body["attempts"][0];
+                    attempt["input_bound"] = json!(input_bound);
+                    attempt["output_bound"] = json!(output_bound);
+                    attempt["reserved"] = serde_json::to_value(reserved).unwrap();
+                    let settlement = &mut attempt["settlement"];
+                    settlement["billed_usd"] = json!("0");
+                    settlement["billed"] = serde_json::to_value(Money::ZERO).unwrap();
+                    settlement["computed"] = serde_json::to_value(computed).unwrap();
+                    settlement["consumed"] = serde_json::to_value(computed).unwrap();
+                    settlement["prompt_tokens"] = json!(prompt_tokens);
+                    settlement["completion_tokens"] = json!(0);
+                });
+            }
+            let got = world
+                .open(LedgerEntry::Resume)
+                .map(|reopened| reopened.wallet().spent().unwrap());
+            if got != expected {
+                wrong.push(format!("{name}: {got:?}"));
+            }
+        }
+        assert_eq!(wrong, Vec::<String>::new());
     }
 
     #[test]

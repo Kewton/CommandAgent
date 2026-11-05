@@ -955,6 +955,9 @@ impl WalletState {
         })
     }
 
+    /// A record is what `reserve` wrote for it: its bounds inside the policy, bytes past the
+    /// overhead and some output, since `reserve` takes no body with no bytes or no output, and the
+    /// amount the formula gives. Then its state agrees with what it carries.
     fn attempt_is_consistent(
         &self,
         policy: &RunBudgetPolicy,
@@ -962,6 +965,8 @@ impl WalletState {
         attempt: &AttemptRecord,
     ) -> bool {
         let identified = attempt.physical.0 == index as u64 + 1
+            && attempt.input_bound > policy.input_overhead
+            && attempt.output_bound > 0
             && attempt.input_bound <= policy.max_input_tokens
             && attempt.output_bound <= policy.max_output_tokens
             && reservation_amount(&policy.tariff, attempt.input_bound, attempt.output_bound)
@@ -1935,8 +1940,15 @@ mod tests {
                     .output_bound
             });
             let recorded = world.wallet.attempts.len();
-            if got != expected || recorded != usize::from(expected.is_ok()) {
-                wrong.push(format!("{name}: {got:?}, {recorded} on the record"));
+            // What `reserve` writes is what a file may hold: bytes past the overhead, and some
+            // output.
+            let replayable = world.wallet.attempts.iter().all(|attempt| {
+                attempt.input_bound > world.policy.input_overhead && attempt.output_bound > 0
+            }) && world.wallet.is_consistent(&world.policy);
+            if got != expected || recorded != usize::from(expected.is_ok()) || !replayable {
+                wrong.push(format!(
+                    "{name}: {got:?}, {recorded} on the record, replayable {replayable}"
+                ));
             }
         }
         assert_eq!(wrong, Vec::<String>::new());
@@ -1968,6 +1980,9 @@ mod tests {
         let one_token = body_asking_for(1);
         let reservation = world.reserve_bytes(&one_token).unwrap();
         assert!(reservation.amount > Money::ZERO, "{reservation:?}");
+        let attempt = world.wallet.attempt(reservation.physical).unwrap();
+        assert!(attempt.input_bound > 0 && attempt.output_bound > 0);
+        assert!(world.wallet.is_consistent(&world.policy));
 
         let mut world = World::new(policy_with(|v| v["input_overhead"] = json!(0)));
         assert_eq!(

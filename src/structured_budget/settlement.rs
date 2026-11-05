@@ -634,6 +634,28 @@ mod tests {
         );
     }
 
+    /// Where a report starts to hide a body: at the overhead there were no bytes to hide, and one
+    /// past it there were, so nothing read or nothing consumed hides them.
+    #[test]
+    fn a_report_hides_a_body_only_past_the_overhead() {
+        let policy = policy();
+        let overhead = policy.input_overhead;
+        let some = money("0.000002");
+        for (input_bound, prompt_tokens, consumed, hides) in [
+            (overhead, 0, Money::ZERO, false),
+            (overhead + 1, 0, Money::ZERO, true),
+            (overhead + 1, 0, some, true),
+            (overhead + 1, 1, Money::ZERO, true),
+            (overhead + 1, 1, some, false),
+        ] {
+            assert_eq!(
+                WalletState::report_hides_the_body(&policy, input_bound, prompt_tokens, consumed),
+                hides,
+                "{input_bound} {prompt_tokens} {consumed:?}"
+            );
+        }
+    }
+
     /// What reaches a report at all: an exponent of 20 digits is too large in one direction, is
     /// next to nothing in the other, and a leading zero is no number.
     #[test]
