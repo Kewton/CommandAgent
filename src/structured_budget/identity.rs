@@ -1,8 +1,13 @@
 //! Who a send and a submission are.
 //!
-//! The ledger issues both IDs from its own records, before a send, so nothing a model returns can
-//! name one. A provider send is a physical ID. The tool calls one response carries are submissions
-//! of that one physical send, and a [`SubmissionSource`] can only come from a settled response.
+//! The ledger issues the IDs from its own records, so nothing a model returns can name one. A
+//! provider send is a physical ID, issued before the send. A logical ID is one submission, which
+//! is one tool call the host looked at: a send opens none, and a response with N calls is N
+//! submissions of one physical send. A [`SubmissionSource`] ties a submission to that send, and it
+//! can only come from a settled response.
+//!
+//! A final repair is the one count a send opens: a repair that returns only text is still a
+//! repair, and its tool calls do not add to it. It has its own ID, apart from the logical ones.
 //!
 //! G4's attempt identity exists only after a tool call was inspected, too late to key a
 //! reservation, so it is bound to a submission afterwards.
@@ -14,12 +19,18 @@ use serde::{Deserialize, Serialize};
 #[serde(transparent)]
 pub(crate) struct PhysicalId(pub(super) u64);
 
-/// One logical request or submission, which a retry of the send continues.
+/// One submission.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub(crate) struct LogicalId(pub(super) u64);
 
-/// What a send is for. A label, except that a final repair must say so (see [`LogicalKind`]).
+/// One final repair, however many sends it takes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub(crate) struct FinalRepairId(pub(super) u64);
+
+/// What a send is for. A label, except that a final repair must say so and must hold a
+/// [`FinalRepairClaim`], and nothing else may.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum SendPurpose {
@@ -30,20 +41,19 @@ pub(crate) enum SendPurpose {
     Classifier,
 }
 
-/// Which counters a logical request draws on. The stage is G4's opaque name.
+/// Which counters a submission draws on. The stage is G4's opaque name.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub(crate) enum LogicalKind {
     General,
     Stage { stage: String },
-    FinalRepair,
 }
 
-/// A send either opens a logical request or continues one.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum LogicalClaim {
-    New(LogicalKind),
-    Continue(LogicalId),
+/// A send of a final repair either opens one or continues one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FinalRepairClaim {
+    New,
+    Continue(FinalRepairId),
 }
 
 /// The one physical send behind a settled response. Only settling gives one out.

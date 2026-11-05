@@ -31,7 +31,7 @@ pub(crate) mod test_support {
     use serde_json::{Value, json};
 
     use super::clock::{BudgetClock, RunClock};
-    use super::identity::{LogicalClaim, LogicalKind, SendPurpose};
+    use super::identity::{LogicalKind, SendPurpose};
     use super::policy::{RunBudgetPolicy, WireRoute};
     use super::reservation::ReserveRequest;
 
@@ -151,23 +151,19 @@ pub(crate) mod test_support {
     /// 720 per million dollars, and 160 tokens.
     pub(crate) const BODY: &[u8; 100] = &[b'x'; 100];
 
-    pub(crate) fn request<'a>(route: &'a WireRoute, claim: LogicalClaim) -> ReserveRequest<'a> {
+    pub(crate) fn request(route: &WireRoute) -> ReserveRequest<'_> {
         ReserveRequest {
             route,
             body: BODY,
             max_output_tokens: 50,
             purpose: SendPurpose::Executor,
-            logical: claim,
+            final_repair: None,
         }
     }
 
-    pub(crate) fn general() -> LogicalClaim {
-        LogicalClaim::New(LogicalKind::General)
-    }
-
-    pub(crate) fn stage(name: &str) -> LogicalClaim {
-        LogicalClaim::New(LogicalKind::Stage {
+    pub(crate) fn stage_kind(name: &str) -> LogicalKind {
+        LogicalKind::Stage {
             stage: name.to_string(),
-        })
+        }
     }
 }

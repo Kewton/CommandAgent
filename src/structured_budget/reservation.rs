@@ -9,13 +9,15 @@
 //! | `released` | none                           | holds nothing             |
 //!
 //! Every limit is judged in one place, [`WalletState::check_limits`], in the one call that takes
-//! the reservation.
+//! the reservation or the submission. A send takes no logical count, so what stops a send with no
+//! submission is the physical, token, money, and wall limits, all of them required in a policy.
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::clock::{ClockRecord, RunClock};
 use super::identity::{
-    AttemptBinding, LogicalClaim, LogicalId, LogicalKind, PhysicalId, SendPurpose, SubmissionSource,
+    AttemptBinding, FinalRepairClaim, FinalRepairId, LogicalId, LogicalKind, PhysicalId,
+    SendPurpose, SubmissionSource,
 };
 use super::policy::{RunBudgetPolicy, Tariff, WireRoute};
 use super::settlement::{SettlementRecord, UnknownReason};
@@ -219,6 +221,8 @@ pub(crate) enum LatchReason {
     InputOverBound,
     OutputOverBound,
     InterruptedAfterStart,
+    /// The response was settled after the run's deadline. Its cost counts; the run did not make it.
+    ResponseAfterDeadline,
 }
 
 /// The first reason the wallet stopped. There is no way to clear it.
@@ -248,10 +252,14 @@ pub(crate) enum BudgetRefusal {
     Overflow,
     NoSuchSend,
     NoSuchLogical,
+    NoSuchFinalRepair,
     SendNotSettled,
     DuplicateSubmission,
     AlreadyBound,
+    BindingStageDiffers,
     BytesChanged,
+    /// A body went out and the report says no prompt tokens came in.
+    UsageInconsistent,
     IllegalTransition {
         from: AttemptState,
         to: AttemptState,
@@ -262,8 +270,8 @@ pub(crate) enum BudgetRefusal {
 #[serde(deny_unknown_fields)]
 pub(crate) struct AttemptRecord {
     pub(crate) physical: PhysicalId,
-    pub(crate) logical: LogicalId,
     pub(crate) purpose: SendPurpose,
+    pub(crate) final_repair: Option<FinalRepairId>,
     pub(crate) body_sha256: String,
     pub(crate) input_bound: u64,
     pub(crate) output_bound: u64,
@@ -290,22 +298,43 @@ pub(crate) struct ReserveRequest<'a> {
     pub(crate) body: &'a [u8],
     pub(crate) max_output_tokens: u64,
     pub(crate) purpose: SendPurpose,
-    pub(crate) logical: LogicalClaim,
+    pub(crate) final_repair: Option<FinalRepairClaim>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Reservation {
     pub(crate) physical: PhysicalId,
-    pub(crate) logical: LogicalId,
+    pub(crate) final_repair: Option<FinalRepairId>,
     pub(crate) amount: Money,
 }
 
+/// What a POST needs: the bytes that were reserved, from a start that is on the record. Only a
+/// start gives one out.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct StartedPermit<'a> {
+    physical: PhysicalId,
+    body: &'a [u8],
+}
+
+impl<'a> StartedPermit<'a> {
+    pub(crate) fn physical(&self) -> PhysicalId {
+        self.physical
+    }
+
+    pub(crate) fn body(&self) -> &'a [u8] {
+        self.body
+    }
+}
+
 /// What the limits are asked about.
-struct Demand<'a> {
-    kind: &'a LogicalKind,
-    opens_logical: bool,
-    /// `None` for a submission, which only the host looked at: no send, no money, no tokens.
-    send: Option<(Money, u64)>,
+enum Demand<'a> {
+    Send {
+        amount: Money,
+        tokens: u64,
+        final_repair: Option<FinalRepairClaim>,
+    },
+    /// Only the host looked at it: no send, no money, no tokens.
+    Submission { kind: &'a LogicalKind },
 }
 
 /// Everything a wallet is, as the ledger stores it. The counts are not stored: they are read off
@@ -317,6 +346,7 @@ pub(crate) struct WalletState {
     pub(crate) budget_id: String,
     pub(crate) policy_sha256: String,
     pub(crate) workspace_sha256: String,
+    /// The first explicit profile, canonical. A profile that was only inferred is not pinned.
     pub(crate) profile: Option<String>,
     pub(crate) clock: ClockRecord,
     pub(crate) attempts: Vec<AttemptRecord>,
@@ -423,11 +453,15 @@ impl WalletState {
             .count() as u64
     }
 
+    /// The final repairs opened. A release gives none back: the IDs run from one, in order, so the
+    /// highest is the count.
     pub(crate) fn final_repair_used(&self) -> u64 {
-        self.logicals
+        self.attempts
             .iter()
-            .filter(|logical| logical.kind == LogicalKind::FinalRepair)
-            .count() as u64
+            .filter_map(|attempt| attempt.final_repair)
+            .map(|id| id.0)
+            .max()
+            .unwrap_or(0)
     }
 
     /// A latch or an unresolved send stops a send and a success alike.
@@ -452,68 +486,70 @@ impl WalletState {
         if elapsed_ms > limits.wall_ms {
             return Err(BudgetRefusal::WallExceeded);
         }
-        if *demand.kind == LogicalKind::FinalRepair {
-            if demand.opens_logical && self.final_repair_used() >= limits.final_repair_attempts {
-                return Err(BudgetRefusal::FinalRepairAttemptsExceeded);
+        match demand {
+            Demand::Submission { kind } => {
+                if self.logical_global_used() >= limits.logical_global {
+                    return Err(BudgetRefusal::LogicalGlobalExceeded);
+                }
+                if let LogicalKind::Stage { stage } = kind
+                    && self.logical_stage_used(stage) >= limits.logical_per_stage
+                {
+                    return Err(BudgetRefusal::LogicalStageExceeded);
+                }
+                Ok(())
             }
-            let began = self.clock.final_repair_started_ms.unwrap_or(elapsed_ms);
-            if elapsed_ms.saturating_sub(began) > limits.final_repair_ms {
-                return Err(BudgetRefusal::FinalRepairWallExceeded);
+            Demand::Send {
+                amount,
+                tokens,
+                final_repair,
+            } => {
+                if let Some(claim) = final_repair {
+                    if *claim == FinalRepairClaim::New
+                        && self.final_repair_used() >= limits.final_repair_attempts
+                    {
+                        return Err(BudgetRefusal::FinalRepairAttemptsExceeded);
+                    }
+                    let began = self.clock.final_repair_started_ms.unwrap_or(elapsed_ms);
+                    if elapsed_ms.saturating_sub(began) > limits.final_repair_ms {
+                        return Err(BudgetRefusal::FinalRepairWallExceeded);
+                    }
+                }
+                if self.physical_used() >= limits.physical_sends {
+                    return Err(BudgetRefusal::PhysicalExceeded);
+                }
+                if !within_cap(
+                    self.spent_tokens(),
+                    self.held_tokens(),
+                    u128::from(*tokens),
+                    u128::from(limits.tokens),
+                )? {
+                    return Err(BudgetRefusal::TokensExceeded);
+                }
+                if !within_cap(
+                    self.spent()?.units(),
+                    self.held()?.units(),
+                    amount.units(),
+                    limits.cost.units(),
+                )? {
+                    return Err(BudgetRefusal::CostExceeded);
+                }
+                Ok(())
             }
         }
-        if demand.opens_logical {
-            if self.logical_global_used() >= limits.logical_global {
-                return Err(BudgetRefusal::LogicalGlobalExceeded);
-            }
-            if let LogicalKind::Stage { stage } = demand.kind
-                && self.logical_stage_used(stage) >= limits.logical_per_stage
-            {
-                return Err(BudgetRefusal::LogicalStageExceeded);
-            }
-        }
-        let Some((amount, tokens)) = demand.send else {
-            return Ok(());
-        };
-        if self.physical_used() >= limits.physical_sends {
-            return Err(BudgetRefusal::PhysicalExceeded);
-        }
-        if !within_cap(
-            self.spent_tokens(),
-            self.held_tokens(),
-            u128::from(tokens),
-            u128::from(limits.tokens),
-        )? {
-            return Err(BudgetRefusal::TokensExceeded);
-        }
-        if !within_cap(
-            self.spent()?.units(),
-            self.held()?.units(),
-            amount.units(),
-            limits.cost.units(),
-        )? {
-            return Err(BudgetRefusal::CostExceeded);
-        }
-        Ok(())
     }
 
-    /// Opens a logical request of this kind. The caller has judged the limits.
-    fn open_logical(
-        &mut self,
-        kind: LogicalKind,
-        source: Option<SubmissionSource>,
-        elapsed_ms: u64,
-    ) -> LogicalId {
-        let id = LogicalId(self.logicals.len() as u64 + 1);
-        if kind == LogicalKind::FinalRepair {
-            self.clock.final_repair_started_ms.get_or_insert(elapsed_ms);
+    /// A claim of a final repair has to go with that purpose, both ways, and to continue one that
+    /// exists.
+    fn refuse_final_repair_claim(&self, request: &ReserveRequest<'_>) -> Result<(), BudgetRefusal> {
+        if request.final_repair.is_some() != (request.purpose == SendPurpose::FinalRepair) {
+            return Err(BudgetRefusal::PurposeDiffers);
         }
-        self.logicals.push(LogicalRecord {
-            id,
-            kind,
-            source,
-            attempt: None,
-        });
-        id
+        if let Some(FinalRepairClaim::Continue(id)) = request.final_repair
+            && (id.0 == 0 || id.0 > self.final_repair_used())
+        {
+            return Err(BudgetRefusal::NoSuchFinalRepair);
+        }
+        Ok(())
     }
 
     /// A reservation of the request's bytes, on the record before anything is sent.
@@ -541,36 +577,31 @@ impl WalletState {
             .checked_add(request.max_output_tokens)
             .ok_or(BudgetRefusal::Overflow)?;
         let amount = reservation_amount(&policy.tariff, input_bound, request.max_output_tokens)?;
-        let (kind, existing) = match &request.logical {
-            LogicalClaim::New(kind) => (kind.clone(), None),
-            LogicalClaim::Continue(id) => {
-                let logical = self.logical(*id).ok_or(BudgetRefusal::NoSuchLogical)?;
-                (logical.kind.clone(), Some(*id))
-            }
-        };
-        if (kind == LogicalKind::FinalRepair) != (request.purpose == SendPurpose::FinalRepair) {
-            return Err(BudgetRefusal::PurposeDiffers);
-        }
+        self.refuse_final_repair_claim(request)?;
         let elapsed_ms = clock.observe(&mut self.clock);
         self.check_limits(
             policy,
-            &Demand {
-                kind: &kind,
-                opens_logical: existing.is_none(),
-                send: Some((amount, tokens)),
+            &Demand::Send {
+                amount,
+                tokens,
+                final_repair: request.final_repair,
             },
             elapsed_ms,
         )?;
         clock.begin(&mut self.clock);
-        let logical = match existing {
-            Some(id) => id,
-            None => self.open_logical(kind, None, elapsed_ms),
+        let final_repair = match request.final_repair {
+            None => None,
+            Some(FinalRepairClaim::Continue(id)) => Some(id),
+            Some(FinalRepairClaim::New) => {
+                self.clock.final_repair_started_ms.get_or_insert(elapsed_ms);
+                Some(FinalRepairId(self.final_repair_used() + 1))
+            }
         };
         let physical = PhysicalId(self.attempts.len() as u64 + 1);
         self.attempts.push(AttemptRecord {
             physical,
-            logical,
             purpose: request.purpose,
+            final_repair,
             body_sha256: sha256_hex(request.body),
             input_bound,
             output_bound: request.max_output_tokens,
@@ -581,7 +612,7 @@ impl WalletState {
         });
         Ok(Reservation {
             physical,
-            logical,
+            final_repair,
             amount,
         })
     }
@@ -605,14 +636,24 @@ impl WalletState {
         Ok(attempt)
     }
 
-    /// `reserved` to `started`, for the same bytes that were reserved.
-    pub(crate) fn start(&mut self, physical: PhysicalId, body: &[u8]) -> Result<(), BudgetRefusal> {
+    /// `reserved` to `started`, for the same bytes that were reserved and inside the deadline as
+    /// the ledger last observed it. The permit carries those bytes to the POST.
+    pub(crate) fn start<'a>(
+        &mut self,
+        policy: &RunBudgetPolicy,
+        physical: PhysicalId,
+        body: &'a [u8],
+    ) -> Result<StartedPermit<'a>, BudgetRefusal> {
+        let past_deadline = self.clock.high_water_elapsed_ms > policy.limits.wall_ms;
         let attempt = self.attempt_in(physical, AttemptState::Reserved, AttemptState::Started)?;
         if attempt.body_sha256 != sha256_hex(body) {
             return Err(BudgetRefusal::BytesChanged);
         }
+        if past_deadline {
+            return Err(BudgetRefusal::WallExceeded);
+        }
         attempt.state = AttemptState::Started;
-        Ok(())
+        Ok(StartedPermit { physical, body })
     }
 
     /// `reserved` to `released`: the one way a reservation goes back, and nothing has left.
@@ -636,7 +677,8 @@ impl WalletState {
     }
 
     /// One submission the host looked at. It costs no send, and it does not escape the counts or
-    /// the clock. Its `source`, when it came from a response, must be a settled one.
+    /// the clock, which it starts if nothing has yet. Its `source`, when it came from a response,
+    /// must be a settled one.
     pub(crate) fn record_submission(
         &mut self,
         policy: &RunBudgetPolicy,
@@ -661,19 +703,20 @@ impl WalletState {
             }
         }
         let elapsed_ms = clock.observe(&mut self.clock);
-        self.check_limits(
-            policy,
-            &Demand {
-                kind: &kind,
-                opens_logical: true,
-                send: None,
-            },
-            elapsed_ms,
-        )?;
-        Ok(self.open_logical(kind, source, elapsed_ms))
+        self.check_limits(policy, &Demand::Submission { kind: &kind }, elapsed_ms)?;
+        clock.begin(&mut self.clock);
+        let id = LogicalId(self.logicals.len() as u64 + 1);
+        self.logicals.push(LogicalRecord {
+            id,
+            kind,
+            source,
+            attempt: None,
+        });
+        Ok(id)
     }
 
-    /// Ties G4's attempt to a submission after the fact, once. The same value again is no change.
+    /// Ties G4's attempt to a submission of its stage after the fact, once. The same value again
+    /// is no change.
     pub(crate) fn bind_attempt(
         &mut self,
         logical: LogicalId,
@@ -684,6 +727,9 @@ impl WalletState {
             .iter_mut()
             .find(|record| record.id == logical)
             .ok_or(BudgetRefusal::NoSuchLogical)?;
+        if !matches!(&logical.kind, LogicalKind::Stage { stage } if *stage == binding.stage) {
+            return Err(BudgetRefusal::BindingStageDiffers);
+        }
         match &logical.attempt {
             Some(held) if *held != binding => Err(BudgetRefusal::AlreadyBound),
             _ => {
@@ -713,12 +759,14 @@ impl WalletState {
         }
     }
 
-    /// Whether these records can be what this code wrote under this policy. Finds damage: amounts
-    /// are computed again, and the states have to agree with what they carry.
+    /// Whether these records can be what this code wrote under this policy. Finds damage, not an
+    /// adversary: the digest has no key. Amounts are computed again, and the states have to agree
+    /// with what they carry.
     pub(crate) fn is_consistent(&self, policy: &RunBudgetPolicy) -> bool {
         self.schema == WALLET_SCHEMA
             && self.logicals_are_consistent()
             && self.clock_is_consistent()
+            && self.final_repairs_are_consistent()
             && self
                 .attempts
                 .iter()
@@ -732,6 +780,32 @@ impl WalletState {
                 <= 1
             && self.spent().is_ok()
             && self.held().is_ok()
+            && self
+                .latch
+                .is_none_or(|latch| self.attempt(latch.physical).is_some())
+            && (self.latch.is_some() || self.is_within_limits(policy))
+    }
+
+    /// The limits a record can show. Time is not one: it passes with nothing on the record.
+    fn is_within_limits(&self, policy: &RunBudgetPolicy) -> bool {
+        let limits = &policy.limits;
+        let within_money = match (self.spent(), self.held()) {
+            (Ok(spent), Ok(held)) => {
+                within_cap(spent.units(), held.units(), 0, limits.cost.units()).unwrap_or(false)
+            }
+            _ => false,
+        };
+        within_money
+            && self.physical_used() <= limits.physical_sends
+            && self.logical_global_used() <= limits.logical_global
+            && self.final_repair_used() <= limits.final_repair_attempts
+            && self.spent_tokens() + self.held_tokens() <= u128::from(limits.tokens)
+            && self.logicals.iter().all(|logical| match &logical.kind {
+                LogicalKind::General => true,
+                LogicalKind::Stage { stage } => {
+                    self.logical_stage_used(stage) <= limits.logical_per_stage
+                }
+            })
     }
 
     fn logicals_are_consistent(&self) -> bool {
@@ -740,13 +814,32 @@ impl WalletState {
                 && logical.source.is_none_or(|source| {
                     self.attempt(source.physical)
                         .is_some_and(|attempt| attempt.state == AttemptState::Settled)
+                        && self.logicals[..index]
+                            .iter()
+                            .all(|earlier| earlier.source != Some(source))
                 })
         })
     }
 
     fn clock_is_consistent(&self) -> bool {
-        self.clock.started_wall_ms.is_some() != self.attempts.is_empty()
+        let anything_recorded = !self.attempts.is_empty() || !self.logicals.is_empty();
+        self.clock.started_wall_ms.is_some() == anything_recorded
             && self.clock.final_repair_started_ms.is_some() == (self.final_repair_used() > 0)
+    }
+
+    /// The IDs first appear in order from one, and each goes with its purpose.
+    fn final_repairs_are_consistent(&self) -> bool {
+        let mut highest = 0;
+        self.attempts.iter().all(|attempt| {
+            let matched =
+                attempt.final_repair.is_some() == (attempt.purpose == SendPurpose::FinalRepair);
+            let in_order = attempt.final_repair.is_none_or(|id| {
+                let fits = id.0 >= 1 && id.0 <= highest + 1;
+                highest = highest.max(id.0);
+                fits
+            });
+            matched && in_order
+        })
     }
 
     fn attempt_is_consistent(
@@ -756,7 +849,6 @@ impl WalletState {
         attempt: &AttemptRecord,
     ) -> bool {
         let identified = attempt.physical.0 == index as u64 + 1
-            && self.logical(attempt.logical).is_some()
             && attempt.input_bound <= policy.max_input_tokens
             && attempt.output_bound <= policy.max_output_tokens
             && reservation_amount(&policy.tariff, attempt.input_bound, attempt.output_bound)
@@ -774,6 +866,11 @@ impl WalletState {
                     record.late == attempt.unknown_reason.is_some()
                         && (!record.late || self.latch.is_some())
                         && Self::settlement_is_consistent(policy, record)
+                        && !Self::hides_the_prompt(
+                            policy,
+                            attempt.input_bound,
+                            record.prompt_tokens,
+                        )
                         && (self.latch.is_some()
                             || (record.consumed <= attempt.reserved
                                 && record.prompt_tokens <= attempt.input_bound
@@ -790,16 +887,17 @@ mod tests {
 
     use super::super::clock::RunClock;
     use super::super::identity::{
-        AttemptBinding, LogicalClaim, LogicalKind, PhysicalId, ResponseIdentity, SendPurpose,
+        AttemptBinding, FinalRepairClaim, FinalRepairId, LogicalId, LogicalKind, PhysicalId,
+        ResponseIdentity, SendPurpose,
     };
     use super::super::policy::RunBudgetPolicy;
     use super::super::settlement::{KnownBilling, ReportedUsage, UnknownReason};
     use super::super::test_support::{
-        BODY, FakeClock, general, policy, policy_with, request, route, stage,
+        BODY, FakeClock, policy, policy_value, policy_with, request, route, stage_kind,
     };
     use super::{
-        AmountError, AttemptState, BudgetRefusal, LatchReason, Money, Reservation, WalletState,
-        reservation_amount, within_cap,
+        AmountError, AttemptRecord, AttemptState, BudgetRefusal, LatchReason, Money, Reservation,
+        WalletState, reservation_amount, within_cap,
     };
     use crate::providers::BilledCostUsd;
 
@@ -809,8 +907,8 @@ mod tests {
         Money::parse_decimal_up(text).unwrap()
     }
 
-    fn known(prompt: u64, completion: u64) -> KnownBilling {
-        let cost = BilledCostUsd::from_json_token("0").unwrap();
+    fn billing(token: &str, prompt: u64, completion: u64) -> KnownBilling {
+        let cost = BilledCostUsd::from_json_token(token).unwrap();
         KnownBilling::from_reported(&ReportedUsage {
             cost: Some(&cost),
             prompt_tokens: Some(prompt),
@@ -818,6 +916,10 @@ mod tests {
             ..ReportedUsage::default()
         })
         .unwrap()
+    }
+
+    fn known(prompt: u64, completion: u64) -> KnownBilling {
+        billing("0", prompt, completion)
     }
 
     struct World {
@@ -840,58 +942,78 @@ mod tests {
             }
         }
 
-        fn reserve(&mut self, claim: LogicalClaim) -> Result<Reservation, BudgetRefusal> {
+        fn reserve(&mut self) -> Result<Reservation, BudgetRefusal> {
             let wire = route();
-            let body = request(&wire, claim);
+            self.wallet
+                .reserve(&self.policy, &request(&wire), &mut self.clock)
+        }
+
+        fn reserve_as(
+            &mut self,
+            purpose: SendPurpose,
+            final_repair: Option<FinalRepairClaim>,
+        ) -> Result<Reservation, BudgetRefusal> {
+            let wire = route();
+            let mut body = request(&wire);
+            body.purpose = purpose;
+            body.final_repair = final_repair;
             self.wallet.reserve(&self.policy, &body, &mut self.clock)
         }
 
-        fn reserve_purpose(
+        fn reserve_repair(
             &mut self,
-            claim: LogicalClaim,
-            purpose: SendPurpose,
+            claim: FinalRepairClaim,
         ) -> Result<Reservation, BudgetRefusal> {
-            let wire = route();
-            let mut body = request(&wire, claim);
-            body.purpose = purpose;
-            self.wallet.reserve(&self.policy, &body, &mut self.clock)
+            self.reserve_as(SendPurpose::FinalRepair, Some(claim))
+        }
+
+        fn start(&mut self, id: PhysicalId) -> Result<(), BudgetRefusal> {
+            self.wallet.start(&self.policy, id, BODY).map(|_| ())
+        }
+
+        fn complete(&mut self, id: PhysicalId) -> ResponseIdentity {
+            self.start(id).unwrap();
+            self.wallet
+                .settle(&self.policy, id, &known(100, 40))
+                .unwrap()
+                .response
         }
 
         /// A whole send, settled well inside its reservation.
-        fn send(&mut self, claim: LogicalClaim) -> Result<Reservation, BudgetRefusal> {
-            let reservation = self.reserve(claim)?;
-            self.wallet.start(reservation.physical, BODY).unwrap();
-            self.wallet
-                .settle(&self.policy, reservation.physical, &known(100, 40))
-                .unwrap();
+        fn send(&mut self) -> Result<ResponseIdentity, BudgetRefusal> {
+            let id = self.reserve()?.physical;
+            Ok(self.complete(id))
+        }
+
+        fn send_repair(&mut self, claim: FinalRepairClaim) -> Result<Reservation, BudgetRefusal> {
+            let reservation = self.reserve_repair(claim)?;
+            self.complete(reservation.physical);
             Ok(reservation)
         }
 
+        fn submit(&mut self, kind: LogicalKind) -> Result<LogicalId, BudgetRefusal> {
+            self.wallet
+                .record_submission(&self.policy, kind, None, &mut self.clock)
+        }
+
         fn in_state(&mut self, state: AttemptState) -> PhysicalId {
-            let id = self.reserve(general()).unwrap().physical;
+            let id = self.reserve().unwrap().physical;
             match state {
                 AttemptState::Reserved => {}
-                AttemptState::Started => self.wallet.start(id, BODY).unwrap(),
+                AttemptState::Started => self.start(id).unwrap(),
                 AttemptState::Released => self.wallet.release(id).unwrap(),
                 AttemptState::Unknown => {
-                    self.wallet.start(id, BODY).unwrap();
+                    self.start(id).unwrap();
                     self.wallet
                         .mark_unknown(id, UnknownReason::Timeout)
                         .unwrap();
                 }
                 AttemptState::Settled => {
-                    self.wallet.start(id, BODY).unwrap();
-                    self.wallet
-                        .settle(&self.policy, id, &known(100, 40))
-                        .unwrap();
+                    self.complete(id);
                 }
             }
             id
         }
-    }
-
-    fn final_repair() -> LogicalClaim {
-        LogicalClaim::New(LogicalKind::FinalRepair)
     }
 
     #[test]
@@ -925,6 +1047,11 @@ mod tests {
         assert_eq!(money("0.1").units(), UNIT / 10);
         // A float would round this one.
         assert_eq!(money("0.100000000000000006").units(), UNIT / 10 + 6);
+    }
+
+    #[test]
+    fn the_largest_power_of_ten_that_fits_is_accepted() {
+        assert_eq!(money("1e20").units(), 10_u128.pow(38));
     }
 
     #[test]
@@ -989,6 +1116,7 @@ mod tests {
         );
         for bad in [
             "\"-1\"",
+            "\"+5\"",
             "\"1.5\"",
             "\"\"",
             "1",
@@ -1059,11 +1187,11 @@ mod tests {
     #[test]
     fn a_cost_cap_passes_exactly_and_refuses_one_unit_short() {
         let mut exact = World::new(policy_with(|v| v["limits"]["cost_usd"] = json!("0.00072")));
-        assert!(exact.reserve(general()).is_ok());
+        assert!(exact.reserve().is_ok());
         let mut short = World::new(policy_with(|v| {
             v["limits"]["cost_usd"] = json!("0.000719999999999999");
         }));
-        assert_eq!(short.reserve(general()), Err(BudgetRefusal::CostExceeded));
+        assert_eq!(short.reserve(), Err(BudgetRefusal::CostExceeded));
         assert!(short.wallet.attempts.is_empty());
     }
 
@@ -1071,54 +1199,132 @@ mod tests {
     fn what_was_spent_counts_against_the_next_reservation() {
         // The first send consumes 0.0006; the second needs 0.00072.
         let mut exact = World::new(policy_with(|v| v["limits"]["cost_usd"] = json!("0.00132")));
-        exact.send(general()).unwrap();
-        assert!(exact.reserve(general()).is_ok());
+        exact.send().unwrap();
+        assert!(exact.reserve().is_ok());
         let mut short = World::new(policy_with(|v| {
             v["limits"]["cost_usd"] = json!("0.001319999999999999");
         }));
-        short.send(general()).unwrap();
-        assert_eq!(short.reserve(general()), Err(BudgetRefusal::CostExceeded));
+        short.send().unwrap();
+        assert_eq!(short.reserve(), Err(BudgetRefusal::CostExceeded));
     }
 
     #[test]
     fn a_token_cap_passes_exactly_and_refuses_one_short() {
         // 100 + 10 + 50.
         let mut exact = World::new(policy_with(|v| v["limits"]["tokens"] = json!(160)));
-        assert!(exact.reserve(general()).is_ok());
+        assert!(exact.reserve().is_ok());
         let mut short = World::new(policy_with(|v| v["limits"]["tokens"] = json!(159)));
-        assert_eq!(short.reserve(general()), Err(BudgetRefusal::TokensExceeded));
+        assert_eq!(short.reserve(), Err(BudgetRefusal::TokensExceeded));
     }
 
     #[test]
     fn tokens_spent_count_against_the_next_reservation() {
         // The first send used 140 tokens.
         let mut exact = World::new(policy_with(|v| v["limits"]["tokens"] = json!(300)));
-        exact.send(general()).unwrap();
-        assert!(exact.reserve(general()).is_ok());
+        exact.send().unwrap();
+        assert!(exact.reserve().is_ok());
         let mut short = World::new(policy_with(|v| v["limits"]["tokens"] = json!(299)));
-        short.send(general()).unwrap();
-        assert_eq!(short.reserve(general()), Err(BudgetRefusal::TokensExceeded));
+        short.send().unwrap();
+        assert_eq!(short.reserve(), Err(BudgetRefusal::TokensExceeded));
     }
 
     #[test]
     fn a_physical_cap_passes_exactly_and_refuses_one_past() {
         let mut world = World::new(policy_with(|v| v["limits"]["physical_sends"] = json!(2)));
-        world.send(general()).unwrap();
-        world.send(general()).unwrap();
-        assert_eq!(
-            world.reserve(general()),
-            Err(BudgetRefusal::PhysicalExceeded)
-        );
+        world.send().unwrap();
+        world.send().unwrap();
+        assert_eq!(world.reserve(), Err(BudgetRefusal::PhysicalExceeded));
         assert_eq!(world.wallet.physical_used(), 2);
+    }
+
+    #[test]
+    fn a_send_opens_no_logical_request_and_goes_on_with_none_left() {
+        let mut world = World::new(policy_with(|v| {
+            v["limits"]["logical_global"] = json!(0);
+            v["limits"]["logical_per_stage"] = json!(0);
+        }));
+        world.send().unwrap();
+        world.send().unwrap();
+        assert_eq!(world.wallet.logical_global_used(), 0);
+        assert_eq!(world.wallet.physical_used(), 2);
+    }
+
+    /// With no submission at all, the physical cap is what ends it, and a policy cannot leave it
+    /// out (`every_missing_field_is_refused`).
+    #[test]
+    fn sends_with_no_submission_stop_at_the_physical_cap() {
+        let mut world = World::new(policy_with(|v| {
+            v["limits"]["logical_global"] = json!(0);
+            v["limits"]["physical_sends"] = json!(3);
+        }));
+        for _ in 0..3 {
+            world.send().unwrap();
+        }
+        assert_eq!(world.reserve(), Err(BudgetRefusal::PhysicalExceeded));
+    }
+
+    /// The provider reports zero here, and the tariff's non-zero rates still use the cap up: the
+    /// rates cannot be zero, and a body has prompt tokens.
+    #[test]
+    fn sends_with_no_submission_stop_at_the_cost_cap_when_the_provider_bills_nothing() {
+        let mut world = World::new(policy_with(|v| {
+            v["limits"]["logical_global"] = json!(0);
+            v["limits"]["cost_usd"] = json!("0.0014");
+        }));
+        world.send().unwrap();
+        world.send().unwrap();
+        assert_eq!(world.reserve(), Err(BudgetRefusal::CostExceeded));
+        assert_eq!(world.wallet.spent().unwrap(), money("0.0012"));
+    }
+
+    #[test]
+    fn three_calls_of_one_response_are_three_submissions_of_one_send() {
+        let mut world = World::new(policy_with(|v| v["limits"]["logical_per_stage"] = json!(3)));
+        let response = world.send().unwrap();
+        for index in 0..3 {
+            world
+                .wallet
+                .record_submission(
+                    &world.policy,
+                    stage_kind("one"),
+                    Some(response.call(index)),
+                    &mut world.clock,
+                )
+                .unwrap();
+        }
+        assert_eq!(world.wallet.logical_stage_used("one"), 3);
+        assert_eq!(world.wallet.logical_global_used(), 3);
+        assert_eq!(world.wallet.physical_used(), 1);
+        assert_eq!(world.wallet.attempts.len(), 1);
+        assert_eq!(world.wallet.spent().unwrap(), money("0.0006"));
+        // A fourth is past the cap, and a repeat of a call is not a new one.
+        assert_eq!(
+            world.wallet.record_submission(
+                &world.policy,
+                stage_kind("one"),
+                Some(response.call(3)),
+                &mut world.clock
+            ),
+            Err(BudgetRefusal::LogicalStageExceeded)
+        );
+        assert_eq!(
+            world.wallet.record_submission(
+                &world.policy,
+                LogicalKind::General,
+                Some(response.call(1)),
+                &mut world.clock
+            ),
+            Err(BudgetRefusal::DuplicateSubmission)
+        );
     }
 
     #[test]
     fn a_global_logical_cap_passes_exactly_and_refuses_one_past() {
         let mut world = World::new(policy_with(|v| v["limits"]["logical_global"] = json!(2)));
-        world.send(stage("one")).unwrap();
-        world.send(general()).unwrap();
+        world.submit(stage_kind("one")).unwrap();
+        world.submit(LogicalKind::General).unwrap();
         assert_eq!(
-            world.reserve(stage("two")),
+            world.submit(stage_kind("two")),
             Err(BudgetRefusal::LogicalGlobalExceeded)
         );
         assert_eq!(world.wallet.logical_global_used(), 2);
@@ -1127,65 +1333,70 @@ mod tests {
     #[test]
     fn a_stage_cap_passes_exactly_refuses_one_past_and_leaves_other_stages_alone() {
         let mut world = World::new(policy_with(|v| v["limits"]["logical_per_stage"] = json!(2)));
-        world.send(stage("one")).unwrap();
-        world.send(stage("one")).unwrap();
+        world.submit(stage_kind("one")).unwrap();
+        world.submit(stage_kind("one")).unwrap();
         assert_eq!(
-            world.reserve(stage("one")),
+            world.submit(stage_kind("one")),
             Err(BudgetRefusal::LogicalStageExceeded)
         );
         assert_eq!(world.wallet.logical_stage_used("one"), 2);
         assert_eq!(world.wallet.logical_stage_used("two"), 0);
-        world.send(stage("two")).unwrap();
-        // A send with no stage is not in a stage's count.
-        world.send(general()).unwrap();
+        world.submit(stage_kind("two")).unwrap();
+        // A submission with no stage is not in a stage's count.
+        world.submit(LogicalKind::General).unwrap();
         assert_eq!(world.wallet.logical_stage_used("two"), 1);
-    }
-
-    #[test]
-    fn continuing_a_logical_request_counts_no_new_one() {
-        let mut world = World::new(policy_with(|v| v["limits"]["logical_global"] = json!(1)));
-        let first = world.send(general()).unwrap();
-        world.send(LogicalClaim::Continue(first.logical)).unwrap();
-        assert_eq!(world.wallet.logical_global_used(), 1);
-        assert_eq!(world.wallet.physical_used(), 2);
-    }
-
-    #[test]
-    fn continuing_a_logical_request_that_does_not_exist_is_refused() {
-        let mut world = World::new(policy());
-        let first = world.send(general()).unwrap();
-        let other = super::LogicalId(first.logical.0 + 1);
-        assert_eq!(
-            world.reserve(LogicalClaim::Continue(other)),
-            Err(BudgetRefusal::NoSuchLogical)
-        );
     }
 
     #[test]
     fn the_wall_limit_passes_exactly_and_refuses_one_past() {
         let mut world = World::new(policy_with(|v| v["limits"]["wall_seconds"] = json!(1)));
-        world.send(general()).unwrap();
+        world.send().unwrap();
         world.source.advance(1_000);
-        world.send(general()).unwrap();
+        world.send().unwrap();
         world.source.advance(1);
-        assert_eq!(world.reserve(general()), Err(BudgetRefusal::WallExceeded));
+        assert_eq!(world.reserve(), Err(BudgetRefusal::WallExceeded));
     }
 
     #[test]
     fn the_run_clock_starts_at_the_first_reservation_not_before() {
         let mut world = World::new(policy_with(|v| v["limits"]["wall_seconds"] = json!(1)));
         world.source.advance(50_000);
-        world.send(general()).unwrap();
+        world.send().unwrap();
         assert_eq!(world.wallet.clock.started_wall_ms, Some(55_000));
         world.source.advance(1_000);
-        world.send(general()).unwrap();
+        world.send().unwrap();
         assert_eq!(world.wallet.clock.started_wall_ms, Some(55_000));
     }
 
     #[test]
     fn a_refused_first_reservation_does_not_start_the_clock() {
         let mut world = World::new(policy_with(|v| v["limits"]["tokens"] = json!(1)));
-        assert!(world.reserve(general()).is_err());
+        assert!(world.reserve().is_err());
+        assert_eq!(world.wallet.clock.started_wall_ms, None);
+    }
+
+    #[test]
+    fn a_submission_with_no_send_starts_the_clock_and_the_limit_holds_it() {
+        let mut world = World::new(policy_with(|v| v["limits"]["wall_seconds"] = json!(1)));
+        world.source.advance(50_000);
+        world.submit(LogicalKind::General).unwrap();
+        assert_eq!(world.wallet.clock.started_wall_ms, Some(55_000));
+        assert!(world.wallet.is_consistent(&world.policy));
+        world.source.advance(1_000);
+        world.submit(LogicalKind::General).unwrap();
+        world.source.advance(1);
+        assert_eq!(
+            world.submit(LogicalKind::General),
+            Err(BudgetRefusal::WallExceeded)
+        );
+        // A send after those submissions is held to the same clock.
+        assert_eq!(world.reserve(), Err(BudgetRefusal::WallExceeded));
+    }
+
+    #[test]
+    fn a_refused_first_submission_does_not_start_the_clock() {
+        let mut world = World::new(policy_with(|v| v["limits"]["logical_global"] = json!(0)));
+        assert!(world.submit(LogicalKind::General).is_err());
         assert_eq!(world.wallet.clock.started_wall_ms, None);
     }
 
@@ -1194,31 +1405,71 @@ mod tests {
         let mut world = World::new(policy_with(|v| {
             v["limits"]["final_repair_attempts"] = json!(2)
         }));
-        world
-            .reserve_purpose(final_repair(), SendPurpose::FinalRepair)
-            .and_then(|r| world.wallet.start(r.physical, BODY).map(|()| r))
-            .map(|r| {
-                world
-                    .wallet
-                    .settle(&world.policy, r.physical, &known(1, 1))
-                    .unwrap();
-            })
-            .unwrap();
-        world
-            .reserve_purpose(final_repair(), SendPurpose::FinalRepair)
-            .and_then(|r| world.wallet.start(r.physical, BODY).map(|()| r))
-            .map(|r| {
-                world
-                    .wallet
-                    .settle(&world.policy, r.physical, &known(1, 1))
-                    .unwrap();
-            })
-            .unwrap();
+        let first = world.send_repair(FinalRepairClaim::New).unwrap();
+        let second = world.send_repair(FinalRepairClaim::New).unwrap();
+        assert_eq!(first.final_repair, Some(FinalRepairId(1)));
+        assert_eq!(second.final_repair, Some(FinalRepairId(2)));
         assert_eq!(
-            world.reserve_purpose(final_repair(), SendPurpose::FinalRepair),
+            world.reserve_repair(FinalRepairClaim::New),
             Err(BudgetRefusal::FinalRepairAttemptsExceeded)
         );
         assert_eq!(world.wallet.final_repair_used(), 2);
+    }
+
+    #[test]
+    fn a_final_repair_that_returns_only_text_takes_its_attempt() {
+        let mut world = World::new(policy_with(|v| {
+            v["limits"]["final_repair_attempts"] = json!(1)
+        }));
+        world.send_repair(FinalRepairClaim::New).unwrap();
+        assert_eq!(world.wallet.logical_global_used(), 0);
+        assert_eq!(world.wallet.final_repair_used(), 1);
+        assert_eq!(
+            world.reserve_repair(FinalRepairClaim::New),
+            Err(BudgetRefusal::FinalRepairAttemptsExceeded)
+        );
+    }
+
+    #[test]
+    fn the_tool_calls_and_later_sends_of_one_final_repair_take_no_more_attempts() {
+        let mut world = World::new(policy_with(|v| {
+            v["limits"]["final_repair_attempts"] = json!(1)
+        }));
+        let repair = world.reserve_repair(FinalRepairClaim::New).unwrap();
+        let response = world.complete(repair.physical);
+        for index in 0..2 {
+            world
+                .wallet
+                .record_submission(
+                    &world.policy,
+                    LogicalKind::General,
+                    Some(response.call(index)),
+                    &mut world.clock,
+                )
+                .unwrap();
+        }
+        let id = repair.final_repair.unwrap();
+        world.send_repair(FinalRepairClaim::Continue(id)).unwrap();
+        assert_eq!(world.wallet.final_repair_used(), 1);
+        assert_eq!(world.wallet.physical_used(), 2);
+    }
+
+    #[test]
+    fn continuing_a_final_repair_that_does_not_exist_is_refused() {
+        let mut world = World::new(policy());
+        for missing in [0, 1] {
+            assert_eq!(
+                world.reserve_repair(FinalRepairClaim::Continue(FinalRepairId(missing))),
+                Err(BudgetRefusal::NoSuchFinalRepair),
+                "{missing}"
+            );
+        }
+        let repair = world.send_repair(FinalRepairClaim::New).unwrap();
+        assert_eq!(repair.final_repair, Some(FinalRepairId(1)));
+        assert_eq!(
+            world.reserve_repair(FinalRepairClaim::Continue(FinalRepairId(2))),
+            Err(BudgetRefusal::NoSuchFinalRepair)
+        );
     }
 
     #[test]
@@ -1227,40 +1478,23 @@ mod tests {
             v["limits"]["final_repair_seconds"] = json!(1)
         }));
         // Time before the first repair is not in its window.
-        world.send(general()).unwrap();
+        world.send().unwrap();
         world.source.advance(50_000);
-        let repair = world
-            .reserve_purpose(final_repair(), SendPurpose::FinalRepair)
-            .unwrap();
-        world.wallet.start(repair.physical, BODY).unwrap();
-        world
-            .wallet
-            .settle(&world.policy, repair.physical, &known(1, 1))
-            .unwrap();
+        let repair = world.send_repair(FinalRepairClaim::New).unwrap();
+        let id = repair.final_repair.unwrap();
         world.source.advance(1_000);
-        let again = world
-            .reserve_purpose(
-                LogicalClaim::Continue(repair.logical),
-                SendPurpose::FinalRepair,
-            )
-            .unwrap();
-        world.wallet.start(again.physical, BODY).unwrap();
-        world
-            .wallet
-            .settle(&world.policy, again.physical, &known(1, 1))
-            .unwrap();
+        world.send_repair(FinalRepairClaim::Continue(id)).unwrap();
         world.source.advance(1);
         assert_eq!(
-            world.reserve_purpose(
-                LogicalClaim::Continue(repair.logical),
-                SendPurpose::FinalRepair
-            ),
+            world.reserve_repair(FinalRepairClaim::Continue(id)),
             Err(BudgetRefusal::FinalRepairWallExceeded)
         );
         assert_eq!(
-            world.reserve_purpose(final_repair(), SendPurpose::FinalRepair),
+            world.reserve_repair(FinalRepairClaim::New),
             Err(BudgetRefusal::FinalRepairWallExceeded)
         );
+        // Nothing else is in its window.
+        assert!(world.reserve().is_ok());
     }
 
     #[test]
@@ -1269,9 +1503,9 @@ mod tests {
             v["limits"]["final_repair_attempts"] = json!(5);
             v["limits"]["physical_sends"] = json!(1);
         }));
-        world.send(general()).unwrap();
+        world.send().unwrap();
         assert_eq!(
-            world.reserve_purpose(final_repair(), SendPurpose::FinalRepair),
+            world.reserve_repair(FinalRepairClaim::New),
             Err(BudgetRefusal::PhysicalExceeded)
         );
     }
@@ -1280,21 +1514,73 @@ mod tests {
     fn a_final_repair_has_to_say_so_both_ways() {
         let mut world = World::new(policy());
         assert_eq!(
-            world.reserve_purpose(final_repair(), SendPurpose::Executor),
+            world.reserve_as(SendPurpose::Executor, Some(FinalRepairClaim::New)),
             Err(BudgetRefusal::PurposeDiffers)
         );
         assert_eq!(
-            world.reserve_purpose(general(), SendPurpose::FinalRepair),
+            world.reserve_as(SendPurpose::FinalRepair, None),
             Err(BudgetRefusal::PurposeDiffers)
         );
-        let general_one = world.send(general()).unwrap();
+        assert!(world.wallet.attempts.is_empty());
+        assert!(world.reserve_as(SendPurpose::Executor, None).is_ok());
+    }
+
+    /// One row per limit in a policy, and the table has to cover them all. The money, token, and
+    /// physical limits govern every send. The logical limits govern submissions, which a send is
+    /// not. The two limits in seconds cannot be zero at all (`policy.rs`).
+    #[test]
+    fn every_limit_at_zero_allows_nothing_it_governs() {
+        let refused_sends = [
+            ("cost_usd", json!("0"), BudgetRefusal::CostExceeded),
+            ("tokens", json!(0), BudgetRefusal::TokensExceeded),
+            ("physical_sends", json!(0), BudgetRefusal::PhysicalExceeded),
+        ];
+        for (key, zero, refusal) in refused_sends {
+            let mut world = World::new(policy_with(|v| v["limits"][key] = zero.clone()));
+            assert_eq!(world.reserve(), Err(refusal), "{key}");
+            assert_eq!(
+                world.reserve_repair(FinalRepairClaim::New),
+                Err(refusal),
+                "{key}"
+            );
+            assert!(world.wallet.attempts.is_empty(), "{key}");
+        }
+
+        let mut world = World::new(policy_with(|v| v["limits"]["logical_global"] = json!(0)));
         assert_eq!(
-            world.reserve_purpose(
-                LogicalClaim::Continue(general_one.logical),
-                SendPurpose::FinalRepair
-            ),
-            Err(BudgetRefusal::PurposeDiffers)
+            world.submit(LogicalKind::General),
+            Err(BudgetRefusal::LogicalGlobalExceeded)
         );
+        let mut world = World::new(policy_with(|v| v["limits"]["logical_per_stage"] = json!(0)));
+        assert_eq!(
+            world.submit(stage_kind("one")),
+            Err(BudgetRefusal::LogicalStageExceeded)
+        );
+        let mut world = World::new(policy_with(|v| {
+            v["limits"]["final_repair_attempts"] = json!(0);
+        }));
+        assert_eq!(
+            world.reserve_repair(FinalRepairClaim::New),
+            Err(BudgetRefusal::FinalRepairAttemptsExceeded)
+        );
+        assert!(world.wallet.attempts.is_empty());
+
+        let covered = [
+            "cost_usd",
+            "tokens",
+            "physical_sends",
+            "logical_global",
+            "logical_per_stage",
+            "final_repair_attempts",
+            "wall_seconds",
+            "final_repair_seconds",
+        ];
+        let value = policy_value();
+        let limits = value["limits"].as_object().unwrap();
+        assert_eq!(limits.len(), covered.len());
+        for key in covered {
+            assert!(limits.contains_key(key), "{key}");
+        }
     }
 
     #[test]
@@ -1302,31 +1588,27 @@ mod tests {
         let mut world = World::new(policy());
         let mut wire = route();
         wire.model = "another".to_string();
-        let body = request(&wire, general());
+        let body = request(&wire);
         assert_eq!(
             world.wallet.reserve(&world.policy, &body, &mut world.clock),
             Err(BudgetRefusal::RouteNotAdmitted)
         );
         assert!(world.wallet.attempts.is_empty());
-        assert!(world.wallet.logicals.is_empty());
     }
 
     #[test]
     fn the_input_bound_passes_exactly_and_refuses_one_past() {
         let mut exact = World::new(policy_with(|v| v["max_input_tokens"] = json!(110)));
-        assert!(exact.reserve(general()).is_ok());
+        assert!(exact.reserve().is_ok());
         let mut short = World::new(policy_with(|v| v["max_input_tokens"] = json!(109)));
-        assert_eq!(
-            short.reserve(general()),
-            Err(BudgetRefusal::InputBoundExceeded)
-        );
+        assert_eq!(short.reserve(), Err(BudgetRefusal::InputBoundExceeded));
     }
 
     #[test]
     fn an_output_above_the_policy_is_refused_and_a_lower_one_reserves_less() {
         let mut world = World::new(policy());
         let wire = route();
-        let mut body = request(&wire, general());
+        let mut body = request(&wire);
         body.max_output_tokens = 51;
         assert_eq!(
             world.wallet.reserve(&world.policy, &body, &mut world.clock),
@@ -1359,7 +1641,7 @@ mod tests {
                 let before = world.wallet.clone();
                 let target = [Started, Released, Unknown, Settled][op];
                 let result = match op {
-                    0 => world.wallet.start(id, BODY),
+                    0 => world.start(id),
                     1 => world.wallet.release(id),
                     2 => world.wallet.mark_unknown(id, UnknownReason::Timeout),
                     _ => world
@@ -1389,7 +1671,7 @@ mod tests {
     fn an_operation_on_a_send_that_does_not_exist_is_refused() {
         let mut world = World::new(policy());
         let id = PhysicalId(99);
-        assert_eq!(world.wallet.start(id, BODY), Err(BudgetRefusal::NoSuchSend));
+        assert_eq!(world.start(id), Err(BudgetRefusal::NoSuchSend));
         assert_eq!(world.wallet.release(id), Err(BudgetRefusal::NoSuchSend));
         assert_eq!(
             world.wallet.mark_unknown(id, UnknownReason::Timeout),
@@ -1407,21 +1689,53 @@ mod tests {
     #[test]
     fn a_start_with_other_bytes_is_refused() {
         let mut world = World::new(policy());
-        let id = world.reserve(general()).unwrap().physical;
+        let id = world.reserve().unwrap().physical;
         let before = world.wallet.clone();
         let other = [b'y'; 100];
         assert_eq!(
-            world.wallet.start(id, &other),
+            world.wallet.start(&world.policy, id, &other).map(|_| ()),
             Err(BudgetRefusal::BytesChanged)
         );
         assert_eq!(world.wallet, before);
-        assert_eq!(world.wallet.start(id, BODY), Ok(()));
+        assert_eq!(world.start(id), Ok(()));
+    }
+
+    #[test]
+    fn a_start_gives_out_the_permit_with_the_reserved_bytes() {
+        let mut world = World::new(policy());
+        let id = world.reserve().unwrap().physical;
+        let permit = world.wallet.start(&world.policy, id, BODY).unwrap();
+        assert_eq!(permit.physical(), id);
+        assert_eq!(permit.body(), BODY.as_slice());
+    }
+
+    /// The ledger observes the clock before it calls the wallet; here the test does.
+    #[test]
+    fn a_start_past_the_deadline_is_refused_and_exactly_at_it_passes() {
+        let mut world = World::new(policy_with(|v| v["limits"]["wall_seconds"] = json!(1)));
+        let id = world.reserve().unwrap().physical;
+        world.source.advance(1_000);
+        world.clock.observe(&mut world.wallet.clock);
+        assert_eq!(world.start(id), Ok(()));
+
+        let mut world = World::new(policy_with(|v| v["limits"]["wall_seconds"] = json!(1)));
+        let id = world.reserve().unwrap().physical;
+        world.source.advance(1_001);
+        world.clock.observe(&mut world.wallet.clock);
+        assert_eq!(world.start(id), Err(BudgetRefusal::WallExceeded));
+        assert_eq!(
+            world.wallet.attempt(id).unwrap().state,
+            AttemptState::Reserved
+        );
+        // Nothing left, so it goes back.
+        world.wallet.release(id).unwrap();
+        assert_eq!(world.wallet.held().unwrap(), Money::ZERO);
     }
 
     #[test]
     fn a_reservation_holds_and_a_release_gives_back_money_tokens_and_the_send() {
         let mut world = World::new(policy());
-        let id = world.reserve(general()).unwrap().physical;
+        let id = world.reserve().unwrap().physical;
         assert_eq!(world.wallet.held().unwrap(), money("0.00072"));
         assert_eq!(world.wallet.held_tokens(), 160);
         assert_eq!(world.wallet.physical_used(), 1);
@@ -1434,15 +1748,16 @@ mod tests {
     }
 
     #[test]
-    fn a_release_does_not_give_back_the_logical_count_or_a_final_repair() {
+    fn a_release_does_not_give_back_a_final_repair() {
         let mut world = World::new(policy());
         let id = world
-            .reserve_purpose(final_repair(), SendPurpose::FinalRepair)
+            .reserve_repair(FinalRepairClaim::New)
             .unwrap()
             .physical;
         world.wallet.release(id).unwrap();
-        assert_eq!(world.wallet.logical_global_used(), 1);
         assert_eq!(world.wallet.final_repair_used(), 1);
+        let next = world.reserve_repair(FinalRepairClaim::New).unwrap();
+        assert_eq!(next.final_repair, Some(FinalRepairId(2)));
     }
 
     #[test]
@@ -1459,8 +1774,8 @@ mod tests {
             UnknownReason::SendError,
         ] {
             let mut world = World::new(policy());
-            let id = world.reserve(general()).unwrap().physical;
-            world.wallet.start(id, BODY).unwrap();
+            let id = world.reserve().unwrap().physical;
+            world.start(id).unwrap();
             world.wallet.mark_unknown(id, reason).unwrap();
             assert_eq!(world.wallet.held().unwrap(), money("0.00072"), "{reason:?}");
             assert_eq!(world.wallet.spent().unwrap(), Money::ZERO, "{reason:?}");
@@ -1471,7 +1786,7 @@ mod tests {
             let latch = world.wallet.latch().unwrap();
             assert_eq!(latch.reason, LatchReason::UnknownBilling);
             assert_eq!(latch.physical, id);
-            assert_eq!(world.reserve(general()), Err(BudgetRefusal::Latched));
+            assert_eq!(world.reserve(), Err(BudgetRefusal::Latched));
             assert_eq!(world.wallet.success_gate(), Err(BudgetRefusal::Latched));
         }
     }
@@ -1481,11 +1796,7 @@ mod tests {
         for state in [AttemptState::Reserved, AttemptState::Started] {
             let mut world = World::new(policy());
             world.in_state(state);
-            assert_eq!(
-                world.reserve(general()),
-                Err(BudgetRefusal::Unresolved),
-                "{state:?}"
-            );
+            assert_eq!(world.reserve(), Err(BudgetRefusal::Unresolved), "{state:?}");
             assert_eq!(world.wallet.success_gate(), Err(BudgetRefusal::Unresolved));
         }
     }
@@ -1512,58 +1823,34 @@ mod tests {
             .unwrap();
         assert_eq!(*world.wallet.latch().unwrap(), first);
         world.source.advance(10_000_000);
-        assert_eq!(world.reserve(general()), Err(BudgetRefusal::Latched));
+        assert_eq!(world.reserve(), Err(BudgetRefusal::Latched));
         assert_eq!(world.wallet.success_gate(), Err(BudgetRefusal::Latched));
     }
 
     #[test]
-    fn host_submissions_count_without_a_send_and_stop_at_the_caps() {
-        let mut world = World::new(policy_with(|v| {
-            v["limits"]["logical_per_stage"] = json!(2);
-        }));
-        let kind = LogicalKind::Stage {
-            stage: "one".to_string(),
-        };
-        for _ in 0..2 {
-            world
-                .wallet
-                .record_submission(&world.policy, kind.clone(), None, &mut world.clock)
-                .unwrap();
-        }
-        assert_eq!(
-            world
-                .wallet
-                .record_submission(&world.policy, kind, None, &mut world.clock),
-            Err(BudgetRefusal::LogicalStageExceeded)
-        );
+    fn host_submissions_count_without_a_send() {
+        let mut world = World::new(policy());
+        world.submit(stage_kind("one")).unwrap();
         assert_eq!(world.wallet.physical_used(), 0);
         assert_eq!(world.wallet.spent().unwrap(), Money::ZERO);
+        assert_eq!(world.wallet.spent_tokens(), 0);
     }
 
     #[test]
     fn a_host_submission_does_not_escape_the_clock_or_the_latch() {
+        // After a send, and (`a_submission_with_no_send_starts_the_clock...`) with none.
         let mut world = World::new(policy_with(|v| v["limits"]["wall_seconds"] = json!(1)));
-        world.send(general()).unwrap();
+        world.send().unwrap();
         world.source.advance(1_001);
         assert_eq!(
-            world.wallet.record_submission(
-                &world.policy,
-                LogicalKind::General,
-                None,
-                &mut world.clock
-            ),
+            world.submit(LogicalKind::General),
             Err(BudgetRefusal::WallExceeded)
         );
 
         let mut world = World::new(policy());
         world.in_state(AttemptState::Unknown);
         assert_eq!(
-            world.wallet.record_submission(
-                &world.policy,
-                LogicalKind::General,
-                None,
-                &mut world.clock
-            ),
+            world.submit(LogicalKind::General),
             Err(BudgetRefusal::Latched)
         );
     }
@@ -1571,55 +1858,9 @@ mod tests {
     #[test]
     fn a_host_submission_is_free_of_money_even_with_the_cap_used_up() {
         let mut world = World::new(policy_with(|v| v["limits"]["cost_usd"] = json!("0.00072")));
-        world.send(general()).unwrap();
-        assert!(world.reserve(general()).is_err());
-        assert!(
-            world
-                .wallet
-                .record_submission(&world.policy, LogicalKind::General, None, &mut world.clock)
-                .is_ok()
-        );
-    }
-
-    #[test]
-    fn many_tool_calls_of_one_response_are_one_send_settled_once() {
-        let mut world = World::new(policy());
-        let reservation = world.reserve(stage("one")).unwrap();
-        let id = reservation.physical;
-        world.wallet.start(id, BODY).unwrap();
-        let settled = world
-            .wallet
-            .settle(&world.policy, id, &known(100, 40))
-            .unwrap();
-        let response: ResponseIdentity = settled.response;
-        assert_eq!(response.physical(), id);
-        for index in 0..3 {
-            world
-                .wallet
-                .record_submission(
-                    &world.policy,
-                    LogicalKind::Stage {
-                        stage: "one".to_string(),
-                    },
-                    Some(response.call(index)),
-                    &mut world.clock,
-                )
-                .unwrap();
-        }
-        assert_eq!(world.wallet.physical_used(), 1);
-        assert_eq!(world.wallet.attempts.len(), 1);
-        assert_eq!(world.wallet.spent().unwrap(), money("0.0006"));
-        // The send's own logical request and the three calls.
-        assert_eq!(world.wallet.logical_global_used(), 4);
-        assert_eq!(
-            world.wallet.record_submission(
-                &world.policy,
-                LogicalKind::General,
-                Some(response.call(1)),
-                &mut world.clock
-            ),
-            Err(BudgetRefusal::DuplicateSubmission)
-        );
+        world.send().unwrap();
+        assert!(world.reserve().is_err());
+        assert!(world.submit(LogicalKind::General).is_ok());
     }
 
     #[test]
@@ -1627,7 +1868,7 @@ mod tests {
         let mut world = World::new(policy());
         let id = world.in_state(AttemptState::Settled);
         let response = ResponseIdentity::of_settled(id);
-        let other = world.reserve(general()).unwrap().physical;
+        let other = world.reserve().unwrap().physical;
         world.wallet.release(other).unwrap();
         let not_settled = ResponseIdentity::of_settled(other);
         assert_eq!(
@@ -1675,7 +1916,7 @@ mod tests {
     #[test]
     fn an_attempt_is_bound_after_the_fact_once() {
         let mut world = World::new(policy());
-        let logical = world.send(stage("one")).unwrap().logical;
+        let logical = world.submit(stage_kind("one")).unwrap();
         assert_eq!(world.wallet.logical(logical).unwrap().attempt, None);
         world.wallet.bind_attempt(logical, binding(1)).unwrap();
         assert_eq!(
@@ -1691,11 +1932,26 @@ mod tests {
             world.wallet.logical(logical).unwrap().attempt,
             Some(binding(1))
         );
-        let missing = super::LogicalId(99);
         assert_eq!(
-            world.wallet.bind_attempt(missing, binding(1)),
+            world.wallet.bind_attempt(LogicalId(99), binding(1)),
             Err(BudgetRefusal::NoSuchLogical)
         );
+    }
+
+    #[test]
+    fn a_binding_of_another_stage_or_of_no_stage_is_refused() {
+        let mut world = World::new(policy());
+        let other = world.submit(stage_kind("another")).unwrap();
+        assert_eq!(
+            world.wallet.bind_attempt(other, binding(1)),
+            Err(BudgetRefusal::BindingStageDiffers)
+        );
+        let general = world.submit(LogicalKind::General).unwrap();
+        assert_eq!(
+            world.wallet.bind_attempt(general, binding(1)),
+            Err(BudgetRefusal::BindingStageDiffers)
+        );
+        assert_eq!(world.wallet.logical(other).unwrap().attempt, None);
     }
 
     #[test]
@@ -1761,8 +2017,6 @@ mod tests {
             .settle(&world.policy, id, &known(100, 40))
             .unwrap();
         assert!(world.wallet.is_consistent(&world.policy));
-        let reservation = World::new(policy());
-        assert!(reservation.wallet.is_consistent(&reservation.policy));
     }
 
     /// Each change is one a file could carry past its digest: every one has to be seen.
@@ -1770,28 +2024,35 @@ mod tests {
     fn records_that_disagree_are_not_consistent() {
         fn settled() -> World {
             let mut world = World::new(policy());
-            world.in_state(AttemptState::Settled);
+            let id = world.in_state(AttemptState::Settled);
+            let response = ResponseIdentity::of_settled(id);
+            world
+                .wallet
+                .record_submission(
+                    &world.policy,
+                    stage_kind("one"),
+                    Some(response.call(0)),
+                    &mut world.clock,
+                )
+                .unwrap();
             world
         }
         type Change = fn(&mut WalletState);
         let changes: Vec<(&str, Change)> = vec![
             ("schema", |w| w.schema = "other".to_string()),
             ("id gap", |w| w.attempts[0].physical = PhysicalId(5)),
-            ("logical gap", |w| w.logicals[0].id = super::LogicalId(5)),
-            ("dangling logical", |w| {
-                w.attempts[0].logical = super::LogicalId(9)
-            }),
+            ("logical gap", |w| w.logicals[0].id = LogicalId(5)),
             ("reservation shrunk", |w| {
-                w.attempts[0].reserved = Money::ZERO
+                w.attempts[0].reserved = Money::ZERO;
             }),
             ("output bound over policy", |w| {
-                w.attempts[0].output_bound = 51
+                w.attempts[0].output_bound = 51;
             }),
             ("input bound over policy", |w| {
-                w.attempts[0].input_bound = 1001
+                w.attempts[0].input_bound = 1001;
             }),
             ("settled without record", |w| {
-                w.attempts[0].settlement = None
+                w.attempts[0].settlement = None;
             }),
             ("consumed lowered", |w| {
                 w.attempts[0].settlement.as_mut().unwrap().consumed = Money::ZERO;
@@ -1806,10 +2067,10 @@ mod tests {
                 w.attempts[0].settlement.as_mut().unwrap().prompt_tokens = 0;
             }),
             ("not settled with a record", |w| {
-                w.attempts[0].state = AttemptState::Started
+                w.attempts[0].state = AttemptState::Started;
             }),
             ("released with a record", |w| {
-                w.attempts[0].state = AttemptState::Released
+                w.attempts[0].state = AttemptState::Released;
             }),
             ("clock erased", |w| w.clock.started_wall_ms = None),
             ("over the reservation with no latch", |w| {
@@ -1836,12 +2097,61 @@ mod tests {
             ("a source that names no send", |w| {
                 w.logicals[0].source = Some(ResponseIdentity::of_settled(PhysicalId(9)).call(0));
             }),
+            ("a latch that names no send", |w| {
+                w.latch = Some(super::Latch {
+                    reason: LatchReason::OverReservation,
+                    physical: PhysicalId(99),
+                });
+            }),
+            ("a purpose of final repair with no claim", |w| {
+                w.attempts[0].purpose = SendPurpose::FinalRepair;
+            }),
+            ("a claim with no purpose of final repair", |w| {
+                w.attempts[0].final_repair = Some(FinalRepairId(1));
+                w.clock.final_repair_started_ms = Some(0);
+            }),
         ];
         for (name, change) in changes {
             let mut world = settled();
+            assert!(world.wallet.is_consistent(&world.policy), "before {name}");
             change(&mut world.wallet);
             assert!(!world.wallet.is_consistent(&world.policy), "{name}");
         }
+    }
+
+    #[test]
+    fn two_logicals_of_one_source_are_not_consistent() {
+        let mut world = World::new(policy());
+        let response = world.send().unwrap();
+        world
+            .wallet
+            .record_submission(
+                &world.policy,
+                LogicalKind::General,
+                Some(response.call(0)),
+                &mut world.clock,
+            )
+            .unwrap();
+        world.submit(LogicalKind::General).unwrap();
+        assert!(world.wallet.is_consistent(&world.policy));
+        world.wallet.logicals[1].source = world.wallet.logicals[0].source;
+        assert!(!world.wallet.is_consistent(&world.policy));
+    }
+
+    #[test]
+    fn final_repair_ids_out_of_order_are_not_consistent() {
+        let build = || {
+            let mut world = World::new(policy());
+            world.send_repair(FinalRepairClaim::New).unwrap();
+            world
+        };
+        let mut world = build();
+        assert!(world.wallet.is_consistent(&world.policy));
+        world.wallet.attempts[0].final_repair = Some(FinalRepairId(2));
+        assert!(!world.wallet.is_consistent(&world.policy));
+        let mut world = build();
+        world.wallet.attempts[0].final_repair = Some(FinalRepairId(0));
+        assert!(!world.wallet.is_consistent(&world.policy));
     }
 
     #[test]
@@ -1860,7 +2170,7 @@ mod tests {
     }
 
     #[test]
-    fn a_late_settlement_without_its_latch_or_a_clock_with_no_send_is_not_consistent() {
+    fn a_late_settlement_without_its_latch_or_a_clock_with_nothing_recorded_is_not_consistent() {
         let mut world = World::new(policy());
         let id = world.in_state(AttemptState::Unknown);
         world
@@ -1880,17 +2190,243 @@ mod tests {
         let mut world = World::new(policy());
         world.in_state(AttemptState::Reserved);
         let second = world.wallet.attempts[0].clone();
-        world.wallet.attempts.push(super::AttemptRecord {
+        world.wallet.attempts.push(AttemptRecord {
             physical: PhysicalId(2),
             ..second
         });
         assert!(!world.wallet.is_consistent(&world.policy));
 
         let mut world = World::new(policy());
-        world
-            .reserve_purpose(final_repair(), SendPurpose::FinalRepair)
-            .unwrap();
+        world.reserve_repair(FinalRepairClaim::New).unwrap();
         world.wallet.clock.final_repair_started_ms = None;
         assert!(!world.wallet.is_consistent(&world.policy));
+    }
+
+    /// One row per limit: a record past it with no latch is damage, and a latch explains it.
+    #[test]
+    fn past_a_limit_with_no_latch_is_not_consistent_and_with_a_latch_it_is() {
+        let mut world = World::new(policy());
+        world.send().unwrap();
+        world.send().unwrap();
+        world.submit(stage_kind("one")).unwrap();
+        world.submit(stage_kind("one")).unwrap();
+        world.send_repair(FinalRepairClaim::New).unwrap();
+        assert!(world.wallet.is_consistent(&world.policy));
+        let narrower = [
+            ("physical_sends", json!(2)),
+            ("cost_usd", json!("0.0017")),
+            ("tokens", json!(419)),
+            ("logical_global", json!(1)),
+            ("logical_per_stage", json!(1)),
+            ("final_repair_attempts", json!(0)),
+        ];
+        for (key, value) in narrower {
+            let narrow = policy_with(|v| v["limits"][key] = value.clone());
+            assert!(!world.wallet.is_consistent(&narrow), "{key}");
+            let mut latched = world.wallet.clone();
+            latched.set_latch(LatchReason::OverReservation, PhysicalId(1));
+            assert!(latched.is_consistent(&narrow), "{key}");
+            // The exact value of each one passes, so the row measures that limit.
+        }
+        let exact = policy_with(|v| {
+            v["limits"]["physical_sends"] = json!(3);
+            v["limits"]["cost_usd"] = json!("0.0018");
+            v["limits"]["tokens"] = json!(420);
+            v["limits"]["logical_global"] = json!(2);
+            v["limits"]["logical_per_stage"] = json!(2);
+            v["limits"]["final_repair_attempts"] = json!(1);
+        });
+        assert!(world.wallet.is_consistent(&exact));
+    }
+
+    /// A seeded step for the walk below, with no new dependency.
+    struct Rng(u64);
+
+    impl Rng {
+        fn next(&mut self) -> u64 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            self.0
+        }
+    }
+
+    fn walk_step(
+        world: &mut World,
+        rng: &mut Rng,
+        last_response: &mut Option<ResponseIdentity>,
+        last_logical: &mut Option<LogicalId>,
+        last_repair: &mut Option<FinalRepairId>,
+    ) -> Result<(), BudgetRefusal> {
+        let held = world
+            .wallet
+            .attempts
+            .iter()
+            .find(|attempt| attempt.state.holds())
+            .map(|attempt| (attempt.physical, attempt.state));
+        match (rng.next() % 10, held) {
+            (0 | 1, _) => world.reserve().map(|_| ()),
+            (2, _) => world
+                .reserve_repair(FinalRepairClaim::New)
+                .map(|r| *last_repair = r.final_repair),
+            (3, _) => match *last_repair {
+                Some(id) => world
+                    .reserve_repair(FinalRepairClaim::Continue(id))
+                    .map(|_| ()),
+                None => Ok(()),
+            },
+            (4 | 5, Some((id, AttemptState::Reserved))) => {
+                if rng.next().is_multiple_of(4) {
+                    world.wallet.release(id)
+                } else {
+                    world.start(id)
+                }
+            }
+            (4 | 5, Some((id, AttemptState::Started))) => {
+                let (token, prompt, completion) = match rng.next() % 13 {
+                    0 => {
+                        return world.wallet.mark_unknown(id, UnknownReason::Timeout);
+                    }
+                    1 => ("5", 100, 40),
+                    2 => ("0", 111, 40),
+                    3 => ("0", 100, 51),
+                    4 => ("0", 0, 0),
+                    n => ("0.0001", n * 9, n * 4),
+                };
+                let cost = BilledCostUsd::from_json_token(token).unwrap();
+                world
+                    .wallet
+                    .settle_reported(
+                        &world.policy,
+                        id,
+                        &ReportedUsage {
+                            cost: Some(&cost),
+                            prompt_tokens: Some(prompt),
+                            completion_tokens: Some(completion),
+                            ..ReportedUsage::default()
+                        },
+                    )
+                    .map(|report| {
+                        if let super::super::settlement::SettleReport::Settled(outcome) = report {
+                            *last_response = Some(outcome.response);
+                        }
+                    })
+            }
+            (4 | 5, Some((id, AttemptState::Unknown))) => world
+                .wallet
+                .settle(&world.policy, id, &billing("0.0001", 10, 10))
+                .map(|_| ()),
+            (6, _) => {
+                let kind = if rng.next().is_multiple_of(2) {
+                    LogicalKind::General
+                } else {
+                    stage_kind("a")
+                };
+                let source = if rng.next().is_multiple_of(2) {
+                    last_response.map(|response| response.call((rng.next() % 3) as u32))
+                } else {
+                    None
+                };
+                world
+                    .wallet
+                    .record_submission(&world.policy, kind, source, &mut world.clock)
+                    .map(|id| *last_logical = Some(id))
+            }
+            (7, _) => {
+                world.source.advance(rng.next() % 3_000);
+                world.clock.observe(&mut world.wallet.clock);
+                Ok(())
+            }
+            (8, _) => match *last_logical {
+                Some(id) => world.wallet.bind_attempt(
+                    id,
+                    AttemptBinding {
+                        run_nonce: "nonce-walk".to_string(),
+                        stage: "a".to_string(),
+                        target: "target-walk".to_string(),
+                        attempt: 1,
+                        generation: 1,
+                    },
+                ),
+                None => Ok(()),
+            },
+            (9, _) if rng.next().is_multiple_of(8) => {
+                world.wallet.recover_after_process_end();
+                world.clock = RunClock::new(world.source.clone());
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// Every operation in random order, on a fixed seed. After every step what the code wrote
+    /// passes the check, survives the file, and, with no latch, is inside every limit, stated here
+    /// without going through the check.
+    #[test]
+    fn a_seeded_walk_of_every_operation_stays_consistent_and_inside_the_limits() {
+        let (mut latched, mut done, mut refused) = (0_u64, 0_u64, 0_u64);
+        for seed in 1..=400_u64 {
+            let mut rng = Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
+            let mut world = World::new(policy_with(|v| {
+                v["limits"]["physical_sends"] = json!(6);
+                v["limits"]["logical_global"] = json!(9);
+                v["limits"]["logical_per_stage"] = json!(3);
+                v["limits"]["cost_usd"] = json!("0.003");
+                v["limits"]["tokens"] = json!(800);
+                v["limits"]["final_repair_attempts"] = json!(2);
+                v["limits"]["final_repair_seconds"] = json!(5);
+                v["limits"]["wall_seconds"] = json!(40);
+            }));
+            let (mut response, mut logical, mut repair) = (None, None, None);
+            for _ in 0..50 {
+                let result = walk_step(
+                    &mut world,
+                    &mut rng,
+                    &mut response,
+                    &mut logical,
+                    &mut repair,
+                );
+                if result.is_ok() {
+                    done += 1;
+                } else {
+                    refused += 1;
+                }
+                let wallet = &world.wallet;
+                assert!(wallet.is_consistent(&world.policy), "seed {seed}");
+                let text = serde_json::to_string(wallet).unwrap();
+                let back: WalletState = serde_json::from_str(&text).unwrap();
+                assert_eq!(&back, wallet, "seed {seed}");
+                let mut recovered = wallet.clone();
+                recovered.recover_after_process_end();
+                assert!(recovered.is_consistent(&world.policy), "seed {seed}");
+                if wallet.latch().is_none() {
+                    let limits = &world.policy.limits;
+                    assert!(wallet.physical_used() <= limits.physical_sends, "{seed}");
+                    assert!(
+                        wallet.logical_global_used() <= limits.logical_global,
+                        "{seed}"
+                    );
+                    assert!(
+                        wallet.logical_stage_used("a") <= limits.logical_per_stage,
+                        "{seed}"
+                    );
+                    assert!(
+                        wallet.final_repair_used() <= limits.final_repair_attempts,
+                        "{seed}"
+                    );
+                    let money = wallet.spent().unwrap().units() + wallet.held().unwrap().units();
+                    assert!(money <= limits.cost.units(), "{seed}");
+                    let tokens = wallet.spent_tokens() + wallet.held_tokens();
+                    assert!(tokens <= u128::from(limits.tokens), "{seed}");
+                }
+            }
+            if world.wallet.latch().is_some() {
+                latched += 1;
+            }
+        }
+        // The walk has to have reached both sides for any of the above to mean something.
+        assert!(done > 1_000, "{done}");
+        assert!(refused > 1_000, "{refused}");
+        assert!(latched > 50, "{latched}");
     }
 }

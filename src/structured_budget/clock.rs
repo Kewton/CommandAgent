@@ -3,7 +3,7 @@
 //! Inside a process, the monotonic reading keeps counting whatever the wall clock does. Across
 //! processes, only the saved start and high-water mark are there, so the time between processes
 //! is whatever the wall clock says, and never less than was already counted. Moving the clock back
-//! takes nothing off. The start is the first reservation, and it never moves.
+//! takes nothing off. The start is the first reservation or submission, and it never moves.
 
 use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
@@ -74,8 +74,8 @@ impl RunClock {
         }
     }
 
-    /// The elapsed run time, which also raises the record's high-water mark. Zero before the first
-    /// reservation.
+    /// The elapsed run time, which also raises the record's high-water mark. Zero before the run
+    /// has started.
     pub(crate) fn observe(&mut self, record: &mut ClockRecord) -> u64 {
         let Some(started_wall_ms) = record.started_wall_ms else {
             return 0;
@@ -111,7 +111,7 @@ impl RunClock {
 #[cfg(test)]
 mod tests {
     use super::super::test_support::{FakeClock, run_clock};
-    use super::ClockRecord;
+    use super::{BudgetClock, ClockRecord, SystemBudgetClock};
 
     const START: u64 = 1_000_000;
 
@@ -121,6 +121,16 @@ mod tests {
         let mut record = ClockRecord::default();
         clock.begin(&mut record);
         (source, clock, record)
+    }
+
+    #[test]
+    fn the_system_clock_moves_forward() {
+        let clock = SystemBudgetClock::new();
+        let before = clock.monotonic_ms();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        assert!(clock.monotonic_ms() >= before + 2);
+        // Well after 2020 by any machine that runs this.
+        assert!(clock.wall_ms() > 1_577_836_800_000);
     }
 
     #[test]

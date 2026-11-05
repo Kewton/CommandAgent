@@ -207,17 +207,29 @@ fn tariff(raw: RawTariff) -> Result<Tariff, PolicyRefusal> {
     if blank(&raw.revision) {
         return Err(PolicyRefusal::InvalidTariff);
     }
+    let input = amount(&raw.input_per_million)?;
+    let output = amount(&raw.output_per_million)?;
+    // A free route is not what this wallet is for, and with these at zero the money limit would
+    // stop nothing. A route with no cache, or with no fee, is what the other zeros mean.
+    if input == Money::ZERO || output == Money::ZERO {
+        return Err(PolicyRefusal::InvalidTariff);
+    }
     Ok(Tariff {
-        input: amount(&raw.input_per_million)?,
+        input,
         cached_input: amount(&raw.cached_input_per_million)?,
         cache_write: amount(&raw.cache_write_per_million)?,
-        output: amount(&raw.output_per_million)?,
+        output,
         request_fee: amount(&raw.request_fee)?,
         revision: raw.revision,
     })
 }
 
 fn limits(raw: &RawLimits) -> Result<Limits, PolicyRefusal> {
+    // Every other limit at zero is zero of what it counts. These two would pass a first send,
+    // since exactly at a limit passes, so a zero here is not a limit at all.
+    if raw.wall_seconds == 0 || raw.final_repair_seconds == 0 {
+        return Err(PolicyRefusal::ZeroBound);
+    }
     Ok(Limits {
         cost: amount(&raw.cost_usd)?,
         physical_sends: raw.physical_sends,
@@ -494,6 +506,60 @@ mod tests {
         assert_eq!(
             refused(|v| v["tariff"]["revision"] = json!(" ")),
             PolicyRefusal::InvalidTariff
+        );
+    }
+
+    #[test]
+    fn a_zero_input_or_output_rate_is_refused_in_every_spelling() {
+        for zero in ["0", "0.0", "0e5"] {
+            for key in ["input_per_million", "output_per_million"] {
+                assert_eq!(
+                    refused(|v| v["tariff"][key] = json!(zero)),
+                    PolicyRefusal::InvalidTariff,
+                    "{key} {zero}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_tiny_rate_is_not_zero_and_a_route_with_no_cache_or_fee_is_allowed() {
+        let mut value = policy_value();
+        value["tariff"]["input_per_million"] = json!("1e-400");
+        value["tariff"]["output_per_million"] = json!("1e-400");
+        value["tariff"]["cached_input_per_million"] = json!("0");
+        value["tariff"]["cache_write_per_million"] = json!("0");
+        value["tariff"]["request_fee"] = json!("0");
+        let decoded = RunBudgetPolicy::decode(value.to_string().as_bytes(), WALLET).unwrap();
+        assert_eq!(decoded.tariff.input.units(), 1);
+        assert_eq!(decoded.tariff.output.units(), 1);
+    }
+
+    #[test]
+    fn a_limit_in_seconds_cannot_be_zero_and_one_second_is_a_limit() {
+        for key in ["wall_seconds", "final_repair_seconds"] {
+            assert_eq!(
+                refused(|v| v["limits"][key] = json!(0)),
+                PolicyRefusal::ZeroBound,
+                "{key}"
+            );
+            let mut value = policy_value();
+            value["limits"][key] = json!(1);
+            assert!(RunBudgetPolicy::decode(value.to_string().as_bytes(), WALLET).is_ok());
+        }
+    }
+
+    #[test]
+    fn a_policy_of_exactly_the_largest_size_decodes_and_one_byte_more_is_refused() {
+        let text = policy_value().to_string();
+        let padding = (1 << 20) - text.len();
+        let exact = format!("{text}{}", " ".repeat(padding));
+        assert_eq!(exact.len(), 1 << 20);
+        assert!(RunBudgetPolicy::decode(exact.as_bytes(), WALLET).is_ok());
+        let over = format!("{exact} ");
+        assert_eq!(
+            RunBudgetPolicy::decode(over.as_bytes(), WALLET),
+            Err(PolicyRefusal::TooLarge)
         );
     }
 
