@@ -445,10 +445,29 @@ fn refuse_place(place: &Path, workspace: &Path) -> Result<(), LedgerRefusal> {
     })
 }
 
+/// Where a walk ends at a name that is not there: that name and the rest, below the real directory
+/// the walk reached. A place a command could write is no less one for being gone now, as a cache
+/// the sandbox holds can be, so where the wallet will be made is judged too. A rest that is not
+/// plain names could lead anywhere once made, so it is not judged but refused, as G4 refuses one.
+fn refuse_what_is_yet_to_be_made(
+    missing: PathBuf,
+    rest: &Path,
+    bounds: &WriteBounds,
+) -> Result<(), LedgerRefusal> {
+    let mut leads_to = missing;
+    for name in rest.components() {
+        match name {
+            Component::Normal(name) => leads_to.push(name),
+            _ => return Err(LedgerRefusal::Unavailable),
+        }
+    }
+    refuse_command_writes(&leads_to, bounds)
+}
+
 /// Walks the path as the system does, one name at a time and with no link followed unseen, and
 /// judges each real directory it enters. So a directory holding a name of the way, even a name in
 /// the text of a link, has been judged before that name is read. What is not there yet ends the
-/// walk: nothing below it can be a link, and [`refuse_place`] has already judged the plain tail.
+/// walk: nothing below it can be a link, and what will be made there is judged as it will lead.
 fn refuse_every_name_on_the_way(
     directory: &WalletDirectory,
     workspace: &Path,
@@ -492,7 +511,9 @@ fn refuse_every_name_on_the_way(
                         place = next;
                         after
                     }
-                    Err(error) if error.kind() == ErrorKind::NotFound => return Ok(()),
+                    Err(error) if error.kind() == ErrorKind::NotFound => {
+                        return refuse_what_is_yet_to_be_made(next, &after, bounds);
+                    }
                     Err(error) => return Err(unavailable(error)),
                 }
             }
@@ -502,9 +523,10 @@ fn refuse_every_name_on_the_way(
 
 /// A directory commands of the run can write proves nothing, and neither does a path that runs
 /// through one, so both are judged, once, when the wallet opens. After that no use walks the path
-/// again: every change first holds the lock at the path to the inode it holds and the file to what
-/// it last wrote ([`Store::verify_unchanged`]), so a name moved later meets another lock or another
-/// file and is refused. Where it leads comes first, so its refusals stay as G4 words them.
+/// again: every change first compares the lock at the path with the one held, by device and inode,
+/// and the file with the digest of what this handle last wrote ([`Store::verify_unchanged`]). So a
+/// swap that changes which lock is there or what the ledger holds is refused; one that changes
+/// neither is not seen. Where it leads comes first, so its refusals stay as G4 words them.
 fn refuse_directory(
     directory: &WalletDirectory,
     workspace: &Path,
@@ -2609,6 +2631,134 @@ mod tests {
         assert!(
             stdout.contains(APPLIED_POLICY_RAN),
             "{APPLIED_POLICY_RAN} missing\n{stdout}\n{stderr}"
+        );
+    }
+
+    const YET_TO_BE_MADE_CHILD: &str = "COMMANDAGENT_TEST_BUDGET_YET_TO_BE_MADE_CHILD";
+    const YET_TO_BE_MADE_RAN: &str =
+        "child-976-ran what_is_yet_to_be_made_is_judged_as_it_will_lead";
+
+    /// A world whose sandbox held a cache at `home/.npm` when it was installed, and the cache gone
+    /// since, as a command or the operator can remove one. The policy keeps the cache it found.
+    fn a_world_whose_cache_is_gone() -> (World, PathBuf, CommandWrites) {
+        let world = World::new();
+        let home = made(world.base.join("home"));
+        let cache = made(home.join(".npm"));
+        let policy =
+            SandboxPolicy::with_home(&world.workspace, &run_tmp_under(&world.base), home.clone());
+        assert_eq!(policy.caches.npm, Some(fs::canonicalize(&cache).unwrap()));
+        fs::remove_dir(&cache).unwrap();
+        (world, home, CommandWrites::of(policy))
+    }
+
+    /// Runs only as the child of the test below, whose environment holds a home of its own.
+    #[test]
+    fn what_is_yet_to_be_made_is_judged_as_it_will_lead_child() {
+        use LedgerRefusal::{DirectoryWritableByCommands as Writable, Unavailable};
+        if std::env::var_os(YET_TO_BE_MADE_CHILD).is_none() {
+            return;
+        }
+        type Way = fn(&World, &Path) -> PathBuf;
+        let rows: Vec<(&str, Way, Result<(), LedgerRefusal>)> = vec![
+            (
+                "a cache gone since the install",
+                |_, home| home.join(".npm/wallets"),
+                Err(Writable),
+            ),
+            (
+                "a cache gone since the install, named through a link",
+                |world, home| linked(home, world.base.join("to-home")).join(".npm/wallets"),
+                Err(Writable),
+            ),
+            (
+                "a cache gone since the install, spelled with a `.`",
+                |_, home| home.join("./.npm/wallets"),
+                Err(Writable),
+            ),
+            (
+                "a rest that climbs out of a name that is not there",
+                |world, _| {
+                    made(world.base.join("real"));
+                    linked(
+                        world.base.join("real/missing/../elsewhere"),
+                        world.base.join("l"),
+                    )
+                },
+                Err(Unavailable),
+            ),
+            (
+                "the control: beside the cache gone",
+                |_, home| home.join("elsewhere/wallets"),
+                Ok(()),
+            ),
+        ];
+        let mut wrong = Vec::new();
+        for (name, way, expected) in rows {
+            let (world, home, writes) = a_world_whose_cache_is_gone();
+            let ledger_dir = way(&world, &home);
+            let before = every_name_under(&world.base);
+            let opened = open_with(&world, &ledger_dir, Some(writes)).map(|_| ());
+            let made_anything = every_name_under(&world.base) != before;
+            let as_expected = match expected {
+                Ok(()) => ledger_dir.join(WALLET).join(LEDGER_FILE).exists(),
+                Err(_) => !made_anything,
+            };
+            if opened != expected || !as_expected {
+                wrong.push(format!(
+                    "{name}: {opened:?}, made anything: {made_anything}"
+                ));
+            }
+        }
+
+        // The walk alone, since G4 refuses a link to what is not there before the walk is reached.
+        let world = World::new();
+        let tmp = run_tmp_under(&world.base);
+        let walked = |ledger_dir: &Path| {
+            let text = ledger_dir.to_str().unwrap();
+            let policy = world.declaration(WALLET, |v| v["ledger_dir"] = json!(text));
+            refuse_every_name_on_the_way(
+                &WalletDirectory::of(&policy),
+                &world.workspace,
+                &world.bounds(),
+            )
+        };
+        let climbs_in = linked(
+            tmp.parent().unwrap().join("missing/../run-976/w"),
+            world.base.join("climbs-in"),
+        );
+        let walk = walked(&climbs_in);
+        if walk != Err(Unavailable) {
+            wrong.push(format!("the walk alone, a rest that climbs in: {walk:?}"));
+        }
+        assert_eq!(wrong, Vec::<String>::new());
+        println!("{YET_TO_BE_MADE_RAN}");
+    }
+
+    /// Where a walk ends at a name that is not there, what will be made is judged by where it will
+    /// lead. The check of G4 reads `HOME`, so the child has a temporary one.
+    #[test]
+    fn what_is_yet_to_be_made_is_judged_as_it_will_lead() {
+        let root = tempfile::tempdir().unwrap();
+        let home = made(root.path().join("home"));
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "structured_budget::ledger::tests::what_is_yet_to_be_made_is_judged_as_it_will_lead_child",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env_clear()
+            .env("HOME", &home)
+            .env(YET_TO_BE_MADE_CHILD, "marker-976-yet-to-be-made-child")
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{stdout}\n{stderr}");
+        assert!(stdout.contains("1 passed"), "{stdout}\n{stderr}");
+        assert!(
+            stdout.contains(YET_TO_BE_MADE_RAN),
+            "{YET_TO_BE_MADE_RAN} missing\n{stdout}\n{stderr}"
         );
     }
 
