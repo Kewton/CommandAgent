@@ -76,6 +76,9 @@ pub(crate) enum LedgerRefusal {
     ProfileBlank,
     DirectoryInsideWorkspace,
     DirectoryWritableByCommands,
+    /// No sandbox applied on this workspace says where commands of the run can write, so no place
+    /// can be judged out of their reach.
+    SandboxPolicyUnknown,
     /// Gone from under this handle during the run.
     Vanished,
     /// Not what this handle last wrote.
@@ -116,6 +119,9 @@ pub(crate) struct LedgerOpen<'a> {
     pub(crate) explicit_profile: Option<&'a str>,
     pub(crate) entry: LedgerEntry,
     pub(crate) clock: Arc<dyn BudgetClock>,
+    /// Where commands of this run can write, from the sandbox applied on it. Without it the wallet
+    /// does not open.
+    pub(crate) command_writes: Option<CommandWrites>,
 }
 
 /// One wallet, its lock held for as long as this value lives.
@@ -170,6 +176,78 @@ mod wallet_directory {
 }
 
 use wallet_directory::WalletDirectory;
+
+mod command_writes {
+    use crate::tools::os_sandbox::{self, SandboxPolicy};
+
+    /// Where commands of a run can write, as the sandbox applied on it holds them. Its field keeps
+    /// every other policy from being one, so a place is judged by what is in force.
+    #[derive(Debug, Clone)]
+    pub(crate) struct CommandWrites(SandboxPolicy);
+
+    impl CommandWrites {
+        /// The policy of the sandbox applied on this run, or nothing when none is applied.
+        pub(crate) fn applied() -> Option<Self> {
+            os_sandbox::applied_policy().map(Self)
+        }
+
+        /// A policy a test holds, with no sandbox of the process read.
+        #[cfg(test)]
+        pub(crate) fn of(policy: SandboxPolicy) -> Self {
+            Self(policy)
+        }
+
+        pub(super) fn policy(&self) -> &SandboxPolicy {
+            &self.0
+        }
+    }
+}
+
+pub(crate) use command_writes::CommandWrites;
+
+/// Every place a command of the run can write besides the workspace, each as it really leads.
+#[derive(Debug)]
+struct WriteBounds {
+    roots: Vec<PathBuf>,
+}
+
+impl WriteBounds {
+    /// What is not known is not a bound: no policy, a policy of another workspace, or a temporary
+    /// that is not there each refuse the wallet before anything is made.
+    fn of(writes: Option<&CommandWrites>, workspace: &Path) -> Result<Self, LedgerRefusal> {
+        let workspace = fs::canonicalize(workspace).map_err(unavailable)?;
+        let policy = writes.ok_or(LedgerRefusal::SandboxPolicyUnknown)?.policy();
+        let unknown = |_| LedgerRefusal::SandboxPolicyUnknown;
+        if fs::canonicalize(&policy.workspace_root).map_err(unknown)? != workspace {
+            return Err(LedgerRefusal::SandboxPolicyUnknown);
+        }
+        let mut roots = vec![fs::canonicalize(&policy.run_tmp_dir).map_err(unknown)?];
+        let caches = &policy.caches;
+        let caches = [
+            &caches.cargo_registry,
+            &caches.cargo_git,
+            &caches.cargo_package_cache,
+            &caches.npm,
+            &caches.pip,
+            &caches.playwright,
+        ];
+        roots.extend(
+            caches
+                .into_iter()
+                .flatten()
+                .map(|root| fs::canonicalize(root).unwrap_or_else(|_| root.clone())),
+        );
+        Ok(Self { roots })
+    }
+}
+
+/// A real directory, one with no link on its way, inside a place commands of the run can write.
+fn refuse_command_writes(real: &Path, bounds: &WriteBounds) -> Result<(), LedgerRefusal> {
+    if bounds.roots.iter().any(|root| real.starts_with(root)) {
+        return Err(LedgerRefusal::DirectoryWritableByCommands);
+    }
+    Ok(())
+}
 
 #[derive(Debug)]
 struct Store {
@@ -372,6 +450,7 @@ fn refuse_place(place: &Path, workspace: &Path) -> Result<(), LedgerRefusal> {
 fn refuse_every_name_on_the_way(
     directory: &WalletDirectory,
     workspace: &Path,
+    bounds: &WriteBounds,
 ) -> Result<(), LedgerRefusal> {
     let mut place = PathBuf::new();
     let mut rest = directory.path().to_path_buf();
@@ -407,6 +486,7 @@ fn refuse_every_name_on_the_way(
                     }
                     Ok(_) => {
                         refuse_place(&next, workspace)?;
+                        refuse_command_writes(&next, bounds)?;
                         place = next;
                         after
                     }
@@ -421,9 +501,13 @@ fn refuse_every_name_on_the_way(
 /// A directory commands of the run can write proves nothing, and neither does a path that runs
 /// through one: the place is judged by where it leads, and every use walks the path again. So both
 /// are judged. Where it leads comes first, so its refusals stay as G4 words them.
-fn refuse_directory(directory: &WalletDirectory, workspace: &Path) -> Result<(), LedgerRefusal> {
+fn refuse_directory(
+    directory: &WalletDirectory,
+    workspace: &Path,
+    bounds: &WriteBounds,
+) -> Result<(), LedgerRefusal> {
     refuse_place(directory.path(), workspace)?;
-    refuse_every_name_on_the_way(directory, workspace)
+    refuse_every_name_on_the_way(directory, workspace, bounds)
 }
 
 /// The wallet already on disk, held to the declaration and the run that opened it.
@@ -458,7 +542,8 @@ impl BudgetLedger {
     pub(crate) fn open(request: LedgerOpen<'_>) -> Result<Self, LedgerRefusal> {
         let policy = request.policy;
         let directory = WalletDirectory::of(&policy);
-        refuse_directory(&directory, request.workspace)?;
+        let bounds = WriteBounds::of(request.command_writes.as_ref(), request.workspace)?;
+        refuse_directory(&directory, request.workspace, &bounds)?;
         let workspace = fs::canonicalize(request.workspace).map_err(unavailable)?;
         let workspace_sha256 = sha256_hex(workspace.as_os_str().as_bytes());
         let explicit_profile = request
@@ -631,17 +716,37 @@ mod tests {
         BODY, FakeClock, Rng, WALLET, policy_value, request, stage_kind,
     };
     use super::{
-        BudgetLedger, LEDGER_FILE, LEDGER_TEMPORARY, LOCK_FILE, LedgerEntry, LedgerFailure,
-        LedgerOpen, LedgerRefusal, MAX_LEDGER_BYTES, MOST_LINKS_ON_THE_WAY, Store, WalletDirectory,
-        fits_a_ledger, lock_refusal, refuse_directory, refuse_every_name_on_the_way,
+        BudgetLedger, CommandWrites, LEDGER_FILE, LEDGER_TEMPORARY, LOCK_FILE, LedgerEntry,
+        LedgerFailure, LedgerOpen, LedgerRefusal, MAX_LEDGER_BYTES, MOST_LINKS_ON_THE_WAY, Store,
+        WalletDirectory, WriteBounds, fits_a_ledger, lock_refusal, refuse_directory,
+        refuse_every_name_on_the_way,
     };
     use crate::planner::profile::canonical_profile_name;
     use crate::planner::structured_stages::receipt::sha256_hex;
     use crate::providers::BilledCostUsd;
+    use crate::tools::os_sandbox::SandboxPolicy;
+
+    /// The run's own temporary under `base`, as a sandbox makes one under its state directory.
+    fn run_tmp_under(base: &Path) -> PathBuf {
+        let run_tmp = base.join("state/sandbox/run-976");
+        fs::create_dir_all(&run_tmp).unwrap();
+        run_tmp
+    }
+
+    /// What a sandbox applied on `workspace` lets commands write, its temporary under `base` and
+    /// its caches under `base/home`. No sandbox of the process is read.
+    fn writes_under(base: &Path, workspace: &Path) -> CommandWrites {
+        CommandWrites::of(SandboxPolicy::with_home(
+            workspace,
+            &run_tmp_under(base),
+            base.join("home"),
+        ))
+    }
 
     struct World {
         // Held so the directories outlive the test.
         _root: tempfile::TempDir,
+        base: PathBuf,
         ledgers: PathBuf,
         workspace: PathBuf,
         policy: Arc<RunBudgetPolicy>,
@@ -659,6 +764,8 @@ mod tests {
             let base = fs::canonicalize(root.path()).unwrap();
             let workspace = base.join("workspace");
             fs::create_dir_all(&workspace).unwrap();
+            // Made now, so that a test that sees what an open makes does not see this.
+            run_tmp_under(&base);
             let ledgers = base.join("operator-ledgers");
             let mut value = policy_value();
             value["ledger_dir"] = json!(ledgers.to_str().unwrap());
@@ -667,10 +774,20 @@ mod tests {
             Self {
                 ledgers,
                 workspace,
+                base,
                 _root: root,
                 policy: Arc::new(policy),
                 clock: FakeClock::at(7_000),
             }
+        }
+
+        /// What commands of a run on `workspace` can write, in this world.
+        fn writes(&self, workspace: &Path) -> CommandWrites {
+            writes_under(&self.base, workspace)
+        }
+
+        fn bounds(&self) -> WriteBounds {
+            WriteBounds::of(Some(&self.writes(&self.workspace)), &self.workspace).unwrap()
         }
 
         /// Another declaration, in this world's directory unless it says otherwise.
@@ -693,6 +810,7 @@ mod tests {
                 explicit_profile: profile,
                 entry: LedgerEntry::Fresh,
                 clock: self.clock.clone(),
+                command_writes: Some(self.writes(&self.workspace)),
             })
         }
 
@@ -708,6 +826,7 @@ mod tests {
                 explicit_profile: profile,
                 entry,
                 clock: self.clock.clone(),
+                command_writes: Some(self.writes(workspace)),
             })
         }
 
@@ -861,6 +980,7 @@ mod tests {
             explicit_profile: None,
             entry: LedgerEntry::Fresh,
             clock: world.clock.clone(),
+            command_writes: Some(world.writes(&world.workspace)),
         };
         let LedgerOpen {
             policy,
@@ -868,6 +988,7 @@ mod tests {
             explicit_profile,
             entry,
             clock,
+            command_writes,
         } = request;
         let mut first = BudgetLedger::open(LedgerOpen {
             policy,
@@ -875,6 +996,7 @@ mod tests {
             explicit_profile,
             entry,
             clock,
+            command_writes,
         })
         .unwrap();
         send(&mut first);
@@ -2258,6 +2380,234 @@ mod tests {
         );
     }
 
+    // ---- where commands of the run can write ----
+
+    fn open_with(
+        world: &World,
+        ledger_dir: &Path,
+        command_writes: Option<CommandWrites>,
+    ) -> Result<BudgetLedger, LedgerRefusal> {
+        let text = ledger_dir.to_str().unwrap();
+        let policy = world.declaration(WALLET, |v| v["ledger_dir"] = json!(text));
+        BudgetLedger::open(LedgerOpen {
+            policy,
+            workspace: &world.workspace,
+            explicit_profile: None,
+            entry: LedgerEntry::Fresh,
+            clock: world.clock.clone(),
+            command_writes,
+        })
+    }
+
+    /// The run's own temporary is a place commands write, as the workspace is: a wallet in it, or
+    /// on a way through it, proves nothing. Each row has a world of its own, and nothing is made.
+    #[test]
+    fn a_wallet_where_commands_of_the_run_can_write_is_refused_before_anything_is_made() {
+        // The place the wallet is named by, and the name the policy gives the temporary by, when
+        // it is not the temporary's own.
+        type Way = fn(&Path, &Path) -> (PathBuf, Option<PathBuf>);
+        let rows: Vec<(&str, Way)> = vec![
+            ("R1 under the run's temporary", |_, tmp| {
+                (tmp.join("wallets"), None)
+            }),
+            ("R2 one link into the run's temporary", |base, tmp| {
+                let inner = made(tmp.join("inner"));
+                (linked(&inner, base.join("outer")), None)
+            }),
+            (
+                "R3 two links, the second in the run's temporary",
+                |base, tmp| {
+                    let safe = made(base.join("safe"));
+                    let in_tmp = linked(&safe, tmp.join("m"));
+                    (linked(&in_tmp, base.join("outer")), None)
+                },
+            ),
+            ("R4 a temporary the policy names by a link", |base, tmp| {
+                let alias = linked(tmp, base.join("tmp-alias"));
+                (tmp.join("w"), Some(alias))
+            }),
+        ];
+        let mut wrong = Vec::new();
+        for (name, way) in rows {
+            let world = World::new();
+            let tmp = run_tmp_under(&world.base);
+            let (ledger_dir, named) = way(&world.base, &tmp);
+            let writes = match named {
+                Some(alias) => CommandWrites::of(SandboxPolicy::with_home(
+                    &world.workspace,
+                    &alias,
+                    world.base.join("home"),
+                )),
+                None => world.writes(&world.workspace),
+            };
+            let before = every_name_under(&world.base);
+            let opened = open_with(&world, &ledger_dir, Some(writes)).map(|_| ());
+            let made_anything = every_name_under(&world.base) != before;
+            if opened != Err(LedgerRefusal::DirectoryWritableByCommands) || made_anything {
+                wrong.push(format!(
+                    "{name}: {opened:?}, made anything: {made_anything}"
+                ));
+            }
+        }
+        assert_eq!(wrong, Vec::<String>::new());
+    }
+
+    /// The control: beside the temporary, and through links that stay out of every place commands
+    /// write, a wallet opens where it leads.
+    #[test]
+    fn a_wallet_beside_the_run_s_temporary_or_through_links_outside_it_opens() {
+        type Way = fn(&Path, &Path) -> (PathBuf, PathBuf);
+        let rows: Vec<(&str, Way)> = vec![
+            (
+                "beside the temporary, under the sandbox's own directory",
+                |_, tmp| {
+                    let beside = tmp.parent().unwrap().join("wallets");
+                    (beside.clone(), beside)
+                },
+            ),
+            ("a link outside to a place outside", |base, _| {
+                let safe = made(base.join("safe"));
+                (linked(&safe, base.join("link")), safe)
+            }),
+        ];
+        let mut wrong = Vec::new();
+        for (name, way) in rows {
+            let world = World::new();
+            let tmp = run_tmp_under(&world.base);
+            let (ledger_dir, leads_to) = way(&world.base, &tmp);
+            let opened = open_at(&world, &ledger_dir).map(|_| ());
+            let file_there = leads_to.join(WALLET).join(LEDGER_FILE).exists();
+            if opened != Ok(()) || !file_there {
+                wrong.push(format!("{name}: {opened:?}, file there: {file_there}"));
+            }
+        }
+        assert_eq!(wrong, Vec::<String>::new());
+    }
+
+    /// With no bound known, no place is out of reach. The control is this run's own policy.
+    #[test]
+    fn a_wallet_with_no_sandbox_policy_known_is_refused_before_anything_is_made() {
+        use LedgerRefusal::SandboxPolicyUnknown as Unknown;
+        type Writes = fn(&World) -> Option<CommandWrites>;
+        let rows: Vec<(&str, Writes, Result<(), LedgerRefusal>)> = vec![
+            ("no policy", |_| None, Err(Unknown)),
+            (
+                "a policy of another workspace",
+                |world| Some(world.writes(&made(world.base.join("other-workspace")))),
+                Err(Unknown),
+            ),
+            (
+                "a temporary that is not there",
+                |world| {
+                    Some(CommandWrites::of(SandboxPolicy::with_home(
+                        &world.workspace,
+                        &world.base.join("no-such-run-tmp"),
+                        world.base.join("home"),
+                    )))
+                },
+                Err(Unknown),
+            ),
+            (
+                "this run's policy",
+                |world| Some(world.writes(&world.workspace)),
+                Ok(()),
+            ),
+        ];
+        let mut wrong = Vec::new();
+        for (name, writes, expected) in rows {
+            let world = World::new();
+            let writes = writes(&world);
+            let before = every_name_under(&world.base);
+            let opened = open_with(&world, &world.ledgers, writes).map(|_| ());
+            let made_anything = every_name_under(&world.base) != before;
+            let as_expected = match expected {
+                Ok(()) => world.file().exists(),
+                Err(_) => !made_anything,
+            };
+            if opened != expected || !as_expected {
+                wrong.push(format!(
+                    "{name}: {opened:?}, made anything: {made_anything}"
+                ));
+            }
+        }
+        assert_eq!(wrong, Vec::<String>::new());
+    }
+
+    const APPLIED_POLICY_CHILD: &str = "COMMANDAGENT_TEST_BUDGET_APPLIED_POLICY_CHILD";
+    const APPLIED_POLICY_RAN: &str =
+        "child-976-ran commands_writes_are_known_only_from_an_applied_sandbox";
+
+    /// Runs only as the child of the test below: the sandbox it installs is its own process's.
+    #[test]
+    fn commands_writes_are_known_only_from_an_applied_sandbox_child() {
+        use crate::tools::os_sandbox::{self, SandboxAvailability, SandboxMode, SandboxTestState};
+        if std::env::var_os(APPLIED_POLICY_CHILD).is_none() {
+            return;
+        }
+        let _sandbox = SandboxTestState::acquire();
+        let root = tempfile::tempdir().unwrap();
+        let base = fs::canonicalize(root.path()).unwrap();
+        let workspace = made(base.join("workspace"));
+        let run_tmp = run_tmp_under(&base);
+        let policy = || SandboxPolicy::with_home(&workspace, &run_tmp, base.join("home"));
+        let known = || CommandWrites::applied().map(|writes| writes.policy().run_tmp_dir.clone());
+        let mut seen = vec![("not installed", known())];
+        let no_backend = SandboxAvailability::Unavailable("no-backend-s2v-976".to_string());
+        os_sandbox::install_for_test(SandboxMode::Required, policy(), no_backend);
+        seen.push(("required, no backend", known()));
+        os_sandbox::install_for_test(SandboxMode::Off, policy(), SandboxAvailability::Available);
+        seen.push(("off", known()));
+        os_sandbox::install_for_test(SandboxMode::Auto, policy(), SandboxAvailability::Available);
+        seen.push(("auto, applied", known()));
+        os_sandbox::install_for_test(
+            SandboxMode::Required,
+            policy(),
+            SandboxAvailability::Available,
+        );
+        seen.push(("required, applied", known()));
+        os_sandbox::cleanup();
+        seen.push(("after cleanup", known()));
+        assert_eq!(
+            seen,
+            vec![
+                ("not installed", None),
+                ("required, no backend", None),
+                ("off", None),
+                ("auto, applied", Some(run_tmp.clone())),
+                ("required, applied", Some(run_tmp.clone())),
+                ("after cleanup", None),
+            ]
+        );
+        println!("{APPLIED_POLICY_RAN}");
+    }
+
+    /// Only a sandbox applied on the run says where its commands write. The state is the
+    /// process's, so the child has a process of its own.
+    #[test]
+    fn commands_writes_are_known_only_from_an_applied_sandbox() {
+        let home = tempfile::tempdir().unwrap();
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "structured_budget::ledger::tests::commands_writes_are_known_only_from_an_applied_sandbox_child",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env_clear()
+            .env("HOME", home.path())
+            .env(APPLIED_POLICY_CHILD, "marker-976-applied-policy-child")
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{stdout}\n{stderr}");
+        assert!(stdout.contains("1 passed"), "{stdout}\n{stderr}");
+        assert!(
+            stdout.contains(APPLIED_POLICY_RAN),
+            "{APPLIED_POLICY_RAN} missing\n{stdout}\n{stderr}"
+        );
+    }
+
     const HOLDER_CHILD_ROOT: &str = "COMMANDAGENT_TEST_BUDGET_HOLDER_ROOT";
     const HOLDING_THE_WALLET: &str = "holding-the-wallet-976";
 
@@ -2402,10 +2752,11 @@ mod tests {
     fn a_walk_follows_as_many_links_as_it_allows_and_refuses_one_more_and_a_ring() {
         let world = World::new();
         let base = world.workspace.parent().unwrap().to_path_buf();
+        let bounds = world.bounds();
         let walk = |ledger_dir: &Path| {
             let text = ledger_dir.to_str().unwrap();
             let policy = world.declaration(WALLET, |v| v["ledger_dir"] = json!(text));
-            refuse_every_name_on_the_way(&WalletDirectory::of(&policy), &world.workspace)
+            refuse_every_name_on_the_way(&WalletDirectory::of(&policy), &world.workspace, &bounds)
         };
         let mut last = made(base.join("end"));
         for number in 1..=MOST_LINKS_ON_THE_WAY {
@@ -2435,7 +2786,7 @@ mod tests {
             let policy = world.declaration(WALLET, |v| v["ledger_dir"] = json!(text));
             let directory = WalletDirectory::of(&policy);
             assert_eq!(
-                refuse_directory(&directory, &world.workspace),
+                refuse_directory(&directory, &world.workspace, &world.bounds()),
                 Ok(()),
                 "{top}"
             );
@@ -2454,12 +2805,14 @@ mod tests {
         value["budget_id"] = json!(id);
         value["ledger_dir"] = json!(ledger_dir.to_str().unwrap());
         let policy = RunBudgetPolicy::decode(value.to_string().as_bytes(), id).unwrap();
+        let workspace = root.join("workspace");
         BudgetLedger::open(LedgerOpen {
             policy: Arc::new(policy),
-            workspace: &root.join("workspace"),
+            workspace: &workspace,
             explicit_profile: None,
             entry: LedgerEntry::Fresh,
             clock: FakeClock::at(1),
+            command_writes: Some(writes_under(root, &workspace)),
         })
     }
 

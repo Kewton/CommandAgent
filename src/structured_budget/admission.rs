@@ -66,13 +66,14 @@ mod tests {
 
     use serde_json::json;
 
-    use super::super::ledger::{LedgerEntry, LedgerOpen};
+    use super::super::ledger::{CommandWrites, LedgerEntry, LedgerOpen};
     use super::super::policy::RunBudgetPolicy;
     use super::super::test_support::{FakeClock, WALLET, policy_value};
     use super::super::transport::RunBudgetHandle;
     use super::{AdmissionRefusal, RUN_BUDGET_ENV, decide};
     use crate::config::{Config, OpenAiApi, Provider, ProviderRole};
     use crate::providers::client_from_config_for_role;
+    use crate::tools::os_sandbox::SandboxPolicy;
 
     #[test]
     fn the_decision_on_each_of_its_facts() {
@@ -126,12 +127,16 @@ mod tests {
         value["ledger_dir"] = json!(root.join("ledgers").to_str().unwrap());
         let policy = RunBudgetPolicy::decode(value.to_string().as_bytes(), WALLET).unwrap();
         let workspace = config.workspace_root.clone();
+        let run_tmp = root.join("run-tmp");
+        std::fs::create_dir_all(&run_tmp).unwrap();
+        let writes = SandboxPolicy::with_home(&workspace, &run_tmp, root.join("home"));
         let handle = RunBudgetHandle::open(LedgerOpen {
             policy: Arc::new(policy),
             workspace: &workspace,
             explicit_profile: None,
             entry: LedgerEntry::Fresh,
             clock: FakeClock::at(1),
+            command_writes: Some(CommandWrites::of(writes)),
         })
         .unwrap();
         config.field_sources.run_budget = Some(Arc::new(handle));

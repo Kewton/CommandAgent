@@ -999,7 +999,9 @@ mod run_budget_tests {
     use crate::providers::streaming::{CancelToken, HttpCall, http_client};
     use crate::state::ConversationMessage;
     use crate::structured_budget::clock::BudgetClock;
-    use crate::structured_budget::ledger::{LedgerEntry, LedgerFailure, LedgerOpen, LedgerRefusal};
+    use crate::structured_budget::ledger::{
+        CommandWrites, LedgerEntry, LedgerFailure, LedgerOpen, LedgerRefusal,
+    };
     use crate::structured_budget::policy::RunBudgetPolicy;
     use crate::structured_budget::reservation::{
         AttemptState, BudgetRefusal, LatchReason, Money, reservation_amount,
@@ -1189,6 +1191,19 @@ mod run_budget_tests {
         os_sandbox::install_for_test(mode, SandboxPolicy::new(workspace, &run_tmp), availability);
     }
 
+    /// What a sandbox on `workspace` lets commands write, with the temporary [`install`] uses, for
+    /// a wallet to be judged by. No sandbox of the process is read.
+    fn writes_on(workspace: &Path) -> CommandWrites {
+        let base = workspace.parent().unwrap();
+        let run_tmp = base.join("run-tmp");
+        std::fs::create_dir_all(&run_tmp).unwrap();
+        CommandWrites::of(SandboxPolicy::with_home(
+            workspace,
+            &run_tmp,
+            base.join("home"),
+        ))
+    }
+
     impl World {
         fn new() -> Self {
             Self::with(|_| {})
@@ -1226,6 +1241,7 @@ mod run_budget_tests {
                 explicit_profile: None,
                 entry: LedgerEntry::Fresh,
                 clock,
+                command_writes: Some(writes_on(&workspace)),
             })
             .unwrap();
             let handle = if installed {
@@ -2435,6 +2451,7 @@ mod run_budget_tests {
             explicit_profile: None,
             entry: LedgerEntry::Fresh,
             clock: FakeClock::at(7_000),
+            command_writes: Some(writes_on(&other)),
         })
         .unwrap();
         let elsewhere = Arc::new(elsewhere);
@@ -2470,6 +2487,7 @@ mod run_budget_tests {
             explicit_profile: None,
             entry: LedgerEntry::Fresh,
             clock: FakeClock::at(7_000),
+            command_writes: Some(writes_on(&world.workspace)),
         })
         .unwrap();
         assert_ne!(*world.handle, other, "two wallets with nothing in them yet");
