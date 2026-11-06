@@ -1,5 +1,5 @@
 use std::collections::BTreeSet;
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsStr;
 use std::time::Duration;
 
 use clap_complete::CompletionCandidate;
@@ -40,28 +40,16 @@ pub(crate) fn complete_model_ids_from_hosts(
     ollama_host: &str,
     lm_studio_host: &str,
 ) -> Vec<CompletionCandidate> {
-    complete_model_ids_for(std::env::args_os(), current, ollama_host, lm_studio_host)
-}
-
-/// The model completion of a process started with `arguments`.
-pub(crate) fn complete_model_ids_for(
-    arguments: impl IntoIterator<Item = OsString>,
-    current: &OsStr,
-    ollama_host: &str,
-    lm_studio_host: &str,
-) -> Vec<CompletionCandidate> {
     let Some(prefix) = current.to_str() else {
         return Vec::new();
     };
     // A model list is a send no run budget counts: under one, there is nothing to complete from.
-    // Nor is there, on macOS, when the command line names a control of the run budget as its key:
-    // the start took that variable out of the environment, so a selection there is not seen.
+    // Nor is there when the start of this command line took a control of the run budget out of
+    // the environment as a key's variable, so that a selection there is not seen.
     if crate::structured_budget::entry::refuse(
         crate::structured_budget::entry::Unmetered::ModelCompletion,
     )
-    .and_then(|()| {
-        crate::structured_budget::entry::refuse_a_control_named(key_named_by(arguments).as_deref())
-    })
+    .and_then(|()| crate::structured_budget::entry::refuse_a_control_the_start_takes())
     .is_err()
     {
         return Vec::new();
@@ -82,34 +70,6 @@ pub(crate) fn complete_model_ids_for(
         .filter(|model| model.starts_with(prefix))
         .map(CompletionCandidate::new)
         .collect()
-}
-
-/// The provider key's variable `arguments` name, found as the command line's start finds the one
-/// it takes out of the environment on macOS: the `--api-key-env` given, or else the selected
-/// preset's. The shell puts the words it completes after a `--`, so only what comes before that is
-/// a key's name. Arguments that do not parse name none, and the start takes none out then either.
-#[cfg(target_os = "macos")]
-fn key_named_by(arguments: impl IntoIterator<Item = OsString>) -> Option<String> {
-    let parsed = crate::provider_cli::parse_from(arguments).ok()?;
-    match parsed.provider_options.api_key_env {
-        Some(name) => Some(name.trim().to_string()),
-        None => {
-            let root = parsed
-                .cli
-                .cwd
-                .clone()
-                .or_else(|| std::env::current_dir().ok())?
-                .canonicalize()
-                .ok()?;
-            crate::config::preset_api_key_env(&root, parsed.cli.preset.as_deref())
-        }
-    }
-}
-
-/// Elsewhere the start takes no variable out of the environment, so a selection is always seen.
-#[cfg(not(target_os = "macos"))]
-fn key_named_by(_arguments: impl IntoIterator<Item = OsString>) -> Option<String> {
-    None
 }
 
 fn extend_ollama_models(client: &Client, host: &str, models: &mut BTreeSet<String>) {

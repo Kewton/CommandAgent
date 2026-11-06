@@ -93,7 +93,7 @@ pub fn bootstrap_gui() {
 /// The compatible provider's key name, by the same resolution a run uses. A command line that
 /// does not parse ends the process right after this with no tool started, so it adds no name.
 #[cfg(target_os = "macos")]
-fn cli_api_key_env() -> Option<String> {
+pub(crate) fn cli_api_key_env() -> Option<String> {
     let parsed = crate::provider_cli::parse_from(std::env::args_os()).ok()?;
     let root = parsed
         .cli

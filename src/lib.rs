@@ -141,6 +141,7 @@ pub fn run_with_provider_options(
     let mut config = Config::from_cli_with_provider_options(cli, provider_options)
         .map_err(cli_argument_error)?;
     structured_budget::entry::refuse_a_control_named_as_key(&config)
+        .and_then(|()| structured_budget::entry::refuse_a_control_the_start_takes())
         .map_err(|refusal| cli_argument_error(refusal.into()))?;
     let resolved_pack = cli_pack::resolve(&pack_cli, &config);
     tools::profile_tools::pre_run::refuse_before_cli_run(&config, &resolved_pack)

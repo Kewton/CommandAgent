@@ -403,6 +403,39 @@ fn start_cli(env: &[(&str, &str)], extra: &[&str]) -> Started {
 
 /// [`start_cli`], with values that need not be text.
 fn start_cli_os(env: &[(&str, &OsStr)], extra: &[&str]) -> Started {
+    let mut arguments = vec![
+        "--provider",
+        "openai-compatible",
+        "--base-url",
+        "<FAKE>/v1",
+        "--model",
+        "m-1",
+    ];
+    arguments.extend_from_slice(extra);
+    launch(env, &arguments, None)
+}
+
+/// The presets a workspace of [`start_in_workspace`] declares: one that only names the
+/// selection's variable as the key, and one whose own provider would use it.
+#[cfg(target_os = "macos")]
+const PRESETS: &str = "[preset.control976]\napi_key_env = \"COMMANDAGENT_RUN_BUDGET\"\n\n\
+    [preset.compat976]\nprovider = \"openai-compatible\"\nbase_url = \"http://127.0.0.1:9/v1\"\n\
+    api_key_env = \"COMMANDAGENT_RUN_BUDGET\"\n";
+
+/// The binary through `main`, started in a workspace whose configuration declares [`PRESETS`],
+/// with `arguments` after its directories and model.
+#[cfg(target_os = "macos")]
+fn start_in_workspace(env: &[(&str, &OsStr)], arguments: &[&str]) -> Started {
+    let mut all = vec!["--model", "m-1"];
+    all.extend_from_slice(arguments);
+    launch(env, &all, Some(PRESETS))
+}
+
+/// One start of the binary, with `env` its whole environment beside a fake HOME and PATH, and
+/// `arguments` after its directories. `<FAKE>`, in an argument or as a whole value in `env`, is
+/// the fake provider's address. With a `configuration`, the workspace declares it and the binary
+/// starts there.
+fn launch(env: &[(&str, &OsStr)], arguments: &[&str], configuration: Option<&str>) -> Started {
     let root = tempfile::tempdir().unwrap();
     let base = std::fs::canonicalize(root.path()).unwrap();
     let fake = ProviderFake::spawn();
@@ -413,20 +446,34 @@ fn start_cli_os(env: &[(&str, &OsStr)], extra: &[&str]) -> Started {
     );
     std::fs::create_dir_all(&cwd).unwrap();
     std::fs::create_dir_all(&home).unwrap();
-    let url = format!("{}/v1", fake.url);
+    let arguments = arguments
+        .iter()
+        .map(|argument| argument.replace("<FAKE>", &fake.url))
+        .collect::<Vec<_>>();
+    let env = env
+        .iter()
+        .map(|(variable, value)| match value.to_str() {
+            Some("<FAKE>") => (*variable, OsString::from(&fake.url)),
+            _ => (*variable, value.to_os_string()),
+        })
+        .collect::<Vec<_>>();
     // A file, not a pipe: nothing the child prints can make it wait on this test.
     let printed_path = base.join("printed.txt");
     let printed_file = std::fs::File::create(&printed_path).unwrap();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_commandagent"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_commandagent"));
+    if let Some(configuration) = configuration {
+        std::fs::create_dir_all(cwd.join(".commandagent")).unwrap();
+        std::fs::write(cwd.join(".commandagent/config.toml"), configuration).unwrap();
+        command.current_dir(&cwd);
+    }
+    let mut child = command
         .env_clear()
         .env("HOME", &home)
         .env("PATH", "/usr/bin:/bin")
-        .envs(env.iter().copied())
+        .envs(env)
         .args(["--cwd", cwd.to_str().unwrap()])
         .args(["--state-dir", state.to_str().unwrap()])
-        .args(["--provider", "openai-compatible", "--base-url", &url])
-        .args(["--model", "m-1"])
-        .args(extra)
+        .args(&arguments)
         .stdin(Stdio::null())
         .stdout(Stdio::from(printed_file))
         .stderr(Stdio::piped())
@@ -652,4 +699,250 @@ fn a_selection_that_cannot_be_read_and_a_key_named_as_a_control_send_nothing() {
         &["--api-key-env", "GATEWAY_KEY_976", "--doctor", "--json"],
     );
     assert!(!doctor.sent.is_empty(), "{doctor:?}");
+}
+
+// ---- the name the start takes (F1-R1) ----
+
+/// Every role on the fake Ollama, so a compatible endpoint is in no role and the configuration
+/// keeps no key's name.
+#[cfg(target_os = "macos")]
+const EVERY_ROLE_OLLAMA: [&str; 6] = [
+    "--provider",
+    "ollama",
+    "--planner-provider",
+    "ollama",
+    "--ollama-host",
+    "<FAKE>",
+];
+
+#[cfg(target_os = "macos")]
+fn joined(parts: &[&[&'static str]]) -> Vec<&'static str> {
+    parts.iter().flat_map(|part| part.iter().copied()).collect()
+}
+
+/// macOS: the start takes the preset's `api_key_env` out of the environment whether or not a role
+/// of the run uses it. With no role on a compatible endpoint the configuration keeps no name, and
+/// the selection is gone all the same: the doctor and a run are refused by the name the start took,
+/// and nothing is sent. Whether the preset's own provider is compatible and the command line puts
+/// every role elsewhere, or the preset names no provider at all, is the same. A key of its own name
+/// on the command line wins over the preset's in the start as in the configuration: with no
+/// selection, that sends as before.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_preset_name_no_role_uses_is_judged_as_the_start_takes_it() {
+    let selected = [(RUN_BUDGET_ENV, OsStr::new("wallet976"))];
+    for (label, preset) in [
+        ("the preset names no provider", "control976"),
+        ("the command line overrides the preset's", "compat976"),
+    ] {
+        let named = joined(&[&["--preset", preset], &EVERY_ROLE_OLLAMA]);
+        let doctor = start_in_workspace(&selected, &joined(&[&named, &["--doctor", "--json"]]));
+        assert_eq!(
+            (doctor.code, doctor.sent.len()),
+            (Some(1), 0),
+            "{label}: {doctor:?}"
+        );
+        assert!(
+            doctor.printed.contains(DOCTOR_REFUSED_BY_NAME),
+            "{label}: {doctor:?}"
+        );
+        let run = start_in_workspace(&selected, &joined(&[&named, &["--prompt", "say hello"]]));
+        assert_eq!((run.code, run.sent.len()), (Some(2), 0), "{label}: {run:?}");
+        assert_eq!(run.error, KEY_IS_CONTROL, "{label}: {run:?}");
+    }
+
+    let own = [("GATEWAY_KEY_976", OsStr::new("synthetic-key-976"))];
+    let over_the_preset = [
+        "--preset",
+        "control976",
+        "--provider",
+        "openai-compatible",
+        "--base-url",
+        "<FAKE>/v1",
+        "--api-key-env",
+        "GATEWAY_KEY_976",
+    ];
+    for action in [&["--doctor", "--json"][..], &["--prompt", "say hello"][..]] {
+        let started = start_in_workspace(&own, &joined(&[&over_the_preset, action]));
+        assert!(!started.sent.is_empty(), "{action:?}: {started:?}");
+    }
+}
+
+/// macOS: what the start takes out of the environment and what the run refuses, row by row.
+///
+/// The first start has the selection and `--sandbox off`. The run's first act after the start is
+/// the sandbox's refusal under a selection (`lib.rs`, before the configuration and before any name
+/// is judged), which reads only whether the variable is in this process's environment: refused for
+/// `SandboxOff` means the selection is still there; anything else means the start took it out.
+/// That start must then end refused by the key's name, with nothing sent. The second start has no
+/// selection, and says whether the names the run judges are refused. A row where the start takes
+/// the selection out and the names pass is the drift this looks for.
+#[cfg(target_os = "macos")]
+#[test]
+fn what_the_start_takes_out_is_what_the_run_refuses() {
+    const COMPATIBLE: [&str; 4] = ["--provider", "openai-compatible", "--base-url", "<FAKE>/v1"];
+    const PROMPT: [&str; 2] = ["--prompt", "say hello"];
+    const SANDBOX_OFF: &str = "error: the run budget refused the entry: SandboxOff";
+    // (row, the arguments, whether the start takes the selection out, whether the run refuses)
+    let rows: [(&str, Vec<&str>, bool, bool); 10] = [
+        (
+            "the command line names the selection",
+            joined(&[&COMPATIBLE, &["--api-key-env", RUN_BUDGET_ENV], &PROMPT]),
+            true,
+            true,
+        ),
+        (
+            "the command line names the selection's legacy spelling",
+            joined(&[&COMPATIBLE, &["--api-key-env", "ANVIL_RUN_BUDGET"], &PROMPT]),
+            false,
+            true,
+        ),
+        (
+            "the command line names the operator root",
+            joined(&[
+                &COMPATIBLE,
+                &["--api-key-env", "COMMANDAGENT_ADAPTER_CONFIG_ROOT"],
+                &PROMPT,
+            ]),
+            false,
+            true,
+        ),
+        (
+            "a preset names the selection and a role uses it",
+            joined(&[
+                &["--preset", "compat976", "--base-url", "<FAKE>/v1"],
+                &PROMPT,
+            ]),
+            true,
+            true,
+        ),
+        (
+            "a preset names the selection and no role uses it",
+            joined(&[&["--preset", "control976"], &EVERY_ROLE_OLLAMA, &PROMPT]),
+            true,
+            true,
+        ),
+        (
+            "the command line puts the preset's roles elsewhere",
+            joined(&[&["--preset", "compat976"], &EVERY_ROLE_OLLAMA, &PROMPT]),
+            true,
+            true,
+        ),
+        (
+            "the command line's own name over the preset's",
+            joined(&[
+                &["--preset", "control976"],
+                &COMPATIBLE,
+                &["--api-key-env", "GATEWAY_KEY_976"],
+                &PROMPT,
+            ]),
+            false,
+            false,
+        ),
+        (
+            "a name of its own",
+            joined(&[&COMPATIBLE, &["--api-key-env", "GATEWAY_KEY_976"], &PROMPT]),
+            false,
+            false,
+        ),
+        ("no name", joined(&[&COMPATIBLE, &PROMPT]), false, false),
+        (
+            "the name only after `--`, where the shell puts what it completes",
+            joined(&[
+                &COMPATIBLE,
+                &PROMPT,
+                &["--", "commandagent", "--api-key-env", RUN_BUDGET_ENV],
+            ]),
+            false,
+            false,
+        ),
+    ];
+    let mut wrong = Vec::new();
+    for (row, arguments, takes, refuses) in rows {
+        let mut selected_and_off = arguments.clone();
+        let at = selected_and_off
+            .iter()
+            .position(|argument| *argument == "--prompt")
+            .unwrap();
+        selected_and_off.splice(at..at, ["--sandbox", "off"]);
+        let first = start_in_workspace(
+            &[
+                (RUN_BUDGET_ENV, OsStr::new("wallet976")),
+                ("GATEWAY_KEY_976", OsStr::new("synthetic-key-976")),
+            ],
+            &selected_and_off,
+        );
+        let taken = first.error != SANDBOX_OFF;
+        let first_ok = first.sent.is_empty()
+            && first.code == Some(2)
+            && (!taken || first.error == KEY_IS_CONTROL);
+        let second = start_in_workspace(
+            &[("GATEWAY_KEY_976", OsStr::new("synthetic-key-976"))],
+            &arguments,
+        );
+        let refused = second.code == Some(2) && second.error == KEY_IS_CONTROL;
+        let refused_ok = if refused {
+            second.sent.is_empty()
+        } else {
+            !second.sent.is_empty()
+        };
+        if taken != takes || refused != refuses || (taken && !refused) || !first_ok || !refused_ok {
+            wrong.push(format!(
+                "{row}: taken {taken}, refused {refused}\n  first {first:?}\n  second {second:?}"
+            ));
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// macOS: the shell's model completion judges the name the start of its command line took. Its
+/// model lists go to fixed local addresses, so this child's are sent through a proxy that is the
+/// fake (`HTTP_PROXY`, which the client follows for every address): nothing reaches a real server
+/// on this machine, and the fake counts what would have gone out. The control, with no selection
+/// and a key of its own name, is counted there, so a count of nothing is not a proxy that was not
+/// used.
+#[cfg(target_os = "macos")]
+#[test]
+fn the_completion_sends_nothing_when_the_start_takes_a_control() {
+    let completed = ["--", "commandagent", "--model", ""];
+    let proxy = ("HTTP_PROXY", OsStr::new("<FAKE>"));
+    let fish = ("COMPLETE", OsStr::new("fish"));
+    let selection = (RUN_BUDGET_ENV, OsStr::new("wallet976"));
+    for (label, named) in [
+        (
+            "the command line names the selection",
+            &["--api-key-env", RUN_BUDGET_ENV][..],
+        ),
+        (
+            "a preset names the selection and no role uses it",
+            &["--preset", "control976"][..],
+        ),
+        (
+            "the command line puts the preset's roles elsewhere",
+            &["--preset", "compat976", "--provider", "ollama"][..],
+        ),
+    ] {
+        let started = start_in_workspace(&[proxy, fish, selection], &joined(&[named, &completed]));
+        assert_eq!(
+            (started.code, started.sent.len()),
+            (Some(0), 0),
+            "{label}: {started:?}"
+        );
+    }
+    let control = start_in_workspace(
+        &[
+            proxy,
+            fish,
+            ("GATEWAY_KEY_976", OsStr::new("synthetic-key-976")),
+        ],
+        &joined(&[&["--api-key-env", "GATEWAY_KEY_976"], &completed]),
+    );
+    assert!(
+        control
+            .sent
+            .iter()
+            .any(|request| request.contains("localhost:11434/api/tags")
+                || request.contains("localhost:1234/v1/models")),
+        "{control:?}"
+    );
 }

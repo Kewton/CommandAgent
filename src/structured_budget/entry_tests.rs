@@ -877,8 +877,8 @@ fn doctor_with(base: &Path, extra: &[&str]) -> Outcome {
 /// Runs only as a child, with no selection. The doctor and the shell's model completion return
 /// before the run's own check of the key's name, so each makes it: a key named as a control of the
 /// run budget, or its legacy spelling, sends nothing there either, whatever the mode. A key of its
-/// own name, or none, sends as before. The completion uses no key, and makes the check only where
-/// the start takes a key's variable out of the environment, on macOS; elsewhere it sends as before.
+/// own name, or none, sends as before. The completion uses no key: it judges only the name the
+/// start of its command line took, which the real binary's tests cover.
 #[test]
 fn the_early_ways_out_refuse_a_key_named_as_a_control_child() {
     if !is_child() {
@@ -903,52 +903,19 @@ fn the_early_ways_out_refuse_a_key_named_as_a_control_child() {
         }
     }
 
-    let (_root, base) = base();
-    let cwd = base.join("workspace");
-    std::fs::create_dir_all(cwd.join(".commandagent")).unwrap();
-    std::fs::write(
-        cwd.join(".commandagent/config.toml"),
-        "[preset.control976]\napi_key_env = \"COMMANDAGENT_RUN_BUDGET\"\n\
-         [preset.own976]\napi_key_env = \"GATEWAY_KEY_976\"\n",
-    )
-    .unwrap();
-    let cwd = cwd.to_str().unwrap();
-    // What the shell completes comes after the `--`; what the start read a key's name from comes
-    // before it.
-    let completed = ["--", "commandagent", "--model", ""];
-    let rows: [(&[&str], bool); 8] = [
-        (&["--api-key-env", "COMMANDAGENT_RUN_BUDGET"], true),
-        (&["--api-key-env", "ANVIL_RUN_BUDGET"], true),
-        (&["--api-key-env", "COMMANDAGENT_ADAPTER_CONFIG_ROOT"], true),
-        (&["--api-key-env", "ANVIL_ADAPTER_CONFIG_ROOT"], true),
-        (&["--cwd", cwd, "--preset", "control976"], true),
-        (&["--api-key-env", "GATEWAY_KEY_976"], false),
-        (&["--cwd", cwd, "--preset", "own976"], false),
-        (&[], false),
-    ];
-    for (named, named_as_a_control) in rows {
-        let expected_refused = named_as_a_control && cfg!(target_os = "macos");
-        let fake = Fake::spawn(MODELS);
-        let arguments = std::iter::once("commandagent")
-            .chain(named.iter().copied())
-            .chain(completed)
-            .map(OsString::from)
-            .collect::<Vec<_>>();
-        let candidates = crate::cli_completion::complete_model_ids_for(
-            arguments,
-            OsStr::new(""),
-            &fake.url,
-            &fake.url,
-        );
-        let sent = fake.finish();
-        let got_refused = sent == 0 && candidates.is_empty();
-        let sent_as_before = sent > 0 && candidates.len() == 1;
-        if expected_refused != got_refused || expected_refused == sent_as_before {
-            wrong.push(format!(
-                "completion {named:?}: sent {sent}, {} candidates",
-                candidates.len()
-            ));
-        }
+    // This child's own command line is the test harness's, which names no key: the start of it
+    // takes none, and the completion sends as before. The names a start takes are judged on the
+    // real binary, in `tests/structured_run_budget.rs`.
+    assert_eq!(super::refuse_a_control_the_start_takes(), Ok(()));
+    let fake = Fake::spawn(MODELS);
+    let candidates =
+        crate::cli_completion::complete_model_ids_from_hosts(OsStr::new(""), &fake.url, &fake.url);
+    let sent = fake.finish();
+    if sent == 0 || candidates.len() != 1 {
+        wrong.push(format!(
+            "completion: sent {sent}, {} candidates",
+            candidates.len()
+        ));
     }
     assert_eq!(wrong, Vec::<String>::new());
     println!(

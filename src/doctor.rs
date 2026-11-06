@@ -820,12 +820,15 @@ fn add_provider_checks(checks: &mut Vec<DoctorCheck>, config: &Config) {
 /// so with one selected none is sent. Nor is one sent when the key's variable is a control of the
 /// run budget, selected or not: on macOS the start takes that variable out of the environment,
 /// so a selection under that name would not be seen. The doctor returns before the run's own
-/// check of the names, so it makes the same one here.
+/// check of the names, so it makes the same ones here: the name the configuration kept, and the
+/// name the start took.
 fn run_budget_check(config: &Config) -> Option<DoctorCheck> {
-    use crate::structured_budget::entry::{Unmetered, refuse, refuse_a_control_named_as_key};
+    use crate::structured_budget::entry::{
+        Unmetered, refuse, refuse_a_control_named_as_key, refuse_a_control_the_start_takes,
+    };
     let (refusal, message, remediation) = match (
         refuse(Unmetered::ProviderCheck),
-        refuse_a_control_named_as_key(config),
+        refuse_a_control_named_as_key(config).and_then(|()| refuse_a_control_the_start_takes()),
     ) {
         (Ok(()), Ok(())) => return None,
         (Err(refusal), _) => (

@@ -83,8 +83,9 @@ impl std::error::Error for EntryRefusal {}
 ///
 /// On macOS the command line's start takes a provider key's variable out of the environment. What
 /// the start holds is not read here: a key named as a control of the run budget is refused by its
-/// name before anything could send instead, by [`refuse_a_control_named_as_key`] for a run, and by
-/// [`refuse_a_control_named`] for the doctor's provider checks and the shell's model completion.
+/// name before anything could send instead. [`refuse_a_control_the_start_takes`] judges the very
+/// name the start took, for a run, the doctor's provider checks, and the shell's model completion;
+/// [`refuse_a_control_named_as_key`] judges the name the configuration kept, beside it.
 pub(crate) fn selected() -> bool {
     std::env::var_os(RUN_BUDGET_ENV).is_some()
 }
@@ -112,9 +113,28 @@ pub(crate) fn refuse_a_control_named_as_key(config: &Config) -> Result<(), Entry
     )
 }
 
-/// [`refuse_a_control_named_as_key`] for a key's variable found by name alone, where there is no
-/// configuration to read it from.
-pub(crate) fn refuse_a_control_named(key: Option<&str>) -> Result<(), EntryRefusal> {
+/// The name the command line's start takes out of the environment may not be a control of the run
+/// budget either. It is the start's own answer, from the same function the start calls, so the two
+/// cannot disagree: a preset's `api_key_env` is taken even when no role of the run uses it, and the
+/// configuration then keeps no name at all. Only the name is read; no value is.
+pub(crate) fn refuse_a_control_the_start_takes() -> Result<(), EntryRefusal> {
+    refuse_a_control_named(the_name_the_start_takes().as_deref())
+}
+
+/// The provider key's variable the command line's start takes out of the environment.
+#[cfg(target_os = "macos")]
+fn the_name_the_start_takes() -> Option<String> {
+    crate::startup_credentials::cli_api_key_env()
+}
+
+/// Elsewhere the start takes no variable out of the environment.
+#[cfg(not(target_os = "macos"))]
+fn the_name_the_start_takes() -> Option<String> {
+    None
+}
+
+/// Whether `key` is a control of the run budget or the legacy spelling of one.
+fn refuse_a_control_named(key: Option<&str>) -> Result<(), EntryRefusal> {
     match key {
         Some(name)
             if CONTROL_NAMES
