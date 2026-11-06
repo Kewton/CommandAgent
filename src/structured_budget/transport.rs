@@ -72,6 +72,19 @@ pub(crate) struct RunBudgetHandle {
     policy: Arc<RunBudgetPolicy>,
     /// As the wallet was checked against it, canonical.
     workspace: PathBuf,
+    /// What a test says the sandbox is, in place of the state of the process. `None` reads that
+    /// state, as a run does.
+    #[cfg(test)]
+    sandbox_view: Option<SandboxView>,
+}
+
+/// The sandbox as one test sees it, so a test of a wallet does not have to install it in a state
+/// every test of the process reads.
+#[cfg(test)]
+#[derive(Debug, Clone)]
+pub(crate) struct SandboxView {
+    /// The workspace the sandbox holds commands in, or `None` when it is not applied.
+    pub(crate) applied_on: Option<PathBuf>,
 }
 
 /// Two handles are equal only when they are one handle, whatever their wallets hold. This is what
@@ -106,7 +119,16 @@ impl RunBudgetHandle {
             ledger: Mutex::new(ledger),
             policy,
             workspace,
+            #[cfg(test)]
+            sandbox_view: None,
         })
+    }
+
+    /// This handle, judging the sandbox by `view` instead of by the state of the process.
+    #[cfg(test)]
+    pub(crate) fn with_sandbox_view(mut self, view: SandboxView) -> Self {
+        self.sandbox_view = Some(view);
+        self
     }
 
     /// The most output a body of this wallet may ask for.
@@ -129,6 +151,10 @@ impl RunBudgetHandle {
     }
 
     fn refuse_without_the_sandbox(&self) -> Result<(), SendRefusal> {
+        #[cfg(test)]
+        if let Some(view) = &self.sandbox_view {
+            return refuse_another_workspace(&self.workspace, view.applied_on.as_deref());
+        }
         if !os_sandbox::is_applied() {
             return Err(SendRefusal::SandboxNotApplied);
         }

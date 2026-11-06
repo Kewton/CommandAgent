@@ -1006,7 +1006,9 @@ mod run_budget_tests {
     };
     use crate::structured_budget::settlement::{SettleReport, UnknownReason};
     use crate::structured_budget::test_support::{FakeClock, WALLET, policy_value};
-    use crate::structured_budget::transport::{RunBudgetHandle, SendRefusal, budget_refusal};
+    use crate::structured_budget::transport::{
+        RunBudgetHandle, SandboxView, SendRefusal, budget_refusal,
+    };
     use crate::tools::os_sandbox::{
         self, SandboxAvailability, SandboxMode, SandboxPolicy, SandboxTestState,
     };
@@ -1165,7 +1167,9 @@ mod run_budget_tests {
     }
 
     struct World {
-        _sandbox: SandboxTestState,
+        /// Held only by a world that installed the sandbox of the process, which only a child
+        /// process does.
+        _sandbox: Option<SandboxTestState>,
         _root: tempfile::TempDir,
         base: PathBuf,
         workspace: PathBuf,
@@ -1194,9 +1198,24 @@ mod run_budget_tests {
             Self::on_clock(change, FakeClock::at(7_000))
         }
 
-        /// A wallet on this world's workspace, and the sandbox applied on the same one.
+        /// A wallet on this world's workspace, which sees the sandbox applied on the same one. The
+        /// sandbox of the process is not touched, so no other test sees this world.
         fn on_clock(change: impl FnOnce(&mut Value), clock: Arc<dyn BudgetClock>) -> Self {
-            let sandbox = SandboxTestState::acquire();
+            Self::opened(change, clock, false)
+        }
+
+        /// A wallet that reads the sandbox of the process, installed and applied on this world's
+        /// workspace. Every test of the process reads that state, so this is for a child process.
+        fn installed() -> Self {
+            Self::opened(|_| {}, FakeClock::at(7_000), true)
+        }
+
+        fn opened(
+            change: impl FnOnce(&mut Value),
+            clock: Arc<dyn BudgetClock>,
+            installed: bool,
+        ) -> Self {
+            let sandbox = installed.then(SandboxTestState::acquire);
             let root = tempfile::tempdir().unwrap();
             let base = std::fs::canonicalize(root.path()).unwrap();
             let workspace = base.join("workspace");
@@ -1209,11 +1228,18 @@ mod run_budget_tests {
                 clock,
             })
             .unwrap();
-            install(
-                SandboxMode::Required,
-                &workspace,
-                SandboxAvailability::Available,
-            );
+            let handle = if installed {
+                install(
+                    SandboxMode::Required,
+                    &workspace,
+                    SandboxAvailability::Available,
+                );
+                handle
+            } else {
+                handle.with_sandbox_view(SandboxView {
+                    applied_on: Some(workspace.clone()),
+                })
+            };
             Self {
                 _sandbox: sandbox,
                 _root: root,
@@ -2149,6 +2175,9 @@ mod run_budget_tests {
         let mut wallet_past = asking_for_more(Some(world.handle.clone()));
         world.say_hello(&mut wallet_past).unwrap();
 
+        // The wallet above read only its own view. Off reads nothing, and the state of the
+        // process stays empty while it sends.
+        let sandbox = SandboxTestState::acquire();
         os_sandbox::reset_for_test();
         let config = world.config(&fake.url(), None);
         let mut off = world.client_of(&config);
@@ -2156,6 +2185,7 @@ mod run_budget_tests {
         let mut off_past = asking_for_more(None);
         world.say_hello(&mut off_past).unwrap();
         assert!(os_sandbox::status().is_none(), "nothing was installed");
+        drop(sandbox);
 
         let body = off
             .route(
@@ -2203,10 +2233,48 @@ mod run_budget_tests {
         assert_eq!(under_past.headers(), under.headers());
     }
 
+    const SANDBOX_APPLIED_CHILD: &str = "COMMANDAGENT_TEST_BUDGET_SANDBOX_APPLIED_CHILD";
+    const SANDBOX_ELSEWHERE_CHILD: &str = "COMMANDAGENT_TEST_BUDGET_SANDBOX_ELSEWHERE_CHILD";
+
+    /// Runs `child`, a test of this module, alone in a process of its own with an empty
+    /// environment but its marker, and waits for it. The sandbox it installs is that process's.
+    fn run_alone(child: &str, marker: &str) {
+        let home = tempfile::tempdir().unwrap();
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                &format!("providers::lm_studio::run_budget_tests::{child}"),
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env_clear()
+            .env("HOME", home.path())
+            .env(marker, "marker-976-sandbox-child")
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{stdout}\n{stderr}");
+        assert!(stdout.contains("1 passed"), "{stdout}\n{stderr}");
+    }
+
     /// A wallet's check is only worth what the sandbox holds, and only where the wallet was checked.
-    /// Every row is one chat, counted by the fake, and the file does not move when none goes out.
+    /// The sandbox is the process's own, installed for real, so the rows run in a child process.
     #[test]
     fn a_post_needs_the_sandbox_applied_on_the_workspace_of_the_wallet() {
+        run_alone(
+            "a_post_needs_the_sandbox_applied_on_the_workspace_of_the_wallet_child",
+            SANDBOX_APPLIED_CHILD,
+        );
+    }
+
+    /// Runs only as the child of the test above. Every row is one chat, counted by the fake, and the
+    /// file does not move when none goes out.
+    #[test]
+    fn a_post_needs_the_sandbox_applied_on_the_workspace_of_the_wallet_child() {
+        if std::env::var_os(SANDBOX_APPLIED_CHILD).is_none() {
+            return;
+        }
         const UNAVAILABLE: &str = "backend-unavailable-976";
         type Row = (&'static str, fn(&World), Option<SendRefusal>);
         let rows: Vec<Row> = vec![
@@ -2302,7 +2370,7 @@ mod run_budget_tests {
         ];
         let mut wrong = Vec::new();
         for (name, arrange, refusal) in rows {
-            let world = World::new();
+            let world = World::installed();
             let fake = Fake::spawn(vec![Reply::Status(200, reply_body(KNOWN))]);
             let mut client = world.client(&fake.url());
             arrange(&world);
@@ -2330,9 +2398,22 @@ mod run_budget_tests {
     }
 
     /// The same the other way round: the sandbox stays and the wallet is the one checked elsewhere.
+    /// The sandbox is the process's own, so this runs in a child process too.
     #[test]
     fn a_wallet_checked_against_another_workspace_sends_nothing() {
-        let world = World::new();
+        run_alone(
+            "a_wallet_checked_against_another_workspace_sends_nothing_child",
+            SANDBOX_ELSEWHERE_CHILD,
+        );
+    }
+
+    /// Runs only as the child of the test above.
+    #[test]
+    fn a_wallet_checked_against_another_workspace_sends_nothing_child() {
+        if std::env::var_os(SANDBOX_ELSEWHERE_CHILD).is_none() {
+            return;
+        }
+        let world = World::installed();
         let other = world.base.join("other-workspace");
         std::fs::create_dir_all(&other).unwrap();
         let mut value = policy_value();
