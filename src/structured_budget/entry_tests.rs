@@ -3,6 +3,7 @@
 //! 127.0.0.1, which counts what reaches it.
 
 use std::collections::BTreeSet;
+use std::ffi::{OsStr, OsString};
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
@@ -42,8 +43,18 @@ fn ran(name: &str) -> String {
 /// Runs the child test `name` of this module alone, with `env` its whole environment beside a
 /// fake HOME and the marker, and returns what it printed.
 fn run_child(name: &str, env: &[(&str, &str)]) -> String {
+    let env = env
+        .iter()
+        .map(|(variable, value)| (*variable, OsStr::new(*value)))
+        .collect::<Vec<_>>();
+    run_child_os(name, &env)
+}
+
+/// [`run_child`], with values that need not be text.
+fn run_child_os(name: &str, env: &[(&str, &OsStr)]) -> String {
     let home = tempfile::tempdir().unwrap();
-    let output = std::process::Command::new(std::env::current_exe().unwrap())
+    let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+    command
         .args([
             "--exact",
             &format!("structured_budget::entry::tests::{name}"),
@@ -53,9 +64,8 @@ fn run_child(name: &str, env: &[(&str, &str)]) -> String {
         .env_clear()
         .env("HOME", home.path())
         .env(CHILD, "marker-976-3b")
-        .envs(env.iter().copied())
-        .output()
-        .unwrap();
+        .envs(env.iter().copied());
+    let output = tests::output_of(&mut command);
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(output.status.success(), "{name}\n{stdout}\n{stderr}");
@@ -501,6 +511,73 @@ fn an_open_refuses_what_it_cannot_vouch_for() {
     }
 }
 
+/// Runs only as a child, whose selection is there and cannot be read as an ID: empty, or not
+/// text. It is a selection all the same and never off: every way out is refused, the sandbox off
+/// is refused, the open refuses the ID before it reads anything, and the factory makes no client.
+#[test]
+fn a_selection_that_cannot_be_read_is_no_less_a_selection_child() {
+    if !is_child() {
+        return;
+    }
+    assert!(super::selected());
+    let mut wrong = Vec::new();
+    for way in [
+        Unmetered::Workflow,
+        Unmetered::ModelProbe,
+        Unmetered::RequestPattern,
+        Unmetered::GuiSend,
+        Unmetered::ModelCompletion,
+        Unmetered::ProviderCheck,
+        Unmetered::StartupProbe,
+    ] {
+        if refuse(way) != Err(EntryRefusal::Unmetered(way)) {
+            wrong.push(format!("{way:?}"));
+        }
+    }
+    if crate::refuse_unmetered_gui_send().is_ok() {
+        wrong.push("the GUI's sends".to_string());
+    }
+    if refuse_sandbox_off(SandboxMode::Off) != Err(EntryRefusal::SandboxOff) {
+        wrong.push("the sandbox off".to_string());
+    }
+    let mut world = World::new(&[]);
+    let (opened, touched) = world.touched_by_open();
+    if opened != Err(EntryRefusal::InvalidBudgetId) || !touched.is_empty() {
+        wrong.push(format!("open: {opened:?} {touched:?}"));
+    }
+    let admitted =
+        super::super::admission::admit_client(&world.config, crate::config::ProviderRole::Executor);
+    if admitted != Err(super::super::admission::AdmissionRefusal::SelectedWithNoWallet) {
+        wrong.push(format!("factory: {admitted:?}"));
+    }
+    assert!(!world.base.join("ledgers").exists());
+    assert_eq!(wrong, Vec::<String>::new());
+    println!(
+        "{}",
+        ran("a_selection_that_cannot_be_read_is_no_less_a_selection_child")
+    );
+}
+
+/// A value of the selection that is not text.
+#[cfg(unix)]
+fn not_text() -> OsString {
+    use std::os::unix::ffi::OsStrExt;
+    OsStr::from_bytes(&[0xff]).to_os_string()
+}
+
+#[test]
+fn a_selection_that_cannot_be_read_is_no_less_a_selection() {
+    let mut values = vec![OsString::new()];
+    #[cfg(unix)]
+    values.push(not_text());
+    for value in values {
+        run_child_os(
+            "a_selection_that_cannot_be_read_is_no_less_a_selection_child",
+            &[(RUN_BUDGET_ENV, value.as_os_str())],
+        );
+    }
+}
+
 // ---- the copy of what a command inherits ----
 
 /// Runs only as a child, whose environment the parent filled with candidates. What
@@ -753,6 +830,137 @@ fn a_key_named_as_a_control_is_refused_whatever_the_mode_child() {
 fn a_key_named_as_a_control_is_refused_whatever_the_mode() {
     run_child(
         "a_key_named_as_a_control_is_refused_whatever_the_mode_child",
+        &[],
+    );
+}
+
+/// The doctor with `extra` on its command line: how many requests reached the fake, and its
+/// provider checks with the refusal of its run budget check.
+fn doctor_with(base: &Path, extra: &[&str]) -> Outcome {
+    let fake = Fake::spawn(MODELS);
+    let url = format!("{}/v1", fake.url);
+    let (cwd, state) = (base.join("workspace"), base.join("state"));
+    std::fs::create_dir_all(&cwd).unwrap();
+    let mut arguments = vec![
+        "commandagent",
+        "--cwd",
+        cwd.to_str().unwrap(),
+        "--state-dir",
+        state.to_str().unwrap(),
+        "--model",
+        "m-1",
+        "--provider",
+        "openai-compatible",
+        "--base-url",
+        &url,
+        "--doctor",
+    ];
+    arguments.extend_from_slice(extra);
+    let parsed = crate::provider_cli::parse_from(arguments).unwrap();
+    let report =
+        crate::doctor::diagnose_cli_with_provider_options(&parsed.cli, parsed.provider_options)
+            .unwrap();
+    let provider_checks = report
+        .checks
+        .iter()
+        .filter(|check| check.id.starts_with("provider."))
+        .map(|check| {
+            format!(
+                "{} {:?} {}",
+                check.id, check.status, check.details["refusal"]
+            )
+        })
+        .collect::<Vec<_>>();
+    (fake.finish(), provider_checks.join(", "))
+}
+
+/// Runs only as a child, with no selection. The doctor and the shell's model completion return
+/// before the run's own check of the key's name, so each makes it: a key named as a control of the
+/// run budget, or its legacy spelling, sends nothing there either, whatever the mode. A key of its
+/// own name, or none, sends as before. The completion uses no key, and makes the check only where
+/// the start takes a key's variable out of the environment, on macOS; elsewhere it sends as before.
+#[test]
+fn the_early_ways_out_refuse_a_key_named_as_a_control_child() {
+    if !is_child() {
+        return;
+    }
+    assert!(!super::selected());
+    let refused = "provider.run_budget Fail \"the run budget refused the entry: KeyIsControl\"";
+    let mut wrong = Vec::new();
+    for (key, expected_refused) in [
+        ("COMMANDAGENT_RUN_BUDGET", true),
+        ("ANVIL_RUN_BUDGET", true),
+        ("COMMANDAGENT_ADAPTER_CONFIG_ROOT", true),
+        ("ANVIL_ADAPTER_CONFIG_ROOT", true),
+        ("GATEWAY_KEY_976", false),
+    ] {
+        let (_root, base) = base();
+        let (sent, said) = doctor_with(&base, &["--api-key-env", key]);
+        let got_refused = sent == 0 && said == refused;
+        let sent_as_before = sent > 0 && !said.contains("provider.run_budget");
+        if expected_refused != got_refused || expected_refused == sent_as_before {
+            wrong.push(format!("doctor {key}: sent {sent}: {said}"));
+        }
+    }
+
+    let (_root, base) = base();
+    let cwd = base.join("workspace");
+    std::fs::create_dir_all(cwd.join(".commandagent")).unwrap();
+    std::fs::write(
+        cwd.join(".commandagent/config.toml"),
+        "[preset.control976]\napi_key_env = \"COMMANDAGENT_RUN_BUDGET\"\n\
+         [preset.own976]\napi_key_env = \"GATEWAY_KEY_976\"\n",
+    )
+    .unwrap();
+    let cwd = cwd.to_str().unwrap();
+    // What the shell completes comes after the `--`; what the start read a key's name from comes
+    // before it.
+    let completed = ["--", "commandagent", "--model", ""];
+    let rows: [(&[&str], bool); 8] = [
+        (&["--api-key-env", "COMMANDAGENT_RUN_BUDGET"], true),
+        (&["--api-key-env", "ANVIL_RUN_BUDGET"], true),
+        (&["--api-key-env", "COMMANDAGENT_ADAPTER_CONFIG_ROOT"], true),
+        (&["--api-key-env", "ANVIL_ADAPTER_CONFIG_ROOT"], true),
+        (&["--cwd", cwd, "--preset", "control976"], true),
+        (&["--api-key-env", "GATEWAY_KEY_976"], false),
+        (&["--cwd", cwd, "--preset", "own976"], false),
+        (&[], false),
+    ];
+    for (named, named_as_a_control) in rows {
+        let expected_refused = named_as_a_control && cfg!(target_os = "macos");
+        let fake = Fake::spawn(MODELS);
+        let arguments = std::iter::once("commandagent")
+            .chain(named.iter().copied())
+            .chain(completed)
+            .map(OsString::from)
+            .collect::<Vec<_>>();
+        let candidates = crate::cli_completion::complete_model_ids_for(
+            arguments,
+            OsStr::new(""),
+            &fake.url,
+            &fake.url,
+        );
+        let sent = fake.finish();
+        let got_refused = sent == 0 && candidates.is_empty();
+        let sent_as_before = sent > 0 && candidates.len() == 1;
+        if expected_refused != got_refused || expected_refused == sent_as_before {
+            wrong.push(format!(
+                "completion {named:?}: sent {sent}, {} candidates",
+                candidates.len()
+            ));
+        }
+    }
+    assert_eq!(wrong, Vec::<String>::new());
+    println!(
+        "{}",
+        ran("the_early_ways_out_refuse_a_key_named_as_a_control_child")
+    );
+}
+
+#[test]
+fn the_early_ways_out_refuse_a_key_named_as_a_control() {
+    run_child(
+        "the_early_ways_out_refuse_a_key_named_as_a_control_child",
         &[],
     );
 }
@@ -1196,4 +1404,19 @@ fn every_way_out_sends_nothing_under_a_selection_and_as_before_with_none() {
         "{off:?}"
     );
     assert_eq!(sent("sandbox"), "sandbox: sent 0: Ok(())", "{off:?}");
+}
+
+/// Where this file starts a child of its own. A unit test may start what production must not, and
+/// the guardrail that keeps production from starting a process directly knows a test by its
+/// `mod tests`, as in the other test files that start one. Its name is that word on purpose, so it
+/// shares the name of the module this file is.
+#[allow(
+    clippy::module_inception,
+    reason = "the guardrail knows a test that starts a child by its `mod tests`"
+)]
+#[cfg(test)]
+mod tests {
+    pub(super) fn output_of(command: &mut std::process::Command) -> std::process::Output {
+        command.output().unwrap()
+    }
 }

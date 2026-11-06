@@ -4,7 +4,8 @@
 //!
 //! The command line goes through `main`'s start, which on macOS hands a provider key's variable
 //! over and takes it out of the environment: a key named as a control of the run budget is
-//! refused, and nothing is sent.
+//! refused, by a run and by the doctor, and nothing is sent. A selection that is there and cannot
+//! be read, empty or not text, is refused and never taken for off.
 //!
 //! The GUI's model discovery and its delegated runs are sends no wallet counts, and under a
 //! selection neither goes out; with none, both go out as before. The GUI server is built only
@@ -12,8 +13,10 @@
 
 #![cfg(unix)]
 
+use std::ffi::{OsStr, OsString};
 use std::io::{Read, Write};
 use std::net::TcpListener;
+use std::os::unix::ffi::OsStrExt;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -379,17 +382,27 @@ impl ProviderFake {
 }
 
 /// What one start of the binary did: its exit code, or `None` when it was stopped after a send
-/// reached the fake; the requests the fake saw; and its last `error` line.
+/// reached the fake; the requests the fake saw; its last `error` line; and what it printed.
 #[derive(Debug)]
 struct Started {
     code: Option<i32>,
     sent: Vec<String>,
     error: String,
+    printed: String,
 }
 
 /// The command-line binary as an operator starts it, through `main`, with `env` its whole
 /// environment beside a fake HOME and PATH, against a fake compatible provider.
 fn start_cli(env: &[(&str, &str)], extra: &[&str]) -> Started {
+    let env = env
+        .iter()
+        .map(|(variable, value)| (*variable, OsStr::new(*value)))
+        .collect::<Vec<_>>();
+    start_cli_os(&env, extra)
+}
+
+/// [`start_cli`], with values that need not be text.
+fn start_cli_os(env: &[(&str, &OsStr)], extra: &[&str]) -> Started {
     let root = tempfile::tempdir().unwrap();
     let base = std::fs::canonicalize(root.path()).unwrap();
     let fake = ProviderFake::spawn();
@@ -401,6 +414,9 @@ fn start_cli(env: &[(&str, &str)], extra: &[&str]) -> Started {
     std::fs::create_dir_all(&cwd).unwrap();
     std::fs::create_dir_all(&home).unwrap();
     let url = format!("{}/v1", fake.url);
+    // A file, not a pipe: nothing the child prints can make it wait on this test.
+    let printed_path = base.join("printed.txt");
+    let printed_file = std::fs::File::create(&printed_path).unwrap();
     let mut child = Command::new(env!("CARGO_BIN_EXE_commandagent"))
         .env_clear()
         .env("HOME", &home)
@@ -412,7 +428,7 @@ fn start_cli(env: &[(&str, &str)], extra: &[&str]) -> Started {
         .args(["--model", "m-1"])
         .args(extra)
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
+        .stdout(Stdio::from(printed_file))
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
@@ -447,15 +463,30 @@ fn start_cli(env: &[(&str, &str)], extra: &[&str]) -> Started {
         code,
         sent: fake.finish(),
         error,
+        printed: std::fs::read_to_string(&printed_path).unwrap(),
     }
 }
 
 const KEY_IS_CONTROL: &str = "error: the run budget refused the entry: KeyIsControl";
+/// The doctor's words when it refuses its provider checks for the key's name.
+#[cfg(target_os = "macos")]
+const DOCTOR_KEY_IS_CONTROL: &str =
+    "the key's variable is a control of the run budget, so no provider check is sent";
+/// The refusals the doctor's run budget check holds, as `--json` prints them.
+const DOCTOR_REFUSED_BY_NAME: &str = "\"the run budget refused the entry: KeyIsControl\"";
+const DOCTOR_REFUSED_BY_SELECTION: &str =
+    "\"the run budget refused the entry: Unmetered(ProviderCheck)\"";
+
+/// A value of the selection that is not text.
+fn not_text() -> OsString {
+    OsStr::from_bytes(&[0xff]).to_os_string()
+}
 
 /// macOS hands the key's variable over at the start and takes it out of the environment. Named as
-/// the selection, the selection would be gone: the run is refused before anything is sent, and
-/// so is the doctor's provider check. Another key name, under the same selection, is refused as
-/// before, for what this wallet lacks. Linux hands nothing over, and is judged by the test below.
+/// the selection, the selection is gone: the run is refused by the key's name before anything is
+/// sent, and so is the doctor's provider check. Another key name, under the same selection, is
+/// refused as before, for what this wallet lacks. Linux hands nothing over, and is judged by the
+/// tests below.
 #[cfg(target_os = "macos")]
 #[test]
 fn a_key_named_as_the_selection_sends_nothing_through_the_start() {
@@ -473,6 +504,7 @@ fn a_key_named_as_the_selection_sends_nothing_through_the_start() {
         doctor.error, "error: doctor found failed checks",
         "{doctor:?}"
     );
+    assert!(doctor.printed.contains(DOCTOR_KEY_IS_CONTROL), "{doctor:?}");
 
     let other = start_cli(
         &[
@@ -514,4 +546,110 @@ fn a_key_named_as_a_control_is_refused_with_no_selection() {
         &["--api-key-env", "GATEWAY_KEY_976", "--prompt", "say hello"],
     );
     assert!(!run.sent.is_empty(), "{run:?}");
+}
+
+/// macOS: a selection the start takes out of the environment and does not hand over, since it is
+/// empty (with another key there to hand over) or not text. The doctor sends nothing, and fails
+/// its run budget check for the key's name; a run is refused by the name too.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_selection_the_start_does_not_hand_over_sends_nothing() {
+    let (empty, not_text, synthetic) =
+        (OsString::new(), not_text(), OsString::from("synthetic-976"));
+    let rows = [
+        (
+            "empty, beside another key",
+            vec![
+                (RUN_BUDGET_ENV, empty.as_os_str()),
+                ("OPENAI_API_KEY", synthetic.as_os_str()),
+            ],
+        ),
+        ("not text", vec![(RUN_BUDGET_ENV, not_text.as_os_str())]),
+    ];
+    for (label, env) in rows {
+        let doctor = start_cli_os(
+            &env,
+            &["--api-key-env", RUN_BUDGET_ENV, "--doctor", "--json"],
+        );
+        assert_eq!(
+            (doctor.code, doctor.sent.len()),
+            (Some(1), 0),
+            "{label}: {doctor:?}"
+        );
+        assert!(
+            doctor.printed.contains("provider.run_budget")
+                && doctor.printed.contains(DOCTOR_REFUSED_BY_NAME),
+            "{label}: {doctor:?}"
+        );
+        let run = start_cli_os(
+            &env,
+            &["--api-key-env", RUN_BUDGET_ENV, "--prompt", "say hello"],
+        );
+        assert_eq!((run.code, run.sent.len()), (Some(2), 0), "{label}: {run:?}");
+        assert_eq!(run.error, KEY_IS_CONTROL, "{label}: {run:?}");
+    }
+}
+
+/// On every system. A selection that is there and cannot be read, empty or not text, is a
+/// selection and never off: a run is refused for its ID and the doctor for the selection, and
+/// nothing is sent. With no selection, a key named as a control of the run budget, or as its
+/// legacy spelling, is refused by the doctor by its name alone, and nothing is sent; a key of its
+/// own name sends as before.
+#[test]
+fn a_selection_that_cannot_be_read_and_a_key_named_as_a_control_send_nothing() {
+    let synthetic = OsString::from("synthetic-key-976");
+    for (label, selection) in [("empty", OsString::new()), ("not text", not_text())] {
+        let env = [
+            (RUN_BUDGET_ENV, selection.as_os_str()),
+            ("GATEWAY_KEY_976", synthetic.as_os_str()),
+        ];
+        let run = start_cli_os(
+            &env,
+            &["--api-key-env", "GATEWAY_KEY_976", "--prompt", "say hello"],
+        );
+        assert_eq!((run.code, run.sent.len()), (Some(2), 0), "{label}: {run:?}");
+        assert_eq!(
+            run.error, "error: the run budget refused the entry: InvalidBudgetId",
+            "{label}: {run:?}"
+        );
+        let doctor = start_cli_os(
+            &env,
+            &["--api-key-env", "GATEWAY_KEY_976", "--doctor", "--json"],
+        );
+        assert_eq!(
+            (doctor.code, doctor.sent.len()),
+            (Some(1), 0),
+            "{label}: {doctor:?}"
+        );
+        assert!(
+            doctor.printed.contains(DOCTOR_REFUSED_BY_SELECTION),
+            "{label}: {doctor:?}"
+        );
+    }
+
+    for name in [
+        "COMMANDAGENT_ADAPTER_CONFIG_ROOT",
+        "ANVIL_RUN_BUDGET",
+        "ANVIL_ADAPTER_CONFIG_ROOT",
+    ] {
+        let doctor = start_cli(
+            &[(name, "synthetic-key-976")],
+            &["--api-key-env", name, "--doctor", "--json"],
+        );
+        assert_eq!(
+            (doctor.code, doctor.sent.len()),
+            (Some(1), 0),
+            "{name}: {doctor:?}"
+        );
+        assert!(
+            doctor.printed.contains(DOCTOR_REFUSED_BY_NAME),
+            "{name}: {doctor:?}"
+        );
+    }
+
+    let doctor = start_cli(
+        &[("GATEWAY_KEY_976", "synthetic-key-976")],
+        &["--api-key-env", "GATEWAY_KEY_976", "--doctor", "--json"],
+    );
+    assert!(!doctor.sent.is_empty(), "{doctor:?}");
 }

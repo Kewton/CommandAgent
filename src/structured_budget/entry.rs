@@ -76,12 +76,17 @@ impl std::fmt::Display for EntryRefusal {
 
 impl std::error::Error for EntryRefusal {}
 
-/// Whether a wallet is selected. Its value, whatever it is, is the ID. The start of the command
-/// line on macOS takes a provider key's variable out of the environment and holds its value, so
-/// what it holds counts as much as the environment does: a selection is never lost there. Only
-/// whether it is present is read here, never the value.
+/// Whether a wallet is selected: the variable is in this process's environment, whatever its
+/// value. An empty value, or one that is not text, is a selection too, and the ID read from it is
+/// refused, so a selection that cannot be read never turns into off. Off is the variable's
+/// absence and nothing else. Only whether it is present is read here, never the value.
+///
+/// On macOS the command line's start takes a provider key's variable out of the environment. What
+/// the start holds is not read here: a key named as a control of the run budget is refused by its
+/// name before anything could send instead, by [`refuse_a_control_named_as_key`] for a run, and by
+/// [`refuse_a_control_named`] for the doctor's provider checks and the shell's model completion.
 pub(crate) fn selected() -> bool {
-    crate::startup_credentials::var_os(RUN_BUDGET_ENV).is_some()
+    std::env::var_os(RUN_BUDGET_ENV).is_some()
 }
 
 /// Every variable the run budget is controlled by, as `structured_budget` reads it: the selection
@@ -99,10 +104,17 @@ const CONTROL_NAMES: [&str; 2] = [
 /// the environment before anything here could see it. Only names are compared; nothing is read.
 /// Off, a run is refused only when its key is named so.
 pub(crate) fn refuse_a_control_named_as_key(config: &Config) -> Result<(), EntryRefusal> {
-    let key = config
-        .openai_compatible
-        .as_ref()
-        .and_then(|compatible| compatible.api_key_env.as_deref());
+    refuse_a_control_named(
+        config
+            .openai_compatible
+            .as_ref()
+            .and_then(|compatible| compatible.api_key_env.as_deref()),
+    )
+}
+
+/// [`refuse_a_control_named_as_key`] for a key's variable found by name alone, where there is no
+/// configuration to read it from.
+pub(crate) fn refuse_a_control_named(key: Option<&str>) -> Result<(), EntryRefusal> {
     match key {
         Some(name)
             if CONTROL_NAMES
@@ -162,6 +174,7 @@ fn open_noting(
     {
         return Ok(());
     }
+    // Empty, or not text: refused here, never taken for off.
     let id = std::env::var(RUN_BUDGET_ENV)
         .ok()
         .filter(|id| valid_budget_id(id))
