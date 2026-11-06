@@ -19,7 +19,8 @@
 //! opens. The walk that judges the way holds each directory it judged, so what is made is made
 //! there, one name at a time and never over a name that appeared since, and the wallet's directory
 //! is held for as long as the wallet: no file of it is reached by its path again. What is made has
-//! to be empty and this user's when it is opened. A link at the wallet's own name is refused
+//! to be, when it is opened, the directory seen at its name just after the make, empty, and this
+//! user's. A link at the wallet's own name is refused
 //! before it is followed. Before anything is made, before the lock is opened and once it is held,
 //! before every change, and after every rename, every directory held from the root down has to be
 //! at the name it was entered by, with no link there, and the path has to name the directory held.
@@ -35,6 +36,17 @@
 //!   ledger renamed into place in the directory held, if that directory is moved between the check
 //!   before a change and its rename. The check after the rename refuses that change and every one
 //!   after it, so it is that one version, and the run stops.
+//! - A directory made is seen at its name right after the make, and the one opened is compared
+//!   with it. A swap between the make and that look is not seen; a directory put there then still
+//!   has to be empty and this user's, and the chain is checked again after it.
+//! - A directory made has to be this user's by the owner the file system reports. One that
+//!   reports another owner for what this user makes (NFS with a squash, FAT or exFAT mounted with
+//!   a `uid=`, some FUSE or SMB mounts) refuses a new wallet there; one already made is not made
+//!   again, so it opens as before.
+//! - One name of a file is seen at each check, and not between two. A second name made, used,
+//!   and removed between two checks is not seen. That a command of a run cannot make one rests on
+//!   the sandbox refusing a hard link into its reach: measured as refused on macOS, and only read
+//!   for Linux Landlock, where a link across directories needs its `REFER` right.
 //! - A writer with the same user ID outside the sandbox can write the file itself in its place;
 //!   that is the limit below, and not one of the directory.
 //! - A bind mount gives the same directory another name with the same device and inode, so it is
@@ -476,7 +488,8 @@ impl Store {
 
     /// Makes what is yet to be made from the directory the walk reached, one name at a time, and
     /// holds the last. A name there by now was not judged, so it is refused, whatever it is, and so
-    /// is a directory made here that is no longer empty and this user's when it is opened. Nothing
+    /// is a directory opened at the name of one made here that is not the one seen there just after
+    /// the make, or not empty and this user's. Nothing
     /// is made, and no lock is opened, in a directory of the way that is no longer where it was
     /// judged.
     fn open_on(directory: WalletDirectory, way: Way) -> Result<Self, LedgerRefusal> {
@@ -487,8 +500,17 @@ impl Store {
         for name in &way.to_make {
             let (reached, _) = chain.last().ok_or(LedgerRefusal::Unavailable)?;
             storage::make_directory_at(reached, name).map_err(unavailable)?;
+            // What the make made, seen before anything else can be put at its name.
+            let Some(Found::Entry(made_as)) =
+                storage::look_at(reached, name).map_err(unavailable)?
+            else {
+                return Err(LedgerRefusal::Unavailable);
+            };
             at_seam(Seam::AfterMake, directory.path());
             let made = storage::open_made(reached, name).map_err(unavailable)?;
+            if Identity::of(&made).map_err(unavailable)? != made_as {
+                return Err(LedgerRefusal::Unavailable);
+            }
             refuse_what_was_not_made_here(&made)?;
             chain.push((made, name.clone()));
             if !chain_holds(&chain) {
@@ -4564,6 +4586,130 @@ mod tests {
         assert!(
             stdout.contains(NAMED_RAN),
             "{NAMED_RAN} missing\n{stdout}\n{stderr}"
+        );
+    }
+
+    const AGAIN_CHILD: &str = "COMMANDAGENT_TEST_BUDGET_AGAIN_CHILD";
+    const AGAIN_RAN: &str =
+        "child-976-ran a_link_on_the_way_and_a_directory_made_are_compared_again";
+
+    /// Runs only as the child of the test below. A link on the way, out of every command's reach,
+    /// is turned after the walk to another real directory outside with the same names below it:
+    /// the open is refused, nothing is made where it now leads, and no ledger is written where it
+    /// led. Turned before anything is held, no lock is opened either. A directory just made,
+    /// swapped for another empty one of this user's, or given something inside, is refused, and
+    /// no wallet is made.
+    #[test]
+    fn a_link_on_the_way_and_a_directory_made_are_compared_again_child() {
+        if std::env::var_os(AGAIN_CHILD).is_none() {
+            return;
+        }
+        let mut wrong = Vec::new();
+        let unavailable = Err(LedgerRefusal::Unavailable);
+
+        // The point the link is turned at, and whether a lock may be left where it first led.
+        let points: [(&str, bool); 3] = [
+            ("after the walk", false),
+            ("before the lock", true),
+            ("once the lock is held", true),
+        ];
+        for (point, lock_may_be_left) in points {
+            let world = World::new();
+            let first = made(world.base.join("safe1"));
+            let second = made(world.base.join("safe2"));
+            let (first_wallet, second_wallet) = (
+                made(first.join("more").join(WALLET)),
+                made(second.join("more").join(WALLET)),
+            );
+            let link = linked(&first, world.base.join("link"));
+            let before = every_name_under(&second);
+            let (at, to) = (link.clone(), second.clone());
+            let turn = move || {
+                fs::remove_file(&at).unwrap();
+                linked(&to, at);
+            };
+            let hook: Box<dyn std::any::Any> = match point {
+                "after the walk" => Box::new(once_at(Seam::AfterWalk, None, turn)),
+                "before the lock" => Box::new(once_at(Seam::BeforeLock, None, turn)),
+                _ => Box::new(once_lock_taken(turn)),
+            };
+            let opened = open_at(&world, &link.join("more")).map(|_| ());
+            drop(hook);
+            let made_there = every_name_under(&second).difference(&before).count();
+            let lock_left = first_wallet.join(LOCK_FILE).exists();
+            let ledger_left = first_wallet.join(LEDGER_FILE).exists();
+            if opened != unavailable
+                || made_there != 0
+                || second_wallet.join(LEDGER_FILE).exists()
+                || ledger_left
+                || (!lock_may_be_left && lock_left)
+            {
+                wrong.push(format!(
+                    "a link on the way turned {point}: {opened:?}, made where it leads now: \
+                     {made_there}, ledger where it led: {ledger_left}, lock there: {lock_left}"
+                ));
+            }
+        }
+
+        // A directory just made, swapped for another empty one of this user's: only the device
+        // and inode seen just after the make tell them apart.
+        let world = World::new();
+        let (ledgers, aside) = (world.ledgers.clone(), world.base.join("aside"));
+        let (at, away) = (ledgers.clone(), aside.clone());
+        let hook = once_at(Seam::AfterMake, None, move || {
+            fs::rename(&at, away).unwrap();
+            made(at);
+        });
+        let opened = world.open(LedgerEntry::Fresh).map(|_| ());
+        drop(hook);
+        if opened != unavailable || world.wallet_dir().exists() || aside.join(WALLET).exists() {
+            wrong.push(format!(
+                "a directory made, swapped for another empty one: {opened:?}, wallet made: {}",
+                world.wallet_dir().exists() || aside.join(WALLET).exists()
+            ));
+        }
+
+        // A directory just made, the same one, with something put inside it.
+        let world = World::new();
+        let ledgers = world.ledgers.clone();
+        let hook = once_at(Seam::AfterMake, None, move || {
+            fs::write(ledgers.join("planted"), b"planted").unwrap();
+        });
+        let opened = world.open(LedgerEntry::Fresh).map(|_| ());
+        drop(hook);
+        if opened != unavailable || world.wallet_dir().exists() {
+            wrong.push(format!(
+                "a directory made, with something put inside: {opened:?}, wallet made: {}",
+                world.wallet_dir().exists()
+            ));
+        }
+        assert_eq!(wrong, Vec::<String>::new());
+        println!("{AGAIN_RAN}");
+    }
+
+    #[test]
+    fn a_link_on_the_way_and_a_directory_made_are_compared_again() {
+        let root = tempfile::tempdir().unwrap();
+        let home = made(root.path().join("home"));
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "structured_budget::ledger::tests::a_link_on_the_way_and_a_directory_made_are_compared_again_child",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env_clear()
+            .env("HOME", &home)
+            .env(AGAIN_CHILD, "marker-976-again-child")
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{stdout}\n{stderr}");
+        assert!(stdout.contains("1 passed"), "{stdout}\n{stderr}");
+        assert!(
+            stdout.contains(AGAIN_RAN),
+            "{AGAIN_RAN} missing\n{stdout}\n{stderr}"
         );
     }
 }
