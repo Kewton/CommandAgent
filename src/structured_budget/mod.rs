@@ -8,9 +8,9 @@
 //!   one: the handle is passed by value.
 //! - A wallet with an unresolved send or a set latch allows no send and no success.
 //!
-//! This is the money, the state machine, the ledger, the clock, the one send, and the factory's
-//! refusal. No entry opens a wallet yet, and with no wallet selected nothing here runs at all but
-//! the factory's look at whether one was.
+//! This is the money, the state machine, the ledger, the clock, the one send, the factory's
+//! refusal, and the entry that opens a run's wallet and refuses what it cannot count. With no wallet
+//! selected nothing here runs at all but a look at whether one was.
 
 #![allow(
     dead_code,
@@ -19,6 +19,7 @@
 
 pub(crate) mod admission;
 pub(crate) mod clock;
+pub(crate) mod entry;
 pub(crate) mod identity;
 pub(crate) mod ledger;
 pub(crate) mod policy;

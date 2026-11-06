@@ -300,6 +300,9 @@ fn delegated_cli_command(
     identity: &ConfirmationIdentity,
     workspace_changed_message: &'static str,
 ) -> anyhow::Result<Command> {
+    // Before anything, and before the environment is cleared: the delegated run would not see
+    // the run budget, and nothing would count what it sends.
+    commandagent::refuse_unmetered_gui_send()?;
     let workspace = state
         .trial_workspace
         .require_current()

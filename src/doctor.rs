@@ -653,6 +653,21 @@ fn add_config_file_checks(
 }
 
 fn add_provider_checks(checks: &mut Vec<DoctorCheck>, config: &Config) {
+    // A provider check is a send no run budget counts, so with one selected none is sent.
+    if let Err(refusal) = crate::structured_budget::entry::refuse(
+        crate::structured_budget::entry::Unmetered::ProviderCheck,
+    ) {
+        checks.push(DoctorCheck::new(
+            "provider.run_budget",
+            "provider",
+            "Run budget",
+            CheckStatus::Fail,
+            "a run budget is selected, so no provider check is sent: nothing would count it",
+            Some("check the providers in a process with no run budget selected".to_string()),
+            json!({ "refusal": refusal.to_string() }),
+        ));
+        return;
+    }
     let ollama_roles = [
         ("executor", config.provider, config.model.as_str()),
         (

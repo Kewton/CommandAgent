@@ -7,10 +7,19 @@ mod probe_transport;
 use probe_transport::{HttpOllamaProbe, OllamaProbe};
 
 const STARTUP_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
+/// What a run under a run budget says in place of the probe it does not send.
+pub(crate) const STARTUP_PROBE_SKIPPED: &str = "warning: the provider startup probe was skipped: a run budget is selected, and nothing would count the probe.";
 
 pub(crate) fn warnings(config: &Config, stdin_is_terminal: bool) -> Vec<String> {
     if !should_probe(config, stdin_is_terminal) {
         return Vec::new();
+    }
+    if crate::structured_budget::entry::refuse(
+        crate::structured_budget::entry::Unmetered::StartupProbe,
+    )
+    .is_err()
+    {
+        return vec![STARTUP_PROBE_SKIPPED.to_string()];
     }
     let mut warnings = ollama_warnings(config);
     warnings.extend(lm_studio_warnings(config));

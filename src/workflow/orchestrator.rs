@@ -18,6 +18,7 @@ use crate::tools::os_sandbox::events_scope::EventsScope;
 
 /// Runs a declarative workflow around the existing single-intent entry.
 pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow::Result<()> {
+    crate::structured_budget::entry::refuse(crate::structured_budget::entry::Unmetered::Workflow)?;
     crate::tools::profile_tools::refuse_before_provider(origin, config)?;
     crate::tools::profile_tools::refuse_before_provider(&config.workspace_root, config)?;
     run_workflow_with(config, definition, origin, |child| {

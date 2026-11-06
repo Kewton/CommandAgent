@@ -342,6 +342,19 @@ impl PhasePlanPipeline {
         next_phase_prompt: &str,
         calls: SharedCallLog,
     ) {
+        // D8 (#976): under a run budget a prefetch does not start, so no send of it is cancelled
+        // unsettled or left for nothing to count.
+        if crate::structured_budget::entry::selected() || config.field_sources.run_budget.is_some()
+        {
+            emit_pipeline_event(
+                config,
+                "speculative_phase_plan_not_started",
+                current_phase_id,
+                next_phase_id,
+                "run_budget_selected",
+            );
+            return;
+        }
         self.cancel_and_discard(config, "superseded");
         if !model_plan_has_provider_work(config, next_phase_prompt) {
             return;
@@ -1411,6 +1424,195 @@ mod tests {
         assert!(!recorded[0].is_cancelled());
         token.cancel();
         assert!(recorded[0].is_cancelled(), "a different token arrived");
+    }
+
+    /// A planner whose every clone counts its calls in one place, standing for a send.
+    #[derive(Clone)]
+    struct CountingPlanner(Arc<std::sync::atomic::AtomicUsize>);
+
+    impl ChatClient for CountingPlanner {
+        fn label(&self) -> &str {
+            "counting-976"
+        }
+
+        fn boxed_clone(&self) -> Box<dyn ChatClient> {
+            Box::new(self.clone())
+        }
+
+        fn chat(
+            &mut self,
+            _model: &str,
+            _messages: &[ConversationMessage],
+            _tools: &[ToolSpec],
+            _native_tools_enabled: bool,
+        ) -> anyhow::Result<AssistantReply> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(AssistantReply::text("prefetched"))
+        }
+    }
+
+    const BUDGET_CHILD: &str = "COMMANDAGENT_TEST_BUDGET_PREFETCH_CHILD";
+    const BUDGET_RAN: &str = "child-976-3b-ran a_prefetch_under_a_run_budget";
+    const PREFETCH_PROMPT: &str = "Write notes.txt with one line of synthetic text.";
+
+    /// One start of a prefetch: whether it was left pending, the calls it made, and the events.
+    fn one_prefetch(change: impl FnOnce(&mut Config)) -> (bool, usize, Vec<serde_json::Value>) {
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path().to_str().unwrap().to_string();
+        let state = dir.path().join("state").to_str().unwrap().to_string();
+        let parsed = crate::provider_cli::parse_from([
+            "commandagent",
+            "--cwd",
+            &cwd,
+            "--state-dir",
+            &state,
+            "--profile",
+            "generic",
+            "--model",
+            "m-1",
+        ])
+        .unwrap();
+        let mut config =
+            Config::from_cli_with_provider_options(parsed.cli, parsed.provider_options).unwrap();
+        config.eval_events_path = Some(dir.path().join("events.jsonl"));
+        change(&mut config);
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let planner = CountingPlanner(calls.clone());
+        let mut pipeline = PhasePlanPipeline::new();
+        pipeline.start(
+            &planner,
+            &config,
+            "phase-n",
+            "phase-n-plus-one",
+            PREFETCH_PROMPT,
+        );
+        let pending = pipeline.pending.is_some();
+        if pending {
+            // The worker's one call, observed; the bound only turns a missing one into a failure.
+            let deadline = Instant::now() + HANDSHAKE_DEADLINE;
+            while calls.load(Ordering::SeqCst) == 0 {
+                assert!(Instant::now() < deadline, "the prefetch never called");
+                thread::yield_now();
+            }
+        }
+        pipeline.cancel_and_discard(&config, "verification_failed");
+        drop(pipeline);
+        let events = std::fs::read_to_string(dir.path().join("events.jsonl"))
+            .unwrap_or_default()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        (pending, calls.load(Ordering::SeqCst), events)
+    }
+
+    /// Runs only as the child of the test below, with or without the selection. Under one, no
+    /// prefetch starts, nothing is called, and one fixed event says so; with none it starts and
+    /// calls as before, with its events as before. A wallet on the configuration stops it too.
+    #[test]
+    fn a_prefetch_under_a_run_budget_child() {
+        if std::env::var_os(BUDGET_CHILD).is_none() {
+            return;
+        }
+        let not_started = serde_json::json!({
+            "event": "speculative_phase_plan_not_started",
+            "current_phase_id": "phase-n",
+            "next_phase_id": "phase-n-plus-one",
+            "reason": "run_budget_selected",
+            "schema_version": "1",
+        });
+        let (pending, calls, events) = one_prefetch(|_| {});
+        if crate::structured_budget::entry::selected() {
+            assert_eq!((pending, calls), (false, 0));
+            assert_eq!(events, vec![not_started.clone()]);
+        } else {
+            assert_eq!((pending, calls), (true, 1));
+            let names = events
+                .iter()
+                .map(|event| event["event"].as_str().unwrap().to_string())
+                .collect::<Vec<_>>();
+            assert_eq!(names[0], "speculative_phase_plan_started");
+            assert!(
+                !names.iter().any(|name| name.ends_with("not_started")),
+                "{names:?}"
+            );
+
+            let wallet = tempfile::tempdir().unwrap();
+            let (pending, calls, events) = one_prefetch(|config| {
+                config.field_sources.run_budget = Some(a_wallet(wallet.path()));
+            });
+            assert_eq!((pending, calls), (false, 0));
+            assert_eq!(events, vec![not_started]);
+        }
+        println!("{BUDGET_RAN}");
+    }
+
+    fn a_wallet(
+        base: &std::path::Path,
+    ) -> Arc<crate::structured_budget::transport::RunBudgetHandle> {
+        use crate::structured_budget::ledger::{CommandWrites, LedgerEntry, LedgerOpen};
+        use crate::structured_budget::policy::RunBudgetPolicy;
+        use crate::structured_budget::test_support::{FakeClock, WALLET, policy_value};
+        let base = std::fs::canonicalize(base).unwrap();
+        let (workspace, run_tmp) = (base.join("workspace"), base.join("run-tmp"));
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::create_dir_all(&run_tmp).unwrap();
+        let mut value = policy_value();
+        value["ledger_dir"] = serde_json::json!(base.join("ledgers").to_str().unwrap());
+        let policy = RunBudgetPolicy::decode(value.to_string().as_bytes(), WALLET).unwrap();
+        Arc::new(
+            crate::structured_budget::transport::RunBudgetHandle::open(LedgerOpen {
+                policy: Arc::new(policy),
+                workspace: &workspace,
+                explicit_profile: None,
+                entry: LedgerEntry::Fresh,
+                clock: FakeClock::at(7_000),
+                command_writes: Some(CommandWrites::of(
+                    crate::tools::os_sandbox::SandboxPolicy::with_home(
+                        &workspace,
+                        &run_tmp,
+                        base.join("home"),
+                    ),
+                )),
+            })
+            .unwrap(),
+        )
+    }
+
+    /// D8 (#976): a prefetch is a send no run budget would see settled, so under one it does not
+    /// start. The selection is the process's, so each side runs in a child of its own.
+    #[test]
+    fn a_prefetch_under_a_run_budget_does_not_start() {
+        for selected in [true, false] {
+            let home = tempfile::tempdir().unwrap();
+            let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+            child
+                .args([
+                    "a_prefetch_under_a_run_budget_child",
+                    "--nocapture",
+                    "--test-threads=1",
+                ])
+                .env_clear()
+                .env("HOME", home.path())
+                .env(BUDGET_CHILD, "marker-976-prefetch");
+            if selected {
+                child.env(
+                    crate::structured_budget::admission::RUN_BUDGET_ENV,
+                    "wallet-976",
+                );
+            }
+            let output = child.output().unwrap();
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(output.status.success(), "{selected}\n{stdout}\n{stderr}");
+            assert!(
+                stdout.contains("1 passed"),
+                "{selected}\n{stdout}\n{stderr}"
+            );
+            assert!(
+                stdout.contains(BUDGET_RAN),
+                "{selected}\n{stdout}\n{stderr}"
+            );
+        }
     }
 }
 

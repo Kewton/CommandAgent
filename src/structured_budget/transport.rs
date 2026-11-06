@@ -13,7 +13,10 @@
 //!
 //! A wallet protects itself only from commands the sandbox holds, and only if the workspace it was
 //! checked against is the one the sandbox holds them in. So a send also needs the sandbox applied
-//! and on that workspace.
+//! and on that workspace, and holding commands to the very places the wallet was judged against:
+//! the workspace, the run's temporary, and the caches, as they were when it opened. A sandbox
+//! installed again since, even on the same workspace, has a temporary of its own, and may let
+//! commands write more; no send goes out under it.
 
 use std::collections::HashMap;
 use std::fs;
@@ -48,6 +51,9 @@ pub(crate) enum SendRefusal {
     SandboxNotApplied,
     /// The sandbox holds them in another workspace than the one the wallet was checked against.
     SandboxOnAnotherWorkspace,
+    /// The sandbox holds them to other places than the ones the wallet was judged against when it
+    /// opened: another temporary, or caches added or gone.
+    SandboxChangedSinceOpen,
     Unavailable,
 }
 
@@ -72,6 +78,8 @@ pub(crate) struct RunBudgetHandle {
     policy: Arc<RunBudgetPolicy>,
     /// As the wallet was checked against it, canonical.
     workspace: PathBuf,
+    /// Where the sandbox applied on the run let commands write when the wallet was judged by it.
+    opened_under: Option<SandboxSnapshot>,
     /// What a test says the sandbox is, in place of the state of the process. `None` reads that
     /// state, as a run does.
     #[cfg(test)]
@@ -97,6 +105,39 @@ impl PartialEq for RunBudgetHandle {
 
 impl Eq for RunBudgetHandle {}
 
+/// Every place a sandbox policy lets commands write, each as it really leads. A place that cannot be
+/// resolved is kept as written, or is `None`, so it is never equal to one that could.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SandboxSnapshot {
+    workspace: Option<PathBuf>,
+    run_tmp_dir: Option<PathBuf>,
+    caches: Vec<PathBuf>,
+}
+
+impl SandboxSnapshot {
+    fn of(policy: &os_sandbox::SandboxPolicy) -> Self {
+        let caches = &policy.caches;
+        let mut roots = [
+            &caches.cargo_registry,
+            &caches.cargo_git,
+            &caches.cargo_package_cache,
+            &caches.npm,
+            &caches.pip,
+            &caches.playwright,
+        ]
+        .into_iter()
+        .flatten()
+        .map(|root| fs::canonicalize(root).unwrap_or_else(|_| root.clone()))
+        .collect::<Vec<_>>();
+        roots.sort();
+        Self {
+            workspace: fs::canonicalize(&policy.workspace_root).ok(),
+            run_tmp_dir: fs::canonicalize(&policy.run_tmp_dir).ok(),
+            caches: roots,
+        }
+    }
+}
+
 /// Whether the sandbox holds commands in the workspace this wallet was checked against.
 fn refuse_another_workspace(
     wallet_workspace: &Path,
@@ -114,11 +155,16 @@ impl RunBudgetHandle {
         let workspace =
             fs::canonicalize(request.workspace).map_err(|_| LedgerRefusal::Unavailable)?;
         let policy = request.policy.clone();
+        let opened_under = request
+            .command_writes
+            .as_ref()
+            .map(|writes| SandboxSnapshot::of(writes.policy()));
         let ledger = BudgetLedger::open(request)?;
         Ok(Self {
             ledger: Mutex::new(ledger),
             policy,
             workspace,
+            opened_under,
             #[cfg(test)]
             sandbox_view: None,
         })
@@ -155,13 +201,18 @@ impl RunBudgetHandle {
         if let Some(view) = &self.sandbox_view {
             return refuse_another_workspace(&self.workspace, view.applied_on.as_deref());
         }
-        if !os_sandbox::is_applied() {
+        // One reading of what is applied now, before anything else: none is no sandbox.
+        let Some(now) = os_sandbox::applied_policy() else {
             return Err(SendRefusal::SandboxNotApplied);
-        }
+        };
         refuse_another_workspace(
             &self.workspace,
             os_sandbox::installed_workspace_root().as_deref(),
-        )
+        )?;
+        if self.opened_under.as_ref() != Some(&SandboxSnapshot::of(&now)) {
+            return Err(SendRefusal::SandboxChangedSinceOpen);
+        }
+        Ok(())
     }
 
     /// Reserves and starts these bytes. A start that is refused has sent nothing, so its reservation

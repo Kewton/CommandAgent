@@ -235,7 +235,7 @@ mod command_writes {
             Self(policy)
         }
 
-        pub(super) fn policy(&self) -> &SandboxPolicy {
+        pub(crate) fn policy(&self) -> &SandboxPolicy {
             &self.0
         }
     }
