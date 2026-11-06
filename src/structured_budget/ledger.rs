@@ -14,7 +14,9 @@
 //! The directory that is judged is the directory that is used: both take a [`WalletDirectory`],
 //! and only the policy makes one. No name on the way to it is somewhere a command of this run can
 //! change, links and the text of links included, as far as a path can tell: only the path is
-//! judged. A link out of a command's reach is allowed.
+//! judged. A link out of a command's reach is allowed. A command's reach is what the sandbox
+//! applied on the run lets it write, read from that sandbox's own policy: the workspace, the run's
+//! temporary, and the caches. With no such policy, no wallet opens.
 //!
 //! Known limits: someone with the same user ID, outside the sandbox and before a run, can delete
 //! the file or put an older one back. A fresh start then cannot tell; a resume is refused when the
@@ -499,8 +501,10 @@ fn refuse_every_name_on_the_way(
 }
 
 /// A directory commands of the run can write proves nothing, and neither does a path that runs
-/// through one: the place is judged by where it leads, and every use walks the path again. So both
-/// are judged. Where it leads comes first, so its refusals stay as G4 words them.
+/// through one, so both are judged, once, when the wallet opens. After that no use walks the path
+/// again: every change first holds the lock at the path to the inode it holds and the file to what
+/// it last wrote ([`Store::verify_unchanged`]), so a name moved later meets another lock or another
+/// file and is refused. Where it leads comes first, so its refusals stay as G4 words them.
 fn refuse_directory(
     directory: &WalletDirectory,
     workspace: &Path,
