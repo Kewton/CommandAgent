@@ -2238,7 +2238,9 @@ mod run_budget_tests {
 
     /// Runs `child`, a test of this module, alone in a process of its own with an empty
     /// environment but its marker, and waits for it. The sandbox it installs is that process's.
-    fn run_alone(child: &str, marker: &str) {
+    /// `ran` is the line the child prints once its checks are all through, so a child that read
+    /// no marker and returned at once does not pass for one that ran.
+    fn run_alone(child: &str, marker: &str, ran: &str) {
         let home = tempfile::tempdir().unwrap();
         let output = std::process::Command::new(std::env::current_exe().unwrap())
             .args([
@@ -2256,7 +2258,12 @@ mod run_budget_tests {
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(output.status.success(), "{stdout}\n{stderr}");
         assert!(stdout.contains("1 passed"), "{stdout}\n{stderr}");
+        assert!(stdout.contains(ran), "{ran} missing\n{stdout}\n{stderr}");
     }
+
+    const SANDBOX_APPLIED_RAN: &str = "child-976-ran a_post_needs_the_sandbox_applied";
+    const SANDBOX_ELSEWHERE_RAN: &str = "child-976-ran a_wallet_checked_against_another_workspace";
+    const FACTORY_RAN: &str = "child-976-ran the_factory_gives_a_client";
 
     /// A wallet's check is only worth what the sandbox holds, and only where the wallet was checked.
     /// The sandbox is the process's own, installed for real, so the rows run in a child process.
@@ -2265,6 +2272,7 @@ mod run_budget_tests {
         run_alone(
             "a_post_needs_the_sandbox_applied_on_the_workspace_of_the_wallet_child",
             SANDBOX_APPLIED_CHILD,
+            SANDBOX_APPLIED_RAN,
         );
     }
 
@@ -2395,6 +2403,7 @@ mod run_budget_tests {
             }
         }
         assert_eq!(wrong, Vec::<String>::new());
+        println!("{SANDBOX_APPLIED_RAN}");
     }
 
     /// The same the other way round: the sandbox stays and the wallet is the one checked elsewhere.
@@ -2404,6 +2413,7 @@ mod run_budget_tests {
         run_alone(
             "a_wallet_checked_against_another_workspace_sends_nothing_child",
             SANDBOX_ELSEWHERE_CHILD,
+            SANDBOX_ELSEWHERE_RAN,
         );
     }
 
@@ -2437,6 +2447,7 @@ mod run_budget_tests {
             Some(&SendRefusal::SandboxOnAnotherWorkspace)
         );
         assert_eq!(elsewhere.wallet().unwrap().physical_used(), 0);
+        println!("{SANDBOX_ELSEWHERE_RAN}");
     }
 
     #[test]
@@ -2497,6 +2508,7 @@ mod run_budget_tests {
         assert_eq!(fake.finish().len(), 1);
         assert_eq!(world.sends(), 1);
         assert_eq!(world.handle.success_gate(), Ok(()));
+        println!("{FACTORY_RAN}");
     }
 
     /// The whole way through the factory, with nothing set by hand on the client it gives.
@@ -2524,6 +2536,10 @@ mod run_budget_tests {
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(output.status.success(), "{stdout}\n{stderr}");
         assert!(stdout.contains("1 passed"), "{stdout}\n{stderr}");
+        assert!(
+            stdout.contains(FACTORY_RAN),
+            "{FACTORY_RAN} missing\n{stdout}\n{stderr}"
+        );
     }
 }
 
