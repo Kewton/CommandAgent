@@ -5,10 +5,10 @@
 //! directory that may be passed through and not listed is passed as before. The wallet's own
 //! directory is opened to be read as well, since its contents are fsynced through it.
 
-use std::ffi::{CString, OsStr};
+use std::ffi::{CStr, CString, OsStr};
 use std::fs::File;
 use std::io;
-use std::os::fd::{AsRawFd, FromRawFd};
+use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::MetadataExt;
 use std::path::PathBuf;
@@ -172,6 +172,57 @@ pub(super) fn open_made(directory: &File, name: &OsStr) -> io::Result<File> {
 /// The held directory itself, to be read and fsynced through.
 pub(super) fn open_itself(directory: &File) -> io::Result<File> {
     open_at(directory, OsStr::new("."), MADE, 0)
+}
+
+/// Whether `directory` holds nothing but `.` and `..`, read through a descriptor of its own so
+/// that no offset of `directory` moves. What cannot be read is an error, never empty.
+pub(super) fn is_empty(directory: &File) -> io::Result<bool> {
+    let fd = open_itself(directory)?.into_raw_fd();
+    // SAFETY: `fd` is an open directory descriptor this function owns. On success the stream owns
+    // it and the closedir below closes it.
+    let stream = unsafe { libc::fdopendir(fd) };
+    if stream.is_null() {
+        let error = io::Error::last_os_error();
+        // SAFETY: fdopendir failed, so `fd` is still this function's own, and closed once here.
+        unsafe { libc::close(fd) };
+        return Err(error);
+    }
+    let found = loop {
+        clear_errno();
+        // SAFETY: `stream` is open until the closedir below.
+        let entry = unsafe { libc::readdir(stream) };
+        if entry.is_null() {
+            let error = io::Error::last_os_error();
+            break match error.raw_os_error() {
+                Some(0) => Ok(true),
+                _ => Err(error),
+            };
+        }
+        // SAFETY: an entry readdir returned holds a NUL-terminated name, valid until the next
+        // readdir or closedir on this stream; it is read before either.
+        let name = unsafe { CStr::from_ptr((*entry).d_name.as_ptr()) }.to_bytes();
+        if name != b"." && name != b".." {
+            break Ok(false);
+        }
+    };
+    // SAFETY: `stream` is open, and closed once here.
+    unsafe { libc::closedir(stream) };
+    found
+}
+
+/// The end of a directory and an error in reading it look alike but for `errno`, so it is cleared
+/// before each read. Where it cannot be, a stale value reads as an error: refused, not passed.
+fn clear_errno() {
+    // SAFETY: the location is this thread's own `errno`, valid for the thread's life.
+    #[cfg(target_os = "linux")]
+    unsafe {
+        *libc::__errno_location() = 0;
+    }
+    // SAFETY: as above.
+    #[cfg(target_os = "macos")]
+    unsafe {
+        *libc::__error() = 0;
+    }
 }
 
 /// A new directory, private to this user. One already there is an error, never a success.
