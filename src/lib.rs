@@ -45,6 +45,7 @@ pub mod runtime_paths;
 pub mod sensitive_data;
 pub mod startup_credentials;
 pub mod state;
+pub(crate) mod structured_budget;
 pub mod time_profile;
 pub mod tools;
 pub mod tui;

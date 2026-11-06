@@ -11,6 +11,8 @@ use crate::config::{
 };
 use crate::eval_events;
 use crate::state::ConversationMessage;
+use crate::structured_budget::identity::SendPurpose;
+use crate::structured_budget::transport::{self, BudgetedBody, RunBudgetHandle};
 use crate::tools::registry::ToolSpec;
 
 use super::compatible_effort::{self, CompatibleEffortSetting};
@@ -65,6 +67,8 @@ pub struct LmStudioClient {
     /// The preset's `openrouter_provider`, fixed at construction for generic
     /// roles only (Issue #939); `None` sends and records nothing new.
     openrouter_routing: Option<ClientRouting>,
+    /// The run's wallet (Issue #976). `None` is off, and then the wire stays as it was.
+    run_budget: Option<Arc<RunBudgetHandle>>,
 }
 
 impl fmt::Debug for LmStudioClient {
@@ -139,11 +143,29 @@ impl LmStudioClient {
             config.openai_api,
             config.eval_events_path.clone(),
         )
-        .map(|client| {
+        .and_then(|client| {
             let mut client = client.with_reasoning_effort(reasoning_effort, role);
             client.openrouter_routing = ClientRouting::for_role(compatible, role);
-            client
+            match &config.field_sources.run_budget {
+                Some(handle) => client.under_run_budget(handle, config.chat_timeout_secs),
+                None => Ok(client),
+            }
         })
+    }
+
+    /// Under a wallet a client follows no redirect and never asks for more output than the policy
+    /// allows, so a request a run would have made big is reserved, not refused.
+    fn under_run_budget(
+        mut self,
+        handle: &Arc<RunBudgetHandle>,
+        timeout_secs: u64,
+    ) -> anyhow::Result<Self> {
+        self.http = transport::no_redirect_client(timeout_secs)?;
+        if let Ok(ceiling) = usize::try_from(handle.max_output_tokens()) {
+            self.max_predict = self.max_predict.min(ceiling);
+        }
+        self.run_budget = Some(handle.clone());
+        Ok(self)
     }
 
     fn with_reasoning_effort(
@@ -231,6 +253,7 @@ impl LmStudioClient {
             reasoning_effort: None,
             provider_role: ProviderRole::Executor,
             openrouter_routing: None,
+            run_budget: None,
         })
     }
 
@@ -415,15 +438,29 @@ impl LmStudioClient {
         body: &Value,
     ) -> anyhow::Result<(String, usize)> {
         let call = HttpCall::new(&self.cancel)?;
+        let budgeted = self
+            .run_budget
+            .as_ref()
+            .map(|handle| BudgetedBody::new(handle, body, send_purpose(self.provider_role)))
+            .transpose()?;
         for attempt in 0..=self.retries {
-            let request = self.authorize(
-                self.http
-                    .post(format!("{}{endpoint}", self.base_url))
-                    .json(body),
-            );
-            match call.run(async { request.send().await })? {
+            let request = self.http.post(format!("{}{endpoint}", self.base_url));
+            let (request, mut send) = match &budgeted {
+                Some(budgeted) => {
+                    let (request, send) = budgeted.begin(request).map_err(transport::refused)?;
+                    (request, Some(send))
+                }
+                None => (request.json(body), None),
+            };
+            let request = self.authorize(request);
+            let outcome = call.run(async { request.send().await })?;
+            transport::note_outcome(&mut send, &outcome);
+            match outcome {
                 Ok(response) if response.status().is_success() => {
-                    let text = call.run(response.text())??;
+                    let text = call
+                        .run(response.text())?
+                        .inspect_err(|error| transport::note_body_error(&mut send, error))?;
+                    transport::settle_body(&mut send, &text).map_err(transport::refused)?;
                     if let Some(routing) = &self.openrouter_routing {
                         let event = routing.observed_event(
                             self.kind.label(),
@@ -618,6 +655,14 @@ impl ChatClient for LmStudioClient {
             }
             OpenAiApi::Responses => self.responses(model, messages, tools, native_tools_enabled),
         }
+    }
+}
+
+const fn send_purpose(role: ProviderRole) -> SendPurpose {
+    match role {
+        ProviderRole::Executor => SendPurpose::Executor,
+        ProviderRole::Planner => SendPurpose::Planner,
+        ProviderRole::Classifier => SendPurpose::Classifier,
     }
 }
 
@@ -929,6 +974,1590 @@ mod tests {
         assert!(evidence.contains("<redacted>"), "{evidence}");
         assert!(!evidence.contains(secret), "{evidence}");
         assert!(!debug.contains(secret), "{debug}");
+    }
+}
+
+/// One send under a wallet, through the real client and the real ledger, against a disposable
+/// listener on loopback that counts what reaches it. The listener and the client are in step by
+/// what the listener has read, and only a timeout row waits for a clock.
+#[cfg(test)]
+mod run_budget_tests {
+    use std::io::{Read, Write};
+    use std::net::{SocketAddr, TcpListener, TcpStream};
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::sync::{Arc, Mutex};
+    use std::thread::JoinHandle;
+    use std::time::Duration;
+
+    use serde_json::{Value, json};
+
+    use super::{LmStudioClient, openai_chat_completions};
+    use crate::config::{Config, ProviderRole};
+    use crate::planner::structured_stages::receipt::sha256_hex;
+    use crate::provider_call::{self, ProviderCallOutcome, ProviderCallScope, ProviderChatRequest};
+    use crate::providers::streaming::{CancelToken, HttpCall, http_client};
+    use crate::state::ConversationMessage;
+    use crate::structured_budget::clock::BudgetClock;
+    use crate::structured_budget::ledger::{
+        CommandWrites, LedgerEntry, LedgerFailure, LedgerOpen, LedgerRefusal,
+    };
+    use crate::structured_budget::policy::RunBudgetPolicy;
+    use crate::structured_budget::reservation::{
+        AttemptState, BudgetRefusal, LatchReason, Money, reservation_amount,
+    };
+    use crate::structured_budget::settlement::{SettleReport, UnknownReason};
+    use crate::structured_budget::test_support::{FakeClock, WALLET, policy_value};
+    use crate::structured_budget::transport::{
+        RunBudgetHandle, SandboxView, SendRefusal, budget_refusal,
+    };
+    use crate::tools::os_sandbox::{
+        self, SandboxAvailability, SandboxMode, SandboxPolicy, SandboxTestState,
+    };
+
+    const KNOWN: &str = r#"{"prompt_tokens":10,"completion_tokens":5,"cost":0.00001}"#;
+
+    fn reply_body(usage: &str) -> String {
+        format!(
+            r#"{{"id":"c-976","model":"m-1","choices":[{{"message":{{"content":"done"}}}}],"usage":{usage}}}"#
+        )
+    }
+
+    #[derive(Clone)]
+    enum Reply {
+        Status(u16, String),
+        Redirect(u16, String),
+        /// Says more bytes than it sends, then closes.
+        Cut(String),
+        /// Reads, answers nothing, and waits for the client to close.
+        Hang,
+        /// Reads and closes without a word.
+        Close,
+    }
+
+    #[derive(Debug, Clone)]
+    struct Received {
+        head: String,
+        body: Vec<u8>,
+    }
+
+    impl Received {
+        /// The header lines, without the request line or the listener's own address.
+        fn headers(&self) -> Vec<&str> {
+            let mut lines = self
+                .head
+                .lines()
+                .skip(1)
+                .filter(|line| !line.starts_with("host:"))
+                .collect::<Vec<_>>();
+            lines.sort_unstable();
+            lines
+        }
+    }
+
+    fn read_request(stream: &mut TcpStream) -> Received {
+        stream
+            .set_read_timeout(Some(Duration::from_secs(30)))
+            .unwrap();
+        let mut data = Vec::new();
+        let mut buffer = [0_u8; 8192];
+        loop {
+            if let Some(end) = data.windows(4).position(|window| window == b"\r\n\r\n") {
+                let head = String::from_utf8_lossy(&data[..end]).to_ascii_lowercase();
+                let length = head
+                    .lines()
+                    .find_map(|line| line.strip_prefix("content-length:"))
+                    .and_then(|value| value.trim().parse::<usize>().ok())
+                    .unwrap_or(0);
+                if data.len() >= end + 4 + length {
+                    return Received {
+                        head,
+                        body: data[end + 4..end + 4 + length].to_vec(),
+                    };
+                }
+            }
+            let read = stream.read(&mut buffer).unwrap();
+            assert!(read > 0, "the client closed before its request was whole");
+            data.extend_from_slice(&buffer[..read]);
+        }
+    }
+
+    fn answer(stream: &mut TcpStream, reply: &Reply) {
+        let text = match reply {
+            Reply::Status(status, body) => format!(
+                "HTTP/1.1 {status} Scripted\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            ),
+            Reply::Redirect(status, location) => format!(
+                "HTTP/1.1 {status} Scripted\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            ),
+            Reply::Cut(body) => format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len() + 100
+            ),
+            Reply::Hang => {
+                let mut rest = [0_u8; 256];
+                while matches!(stream.read(&mut rest), Ok(read) if read > 0) {}
+                return;
+            }
+            Reply::Close => return,
+        };
+        // A client that has gone is its own row's concern.
+        let _ = stream.write_all(text.as_bytes());
+        let _ = stream.flush();
+    }
+
+    struct Fake {
+        address: SocketAddr,
+        stop: Arc<AtomicBool>,
+        thread: JoinHandle<Vec<Received>>,
+    }
+
+    impl Fake {
+        fn spawn(replies: Vec<Reply>) -> Self {
+            Self::watching(replies, |_| {})
+        }
+
+        /// `on_request` runs with the whole request read and no answer sent.
+        fn watching(
+            replies: Vec<Reply>,
+            mut on_request: impl FnMut(&Received) + Send + 'static,
+        ) -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let stop = Arc::new(AtomicBool::new(false));
+            let thread_stop = stop.clone();
+            let thread = std::thread::spawn(move || {
+                let mut replies = replies.into_iter();
+                let mut received = Vec::new();
+                while !thread_stop.load(Ordering::SeqCst) {
+                    let mut stream = match listener.accept() {
+                        Ok((stream, _)) => stream,
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            std::thread::sleep(Duration::from_millis(5));
+                            continue;
+                        }
+                        Err(error) => panic!("accept: {error}"),
+                    };
+                    stream.set_nonblocking(false).unwrap();
+                    let request = read_request(&mut stream);
+                    on_request(&request);
+                    received.push(request);
+                    let reply = replies
+                        .next()
+                        .unwrap_or_else(|| Reply::Status(500, "{}".to_string()));
+                    answer(&mut stream, &reply);
+                }
+                received
+            });
+            Self {
+                address,
+                stop,
+                thread,
+            }
+        }
+
+        fn url(&self) -> String {
+            format!("http://{}/v1", self.address)
+        }
+
+        fn finish(self) -> Vec<Received> {
+            self.stop.store(true, Ordering::SeqCst);
+            self.thread.join().unwrap()
+        }
+    }
+
+    struct World {
+        /// Held only by a world that installed the sandbox of the process, which only a child
+        /// process does.
+        _sandbox: Option<SandboxTestState>,
+        _root: tempfile::TempDir,
+        base: PathBuf,
+        workspace: PathBuf,
+        handle: Arc<RunBudgetHandle>,
+    }
+
+    fn policy_for(base: &Path, change: impl FnOnce(&mut Value)) -> Arc<RunBudgetPolicy> {
+        let mut value = policy_value();
+        value["ledger_dir"] = json!(base.join("ledgers").to_str().unwrap());
+        change(&mut value);
+        Arc::new(RunBudgetPolicy::decode(value.to_string().as_bytes(), WALLET).unwrap())
+    }
+
+    fn install(mode: SandboxMode, workspace: &Path, availability: SandboxAvailability) {
+        let run_tmp = workspace.parent().unwrap().join("run-tmp");
+        std::fs::create_dir_all(&run_tmp).unwrap();
+        os_sandbox::install_for_test(mode, SandboxPolicy::new(workspace, &run_tmp), availability);
+    }
+
+    /// What a sandbox on `workspace` lets commands write, with the temporary [`install`] uses, for
+    /// a wallet to be judged by. No sandbox of the process is read.
+    fn writes_on(workspace: &Path) -> CommandWrites {
+        let base = workspace.parent().unwrap();
+        let run_tmp = base.join("run-tmp");
+        std::fs::create_dir_all(&run_tmp).unwrap();
+        CommandWrites::of(SandboxPolicy::with_home(
+            workspace,
+            &run_tmp,
+            base.join("home"),
+        ))
+    }
+
+    impl World {
+        fn new() -> Self {
+            Self::with(|_| {})
+        }
+
+        fn with(change: impl FnOnce(&mut Value)) -> Self {
+            Self::on_clock(change, FakeClock::at(7_000))
+        }
+
+        /// A wallet on this world's workspace, which sees the sandbox applied on the same one. The
+        /// sandbox of the process is not touched, so no other test sees this world.
+        fn on_clock(change: impl FnOnce(&mut Value), clock: Arc<dyn BudgetClock>) -> Self {
+            Self::opened(change, clock, false)
+        }
+
+        /// A wallet that reads the sandbox of the process, installed and applied on this world's
+        /// workspace. Every test of the process reads that state, so this is for a child process.
+        fn installed() -> Self {
+            Self::opened(|_| {}, FakeClock::at(7_000), true)
+        }
+
+        fn opened(
+            change: impl FnOnce(&mut Value),
+            clock: Arc<dyn BudgetClock>,
+            installed: bool,
+        ) -> Self {
+            let sandbox = installed.then(SandboxTestState::acquire);
+            let root = tempfile::tempdir().unwrap();
+            let base = std::fs::canonicalize(root.path()).unwrap();
+            let workspace = base.join("workspace");
+            std::fs::create_dir_all(&workspace).unwrap();
+            let handle = RunBudgetHandle::open(LedgerOpen {
+                policy: policy_for(&base, change),
+                workspace: &workspace,
+                explicit_profile: None,
+                entry: LedgerEntry::Fresh,
+                clock,
+                command_writes: Some(writes_on(&workspace)),
+            })
+            .unwrap();
+            let handle = if installed {
+                install(
+                    SandboxMode::Required,
+                    &workspace,
+                    SandboxAvailability::Available,
+                );
+                handle
+            } else {
+                handle.with_sandbox_view(SandboxView {
+                    applied_on: Some(workspace.clone()),
+                })
+            };
+            Self {
+                _sandbox: sandbox,
+                _root: root,
+                base,
+                workspace,
+                handle: Arc::new(handle),
+            }
+        }
+
+        fn ledger_file(&self) -> PathBuf {
+            self.base.join("ledgers").join(WALLET).join("ledger.json")
+        }
+
+        fn config(&self, url: &str, handle: Option<Arc<RunBudgetHandle>>) -> Config {
+            let directory = self.workspace.join(".commandagent");
+            std::fs::create_dir_all(&directory).unwrap();
+            std::fs::write(
+                directory.join("config.toml"),
+                "[preset.budget976]\nopenrouter_provider = { only = [\"u\"], allow_fallbacks = false }\n",
+            )
+            .unwrap();
+            let parsed = crate::provider_cli::parse_from([
+                "commandagent",
+                "--cwd",
+                self.workspace.to_str().unwrap(),
+                "--state-dir",
+                self.base.join("state").to_str().unwrap(),
+                "--model",
+                "m-1",
+                "--provider",
+                "openai-compatible",
+                "--base-url",
+                url,
+                "--preset",
+                "budget976",
+                "--chat-timeout-secs",
+                "30",
+            ])
+            .unwrap();
+            let mut config =
+                Config::from_cli_with_provider_options(parsed.cli, parsed.provider_options)
+                    .unwrap();
+            config.eval_events_path = None;
+            config.num_predict = 50;
+            config.chat_retries = 0;
+            config.field_sources.run_budget = handle;
+            config
+        }
+
+        /// The client the factory makes, with the effort the policy wants: the factory takes it
+        /// from this process's environment, which a test in this process leaves alone.
+        fn client_of(&self, config: &Config) -> LmStudioClient {
+            self.client_for_role(config, ProviderRole::Executor)
+        }
+
+        fn client_for_role(&self, config: &Config, role: ProviderRole) -> LmStudioClient {
+            LmStudioClient::from_openai_compatible_env(config, role)
+                .unwrap()
+                .with_reasoning_effort(Some("low"), role)
+        }
+
+        fn client(&self, url: &str) -> LmStudioClient {
+            self.client_of(&self.config(url, Some(self.handle.clone())))
+        }
+
+        fn sends(&self) -> u64 {
+            self.handle.wallet().unwrap().physical_used()
+        }
+
+        /// One turn through the entry every send of a run goes through, on a worker of its own
+        /// with a clone of the client. What the client holds is the client's: the config here only
+        /// gives the call its deadline.
+        fn ask(
+            &self,
+            client: &mut LmStudioClient,
+            deadline_secs: u64,
+            is_cancelled: impl Fn() -> bool,
+        ) -> ProviderCallOutcome {
+            let mut config = self.config("http://127.0.0.1:9/v1", None);
+            config.chat_timeout_secs = deadline_secs;
+            provider_call::chat_with_cancel_and_stream(
+                client,
+                &config,
+                ProviderChatRequest {
+                    scope: ProviderCallScope::Executor,
+                    model: "m-1",
+                    messages: &[ConversationMessage::user("hello-976")],
+                    tools: &[],
+                    native_tools_enabled: false,
+                },
+                is_cancelled,
+                &mut |_chunk| Ok(()),
+            )
+        }
+
+        fn say_hello(
+            &self,
+            client: &mut LmStudioClient,
+        ) -> anyhow::Result<crate::providers::AssistantReply> {
+            self.ask(client, 30, || false).result
+        }
+
+        /// A call that gave up returned while its worker's request is still being dropped. This
+        /// waits on what the worker does, not on a length of time; the bound only ends a test that
+        /// would otherwise hang.
+        fn until_no_send_is_out(&self) {
+            let started = std::time::Instant::now();
+            while self
+                .handle
+                .wallet()
+                .unwrap()
+                .attempts
+                .iter()
+                .any(|attempt| attempt.state == AttemptState::Started)
+            {
+                assert!(
+                    started.elapsed() < Duration::from_secs(30),
+                    "a send stayed out"
+                );
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+    }
+
+    /// The bytes a client of this test's shape sends.
+    fn wire_length(client: &LmStudioClient) -> u64 {
+        let body = openai_chat_completions::build_lm_studio_request_with_effort(
+            "m-1",
+            &[ConversationMessage::user("hello-976")],
+            &[],
+            false,
+            50,
+            "low",
+        );
+        serde_json::to_vec(&client.route(body).unwrap())
+            .unwrap()
+            .len() as u64
+    }
+
+    /// What the fake counted, the ledger counted, and the file held while the POST was being read.
+    #[test]
+    fn a_post_is_one_physical_send_started_on_disk_with_the_bytes_the_ledger_has() {
+        let world = World::new();
+        let file = world.ledger_file();
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let seen_by_the_fake = seen.clone();
+        let fake = Fake::watching(
+            vec![Reply::Status(200, reply_body(KNOWN))],
+            move |request| {
+                // Another reader, of the disk: the handle's lock and its memory are not involved.
+                let envelope: Value =
+                    serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+                let attempts = envelope["body"]["attempts"].clone();
+                seen_by_the_fake.lock().unwrap().push((
+                    attempts[0]["state"].clone(),
+                    attempts[0]["body_sha256"].clone(),
+                    sha256_hex(&request.body),
+                    attempts.as_array().map(Vec::len),
+                ));
+            },
+        );
+        let mut client = world.client(&fake.url());
+        let reply = world.say_hello(&mut client).unwrap();
+        let received = fake.finish();
+
+        assert_eq!(reply.content, "done");
+        assert_eq!(received.len() as u64, world.sends());
+        let wallet = world.handle.wallet().unwrap();
+        assert_eq!(wallet.attempts[0].state, AttemptState::Settled);
+        assert_eq!(
+            wallet.attempts[0].body_sha256,
+            sha256_hex(&received[0].body)
+        );
+        let seen = seen.lock().unwrap();
+        let (state, on_disk, of_the_post, count) = &seen[0];
+        assert_eq!(state, &json!("started"));
+        assert_eq!(on_disk, &json!(of_the_post));
+        assert_eq!(*count, Some(1));
+        assert_eq!(world.handle.success_gate(), Ok(()));
+    }
+
+    /// A body under a wallet asks for what the policy allows, however much the run would ask for,
+    /// and for what the run asks when that is less.
+    #[test]
+    fn a_body_asks_for_the_smaller_of_the_run_and_the_policy() {
+        for (num_predict, sent) in [(8_192, 50), (51, 50), (50, 50), (49, 49), (10, 10)] {
+            let world = World::new();
+            let fake = Fake::spawn(vec![Reply::Status(200, reply_body(KNOWN))]);
+            let mut config = world.config(&fake.url(), Some(world.handle.clone()));
+            config.num_predict = num_predict;
+            let mut client = world.client_of(&config);
+            let outcome = world.say_hello(&mut client);
+            let received = fake.finish();
+            assert!(outcome.is_ok(), "{num_predict}: {outcome:?}");
+            let body: Value = serde_json::from_slice(&received[0].body).unwrap();
+            assert_eq!(body["max_tokens"], json!(sent), "{num_predict}");
+        }
+    }
+
+    /// A retry takes a permit of its own and the send before it left it none. Without a wallet the
+    /// same answers are three POSTs, which is what the control counts.
+    #[test]
+    fn a_retry_is_counted_and_gets_no_second_post_under_a_wallet() {
+        let replies = vec![Reply::Status(503, "{}".to_string()); 3];
+
+        let world = World::new();
+        let fake = Fake::spawn(replies.clone());
+        let mut config = world.config(&fake.url(), Some(world.handle.clone()));
+        config.chat_retries = 2;
+        let mut client = world.client_of(&config);
+        let refused = world.say_hello(&mut client).unwrap_err();
+        assert_eq!(budget_refusal(&refused), Some(BudgetRefusal::Latched));
+        assert_eq!(fake.finish().len(), 1);
+        assert_eq!(world.sends(), 1);
+
+        let fake = Fake::spawn(replies);
+        let mut config = world.config(&fake.url(), None);
+        config.chat_retries = 2;
+        let mut client = world.client_of(&config);
+        assert!(world.say_hello(&mut client).is_err());
+        assert_eq!(fake.finish().len(), 3, "without a wallet");
+    }
+
+    /// Every row counts POSTs with one chat. Exactly at a limit is one, and one short of it none.
+    #[test]
+    fn each_limit_lets_a_post_out_exactly_at_it_and_none_one_short() {
+        let probe = World::new();
+        let length = wire_length(&probe.client("http://127.0.0.1:9/v1"));
+        drop(probe);
+        let tariff = crate::structured_budget::test_support::policy().tariff;
+        let amount = reservation_amount(&tariff, length + 4, 50).unwrap();
+        let money = |units: u128| format!("0.{units:018}");
+        let at_cost = money(amount.units());
+        let under_cost = money(amount.units() - 1);
+        assert_ne!(amount, Money::ZERO);
+
+        type Row = (&'static str, Box<dyn FnOnce(&mut Value)>, usize);
+        let rows: Vec<Row> = vec![
+            (
+                "cost exactly",
+                Box::new(move |v| v["limits"]["cost_usd"] = json!(at_cost)),
+                1,
+            ),
+            (
+                "cost one unit short",
+                Box::new(move |v| v["limits"]["cost_usd"] = json!(under_cost)),
+                0,
+            ),
+            (
+                "cost nothing",
+                Box::new(|v| v["limits"]["cost_usd"] = json!("0")),
+                0,
+            ),
+            (
+                "tokens exactly",
+                Box::new(move |v| v["limits"]["tokens"] = json!(length + 4 + 50)),
+                1,
+            ),
+            (
+                "tokens one short",
+                Box::new(move |v| v["limits"]["tokens"] = json!(length + 4 + 49)),
+                0,
+            ),
+            (
+                "input exactly",
+                Box::new(move |v| v["max_input_tokens"] = json!(length + 4)),
+                1,
+            ),
+            (
+                "input one short",
+                Box::new(move |v| v["max_input_tokens"] = json!(length + 3)),
+                0,
+            ),
+            (
+                "physical one",
+                Box::new(|v| v["limits"]["physical_sends"] = json!(1)),
+                1,
+            ),
+            (
+                "physical none",
+                Box::new(|v| v["limits"]["physical_sends"] = json!(0)),
+                0,
+            ),
+            (
+                "another route",
+                Box::new(|v| v["route"]["model"] = json!("another-976")),
+                0,
+            ),
+        ];
+        let mut wrong = Vec::new();
+        for (name, change, posts) in rows {
+            let world = World::with(change);
+            let fake = Fake::spawn(vec![Reply::Status(200, reply_body(KNOWN))]);
+            let mut client = world.client(&fake.url());
+            let _ = world.say_hello(&mut client);
+            let received = fake.finish();
+            let sends = world.sends();
+            if received.len() != posts || sends != posts as u64 {
+                wrong.push(format!("{name}: {} POSTs, {sends} sends", received.len()));
+            }
+        }
+        assert_eq!(wrong, Vec::<String>::new());
+
+        // The physical limit again, past the send it allows.
+        let world = World::with(|v| v["limits"]["physical_sends"] = json!(1));
+        let fake = Fake::spawn(vec![Reply::Status(200, reply_body(KNOWN)); 2]);
+        let mut client = world.client(&fake.url());
+        world.say_hello(&mut client).unwrap();
+        let refused = world.say_hello(&mut client).unwrap_err();
+        assert_eq!(
+            budget_refusal(&refused),
+            Some(BudgetRefusal::PhysicalExceeded)
+        );
+        assert_eq!(fake.finish().len(), 1);
+    }
+
+    /// Every way a send ends with no known bill. It holds its reservation, the wallet stops, the
+    /// next chat sends nothing, and the run is no success. What the caller gets is the row's: a
+    /// reply that read well is kept, as a stage's result is, and the wallet still says no.
+    #[test]
+    fn a_send_with_no_known_bill_is_unknown_and_nothing_goes_out_after_it() {
+        use UnknownReason::{
+            BodyTruncated, CostMissing, HttpError, ParseFailed, SendError, Timeout,
+            UsageInconsistent, UsageMissing,
+        };
+        let usage = |text: &str| reply_body(text);
+        let rows: Vec<(&str, Reply, UnknownReason, bool)> = vec![
+            (
+                "no usage",
+                Reply::Status(
+                    200,
+                    r#"{"choices":[{"message":{"content":"done"}}]}"#.to_string(),
+                ),
+                UsageMissing,
+                true,
+            ),
+            (
+                "no cost",
+                Reply::Status(200, usage(r#"{"prompt_tokens":10,"completion_tokens":5}"#)),
+                CostMissing,
+                true,
+            ),
+            (
+                "a cost in text",
+                Reply::Status(
+                    200,
+                    usage(r#"{"prompt_tokens":10,"completion_tokens":5,"cost":"0.1"}"#),
+                ),
+                CostMissing,
+                true,
+            ),
+            (
+                "no prompt tokens field",
+                Reply::Status(200, usage(r#"{"completion_tokens":5,"cost":0}"#)),
+                UsageMissing,
+                true,
+            ),
+            (
+                "prompt tokens in text",
+                Reply::Status(
+                    200,
+                    usage(r#"{"prompt_tokens":"10","completion_tokens":5,"cost":0}"#),
+                ),
+                UsageInconsistent,
+                true,
+            ),
+            (
+                "no prompt tokens for a body",
+                Reply::Status(
+                    200,
+                    usage(r#"{"prompt_tokens":0,"completion_tokens":0,"cost":0}"#),
+                ),
+                UsageInconsistent,
+                true,
+            ),
+            (
+                "not JSON",
+                Reply::Status(200, "not json 976".to_string()),
+                ParseFailed,
+                false,
+            ),
+            (
+                "JSON cut short with a length that says so",
+                Reply::Status(200, r#"{"choices":["#.to_string()),
+                ParseFailed,
+                false,
+            ),
+            (
+                "cut on the wire",
+                Reply::Cut(reply_body(KNOWN)),
+                BodyTruncated,
+                false,
+            ),
+            (
+                "400",
+                Reply::Status(400, reply_body(KNOWN)),
+                HttpError,
+                false,
+            ),
+            (
+                "429",
+                Reply::Status(429, "{}".to_string()),
+                HttpError,
+                false,
+            ),
+            (
+                "500",
+                Reply::Status(500, "{}".to_string()),
+                HttpError,
+                false,
+            ),
+            (
+                "a redirect",
+                Reply::Redirect(307, "http://127.0.0.1:9/v1/chat/completions".to_string()),
+                HttpError,
+                false,
+            ),
+            ("closed with no answer", Reply::Close, SendError, false),
+            ("no answer in time", Reply::Hang, Timeout, false),
+        ];
+        let mut wrong = Vec::new();
+        for (name, reply, reason, reply_kept) in rows {
+            let world = World::new();
+            let fake = Fake::spawn(vec![reply, Reply::Status(200, reply_body(KNOWN))]);
+            let mut config = world.config(&fake.url(), Some(world.handle.clone()));
+            config.chat_timeout_secs = 1;
+            let mut client = world.client_of(&config);
+            let first = world.say_hello(&mut client);
+            let second = world.say_hello(&mut client);
+            let posts = fake.finish().len();
+            let wallet = world.handle.wallet().unwrap();
+            let attempt = wallet.attempts.first();
+            let as_expected = first.is_ok() == reply_kept
+                && posts == 1
+                && wallet.physical_used() == 1
+                && attempt.map(|attempt| attempt.state) == Some(AttemptState::Unknown)
+                && attempt.and_then(|attempt| attempt.unknown_reason) == Some(reason)
+                && wallet.latch().map(|latch| latch.reason) == Some(LatchReason::UnknownBilling)
+                && wallet.held().unwrap()
+                    == attempt.map_or(Money::ZERO, |attempt| attempt.reserved)
+                && wallet.held().unwrap() > Money::ZERO
+                && wallet.spent().unwrap() == Money::ZERO
+                && second.as_ref().err().and_then(budget_refusal) == Some(BudgetRefusal::Latched)
+                && world.handle.success_gate().is_err();
+            if !as_expected {
+                wrong.push(format!(
+                    "{name}: first ok {}, {posts} POSTs, {:?}, {:?}, latch {:?}, second {:?}",
+                    first.is_ok(),
+                    attempt.map(|attempt| attempt.state),
+                    attempt.and_then(|attempt| attempt.unknown_reason),
+                    wallet.latch().map(|latch| latch.reason),
+                    second.as_ref().map(|_| ()).map_err(ToString::to_string),
+                ));
+            }
+        }
+        assert_eq!(wrong, Vec::<String>::new());
+    }
+
+    /// Nobody listens: the send was still started, so it is unknown, on the same terms.
+    #[test]
+    fn a_send_error_with_nobody_listening_is_unknown() {
+        let world = World::new();
+        let address = TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap();
+        let mut client = world.client(&format!("http://{address}/v1"));
+        assert!(world.say_hello(&mut client).is_err());
+        let wallet = world.handle.wallet().unwrap();
+        assert_eq!(
+            wallet.attempts[0].unknown_reason,
+            Some(UnknownReason::SendError)
+        );
+        assert_eq!(
+            wallet.latch().map(|latch| latch.reason),
+            Some(LatchReason::UnknownBilling)
+        );
+    }
+
+    /// The cancel fires with the whole request read and no answer sent.
+    #[test]
+    fn a_cancel_of_a_send_in_flight_is_unknown() {
+        let world = World::new();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let fired = cancelled.clone();
+        let fake = Fake::watching(vec![Reply::Hang], move |_| {
+            fired.store(true, Ordering::SeqCst);
+        });
+        let mut client = world.client(&fake.url());
+        let outcome = world.ask(&mut client, 30, || cancelled.load(Ordering::SeqCst));
+        assert!(outcome.aborted_by_user);
+        assert!(outcome.result.is_err());
+        world.until_no_send_is_out();
+        assert_eq!(fake.finish().len(), 1);
+        let wallet = world.handle.wallet().unwrap();
+        assert_eq!(
+            wallet.attempts[0].unknown_reason,
+            Some(UnknownReason::Cancelled)
+        );
+        assert_eq!(
+            wallet.latch().map(|latch| latch.reason),
+            Some(LatchReason::UnknownBilling)
+        );
+    }
+
+    /// The call's own deadline comes first, and its end cancels the worker's request, so the send
+    /// is unknown as a cancelled one. The table above has the client's timeout coming first.
+    #[test]
+    fn a_call_past_its_deadline_leaves_the_send_unknown_and_nothing_goes_out_after_it() {
+        let world = World::new();
+        let fake = Fake::spawn(vec![Reply::Hang, Reply::Status(200, reply_body(KNOWN))]);
+        let mut client = world.client(&fake.url());
+        let outcome = world.ask(&mut client, 1, || false);
+        assert!(outcome.timed_out);
+        assert!(outcome.result.is_err());
+        world.until_no_send_is_out();
+        let refused = world.say_hello(&mut client).unwrap_err();
+        assert_eq!(budget_refusal(&refused), Some(BudgetRefusal::Latched));
+        assert_eq!(fake.finish().len(), 1);
+        let wallet = world.handle.wallet().unwrap();
+        assert_eq!(wallet.physical_used(), 1);
+        assert_eq!(
+            wallet.attempts[0].unknown_reason,
+            Some(UnknownReason::Cancelled)
+        );
+    }
+
+    /// The body would go to another URL, as another send the wallet does not know of. The control
+    /// is the shared client, which follows, to show the target would have been reached.
+    #[test]
+    fn a_redirect_is_not_followed_and_is_unknown() {
+        for status in [307, 308] {
+            let world = World::new();
+            let target = Fake::spawn(vec![Reply::Status(200, reply_body(KNOWN))]);
+            let location = format!("{}/chat/completions", target.url());
+            let first = Fake::spawn(vec![Reply::Redirect(status, location)]);
+            let mut client = world.client(&first.url());
+            let outcome = world.say_hello(&mut client);
+            assert_eq!(first.finish().len(), 1, "{status}");
+            assert_eq!(target.finish().len(), 0, "{status}");
+            assert!(outcome.is_err(), "{status}");
+            assert_eq!(world.sends(), 1, "{status}");
+            assert_eq!(
+                world.handle.wallet().unwrap().attempts[0].unknown_reason,
+                Some(UnknownReason::HttpError),
+                "{status}"
+            );
+
+            let target = Fake::spawn(vec![Reply::Status(200, reply_body(KNOWN))]);
+            let location = format!("{}/chat/completions", target.url());
+            let first = Fake::spawn(vec![Reply::Redirect(status, location)]);
+            let call = HttpCall::new(&CancelToken::default()).unwrap();
+            let request = http_client(5)
+                .unwrap()
+                .post(format!("{}/chat/completions", first.url()))
+                .body("control-976");
+            let response = call.run(async { request.send().await }).unwrap().unwrap();
+            assert!(response.status().is_success(), "{status}");
+            assert_eq!(first.finish().len(), 1, "{status}");
+            assert_eq!(target.finish()[0].body, b"control-976", "{status}");
+        }
+    }
+
+    /// What is consumed is the larger, and what was billed stays what was billed.
+    #[test]
+    fn a_known_report_consumes_the_larger_and_keeps_what_was_billed() {
+        // 10 and 5 tokens at 2 and 10 per million.
+        let computed = Money::parse_decimal_up("0.00007").unwrap();
+        for (cost, billed, consumed) in [
+            ("0", "0", computed),
+            (
+                "0.0001",
+                "0.0001",
+                Money::parse_decimal_up("0.0001").unwrap(),
+            ),
+        ] {
+            let world = World::new();
+            let usage = format!(r#"{{"prompt_tokens":10,"completion_tokens":5,"cost":{cost}}}"#);
+            let fake = Fake::spawn(vec![Reply::Status(200, reply_body(&usage))]);
+            let mut client = world.client(&fake.url());
+            world.say_hello(&mut client).unwrap();
+            fake.finish();
+            let wallet = world.handle.wallet().unwrap();
+            let record = wallet.attempts[0].settlement.as_ref().unwrap();
+            assert_eq!(record.billed_usd, billed);
+            assert_eq!(record.consumed, consumed, "{cost}");
+            assert_eq!(record.computed, computed);
+            assert!(wallet.latch().is_none());
+        }
+    }
+
+    /// A known amount past the reservation is settled at its value, stops the wallet, and leaves the
+    /// send no longer unresolved.
+    #[test]
+    fn a_known_amount_past_the_reservation_is_settled_and_stops_the_wallet() {
+        let world = World::new();
+        let usage = r#"{"prompt_tokens":10,"completion_tokens":5,"cost":5}"#;
+        let fake = Fake::spawn(vec![Reply::Status(200, reply_body(usage))]);
+        let mut client = world.client(&fake.url());
+        world.say_hello(&mut client).unwrap();
+        fake.finish();
+        let wallet = world.handle.wallet().unwrap();
+        assert_eq!(wallet.attempts[0].state, AttemptState::Settled);
+        assert_eq!(
+            wallet.latch().map(|latch| latch.reason),
+            Some(LatchReason::OverReservation)
+        );
+        assert_eq!(
+            wallet.spent().unwrap(),
+            Money::parse_decimal_up("5").unwrap()
+        );
+    }
+
+    /// A response read after its send went unknown is settled once at its cost. The latch stays, a
+    /// second report is refused, and one that says nothing known changes nothing.
+    #[test]
+    fn a_late_response_is_settled_once_and_the_latch_stays() {
+        let world = World::new();
+        let fake = Fake::spawn(vec![Reply::Status(500, "{}".to_string())]);
+        let mut client = world.client(&fake.url());
+        assert!(world.say_hello(&mut client).is_err());
+        fake.finish();
+        let physical = world.handle.wallet().unwrap().attempts[0].physical;
+
+        assert_eq!(
+            world.handle.settle_response(physical, "not json 976"),
+            Ok(None)
+        );
+        let wallet = world.handle.wallet().unwrap();
+        assert_eq!(wallet.attempts[0].state, AttemptState::Unknown);
+
+        let report = world.handle.settle_response(physical, &reply_body(KNOWN));
+        assert!(
+            matches!(report, Ok(Some(SettleReport::Settled(_)))),
+            "{report:?}"
+        );
+        let wallet = world.handle.wallet().unwrap();
+        assert!(wallet.attempts[0].settlement.as_ref().unwrap().late);
+        assert_eq!(
+            wallet.latch().map(|latch| latch.reason),
+            Some(LatchReason::UnknownBilling)
+        );
+        assert!(world.handle.success_gate().is_err());
+        assert!(matches!(
+            world.handle.settle_response(physical, &reply_body(KNOWN)),
+            Err(SendRefusal::Wallet(_))
+        ));
+    }
+
+    /// A count of `null` is a count that is not there, as a provider sends it for a detail it does
+    /// not have. Without a detail the send is settled; without one of the two counts it is not.
+    /// The first row is the control, with the detail there.
+    #[test]
+    fn a_count_of_null_is_a_count_that_is_not_there() {
+        type Row = (
+            &'static str,
+            &'static str,
+            AttemptState,
+            Option<UnknownReason>,
+            Option<u64>,
+        );
+        let rows: [Row; 5] = [
+            (
+                "cached tokens there",
+                r#"{"prompt_tokens":10,"completion_tokens":5,"cost":0.00001,"prompt_tokens_details":{"cached_tokens":3}}"#,
+                AttemptState::Settled,
+                None,
+                Some(3),
+            ),
+            (
+                "cached tokens null",
+                r#"{"prompt_tokens":10,"completion_tokens":5,"cost":0.00001,"prompt_tokens_details":{"cached_tokens":null}}"#,
+                AttemptState::Settled,
+                None,
+                None,
+            ),
+            (
+                "reasoning tokens null",
+                r#"{"prompt_tokens":10,"completion_tokens":5,"cost":0.00001,"completion_tokens_details":{"reasoning_tokens":null}}"#,
+                AttemptState::Settled,
+                None,
+                None,
+            ),
+            (
+                "prompt tokens null",
+                r#"{"prompt_tokens":null,"completion_tokens":5,"cost":0.00001}"#,
+                AttemptState::Unknown,
+                Some(UnknownReason::UsageMissing),
+                None,
+            ),
+            (
+                "completion tokens null",
+                r#"{"prompt_tokens":10,"completion_tokens":null,"cost":0.00001}"#,
+                AttemptState::Unknown,
+                Some(UnknownReason::UsageMissing),
+                None,
+            ),
+        ];
+        let mut wrong = Vec::new();
+        for (name, usage, state, reason, cached) in rows {
+            let world = World::new();
+            let fake = Fake::spawn(vec![Reply::Status(200, reply_body(usage))]);
+            let mut client = world.client(&fake.url());
+            let _ = world.say_hello(&mut client);
+            let posts = fake.finish().len();
+            let wallet = world.handle.wallet().unwrap();
+            let attempt = &wallet.attempts[0];
+            let got_cached = attempt
+                .settlement
+                .as_ref()
+                .and_then(|record| record.cached_tokens);
+            if posts != 1
+                || attempt.state != state
+                || attempt.unknown_reason != reason
+                || got_cached != cached
+            {
+                wrong.push(format!(
+                    "{name}: {posts} POSTs, {:?}, {:?}, cached {got_cached:?}",
+                    attempt.state, attempt.unknown_reason
+                ));
+            }
+        }
+        assert_eq!(wrong, Vec::<String>::new());
+    }
+
+    /// The purpose on the record is the role of the client that sent, as the file has it.
+    #[test]
+    fn a_send_is_on_the_record_for_the_role_of_its_client() {
+        let mut wrong = Vec::new();
+        for (role, purpose) in [
+            (ProviderRole::Executor, "executor"),
+            (ProviderRole::Planner, "planner"),
+            (ProviderRole::Classifier, "classifier"),
+        ] {
+            let world = World::new();
+            let fake = Fake::spawn(vec![Reply::Status(200, reply_body(KNOWN))]);
+            let config = world.config(&fake.url(), Some(world.handle.clone()));
+            let mut client = world.client_for_role(&config, role);
+            let outcome = world.say_hello(&mut client);
+            let posts = fake.finish().len();
+            let envelope: Value =
+                serde_json::from_slice(&std::fs::read(world.ledger_file()).unwrap()).unwrap();
+            let on_disk = envelope["body"]["attempts"][0]["purpose"].clone();
+            if outcome.is_err() || posts != 1 || on_disk != json!(purpose) {
+                wrong.push(format!(
+                    "{role:?}: ok {}, {posts} POSTs, {on_disk}",
+                    outcome.is_ok()
+                ));
+            }
+        }
+        assert_eq!(wrong, Vec::<String>::new());
+    }
+
+    /// The file is taken from under the wallet while the response is on its way, so the settling
+    /// cannot be written: the response is not taken, the next chat sends nothing, and the run is
+    /// no success. The control reads the file and leaves it be.
+    #[test]
+    fn a_response_whose_settling_cannot_reach_the_disk_is_not_taken() {
+        const WRITTEN_OVER: &[u8] = b"written-over-976";
+        type Change = fn(&Path);
+        let rows: [(&str, Change, Option<LedgerRefusal>); 3] = [
+            (
+                "left alone",
+                |file| {
+                    std::fs::read(file).unwrap();
+                },
+                None,
+            ),
+            (
+                "removed",
+                |file| std::fs::remove_file(file).unwrap(),
+                Some(LedgerRefusal::Vanished),
+            ),
+            (
+                "written over",
+                |file| std::fs::write(file, WRITTEN_OVER).unwrap(),
+                Some(LedgerRefusal::Diverged),
+            ),
+        ];
+        let mut wrong = Vec::new();
+        for (name, change, refusal) in rows {
+            let world = World::new();
+            let file = world.ledger_file();
+            let changed = file.clone();
+            let fake = Fake::watching(vec![Reply::Status(200, reply_body(KNOWN)); 2], move |_| {
+                change(&changed);
+            });
+            let mut client = world.client(&fake.url());
+            let first = world.say_hello(&mut client);
+            let second = world.say_hello(&mut client);
+            let posts = fake.finish().len();
+            let refusal_of = |outcome: &anyhow::Result<crate::providers::AssistantReply>| {
+                outcome
+                    .as_ref()
+                    .err()
+                    .and_then(|error| error.downcast_ref::<SendRefusal>())
+                    .copied()
+            };
+            let wallet = world.handle.wallet().unwrap();
+            let attempt = &wallet.attempts[0];
+            let gate = world.handle.success_gate();
+            let on_disk = std::fs::read(&file).ok();
+            let as_expected = match refusal {
+                None => {
+                    first.is_ok()
+                        && second.is_ok()
+                        && posts == 2
+                        && attempt.state == AttemptState::Settled
+                        && gate == Ok(())
+                }
+                Some(refusal) => {
+                    let wallet_refusal = SendRefusal::Wallet(LedgerFailure::Ledger(refusal));
+                    refusal_of(&first) == Some(wallet_refusal)
+                        && refusal_of(&second) == Some(wallet_refusal)
+                        && posts == 1
+                        && wallet.attempts.len() == 1
+                        && attempt.state == AttemptState::Started
+                        && attempt.unknown_reason.is_none()
+                        && gate == Err(wallet_refusal)
+                        && on_disk.as_deref()
+                            == (refusal == LedgerRefusal::Diverged).then_some(WRITTEN_OVER)
+                }
+            };
+            if !as_expected {
+                wrong.push(format!(
+                    "{name}: first {:?}, second {:?}, {posts} POSTs, {:?}, {:?}, gate {gate:?}, file there {}",
+                    refusal_of(&first),
+                    refusal_of(&second),
+                    attempt.state,
+                    attempt.unknown_reason,
+                    on_disk.is_some()
+                ));
+            }
+        }
+        assert_eq!(wrong, Vec::<String>::new());
+    }
+
+    /// Moves on by a second at every reading, so where the time runs out is set by how many times
+    /// it has been read and by nothing that takes time.
+    #[derive(Debug)]
+    struct ASecondPerReading(AtomicU64);
+
+    impl ASecondPerReading {
+        fn next(&self) -> u64 {
+            7_000 + 1_000 * self.0.fetch_add(1, Ordering::SeqCst)
+        }
+    }
+
+    impl BudgetClock for ASecondPerReading {
+        fn wall_ms(&self) -> u64 {
+            self.next()
+        }
+
+        fn monotonic_ms(&self) -> u64 {
+            self.next()
+        }
+    }
+
+    /// The reservation reads the clock twice to start the run, the start twice more and the next
+    /// change twice again, so the start sees 3 seconds and the settling 5. Under 3 the time runs
+    /// out between the reservation and the start: nothing goes out and the reservation goes back.
+    /// From 3 it runs out after the start: the response is settled at its cost and is not a
+    /// success. At 5 it does not run out.
+    #[test]
+    fn the_deadline_between_the_reservation_and_the_start_sends_nothing_and_holds_nothing() {
+        let mut wrong = Vec::new();
+        for wall_seconds in 1..=5 {
+            let world = World::on_clock(
+                |v| v["limits"]["wall_seconds"] = json!(wall_seconds),
+                Arc::new(ASecondPerReading(AtomicU64::new(0))),
+            );
+            let fake = Fake::spawn(vec![Reply::Status(200, reply_body(KNOWN))]);
+            let mut client = world.client(&fake.url());
+            let outcome = world.say_hello(&mut client);
+            let posts = fake.finish().len();
+            let wallet = world.handle.wallet().unwrap();
+            let attempt = &wallet.attempts[0];
+            let latch = wallet.latch().map(|latch| latch.reason);
+            let held = wallet.held().unwrap();
+            let as_expected = match wall_seconds {
+                1 | 2 => {
+                    outcome.as_ref().err().and_then(budget_refusal)
+                        == Some(BudgetRefusal::WallExceeded)
+                        && posts == 0
+                        && attempt.state == AttemptState::Released
+                        && held == Money::ZERO
+                        && wallet.physical_used() == 0
+                        && latch.is_none()
+                }
+                3 | 4 => {
+                    outcome.is_ok()
+                        && posts == 1
+                        && attempt.state == AttemptState::Settled
+                        && latch == Some(LatchReason::ResponseAfterDeadline)
+                        && held == Money::ZERO
+                }
+                _ => {
+                    outcome.is_ok()
+                        && posts == 1
+                        && attempt.state == AttemptState::Settled
+                        && latch.is_none()
+                        && world.handle.success_gate() == Ok(())
+                }
+            };
+            if !as_expected {
+                wrong.push(format!(
+                    "{wall_seconds} s: {:?}, {posts} POSTs, {:?}, latch {latch:?}, held {held:?}, {} sends",
+                    outcome.as_ref().err().and_then(budget_refusal),
+                    attempt.state,
+                    wallet.physical_used()
+                ));
+            }
+        }
+        assert_eq!(wrong, Vec::<String>::new());
+    }
+
+    /// Off, with no sandbox installed at all: the client sends what `RequestBuilder::json` sends,
+    /// byte for byte and header for header, and a body under a wallet is the same again. Asked for
+    /// more output than the policy allows, a body under a wallet asks for the policy's limit, and
+    /// that one count is all that differs.
+    #[test]
+    fn with_no_wallet_the_wire_is_what_it_was_and_a_wallet_changes_only_a_count_past_its_limit() {
+        let world = World::new();
+        let fake = Fake::spawn(vec![Reply::Status(200, reply_body(KNOWN)); 5]);
+        let asking_for_more = |handle: Option<Arc<RunBudgetHandle>>| {
+            let mut config = world.config(&fake.url(), handle);
+            config.num_predict = 8_192;
+            world.client_of(&config)
+        };
+
+        let mut wallet_client = world.client(&fake.url());
+        world.say_hello(&mut wallet_client).unwrap();
+        let mut wallet_past = asking_for_more(Some(world.handle.clone()));
+        world.say_hello(&mut wallet_past).unwrap();
+
+        // The wallet above read only its own view. Off reads nothing, and the state of the
+        // process stays empty while it sends.
+        let sandbox = SandboxTestState::acquire();
+        os_sandbox::reset_for_test();
+        let config = world.config(&fake.url(), None);
+        let mut off = world.client_of(&config);
+        world.say_hello(&mut off).unwrap();
+        let mut off_past = asking_for_more(None);
+        world.say_hello(&mut off_past).unwrap();
+        assert!(os_sandbox::status().is_none(), "nothing was installed");
+        drop(sandbox);
+
+        let body = off
+            .route(
+                openai_chat_completions::build_lm_studio_request_with_effort(
+                    "m-1",
+                    &[ConversationMessage::user("hello-976")],
+                    &[],
+                    false,
+                    50,
+                    "low",
+                ),
+            )
+            .unwrap();
+        let call = HttpCall::new(&CancelToken::default()).unwrap();
+        let request = http_client(30)
+            .unwrap()
+            .post(format!("{}/chat/completions", fake.url()))
+            .json(&body);
+        call.run(async { request.send().await }).unwrap().unwrap();
+
+        let received = fake.finish();
+        assert_eq!(received.len(), 5);
+        let (under, under_past, off_wire, off_past, plain) = (
+            &received[0],
+            &received[1],
+            &received[2],
+            &received[3],
+            &received[4],
+        );
+        assert_eq!(off_wire.body, serde_json::to_vec(&body).unwrap());
+        assert_eq!(off_wire.body, plain.body);
+        assert_eq!(off_wire.headers(), plain.headers());
+        assert_eq!(off_wire.head.lines().next(), plain.head.lines().next());
+        assert_eq!(under.body, off_wire.body);
+        assert_eq!(under.headers(), off_wire.headers());
+        assert_eq!(under.head.lines().next(), off_wire.head.lines().next());
+
+        let off_past = String::from_utf8(off_past.body.clone()).unwrap();
+        assert_eq!(off_past.matches("\"max_tokens\":8192").count(), 1);
+        assert_eq!(
+            String::from_utf8(under_past.body.clone()).unwrap(),
+            off_past.replacen("\"max_tokens\":8192", "\"max_tokens\":50", 1)
+        );
+        assert_eq!(under_past.body, under.body);
+        assert_eq!(under_past.headers(), under.headers());
+    }
+
+    const SANDBOX_APPLIED_CHILD: &str = "COMMANDAGENT_TEST_BUDGET_SANDBOX_APPLIED_CHILD";
+    const SANDBOX_ELSEWHERE_CHILD: &str = "COMMANDAGENT_TEST_BUDGET_SANDBOX_ELSEWHERE_CHILD";
+
+    /// Runs `child`, a test of this module, alone in a process of its own with an empty
+    /// environment but its marker, and waits for it. The sandbox it installs is that process's.
+    /// `ran` is the line the child prints once its checks are all through, so a child that read
+    /// no marker and returned at once does not pass for one that ran.
+    fn run_alone(child: &str, marker: &str, ran: &str) {
+        let home = tempfile::tempdir().unwrap();
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                &format!("providers::lm_studio::run_budget_tests::{child}"),
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env_clear()
+            .env("HOME", home.path())
+            .env(marker, "marker-976-sandbox-child")
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{stdout}\n{stderr}");
+        assert!(stdout.contains("1 passed"), "{stdout}\n{stderr}");
+        assert!(stdout.contains(ran), "{ran} missing\n{stdout}\n{stderr}");
+    }
+
+    const SANDBOX_APPLIED_RAN: &str = "child-976-ran a_post_needs_the_sandbox_applied";
+    const SANDBOX_ELSEWHERE_RAN: &str = "child-976-ran a_wallet_checked_against_another_workspace";
+    const FACTORY_RAN: &str = "child-976-ran the_factory_gives_a_client";
+
+    /// A wallet's check is only worth what the sandbox holds, and only where the wallet was checked.
+    /// The sandbox is the process's own, installed for real, so the rows run in a child process.
+    #[test]
+    fn a_post_needs_the_sandbox_applied_on_the_workspace_of_the_wallet() {
+        run_alone(
+            "a_post_needs_the_sandbox_applied_on_the_workspace_of_the_wallet_child",
+            SANDBOX_APPLIED_CHILD,
+            SANDBOX_APPLIED_RAN,
+        );
+    }
+
+    /// Runs only as the child of the test above. Every row is one chat, counted by the fake, and the
+    /// file does not move when none goes out.
+    #[test]
+    fn a_post_needs_the_sandbox_applied_on_the_workspace_of_the_wallet_child() {
+        if std::env::var_os(SANDBOX_APPLIED_CHILD).is_none() {
+            return;
+        }
+        const UNAVAILABLE: &str = "backend-unavailable-976";
+        type Row = (&'static str, fn(&World), Option<SendRefusal>);
+        let rows: Vec<Row> = vec![
+            ("applied, on it", |_| {}, None),
+            (
+                "applied, on it by a link",
+                |world| {
+                    let alias = world.base.join("alias");
+                    std::os::unix::fs::symlink(&world.workspace, &alias).unwrap();
+                    install(
+                        SandboxMode::Required,
+                        &alias,
+                        SandboxAvailability::Available,
+                    );
+                },
+                None,
+            ),
+            (
+                "auto and applied",
+                |world| {
+                    install(
+                        SandboxMode::Auto,
+                        &world.workspace,
+                        SandboxAvailability::Available,
+                    );
+                },
+                None,
+            ),
+            (
+                "applied, on another workspace",
+                |world| {
+                    let other = world.base.join("other");
+                    std::fs::create_dir_all(&other).unwrap();
+                    install(
+                        SandboxMode::Required,
+                        &other,
+                        SandboxAvailability::Available,
+                    );
+                },
+                Some(SendRefusal::SandboxOnAnotherWorkspace),
+            ),
+            (
+                "applied, on a child of the workspace",
+                |world| {
+                    let child = world.workspace.join("child");
+                    std::fs::create_dir_all(&child).unwrap();
+                    install(
+                        SandboxMode::Required,
+                        &child,
+                        SandboxAvailability::Available,
+                    );
+                },
+                Some(SendRefusal::SandboxOnAnotherWorkspace),
+            ),
+            (
+                "not installed",
+                |_| os_sandbox::reset_for_test(),
+                Some(SendRefusal::SandboxNotApplied),
+            ),
+            (
+                "auto with no backend",
+                |world| {
+                    install(
+                        SandboxMode::Auto,
+                        &world.workspace,
+                        SandboxAvailability::Unavailable(UNAVAILABLE.to_string()),
+                    );
+                },
+                Some(SendRefusal::SandboxNotApplied),
+            ),
+            (
+                "required with no backend",
+                |world| {
+                    install(
+                        SandboxMode::Required,
+                        &world.workspace,
+                        SandboxAvailability::Unavailable(UNAVAILABLE.to_string()),
+                    );
+                },
+                Some(SendRefusal::SandboxNotApplied),
+            ),
+            (
+                "off",
+                |world| {
+                    install(
+                        SandboxMode::Off,
+                        &world.workspace,
+                        SandboxAvailability::Unavailable(UNAVAILABLE.to_string()),
+                    );
+                },
+                Some(SendRefusal::SandboxNotApplied),
+            ),
+        ];
+        let mut wrong = Vec::new();
+        for (name, arrange, refusal) in rows {
+            let world = World::installed();
+            let fake = Fake::spawn(vec![Reply::Status(200, reply_body(KNOWN))]);
+            let mut client = world.client(&fake.url());
+            arrange(&world);
+            let before = std::fs::read(world.ledger_file()).unwrap();
+            let outcome = world.say_hello(&mut client);
+            let posts = fake.finish().len();
+            let got = outcome
+                .as_ref()
+                .err()
+                .and_then(|error| error.downcast_ref::<SendRefusal>())
+                .copied();
+            let unmoved = std::fs::read(world.ledger_file()).unwrap() == before;
+            let expected_posts = usize::from(refusal.is_none());
+            if got != refusal
+                || posts != expected_posts
+                || world.sends() != expected_posts as u64
+                || unmoved == refusal.is_none()
+            {
+                wrong.push(format!(
+                    "{name}: {posts} POSTs, {got:?}, file unmoved {unmoved}"
+                ));
+            }
+        }
+        assert_eq!(wrong, Vec::<String>::new());
+        println!("{SANDBOX_APPLIED_RAN}");
+    }
+
+    /// The same the other way round: the sandbox stays and the wallet is the one checked elsewhere.
+    /// The sandbox is the process's own, so this runs in a child process too.
+    #[test]
+    fn a_wallet_checked_against_another_workspace_sends_nothing() {
+        run_alone(
+            "a_wallet_checked_against_another_workspace_sends_nothing_child",
+            SANDBOX_ELSEWHERE_CHILD,
+            SANDBOX_ELSEWHERE_RAN,
+        );
+    }
+
+    /// Runs only as the child of the test above.
+    #[test]
+    fn a_wallet_checked_against_another_workspace_sends_nothing_child() {
+        if std::env::var_os(SANDBOX_ELSEWHERE_CHILD).is_none() {
+            return;
+        }
+        let world = World::installed();
+        let other = world.base.join("other-workspace");
+        std::fs::create_dir_all(&other).unwrap();
+        let mut value = policy_value();
+        value["ledger_dir"] = json!(world.base.join("other-ledgers").to_str().unwrap());
+        let policy = RunBudgetPolicy::decode(value.to_string().as_bytes(), WALLET).unwrap();
+        let elsewhere = RunBudgetHandle::open(LedgerOpen {
+            policy: Arc::new(policy),
+            workspace: &other,
+            explicit_profile: None,
+            entry: LedgerEntry::Fresh,
+            clock: FakeClock::at(7_000),
+            command_writes: Some(writes_on(&other)),
+        })
+        .unwrap();
+        let elsewhere = Arc::new(elsewhere);
+        let fake = Fake::spawn(vec![Reply::Status(200, reply_body(KNOWN))]);
+        let mut client = world.client_of(&world.config(&fake.url(), Some(elsewhere.clone())));
+        let error = world.say_hello(&mut client).unwrap_err();
+        assert_eq!(fake.finish().len(), 0);
+        assert_eq!(
+            error.downcast_ref::<SendRefusal>(),
+            Some(&SendRefusal::SandboxOnAnotherWorkspace)
+        );
+        assert_eq!(elsewhere.wallet().unwrap().physical_used(), 0);
+        println!("{SANDBOX_ELSEWHERE_RAN}");
+    }
+
+    #[test]
+    fn two_handles_are_equal_only_when_they_are_one_handle_and_a_clone_of_a_config_carries_it() {
+        let world = World::new();
+        let config = world.config("http://127.0.0.1:9/v1", Some(world.handle.clone()));
+        let clone = config.clone();
+        assert_eq!(clone.field_sources, config.field_sources);
+        assert!(Arc::ptr_eq(
+            clone.field_sources.run_budget.as_ref().unwrap(),
+            &world.handle
+        ));
+
+        let mut value = policy_value();
+        value["ledger_dir"] = json!(world.base.join("other-ledgers").to_str().unwrap());
+        let policy = RunBudgetPolicy::decode(value.to_string().as_bytes(), WALLET).unwrap();
+        let other = RunBudgetHandle::open(LedgerOpen {
+            policy: Arc::new(policy),
+            workspace: &world.workspace,
+            explicit_profile: None,
+            entry: LedgerEntry::Fresh,
+            clock: FakeClock::at(7_000),
+            command_writes: Some(writes_on(&world.workspace)),
+        })
+        .unwrap();
+        assert_ne!(*world.handle, other, "two wallets with nothing in them yet");
+        let none = world.config("http://127.0.0.1:9/v1", None);
+        assert_ne!(none.field_sources, config.field_sources);
+    }
+
+    const FACTORY_CHILD: &str = "COMMANDAGENT_TEST_BUDGET_FACTORY_CHILD";
+
+    /// Runs only as the child of the test below, whose environment has the effort the factory reads.
+    #[test]
+    fn the_factory_gives_a_client_that_counts_its_send_child() {
+        if std::env::var_os(FACTORY_CHILD).is_none() {
+            return;
+        }
+        let world = World::new();
+        let fake = Fake::spawn(vec![Reply::Status(200, reply_body(KNOWN))]);
+        let mut config = world.config(&fake.url(), Some(world.handle.clone()));
+        config.num_predict = 8_192;
+        let mut client = crate::providers::client_from_config(&config, false).unwrap();
+        provider_call::chat_with_cancel_and_stream(
+            client.as_mut(),
+            &config,
+            ProviderChatRequest {
+                scope: ProviderCallScope::Executor,
+                model: "m-1",
+                messages: &[ConversationMessage::user("hello-976")],
+                tools: &[],
+                native_tools_enabled: false,
+            },
+            || false,
+            &mut |_chunk| Ok(()),
+        )
+        .result
+        .unwrap();
+        assert_eq!(fake.finish().len(), 1);
+        assert_eq!(world.sends(), 1);
+        assert_eq!(world.handle.success_gate(), Ok(()));
+        println!("{FACTORY_RAN}");
+    }
+
+    /// The whole way through the factory, with nothing set by hand on the client it gives.
+    #[test]
+    fn the_factory_gives_a_client_that_counts_its_send() {
+        let home = tempfile::tempdir().unwrap();
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "providers::lm_studio::run_budget_tests::the_factory_gives_a_client_that_counts_its_send_child",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env_clear()
+            .env("HOME", home.path())
+            .env(FACTORY_CHILD, "1")
+            .env(
+                crate::providers::compatible_effort::COMPATIBLE_REASONING_EFFORT_ENV,
+                "low",
+            )
+            .env(crate::structured_budget::admission::RUN_BUDGET_ENV, WALLET)
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{stdout}\n{stderr}");
+        assert!(stdout.contains("1 passed"), "{stdout}\n{stderr}");
+        assert!(
+            stdout.contains(FACTORY_RAN),
+            "{FACTORY_RAN} missing\n{stdout}\n{stderr}"
+        );
     }
 }
 

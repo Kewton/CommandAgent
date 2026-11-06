@@ -1872,6 +1872,7 @@ mod tests {
 
     #[test]
     fn bash_strips_workspace_root_cd_prefix_and_records_event() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let registry = ToolRegistry::default();
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("workspace");

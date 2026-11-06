@@ -1598,6 +1598,7 @@ mod tests {
             narration: "preset:local".to_string(),
             footer: "preset:local".to_string(),
             stream: "default:repl".to_string(),
+            run_budget: None,
         };
         let config = Config {
             workspace_root: std::path::PathBuf::from("."),

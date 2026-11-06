@@ -450,6 +450,8 @@ pub struct Config {
     pub recovery_plan_auto_runs: u8,
     pub chat_timeout_secs: u64,
     pub chat_timeout_source: String,
+    /// Where each value came from, and also the run's wallet (`run_budget`). The reason it is here
+    /// and what comparing it means are in the doc of `RunBudgetSlot` and `RunBudgetHandle`.
     pub field_sources: ConfigFieldSources,
     pub chat_retries: usize,
     pub stream: bool,
@@ -464,6 +466,8 @@ pub struct Config {
     pub action: Action,
 }
 
+/// Where each value of a [`Config`] came from. It also holds the run's wallet, `run_budget`: for why
+/// and for what `PartialEq` means of it, see `RunBudgetSlot` and `RunBudgetHandle` in the transport.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigFieldSources {
     pub model: String,
@@ -481,6 +485,7 @@ pub struct ConfigFieldSources {
     pub narration: String,
     pub footer: String,
     pub stream: String,
+    pub(crate) run_budget: crate::structured_budget::transport::RunBudgetSlot,
 }
 
 impl Default for ConfigFieldSources {
@@ -501,6 +506,7 @@ impl Default for ConfigFieldSources {
             narration: "default".to_string(),
             footer: "default".to_string(),
             stream: "default".to_string(),
+            run_budget: None,
         }
     }
 }
@@ -848,6 +854,7 @@ impl Config {
             narration: narration.source.clone(),
             footer: footer.source.clone(),
             stream: stream.source.clone(),
+            run_budget: None,
         };
         // Install the accepted config's scope so every later persistence and
         // display boundary can resolve the same exact-value catalog.

@@ -206,7 +206,7 @@ impl SandboxStatus {
         note: Option<String>,
         read_isolation_effective: bool,
     ) -> Self {
-        let applied = mode.uses_backend() && matches!(availability, SandboxAvailability::Available);
+        let applied = backend_applied(mode, availability);
         let reason = if mode.uses_backend() {
             match availability {
                 SandboxAvailability::Unavailable(reason) => Some(reason.clone()),
@@ -225,6 +225,12 @@ impl SandboxStatus {
             reason,
         }
     }
+}
+
+/// Whether a mode and an availability hold commands in the backend. The one rule both
+/// [`SandboxStatus::applied`] and [`applied_policy`] read.
+fn backend_applied(mode: SandboxMode, availability: &SandboxAvailability) -> bool {
+    mode.uses_backend() && matches!(availability, SandboxAvailability::Available)
 }
 
 /// A refusal returned when `required` cannot apply the OS sandbox.
@@ -816,6 +822,27 @@ pub fn status() -> Option<SandboxStatus> {
 /// Whether the backend is currently applied for this run.
 pub fn is_applied() -> bool {
     status().is_some_and(|status| status.applied)
+}
+
+/// The workspace the installed policy holds commands in, if one is installed.
+pub(crate) fn installed_workspace_root() -> Option<PathBuf> {
+    let installed = INSTALLED.lock().expect("sandbox state");
+    installed
+        .as_ref()?
+        .policy
+        .as_ref()
+        .map(|policy| policy.workspace_root.clone())
+}
+
+/// A copy of the policy commands of this run are held to, while the backend applies it. Read only:
+/// the installed state is not changed.
+pub(crate) fn applied_policy() -> Option<SandboxPolicy> {
+    let installed = INSTALLED.lock().expect("sandbox state");
+    let state = installed.as_ref()?;
+    if !backend_applied(state.mode, &state.availability) {
+        return None;
+    }
+    state.policy.clone()
 }
 
 /// The one-time startup warning for `auto` when the backend is unavailable.
