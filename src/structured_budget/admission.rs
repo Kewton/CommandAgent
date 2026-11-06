@@ -4,7 +4,8 @@
 //! send, so every other route is refused before a client exists. A run that selected a wallet and
 //! holds none is refused too, since a client built then would send with nothing counting it.
 //!
-//! With neither a selection nor a wallet, the only thing read here is the variable's presence.
+//! With neither a selection nor a wallet, the only thing read here is the variable's presence, in
+//! the environment or among the values the start held.
 
 use crate::config::{Config, OpenAiApi, ProviderRole};
 
@@ -53,7 +54,8 @@ fn countable_route(config: &Config, role: ProviderRole) -> bool {
 /// Called before any client of a role is built.
 pub(crate) fn admit_client(config: &Config, role: ProviderRole) -> Result<(), AdmissionRefusal> {
     decide(
-        std::env::var_os(RUN_BUDGET_ENV).is_some(),
+        // The one reading of the selection, the start's held values included.
+        super::entry::selected(),
         config.field_sources.run_budget.is_some(),
         countable_route(config, role),
     )

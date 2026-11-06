@@ -105,8 +105,15 @@ impl PartialEq for RunBudgetHandle {
 
 impl Eq for RunBudgetHandle {}
 
-/// Every place a sandbox policy lets commands write, each as it really leads. A place that cannot be
-/// resolved is kept as written, or is `None`, so it is never equal to one that could.
+/// Every place a sandbox policy lets commands write, each as it really leads.
+///
+/// The workspace and the run's temporary that cannot be resolved are `None`, and so never equal to
+/// the resolved ones a wallet opens with. A cache that cannot be resolved is kept as the policy
+/// spells it, with nothing to tell it apart: a cache whose path is already canonical, removed
+/// since the open, compares equal to the one the wallet was judged against. That is meant. Its
+/// path is still the policy's, so it is still where commands may write; the ledger's bounds keep
+/// such a path as a root just the same (`WriteBounds::of` in `ledger.rs`), and a wallet was judged
+/// against it as one. A cache added, or one under another path, does differ, and is refused.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SandboxSnapshot {
     workspace: Option<PathBuf>,

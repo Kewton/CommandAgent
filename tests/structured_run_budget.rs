@@ -1,25 +1,41 @@
-//! Issue #976, stage 3b: the GUI under a run budget. The GUI server is a binary of its own, so it
-//! is run as one, with an empty environment and a fake HOME. Its model discovery and its delegated
-//! runs are sends no wallet counts, and under a selection neither goes out; with none, both go out
-//! as before. Every send goes to a fake on 127.0.0.1, which counts what reaches it. The GUI server
-//! is built only with the `gui` feature, so these run with it, as `tests/gui_server.rs` does.
+//! Issue #976, stage 3b: the binaries under a run budget, each run as an operator starts it, with
+//! an empty environment and a fake HOME. Every send goes to a fake on 127.0.0.1, which counts
+//! what reaches it.
+//!
+//! The command line goes through `main`'s start, which on macOS hands a provider key's variable
+//! over and takes it out of the environment: a key named as a control of the run budget is
+//! refused, and nothing is sent.
+//!
+//! The GUI's model discovery and its delegated runs are sends no wallet counts, and under a
+//! selection neither goes out; with none, both go out as before. The GUI server is built only
+//! with the `gui` feature, so those run with it, as `tests/gui_server.rs` does.
 
-#![cfg(all(unix, feature = "gui"))]
+#![cfg(unix)]
 
-use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{TcpListener, TcpStream};
-use std::path::Path;
-use std::process::{Child, Command, Stdio};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::io::{Read, Write};
+use std::net::TcpListener;
+use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+#[cfg(feature = "gui")]
+use std::{
+    io::{BufRead, BufReader},
+    net::TcpStream,
+    path::Path,
+    process::Child,
+    sync::atomic::AtomicUsize,
+};
 
 const RUN_BUDGET_ENV: &str = "COMMANDAGENT_RUN_BUDGET";
+#[cfg(feature = "gui")]
 const TOKEN: &str = "commandagent-gui-test-token-000000000976";
+#[cfg(feature = "gui")]
 const REFUSED: &str = "the run budget refused the entry: Unmetered(GuiSend)";
 
 /// A fake on 127.0.0.1 that answers every request with a model list and counts them.
+#[cfg(feature = "gui")]
 struct Fake {
     url: String,
     stop: Arc<AtomicBool>,
@@ -27,6 +43,7 @@ struct Fake {
     seen: Arc<AtomicUsize>,
 }
 
+#[cfg(feature = "gui")]
 impl Fake {
     fn spawn() -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -77,11 +94,13 @@ impl Fake {
     }
 }
 
+#[cfg(feature = "gui")]
 struct Server {
     child: Child,
     port: u16,
 }
 
+#[cfg(feature = "gui")]
 impl Server {
     /// The GUI server alone in an environment of its own, with the selection when `selected`.
     fn start(
@@ -170,6 +189,7 @@ impl Server {
     }
 }
 
+#[cfg(feature = "gui")]
 impl Drop for Server {
     fn drop(&mut self) {
         let _ = self.child.kill();
@@ -179,6 +199,7 @@ impl Drop for Server {
 
 /// Model discovery: under a selection the list is empty and nothing reaches the fake; with none,
 /// the fake answers and its model is listed.
+#[cfg(feature = "gui")]
 #[test]
 fn the_gui_lists_no_model_under_a_run_budget() {
     for selected in [true, false] {
@@ -223,6 +244,7 @@ fn the_gui_lists_no_model_under_a_run_budget() {
     }
 }
 
+#[cfg(feature = "gui")]
 fn write_cli(path: &Path, marker: &Path) {
     use std::os::unix::fs::PermissionsExt;
     std::fs::write(
@@ -240,6 +262,7 @@ fn write_cli(path: &Path, marker: &Path) {
 
 /// A delegated run: under a selection the GUI refuses it before it builds the command, so the
 /// CLI never starts; with none, the session is accepted as before.
+#[cfg(feature = "gui")]
 #[test]
 fn the_gui_delegates_no_run_under_a_run_budget() {
     for selected in [true, false] {
@@ -282,4 +305,213 @@ fn the_gui_delegates_no_run_under_a_run_budget() {
             assert!(!body.contains(REFUSED), "{body}");
         }
     }
+}
+
+// ---- the command line, through main's start (F1) ----
+
+/// A completion a run takes as its answer, and a model list, in one body.
+const REPLY: &str = r#"{"id":"c-976","object":"chat.completion","model":"m-1","choices":[{"index":0,"message":{"role":"assistant","content":"done"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"cost":0.000001},"data":[{"id":"m-1"}]}"#;
+
+/// A fake provider on 127.0.0.1 that answers everything with [`REPLY`] and keeps each request
+/// line, with no header value.
+struct ProviderFake {
+    url: String,
+    stop: Arc<AtomicBool>,
+    thread: JoinHandle<()>,
+    seen: Arc<Mutex<Vec<String>>>,
+}
+
+impl ProviderFake {
+    fn spawn() -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        listener.set_nonblocking(true).unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let (thread_stop, thread_seen) = (stop.clone(), seen.clone());
+        let thread = std::thread::spawn(move || {
+            while !thread_stop.load(Ordering::SeqCst) {
+                let Ok((mut stream, _)) = listener.accept() else {
+                    std::thread::sleep(Duration::from_millis(5));
+                    continue;
+                };
+                stream.set_nonblocking(false).unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                let mut data = Vec::new();
+                let mut buffer = [0_u8; 8192];
+                while !data.windows(4).any(|window| window == b"\r\n\r\n") {
+                    match stream.read(&mut buffer) {
+                        Ok(0) | Err(_) => break,
+                        Ok(read) => data.extend_from_slice(&buffer[..read]),
+                    }
+                }
+                let head = String::from_utf8_lossy(&data);
+                thread_seen
+                    .lock()
+                    .unwrap()
+                    .push(head.lines().next().unwrap_or("").to_string());
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{REPLY}",
+                    REPLY.len()
+                );
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+        Self {
+            url,
+            stop,
+            thread,
+            seen,
+        }
+    }
+
+    fn count(&self) -> usize {
+        self.seen.lock().unwrap().len()
+    }
+
+    fn finish(self) -> Vec<String> {
+        self.stop.store(true, Ordering::SeqCst);
+        self.thread.join().unwrap();
+        self.seen.lock().unwrap().clone()
+    }
+}
+
+/// What one start of the binary did: its exit code, or `None` when it was stopped after a send
+/// reached the fake; the requests the fake saw; and its last `error` line.
+#[derive(Debug)]
+struct Started {
+    code: Option<i32>,
+    sent: Vec<String>,
+    error: String,
+}
+
+/// The command-line binary as an operator starts it, through `main`, with `env` its whole
+/// environment beside a fake HOME and PATH, against a fake compatible provider.
+fn start_cli(env: &[(&str, &str)], extra: &[&str]) -> Started {
+    let root = tempfile::tempdir().unwrap();
+    let base = std::fs::canonicalize(root.path()).unwrap();
+    let fake = ProviderFake::spawn();
+    let (cwd, state, home) = (
+        base.join("workspace"),
+        base.join("state"),
+        base.join("home"),
+    );
+    std::fs::create_dir_all(&cwd).unwrap();
+    std::fs::create_dir_all(&home).unwrap();
+    let url = format!("{}/v1", fake.url);
+    let mut child = Command::new(env!("CARGO_BIN_EXE_commandagent"))
+        .env_clear()
+        .env("HOME", &home)
+        .env("PATH", "/usr/bin:/bin")
+        .envs(env.iter().copied())
+        .args(["--cwd", cwd.to_str().unwrap()])
+        .args(["--state-dir", state.to_str().unwrap()])
+        .args(["--provider", "openai-compatible", "--base-url", &url])
+        .args(["--model", "m-1"])
+        .args(extra)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    // The verdict is what is observed, an exit or a request at the fake. The bound only turns
+    // neither into a failure, and the child is stopped by its own handle.
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let code = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status.code();
+        }
+        if fake.count() > 0 {
+            let _ = child.kill();
+            let _ = child.wait();
+            break None;
+        }
+        assert!(Instant::now() < deadline, "neither an exit nor a send");
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    let mut stderr = String::new();
+    child
+        .stderr
+        .take()
+        .unwrap()
+        .read_to_string(&mut stderr)
+        .unwrap();
+    let error = stderr
+        .lines()
+        .rfind(|line| line.starts_with("error"))
+        .unwrap_or("")
+        .to_string();
+    Started {
+        code,
+        sent: fake.finish(),
+        error,
+    }
+}
+
+const KEY_IS_CONTROL: &str = "error: the run budget refused the entry: KeyIsControl";
+
+/// macOS hands the key's variable over at the start and takes it out of the environment. Named as
+/// the selection, the selection would be gone: the run is refused before anything is sent, and
+/// so is the doctor's provider check. Another key name, under the same selection, is refused as
+/// before, for what this wallet lacks. Linux hands nothing over, and is judged by the test below.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_key_named_as_the_selection_sends_nothing_through_the_start() {
+    let selected = [(RUN_BUDGET_ENV, "wallet976")];
+    let run = start_cli(
+        &selected,
+        &["--api-key-env", RUN_BUDGET_ENV, "--prompt", "say hello"],
+    );
+    assert_eq!((run.code, run.sent.len()), (Some(2), 0), "{run:?}");
+    assert_eq!(run.error, KEY_IS_CONTROL, "{run:?}");
+
+    let doctor = start_cli(&selected, &["--api-key-env", RUN_BUDGET_ENV, "--doctor"]);
+    assert_eq!((doctor.code, doctor.sent.len()), (Some(1), 0), "{doctor:?}");
+    assert_eq!(
+        doctor.error, "error: doctor found failed checks",
+        "{doctor:?}"
+    );
+
+    let other = start_cli(
+        &[
+            (RUN_BUDGET_ENV, "wallet976"),
+            ("GATEWAY_KEY_976", "synthetic-key-976"),
+        ],
+        &["--api-key-env", "GATEWAY_KEY_976", "--prompt", "say hello"],
+    );
+    assert_eq!((other.code, other.sent.len()), (Some(2), 0), "{other:?}");
+    assert!(
+        other
+            .error
+            .starts_with("error: the run budget refused the entry: ")
+            && other.error != KEY_IS_CONTROL,
+        "{other:?}"
+    );
+}
+
+/// The names alone decide, whatever the mode: a key named as a control of the run budget, or as
+/// its legacy spelling, is refused before the run on every system, with no selection at all, and
+/// with the selection's own variable as the key. A key of its own name, with no selection, runs as
+/// before and sends.
+#[test]
+fn a_key_named_as_a_control_is_refused_with_no_selection() {
+    for (name, value) in [
+        ("COMMANDAGENT_ADAPTER_CONFIG_ROOT", "synthetic-key-976"),
+        (RUN_BUDGET_ENV, "synthetic-key-976"),
+        ("ANVIL_RUN_BUDGET", "synthetic-key-976"),
+    ] {
+        let run = start_cli(
+            &[(name, value)],
+            &["--api-key-env", name, "--prompt", "say hello"],
+        );
+        assert_eq!((run.code, run.sent.len()), (Some(2), 0), "{name}: {run:?}");
+        assert_eq!(run.error, KEY_IS_CONTROL, "{name}: {run:?}");
+    }
+    let run = start_cli(
+        &[("GATEWAY_KEY_976", "synthetic-key-976")],
+        &["--api-key-env", "GATEWAY_KEY_976", "--prompt", "say hello"],
+    );
+    assert!(!run.sent.is_empty(), "{run:?}");
 }

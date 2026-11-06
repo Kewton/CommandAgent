@@ -52,6 +52,10 @@ pub(crate) enum EntryRefusal {
     SandboxOff,
     /// The variable of the provider key is one a command of the run inherits.
     KeyReachesCommands,
+    /// The variable of the provider key is one the run budget is controlled by. On macOS the
+    /// start hands a key's variable over and takes it out of the environment, so the control
+    /// would be gone where it is read.
+    KeyIsControl,
     InvalidBudgetId,
     /// No operator root is set, or it is not an absolute path.
     NoOperatorRoot,
@@ -72,9 +76,43 @@ impl std::fmt::Display for EntryRefusal {
 
 impl std::error::Error for EntryRefusal {}
 
-/// Whether a wallet is selected. Its value, whatever it is, is the ID.
+/// Whether a wallet is selected. Its value, whatever it is, is the ID. The start of the command
+/// line on macOS takes a provider key's variable out of the environment and holds its value, so
+/// what it holds counts as much as the environment does: a selection is never lost there. Only
+/// whether it is present is read here, never the value.
 pub(crate) fn selected() -> bool {
-    std::env::var_os(RUN_BUDGET_ENV).is_some()
+    crate::startup_credentials::var_os(RUN_BUDGET_ENV).is_some()
+}
+
+/// Every variable the run budget is controlled by, as `structured_budget` reads it: the selection
+/// (`admission.rs`, read by [`selected`] and [`open_for_run`]) and the operator root the
+/// declaration is read under (`artifact_contract_checks::CONFIG_ROOT_ENV`, read by
+/// [`read_policy`]). `HOME`, which the sandbox's caches are found under, is refused as a key by
+/// [`commands_inherit`] already.
+const CONTROL_NAMES: [&str; 2] = [
+    RUN_BUDGET_ENV,
+    crate::planner::artifact_contract_checks::CONFIG_ROOT_ENV,
+];
+
+/// The provider key's variable may not be a control of the run budget, or the legacy spelling of
+/// one, whether a wallet is selected or not: on macOS a selection under that name is taken out of
+/// the environment before anything here could see it. Only names are compared; nothing is read.
+/// Off, a run is refused only when its key is named so.
+pub(crate) fn refuse_a_control_named_as_key(config: &Config) -> Result<(), EntryRefusal> {
+    let key = config
+        .openai_compatible
+        .as_ref()
+        .and_then(|compatible| compatible.api_key_env.as_deref());
+    match key {
+        Some(name)
+            if CONTROL_NAMES
+                .iter()
+                .any(|control| crate::env_compat::matches_current_or_legacy(name, control)) =>
+        {
+            Err(EntryRefusal::KeyIsControl)
+        }
+        _ => Ok(()),
+    }
 }
 
 /// Refuses a way out of the wallet when one is selected. With none selected it reads nothing more.
@@ -220,7 +258,12 @@ fn refuse_a_key_commands_inherit(config: &Config) -> Result<(), EntryRefusal> {
 }
 
 /// What `bounded_process` passes from this process's environment to every child it spawns, as it
-/// is written there. A test holds the two together.
+/// is written there. This is a copy, since the list there is private and `bounded_process` is not
+/// this module's to change. A test holds the two together: it reads every name and prefix written
+/// in `child_env_allowed`, with the near misses beside each (another case, the legacy spelling,
+/// one character more, a prefix's own edge), runs a real child with each, and requires every name
+/// a child gets to be one refused here. What it cannot see is a rule that is not written as a
+/// string in that function.
 pub(crate) fn commands_inherit(name: &str) -> bool {
     matches!(
         name,

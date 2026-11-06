@@ -587,6 +587,176 @@ fn the_copy_of_what_commands_inherit_is_what_they_inherit() {
     );
 }
 
+/// The production allowlist of `bounded_process` as it is written: every string in
+/// `child_env_allowed`, up to the names only a test build allows. A name added there is a
+/// candidate here without anyone listing it.
+fn allowlist_literals() -> Vec<String> {
+    const SOURCE: &str = include_str!("../bounded_process.rs");
+    let start = SOURCE.find("fn child_env_allowed(").unwrap();
+    let end = start
+        + SOURCE[start..]
+            .find("fn test_control_env_allowed(")
+            .unwrap();
+    SOURCE[start..end]
+        .split('"')
+        .skip(1)
+        .step_by(2)
+        .map(str::to_string)
+        .collect()
+}
+
+/// Every name the allowlist could let through, and the near misses beside each: the name, one
+/// longer, its other cases, its legacy spelling, and the prefixes' own edges.
+fn candidate_names() -> BTreeSet<String> {
+    let mut names = BTreeSet::new();
+    for literal in allowlist_literals() {
+        let mut spellings = vec![literal.clone()];
+        spellings.extend(crate::env_compat::legacy_name(&literal));
+        for spelling in spellings {
+            names.insert(format!("{spelling}X976"));
+            names.insert(spelling.to_lowercase());
+            names.insert(spelling.to_uppercase());
+            names.insert(spelling);
+        }
+    }
+    for edge in [
+        "LC",
+        "LCX",
+        "lc_x",
+        "npm_config",
+        "npmconfig_x",
+        "NPM_CONFIG_X",
+    ] {
+        names.insert(edge.to_string());
+    }
+    names
+        .into_iter()
+        .filter(|name| !name.is_empty() && !name.contains('='))
+        .collect()
+}
+
+/// Runs only as a child, whose environment the parent filled with every candidate. No name a
+/// child of `bounded_process` gets, inherited or handed, is one the copy would take as a key.
+#[test]
+fn every_name_the_allowlist_lets_through_is_refused_as_a_key_child() {
+    if !is_child() {
+        return;
+    }
+    let literals = allowlist_literals();
+    assert!(
+        literals.len() >= 17
+            && ["PATH", "LC_", "npm_config_", "TMPDIR"]
+                .iter()
+                .all(|known| literals.iter().any(|literal| literal == known)),
+        "the allowlist was not found where it is read: {literals:?}"
+    );
+    let passed = |command: &mut std::process::Command| -> BTreeSet<String> {
+        command.stdout(std::process::Stdio::piped());
+        let child = crate::bounded_process::spawn_child(command).unwrap();
+        let output = child.wait_with_output().unwrap();
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter_map(|line| line.split_once('=').map(|(name, _)| name.to_string()))
+            .collect()
+    };
+    let candidates = candidate_names();
+    let inherited = passed(&mut std::process::Command::new("/usr/bin/env"));
+    let mut handed_command = std::process::Command::new("/usr/bin/env");
+    for name in &candidates {
+        handed_command.env(name, "handed-976");
+    }
+    let handed = passed(&mut handed_command);
+    let mut wrong = Vec::new();
+    for name in &candidates {
+        assert!(
+            std::env::var_os(name).is_some(),
+            "{name} is not in this child"
+        );
+        if inherited.contains(name) != commands_inherit(name) {
+            wrong.push(format!("{name}: inherited {}", inherited.contains(name)));
+        }
+        if handed.contains(name) && !(commands_inherit(name) || commands_are_handed(name)) {
+            wrong.push(format!(
+                "{name}: handed, and the copy would take it as a key"
+            ));
+        }
+        if commands_are_handed(name) && !handed.contains(name) {
+            wrong.push(format!("{name}: the copy says handed, and it is not"));
+        }
+    }
+    assert_eq!(wrong, Vec::<String>::new());
+    println!(
+        "{}",
+        ran("every_name_the_allowlist_lets_through_is_refused_as_a_key_child")
+    );
+}
+
+#[test]
+fn every_name_the_allowlist_lets_through_is_refused_as_a_key() {
+    let candidates = candidate_names()
+        .into_iter()
+        .map(|name| (name, "candidate-976".to_string()))
+        .collect::<Vec<_>>();
+    let env = candidates
+        .iter()
+        .map(|(name, value)| (name.as_str(), value.as_str()))
+        .collect::<Vec<_>>();
+    run_child(
+        "every_name_the_allowlist_lets_through_is_refused_as_a_key_child",
+        &env,
+    );
+}
+
+// ---- a key named as a control of the run budget (F1) ----
+
+/// Runs only as a child, with no selection: the names alone decide, whatever the mode.
+#[test]
+fn a_key_named_as_a_control_is_refused_whatever_the_mode_child() {
+    if !is_child() {
+        return;
+    }
+    assert!(!super::selected());
+    let (_root, base) = base();
+    let mut wrong = Vec::new();
+    for (key, expected) in [
+        ("COMMANDAGENT_RUN_BUDGET", Err(EntryRefusal::KeyIsControl)),
+        ("ANVIL_RUN_BUDGET", Err(EntryRefusal::KeyIsControl)),
+        (
+            "COMMANDAGENT_ADAPTER_CONFIG_ROOT",
+            Err(EntryRefusal::KeyIsControl),
+        ),
+        ("ANVIL_ADAPTER_CONFIG_ROOT", Err(EntryRefusal::KeyIsControl)),
+        ("COMMANDAGENT_RUN_BUDGETX", Ok(())),
+        ("commandagent_run_budget", Ok(())),
+        ("GATEWAY_KEY_976", Ok(())),
+    ] {
+        let mut arguments = COMPATIBLE.to_vec();
+        arguments.extend_from_slice(&["--api-key-env", key]);
+        let config = config(&base, &arguments);
+        let got = super::refuse_a_control_named_as_key(&config);
+        if got != expected {
+            wrong.push(format!("{key}: {got:?}"));
+        }
+    }
+    let config = config(&base, &COMPATIBLE);
+    if super::refuse_a_control_named_as_key(&config) != Ok(()) {
+        wrong.push("no key".to_string());
+    }
+    assert_eq!(wrong, Vec::<String>::new());
+    println!(
+        "{}",
+        ran("a_key_named_as_a_control_is_refused_whatever_the_mode_child")
+    );
+}
+
+#[test]
+fn a_key_named_as_a_control_is_refused_whatever_the_mode() {
+    run_child(
+        "a_key_named_as_a_control_is_refused_whatever_the_mode_child",
+        &[],
+    );
+}
+
 // ---- the sandbox at the send (B5) ----
 
 /// Runs only as a child. A wallet opened under the sandbox applied on it, and then the sandbox
