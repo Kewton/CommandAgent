@@ -24,6 +24,7 @@ pub(crate) mod ledger;
 pub(crate) mod policy;
 pub(crate) mod reservation;
 pub(crate) mod settlement;
+mod storage;
 pub(crate) mod transport;
 
 #[cfg(test)]
