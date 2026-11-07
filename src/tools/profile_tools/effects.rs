@@ -5332,8 +5332,13 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                     let response = self.wallet.settled_response();
                     self.settled.lock().unwrap().push(response);
                     crate::provider_call::note_settled_response(response);
-                    self.inner
-                        .chat(model, messages, tools, native_tools_enabled)
+                    crate::providers::ChatClient::chat(
+                        self.inner.as_mut(),
+                        model,
+                        messages,
+                        tools,
+                        native_tools_enabled,
+                    )
                 }
             }
 
