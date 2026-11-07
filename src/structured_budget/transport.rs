@@ -33,6 +33,7 @@ use super::identity::{PhysicalId, SendPurpose};
 use super::ledger::{BudgetLedger, LedgerFailure, LedgerOpen, LedgerRefusal, StartedPermit};
 use super::policy::RunBudgetPolicy;
 use super::reservation::{AttemptState, ReserveRequest, WalletState};
+use super::session::FinalRepairMarker;
 use super::settlement::{ReportedUsage, SettleReport, UnknownReason};
 use crate::providers::BilledCostUsd;
 use crate::tools::os_sandbox;
@@ -223,21 +224,26 @@ impl RunBudgetHandle {
     }
 
     /// Reserves and starts these bytes. A start that is refused has sent nothing, so its reservation
-    /// goes back.
+    /// goes back. A send of a final-repair session claims, with the ledger locked, a new final
+    /// repair when its session holds none yet and the session's one otherwise, and the session
+    /// keeps the one a new claim opened.
     fn begin<'b>(
         self: &Arc<Self>,
         body: &'b [u8],
         purpose: SendPurpose,
+        final_repair: Option<&FinalRepairMarker>,
     ) -> Result<(OpenSend, StartedPermit<'b>), SendRefusal> {
         self.refuse_without_the_sandbox()?;
         let mut ledger = self.ledger()?;
-        let physical = ledger
-            .reserve(&ReserveRequest {
-                body,
-                purpose,
-                final_repair: None,
-            })?
-            .physical;
+        let reservation = ledger.reserve(&ReserveRequest {
+            body,
+            purpose,
+            final_repair: final_repair.map(FinalRepairMarker::claim),
+        })?;
+        if let Some(marker) = final_repair {
+            marker.opened(reservation.final_repair);
+        }
+        let physical = reservation.physical;
         match ledger.start(physical, body) {
             Ok(permit) => Ok((
                 OpenSend {
@@ -318,13 +324,16 @@ impl Drop for OpenSend {
     }
 }
 
-/// The bytes of one request under a wallet, fixed for all its tries. They are serialized once, after
-/// everything a body gets has been added to it, so the digest on disk is of what leaves.
+/// The bytes of one request under a wallet, fixed for all its tries, with what they are for. They
+/// are serialized once, after everything a body gets has been added to it, so the digest on disk is
+/// of what leaves. A request of a final-repair session is a final repair, whatever its client's
+/// role, and holds that session's marker for every try.
 #[derive(Debug)]
 pub(crate) struct BudgetedBody {
     handle: Arc<RunBudgetHandle>,
     bytes: Vec<u8>,
     purpose: SendPurpose,
+    final_repair: Option<FinalRepairMarker>,
 }
 
 impl BudgetedBody {
@@ -337,7 +346,17 @@ impl BudgetedBody {
             handle: handle.clone(),
             bytes: serde_json::to_vec(body)?,
             purpose,
+            final_repair: None,
         })
+    }
+
+    /// The request of the session `final_repair` marks, if any: then it is a final repair.
+    pub(crate) fn of_session(mut self, final_repair: Option<FinalRepairMarker>) -> Self {
+        if final_repair.is_some() {
+            self.purpose = SendPurpose::FinalRepair;
+        }
+        self.final_repair = final_repair;
+        self
     }
 
     /// One try: its own reservation and start on disk, and a request whose body only the permit can
@@ -346,7 +365,9 @@ impl BudgetedBody {
         &self,
         request: RequestBuilder,
     ) -> Result<(RequestBuilder, OpenSend), SendRefusal> {
-        let (send, permit) = self.handle.begin(&self.bytes, self.purpose)?;
+        let (send, permit) =
+            self.handle
+                .begin(&self.bytes, self.purpose, self.final_repair.as_ref())?;
         let request = request
             .header(CONTENT_TYPE, "application/json")
             .body(permit.into_body().to_vec());

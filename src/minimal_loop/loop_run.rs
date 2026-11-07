@@ -433,6 +433,7 @@ pub(crate) fn run_session_with_outcome_with_options(
     ui: &dyn InteractionUi,
     options: RunSessionOptions,
 ) -> anyhow::Result<RunSessionOutcome> {
+    let _final_repair = provider_call::enter_final_repair(options.final_repair.as_ref());
     let mut plan = RequirementPlan::default();
     let run = (client, session, user_prompt, required_paths, config, ui);
     let stages =

@@ -24,6 +24,7 @@ pub(crate) mod identity;
 pub(crate) mod ledger;
 pub(crate) mod policy;
 pub(crate) mod reservation;
+pub(crate) mod session;
 pub(crate) mod settlement;
 mod storage;
 pub(crate) mod transport;

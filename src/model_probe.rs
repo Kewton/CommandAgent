@@ -584,6 +584,7 @@ fn probe_run_options(step_kind: RunSessionStepKind) -> RunSessionOptions {
         escalation_carryover: None,
         recovery_obligation: None,
         request_guidance: None,
+        final_repair: None,
     }
 }
 
