@@ -461,7 +461,12 @@ impl LmStudioClient {
                     let text = call
                         .run(response.text())?
                         .inspect_err(|error| transport::note_body_error(&mut send, error))?;
-                    transport::settle_body(&mut send, &text).map_err(transport::refused)?;
+                    // The calls of this reply are of the send settled here, and of no other.
+                    if let Some(response) = transport::settle_body_identified(&mut send, &text)
+                        .map_err(transport::refused)?
+                    {
+                        crate::provider_call::note_settled_response(response);
+                    }
                     if let Some(routing) = &self.openrouter_routing {
                         let event = routing.observed_event(
                             self.kind.label(),
@@ -2563,6 +2568,172 @@ mod run_budget_tests {
 
     /// Issue #976, stage 3c (N4, N5): final-repair sessions as a run makes them, through the loop
     /// and this client, to a fake on 127.0.0.1.
+    /// Issue #976, R1: a call's reply carries the send its own worker settled, so the calls of
+    /// that reply are tied to it and to no other. The usage of each reply is its own, so which
+    /// send a reply is of can be read off the ledger, whatever order the calls ran in.
+    mod response_identity {
+        use std::sync::Arc;
+
+        use super::{
+            KNOWN, ProviderCallOutcome, ProviderCallScope, ProviderChatRequest, Reply, World,
+            reply_body,
+        };
+        use crate::provider_call;
+        use crate::state::ConversationMessage;
+        use crate::structured_budget::reservation::{AttemptState, BudgetRefusal};
+        use crate::structured_budget::transport::budget_refusal;
+
+        fn usage(prompt_tokens: u64) -> String {
+            format!(r#"{{"prompt_tokens":{prompt_tokens},"completion_tokens":5,"cost":0.00001}}"#)
+        }
+
+        /// The prompt tokens the ledger settled for the send this outcome names.
+        fn settled_prompt_tokens(world: &World, outcome: &ProviderCallOutcome) -> Option<u64> {
+            let physical = outcome.response?.physical();
+            let wallet = world.handle.wallet().unwrap();
+            let attempt = wallet.attempt(physical)?;
+            assert_eq!(attempt.state, AttemptState::Settled);
+            attempt
+                .settlement
+                .as_ref()
+                .map(|record| record.prompt_tokens)
+        }
+
+        #[test]
+        fn each_reply_names_the_send_its_own_call_settled() {
+            let world = World::new();
+            let fake = super::Fake::spawn(vec![
+                Reply::Status(200, reply_body(&usage(10))),
+                Reply::Status(200, reply_body(&usage(20))),
+            ]);
+            let mut client = world.client(&fake.url());
+            let first = world.ask(&mut client, 30, || false);
+            let second = world.ask(&mut client, 30, || false);
+            assert_eq!(fake.finish().len(), 2);
+            assert_eq!(settled_prompt_tokens(&world, &first), Some(10));
+            assert_eq!(settled_prompt_tokens(&world, &second), Some(20));
+            assert_ne!(first.response, second.response);
+            for outcome in [&first, &second] {
+                assert_eq!(
+                    outcome.result.as_ref().unwrap().prompt_tokens,
+                    settled_prompt_tokens(&world, outcome)
+                );
+            }
+        }
+
+        /// Two calls at once on clones of one client. However they interleave (the wallet lets a
+        /// send out only with none unresolved), a call that got a reply names its own send, and a
+        /// call that got none names none.
+        #[test]
+        fn calls_at_once_each_get_their_own_send() {
+            let world = World::new();
+            let fake = super::Fake::spawn(vec![
+                Reply::Status(200, reply_body(&usage(10))),
+                Reply::Status(200, reply_body(&usage(20))),
+            ]);
+            let client = world.client(&fake.url());
+            let config = Arc::new(world.config("http://127.0.0.1:9/v1", None));
+            let outcomes = std::thread::scope(|scope| {
+                let calls = (0..2)
+                    .map(|_| {
+                        let mut client = client.clone();
+                        let config = config.clone();
+                        scope.spawn(move || {
+                            provider_call::chat_with_cancel_and_stream(
+                                &mut client,
+                                &config,
+                                ProviderChatRequest {
+                                    scope: ProviderCallScope::Executor,
+                                    model: "m-1",
+                                    messages: &[ConversationMessage::user("hello-976")],
+                                    tools: &[],
+                                    native_tools_enabled: false,
+                                },
+                                || false,
+                                &mut |_chunk| Ok(()),
+                            )
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                calls
+                    .into_iter()
+                    .map(|call| call.join().unwrap())
+                    .collect::<Vec<_>>()
+            });
+            let answered = fake.finish().len();
+            let mut tokens = Vec::new();
+            for outcome in &outcomes {
+                match &outcome.result {
+                    Ok(reply) => {
+                        let settled = settled_prompt_tokens(&world, outcome);
+                        assert!(settled.is_some());
+                        assert_eq!(reply.prompt_tokens, settled);
+                        tokens.push(settled);
+                    }
+                    Err(error) => {
+                        assert_eq!(outcome.response, None, "{error:#}");
+                        assert_eq!(budget_refusal(error), Some(BudgetRefusal::Unresolved));
+                    }
+                }
+            }
+            assert!(!tokens.is_empty());
+            assert_eq!(tokens.len(), answered);
+            tokens.sort();
+            tokens.dedup();
+            assert_eq!(tokens.len(), answered, "no two replies name one send");
+        }
+
+        /// A call that gave up has no reply and names no send; its late send is cancelled, so
+        /// it never settles, and the next call of the command is refused, naming none either.
+        #[test]
+        fn a_call_that_gave_up_names_no_send() {
+            let world = World::new();
+            let fake = super::Fake::spawn(vec![Reply::Hang, Reply::Status(200, reply_body(KNOWN))]);
+            let mut client = world.client(&fake.url());
+            let gave_up = world.ask(&mut client, 1, || false);
+            assert!(gave_up.timed_out);
+            assert_eq!(gave_up.response, None);
+            world.until_no_send_is_out();
+            let next = world.ask(&mut client, 30, || false);
+            assert_eq!(
+                budget_refusal(next.result.as_ref().unwrap_err()),
+                Some(BudgetRefusal::Latched)
+            );
+            assert_eq!(next.response, None);
+            assert_eq!(fake.finish().len(), 1);
+        }
+
+        /// A reply its call cannot use, settled all the same, names no send: no call comes of it.
+        #[test]
+        fn a_settled_reply_the_call_cannot_use_names_no_send() {
+            let world = World::new();
+            let fake = super::Fake::spawn(vec![Reply::Status(
+                200,
+                format!(r#"{{"id":"c-976","choices":[],"usage":{KNOWN}}}"#),
+            )]);
+            let mut client = world.client(&fake.url());
+            let outcome = world.ask(&mut client, 30, || false);
+            assert!(outcome.result.is_err());
+            assert_eq!(outcome.response, None);
+            assert_eq!(fake.finish().len(), 1);
+            let wallet = world.handle.wallet().unwrap();
+            assert_eq!(wallet.attempts[0].state, AttemptState::Settled);
+        }
+
+        /// Off: no wallet, no send to name, and the reply is the same.
+        #[test]
+        fn with_no_wallet_a_reply_names_no_send() {
+            let world = World::new();
+            let fake = super::Fake::spawn(vec![Reply::Status(200, reply_body(KNOWN))]);
+            let mut client = world.client_of(&world.config(&fake.url(), None));
+            let outcome = world.ask(&mut client, 30, || false);
+            assert_eq!(outcome.result.unwrap().content, "done");
+            assert_eq!(outcome.response, None);
+            assert_eq!(fake.finish().len(), 1);
+            assert_eq!(world.sends(), 0);
+        }
+    }
+
     mod final_repair_sessions {
         use serde_json::{Value, json};
 

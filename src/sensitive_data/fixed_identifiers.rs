@@ -391,6 +391,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "route_proposed",
     "route_unbound_recovery",
     "row_status",
+    "run_budget_refused",
     "run_budget_selected",
     "run_completed",
     "run_failed",

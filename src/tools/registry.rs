@@ -55,6 +55,37 @@ pub struct ToolRegistry {
     proposals: BTreeMap<String, Arc<super::profile_tools::effects::ProposalTool>>,
 }
 
+/// Issue #976: a registry for one tool call of one reply. A profile tool's call is a submission
+/// of the run's wallet; every other tool runs as it does through [`ToolRegistry`].
+pub(crate) struct CallRegistry<'a> {
+    registry: &'a ToolRegistry,
+    budget: Option<crate::structured_budget::submission::CallBudget>,
+}
+
+impl CallRegistry<'_> {
+    pub(crate) fn execute_with_cancel<F, G>(
+        &self,
+        name: &str,
+        arguments: &Value,
+        context: &ToolContext,
+        is_cancelled: F,
+        is_force_cancelled: G,
+    ) -> anyhow::Result<String>
+    where
+        F: Fn() -> bool,
+        G: Fn() -> bool,
+    {
+        self.registry.execute_counted(
+            name,
+            arguments,
+            context,
+            self.budget.as_ref(),
+            is_cancelled,
+            is_force_cancelled,
+        )
+    }
+}
+
 impl Default for ToolRegistry {
     fn default() -> Self {
         Self {
@@ -189,11 +220,48 @@ impl ToolRegistry {
         F: Fn() -> bool,
         G: Fn() -> bool,
     {
+        self.execute_counted(
+            name,
+            arguments,
+            context,
+            None,
+            is_cancelled,
+            is_force_cancelled,
+        )
+    }
+
+    /// Issue #976: this registry for the call at `call_index` of the reply `response` names, under
+    /// the run's wallet when there is one. With none it is this registry as it is.
+    pub(crate) fn for_call(
+        &self,
+        config: &crate::config::Config,
+        response: Option<crate::structured_budget::identity::ResponseIdentity>,
+        call_index: usize,
+    ) -> CallRegistry<'_> {
+        CallRegistry {
+            registry: self,
+            budget: crate::structured_budget::submission::for_call(config, response, call_index),
+        }
+    }
+
+    fn execute_counted<F, G>(
+        &self,
+        name: &str,
+        arguments: &Value,
+        context: &ToolContext,
+        budget: Option<&crate::structured_budget::submission::CallBudget>,
+        is_cancelled: F,
+        is_force_cancelled: G,
+    ) -> anyhow::Result<String>
+    where
+        F: Fn() -> bool,
+        G: Fn() -> bool,
+    {
         if !self.allows(name) {
             bail!("unknown tool: {name} is not in the selected profile's tool allowlist");
         }
         if let Some(proposal) = self.proposals.get(name) {
-            return proposal.execute(arguments, context, &|| {
+            return proposal.execute_under(budget, arguments, context, &|| {
                 is_cancelled() || is_force_cancelled()
             });
         }

@@ -436,7 +436,6 @@ impl StageVerdict {
 }
 
 /// The read-only identity a later budget can attach to a cost (G5).
-#[allow(dead_code, reason = "G5's way in: its budget is what will read this")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AttemptIdentity {
     pub(crate) run_nonce: String,

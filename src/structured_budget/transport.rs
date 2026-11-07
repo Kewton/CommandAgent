@@ -29,7 +29,10 @@ use reqwest::{Client, RequestBuilder, Response, redirect};
 use serde_json::Value;
 use serde_json::value::RawValue;
 
-use super::identity::{PhysicalId, SendPurpose};
+use super::identity::{
+    AttemptBinding, LogicalId, LogicalKind, PhysicalId, ResponseIdentity, SendPurpose,
+    SubmissionSource,
+};
 use super::ledger::{BudgetLedger, LedgerFailure, LedgerOpen, LedgerRefusal, StartedPermit};
 use super::policy::RunBudgetPolicy;
 use super::reservation::{AttemptState, ReserveRequest, WalletState};
@@ -191,6 +194,39 @@ impl RunBudgetHandle {
         kept.get_or_insert(refusal);
     }
 
+    /// Keeps `refusal` for the command, as a refused send's, and gives it back.
+    pub(super) fn refuse_for_command(&self, refusal: SendRefusal) -> SendRefusal {
+        self.note_refused(refusal);
+        refusal
+    }
+
+    /// One submission of the command running now (`submission.rs`). Once the wallet refused
+    /// anything of this command, nothing more of it is recorded; a refusal here is kept for the
+    /// command like a refused send's.
+    pub(super) fn record_submission(
+        &self,
+        kind: LogicalKind,
+        source: Option<SubmissionSource>,
+    ) -> Result<LogicalId, SendRefusal> {
+        if let Some(refused) = self.refused_in_command() {
+            return Err(refused);
+        }
+        self.ledger()
+            .and_then(|mut ledger| Ok(ledger.record_submission(kind, source)?))
+            .inspect_err(|refusal| self.note_refused(*refusal))
+    }
+
+    /// Ties G4's attempt to a submission, on disk. A refusal is kept for the command.
+    pub(super) fn bind_attempt(
+        &self,
+        logical: LogicalId,
+        binding: AttemptBinding,
+    ) -> Result<(), SendRefusal> {
+        self.ledger()
+            .and_then(|mut ledger| Ok(ledger.bind_attempt(logical, binding)?))
+            .inspect_err(|refusal| self.note_refused(*refusal))
+    }
+
     /// The first send of the command running now that the wallet refused.
     pub(crate) fn refused_in_command(&self) -> Option<SendRefusal> {
         *self
@@ -338,11 +374,15 @@ impl OpenSend {
         self.handle.mark_unknown(self.physical, reason);
     }
 
-    fn settle(mut self, text: &str) -> Result<(), SendRefusal> {
+    /// The response, when this settled it: only a settled send is one a call can come from.
+    fn settle(mut self, text: &str) -> Result<Option<ResponseIdentity>, SendRefusal> {
         self.resolved = true;
         self.handle
             .settle_response(self.physical, text)
-            .map(|_| ())
+            .map(|report| match report {
+                Some(SettleReport::Settled(outcome)) => Some(outcome.response),
+                Some(SettleReport::Unknown(_)) | None => None,
+            })
             .inspect_err(|refusal| self.handle.note_refused(*refusal))
     }
 }
@@ -445,9 +485,17 @@ pub(crate) fn note_body_error(send: &mut Option<OpenSend>, error: &reqwest::Erro
 }
 
 pub(crate) fn settle_body(send: &mut Option<OpenSend>, text: &str) -> Result<(), SendRefusal> {
+    settle_body_identified(send, text).map(|_| ())
+}
+
+/// The same, with the response it settled, if it did: what the calls of that response are of.
+pub(crate) fn settle_body_identified(
+    send: &mut Option<OpenSend>,
+    text: &str,
+) -> Result<Option<ResponseIdentity>, SendRefusal> {
     match send.take() {
         Some(send) => send.settle(text),
-        None => Ok(()),
+        None => Ok(None),
     }
 }
 

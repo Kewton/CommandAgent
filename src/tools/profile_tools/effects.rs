@@ -32,7 +32,7 @@ use super::{ProfileToolRefusal, RefusalKind};
 use crate::config::{Action, Config, OpenAiCompatibleConfig};
 use crate::eval_events;
 use crate::mode::ExecutionMode;
-use crate::planner::structured_stages::contract::{AdmittedTarget, StageContract};
+use crate::planner::structured_stages::contract::{AdmittedTarget, StageContract, TargetKey};
 use crate::planner::structured_stages::ledger::{
     self as stage_ledger, HeldLedger, LedgerRefusal, StageLedger, WorkspaceBytes,
 };
@@ -46,6 +46,9 @@ use crate::planner::structured_stages::state::{
 use crate::planner::structured_stages::{
     StageCallFacts, StageMember, StageNote, StageRun, ledger_refused,
 };
+use crate::structured_budget::identity::{AttemptBinding, LogicalKind};
+use crate::structured_budget::submission::{CallBudget, Submission};
+use crate::structured_budget::transport as budget_transport;
 use crate::tools::registry::{FunctionSpec, ToolContext, ToolSpec};
 use crate::tools::workspace_policy::WorkspacePolicy;
 
@@ -247,6 +250,9 @@ pub(crate) struct ProposalTool {
     compatible: OnceLock<OpenAiCompatibleConfig>,
     /// Set only for a tool a declared stage names. Everything else keeps its one submission.
     stage: OnceLock<Arc<StageRun>>,
+    /// The stage of the target this tool was admitted for, which a run's wallet counts its calls
+    /// against (Issue #976).
+    stage_name: OnceLock<String>,
 }
 
 impl fmt::Debug for ProposalTool {
@@ -322,6 +328,7 @@ impl ProposalTool {
             pending_paths: Mutex::new(Vec::new()),
             compatible: OnceLock::new(),
             stage: OnceLock::new(),
+            stage_name: OnceLock::new(),
         })
     }
 
@@ -344,7 +351,8 @@ impl ProposalTool {
     }
 
     /// The contract and this tool come from two reads of the descriptor. A file replaced between
-    /// them must not leave a target judged on paths its tool does not use.
+    /// them must not leave a target judged on paths its tool does not use. The target that
+    /// matches names the stage this tool's calls are counted against.
     pub(super) fn matches_target(&self, target: &AdmittedTarget) -> Result<(), ProfileToolRefusal> {
         let output = self.declaration.single_output();
         let inputs = target.inputs.iter().map(|input| &input.path);
@@ -360,7 +368,18 @@ impl ProposalTool {
                 ),
             ));
         }
+        let _ = self.stage_name.set(target.key.stage.clone());
         Ok(())
+    }
+
+    /// What a call of this tool is to a run's wallet: one of its stage's, or one of the run's.
+    fn logical_kind(&self) -> LogicalKind {
+        match (self.stage.get(), self.stage_name.get()) {
+            (Some(_), Some(stage)) => LogicalKind::Stage {
+                stage: stage.clone(),
+            },
+            _ => LogicalKind::General,
+        }
     }
 
     /// What a stage set holds of this tool. A tool whose schema does not take the revision
@@ -572,17 +591,42 @@ impl ProposalTool {
             });
     }
 
-    /// The whole of one call. The registry reaches this from both of its public functions,
-    /// with the same guard and the same cancel.
+    /// The whole of one call, under no wallet. The registry reaches [`Self::execute_under`] from
+    /// both of its public functions, with the same guard and the same cancel.
+    #[cfg(test)]
     pub(crate) fn execute(
         &self,
         arguments: &Value,
         context: &ToolContext,
         is_cancelled: &dyn Fn() -> bool,
     ) -> anyhow::Result<String> {
+        self.execute_under(None, arguments, context, is_cancelled)
+    }
+
+    /// The same, for a call under a run's wallet when `budget` is one (Issue #976). The call is
+    /// one submission of the wallet before anything of it is judged, its arguments first: a call
+    /// the schema refuses counts as much as one that runs. A call whose record the wallet refuses
+    /// does not run, and its command is no success.
+    pub(crate) fn execute_under(
+        &self,
+        budget: Option<&CallBudget>,
+        arguments: &Value,
+        context: &ToolContext,
+        is_cancelled: &dyn Fn() -> bool,
+    ) -> anyhow::Result<String> {
+        let submission = budget
+            .map(|budget| budget.record(self.logical_kind()))
+            .transpose()
+            .map_err(budget_transport::refused)?;
         emit_call(context, self, arguments);
         let mut notes = RunNotes::default();
-        match self.run(arguments, context, is_cancelled, &mut notes) {
+        match self.run(
+            arguments,
+            context,
+            is_cancelled,
+            submission.as_ref(),
+            &mut notes,
+        ) {
             Ok(text) => {
                 match notes.stage_reply_ok {
                     Some(ok) => self.record(notes.executed, ok),
@@ -610,6 +654,7 @@ impl ProposalTool {
         arguments: &Value,
         context: &ToolContext,
         is_cancelled: &dyn Fn() -> bool,
+        submission: Option<&Submission>,
         notes: &mut RunNotes,
     ) -> Result<String, ProfileToolRefusal> {
         self.judge_now(context, STAGE_PROCESS)?;
@@ -642,6 +687,7 @@ impl ProposalTool {
                     secrets: &secrets,
                     binding: &binding,
                     adopted: &adopted,
+                    submission,
                 },
                 notes,
             );
@@ -751,12 +797,14 @@ impl ProposalTool {
                 },
             )
             .ok_or_else(|| stage_ended("not_a_member"))?;
-        let decision = {
+        let (decision, bound) = {
             let mut held = locked(&ledger)?;
             // Bytes that moved since the last call take their state, and everything below's,
             // before this call is judged against it.
             let _ = held.verdict(&bytes);
-            held.begin(&target.key, request).map_err(ledger_refused)?
+            let decision = held.begin(&target.key, request).map_err(ledger_refused)?;
+            let bound = bind_started(call.submission, &decision, &held, &target.key);
+            (decision, bound)
         };
         let limit_reached = call
             .stage
@@ -768,8 +816,10 @@ impl ProposalTool {
             }
             other => return self.answer_without_process(other, &ledger, target, notes),
         };
-        let outcome =
-            self.stage_attempt(call, &ledger, (&contract, target), &ticket, &asked, notes);
+        // An attempt the wallet could not tie to its call starts no process, and ends as a failure.
+        let outcome = bound.and_then(|()| {
+            self.stage_attempt(call, &ledger, (&contract, target), &ticket, &asked, notes)
+        });
         if notes.stage_reply_ok.is_some() {
             if notes.stage_moved {
                 call.stage.note_progress(&target.key);
@@ -1177,6 +1227,8 @@ struct StageCall<'a> {
     secrets: &'a SecretForms,
     binding: &'a Binding,
     adopted: &'a AdoptedInputs,
+    /// The call as the run's wallet counted it, when the run has one (Issue #976).
+    submission: Option<&'a Submission>,
 }
 
 pub(crate) fn now_ms() -> u64 {
@@ -1191,6 +1243,33 @@ pub(crate) fn now_ms() -> u64 {
 /// words, and a word in a name could make this end look like something to retry.
 fn stage_ended(code: &str) -> ProfileToolRefusal {
     refusal(RefusalKind::StageRunEnded, code)
+}
+
+/// The wallet's word for a stage call it could not count (Issue #976).
+const RUN_BUDGET_REFUSED: &str = "run_budget_refused";
+
+/// Ties the attempt G4 just let start to the call's submission, with G4's ledger still held, so
+/// no other call's attempt can come between. Only a started attempt is tied: a replay, a stale
+/// call, and one G4 refused stay submissions with no attempt. With no wallet, nothing happens.
+fn bind_started(
+    submission: Option<&Submission>,
+    decision: &BeginDecision,
+    held: &StageLedger,
+    key: &TargetKey,
+) -> Result<(), ProfileToolRefusal> {
+    let (Some(submission), BeginDecision::Proceed(_)) = (submission, decision) else {
+        return Ok(());
+    };
+    let attempt = held.attempt_identity(key).map(|identity| AttemptBinding {
+        run_nonce: identity.run_nonce,
+        stage: identity.stage,
+        target: identity.target,
+        attempt: identity.attempt,
+        generation: identity.generation,
+    });
+    submission
+        .bind(attempt)
+        .map_err(|_| stage_ended(RUN_BUDGET_REFUSED))
 }
 
 fn locked(ledger: &HeldLedger) -> Result<MutexGuard<'_, StageLedger>, ProfileToolRefusal> {
@@ -1858,6 +1937,252 @@ field() { printf '%s' "$request" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }
             .kind
     }
 
+    /// Issue #976: under a run's wallet each call of a proposal tool is one submission, counted
+    /// before anything of it is judged. Every send is settled on a fake clock with a known report;
+    /// nothing reaches a network.
+    mod run_budget {
+        use std::path::Path;
+        use std::sync::Arc;
+
+        use serde_json::{Value, json};
+
+        use super::{bench, good_script};
+        use crate::config::Config;
+        use crate::structured_budget::identity::ResponseIdentity;
+        use crate::structured_budget::ledger::LedgerFailure;
+        use crate::structured_budget::outcome::{CommandRefusal, refusal};
+        use crate::structured_budget::reservation::BudgetRefusal;
+        use crate::structured_budget::test_support::TestWallet;
+        use crate::structured_budget::transport::{RunBudgetHandle, SendRefusal};
+        use crate::tools::registry::ToolRegistry;
+
+        pub(super) fn config_on(workspace: &Path, handle: Option<Arc<RunBudgetHandle>>) -> Config {
+            let parsed = crate::provider_cli::parse_from([
+                "commandagent",
+                "--cwd",
+                workspace.to_str().unwrap(),
+                "--state-dir",
+                workspace.parent().unwrap().join("state").to_str().unwrap(),
+            ])
+            .unwrap();
+            let mut config =
+                Config::from_cli_with_provider_options(parsed.cli, parsed.provider_options)
+                    .unwrap();
+            config.eval_events_path = None;
+            config.field_sources.run_budget = handle;
+            config
+        }
+
+        fn counts(wallet: &TestWallet) -> (u64, u64) {
+            let state = wallet.handle.wallet().unwrap();
+            (state.physical_used(), state.logical_global_used())
+        }
+
+        fn execute(
+            registry: &ToolRegistry,
+            config: &Config,
+            response: Option<ResponseIdentity>,
+            index: usize,
+            arguments: &Value,
+            context: &crate::tools::registry::ToolContext,
+        ) -> anyhow::Result<String> {
+            registry
+                .for_call(config, response, index)
+                .execute_with_cancel("ProposeUnit", arguments, context, || false, || false)
+        }
+
+        /// One reply with three calls: one physical send, three submissions, one per place.
+        #[test]
+        fn the_calls_of_one_reply_are_three_submissions_of_one_send() {
+            let wallet = TestWallet::open(|_| {});
+            let bench = bench(&good_script());
+            let config = config_on(&bench.workspace, Some(wallet.handle.clone()));
+            let registry = bench.registry();
+            let response = wallet.settled_response();
+            for index in 0..3 {
+                execute(
+                    &registry,
+                    &config,
+                    Some(response),
+                    index,
+                    &json!({"mode": "fast"}),
+                    &bench.context(),
+                )
+                .unwrap();
+            }
+            assert_eq!(counts(&wallet), (1, 3));
+            assert_eq!(bench.starts(), 3);
+            let state = wallet.handle.wallet().unwrap();
+            let sources = state
+                .logicals
+                .iter()
+                .map(|logical| logical.source)
+                .collect::<Vec<_>>();
+            assert_eq!(
+                sources,
+                (0..3)
+                    .map(|index| Some(response.call(index)))
+                    .collect::<Vec<_>>()
+            );
+            assert_eq!(
+                refusal(&config),
+                None,
+                "a run under its limits stays a success"
+            );
+        }
+
+        /// A call the schema refuses spends a submission and starts the run's wall, and its
+        /// process does not start; one the host makes with no reply behind it counts too.
+        #[test]
+        fn a_call_the_schema_refuses_and_one_of_no_reply_are_submissions() {
+            let wallet = TestWallet::open(|_| {});
+            let bench = bench(&good_script());
+            let config = config_on(&bench.workspace, Some(wallet.handle.clone()));
+            let registry = bench.registry();
+            let error = execute(
+                &registry,
+                &config,
+                None,
+                0,
+                &json!({"mode": 5}),
+                &bench.context(),
+            )
+            .unwrap_err();
+            assert!(
+                error.to_string().contains("extension_tool_rejected"),
+                "the model still gets the refusal as data: {error:#}"
+            );
+            assert_eq!(counts(&wallet), (0, 1));
+            assert_eq!(
+                wallet.handle.wallet().unwrap().clock.started_wall_ms,
+                Some(7_000)
+            );
+            assert_eq!(bench.starts(), 0);
+            execute(
+                &registry,
+                &config,
+                None,
+                0,
+                &json!({"mode": "fast"}),
+                &bench.context(),
+            )
+            .unwrap();
+            assert_eq!(counts(&wallet), (0, 2));
+            assert!(
+                wallet
+                    .handle
+                    .wallet()
+                    .unwrap()
+                    .logicals
+                    .iter()
+                    .all(|logical| logical.source.is_none())
+            );
+            assert_eq!(refusal(&config), None);
+        }
+
+        /// One past the limit, the call does not run, the command is no success, and nothing of
+        /// the command is recorded or run after it.
+        #[test]
+        fn a_call_past_the_logical_limit_does_not_run_and_ends_the_command() {
+            let wallet = TestWallet::open(|value| value["limits"]["logical_global"] = json!(1));
+            let bench = bench(&good_script());
+            let config = config_on(&bench.workspace, Some(wallet.handle.clone()));
+            let registry = bench.registry();
+            let response = wallet.settled_response();
+            let arguments = json!({"mode": "fast"});
+            execute(
+                &registry,
+                &config,
+                Some(response),
+                0,
+                &arguments,
+                &bench.context(),
+            )
+            .unwrap();
+            assert_eq!((counts(&wallet), bench.starts()), ((1, 1), 1));
+            let expected =
+                SendRefusal::Wallet(LedgerFailure::Budget(BudgetRefusal::LogicalGlobalExceeded));
+            for index in 1..3 {
+                let error = execute(
+                    &registry,
+                    &config,
+                    Some(response),
+                    index,
+                    &arguments,
+                    &bench.context(),
+                )
+                .unwrap_err();
+                assert_eq!(error.downcast_ref::<SendRefusal>(), Some(&expected));
+                assert!(
+                    !crate::tools::registry::recoverable_tool_error(&error),
+                    "a refused call is not something a model can put right: {error:#}"
+                );
+            }
+            assert_eq!((counts(&wallet), bench.starts()), ((1, 1), 1));
+            assert_eq!(
+                refusal(&config),
+                Some(CommandRefusal::SendRefused(expected))
+            );
+            assert_eq!(bench.tool.take_committed_paths().len(), 1);
+        }
+
+        /// Off: with no wallet, a call through the call's registry has no budget, and is the
+        /// plain registry's call: the same events in the same order, the same refusal, the same
+        /// committed file. A wallet that is not the run's is never read.
+        #[test]
+        fn with_no_wallet_a_call_is_what_it_was() {
+            let wallet = TestWallet::open(|_| {});
+            let response = wallet.settled_response();
+            let before = wallet.handle.wallet().unwrap();
+            let mut seen = Vec::new();
+            for counted in [false, true] {
+                let bench = bench(&good_script());
+                let config = config_on(&bench.workspace, None);
+                let registry = bench.registry();
+                let events = bench.workspace.parent().unwrap().join("events.jsonl");
+                let mut context = bench.context();
+                context.eval_events_path = Some(events.clone());
+                let mut answers = Vec::new();
+                for arguments in [json!({"mode": 5}), json!({"mode": "fast"})] {
+                    let answer = if counted {
+                        execute(&registry, &config, Some(response), 0, &arguments, &context)
+                    } else {
+                        registry.execute_with_cancel(
+                            "ProposeUnit",
+                            &arguments,
+                            &context,
+                            || false,
+                            || false,
+                        )
+                    };
+                    answers.push(answer.map(|text| {
+                        let receipt: Value = serde_json::from_str(&text).unwrap();
+                        (
+                            receipt["committed"].clone(),
+                            receipt["committed_sha256"].clone(),
+                        )
+                    }));
+                }
+                let answers = answers
+                    .into_iter()
+                    .map(|answer| answer.map_err(|error| error.to_string()))
+                    .collect::<Vec<_>>();
+                let events = std::fs::read_to_string(&events)
+                    .unwrap()
+                    .lines()
+                    .map(|line| {
+                        let event: Value = serde_json::from_str(line).unwrap();
+                        event["event"].as_str().unwrap().to_string()
+                    })
+                    .collect::<Vec<_>>();
+                seen.push((answers, events, bench.saved(), bench.starts()));
+            }
+            assert_eq!(seen[0], seen[1]);
+            assert!(seen[0].0[0].is_err() && seen[0].0[1].is_ok(), "{seen:?}");
+            assert_eq!(wallet.handle.wallet().unwrap(), before);
+        }
+    }
+
     #[test]
     fn the_whole_call_commits_exactly_the_candidate_and_returns_its_receipt() {
         let bench = bench(&good_script());
@@ -2383,6 +2708,303 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
             TargetKey {
                 stage: "lower".to_string(),
                 target: "main".to_string(),
+            }
+        }
+
+        /// Issue #976: a stage call under a run's wallet is a submission of its stage, and the
+        /// attempt G4 lets start is tied to it before the process starts.
+        mod run_budget {
+            use serde_json::{Value, json};
+
+            use super::super::super::super::schema::invocation::{
+                enter_session, for_provider_worker, receive_native,
+            };
+            use super::super::super::EXPECTED_REVISION_ARGUMENT;
+            use super::super::run_budget::config_on;
+            use super::{
+                LOWER, LOWER_FIXED, LOWER_OUTPUT, NarrowedStageLimits, StageBench,
+                StageContractDraft, StageSetDeclaration, UPPER, UPPER_FIXED, UPPER_OUTPUT, facts,
+                kind, lower_key, stage, stage_bench, upper_key,
+            };
+            use crate::planner::structured_stages::ledger::LedgerEntry;
+            use crate::structured_budget::identity::{AttemptBinding, LogicalKind};
+            use crate::structured_budget::outcome::{CommandRefusal, refusal};
+            use crate::structured_budget::reservation::LogicalRecord;
+            use crate::structured_budget::test_support::TestWallet;
+            use crate::structured_budget::transport::SendRefusal;
+            use crate::tools::profile_tools::RefusalKind;
+            use crate::tools::profile_tools::effects::ProposalTool;
+
+            /// What admission does for each tool of the set: the target it matches names its stage.
+            fn admitted(bench: StageBench) -> StageBench {
+                let draft = StageContractDraft::new(
+                    &StageSetDeclaration {
+                        stages: vec![stage("lower", LOWER), stage("upper", UPPER)],
+                        limits: NarrowedStageLimits::default(),
+                    },
+                    &[
+                        facts(
+                            UPPER,
+                            UPPER_OUTPUT,
+                            &[UPPER_FIXED],
+                            bench.attempts_per_target,
+                        ),
+                        facts(
+                            LOWER,
+                            LOWER_OUTPUT,
+                            &[UPPER_OUTPUT, LOWER_FIXED],
+                            bench.attempts_per_target,
+                        ),
+                    ],
+                )
+                .unwrap();
+                for (tool, id) in [(&bench.upper, UPPER), (&bench.lower, LOWER)] {
+                    tool.matches_target(draft.target_for_tool(id).unwrap())
+                        .unwrap();
+                }
+                bench
+            }
+
+            struct Counted {
+                wallet: TestWallet,
+                config: crate::config::Config,
+            }
+
+            impl Counted {
+                fn new(change: impl FnOnce(&mut Value)) -> Self {
+                    let wallet = TestWallet::open(change);
+                    let config = config_on(&wallet.workspace, Some(wallet.handle.clone()));
+                    Self { wallet, config }
+                }
+
+                /// One call of a reply with no other call, as the loop makes it.
+                fn call(
+                    &self,
+                    bench: &StageBench,
+                    tool: &ProposalTool,
+                    arguments: &Value,
+                ) -> anyhow::Result<Value> {
+                    let response = self.wallet.settled_response();
+                    let budget = crate::structured_budget::submission::for_call(
+                        &self.config,
+                        Some(response),
+                        0,
+                    )
+                    .unwrap();
+                    let text =
+                        tool.execute_under(Some(&budget), arguments, &bench.context(), &|| false)?;
+                    Ok(serde_json::from_str(&text).unwrap())
+                }
+
+                fn ask(
+                    &self,
+                    bench: &StageBench,
+                    tool: &ProposalTool,
+                    revision: &str,
+                ) -> anyhow::Result<Value> {
+                    self.call(
+                        bench,
+                        tool,
+                        &json!({"mode": "fast", EXPECTED_REVISION_ARGUMENT: revision}),
+                    )
+                }
+
+                fn logicals(&self) -> Vec<LogicalRecord> {
+                    self.wallet.handle.wallet().unwrap().logicals
+                }
+
+                fn bound(&self) -> Vec<Option<u32>> {
+                    self.logicals()
+                        .iter()
+                        .map(|logical| logical.attempt.as_ref().map(|bound| bound.attempt))
+                        .collect()
+                }
+            }
+
+            fn binding_of(bench: &StageBench, key: &super::TargetKey) -> AttemptBinding {
+                let identity = bench
+                    .ledger()
+                    .lock()
+                    .unwrap()
+                    .attempt_identity(key)
+                    .unwrap();
+                AttemptBinding {
+                    run_nonce: identity.run_nonce,
+                    stage: identity.stage,
+                    target: identity.target,
+                    attempt: identity.attempt,
+                    generation: identity.generation,
+                }
+            }
+
+            /// Proceed binds G4's attempt, with every field as G4 holds it; a stale call, one not
+            /// ready, and a call the schema refuses are submissions of their stage with nothing
+            /// bound, and add no G4 attempt.
+            #[test]
+            fn only_an_attempt_g4_lets_start_is_tied_to_its_submission() {
+                let bench = admitted(stage_bench());
+                let counted = Counted::new(|_| {});
+                let waiting = counted.ask(&bench, &bench.lower, "initial").unwrap();
+                assert_eq!(waiting["status"], "not_ready", "{waiting}");
+                let sealed = counted.ask(&bench, &bench.upper, "initial").unwrap();
+                assert_eq!(sealed["stage"]["status"], "sealed", "{sealed}");
+                let stale = counted
+                    .call(
+                        &bench,
+                        &bench.upper,
+                        &json!({"mode": "other", EXPECTED_REVISION_ARGUMENT: "initial"}),
+                    )
+                    .unwrap();
+                assert_eq!(stale["status"], "stale", "{stale}");
+                let schema = counted
+                    .call(&bench, &bench.upper, &json!({"mode": 5}))
+                    .unwrap_err();
+                assert!(
+                    schema.to_string().contains("extension_tool_rejected"),
+                    "{schema:#}"
+                );
+
+                let logicals = counted.logicals();
+                let kinds = logicals
+                    .iter()
+                    .map(|logical| logical.kind.clone())
+                    .collect::<Vec<_>>();
+                let stage_of = |name: &str| LogicalKind::Stage {
+                    stage: name.to_string(),
+                };
+                assert_eq!(
+                    kinds,
+                    vec![
+                        stage_of("lower"),
+                        stage_of("upper"),
+                        stage_of("upper"),
+                        stage_of("upper")
+                    ]
+                );
+                assert_eq!(counted.bound(), vec![None, Some(1), None, None]);
+                let bound = logicals[1].attempt.clone().unwrap();
+                let held = binding_of(&bench, &upper_key());
+                assert_eq!(
+                    (&bound.run_nonce, &bound.stage, &bound.target, bound.attempt),
+                    (&held.run_nonce, &held.stage, &held.target, held.attempt)
+                );
+                assert!(bound.generation <= held.generation, "{bound:?} {held:?}");
+                assert_eq!(bench.attempts(&upper_key()), 1);
+                assert_eq!(bench.attempts(&lower_key()), 0);
+                assert_eq!(bench.starts(UPPER), 1);
+                assert_eq!(refusal(&counted.config), None);
+            }
+
+            /// A malformed call the parser leaves as an empty object is a submission too.
+            #[test]
+            fn a_malformed_call_is_a_submission_and_starts_nothing() {
+                let bench = admitted(stage_bench());
+                let counted = Counted::new(|_| {});
+                let _scope = enter_session(bench.state.clone());
+                for_provider_worker().unwrap();
+                let call = receive_native(
+                    bench.upper.name(),
+                    || "call".to_string(),
+                    Some(&Value::String("not json 976".to_string())),
+                    true,
+                )
+                .unwrap();
+                assert_eq!(call.arguments, json!({}));
+                let error = counted
+                    .call(&bench, &bench.upper, &call.arguments)
+                    .unwrap_err();
+                assert!(
+                    error.to_string().contains("extension_tool_rejected"),
+                    "{error:#}"
+                );
+                assert_eq!(counted.bound(), vec![None]);
+                assert_eq!(bench.starts(UPPER), 0);
+                assert_eq!(bench.attempts(&upper_key()), 0);
+            }
+
+            /// An attempt the wallet cannot tie to its call does not start its process: G4's
+            /// attempt ends as a failure, and the command is no success.
+            #[test]
+            fn an_attempt_the_wallet_cannot_tie_starts_no_process() {
+                // No admission named the tools' stages, so their calls are the run's, and an
+                // attempt of a stage cannot be tied to one.
+                let bench = stage_bench();
+                let counted = Counted::new(|_| {});
+                let error = counted.ask(&bench, &bench.upper, "initial").unwrap_err();
+                assert_eq!(kind(&error), RefusalKind::StageRunEnded, "{error:#}");
+                assert!(
+                    error.to_string().contains("run_budget_refused"),
+                    "{error:#}"
+                );
+                assert_eq!(bench.starts(UPPER), 0, "no process");
+                assert_eq!(
+                    bench.attempts(&upper_key()),
+                    1,
+                    "the attempt G4 began is spent"
+                );
+                assert_eq!(counted.bound(), vec![None]);
+                assert_eq!(counted.logicals()[0].kind, LogicalKind::General);
+                assert!(matches!(
+                    refusal(&counted.config),
+                    Some(CommandRefusal::SendRefused(SendRefusal::Wallet(_)))
+                ));
+                // Nothing more of the command is recorded, and nothing runs.
+                let after = counted.ask(&bench, &bench.upper, "initial").unwrap_err();
+                assert!(after.downcast_ref::<SendRefusal>().is_some(), "{after:#}");
+                assert_eq!(counted.logicals().len(), 1);
+                assert_eq!(bench.starts(UPPER), 0);
+            }
+
+            /// One past a stage's limit, its call does not run, and the command is no success.
+            #[test]
+            fn a_stage_call_past_its_stage_limit_does_not_run() {
+                let bench = admitted(stage_bench());
+                let counted = Counted::new(|value| value["limits"]["logical_per_stage"] = json!(1));
+                counted.ask(&bench, &bench.upper, "initial").unwrap();
+                assert_eq!(bench.starts(UPPER), 1);
+                let error = counted.ask(&bench, &bench.upper, "anything").unwrap_err();
+                assert!(error.downcast_ref::<SendRefusal>().is_some(), "{error:#}");
+                assert_eq!(bench.starts(UPPER), 1);
+                assert_eq!(counted.logicals().len(), 1);
+                assert!(refusal(&counted.config).is_some());
+            }
+
+            /// A revision, a replay, another session, a resume and a fresh G4 ledger in a new
+            /// process all add submissions to the one wallet, and give none back.
+            #[test]
+            fn g4_starting_over_gives_no_submission_back() {
+                let bench = admitted(stage_bench());
+                let counted = Counted::new(|_| {});
+                let sealed = counted.ask(&bench, &bench.upper, "initial").unwrap();
+                let lower = sealed["stage"]["downstream"][0]["revision"]
+                    .as_str()
+                    .unwrap()
+                    .to_string();
+                // The revision G4 gave the lower stage, then the same call again.
+                counted.ask(&bench, &bench.lower, &lower).unwrap();
+                counted.ask(&bench, &bench.lower, &lower).unwrap();
+                assert_eq!(counted.logicals().len(), 3);
+                bench.next_session(LedgerEntry::Fresh);
+                counted.ask(&bench, &bench.upper, "initial").unwrap();
+                assert_eq!(counted.logicals().len(), 4);
+                let bench = admitted(bench.restarted(LedgerEntry::Resume));
+                counted.ask(&bench, &bench.upper, "initial").unwrap();
+                let bench = admitted(bench.restarted(LedgerEntry::FreshSession));
+                counted.ask(&bench, &bench.upper, "initial").unwrap();
+                let logicals = counted.logicals();
+                assert_eq!(logicals.len(), 6);
+                let ids = logicals
+                    .iter()
+                    .map(|logical| logical.id)
+                    .collect::<Vec<_>>();
+                let mut sorted = ids.clone();
+                sorted.sort();
+                sorted.dedup();
+                assert_eq!(ids, sorted, "one new ID each, none given back");
+                let state = counted.wallet.handle.wallet().unwrap();
+                assert_eq!(state.logical_stage_used("upper"), 4);
+                assert_eq!(state.logical_stage_used("lower"), 2);
+                assert_eq!(refusal(&counted.config), None);
             }
         }
 
@@ -4658,6 +5280,224 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                     .count();
                 assert_eq!(logs, 1, "{name}");
                 None
+            }
+
+            /// Issue #976: a client as a budgeted one is to its worker. Each turn is one send of
+            /// the wallet, settled with a known report, and its worker is told so, as the factory's
+            /// client tells it; the reply is the fake's. It keeps the responses it settled.
+            struct WalletClient {
+                inner: Box<dyn crate::providers::ChatClient>,
+                wallet: Arc<crate::structured_budget::test_support::TestWallet>,
+                settled: Arc<Mutex<Vec<crate::structured_budget::identity::ResponseIdentity>>>,
+            }
+
+            impl crate::providers::ChatClient for WalletClient {
+                fn label(&self) -> &str {
+                    self.inner.label()
+                }
+
+                fn boxed_clone(&self) -> Box<dyn crate::providers::ChatClient> {
+                    Box::new(Self {
+                        inner: self.inner.boxed_clone(),
+                        wallet: self.wallet.clone(),
+                        settled: self.settled.clone(),
+                    })
+                }
+
+                fn supports_native_tools(&self, model: &str) -> bool {
+                    self.inner.supports_native_tools(model)
+                }
+
+                fn allows_xml_fallback(&self) -> bool {
+                    self.inner.allows_xml_fallback()
+                }
+
+                fn profile_tool_schema_wire(
+                    &self,
+                ) -> crate::providers::profile_tool_schema::ProfileToolSchemaWire {
+                    self.inner.profile_tool_schema_wire()
+                }
+
+                fn set_cancel_token(&mut self, token: crate::providers::streaming::CancelToken) {
+                    self.inner.set_cancel_token(token);
+                }
+
+                fn chat(
+                    &mut self,
+                    model: &str,
+                    messages: &[crate::state::ConversationMessage],
+                    tools: &[crate::tools::registry::ToolSpec],
+                    native_tools_enabled: bool,
+                ) -> anyhow::Result<crate::providers::AssistantReply> {
+                    let response = self.wallet.settled_response();
+                    self.settled.lock().unwrap().push(response);
+                    crate::provider_call::note_settled_response(response);
+                    self.inner
+                        .chat(model, messages, tools, native_tools_enabled)
+                }
+            }
+
+            /// Three calls of a stage tool in one reply, all with the one ID the model gave them.
+            fn three_calls_with_one_id() -> String {
+                let call = |arguments: Value| {
+                    json!({
+                        "id": "same-976",
+                        "type": "function",
+                        "function": {"name": UPPER_TOOL, "arguments": arguments.to_string()},
+                    })
+                };
+                json!({"choices": [{"message": {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        call(json!({"mode": "fast", "expected_revision": "initial"})),
+                        call(json!({"mode": 5, "expected_revision": "initial"})),
+                        call(json!({"mode": "fast", "expected_revision": "initial"})),
+                    ],
+                }}]})
+                .to_string()
+            }
+
+            /// Issue #976 (R1, R2, R4): under a wallet, the three calls of one reply are three
+            /// submissions of the one send that brought it, at their places in it, whatever ID the
+            /// model gave them. The one the schema refuses counts; only the attempt G4 let start
+            /// is tied to its call. The run stays within its limits and the wallet refuses nothing.
+            #[test]
+            fn the_calls_of_one_reply_are_submissions_of_its_send_under_a_wallet() {
+                const NAME: &str =
+                    "the_calls_of_one_reply_are_submissions_of_its_send_under_a_wallet";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                let responder: Responder = Arc::new(|_, body| {
+                    if messages(body)
+                        .iter()
+                        .any(|message| message["role"] == "tool")
+                    {
+                        return text_reply("done");
+                    }
+                    three_calls_with_one_id()
+                });
+                let http = FakeHttp::start(responder);
+                let mut config = world.config(&http.url);
+                let inner = client_from_config(&config, false).unwrap();
+                let wallet = Arc::new(crate::structured_budget::test_support::TestWallet::open(
+                    |_| {},
+                ));
+                config.field_sources.run_budget = Some(wallet.handle.clone());
+                let settled = Arc::default();
+                let mut client = WalletClient {
+                    inner,
+                    wallet: wallet.clone(),
+                    settled: Arc::clone(&settled),
+                };
+                let ended = run_session_with_outcome_with_ui(
+                    &mut client,
+                    &mut SessionSnapshot::new(),
+                    "Submit the upper stage.",
+                    &[],
+                    &config,
+                    &NOOP_UI,
+                )
+                .map(|_| ())
+                .map_err(|error| format!("{error:#}"));
+                http.finish();
+                let settled = settled.lock().unwrap().clone();
+                let state = wallet.handle.wallet().unwrap();
+                println!(
+                    "ended={ended:?} sends={} logicals={:?}",
+                    state.physical_used(),
+                    state.logicals
+                );
+                assert!(settled.len() >= 2, "a reply, and the turn after it");
+                assert_eq!(state.physical_used(), settled.len() as u64);
+                let sources = state
+                    .logicals
+                    .iter()
+                    .map(|logical| logical.source)
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    sources,
+                    (0..3)
+                        .map(|index| Some(settled[0].call(index)))
+                        .collect::<Vec<_>>()
+                );
+                let stage = crate::structured_budget::identity::LogicalKind::Stage {
+                    stage: "upper".to_string(),
+                };
+                assert!(state.logicals.iter().all(|logical| logical.kind == stage));
+                let bound = state
+                    .logicals
+                    .iter()
+                    .map(|logical| logical.attempt.as_ref().map(|bound| bound.attempt))
+                    .collect::<Vec<_>>();
+                assert_eq!(bound, vec![Some(1), None, None]);
+                assert_eq!(crate::structured_budget::outcome::refusal(&config), None);
+            }
+
+            /// Issue #976 (R2, R7): with one submission allowed, the second call of the reply does
+            /// not run, the session ends there with the refusal, and nothing of it is recorded,
+            /// run, or sent after it.
+            #[test]
+            fn a_call_past_the_wallets_limit_ends_the_session_with_nothing_after_it() {
+                const NAME: &str =
+                    "a_call_past_the_wallets_limit_ends_the_session_with_nothing_after_it";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                let responder: Responder = Arc::new(|_, body| {
+                    if messages(body)
+                        .iter()
+                        .any(|message| message["role"] == "tool")
+                    {
+                        return text_reply("done");
+                    }
+                    three_calls_with_one_id()
+                });
+                let http = FakeHttp::start(responder);
+                let mut config = world.config(&http.url);
+                let inner = client_from_config(&config, false).unwrap();
+                let wallet = Arc::new(crate::structured_budget::test_support::TestWallet::open(
+                    |value| value["limits"]["logical_global"] = json!(1),
+                ));
+                config.field_sources.run_budget = Some(wallet.handle.clone());
+                let mut client = WalletClient {
+                    inner,
+                    wallet: wallet.clone(),
+                    settled: Arc::default(),
+                };
+                let ended = run_session_with_outcome_with_ui(
+                    &mut client,
+                    &mut SessionSnapshot::new(),
+                    "Submit the upper stage.",
+                    &[],
+                    &config,
+                    &NOOP_UI,
+                )
+                .map(|_| ())
+                .map_err(|error| format!("{error:#}"));
+                let requests = http.finish();
+                let state = wallet.handle.wallet().unwrap();
+                println!("ended={ended:?} sends={}", state.physical_used());
+                let expected = crate::structured_budget::transport::SendRefusal::Wallet(
+                    crate::structured_budget::ledger::LedgerFailure::Budget(
+                        crate::structured_budget::reservation::BudgetRefusal::LogicalGlobalExceeded,
+                    ),
+                );
+                let error = ended.expect_err("the refused call ends the session");
+                assert!(error.contains("LogicalGlobalExceeded"), "{error}");
+                assert_eq!(state.logical_global_used(), 1);
+                assert_eq!(state.physical_used(), 1, "nothing sent after the refusal");
+                assert_eq!(requests.len(), 1);
+                let started = std::fs::read_to_string(world.marks.join(format!("started-{UPPER}")))
+                    .map_or(0, |text| text.lines().count());
+                assert_eq!(started, 1, "only the first call's process ran");
+                assert_eq!(
+                    crate::structured_budget::outcome::refusal(&config),
+                    Some(crate::structured_budget::outcome::CommandRefusal::SendRefused(expected))
+                );
             }
 
             /// T2 (acceptance 4): two stages open get the one repair budget final acceptance has,

@@ -1343,7 +1343,7 @@ fn run_session_planned(
             &verify_repair_state.changed_paths_at_failure,
             &tool_calls,
         );
-        for mut call in tool_calls {
+        for (call_index, mut call) in tool_calls.into_iter().enumerate() {
             let mut split_bash_segments = Vec::new();
             let mut bash_policy_substituted = false;
             if ui.interrupted() {
@@ -1619,6 +1619,7 @@ fn run_session_planned(
                         )
                     })
                 } else {
+                    let registry = registry.for_call(config, chat_outcome.response, call_index);
                     registry.execute_with_cancel(
                         &call.name,
                         &call.arguments,
