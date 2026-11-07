@@ -1683,6 +1683,7 @@ open(my $library, '>', $ARGV[2]) or die "library: $!";
 close($library) or die;
 "#;
 
+#[cfg(target_os = "macos")]
 const COMPILER_DIRECTORY: &str = "CA976_COMPILER_DIRECTORY";
 
 /// Runs only as a child of the test below, whose environment holds a key, a HOME, a TMPDIR and a
