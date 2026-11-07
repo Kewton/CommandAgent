@@ -932,15 +932,15 @@ fn the_early_ways_out_refuse_a_key_named_as_a_control() {
     );
 }
 
-/// The judgement of what the start took out, on every operating system. What the start recorded
-/// it took is judged, and the name found again is not even asked for; only with no record is it
-/// asked for, and judged as before. It reads no environment, so it needs no child of its own.
+/// The judgement of what the start took out, on every operating system. When the start said it
+/// took a control, that is refused, and the name found again is not even asked for; only when it
+/// said nothing is it asked for, and judged as before. Which names the start says yes to is the
+/// same predicate the name checks use. It reads no environment, so it needs no child of its own.
 #[test]
 fn what_the_start_took_is_judged_before_any_name_found_again() {
-    use super::refuse_a_control_among as judged;
-    const BUILT_IN: [&str; 4] = crate::startup_credentials::BUILT_IN_CREDENTIAL_NAMES;
+    use super::{is_a_control, refuse_a_control_taken_or_named as judged};
     fn asked() -> Option<String> {
-        panic!("the name was found again beside a record of what the start took")
+        panic!("the name was found again beside the start's word that it took a control")
     }
     fn selection() -> Option<String> {
         Some(RUN_BUDGET_ENV.to_string())
@@ -951,28 +951,93 @@ fn what_the_start_took_is_judged_before_any_name_found_again() {
     fn none() -> Option<String> {
         None
     }
-    let took = |extra: &[&str]| {
-        BUILT_IN
-            .iter()
-            .chain(extra)
-            .map(ToString::to_string)
-            .collect::<BTreeSet<_>>()
-    };
     let refused = Err(EntryRefusal::KeyIsControl);
-    for (extra, expected) in [
-        (&[RUN_BUDGET_ENV][..], refused),
-        (&["ANVIL_RUN_BUDGET"][..], refused),
-        (&[ROOT_ENV][..], refused),
-        (&["ANVIL_ADAPTER_CONFIG_ROOT"][..], refused),
-        (&["GATEWAY_KEY_976", RUN_BUDGET_ENV][..], refused),
-        (&["GATEWAY_KEY_976"][..], Ok(())),
-        (&[][..], Ok(())),
-    ] {
-        assert_eq!(judged(Some(&took(extra)), asked), expected, "{extra:?}");
+    assert_eq!(judged(true, asked), refused);
+    assert_eq!(judged(false, selection), refused);
+    assert_eq!(judged(false, alias), Ok(()));
+    assert_eq!(judged(false, none), Ok(()));
+    for (name, control) in [
+        (RUN_BUDGET_ENV, true),
+        ("ANVIL_RUN_BUDGET", true),
+        (ROOT_ENV, true),
+        ("ANVIL_ADAPTER_CONFIG_ROOT", true),
+        ("COMMANDAGENT_RUN_BUDGETX", false),
+        ("commandagent_run_budget", false),
+        ("GATEWAY_KEY_976", false),
+    ]
+    .into_iter()
+    .chain(
+        crate::startup_credentials::BUILT_IN_CREDENTIAL_NAMES
+            .into_iter()
+            .map(|name| (name, false)),
+    ) {
+        assert_eq!(is_a_control(name), control, "{name}");
     }
-    assert_eq!(judged(None, selection), refused);
-    assert_eq!(judged(None, alias), Ok(()));
-    assert_eq!(judged(None, none), Ok(()));
+}
+
+/// Runs only as a child, with no selection. This child's own command line is the test harness's,
+/// so the start's judgement passes (see above), and a run's refusal of a key named as a control
+/// is the configuration's alone: the run is refused for it, and nothing is sent.
+#[test]
+fn a_run_refuses_the_configurations_control_name_by_itself_child() {
+    if !is_child() {
+        return;
+    }
+    assert!(!super::selected());
+    assert_eq!(super::refuse_a_control_the_start_takes(), Ok(()));
+    let mut wrong = Vec::new();
+    for key in [
+        RUN_BUDGET_ENV,
+        "ANVIL_RUN_BUDGET",
+        ROOT_ENV,
+        "ANVIL_ADAPTER_CONFIG_ROOT",
+    ] {
+        let (_root, base) = base();
+        let fake = Fake::spawn(MODELS);
+        let url = format!("{}/v1", fake.url);
+        let (cwd, state) = (base.join("workspace"), base.join("state"));
+        std::fs::create_dir_all(&cwd).unwrap();
+        let parsed = crate::provider_cli::parse_from([
+            "commandagent",
+            "--cwd",
+            cwd.to_str().unwrap(),
+            "--state-dir",
+            state.to_str().unwrap(),
+            "--model",
+            "m-1",
+            "--provider",
+            "openai-compatible",
+            "--base-url",
+            &url,
+            "--api-key-env",
+            key,
+            "--prompt",
+            "say hello",
+        ])
+        .unwrap();
+        let result = crate::run_with_provider_options(parsed.cli, parsed.provider_options);
+        let sent = fake.finish();
+        let said = result.as_ref().err().map(|error| format!("{error:#}"));
+        let refused = said
+            .as_deref()
+            .is_some_and(|said| said.contains("the run budget refused the entry: KeyIsControl"));
+        if !refused || sent != 0 {
+            wrong.push(format!("{key}: sent {sent}: {said:?}"));
+        }
+    }
+    assert_eq!(wrong, Vec::<String>::new());
+    println!(
+        "{}",
+        ran("a_run_refuses_the_configurations_control_name_by_itself_child")
+    );
+}
+
+#[test]
+fn a_run_refuses_the_configurations_control_name_by_itself() {
+    run_child(
+        "a_run_refuses_the_configurations_control_name_by_itself_child",
+        &[],
+    );
 }
 
 // ---- the sandbox at the send (B5) ----

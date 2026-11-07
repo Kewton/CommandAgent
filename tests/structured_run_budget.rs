@@ -524,6 +524,44 @@ fn make_pipe(path: &std::path::Path) {
 
 /// [`launch`] in a `workspace`, with how many reads of its configuration a served one gave.
 fn launch_in(env: &[(&str, &OsStr)], arguments: &[&str], workspace: Workspace) -> (Started, usize) {
+    launch_until(env, arguments, workspace, Until::ExitOrSend)
+}
+
+/// [`launch`], waiting for the child to end however much it sends: what it printed after its
+/// sends is then there to read. Every other start stops the child at its first send.
+#[cfg(target_os = "macos")]
+fn launch_to_end(env: &[(&str, &OsStr)], arguments: &[&str], configuration: &str) -> Started {
+    launch_until(
+        env,
+        arguments,
+        Workspace::Declares(configuration),
+        Until::Exit,
+    )
+    .0
+}
+
+/// When a start is over for the test.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Until {
+    /// The child's exit, or the first request at the fake, when the child is stopped.
+    ExitOrSend,
+    /// The child's exit alone.
+    #[cfg_attr(
+        not(target_os = "macos"),
+        allow(
+            dead_code,
+            reason = "only the macOS tests wait for an exit past a send"
+        )
+    )]
+    Exit,
+}
+
+fn launch_until(
+    env: &[(&str, &OsStr)],
+    arguments: &[&str],
+    workspace: Workspace,
+    until: Until,
+) -> (Started, usize) {
     let root = tempfile::tempdir().unwrap();
     let base = std::fs::canonicalize(root.path()).unwrap();
     let fake = ProviderFake::spawn();
@@ -585,7 +623,7 @@ fn launch_in(env: &[(&str, &OsStr)], arguments: &[&str], workspace: Workspace) -
         if let Some(status) = child.try_wait().unwrap() {
             break status.code();
         }
-        if fake.count() > 0 {
+        if until == Until::ExitOrSend && fake.count() > 0 {
             let _ = child.kill();
             let _ = child.wait();
             break None;
@@ -1199,7 +1237,9 @@ fn the_configurations_name_is_judged_beside_what_the_start_took() {
 /// own answer moved to the real binary (`entry_tests.rs`, 44f5f002, its `completed` rows), with no
 /// selection and no key in the environment. A control's name, current or legacy, as the command
 /// line's key or as the selected preset's, gives no candidate and sends nothing; another name, a
-/// preset of another name, and no name send through the proxy (see the test above).
+/// preset of another name, and no name send through the proxy (see the test above), and, as the
+/// entry test required, end with the one candidate the fake's model list gives. Each start runs to
+/// its own end ([`launch_to_end`]), so what it printed after its sends is read.
 #[cfg(target_os = "macos")]
 #[test]
 fn the_completion_judges_each_name_as_the_entry_test_did() {
@@ -1222,12 +1262,17 @@ fn the_completion_judges_each_name_as_the_entry_test_did() {
     ];
     let mut wrong = Vec::new();
     for (named, named_as_a_control) in rows {
-        let started = launch(&env, &joined(&[named, &completed]), Some(PRESETS_976));
-        // A send stops the child where the fake sees it (see `launch`), so whether it went on to
-        // print the candidate is not this test's to see; a refusal ends on its own, with none.
-        let candidate = started.printed.lines().any(|line| line.starts_with("m-1"));
-        let refused = started.code == Some(0) && started.sent.is_empty() && !candidate;
-        let as_before = !started.sent.is_empty();
+        let started = launch_to_end(&env, &joined(&[named, &completed]), PRESETS_976);
+        let candidates = started
+            .printed
+            .lines()
+            .filter(|line| !line.is_empty())
+            .collect::<Vec<_>>();
+        let refused = started.code == Some(0) && started.sent.is_empty() && candidates.is_empty();
+        let as_before = started.code == Some(0)
+            && !started.sent.is_empty()
+            && candidates.len() == 1
+            && candidates[0].starts_with("m-1");
         if refused != named_as_a_control || as_before == named_as_a_control {
             wrong.push(format!("{named:?}: {started:?}"));
         }

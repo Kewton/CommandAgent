@@ -7,12 +7,13 @@
 //!
 //! - Step 0, first in `main`: write the values to a pipe that takes them without blocking, then
 //!   exec the same binary with the same argv, without those variables, with the pipe's number
-//!   in [`BOOT_FD_ENV`] and the names it took out besides the built-in ones, names only, in
-//!   [`TAKEN_OUT_ENV`].
+//!   in [`BOOT_FD_ENV`], and, when it took a control of the run budget out, one fixed word of
+//!   this source in [`TAKEN_OUT_ENV`]. Nothing else it writes there comes from a name, a
+//!   config, or an expansion, any of which can be a credential's value.
 //! - Step 1, the same pid after that exec: read the pipe within a bound, close it, and keep the
 //!   values in a read-only store in this process. They are not put back into the environment,
-//!   so no child can inherit them by accident. The names taken out are kept once beside them,
-//!   and neither marker stays in the environment.
+//!   so no child can inherit them by accident. Whether a control was taken out is kept once
+//!   beside them, and neither marker stays in the environment.
 //!
 //! The marker is not proof of anything. It names an input from outside this process, judged
 //! like one, and a marker beside a credential that is still in the environment is refused.
@@ -21,7 +22,7 @@
 //! plain environment read it always was. A failure stops the start. Nothing here continues
 //! with a credential still in the exec-time environment.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::env::VarError;
 use std::fmt;
 use std::sync::OnceLock;
@@ -52,13 +53,14 @@ fn held(name: &str) -> Option<&'static str> {
     HELD.get()?.0.get(name).map(String::as_str)
 }
 
-/// The names step 0 took out of the environment, as step 1 received them. Names, never a value.
-static TAKEN_OUT: OnceLock<BTreeSet<String>> = OnceLock::new();
+/// Set once, by step 1, when step 0's word says it took a control of the run budget out.
+static TOOK_A_CONTROL: OnceLock<()> = OnceLock::new();
 
-/// The names this process's start took out of the environment, kept once when it took them:
-/// `None` when it took nothing out, on every other operating system, and for a library caller.
-pub(crate) fn names_taken_out() -> Option<&'static BTreeSet<String>> {
-    TAKEN_OUT.get()
+/// Whether this process's start took a control of the run budget out of the environment, as
+/// the start itself said when it took it. `false` when it said nothing: it took none, it took
+/// nothing out, on every other operating system, and for a library caller.
+pub(crate) fn the_start_took_a_control() -> bool {
+    TOOK_A_CONTROL.get().is_some()
 }
 
 /// A credential by name: what step 1 received, then the process environment. This is the only
@@ -202,9 +204,13 @@ mod boot {
 
     /// Names an input from outside this process. It does not match the credential predicate.
     const BOOT_FD_ENV: &str = "COMMANDAGENT_BOOT_FD";
-    /// The names step 0 took out of the environment, joined by commas, and never a value. An
-    /// input from outside like the other, and no credential name either.
+    /// Says that step 0 took a control of the run budget out of the environment. An input from
+    /// outside like the other, and no credential name either. Its value is [`THE_WORD`] and
+    /// nothing else.
     const TAKEN_OUT_ENV: &str = "COMMANDAGENT_BOOT_TAKEN_OUT";
+    /// The one value step 0 writes in [`TAKEN_OUT_ENV`], fixed here: no name, config, or
+    /// expansion is ever written in its place.
+    const THE_WORD: &str = "a-control-of-the-run-budget";
 
     /// A fixed reason, and never a name's value: this ends the start.
     fn stop(reason: &str) -> ! {
@@ -235,8 +241,12 @@ mod boot {
     }
 
     /// Step 0. A value that is not text was never readable as a credential, so it stays
-    /// unreadable: it leaves the environment and does not travel.
+    /// unreadable: it leaves the environment and does not travel. A marker this process was
+    /// given is no word of this start's: it leaves the environment first, exec or not, and only
+    /// this start's own judgement writes one again.
     fn hand_off(extra_name: fn() -> Option<String>) {
+        // SAFETY: this is the first act of `main`, while one thread runs.
+        unsafe { std::env::remove_var(TAKEN_OUT_ENV) };
         let names = protected_names(extra_name);
         let found = names
             .iter()
@@ -328,7 +338,12 @@ mod boot {
             }
         }
         command.env(BOOT_FD_ENV, reader.to_string());
-        command.env(TAKEN_OUT_ENV, taken_out_besides_the_built_in(names));
+        if names
+            .iter()
+            .any(|name| crate::structured_budget::entry::is_a_control(name))
+        {
+            command.env(TAKEN_OUT_ENV, THE_WORD);
+        }
         set_flag(reader, libc::F_SETFD, 0);
         let _failure = command.exec();
         stop("this executable could not be started again")
@@ -346,40 +361,12 @@ mod boot {
         text.parse().ok().filter(|descriptor| *descriptor > 2)
     }
 
-    /// What step 0 writes in [`TAKEN_OUT_ENV`]: the names it took out besides the built-in ones,
-    /// which it always takes and which stay out of the exec-time environment, names included.
-    fn taken_out_besides_the_built_in(names: &BTreeSet<String>) -> String {
-        names
-            .iter()
-            .map(String::as_str)
-            .filter(|name| !super::BUILT_IN_CREDENTIAL_NAMES.contains(name))
-            .collect::<Vec<_>>()
-            .join(",")
-    }
-
-    /// Every name step 0 took out, from [`TAKEN_OUT_ENV`]: the built-in ones and each name
-    /// there, well formed and none twice.
-    fn parse_taken_out(marker: &OsStr) -> Option<BTreeSet<String>> {
-        let mut names = super::BUILT_IN_CREDENTIAL_NAMES
-            .iter()
-            .map(ToString::to_string)
-            .collect::<BTreeSet<_>>();
-        let text = marker.to_str()?;
-        if text.is_empty() {
-            return Some(names);
-        }
-        for name in text.split(',') {
-            if !frame::is_name(name) || !names.insert(name.to_string()) {
-                return None;
-            }
-        }
-        Some(names)
-    }
-
     /// Step 1. It holds the values before it judges their names, because the names can depend
-    /// on a config that refers to them, and every refusal ends the process right there. The
-    /// names step 0 took out are kept as step 0 took them, and not found again from a config
-    /// that can have changed since. A handoff made by hand, with no such names, keeps none.
+    /// on a config that refers to them, and every refusal ends the process right there. Whether
+    /// step 0 took a control out is kept as step 0 said it, and not found again from a config
+    /// that can have changed since: only its exact word says so, and any other value stops the
+    /// start. A handoff with no marker, step 0's when it took none or one made by hand, keeps
+    /// nothing.
     fn receive(marker: &OsStr, extra_name: fn() -> Option<String>) {
         let descriptor = parse_descriptor(marker);
         let taken_out = std::env::var_os(TAKEN_OUT_ENV);
@@ -408,13 +395,10 @@ mod boot {
         let Some(taken_out) = taken_out else {
             return;
         };
-        let Some(taken_out) = parse_taken_out(&taken_out) else {
-            stop("the names the handoff took out are not well formed");
-        };
-        if !keys.iter().all(|key| taken_out.contains(key)) {
-            stop("the handoff holds a name it did not take out");
+        if taken_out != OsStr::new(THE_WORD) {
+            stop("the handoff's marker is not the start's word");
         }
-        if super::TAKEN_OUT.set(taken_out).is_err() {
+        if super::TOOK_A_CONTROL.set(()).is_err() {
             stop("the handoff arrived twice");
         }
     }
@@ -480,16 +464,8 @@ mod boot {
     #[cfg(test)]
     pub(super) const TAKEN_OUT_ENV_FOR_TEST: &str = TAKEN_OUT_ENV;
 
-    /// What step 0 writes for `names`, and what step 1 reads back from it.
     #[cfg(test)]
-    pub(super) fn taken_out_for_test(names: &[&str]) -> String {
-        taken_out_besides_the_built_in(&names.iter().map(ToString::to_string).collect())
-    }
-
-    #[cfg(test)]
-    pub(super) fn parse_taken_out_for_test(marker: &OsStr) -> Option<BTreeSet<String>> {
-        parse_taken_out(marker)
-    }
+    pub(super) const THE_WORD_FOR_TEST: &str = THE_WORD;
 }
 
 /// For a test that runs in a process of its own: fills the store once, as step 1 would.
@@ -757,48 +733,17 @@ mod tests {
         }
     }
 
-    /// The names step 0 took out travel as names alone, without the built-in ones, which step 1
-    /// adds back, and only exactly what step 0 writes reads back.
+    /// The marker's name is no credential name, and its one value is a word of this source that
+    /// is no name either: no variable can be named by it, so no value can stand in its place.
     #[cfg(target_os = "macos")]
     #[test]
-    fn the_names_taken_out_are_names_alone_and_read_back_as_written() {
-        use std::os::unix::ffi::OsStrExt as _;
-
-        use super::boot::{
-            TAKEN_OUT_ENV_FOR_TEST, parse_taken_out_for_test as parse,
-            taken_out_for_test as written,
-        };
+    fn the_marker_says_one_fixed_word_that_is_no_name() {
+        use super::boot::{TAKEN_OUT_ENV_FOR_TEST, THE_WORD_FOR_TEST};
         assert!(!crate::sensitive_data::is_credential_name(
             TAKEN_OUT_ENV_FOR_TEST
         ));
-        let built_in = super::BUILT_IN_CREDENTIAL_NAMES;
-        let with = |extra: &[&str]| {
-            built_in
-                .iter()
-                .chain(extra)
-                .map(ToString::to_string)
-                .collect::<std::collections::BTreeSet<_>>()
-        };
-        assert_eq!(written(&built_in), "");
-        let selection = [built_in.as_slice(), &["COMMANDAGENT_RUN_BUDGET"][..]].concat();
-        assert_eq!(written(&selection), "COMMANDAGENT_RUN_BUDGET");
-        for extra in [
-            &[][..],
-            &["COMMANDAGENT_RUN_BUDGET"][..],
-            &["AUTH", "GATEWAY_KEY"][..],
-        ] {
-            let names = [built_in.as_slice(), extra].concat();
-            let marker = written(&names);
-            assert_eq!(
-                parse(std::ffi::OsStr::new(&marker)),
-                Some(with(extra)),
-                "{marker}"
-            );
-        }
-        for bad in [",", "A,", ",A", "A-B", "1A", "A,A", "OPENAI_API_KEY", "A B"] {
-            assert_eq!(parse(std::ffi::OsStr::new(bad)), None, "{bad:?}");
-        }
-        assert_eq!(parse(std::ffi::OsStr::from_bytes(&[0xff])), None);
+        assert!(!frame::is_name(THE_WORD_FOR_TEST));
+        assert!(!THE_WORD_FOR_TEST.is_empty());
     }
 
     /// A tool's child is started with the names its allowlist gives it, and the marker of the names

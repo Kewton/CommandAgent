@@ -15,7 +15,6 @@
 //! So is a key whose variable a command of the run would inherit. Bash's own network is not the
 //! wallet's to count: the limit is on the provider calls this program makes.
 
-use std::collections::BTreeSet;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -84,8 +83,8 @@ impl std::error::Error for EntryRefusal {}
 ///
 /// On macOS the command line's start takes a provider key's variable out of the environment. What
 /// the start holds is not read here: a key named as a control of the run budget is refused by its
-/// name before anything could send instead. [`refuse_a_control_the_start_takes`] judges the very
-/// names the start took, for a run, the doctor's provider checks, and the shell's model completion;
+/// name before anything could send instead. [`refuse_a_control_the_start_takes`] judges what the
+/// start took, for a run, the doctor's provider checks, and the shell's model completion;
 /// [`refuse_a_control_named_as_key`] judges the name the configuration kept, beside it.
 pub(crate) fn selected() -> bool {
     std::env::var_os(RUN_BUDGET_ENV).is_some()
@@ -114,31 +113,37 @@ pub(crate) fn refuse_a_control_named_as_key(config: &Config) -> Result<(), Entry
     )
 }
 
-/// What the command line's start took out of the environment may not hold a control of the run
-/// budget either. It is the start's own record of the names it took, kept once when it took them,
-/// so a configuration read again later cannot answer otherwise: a preset's `api_key_env` is taken
-/// even when no role of the run uses it, and the configuration then keeps no name at all. Only
-/// when the start took nothing out (elsewhere than macOS, or with nothing to hand over) is the
-/// name it would take found again, and judged as before. Only names are read; no value is.
+/// What the command line's start took out of the environment may not be a control of the run
+/// budget either. When the start says it took one, kept once when it took it, that is refused,
+/// and no configuration read again later can answer otherwise: a preset's `api_key_env` is taken
+/// even when no role of the run uses it, and the configuration then keeps no name at all. When it
+/// says nothing (it took none, it took nothing out, or elsewhere than macOS), the name it would
+/// take is found again and judged as before. Only names are read; no value is.
 pub(crate) fn refuse_a_control_the_start_takes() -> Result<(), EntryRefusal> {
-    refuse_a_control_among(
-        crate::startup_credentials::names_taken_out(),
+    refuse_a_control_taken_or_named(
+        crate::startup_credentials::the_start_took_a_control(),
         the_name_the_start_takes,
     )
 }
 
-/// [`refuse_a_control_the_start_takes`], given what the start took out, `None` when it took
-/// nothing, and how to find the name again for that case.
-fn refuse_a_control_among(
-    taken_out: Option<&BTreeSet<String>>,
+/// [`refuse_a_control_the_start_takes`], given whether the start said it took a control out, and
+/// how to find the name again when it did not.
+fn refuse_a_control_taken_or_named(
+    took_a_control: bool,
     again: fn() -> Option<String>,
 ) -> Result<(), EntryRefusal> {
-    match taken_out {
-        Some(names) => names
-            .iter()
-            .try_for_each(|name| refuse_a_control_named(Some(name))),
-        None => refuse_a_control_named(again().as_deref()),
+    if took_a_control {
+        return Err(EntryRefusal::KeyIsControl);
     }
+    refuse_a_control_named(again().as_deref())
+}
+
+/// Whether `name` is a control of the run budget or the legacy spelling of one. The start asks
+/// this of the names it takes out; it says only yes or no, and no name travels.
+pub(crate) fn is_a_control(name: &str) -> bool {
+    CONTROL_NAMES
+        .iter()
+        .any(|control| crate::env_compat::matches_current_or_legacy(name, control))
 }
 
 /// The provider key's variable the command line's start takes out of the environment.
@@ -156,13 +161,7 @@ fn the_name_the_start_takes() -> Option<String> {
 /// Whether `key` is a control of the run budget or the legacy spelling of one.
 fn refuse_a_control_named(key: Option<&str>) -> Result<(), EntryRefusal> {
     match key {
-        Some(name)
-            if CONTROL_NAMES
-                .iter()
-                .any(|control| crate::env_compat::matches_current_or_legacy(name, control)) =>
-        {
-            Err(EntryRefusal::KeyIsControl)
-        }
+        Some(name) if is_a_control(name) => Err(EntryRefusal::KeyIsControl),
         _ => Ok(()),
     }
 }

@@ -784,6 +784,60 @@ mod refused_starts {
         assert!(authorization_of(&[first]).contains(&expected));
     }
 
+    /// The marker of a control taken out says one word of the source. Any other value beside a
+    /// handoff, forged, cut, or of another case, stops the start: it is never read as a word, and
+    /// never as a name. The witness: the exact word, by hand, is kept, and the run is refused for
+    /// the control it says was taken, with no provider called.
+    #[test]
+    fn a_marker_of_a_control_other_than_the_starts_word_stops_the_start() {
+        const TAKEN_OUT: &str = "COMMANDAGENT_BOOT_TAKEN_OUT";
+        const WORD: &str = "a-control-of-the-run-budget";
+        for forged in [
+            "",
+            "a-control-of-the-run-budgetX",
+            "a-control-of-the-run-budge",
+            "A-CONTROL-OF-THE-RUN-BUDGET",
+            " a-control-of-the-run-budget",
+            "COMMANDAGENT_RUN_BUDGET",
+            "yes",
+        ] {
+            assert_refused(
+                forged,
+                "the handoff's marker is not the start's word",
+                |command| {
+                    hand_pipe_at(
+                        command,
+                        frame(&[("LM_STUDIO_API_TOKEN", DUMMY)]),
+                        Writer::Closed,
+                    );
+                    command.env(MARKER, AT.to_string()).env(TAKEN_OUT, forged);
+                },
+            );
+        }
+
+        let workspace = tempfile::tempdir().unwrap();
+        let provider = FakeProvider::start();
+        let mut command = super::command(workspace.path());
+        command
+            .args(lm_studio_arguments(&provider.url))
+            .env(MARKER, AT.to_string())
+            .env(TAKEN_OUT, WORD);
+        hand_pipe_at(
+            &mut command,
+            frame(&[("LM_STUDIO_API_TOKEN", DUMMY)]),
+            Writer::Closed,
+        );
+        let output = command.output().unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(2), "{stderr}");
+        assert!(
+            stderr.contains("the run budget refused the entry: KeyIsControl"),
+            "{stderr}"
+        );
+        assert!(!stderr.contains(DUMMY), "{stderr}");
+        assert!(provider.drain().is_empty(), "a provider was called");
+    }
+
     /// The numbers below [`AT`] and just above it, filled or freed in the child so that its next
     /// `pipe()` lands where a test wants it. The filling closes at the exec.
     fn free_only(command: &mut Command, free: [i32; 2]) {
@@ -1368,4 +1422,261 @@ fn a_command_line_that_does_not_parse_still_says_only_what_it_said() {
     });
     assert!(!output.status.success());
     assert!(!String::from_utf8_lossy(&output.stderr).contains(DUMMY));
+}
+
+// ---- a key name a preset expands from a credential, and the marker of the run budget (S1) ----
+
+/// A dummy credential whose value has the shape of a variable's name, so that a preset's
+/// `api_key_env = "${LM_STUDIO_API_TOKEN}"` takes it as the key's name.
+#[cfg(target_os = "macos")]
+const NAME_SHAPED: &str = "Z976AlphaCredentialValueX42";
+
+/// A workspace whose selected preset `ref976` names its key by `api_key_env`.
+#[cfg(target_os = "macos")]
+fn preset_workspace(api_key_env: &str) -> tempfile::TempDir {
+    let workspace = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(workspace.path().join(".commandagent")).unwrap();
+    std::fs::write(
+        workspace.path().join(".commandagent/config.toml"),
+        format!("[preset.ref976]\napi_key_env = \"{api_key_env}\"\n"),
+    )
+    .unwrap();
+    workspace
+}
+
+/// #974 after #976: a preset's key name expanded from a credential is that credential's value,
+/// and nothing the start writes for its exec holds it. Read as in the test of the exec-time area
+/// above: argv, every variable, and the raw area hold no part of it, and the only marker of the
+/// start there is the descriptor's number. The witness of the read is that test's own witness.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_key_name_expanded_from_a_credential_is_not_in_the_exec_time_area() {
+    for api_key_env in ["${LM_STUDIO_API_TOKEN}", "GATEWAY_KEY_976"] {
+        let workspace = preset_workspace(api_key_env);
+        let provider = FakeProvider::holding();
+        let child = command(workspace.path())
+            .args(["--preset", "ref976"])
+            .args(lm_studio_arguments(&provider.url))
+            .env("LM_STUDIO_API_TOKEN", NAME_SHAPED)
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        provider.wait_for_request();
+        let area = procargs::read(pid);
+        stop(child);
+        assert!(!procargs::holds(&area.raw, NAME_SHAPED), "{api_key_env}");
+        assert!(
+            area.argv
+                .iter()
+                .all(|argument| !procargs::holds(argument, NAME_SHAPED)),
+            "{api_key_env}"
+        );
+        let boot = area
+            .env
+            .iter()
+            .filter(|row| row.starts_with(b"COMMANDAGENT_BOOT"))
+            .map(|row| String::from_utf8_lossy(row).into_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(boot.len(), 1, "{api_key_env}: {boot:?}");
+        assert!(boot[0].starts_with("COMMANDAGENT_BOOT_FD="), "{boot:?}");
+    }
+}
+
+/// A library put in the binary by `DYLD_INSERT_LIBRARIES`, which this test builds, reports the
+/// names of the environment when each image of the process starts (before `main`: step 0's, then
+/// step 1's after the exec) and when the process ends. Of values it writes only the marker's,
+/// which is never a credential. Nothing in the binary is added for it.
+#[cfg(target_os = "macos")]
+const REPORTER: &str = r#"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+extern char **environ;
+static void report(const char *when) {
+    const char *path = getenv("CA976_ENV_REPORT");
+    if (!path) return;
+    FILE *file = fopen(path, "a");
+    if (!file) return;
+    fprintf(file, "--%s--\n", when);
+    for (char **entry = environ; *entry; ++entry) {
+        const char *equals = strchr(*entry, '=');
+        size_t length = equals ? (size_t)(equals - *entry) : strlen(*entry);
+        fwrite(*entry, 1, length, file);
+        if (equals && strncmp(*entry, "COMMANDAGENT_BOOT_TAKEN_OUT=", length + 1) == 0) {
+            fputs(equals, file);
+        }
+        fputc('\n', file);
+    }
+    fclose(file);
+}
+__attribute__((constructor)) static void at_start(void) { report("start"); }
+__attribute__((destructor)) static void at_end(void) { report("end"); }
+"#;
+
+/// The reporter, built once for this test.
+#[cfg(target_os = "macos")]
+fn reporter(directory: &Path) -> std::path::PathBuf {
+    let source = directory.join("reporter.c");
+    let library = directory.join("reporter.dylib");
+    std::fs::write(&source, REPORTER).unwrap();
+    let built = Command::new("/usr/bin/cc")
+        .args(["-dynamiclib", "-o"])
+        .arg(&library)
+        .arg(&source)
+        .output()
+        .unwrap();
+    assert!(
+        built.status.success(),
+        "{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+    library
+}
+
+/// What each report said of the marker: `None` where it was absent, its value where present.
+#[cfg(target_os = "macos")]
+fn markers_reported(report: &str) -> Vec<(String, Option<String>)> {
+    let mut seen = Vec::new();
+    for line in report.lines() {
+        if let Some(when) = line
+            .strip_prefix("--")
+            .and_then(|line| line.strip_suffix("--"))
+        {
+            seen.push((when.to_string(), None));
+        } else if let Some(value) = line.strip_prefix("COMMANDAGENT_BOOT_TAKEN_OUT") {
+            let last = seen.last_mut().expect("a report starts with its moment");
+            last.1 = Some(value.strip_prefix('=').unwrap_or(value).to_string());
+        }
+    }
+    seen
+}
+
+/// macOS, the real binary through `main`: the marker of a control taken out is the start's own.
+/// - Given a forged marker and a handoff, step 0 takes it out before its exec: step 1's image
+///   starts with none, and the run goes on to the provider.
+/// - Given a forged marker and nothing to hand over, step 0 takes it out all the same: the
+///   process ends with none.
+/// - Taking the selection out as a key, step 0 writes the one word and nothing else, and step 1
+///   takes it out again: the process ends with none. The run is refused for the control.
+/// - A preset key name expanded from a credential is written nowhere: no marker at all.
+///
+/// No report names any credential's value, and the end of every process has no marker.
+#[cfg(target_os = "macos")]
+#[test]
+fn the_marker_is_the_starts_own_word_and_leaves_the_environment() {
+    let tools = tempfile::tempdir().unwrap();
+    let library = reporter(tools.path());
+    let word = || Some("a-control-of-the-run-budget".to_string());
+    let forged = || Some("forged".to_string());
+    // (row, the environment beside the reporter, the arguments, the preset, the reports' markers)
+    type Row = (
+        &'static str,
+        Vec<(&'static str, &'static str)>,
+        Vec<&'static str>,
+        Option<&'static str>,
+        Vec<(&'static str, Option<String>)>,
+    );
+    // An empty list of arguments is a run on the fake LM Studio; any other is put before a model
+    // and a prompt, with `<URL>` the fake's address.
+    let rows: Vec<Row> = vec![
+        (
+            "a forged marker and a handoff",
+            vec![
+                ("OPENAI_API_KEY", DUMMY),
+                ("COMMANDAGENT_BOOT_TAKEN_OUT", "forged"),
+            ],
+            vec![],
+            None,
+            vec![("start", forged()), ("start", None), ("end", None)],
+        ),
+        (
+            "a forged marker and nothing to hand over",
+            vec![("COMMANDAGENT_BOOT_TAKEN_OUT", "forged")],
+            vec![],
+            None,
+            vec![("start", forged()), ("end", None)],
+        ),
+        (
+            "the selection taken out as a key, beside a forged marker",
+            vec![
+                ("COMMANDAGENT_RUN_BUDGET", "wallet976"),
+                ("COMMANDAGENT_BOOT_TAKEN_OUT", "forged"),
+            ],
+            vec![
+                "--provider",
+                "openai-compatible",
+                "--base-url",
+                "<URL>/v1",
+                "--api-key-env",
+                "COMMANDAGENT_RUN_BUDGET",
+            ],
+            None,
+            vec![("start", forged()), ("start", word()), ("end", None)],
+        ),
+        (
+            "a key name expanded from a credential",
+            vec![("LM_STUDIO_API_TOKEN", NAME_SHAPED)],
+            vec![],
+            Some("${LM_STUDIO_API_TOKEN}"),
+            vec![("start", None), ("start", None), ("end", None)],
+        ),
+    ];
+    let mut wrong = Vec::new();
+    for (row, env, extra, preset, expected) in rows {
+        let workspace = match preset {
+            Some(api_key_env) => preset_workspace(api_key_env),
+            None => tempfile::tempdir().unwrap(),
+        };
+        let report = workspace.path().join("report.txt");
+        let provider = FakeProvider::start();
+        let mut command = command(workspace.path());
+        if preset.is_some() {
+            command.args(["--preset", "ref976"]);
+        }
+        if extra.is_empty() {
+            command.args(lm_studio_arguments(&provider.url));
+        } else {
+            command
+                .args(
+                    extra
+                        .iter()
+                        .map(|argument| argument.replace("<URL>", &provider.url)),
+                )
+                .args(["--model", "m", "--chat-retries", "0", "--prompt", "hello"]);
+        }
+        command
+            .env("DYLD_INSERT_LIBRARIES", &library)
+            .env("CA976_ENV_REPORT", &report);
+        for (name, value) in env {
+            command.env(name, value);
+        }
+        let output = command.output().unwrap();
+        let said = std::fs::read_to_string(&report).unwrap_or_default();
+        let seen = markers_reported(&said);
+        let expected = expected
+            .into_iter()
+            .map(|(when, marker)| (when.to_string(), marker))
+            .collect::<Vec<_>>();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let reached = !provider.drain().is_empty();
+        let ended_as_it_should = match row {
+            "the selection taken out as a key, beside a forged marker" => {
+                output.status.code() == Some(2)
+                    && stderr.contains("the run budget refused the entry: KeyIsControl")
+                    && !reached
+            }
+            _ => reached,
+        };
+        if seen != expected
+            || !ended_as_it_should
+            || said.contains(DUMMY)
+            || said.contains(NAME_SHAPED)
+        {
+            wrong.push(format!(
+                "{row}: reports {seen:?}, reached {reached}, exit {:?}: {stderr}",
+                output.status.code()
+            ));
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
