@@ -505,6 +505,7 @@ pub(super) fn ultra_final_acceptance_report_inner(
     config: &Config,
     cycle_index: usize,
 ) -> anyhow::Result<VerificationReport> {
+    crate::structured_budget::outcome::gate(config)?;
     let effective_profile_id = ProfileId::parse(&plan.profile);
     let effective_profile = effective_profile_id.to_string();
     let runtime = ProfileRuntimeRegistry::resolve(&effective_profile_id);

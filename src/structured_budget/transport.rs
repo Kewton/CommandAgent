@@ -21,7 +21,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use reqwest::header::CONTENT_TYPE;
@@ -81,6 +81,9 @@ pub(crate) struct RunBudgetHandle {
     workspace: PathBuf,
     /// Where the sandbox applied on the run let commands write when the wallet was judged by it.
     opened_under: Option<SandboxSnapshot>,
+    /// The first send of the command running now that the wallet refused, in memory only: it is
+    /// that command's, and stops no later send (`outcome.rs`).
+    command_refusal: Mutex<Option<SendRefusal>>,
     /// What a test says the sandbox is, in place of the state of the process. `None` reads that
     /// state, as a run does.
     #[cfg(test)]
@@ -173,9 +176,35 @@ impl RunBudgetHandle {
             policy,
             workspace,
             opened_under,
+            command_refusal: Mutex::new(None),
             #[cfg(test)]
             sandbox_view: None,
         })
+    }
+
+    /// Keeps a refusal of this command's send for the command, before anyone could read it.
+    fn note_refused(&self, refusal: SendRefusal) {
+        let mut kept = self
+            .command_refusal
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        kept.get_or_insert(refusal);
+    }
+
+    /// The first send of the command running now that the wallet refused.
+    pub(crate) fn refused_in_command(&self) -> Option<SendRefusal> {
+        *self
+            .command_refusal
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// A REPL's next command begins with no refusal of its own.
+    pub(crate) fn forget_command_refusals(&self) {
+        *self
+            .command_refusal
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = None;
     }
 
     /// This handle, judging the sandbox by `view` instead of by the state of the process.
@@ -311,7 +340,10 @@ impl OpenSend {
 
     fn settle(mut self, text: &str) -> Result<(), SendRefusal> {
         self.resolved = true;
-        self.handle.settle_response(self.physical, text).map(|_| ())
+        self.handle
+            .settle_response(self.physical, text)
+            .map(|_| ())
+            .inspect_err(|refusal| self.handle.note_refused(*refusal))
     }
 }
 
@@ -365,9 +397,10 @@ impl BudgetedBody {
         &self,
         request: RequestBuilder,
     ) -> Result<(RequestBuilder, OpenSend), SendRefusal> {
-        let (send, permit) =
-            self.handle
-                .begin(&self.bytes, self.purpose, self.final_repair.as_ref())?;
+        let (send, permit) = self
+            .handle
+            .begin(&self.bytes, self.purpose, self.final_repair.as_ref())
+            .inspect_err(|refusal| self.handle.note_refused(*refusal))?;
         let request = request
             .header(CONTENT_TYPE, "application/json")
             .body(permit.into_body().to_vec());

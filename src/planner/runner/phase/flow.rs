@@ -674,6 +674,7 @@ pub fn run_ultra_plan_with_ui(
         )?;
         phase_machine.phase_committed(true, &plan.intent)?;
     }
+    crate::structured_budget::outcome::gate(config)?;
     // These two end at their own adjudication, with no final acceptance to judge the stages.
     if fix_runtime.is_some() || investigation_runtime.is_some() {
         crate::planner::structured_stages::refuse_unmet_plan(config)?;
@@ -1558,6 +1559,7 @@ pub fn run_ultra_plan_with_ui(
             );
         }
     }
+    crate::structured_budget::outcome::gate(config)?;
     phase_machine.acceptance_passed(
         final_acceptance_cycle_deltas
             .last()

@@ -287,6 +287,10 @@ pub(crate) fn remember_admission_without_stages(config: &Config) {
 /// goes on to resolve the workspace's path and look in the table. A record of stages is then held
 /// to what is declared now, which reads the declaration; a record of no stage reads nothing more.
 pub(crate) fn final_gate_failure(config: &Config) -> Option<String> {
+    // G5 before G4, with or without a stage (Issue #976).
+    if let Some(refused) = crate::structured_budget::outcome::refusal_text(config) {
+        return Some(refused);
+    }
     let pack = selection::selection_that_may_hold_stages(&config.profile)?;
     let bound = bound_key(&config.workspace_root, &config.profile, pack).and_then(|key| {
         BOUND_RUNS
@@ -361,6 +365,7 @@ fn shortfall_of(
 /// A plan with no final acceptance after it: a step answered only for what it called, so its end
 /// answers for the rest.
 pub(crate) fn refuse_unmet_plan(config: &Config) -> anyhow::Result<()> {
+    crate::structured_budget::outcome::gate(config)?;
     final_gate_failure(config).map_or(Ok(()), |unmet| Err(anyhow::anyhow!("{unmet}")))
 }
 

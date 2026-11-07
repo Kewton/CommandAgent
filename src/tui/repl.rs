@@ -76,6 +76,7 @@ pub fn run(mut config: Config) -> anyhow::Result<()> {
         if line.is_empty() {
             continue;
         }
+        crate::structured_budget::outcome::begin_command(&config);
         if crate::tui::slash::is_exit_command(line) {
             break;
         }
