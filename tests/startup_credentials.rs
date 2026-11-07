@@ -1,7 +1,9 @@
 //! The start of the real binary: where a credential is after it (Issue #974).
 //!
 //! Every secret here is a dummy, every provider is a disposable fake on 127.0.0.1, and every
-//! child starts from a cleared environment.
+//! child starts from a cleared environment: the binaries through [`command`] or a cleared launch
+//! of their own, this test's own children likewise, and every other program, the compiler of the
+//! reporter included, through [`tool`] or a cleared launch of its own (`lsof`, `ps`).
 
 use std::io::{Read as _, Write as _};
 use std::net::TcpListener;
@@ -23,6 +25,114 @@ fn command(workspace: &Path) -> Command {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     command
+}
+
+/// A tool this test runs that is not one of the binaries: the compiler of the reporter, and
+/// `/usr/bin/env` and `/bin/pwd` in the witness below. Its environment is cleared, `PATH` is the
+/// system's, `HOME` and `TMPDIR` are in `directory`, and so is its working directory. Nothing of
+/// the environment this test was started with reaches it, a key there included.
+fn tool(program: &str, directory: &Path) -> Command {
+    let home = directory.join("home");
+    let tmp = directory.join("tmp");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&tmp).unwrap();
+    let mut command = Command::new(program);
+    command
+        .current_dir(directory)
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin")
+        .env("HOME", &home)
+        .env("TMPDIR", &tmp)
+        .stdin(Stdio::null());
+    command
+}
+
+const PARENT_SECRET: &str = "Z976CompilerParentSecretX42";
+const PARENT_HOME: &str = "/nonexistent/parent-home-976";
+const PARENT_TMPDIR: &str = "/nonexistent/parent-tmpdir-976";
+const PARENT_PATH: &str = "/usr/bin:/bin:/nonexistent/parent-path-976";
+const TOOL_DIRECTORY: &str = "CA976_TOOL_DIRECTORY";
+
+/// Runs only as a child of the test below, whose environment holds a key, a HOME, a TMPDIR and a
+/// PATH of its own: writes down what a tool started as [`tool`] starts it has of them.
+#[test]
+fn a_tool_has_nothing_of_the_tests_environment_child() {
+    let Some(directory) = std::env::var_os(TOOL_DIRECTORY) else {
+        return;
+    };
+    let directory = Path::new(&directory);
+    assert_eq!(
+        std::env::var("OPENAI_API_KEY").as_deref(),
+        Ok(PARENT_SECRET),
+        "the witness: this process has the key"
+    );
+    for (program, written) in [("/usr/bin/env", "env.txt"), ("/bin/pwd", "pwd.txt")] {
+        let output = tool(program, directory).output().unwrap();
+        assert!(output.status.success(), "{program}");
+        std::fs::write(directory.join(written), &output.stdout).unwrap();
+    }
+}
+
+/// S2 (#976 3b-fix-6): a tool this test starts, its compiler among them, has nothing of the
+/// environment the test was started with. A key, a HOME, a TMPDIR and a PATH given to the test
+/// are none of what the tool has, which is exactly the three of [`tool`], and it works in its own
+/// directory.
+#[test]
+fn a_tool_has_nothing_of_the_tests_environment() {
+    let directory = tempfile::tempdir().unwrap();
+    let output = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "a_tool_has_nothing_of_the_tests_environment_child",
+            "--nocapture",
+        ])
+        .env_clear()
+        .env("OPENAI_API_KEY", PARENT_SECRET)
+        .env("HOME", PARENT_HOME)
+        .env("TMPDIR", PARENT_TMPDIR)
+        .env("PATH", PARENT_PATH)
+        .env(TOOL_DIRECTORY, directory.path())
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success() && stdout.contains("1 passed"),
+        "{stdout}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let env = std::fs::read_to_string(directory.path().join("env.txt")).unwrap();
+    let pwd = std::fs::read_to_string(directory.path().join("pwd.txt")).unwrap();
+    let mut wrong = Vec::new();
+    for parents in [
+        "OPENAI_API_KEY",
+        PARENT_SECRET,
+        PARENT_HOME,
+        PARENT_TMPDIR,
+        "parent-path-976",
+        TOOL_DIRECTORY,
+    ] {
+        if env.contains(parents) {
+            wrong.push(format!("the tool has the test's {parents}"));
+        }
+    }
+    let mut lines = env.lines().map(str::to_string).collect::<Vec<_>>();
+    lines.sort();
+    let expected = vec![
+        format!("HOME={}", directory.path().join("home").display()),
+        "PATH=/usr/bin:/bin".to_string(),
+        format!("TMPDIR={}", directory.path().join("tmp").display()),
+    ];
+    if lines != expected {
+        wrong.push(format!(
+            "the tool's environment is {lines:?}, not {expected:?}"
+        ));
+    }
+    let own = directory.path().canonicalize().unwrap();
+    if Path::new(pwd.trim_end()) != own {
+        wrong.push(format!("the tool works in {pwd:?}, not {own:?}"));
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
 
 /// A fake provider. It records what each request's first lines say, tells the test about the
@@ -1513,21 +1623,28 @@ __attribute__((constructor)) static void at_start(void) { report("start"); }
 __attribute__((destructor)) static void at_end(void) { report("end"); }
 "#;
 
-/// The reporter, built once for this test.
+/// The reporter, built once for this test by `/usr/bin/cc`, started as [`tool`] starts any
+/// program: from a cleared environment, with nothing added for the SDK (`xcrun` finds it from the
+/// system's own setting). A machine without a working `/usr/bin/cc` (the command line tools) fails
+/// here, saying so, and is never taken for a pass.
 #[cfg(target_os = "macos")]
 fn reporter(directory: &Path) -> std::path::PathBuf {
     let source = directory.join("reporter.c");
     let library = directory.join("reporter.dylib");
     std::fs::write(&source, REPORTER).unwrap();
-    let built = Command::new("/usr/bin/cc")
+    let built = tool("/usr/bin/cc", directory)
         .args(["-dynamiclib", "-o"])
         .arg(&library)
         .arg(&source)
         .output()
-        .unwrap();
+        .unwrap_or_else(|error| {
+            panic!(
+                "this test needs /usr/bin/cc to build its reporter, and it did not start: {error}"
+            )
+        });
     assert!(
         built.status.success(),
-        "{}",
+        "this test needs /usr/bin/cc to build its reporter, and it failed: {}",
         String::from_utf8_lossy(&built.stderr)
     );
     library
@@ -1561,6 +1678,11 @@ fn markers_reported(report: &str) -> Vec<(String, Option<String>)> {
 /// - A preset key name expanded from a credential is written nowhere: no marker at all.
 ///
 /// No report names any credential's value, and the end of every process has no marker.
+///
+/// What it needs of the machine, macOS only (elsewhere it is not built): `/usr/bin/cc`, to build
+/// the reporter (see [`reporter`]), and a binary that takes `DYLD_INSERT_LIBRARIES`, as cargo's
+/// unsigned, not hardened test build does. Where the library is not put in, no report is written,
+/// and the row fails, saying that, never passing for an empty report.
 #[cfg(target_os = "macos")]
 #[test]
 fn the_marker_is_the_starts_own_word_and_leaves_the_environment() {
@@ -1672,8 +1794,13 @@ fn the_marker_is_the_starts_own_word_and_leaves_the_environment() {
             || said.contains(DUMMY)
             || said.contains(NAME_SHAPED)
         {
+            let unreported = if said.is_empty() {
+                " (no report at all: DYLD_INSERT_LIBRARIES was not taken, which this test needs)"
+            } else {
+                ""
+            };
             wrong.push(format!(
-                "{row}: reports {seen:?}, reached {reached}, exit {:?}: {stderr}",
+                "{row}: reports {seen:?}{unreported}, reached {reached}, exit {:?}: {stderr}",
                 output.status.code()
             ));
         }
