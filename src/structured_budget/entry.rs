@@ -15,6 +15,7 @@
 //! So is a key whose variable a command of the run would inherit. Bash's own network is not the
 //! wallet's to count: the limit is on the provider calls this program makes.
 
+use std::collections::BTreeSet;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -84,7 +85,7 @@ impl std::error::Error for EntryRefusal {}
 /// On macOS the command line's start takes a provider key's variable out of the environment. What
 /// the start holds is not read here: a key named as a control of the run budget is refused by its
 /// name before anything could send instead. [`refuse_a_control_the_start_takes`] judges the very
-/// name the start took, for a run, the doctor's provider checks, and the shell's model completion;
+/// names the start took, for a run, the doctor's provider checks, and the shell's model completion;
 /// [`refuse_a_control_named_as_key`] judges the name the configuration kept, beside it.
 pub(crate) fn selected() -> bool {
     std::env::var_os(RUN_BUDGET_ENV).is_some()
@@ -113,12 +114,31 @@ pub(crate) fn refuse_a_control_named_as_key(config: &Config) -> Result<(), Entry
     )
 }
 
-/// The name the command line's start takes out of the environment may not be a control of the run
-/// budget either. It is the start's own answer, from the same function the start calls, so the two
-/// cannot disagree: a preset's `api_key_env` is taken even when no role of the run uses it, and the
-/// configuration then keeps no name at all. Only the name is read; no value is.
+/// What the command line's start took out of the environment may not hold a control of the run
+/// budget either. It is the start's own record of the names it took, kept once when it took them,
+/// so a configuration read again later cannot answer otherwise: a preset's `api_key_env` is taken
+/// even when no role of the run uses it, and the configuration then keeps no name at all. Only
+/// when the start took nothing out (elsewhere than macOS, or with nothing to hand over) is the
+/// name it would take found again, and judged as before. Only names are read; no value is.
 pub(crate) fn refuse_a_control_the_start_takes() -> Result<(), EntryRefusal> {
-    refuse_a_control_named(the_name_the_start_takes().as_deref())
+    refuse_a_control_among(
+        crate::startup_credentials::names_taken_out(),
+        the_name_the_start_takes,
+    )
+}
+
+/// [`refuse_a_control_the_start_takes`], given what the start took out, `None` when it took
+/// nothing, and how to find the name again for that case.
+fn refuse_a_control_among(
+    taken_out: Option<&BTreeSet<String>>,
+    again: fn() -> Option<String>,
+) -> Result<(), EntryRefusal> {
+    match taken_out {
+        Some(names) => names
+            .iter()
+            .try_for_each(|name| refuse_a_control_named(Some(name))),
+        None => refuse_a_control_named(again().as_deref()),
+    }
 }
 
 /// The provider key's variable the command line's start takes out of the environment.

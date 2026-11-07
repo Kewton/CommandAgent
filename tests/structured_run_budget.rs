@@ -436,6 +436,94 @@ fn start_in_workspace(env: &[(&str, &OsStr)], arguments: &[&str]) -> Started {
 /// the fake provider's address. With a `configuration`, the workspace declares it and the binary
 /// starts there.
 fn launch(env: &[(&str, &OsStr)], arguments: &[&str], configuration: Option<&str>) -> Started {
+    let workspace = configuration.map_or(Workspace::Bare, Workspace::Declares);
+    launch_in(env, arguments, workspace).0
+}
+
+/// What the workspace's configuration is for one start.
+#[derive(Clone, Copy)]
+enum Workspace<'a> {
+    /// None: the binary starts in this test's own directory.
+    Bare,
+    /// A file that declares this, and the binary starts there.
+    Declares(&'a str),
+    /// A named pipe that gives each read of the file the text for its number, counted from 1,
+    /// and the binary starts there. See [`ServedReads`].
+    #[cfg(target_os = "macos")]
+    Serves(fn(usize) -> &'static str),
+}
+
+/// The workspace's `.commandagent/config.toml` as a symlink to a named pipe, one pipe for each
+/// read. A thread opens the current pipe to write, and that open returns only when the binary
+/// opens the file to read it. The thread then makes the next pipe and points the symlink at it,
+/// and only after that writes this read's text and closes. The binary reads to the end, which
+/// it cannot reach before that close, so its next open is of the next pipe: which text a read
+/// gets is decided by its number alone, with no clock in it.
+#[cfg(target_os = "macos")]
+struct ServedReads {
+    stop: Arc<AtomicBool>,
+    link: std::path::PathBuf,
+    thread: JoinHandle<usize>,
+}
+
+#[cfg(target_os = "macos")]
+impl ServedReads {
+    fn start(directory: &std::path::Path, text: fn(usize) -> &'static str) -> Self {
+        let link = directory.join("config.toml");
+        let directory = directory.to_path_buf();
+        let pipe = move |read: usize| directory.join(format!("read-{read}.fifo"));
+        let point = |link: &std::path::Path, target: &std::path::Path| {
+            let next = link.with_extension("next");
+            std::os::unix::fs::symlink(target, &next).unwrap();
+            std::fs::rename(&next, link).unwrap();
+        };
+        make_pipe(&pipe(1));
+        point(&link, &pipe(1));
+        let stop = Arc::new(AtomicBool::new(false));
+        let (thread_stop, thread_link) = (stop.clone(), link.clone());
+        let thread = std::thread::spawn(move || {
+            let mut read = 1;
+            loop {
+                let mut writer = std::fs::OpenOptions::new()
+                    .write(true)
+                    .open(pipe(read))
+                    .unwrap();
+                if thread_stop.load(Ordering::SeqCst) {
+                    return read - 1;
+                }
+                make_pipe(&pipe(read + 1));
+                point(&thread_link, &pipe(read + 1));
+                let _ = writer.write_all(text(read).as_bytes());
+                drop(writer);
+                read += 1;
+            }
+        });
+        Self { stop, link, thread }
+    }
+
+    /// How many reads were served. Opening the current pipe to read, without waiting, is what
+    /// lets the thread's open return to see the stop.
+    fn finish(self) -> usize {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        self.stop.store(true, Ordering::SeqCst);
+        let _reader = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NONBLOCK)
+            .open(&self.link)
+            .unwrap();
+        self.thread.join().unwrap()
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn make_pipe(path: &std::path::Path) {
+    let path = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+    // SAFETY: `path` is a NUL-terminated string that lives through the call.
+    assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+}
+
+/// [`launch`] in a `workspace`, with how many reads of its configuration a served one gave.
+fn launch_in(env: &[(&str, &OsStr)], arguments: &[&str], workspace: Workspace) -> (Started, usize) {
     let root = tempfile::tempdir().unwrap();
     let base = std::fs::canonicalize(root.path()).unwrap();
     let fake = ProviderFake::spawn();
@@ -461,10 +549,21 @@ fn launch(env: &[(&str, &OsStr)], arguments: &[&str], configuration: Option<&str
     let printed_path = base.join("printed.txt");
     let printed_file = std::fs::File::create(&printed_path).unwrap();
     let mut command = Command::new(env!("CARGO_BIN_EXE_commandagent"));
-    if let Some(configuration) = configuration {
-        std::fs::create_dir_all(cwd.join(".commandagent")).unwrap();
-        std::fs::write(cwd.join(".commandagent/config.toml"), configuration).unwrap();
-        command.current_dir(&cwd);
+    #[cfg(target_os = "macos")]
+    let mut served = None;
+    match workspace {
+        Workspace::Bare => {}
+        Workspace::Declares(configuration) => {
+            std::fs::create_dir_all(cwd.join(".commandagent")).unwrap();
+            std::fs::write(cwd.join(".commandagent/config.toml"), configuration).unwrap();
+            command.current_dir(&cwd);
+        }
+        #[cfg(target_os = "macos")]
+        Workspace::Serves(text) => {
+            std::fs::create_dir_all(cwd.join(".commandagent")).unwrap();
+            served = Some(ServedReads::start(&cwd.join(".commandagent"), text));
+            command.current_dir(&cwd);
+        }
     }
     let mut child = command
         .env_clear()
@@ -506,12 +605,17 @@ fn launch(env: &[(&str, &OsStr)], arguments: &[&str], configuration: Option<&str
         .rfind(|line| line.starts_with("error"))
         .unwrap_or("")
         .to_string();
-    Started {
+    #[cfg(target_os = "macos")]
+    let reads = served.map_or(0, ServedReads::finish);
+    #[cfg(not(target_os = "macos"))]
+    let reads = 0;
+    let started = Started {
         code,
         sent: fake.finish(),
         error,
         printed: std::fs::read_to_string(&printed_path).unwrap(),
-    }
+    };
+    (started, reads)
 }
 
 const KEY_IS_CONTROL: &str = "error: the run budget refused the entry: KeyIsControl";
@@ -945,4 +1049,188 @@ fn the_completion_sends_nothing_when_the_start_takes_a_control() {
                 || request.contains("localhost:1234/v1/models")),
         "{control:?}"
     );
+}
+
+// ---- what the start took, against a configuration that changes after it (F1-R2) ----
+
+#[cfg(target_os = "macos")]
+const NAMES_THE_SELECTION: &str =
+    "[preset.control976]\napi_key_env = \"COMMANDAGENT_RUN_BUDGET\"\n";
+#[cfg(target_os = "macos")]
+const NAMES_AN_ALIAS: &str = "[preset.control976]\napi_key_env = \"GATEWAY_KEY_976\"\n";
+#[cfg(target_os = "macos")]
+const NAMES_THE_ROOT: &str =
+    "[preset.control976]\napi_key_env = \"COMMANDAGENT_ADAPTER_CONFIG_ROOT\"\n";
+
+/// Reads 1 and 2 of the configuration are the start's: step 0 before its exec and step 1 after
+/// it, in the same pid. Every later read, the run's configuration, the doctor's inspection, and
+/// any name found again, gets the alias.
+#[cfg(target_os = "macos")]
+fn an_alias_after_the_start(read: usize) -> &'static str {
+    if read <= 2 {
+        NAMES_THE_SELECTION
+    } else {
+        NAMES_AN_ALIAS
+    }
+}
+
+/// The start reads an alias; every later read, the operator root.
+#[cfg(target_os = "macos")]
+fn the_root_after_the_start(read: usize) -> &'static str {
+    if read <= 2 {
+        NAMES_AN_ALIAS
+    } else {
+        NAMES_THE_ROOT
+    }
+}
+
+/// macOS: the start takes the selection out of the environment as the preset's key, and the
+/// preset then names an alias for every later read (codex-3's F1-R2, placed by the read's number,
+/// see [`ServedReads`]). The doctor, a run, and the shell's model completion are judged by what
+/// the start took, and send nothing; read again, the configuration would have let each one send.
+/// The controls, with no selection: the same configuration sends as before, and so does a key
+/// of the alias's own name.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_configuration_changed_after_the_start_is_judged_by_what_the_start_took() {
+    let selected = [(RUN_BUDGET_ENV, OsStr::new("wallet976"))];
+    let served = Workspace::Serves(an_alias_after_the_start);
+    let named = joined(&[
+        &["--model", "m-1", "--preset", "control976"],
+        &EVERY_ROLE_OLLAMA,
+    ]);
+    let doctor_arguments = joined(&[&named, &["--doctor", "--json"]]);
+    let run_arguments = joined(&[&named, &["--prompt", "say hello"]]);
+
+    let (doctor, reads) = launch_in(&selected, &doctor_arguments, served);
+    assert_eq!((doctor.code, doctor.sent.len()), (Some(1), 0), "{doctor:?}");
+    assert!(
+        doctor.printed.contains(DOCTOR_REFUSED_BY_NAME),
+        "{doctor:?}"
+    );
+    assert!(reads > 2, "no read after the start: {reads}");
+    let (run, reads) = launch_in(&selected, &run_arguments, served);
+    assert_eq!((run.code, run.sent.len()), (Some(2), 0), "{run:?}");
+    assert_eq!(run.error, KEY_IS_CONTROL, "{run:?}");
+    assert!(reads > 2, "no read after the start: {reads}");
+    let completion = [
+        ("HTTP_PROXY", OsStr::new("<FAKE>")),
+        ("COMPLETE", OsStr::new("fish")),
+        selected[0],
+    ];
+    let completing = [
+        "--preset",
+        "control976",
+        "--",
+        "commandagent",
+        "--model",
+        "",
+    ];
+    let (completed, reads) = launch_in(&completion, &completing, served);
+    assert_eq!(
+        (completed.code, completed.sent.len()),
+        (Some(0), 0),
+        "{completed:?}"
+    );
+    assert!(reads >= 2, "the start did not read: {reads}");
+
+    for arguments in [&doctor_arguments, &run_arguments] {
+        let (started, _) = launch_in(&[], arguments, served);
+        assert!(!started.sent.is_empty(), "{arguments:?}: {started:?}");
+    }
+    let own = [("GATEWAY_KEY_976", OsStr::new("synthetic-key-976"))];
+    let compatible = [
+        "--model",
+        "m-1",
+        "--preset",
+        "control976",
+        "--provider",
+        "openai-compatible",
+        "--base-url",
+        "<FAKE>/v1",
+    ];
+    for action in [&["--doctor", "--json"][..], &["--prompt", "say hello"][..]] {
+        let arguments = joined(&[&compatible, action]);
+        let (started, _) = launch_in(&own, &arguments, Workspace::Serves(|_| NAMES_AN_ALIAS));
+        assert!(!started.sent.is_empty(), "{action:?}: {started:?}");
+    }
+}
+
+/// macOS: the other way round, the start takes an alias and every later read names the operator
+/// root for a role that uses it. What the start took passes; the configuration's name does not,
+/// and is refused beside it, by the run and by the doctor, with nothing sent.
+#[cfg(target_os = "macos")]
+#[test]
+fn the_configurations_name_is_judged_beside_what_the_start_took() {
+    let own = [("GATEWAY_KEY_976", OsStr::new("synthetic-key-976"))];
+    let compatible = [
+        "--model",
+        "m-1",
+        "--preset",
+        "control976",
+        "--provider",
+        "openai-compatible",
+        "--base-url",
+        "<FAKE>/v1",
+    ];
+    let served = Workspace::Serves(the_root_after_the_start);
+    let (doctor, reads) = launch_in(
+        &own,
+        &joined(&[&compatible, &["--doctor", "--json"]]),
+        served,
+    );
+    assert_eq!((doctor.code, doctor.sent.len()), (Some(1), 0), "{doctor:?}");
+    assert!(
+        doctor.printed.contains(DOCTOR_REFUSED_BY_NAME),
+        "{doctor:?}"
+    );
+    assert!(reads > 2, "no read after the start: {reads}");
+    let (run, reads) = launch_in(
+        &own,
+        &joined(&[&compatible, &["--prompt", "say hello"]]),
+        served,
+    );
+    assert_eq!((run.code, run.sent.len()), (Some(2), 0), "{run:?}");
+    assert_eq!(run.error, KEY_IS_CONTROL, "{run:?}");
+    assert!(reads > 2, "no read after the start: {reads}");
+}
+
+/// macOS: the shell's model completion, row for row as the entry test judged it before the start's
+/// own answer moved to the real binary (`entry_tests.rs`, 44f5f002, its `completed` rows), with no
+/// selection and no key in the environment. A control's name, current or legacy, as the command
+/// line's key or as the selected preset's, gives no candidate and sends nothing; another name, a
+/// preset of another name, and no name send through the proxy (see the test above).
+#[cfg(target_os = "macos")]
+#[test]
+fn the_completion_judges_each_name_as_the_entry_test_did() {
+    const PRESETS_976: &str = "[preset.control976]\napi_key_env = \"COMMANDAGENT_RUN_BUDGET\"\n\n\
+        [preset.own976]\napi_key_env = \"GATEWAY_KEY_976\"\n";
+    let env = [
+        ("HTTP_PROXY", OsStr::new("<FAKE>")),
+        ("COMPLETE", OsStr::new("fish")),
+    ];
+    let completed = ["--", "commandagent", "--model", ""];
+    let rows: [(&[&str], bool); 8] = [
+        (&["--api-key-env", "COMMANDAGENT_RUN_BUDGET"], true),
+        (&["--api-key-env", "ANVIL_RUN_BUDGET"], true),
+        (&["--api-key-env", "COMMANDAGENT_ADAPTER_CONFIG_ROOT"], true),
+        (&["--api-key-env", "ANVIL_ADAPTER_CONFIG_ROOT"], true),
+        (&["--preset", "control976"], true),
+        (&["--api-key-env", "GATEWAY_KEY_976"], false),
+        (&["--preset", "own976"], false),
+        (&[], false),
+    ];
+    let mut wrong = Vec::new();
+    for (named, named_as_a_control) in rows {
+        let started = launch(&env, &joined(&[named, &completed]), Some(PRESETS_976));
+        // A send stops the child where the fake sees it (see `launch`), so whether it went on to
+        // print the candidate is not this test's to see; a refusal ends on its own, with none.
+        let candidate = started.printed.lines().any(|line| line.starts_with("m-1"));
+        let refused = started.code == Some(0) && started.sent.is_empty() && !candidate;
+        let as_before = !started.sent.is_empty();
+        if refused != named_as_a_control || as_before == named_as_a_control {
+            wrong.push(format!("{named:?}: {started:?}"));
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }

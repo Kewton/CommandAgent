@@ -932,6 +932,49 @@ fn the_early_ways_out_refuse_a_key_named_as_a_control() {
     );
 }
 
+/// The judgement of what the start took out, on every operating system. What the start recorded
+/// it took is judged, and the name found again is not even asked for; only with no record is it
+/// asked for, and judged as before. It reads no environment, so it needs no child of its own.
+#[test]
+fn what_the_start_took_is_judged_before_any_name_found_again() {
+    use super::refuse_a_control_among as judged;
+    const BUILT_IN: [&str; 4] = crate::startup_credentials::BUILT_IN_CREDENTIAL_NAMES;
+    fn asked() -> Option<String> {
+        panic!("the name was found again beside a record of what the start took")
+    }
+    fn selection() -> Option<String> {
+        Some(RUN_BUDGET_ENV.to_string())
+    }
+    fn alias() -> Option<String> {
+        Some("GATEWAY_KEY_976".to_string())
+    }
+    fn none() -> Option<String> {
+        None
+    }
+    let took = |extra: &[&str]| {
+        BUILT_IN
+            .iter()
+            .chain(extra)
+            .map(ToString::to_string)
+            .collect::<BTreeSet<_>>()
+    };
+    let refused = Err(EntryRefusal::KeyIsControl);
+    for (extra, expected) in [
+        (&[RUN_BUDGET_ENV][..], refused),
+        (&["ANVIL_RUN_BUDGET"][..], refused),
+        (&[ROOT_ENV][..], refused),
+        (&["ANVIL_ADAPTER_CONFIG_ROOT"][..], refused),
+        (&["GATEWAY_KEY_976", RUN_BUDGET_ENV][..], refused),
+        (&["GATEWAY_KEY_976"][..], Ok(())),
+        (&[][..], Ok(())),
+    ] {
+        assert_eq!(judged(Some(&took(extra)), asked), expected, "{extra:?}");
+    }
+    assert_eq!(judged(None, selection), refused);
+    assert_eq!(judged(None, alias), Ok(()));
+    assert_eq!(judged(None, none), Ok(()));
+}
+
 // ---- the sandbox at the send (B5) ----
 
 /// Runs only as a child. A wallet opened under the sandbox applied on it, and then the sandbox
