@@ -1623,31 +1623,204 @@ __attribute__((constructor)) static void at_start(void) { report("start"); }
 __attribute__((destructor)) static void at_end(void) { report("end"); }
 "#;
 
-/// The reporter, built once for this test by `/usr/bin/cc`, started as [`tool`] starts any
-/// program: from a cleared environment, with nothing added for the SDK (`xcrun` finds it from the
-/// system's own setting). A machine without a working `/usr/bin/cc` (the command line tools) fails
-/// here, saying so, and is never taken for a pass.
+/// The compiler of the reporter: the one place it is named in code.
+#[cfg(target_os = "macos")]
+const COMPILER: &str = "/usr/bin/cc";
+
+/// The reporter, built once for this test by [`COMPILER`]. Only the compiler is chosen here; all
+/// of the build is [`reporter_built_by`], which the witness below runs with an observer in its
+/// place, so what the compiler is given is what that witness sees.
 #[cfg(target_os = "macos")]
 fn reporter(directory: &Path) -> std::path::PathBuf {
+    reporter_built_by(COMPILER, directory)
+}
+
+/// The build of the reporter by `compiler`, started as [`tool`] starts any program: from a cleared
+/// environment, with nothing added for the SDK (`xcrun` finds it from the system's own setting).
+/// A machine without a working `/usr/bin/cc` (the command line tools) fails here, saying so, and
+/// is never taken for a pass.
+#[cfg(target_os = "macos")]
+fn reporter_built_by(compiler: &str, directory: &Path) -> std::path::PathBuf {
     let source = directory.join("reporter.c");
     let library = directory.join("reporter.dylib");
     std::fs::write(&source, REPORTER).unwrap();
-    let built = tool("/usr/bin/cc", directory)
+    let built = tool(compiler, directory)
         .args(["-dynamiclib", "-o"])
         .arg(&library)
         .arg(&source)
         .output()
         .unwrap_or_else(|error| {
             panic!(
-                "this test needs /usr/bin/cc to build its reporter, and it did not start: {error}"
+                "this test needs {compiler} to build its reporter, and it did not start: {error}"
             )
         });
     assert!(
         built.status.success(),
-        "this test needs /usr/bin/cc to build its reporter, and it failed: {}",
+        "this test needs {compiler} to build its reporter, and it failed: {}",
         String::from_utf8_lossy(&built.stderr)
     );
     library
+}
+
+/// The observer put in the compiler's place: it writes down its environment, its working
+/// directory and its arguments, beside itself, and makes the library it was asked for. Perl adds
+/// nothing to the environment it is given, as a shell would (`PWD`, `SHLVL`, `_`).
+#[cfg(target_os = "macos")]
+const OBSERVER: &str = r#"#!/usr/bin/perl
+use strict;
+use Cwd ();
+my $seen = '<SEEN>';
+open(my $env, '>', "$seen/env.txt") or die "env.txt: $!";
+print $env map { "$_=$ENV{$_}\n" } sort keys %ENV;
+close($env) or die;
+open(my $cwd, '>', "$seen/cwd.txt") or die "cwd.txt: $!";
+print $cwd Cwd::getcwd(), "\n";
+close($cwd) or die;
+open(my $args, '>', "$seen/args.txt") or die "args.txt: $!";
+print $args map { "$_\n" } @ARGV;
+close($args) or die;
+open(my $library, '>', $ARGV[2]) or die "library: $!";
+close($library) or die;
+"#;
+
+const COMPILER_DIRECTORY: &str = "CA976_COMPILER_DIRECTORY";
+
+/// Runs only as a child of the test below, whose environment holds a key, a HOME, a TMPDIR and a
+/// PATH of its own: builds the reporter as [`reporter`] does, with the observer as its compiler.
+#[cfg(target_os = "macos")]
+#[test]
+fn the_reporters_compiler_has_nothing_of_the_tests_environment_child() {
+    let Some(directory) = std::env::var_os(COMPILER_DIRECTORY) else {
+        return;
+    };
+    let directory = Path::new(&directory);
+    assert_eq!(
+        std::env::var("OPENAI_API_KEY").as_deref(),
+        Ok(PARENT_SECRET),
+        "the witness: this process has the key"
+    );
+    assert!(
+        Path::new("/usr/bin/perl").is_file(),
+        "this witness needs /usr/bin/perl to run its observer"
+    );
+    let seen = directory.join("seen");
+    std::fs::create_dir(&seen).unwrap();
+    let observer = seen.join("observer.pl");
+    std::fs::write(
+        &observer,
+        OBSERVER.replace("<SEEN>", seen.to_str().unwrap()),
+    )
+    .unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&observer, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let library = reporter_built_by(observer.to_str().unwrap(), directory);
+    assert!(library.is_file(), "the observer made no library");
+}
+
+/// S2 (#976 3b-fix-7): the reporter's own build hands its compiler nothing of the environment the
+/// test was started with. The build [`reporter`] runs is run with an observer in the compiler's
+/// place, from a test given a key, a HOME, a TMPDIR and a PATH: the observer has exactly the three
+/// of [`tool`], none of the test's, works in the build's own directory, and is given the
+/// reporter's arguments. Each of its records has to be there, in a directory new for this test.
+#[cfg(target_os = "macos")]
+#[test]
+fn the_reporters_compiler_has_nothing_of_the_tests_environment() {
+    let directory = tempfile::tempdir().unwrap();
+    let output = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "the_reporters_compiler_has_nothing_of_the_tests_environment_child",
+            "--nocapture",
+        ])
+        .env_clear()
+        .env("OPENAI_API_KEY", PARENT_SECRET)
+        .env("HOME", PARENT_HOME)
+        .env("TMPDIR", PARENT_TMPDIR)
+        .env("PATH", PARENT_PATH)
+        .env(COMPILER_DIRECTORY, directory.path())
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success() && stdout.contains("1 passed"),
+        "{stdout}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let seen = directory.path().join("seen");
+    let read = |name: &str| {
+        std::fs::read_to_string(seen.join(name))
+            .unwrap_or_else(|error| panic!("the observer wrote no {name}: {error}"))
+    };
+    let env = read("env.txt");
+    let cwd = read("cwd.txt");
+    let args = read("args.txt");
+    let mut wrong = Vec::new();
+    for parents in [
+        "OPENAI_API_KEY",
+        PARENT_SECRET,
+        PARENT_HOME,
+        PARENT_TMPDIR,
+        "parent-path-976",
+        COMPILER_DIRECTORY,
+    ] {
+        if env.contains(parents) {
+            wrong.push(format!("the compiler has the test's {parents}"));
+        }
+    }
+    let mut lines = env.lines().map(str::to_string).collect::<Vec<_>>();
+    lines.sort();
+    let expected = vec![
+        format!("HOME={}", directory.path().join("home").display()),
+        "PATH=/usr/bin:/bin".to_string(),
+        format!("TMPDIR={}", directory.path().join("tmp").display()),
+    ];
+    if lines != expected {
+        wrong.push(format!(
+            "the compiler's environment is {lines:?}, not {expected:?}"
+        ));
+    }
+    let own = directory.path().canonicalize().unwrap();
+    if Path::new(cwd.trim_end()) != own {
+        wrong.push(format!("the compiler works in {cwd:?}, not {own:?}"));
+    }
+    let given = args.lines().collect::<Vec<_>>();
+    let library = directory.path().join("reporter.dylib");
+    let source = directory.path().join("reporter.c");
+    let reporters = [
+        "-dynamiclib",
+        "-o",
+        library.to_str().unwrap(),
+        source.to_str().unwrap(),
+    ];
+    if given != reporters {
+        wrong.push(format!(
+            "the compiler is given {given:?}, not {reporters:?}"
+        ));
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// What the witness above sees is what the reporter's build is: [`reporter`] only names the
+/// compiler for [`reporter_built_by`], and no other line of this file names it, so no build of the
+/// reporter goes around the one the witness runs.
+#[cfg(target_os = "macos")]
+#[test]
+fn the_reporter_is_built_only_as_the_witness_builds_it() {
+    const SOURCE: &str = include_str!("startup_credentials.rs");
+    let head = [
+        "fn reporter",
+        "(directory: &Path) -> std::path::PathBuf {\n",
+    ]
+    .concat();
+    let start = SOURCE.find(&head).expect("reporter() is where it was") + head.len();
+    let body = &SOURCE[start..start + SOURCE[start..].find("\n}\n").unwrap()];
+    assert_eq!(body.trim(), "reporter_built_by(COMPILER, directory)");
+    let named = format!("{:?}", COMPILER);
+    assert_eq!(SOURCE.matches(&named).count(), 1, "{named} is named once");
+    assert_eq!(COMPILER, ["/usr/bin/", "cc"].concat());
 }
 
 /// What each report said of the marker: `None` where it was absent, its value where present.
