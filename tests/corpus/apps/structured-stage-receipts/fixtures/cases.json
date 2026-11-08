@@ -8,7 +8,8 @@
   "events": [
     {"event": "structured_stage_incomplete", "code": "obligations_unmet", "when": "a run with an open stage wants to end as a success"},
     {"event": "structured_stage_incomplete", "code": "ledger_refused", "when": "a judgment finds the record cannot be used, with its path and way out under record"},
-    {"event": "structured_stage_refused", "code": "ended_by_secret_value", "when": "a new process that did not ask would replace a record a secret ended"}
+    {"event": "structured_stage_refused", "code": "ended_by_secret_value", "when": "a new process that did not ask would replace a record a secret ended"},
+    {"event": "stage_schema_refusal_limit", "code": "schema_refusal_limit", "when": "Issue #998: the call G2 refuses that reaches the target's or the run's limit, with stage, target, refusals, limit, and scope; the counts are the process's for the workspace and profile, over its sessions, and scope run is every target's in them"}
   ],
   "refusals": [
     {"id": "no OS boundary", "refusal": "stage_contract_refused", "kind": "OsSandboxNotEnforced"},
@@ -22,7 +23,8 @@
     {"id": "a record a secret ended", "refusal": "stage_ledger_refused", "kind": "ended_by_secret_value"},
     {"id": "too many calls that start nothing", "refusal": "stage_run_ended", "kind": "no_progress_limit"},
     {"id": "the deadline", "refusal": "stage_run_ended", "kind": "deadline_exceeded"},
-    {"id": "the target's attempts", "refusal": "stage_run_ended", "kind": "attempts_exhausted_for_target"}
+    {"id": "the target's attempts", "refusal": "stage_run_ended", "kind": "attempts_exhausted_for_target"},
+    {"id": "calls the schema refuses, at the target's or the run's limit", "refusal": "stage_run_ended", "kind": "schema_refusal_limit"}
   ],
   "entries": [
     {"entry": "--prompt", "sealed_and_open": "the_binary_on_prompt_succeeds_only_with_every_stage_sealed", "where": "macOS"},
@@ -61,7 +63,7 @@
       "row_one_the_same_call_on_the_sealed_bytes_changes_nothing_and_starts_nothing",
       "the_same_report_is_a_replay_and_another_is_a_conflict"
     ]},
-    {"row": 4, "says": "reading, checking, the same bad candidate, a touched file, or unrelated writes do not complete; resubmission stops at the limits and the final repair's budget does not come back for each stage", "tests": [
+    {"row": 4, "says": "reading, checking, the same bad candidate, a touched file, or unrelated writes do not complete; resubmission stops at the limits and the final repair's budget does not come back for each stage; calls the schema refuses stop at the same limits, counted apart from attempts (Issue #998)", "tests": [
       "repeating_a_stale_call_is_counted_and_ends_the_run_at_its_limit",
       "a_chain_longer_than_the_limit_can_be_listed_in_one_reply",
       "the_same_bad_candidate_runs_out_at_the_limit_and_never_progresses",
@@ -77,7 +79,22 @@
       "an_answer_that_moved_nothing_goes_back_with_no_obligation_open",
       "a_plan_with_no_step_answers_for_no_stage_and_is_no_success",
       "a_final_repair_that_seals_and_changes_a_source_is_asked_again",
-      "a_final_repair_whose_stage_output_then_changes_is_no_success"
+      "a_final_repair_whose_stage_output_then_changes_is_no_success",
+      "varied_schema_refusals_end_the_run_at_the_targets_limit_with_nothing_sent_after",
+      "the_same_schema_refusal_again_and_again_is_still_ended_by_the_repeat_guard",
+      "fewer_schema_refusals_than_the_limit_then_a_valid_call_goes_through_g4",
+      "schema_refusals_spread_over_targets_end_the_run_at_the_runs_limit",
+      "one_attempt_per_target_ends_the_run_at_the_first_schema_refusal",
+      "refusals_of_a_stage_call_end_the_run_at_the_targets_limit_and_g4_records_nothing",
+      "fewer_refusals_than_the_limit_then_a_valid_call_proceeds_and_commits",
+      "one_attempt_per_target_ends_the_run_at_the_first_refusal",
+      "each_target_counts_its_own_refusals",
+      "a_tool_in_no_stage_gets_every_schema_refusal_back_as_data",
+      "varied_schema_refusals_end_the_session_at_the_targets_limit",
+      "under_a_wallet_the_schema_limit_can_end_the_session_first",
+      "under_a_wallet_its_stage_limit_can_end_the_session_first",
+      "schema_refusals_go_on_counting_in_the_next_session_to_the_targets_limit",
+      "schema_refusals_go_on_counting_in_the_next_session_to_the_runs_limit"
     ]},
     {"row": 5, "says": "cancel at the commit, resume, a broken record, and a swapped pin adopt only the current version; a tool with no OS limit makes no valid receipt, and an unknown cost is not zero", "tests": [
       "a_commit_cancelled_after_the_rename_or_not_durable_moves_the_generation_without_a_seal",

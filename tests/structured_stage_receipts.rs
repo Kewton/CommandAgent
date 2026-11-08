@@ -1401,6 +1401,39 @@ mod off_control {
             }
         }
     }
+
+    /// Issue #998: the corpus names the event and the end a call the schema refuses can reach,
+    /// and they are what the code writes.
+    #[test]
+    fn the_corpus_names_the_schema_refusal_limit_as_the_code_writes_it() {
+        let cases: Value = serde_json::from_str(CASES).unwrap();
+        let has = |list: &str, key: &str, value: &str, code: (&str, &str)| {
+            let found = cases[list]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|row| row[key] == value && row[code.0] == code.1);
+            assert!(found, "{list}: no row {key}={value} {}={}", code.0, code.1);
+        };
+        has(
+            "events",
+            "event",
+            "stage_schema_refusal_limit",
+            ("code", "schema_refusal_limit"),
+        );
+        has(
+            "refusals",
+            "refusal",
+            "stage_run_ended",
+            ("kind", "schema_refusal_limit"),
+        );
+        let leaf = include_str!("../src/planner/structured_stages/schema_refusals.rs");
+        assert!(leaf.contains("\"event\": \"stage_schema_refusal_limit\""));
+        assert!(leaf.contains("SCHEMA_REFUSAL_LIMIT: &str = \"schema_refusal_limit\""));
+        for field in ["stage", "target", "refusals", "limit", "scope"] {
+            assert!(leaf.contains(&format!("\"{field}\":")), "{field}");
+        }
+    }
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -2844,5 +2877,191 @@ mod with_the_strict_isolation {
         let error = env.admission_error(NO_ARGUMENT_PROFILE);
         assert!(error.contains("stage_contract_refused"), "{error}");
         assert!(error.contains("expected_revision"), "{error}");
+    }
+
+    /// Issue #998: the operator's floor with the given limits.
+    fn floor_with(attempts_per_target: u32, attempts_per_run: u32) -> Value {
+        let mut floor = floor();
+        floor["attempts_per_target"] = json!(attempts_per_target);
+        floor["attempts_per_run"] = json!(attempts_per_run);
+        floor
+    }
+
+    /// Calls the schema refuses, each a little differently from the one before, as a model's are.
+    /// The same refusal again and again is ended by the loop's repeat guard first.
+    fn refused_shape(index: usize) -> Value {
+        let shapes = [
+            json!({"mode": "ugly", "expected_revision": "initial"}),
+            json!({"mode": 5, "expected_revision": "initial"}),
+            json!({"expected_revision": "initial"}),
+        ];
+        shapes[index % shapes.len()].clone()
+    }
+
+    fn call_with(name: &str, arguments: &Value) -> String {
+        json!({"choices": [{"message": {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{
+                "id": "call-0",
+                "type": "function",
+                "function": {"name": name, "arguments": arguments.to_string()},
+            }],
+        }}]})
+        .to_string()
+    }
+
+    fn limit_events(env: &Env) -> Vec<Value> {
+        std::fs::read_to_string(env.evidence.join("events.jsonl"))
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+            .filter(|event| event["event"] == "stage_schema_refusal_limit")
+            .collect()
+    }
+
+    /// G4's records. A call G2 refuses never reaches G4, so it leaves none.
+    fn ledger_files(env: &Env) -> usize {
+        std::fs::read_dir(env.evidence.join("state/structured-stages")).map_or(0, |entries| {
+            entries
+                .flatten()
+                .filter(|entry| entry.path().join("ledger.json").exists())
+                .count()
+        })
+    }
+
+    fn assert_limit(event: &Value, stage: &str, counts: (u64, u64), scope: &str) {
+        assert_eq!(event["stage"], stage, "{event}");
+        assert_eq!(event["target"], "main", "{event}");
+        assert_eq!(event["refusals"], counts.0, "{event}");
+        assert_eq!(event["limit"], counts.1, "{event}");
+        assert_eq!(event["scope"], scope, "{event}");
+    }
+
+    /// Issue #998: refusals that differ each time get past the loop's repeat guard. The third
+    /// reaches the target's limit and ends the run: nothing is sent after it, and G4 recorded
+    /// nothing.
+    #[test]
+    fn varied_schema_refusals_end_the_run_at_the_targets_limit_with_nothing_sent_after() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor_with(3, 16)));
+        install_sandbox(&env);
+        let responder: Responder =
+            Arc::new(|index, _| call_with(UPPER_TOOL, &refused_shape(index - 1)));
+        let (requests, result) = run(&env, WALK_PROFILE, responder);
+        reset_for_test();
+        let error = result.expect_err("the limit ends the run");
+        assert!(error.contains("stage_run_ended"), "{error}");
+        assert!(error.contains("schema_refusal_limit"), "{error}");
+        assert_eq!(requests.len(), 3, "nothing is sent after the third refusal");
+        let limits = limit_events(&env);
+        assert_eq!(limits.len(), 1, "{limits:?}");
+        assert_limit(&limits[0], "upper", (3, 3), "target");
+        assert_eq!(ledger_files(&env), 0, "G4 recorded nothing");
+        assert!(!env.root.join(UPPER_OUTPUT).exists());
+    }
+
+    /// The control: the same refused call again and again is still ended by the loop's repeat
+    /// guard, at the third, before the target's limit of four.
+    #[test]
+    fn the_same_schema_refusal_again_and_again_is_still_ended_by_the_repeat_guard() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor()));
+        install_sandbox(&env);
+        let responder: Responder = Arc::new(|_, _| call_with(UPPER_TOOL, &refused_shape(0)));
+        let (requests, result) = run(&env, WALK_PROFILE, responder);
+        reset_for_test();
+        let error = result.expect_err("the repeat guard ends the run");
+        assert!(error.contains("recoverable tool error repeated"), "{error}");
+        assert!(!error.contains("schema_refusal_limit"), "{error}");
+        assert_eq!(requests.len(), 3);
+        assert!(limit_events(&env).is_empty());
+        assert_eq!(ledger_files(&env), 0);
+    }
+
+    /// Issue #998: fewer refusals than the limit take nothing from what follows. A valid call
+    /// then goes to G4 as it did: it proceeds, spends attempt one, and commits.
+    #[test]
+    fn fewer_schema_refusals_than_the_limit_then_a_valid_call_goes_through_g4() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor_with(3, 16)));
+        install_sandbox(&env);
+        let seen: Arc<Mutex<Vec<Value>>> = Arc::default();
+        let kept = seen.clone();
+        let responder: Responder = Arc::new(move |index, body| match index {
+            1 | 2 => call_with(UPPER_TOOL, &refused_shape(index - 1)),
+            3 => tool_reply(UPPER_TOOL, "good", "initial"),
+            4 => {
+                kept.lock().unwrap().push(last_tool_answer(body));
+                text_reply(CLAIM)
+            }
+            _ => text_reply(CLAIM),
+        });
+        let (requests, result) = run(&env, WALK_PROFILE, responder);
+        reset_for_test();
+        assert_not_a_success(&result, "the lower stage is open");
+        assert!(requests.len() >= 4, "{}", requests.len());
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen[0]["stage"]["status"], "sealed", "{}", seen[0]);
+        assert_eq!(saved_attempts(&env), 1, "the valid call spent attempt one");
+        assert!(limit_events(&env).is_empty());
+        assert_eq!(
+            std::fs::read(env.root.join(UPPER_OUTPUT)).unwrap(),
+            CANDIDATE
+        );
+    }
+
+    /// Issue #998: refusals spread over two targets, none at its own limit, end the run at the
+    /// run's.
+    #[test]
+    fn schema_refusals_spread_over_targets_end_the_run_at_the_runs_limit() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor_with(3, 4)));
+        install_sandbox(&env);
+        let responder: Responder = Arc::new(|index, _| {
+            let tool = if index % 2 == 1 {
+                UPPER_TOOL
+            } else {
+                LOWER_TOOL
+            };
+            call_with(tool, &refused_shape(index - 1))
+        });
+        let (requests, result) = run(&env, WALK_PROFILE, responder);
+        reset_for_test();
+        let error = result.expect_err("the run's limit ends the run");
+        assert!(error.contains("schema_refusal_limit"), "{error}");
+        assert_eq!(
+            requests.len(),
+            4,
+            "nothing is sent after the fourth refusal"
+        );
+        let limits = limit_events(&env);
+        assert_eq!(limits.len(), 1, "{limits:?}");
+        assert_limit(&limits[0], "lower", (4, 4), "run");
+        assert_eq!(ledger_files(&env), 0);
+    }
+
+    /// Issue #998: with one attempt per target, the first refusal is the one at the limit.
+    #[test]
+    fn one_attempt_per_target_ends_the_run_at_the_first_schema_refusal() {
+        let _guard = lock();
+        let env = Env::new();
+        env.write_walk_tools(Some(floor_with(1, 16)));
+        install_sandbox(&env);
+        let responder: Responder =
+            Arc::new(|index, _| call_with(UPPER_TOOL, &refused_shape(index - 1)));
+        let (requests, result) = run(&env, WALK_PROFILE, responder);
+        reset_for_test();
+        let error = result.expect_err("the first refusal ends the run");
+        assert!(error.contains("schema_refusal_limit"), "{error}");
+        assert_eq!(requests.len(), 1);
+        let limits = limit_events(&env);
+        assert_eq!(limits.len(), 1, "{limits:?}");
+        assert_limit(&limits[0], "upper", (1, 1), "target");
+        assert_eq!(ledger_files(&env), 0);
     }
 }
