@@ -71,6 +71,8 @@ impl StageFunnel {
         config: &Config,
     ) -> anyhow::Result<T> {
         let run = current_stage_run();
+        // G5 before G4 (Issue #976): a command whose wallet refused a send is no success.
+        let result = crate::structured_budget::outcome::gate_session(result, config);
         refuse_unmet_session(
             result,
             run.as_deref(),
@@ -358,5 +360,62 @@ mod tests {
                 .starts_with("profile_tool_refused: stage_incomplete: obligations_unmet"),
             "{error}"
         );
+    }
+
+    /// A configuration whose wallet refused a send of the command running now (Issue #976).
+    fn refused_command() -> (
+        crate::structured_budget::test_support::TestWallet,
+        crate::config::Config,
+    ) {
+        let wallet = crate::structured_budget::test_support::TestWallet::open(|value| {
+            value["limits"]["physical_sends"] = serde_json::json!(1);
+        });
+        wallet.send(50, None).unwrap();
+        wallet.send(50, None).unwrap_err();
+        let mut config = crate::tools::profile_tools::effects::config_for_test(&wallet.workspace);
+        config.field_sources.run_budget = Some(wallet.handle.clone());
+        (wallet, config)
+    }
+
+    fn command_refusal(
+        error: &anyhow::Error,
+    ) -> Option<crate::structured_budget::outcome::CommandRefusal> {
+        error
+            .downcast_ref::<crate::structured_budget::outcome::CommandRefusal>()
+            .copied()
+    }
+
+    /// G5 answers before G4: a stage left unmet does not hide that the wallet refused a send.
+    #[test]
+    fn the_wallet_answers_before_the_stages() {
+        let temp = tempfile::tempdir().unwrap();
+        let (_wallet, config) = refused_command();
+        let funnel = StageFunnel::enter(&RunSessionOptions::default());
+        enter_stage_run(bound_run(&temp));
+        let error = funnel.finish(Ok(2), &config).unwrap_err();
+        assert!(command_refusal(&error).is_some(), "{error}");
+    }
+
+    /// A stage set that lets a step end, and no stage set at all, let no refused command succeed.
+    #[test]
+    fn stages_that_let_a_step_end_let_no_refused_command_succeed() {
+        let temp = tempfile::tempdir().unwrap();
+        let (_wallet, config) = refused_command();
+        let step = RunSessionOptions::plan_step(
+            crate::minimal_loop::loop_run::RunSessionStepKind::Implement,
+        );
+        let funnel = StageFunnel::enter(&step);
+        let run = bound_run(&temp);
+        assert!(
+            run.judge(StageScope::Touched).is_none(),
+            "the stages alone let this step end"
+        );
+        enter_stage_run(run);
+        let error = funnel.finish(Ok(1), &config).unwrap_err();
+        assert!(command_refusal(&error).is_some(), "{error}");
+
+        let funnel = StageFunnel::enter(&RunSessionOptions::default());
+        let error = funnel.finish(Ok(1), &config).unwrap_err();
+        assert!(command_refusal(&error).is_some(), "{error}");
     }
 }

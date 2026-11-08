@@ -442,7 +442,8 @@ impl LmStudioClient {
             .run_budget
             .as_ref()
             .map(|handle| BudgetedBody::new(handle, body, send_purpose(self.provider_role)))
-            .transpose()?;
+            .transpose()?
+            .map(|budgeted| budgeted.of_session(crate::provider_call::current_final_repair()));
         for attempt in 0..=self.retries {
             let request = self.http.post(format!("{}{endpoint}", self.base_url));
             let (request, mut send) = match &budgeted {
@@ -460,7 +461,12 @@ impl LmStudioClient {
                     let text = call
                         .run(response.text())?
                         .inspect_err(|error| transport::note_body_error(&mut send, error))?;
-                    transport::settle_body(&mut send, &text).map_err(transport::refused)?;
+                    // The calls of this reply are of the send settled here, and of no other.
+                    if let Some(response) = transport::settle_body_identified(&mut send, &text)
+                        .map_err(transport::refused)?
+                    {
+                        crate::provider_call::note_settled_response(response);
+                    }
                     if let Some(routing) = &self.openrouter_routing {
                         let event = routing.observed_event(
                             self.kind.label(),
@@ -2558,6 +2564,404 @@ mod run_budget_tests {
             stdout.contains(FACTORY_RAN),
             "{FACTORY_RAN} missing\n{stdout}\n{stderr}"
         );
+    }
+
+    /// Issue #976, stage 3c (N4, N5): final-repair sessions as a run makes them, through the loop
+    /// and this client, to a fake on 127.0.0.1.
+    /// Issue #976, R1: a call's reply carries the send its own worker settled, so the calls of
+    /// that reply are tied to it and to no other. The usage of each reply is its own, so which
+    /// send a reply is of can be read off the ledger, whatever order the calls ran in.
+    mod response_identity {
+        use std::sync::Arc;
+
+        use super::{
+            KNOWN, ProviderCallOutcome, ProviderCallScope, ProviderChatRequest, Reply, World,
+            reply_body,
+        };
+        use crate::provider_call;
+        use crate::state::ConversationMessage;
+        use crate::structured_budget::reservation::{AttemptState, BudgetRefusal};
+        use crate::structured_budget::transport::budget_refusal;
+
+        fn usage(prompt_tokens: u64) -> String {
+            format!(r#"{{"prompt_tokens":{prompt_tokens},"completion_tokens":5,"cost":0.00001}}"#)
+        }
+
+        /// The prompt tokens the ledger settled for the send this outcome names.
+        fn settled_prompt_tokens(world: &World, outcome: &ProviderCallOutcome) -> Option<u64> {
+            let physical = outcome.response?.physical();
+            let wallet = world.handle.wallet().unwrap();
+            let attempt = wallet.attempt(physical)?;
+            assert_eq!(attempt.state, AttemptState::Settled);
+            attempt
+                .settlement
+                .as_ref()
+                .map(|record| record.prompt_tokens)
+        }
+
+        #[test]
+        fn each_reply_names_the_send_its_own_call_settled() {
+            let world = World::new();
+            let fake = super::Fake::spawn(vec![
+                Reply::Status(200, reply_body(&usage(10))),
+                Reply::Status(200, reply_body(&usage(20))),
+            ]);
+            let mut client = world.client(&fake.url());
+            let first = world.ask(&mut client, 30, || false);
+            let second = world.ask(&mut client, 30, || false);
+            assert_eq!(fake.finish().len(), 2);
+            assert_eq!(settled_prompt_tokens(&world, &first), Some(10));
+            assert_eq!(settled_prompt_tokens(&world, &second), Some(20));
+            assert_ne!(first.response, second.response);
+            for outcome in [&first, &second] {
+                assert_eq!(
+                    outcome.result.as_ref().unwrap().prompt_tokens,
+                    settled_prompt_tokens(&world, outcome)
+                );
+            }
+        }
+
+        /// Two calls at once on clones of one client. However they interleave (the wallet lets a
+        /// send out only with none unresolved), a call that got a reply names its own send, and a
+        /// call that got none names none.
+        #[test]
+        fn calls_at_once_each_get_their_own_send() {
+            let world = World::new();
+            let fake = super::Fake::spawn(vec![
+                Reply::Status(200, reply_body(&usage(10))),
+                Reply::Status(200, reply_body(&usage(20))),
+            ]);
+            let client = world.client(&fake.url());
+            let config = Arc::new(world.config("http://127.0.0.1:9/v1", None));
+            let outcomes = std::thread::scope(|scope| {
+                let calls = (0..2)
+                    .map(|_| {
+                        let mut client = client.clone();
+                        let config = config.clone();
+                        scope.spawn(move || {
+                            provider_call::chat_with_cancel_and_stream(
+                                &mut client,
+                                &config,
+                                ProviderChatRequest {
+                                    scope: ProviderCallScope::Executor,
+                                    model: "m-1",
+                                    messages: &[ConversationMessage::user("hello-976")],
+                                    tools: &[],
+                                    native_tools_enabled: false,
+                                },
+                                || false,
+                                &mut |_chunk| Ok(()),
+                            )
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                calls
+                    .into_iter()
+                    .map(|call| call.join().unwrap())
+                    .collect::<Vec<_>>()
+            });
+            let answered = fake.finish().len();
+            let mut tokens = Vec::new();
+            for outcome in &outcomes {
+                match &outcome.result {
+                    Ok(reply) => {
+                        let settled = settled_prompt_tokens(&world, outcome);
+                        assert!(settled.is_some());
+                        assert_eq!(reply.prompt_tokens, settled);
+                        tokens.push(settled);
+                    }
+                    Err(error) => {
+                        assert_eq!(outcome.response, None, "{error:#}");
+                        assert_eq!(budget_refusal(error), Some(BudgetRefusal::Unresolved));
+                    }
+                }
+            }
+            assert!(!tokens.is_empty());
+            assert_eq!(tokens.len(), answered);
+            tokens.sort();
+            tokens.dedup();
+            assert_eq!(tokens.len(), answered, "no two replies name one send");
+        }
+
+        /// A call that gave up has no reply and names no send; its late send is cancelled, so
+        /// it never settles, and the next call of the command is refused, naming none either.
+        #[test]
+        fn a_call_that_gave_up_names_no_send() {
+            let world = World::new();
+            let fake = super::Fake::spawn(vec![Reply::Hang, Reply::Status(200, reply_body(KNOWN))]);
+            let mut client = world.client(&fake.url());
+            let gave_up = world.ask(&mut client, 1, || false);
+            assert!(gave_up.timed_out);
+            assert_eq!(gave_up.response, None);
+            world.until_no_send_is_out();
+            let next = world.ask(&mut client, 30, || false);
+            assert_eq!(
+                budget_refusal(next.result.as_ref().unwrap_err()),
+                Some(BudgetRefusal::Latched)
+            );
+            assert_eq!(next.response, None);
+            assert_eq!(fake.finish().len(), 1);
+        }
+
+        /// A reply its call cannot use, settled all the same, names no send: no call comes of it.
+        #[test]
+        fn a_settled_reply_the_call_cannot_use_names_no_send() {
+            let world = World::new();
+            let fake = super::Fake::spawn(vec![Reply::Status(
+                200,
+                format!(r#"{{"id":"c-976","choices":[],"usage":{KNOWN}}}"#),
+            )]);
+            let mut client = world.client(&fake.url());
+            let outcome = world.ask(&mut client, 30, || false);
+            assert!(outcome.result.is_err());
+            assert_eq!(outcome.response, None);
+            assert_eq!(fake.finish().len(), 1);
+            let wallet = world.handle.wallet().unwrap();
+            assert_eq!(wallet.attempts[0].state, AttemptState::Settled);
+        }
+
+        /// Off: no wallet, no send to name, and the reply is the same.
+        #[test]
+        fn with_no_wallet_a_reply_names_no_send() {
+            let world = World::new();
+            let fake = super::Fake::spawn(vec![Reply::Status(200, reply_body(KNOWN))]);
+            let mut client = world.client_of(&world.config(&fake.url(), None));
+            let outcome = world.ask(&mut client, 30, || false);
+            assert_eq!(outcome.result.unwrap().content, "done");
+            assert_eq!(outcome.response, None);
+            assert_eq!(fake.finish().len(), 1);
+            assert_eq!(world.sends(), 0);
+        }
+    }
+
+    mod final_repair_sessions {
+        use serde_json::{Value, json};
+
+        use super::{Fake, KNOWN, Received, Reply, World};
+        use crate::config::Config;
+        use crate::minimal_loop::loop_run::{
+            RunSessionOptions, RunSessionOutcome, run_session_with_outcome_with_options,
+        };
+        use crate::state::SessionSnapshot;
+        use crate::structured_budget::identity::SendPurpose;
+        use crate::structured_budget::reservation::BudgetRefusal;
+        use crate::structured_budget::transport::budget_refusal;
+        use crate::tui::NOOP_UI;
+
+        const PROMPT: &str = "Repair final acceptance.\n\nRequired final artifacts:\n- target.txt";
+
+        /// A session's bodies are far larger than the shortest one a wallet test sends.
+        fn roomy(value: &mut Value) {
+            value["max_input_tokens"] = json!(50_000_000_u64);
+            value["limits"]["tokens"] = json!(1_000_000_000_u64);
+        }
+
+        fn write(path: &str, content: &str) -> Reply {
+            let body = json!({
+                "id": "c-976",
+                "model": "m-1",
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "content": null,
+                        "tool_calls": [{
+                            "id": "call-976",
+                            "type": "function",
+                            "function": {
+                                "name": "Write",
+                                "arguments": json!({"path": path, "content": content}).to_string()
+                            }
+                        }]
+                    },
+                    "finish_reason": "tool_calls"
+                }],
+                "usage": serde_json::from_str::<Value>(KNOWN).unwrap()
+            });
+            Reply::Status(200, body.to_string())
+        }
+
+        fn session(
+            world: &World,
+            config: &Config,
+            options: RunSessionOptions,
+        ) -> anyhow::Result<RunSessionOutcome> {
+            let mut client = world.client_of(config);
+            let mut session = SessionSnapshot::new();
+            run_session_with_outcome_with_options(
+                &mut client,
+                &mut session,
+                PROMPT,
+                &["target.txt".to_string()],
+                config,
+                &NOOP_UI,
+                options,
+            )
+        }
+
+        fn config_of(world: &World, url: &str, budgeted: bool, iterations: usize) -> Config {
+            let mut config = world.config(url, budgeted.then(|| world.handle.clone()));
+            config.yes = true;
+            config.max_iterations = iterations;
+            config
+        }
+
+        fn attempts(world: &World) -> Vec<(SendPurpose, Option<u64>)> {
+            world
+                .handle
+                .wallet()
+                .unwrap()
+                .attempts
+                .iter()
+                .map(|attempt| {
+                    let final_repair = attempt.final_repair.map(|id| id.number());
+                    (attempt.purpose, final_repair)
+                })
+                .collect()
+        }
+
+        /// Each session opens one, and the one past the policy's limit sends nothing.
+        #[test]
+        fn each_final_repair_session_opens_one_and_none_past_the_limit_is_sent() {
+            let world = World::with(|value| {
+                roomy(value);
+                value["limits"]["final_repair_attempts"] = json!(2);
+            });
+            let fake = Fake::spawn(vec![
+                write("target.txt", "one\n"),
+                write("target.txt", "two\n"),
+                write("target.txt", "three\n"),
+            ]);
+            let config = config_of(&world, &fake.url(), true, 4);
+            let outcomes = (0..3)
+                .map(|_| {
+                    session(
+                        &world,
+                        &config,
+                        RunSessionOptions::final_acceptance_repair(),
+                    )
+                })
+                .collect::<Vec<_>>();
+            assert!(outcomes[0].is_ok() && outcomes[1].is_ok());
+            let Err(third) = &outcomes[2] else {
+                panic!("the third is refused");
+            };
+            assert_eq!(
+                budget_refusal(third),
+                Some(BudgetRefusal::FinalRepairAttemptsExceeded),
+                "{third:#}"
+            );
+            assert_eq!(fake.finish().len(), 2);
+            assert_eq!(
+                attempts(&world),
+                vec![
+                    (SendPurpose::FinalRepair, Some(1)),
+                    (SendPurpose::FinalRepair, Some(2)),
+                ]
+            );
+        }
+
+        /// However many turns one session takes, it is one final repair.
+        #[test]
+        fn every_turn_of_one_final_repair_session_continues_its_one() {
+            let world = World::with(|value| {
+                roomy(value);
+                value["limits"]["final_repair_attempts"] = json!(1);
+            });
+            let mut replies = (0..5)
+                .map(|index| write(&format!("note-{index}.txt"), "note\n"))
+                .collect::<Vec<_>>();
+            replies.push(write("target.txt", "done\n"));
+            let fake = Fake::spawn(replies);
+            let config = config_of(&world, &fake.url(), true, 20);
+            let ended = session(
+                &world,
+                &config,
+                RunSessionOptions::final_acceptance_repair(),
+            );
+            let received = fake.finish().len();
+            assert!(received > 1, "{:?}", ended.err());
+            assert_eq!(
+                attempts(&world),
+                vec![(SendPurpose::FinalRepair, Some(1)); received]
+            );
+            assert_eq!(world.handle.wallet().unwrap().final_repair_used(), 1);
+        }
+
+        /// A session the host does not open as a final repair sends as its client's role, and
+        /// opens none, under a limit of none left.
+        #[test]
+        fn a_session_that_is_no_final_repair_sends_as_its_role() {
+            let world = World::with(|value| {
+                roomy(value);
+                value["limits"]["final_repair_attempts"] = json!(1);
+            });
+            let fake = Fake::spawn(vec![
+                write("target.txt", "one\n"),
+                write("target.txt", "two\n"),
+            ]);
+            let config = config_of(&world, &fake.url(), true, 4);
+            session(
+                &world,
+                &config,
+                RunSessionOptions::final_acceptance_repair(),
+            )
+            .unwrap();
+            let mut plain = RunSessionOptions::final_acceptance_repair();
+            plain.final_repair = None;
+            session(&world, &config, plain).unwrap();
+            assert_eq!(fake.finish().len(), 2);
+            assert_eq!(
+                attempts(&world),
+                vec![
+                    (SendPurpose::FinalRepair, Some(1)),
+                    (SendPurpose::Executor, None),
+                ]
+            );
+        }
+
+        /// What leaves: one final-repair session's requests, with its marker and without, under a
+        /// wallet and with none.
+        fn requests(world: &World, budgeted: bool, marked: bool) -> Vec<(Vec<String>, String)> {
+            let _ = std::fs::remove_file(world.workspace.join("target.txt"));
+            let fake = Fake::spawn(vec![write("target.txt", "done\n")]);
+            let config = config_of(world, &fake.url(), budgeted, 4);
+            let mut options = RunSessionOptions::final_acceptance_repair();
+            if !marked {
+                options.final_repair = None;
+            }
+            let before = world.sends();
+            session(world, &config, options).unwrap();
+            let sent = world.sends() - before;
+            let received = fake.finish();
+            assert_eq!(sent, u64::from(budgeted), "only a wallet counts a send");
+            received
+                .iter()
+                .map(|request: &Received| {
+                    let headers = request.headers().into_iter().map(str::to_string).collect();
+                    (headers, String::from_utf8_lossy(&request.body).into_owned())
+                })
+                .collect()
+        }
+
+        /// A marker changes no byte that leaves, with a wallet or without one. What a send is for
+        /// is the ledger's record, not the wire's.
+        #[test]
+        fn a_marker_changes_no_byte_that_leaves() {
+            let world = World::with(roomy);
+            for budgeted in [false, true] {
+                let marked = requests(&world, budgeted, true);
+                let plain = requests(&world, budgeted, false);
+                assert_eq!(marked.len(), 1);
+                assert_eq!(marked, plain, "budgeted: {budgeted}");
+            }
+            assert_eq!(
+                attempts(&world),
+                vec![
+                    (SendPurpose::FinalRepair, Some(1)),
+                    (SendPurpose::Executor, None),
+                ]
+            );
+        }
     }
 }
 

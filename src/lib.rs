@@ -46,6 +46,7 @@ pub mod sensitive_data;
 pub mod startup_credentials;
 pub mod state;
 pub(crate) mod structured_budget;
+pub use structured_budget::entry::refuse_unmetered_gui_send;
 pub mod time_profile;
 pub mod tools;
 pub mod tui;
@@ -134,9 +135,14 @@ pub fn run_with_provider_options(
     let pack_cli = cli.clone();
     let summary_json = cli.summary_json;
     let sandbox_mode = cli.sandbox;
+    structured_budget::entry::refuse_sandbox_off(sandbox_mode)
+        .map_err(|refusal| cli_argument_error(refusal.into()))?;
     let request_pattern = cli.request_pattern;
-    let config = Config::from_cli_with_provider_options(cli, provider_options)
+    let mut config = Config::from_cli_with_provider_options(cli, provider_options)
         .map_err(cli_argument_error)?;
+    structured_budget::entry::refuse_a_control_named_as_key(&config)
+        .and_then(|()| structured_budget::entry::refuse_a_control_the_start_takes())
+        .map_err(|refusal| cli_argument_error(refusal.into()))?;
     let resolved_pack = cli_pack::resolve(&pack_cli, &config);
     tools::profile_tools::pre_run::refuse_before_cli_run(&config, &resolved_pack)
         .map_err(|refusal| cli_argument_error(refusal.into()))?;
@@ -164,6 +170,8 @@ pub fn run_with_provider_options(
         }
         tools::os_sandbox::cleanup_guard()
     });
+    structured_budget::entry::open_for_run(action_uses_write_sandbox(&config.action), &mut config)
+        .map_err(|refusal| cli_argument_error(refusal.into()))?;
     for profile in planner::extension_profiles::registered() {
         for warning in &profile.warnings {
             eprintln!("warning: {warning}");

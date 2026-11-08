@@ -210,6 +210,8 @@ pub fn normalize_model_host(value: &str, provider: Provider) -> anyhow::Result<S
 }
 
 async fn discover_models(state: &AppState, provider: Provider) -> anyhow::Result<Vec<String>> {
+    // A model list is a send no run budget counts.
+    commandagent::refuse_unmetered_gui_send()?;
     let client = reqwest::Client::builder()
         .connect_timeout(MODEL_DISCOVERY_TIMEOUT)
         .timeout(MODEL_DISCOVERY_TIMEOUT)

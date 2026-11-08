@@ -459,6 +459,7 @@ pub(super) fn ultra_final_acceptance_report_with_deterministic_remedies(
     cycle_index: usize,
     setup_authority: &mut UltraRunSetupAuthorityState,
 ) -> anyhow::Result<(VerificationReport, Vec<String>)> {
+    crate::structured_budget::command::guard(config)?;
     let mut deterministic_remedies_applied = Vec::new();
     if reconcile_manifest_changed_dependencies_if_needed(config, &plan.profile, setup_authority)?
         .is_some()
@@ -505,6 +506,7 @@ pub(super) fn ultra_final_acceptance_report_inner(
     config: &Config,
     cycle_index: usize,
 ) -> anyhow::Result<VerificationReport> {
+    crate::structured_budget::outcome::gate(config)?;
     let effective_profile_id = ProfileId::parse(&plan.profile);
     let effective_profile = effective_profile_id.to_string();
     let runtime = ProfileRuntimeRegistry::resolve(&effective_profile_id);

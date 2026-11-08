@@ -10,6 +10,8 @@ use crate::eval_events;
 use crate::providers::streaming::CancelToken;
 use crate::providers::{AssistantReply, ChatClient, ProviderResponseMetadata, ResponseTiming};
 use crate::state::ConversationMessage;
+use crate::structured_budget::identity::ResponseIdentity;
+use crate::structured_budget::session::FinalRepairMarker;
 use crate::tools::registry::ToolSpec;
 
 pub const PROVIDER_WAIT_SLICE: Duration = Duration::from_millis(250);
@@ -72,11 +74,77 @@ impl ProviderCallScope {
     }
 }
 
+thread_local! {
+    /// The final-repair marker of the session, or of the call, running on this thread (Issue #976).
+    static FINAL_REPAIR: std::cell::RefCell<Option<FinalRepairMarker>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// The marker on this thread: on a session's thread its session's, on a call's worker its call's.
+pub(crate) fn current_final_repair() -> Option<FinalRepairMarker> {
+    FINAL_REPAIR.with(|current| current.borrow().clone())
+}
+
+/// Around one session: its marker, or none for a session that is no final repair, is on the
+/// thread while it runs, and the one before it is back when it ends.
+#[must_use]
+pub(crate) struct FinalRepairSession {
+    previous: Option<FinalRepairMarker>,
+}
+
+impl Drop for FinalRepairSession {
+    fn drop(&mut self) {
+        let previous = self.previous.take();
+        FINAL_REPAIR.with(|current| *current.borrow_mut() = previous);
+    }
+}
+
+pub(crate) fn enter_final_repair(marker: Option<&FinalRepairMarker>) -> FinalRepairSession {
+    FinalRepairSession {
+        previous: FINAL_REPAIR.with(|current| current.replace(marker.cloned())),
+    }
+}
+
+/// Puts the marker of its call on the call's worker thread, which runs that call alone.
+fn install_final_repair_on_worker(marker: Option<FinalRepairMarker>) {
+    FINAL_REPAIR.with(|current| *current.borrow_mut() = marker);
+}
+
+thread_local! {
+    /// On a call's worker, the response a wallet settled for that call, once one did (Issue
+    /// #976). On every other thread there is no place for one, and nothing is kept.
+    static SETTLED: std::cell::Cell<Option<Option<ResponseIdentity>>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// The send of the call this thread runs was settled as `response`. A thread that is no call's
+/// worker keeps nothing, so no later call can read it.
+pub(crate) fn note_settled_response(response: ResponseIdentity) {
+    SETTLED.with(|settled| {
+        if settled.get().is_some() {
+            settled.set(Some(Some(response)));
+        }
+    });
+}
+
+/// Gives the call's worker a place for its response, empty.
+fn open_settled_on_worker() {
+    SETTLED.with(|settled| settled.set(Some(None)));
+}
+
+/// What this worker's call settled, taken on the worker that read the reply, with the reply.
+fn take_settled_on_worker() -> Option<ResponseIdentity> {
+    SETTLED.with(std::cell::Cell::take).flatten()
+}
+
 pub struct ProviderCallOutcome {
     pub result: anyhow::Result<AssistantReply>,
     pub elapsed: Duration,
     pub timed_out: bool,
     pub aborted_by_user: bool,
+    /// The send this very call's reply came from, when a wallet settled it (Issue #976). Only a
+    /// reply that is this call's result has one: a call that gave up, failed, or was cut has none.
+    pub(crate) response: Option<ResponseIdentity>,
 }
 
 pub struct ProviderChatRequest<'a> {
@@ -158,6 +226,7 @@ struct ProviderWorkerResult {
     result: anyhow::Result<AssistantReply>,
     timing: Option<ResponseTiming>,
     response_metadata: Option<ProviderResponseMetadata>,
+    response: Option<ResponseIdentity>,
 }
 
 enum ProviderWorkerMessage {
@@ -323,6 +392,7 @@ where
                 elapsed: Duration::ZERO,
                 timed_out: false,
                 aborted_by_user: false,
+                response: None,
             };
         }
     };
@@ -412,11 +482,15 @@ where
             elapsed: Duration::ZERO,
             timed_out: false,
             aborted_by_user: false,
+            response: None,
         };
     }
     let schema_tools = crate::tools::profile_tools::schema::invocation::for_provider_worker();
     let worker_model = model.clone();
     let worker_redaction = redaction.clone();
+    // A send of the session's own client is of its final repair, if it is one (Issue #976); the
+    // worker keeps this call's marker even after the call gives up on it.
+    let worker_final_repair = overrides.is_none().then(current_final_repair).flatten();
     let (tx, rx) = mpsc::sync_channel(1);
     // Fires on every exit of this call (cancel, deadline, completion) so the
     // worker's HTTP request is dropped and its connection closes.
@@ -427,6 +501,8 @@ where
         // captured one so snippets they build are scrubbed before truncation.
         crate::sensitive_data::set_current(worker_redaction);
         crate::tools::profile_tools::schema::invocation::install_on_provider_worker(schema_tools);
+        install_final_repair_on_worker(worker_final_repair);
+        open_settled_on_worker();
         let worker_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let result = if stream {
                 worker_client.chat_stream(
@@ -448,6 +524,7 @@ where
                 result,
                 timing,
                 response_metadata,
+                response: take_settled_on_worker(),
             }
         }));
         let message = match worker_result {
@@ -561,6 +638,7 @@ where
                     elapsed,
                     timed_out: true,
                     aborted_by_user: false,
+                    response: None,
                 };
             }
             wait_clock::WaitStep::Message(ProviderWorkerMessage::Chunk(chunk)) => {
@@ -612,6 +690,7 @@ where
                         elapsed,
                         timed_out: false,
                         aborted_by_user: false,
+                        response: None,
                     };
                 }
             }
@@ -629,8 +708,10 @@ where
                     result,
                     timing,
                     response_metadata,
+                    response,
                 } = *worker_result;
                 let result = enforce_response_limit(result, max_response_bytes);
+                let response = response.filter(|_| result.is_ok());
                 let elapsed = clock.elapsed();
                 crate::tui::status_bus::publish_provider_finished(elapsed);
                 if result.is_ok() {
@@ -676,6 +757,7 @@ where
                     elapsed,
                     timed_out: false,
                     aborted_by_user: false,
+                    response,
                 };
             }
             wait_clock::WaitStep::Message(ProviderWorkerMessage::Panicked(payload)) => {
@@ -779,6 +861,7 @@ where
                     elapsed,
                     timed_out: false,
                     aborted_by_user: false,
+                    response: None,
                 };
             }
         }
@@ -1079,6 +1162,7 @@ fn provider_aborted_by_user(
         elapsed,
         timed_out: false,
         aborted_by_user: true,
+        response: None,
     }
 }
 

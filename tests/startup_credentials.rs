@@ -1,7 +1,9 @@
 //! The start of the real binary: where a credential is after it (Issue #974).
 //!
 //! Every secret here is a dummy, every provider is a disposable fake on 127.0.0.1, and every
-//! child starts from a cleared environment.
+//! child starts from a cleared environment: the binaries through [`command`] or a cleared launch
+//! of their own, this test's own children likewise, and every other program, the compiler of the
+//! reporter included, through [`tool`] or a cleared launch of its own (`lsof`, `ps`).
 
 use std::io::{Read as _, Write as _};
 use std::net::TcpListener;
@@ -23,6 +25,114 @@ fn command(workspace: &Path) -> Command {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     command
+}
+
+/// A tool this test runs that is not one of the binaries: the compiler of the reporter, and
+/// `/usr/bin/env` and `/bin/pwd` in the witness below. Its environment is cleared, `PATH` is the
+/// system's, `HOME` and `TMPDIR` are in `directory`, and so is its working directory. Nothing of
+/// the environment this test was started with reaches it, a key there included.
+fn tool(program: &str, directory: &Path) -> Command {
+    let home = directory.join("home");
+    let tmp = directory.join("tmp");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&tmp).unwrap();
+    let mut command = Command::new(program);
+    command
+        .current_dir(directory)
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin")
+        .env("HOME", &home)
+        .env("TMPDIR", &tmp)
+        .stdin(Stdio::null());
+    command
+}
+
+const PARENT_SECRET: &str = "Z976CompilerParentSecretX42";
+const PARENT_HOME: &str = "/nonexistent/parent-home-976";
+const PARENT_TMPDIR: &str = "/nonexistent/parent-tmpdir-976";
+const PARENT_PATH: &str = "/usr/bin:/bin:/nonexistent/parent-path-976";
+const TOOL_DIRECTORY: &str = "CA976_TOOL_DIRECTORY";
+
+/// Runs only as a child of the test below, whose environment holds a key, a HOME, a TMPDIR and a
+/// PATH of its own: writes down what a tool started as [`tool`] starts it has of them.
+#[test]
+fn a_tool_has_nothing_of_the_tests_environment_child() {
+    let Some(directory) = std::env::var_os(TOOL_DIRECTORY) else {
+        return;
+    };
+    let directory = Path::new(&directory);
+    assert_eq!(
+        std::env::var("OPENAI_API_KEY").as_deref(),
+        Ok(PARENT_SECRET),
+        "the witness: this process has the key"
+    );
+    for (program, written) in [("/usr/bin/env", "env.txt"), ("/bin/pwd", "pwd.txt")] {
+        let output = tool(program, directory).output().unwrap();
+        assert!(output.status.success(), "{program}");
+        std::fs::write(directory.join(written), &output.stdout).unwrap();
+    }
+}
+
+/// S2 (#976 3b-fix-6): a tool this test starts, its compiler among them, has nothing of the
+/// environment the test was started with. A key, a HOME, a TMPDIR and a PATH given to the test
+/// are none of what the tool has, which is exactly the three of [`tool`], and it works in its own
+/// directory.
+#[test]
+fn a_tool_has_nothing_of_the_tests_environment() {
+    let directory = tempfile::tempdir().unwrap();
+    let output = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "a_tool_has_nothing_of_the_tests_environment_child",
+            "--nocapture",
+        ])
+        .env_clear()
+        .env("OPENAI_API_KEY", PARENT_SECRET)
+        .env("HOME", PARENT_HOME)
+        .env("TMPDIR", PARENT_TMPDIR)
+        .env("PATH", PARENT_PATH)
+        .env(TOOL_DIRECTORY, directory.path())
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success() && stdout.contains("1 passed"),
+        "{stdout}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let env = std::fs::read_to_string(directory.path().join("env.txt")).unwrap();
+    let pwd = std::fs::read_to_string(directory.path().join("pwd.txt")).unwrap();
+    let mut wrong = Vec::new();
+    for parents in [
+        "OPENAI_API_KEY",
+        PARENT_SECRET,
+        PARENT_HOME,
+        PARENT_TMPDIR,
+        "parent-path-976",
+        TOOL_DIRECTORY,
+    ] {
+        if env.contains(parents) {
+            wrong.push(format!("the tool has the test's {parents}"));
+        }
+    }
+    let mut lines = env.lines().map(str::to_string).collect::<Vec<_>>();
+    lines.sort();
+    let expected = vec![
+        format!("HOME={}", directory.path().join("home").display()),
+        "PATH=/usr/bin:/bin".to_string(),
+        format!("TMPDIR={}", directory.path().join("tmp").display()),
+    ];
+    if lines != expected {
+        wrong.push(format!(
+            "the tool's environment is {lines:?}, not {expected:?}"
+        ));
+    }
+    let own = directory.path().canonicalize().unwrap();
+    if Path::new(pwd.trim_end()) != own {
+        wrong.push(format!("the tool works in {pwd:?}, not {own:?}"));
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
 
 /// A fake provider. It records what each request's first lines say, tells the test about the
@@ -784,6 +894,60 @@ mod refused_starts {
         assert!(authorization_of(&[first]).contains(&expected));
     }
 
+    /// The marker of a control taken out says one word of the source. Any other value beside a
+    /// handoff, forged, cut, or of another case, stops the start: it is never read as a word, and
+    /// never as a name. The witness: the exact word, by hand, is kept, and the run is refused for
+    /// the control it says was taken, with no provider called.
+    #[test]
+    fn a_marker_of_a_control_other_than_the_starts_word_stops_the_start() {
+        const TAKEN_OUT: &str = "COMMANDAGENT_BOOT_TAKEN_OUT";
+        const WORD: &str = "a-control-of-the-run-budget";
+        for forged in [
+            "",
+            "a-control-of-the-run-budgetX",
+            "a-control-of-the-run-budge",
+            "A-CONTROL-OF-THE-RUN-BUDGET",
+            " a-control-of-the-run-budget",
+            "COMMANDAGENT_RUN_BUDGET",
+            "yes",
+        ] {
+            assert_refused(
+                forged,
+                "the handoff's marker is not the start's word",
+                |command| {
+                    hand_pipe_at(
+                        command,
+                        frame(&[("LM_STUDIO_API_TOKEN", DUMMY)]),
+                        Writer::Closed,
+                    );
+                    command.env(MARKER, AT.to_string()).env(TAKEN_OUT, forged);
+                },
+            );
+        }
+
+        let workspace = tempfile::tempdir().unwrap();
+        let provider = FakeProvider::start();
+        let mut command = super::command(workspace.path());
+        command
+            .args(lm_studio_arguments(&provider.url))
+            .env(MARKER, AT.to_string())
+            .env(TAKEN_OUT, WORD);
+        hand_pipe_at(
+            &mut command,
+            frame(&[("LM_STUDIO_API_TOKEN", DUMMY)]),
+            Writer::Closed,
+        );
+        let output = command.output().unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(2), "{stderr}");
+        assert!(
+            stderr.contains("the run budget refused the entry: KeyIsControl"),
+            "{stderr}"
+        );
+        assert!(!stderr.contains(DUMMY), "{stderr}");
+        assert!(provider.drain().is_empty(), "a provider was called");
+    }
+
     /// The numbers below [`AT`] and just above it, filled or freed in the child so that its next
     /// `pipe()` lands where a test wants it. The filling closes at the exec.
     fn free_only(command: &mut Command, free: [i32; 2]) {
@@ -1368,4 +1532,452 @@ fn a_command_line_that_does_not_parse_still_says_only_what_it_said() {
     });
     assert!(!output.status.success());
     assert!(!String::from_utf8_lossy(&output.stderr).contains(DUMMY));
+}
+
+// ---- a key name a preset expands from a credential, and the marker of the run budget (S1) ----
+
+/// A dummy credential whose value has the shape of a variable's name, so that a preset's
+/// `api_key_env = "${LM_STUDIO_API_TOKEN}"` takes it as the key's name.
+#[cfg(target_os = "macos")]
+const NAME_SHAPED: &str = "Z976AlphaCredentialValueX42";
+
+/// A workspace whose selected preset `ref976` names its key by `api_key_env`.
+#[cfg(target_os = "macos")]
+fn preset_workspace(api_key_env: &str) -> tempfile::TempDir {
+    let workspace = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(workspace.path().join(".commandagent")).unwrap();
+    std::fs::write(
+        workspace.path().join(".commandagent/config.toml"),
+        format!("[preset.ref976]\napi_key_env = \"{api_key_env}\"\n"),
+    )
+    .unwrap();
+    workspace
+}
+
+/// #974 after #976: a preset's key name expanded from a credential is that credential's value,
+/// and nothing the start writes for its exec holds it. Read as in the test of the exec-time area
+/// above: argv, every variable, and the raw area hold no part of it, and the only marker of the
+/// start there is the descriptor's number. The witness of the read is that test's own witness.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_key_name_expanded_from_a_credential_is_not_in_the_exec_time_area() {
+    for api_key_env in ["${LM_STUDIO_API_TOKEN}", "GATEWAY_KEY_976"] {
+        let workspace = preset_workspace(api_key_env);
+        let provider = FakeProvider::holding();
+        let child = command(workspace.path())
+            .args(["--preset", "ref976"])
+            .args(lm_studio_arguments(&provider.url))
+            .env("LM_STUDIO_API_TOKEN", NAME_SHAPED)
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        provider.wait_for_request();
+        let area = procargs::read(pid);
+        stop(child);
+        assert!(!procargs::holds(&area.raw, NAME_SHAPED), "{api_key_env}");
+        assert!(
+            area.argv
+                .iter()
+                .all(|argument| !procargs::holds(argument, NAME_SHAPED)),
+            "{api_key_env}"
+        );
+        let boot = area
+            .env
+            .iter()
+            .filter(|row| row.starts_with(b"COMMANDAGENT_BOOT"))
+            .map(|row| String::from_utf8_lossy(row).into_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(boot.len(), 1, "{api_key_env}: {boot:?}");
+        assert!(boot[0].starts_with("COMMANDAGENT_BOOT_FD="), "{boot:?}");
+    }
+}
+
+/// A library put in the binary by `DYLD_INSERT_LIBRARIES`, which this test builds, reports the
+/// names of the environment when each image of the process starts (before `main`: step 0's, then
+/// step 1's after the exec) and when the process ends. Of values it writes only the marker's,
+/// which is never a credential. Nothing in the binary is added for it.
+#[cfg(target_os = "macos")]
+const REPORTER: &str = r#"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+extern char **environ;
+static void report(const char *when) {
+    const char *path = getenv("CA976_ENV_REPORT");
+    if (!path) return;
+    FILE *file = fopen(path, "a");
+    if (!file) return;
+    fprintf(file, "--%s--\n", when);
+    for (char **entry = environ; *entry; ++entry) {
+        const char *equals = strchr(*entry, '=');
+        size_t length = equals ? (size_t)(equals - *entry) : strlen(*entry);
+        fwrite(*entry, 1, length, file);
+        if (equals && strncmp(*entry, "COMMANDAGENT_BOOT_TAKEN_OUT=", length + 1) == 0) {
+            fputs(equals, file);
+        }
+        fputc('\n', file);
+    }
+    fclose(file);
+}
+__attribute__((constructor)) static void at_start(void) { report("start"); }
+__attribute__((destructor)) static void at_end(void) { report("end"); }
+"#;
+
+/// The compiler of the reporter: the one place it is named in code.
+#[cfg(target_os = "macos")]
+const COMPILER: &str = "/usr/bin/cc";
+
+/// The reporter, built once for this test by [`COMPILER`]. Only the compiler is chosen here; all
+/// of the build is [`reporter_built_by`], which the witness below runs with an observer in its
+/// place, so what the compiler is given is what that witness sees.
+#[cfg(target_os = "macos")]
+fn reporter(directory: &Path) -> std::path::PathBuf {
+    reporter_built_by(COMPILER, directory)
+}
+
+/// The build of the reporter by `compiler`, started as [`tool`] starts any program: from a cleared
+/// environment, with nothing added for the SDK (`xcrun` finds it from the system's own setting).
+/// A machine without a working `/usr/bin/cc` (the command line tools) fails here, saying so, and
+/// is never taken for a pass.
+#[cfg(target_os = "macos")]
+fn reporter_built_by(compiler: &str, directory: &Path) -> std::path::PathBuf {
+    let source = directory.join("reporter.c");
+    let library = directory.join("reporter.dylib");
+    std::fs::write(&source, REPORTER).unwrap();
+    let built = tool(compiler, directory)
+        .args(["-dynamiclib", "-o"])
+        .arg(&library)
+        .arg(&source)
+        .output()
+        .unwrap_or_else(|error| {
+            panic!(
+                "this test needs {compiler} to build its reporter, and it did not start: {error}"
+            )
+        });
+    assert!(
+        built.status.success(),
+        "this test needs {compiler} to build its reporter, and it failed: {}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+    library
+}
+
+/// The observer put in the compiler's place: it writes down its environment, its working
+/// directory and its arguments, beside itself, and makes the library it was asked for. Perl adds
+/// nothing to the environment it is given, as a shell would (`PWD`, `SHLVL`, `_`).
+#[cfg(target_os = "macos")]
+const OBSERVER: &str = r#"#!/usr/bin/perl
+use strict;
+use Cwd ();
+my $seen = '<SEEN>';
+open(my $env, '>', "$seen/env.txt") or die "env.txt: $!";
+print $env map { "$_=$ENV{$_}\n" } sort keys %ENV;
+close($env) or die;
+open(my $cwd, '>', "$seen/cwd.txt") or die "cwd.txt: $!";
+print $cwd Cwd::getcwd(), "\n";
+close($cwd) or die;
+open(my $args, '>', "$seen/args.txt") or die "args.txt: $!";
+print $args map { "$_\n" } @ARGV;
+close($args) or die;
+open(my $library, '>', $ARGV[2]) or die "library: $!";
+close($library) or die;
+"#;
+
+#[cfg(target_os = "macos")]
+const COMPILER_DIRECTORY: &str = "CA976_COMPILER_DIRECTORY";
+
+/// Runs only as a child of the test below, whose environment holds a key, a HOME, a TMPDIR and a
+/// PATH of its own: builds the reporter as [`reporter`] does, with the observer as its compiler.
+#[cfg(target_os = "macos")]
+#[test]
+fn the_reporters_compiler_has_nothing_of_the_tests_environment_child() {
+    let Some(directory) = std::env::var_os(COMPILER_DIRECTORY) else {
+        return;
+    };
+    let directory = Path::new(&directory);
+    assert_eq!(
+        std::env::var("OPENAI_API_KEY").as_deref(),
+        Ok(PARENT_SECRET),
+        "the witness: this process has the key"
+    );
+    assert!(
+        Path::new("/usr/bin/perl").is_file(),
+        "this witness needs /usr/bin/perl to run its observer"
+    );
+    let seen = directory.join("seen");
+    std::fs::create_dir(&seen).unwrap();
+    let observer = seen.join("observer.pl");
+    std::fs::write(
+        &observer,
+        OBSERVER.replace("<SEEN>", seen.to_str().unwrap()),
+    )
+    .unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&observer, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let library = reporter_built_by(observer.to_str().unwrap(), directory);
+    assert!(library.is_file(), "the observer made no library");
+}
+
+/// S2 (#976 3b-fix-7): the reporter's own build hands its compiler nothing of the environment the
+/// test was started with. The build [`reporter`] runs is run with an observer in the compiler's
+/// place, from a test given a key, a HOME, a TMPDIR and a PATH: the observer has exactly the three
+/// of [`tool`], none of the test's, works in the build's own directory, and is given the
+/// reporter's arguments. Each of its records has to be there, in a directory new for this test.
+#[cfg(target_os = "macos")]
+#[test]
+fn the_reporters_compiler_has_nothing_of_the_tests_environment() {
+    let directory = tempfile::tempdir().unwrap();
+    let output = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "the_reporters_compiler_has_nothing_of_the_tests_environment_child",
+            "--nocapture",
+        ])
+        .env_clear()
+        .env("OPENAI_API_KEY", PARENT_SECRET)
+        .env("HOME", PARENT_HOME)
+        .env("TMPDIR", PARENT_TMPDIR)
+        .env("PATH", PARENT_PATH)
+        .env(COMPILER_DIRECTORY, directory.path())
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success() && stdout.contains("1 passed"),
+        "{stdout}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let seen = directory.path().join("seen");
+    let read = |name: &str| {
+        std::fs::read_to_string(seen.join(name))
+            .unwrap_or_else(|error| panic!("the observer wrote no {name}: {error}"))
+    };
+    let env = read("env.txt");
+    let cwd = read("cwd.txt");
+    let args = read("args.txt");
+    let mut wrong = Vec::new();
+    for parents in [
+        "OPENAI_API_KEY",
+        PARENT_SECRET,
+        PARENT_HOME,
+        PARENT_TMPDIR,
+        "parent-path-976",
+        COMPILER_DIRECTORY,
+    ] {
+        if env.contains(parents) {
+            wrong.push(format!("the compiler has the test's {parents}"));
+        }
+    }
+    let mut lines = env.lines().map(str::to_string).collect::<Vec<_>>();
+    lines.sort();
+    let expected = vec![
+        format!("HOME={}", directory.path().join("home").display()),
+        "PATH=/usr/bin:/bin".to_string(),
+        format!("TMPDIR={}", directory.path().join("tmp").display()),
+    ];
+    if lines != expected {
+        wrong.push(format!(
+            "the compiler's environment is {lines:?}, not {expected:?}"
+        ));
+    }
+    let own = directory.path().canonicalize().unwrap();
+    if Path::new(cwd.trim_end()) != own {
+        wrong.push(format!("the compiler works in {cwd:?}, not {own:?}"));
+    }
+    let given = args.lines().collect::<Vec<_>>();
+    let library = directory.path().join("reporter.dylib");
+    let source = directory.path().join("reporter.c");
+    let reporters = [
+        "-dynamiclib",
+        "-o",
+        library.to_str().unwrap(),
+        source.to_str().unwrap(),
+    ];
+    if given != reporters {
+        wrong.push(format!(
+            "the compiler is given {given:?}, not {reporters:?}"
+        ));
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// What the witness above sees is what the reporter's build is: [`reporter`] only names the
+/// compiler for [`reporter_built_by`], and no other line of this file names it, so no build of the
+/// reporter goes around the one the witness runs.
+#[cfg(target_os = "macos")]
+#[test]
+fn the_reporter_is_built_only_as_the_witness_builds_it() {
+    const SOURCE: &str = include_str!("startup_credentials.rs");
+    let head = [
+        "fn reporter",
+        "(directory: &Path) -> std::path::PathBuf {\n",
+    ]
+    .concat();
+    let start = SOURCE.find(&head).expect("reporter() is where it was") + head.len();
+    let body = &SOURCE[start..start + SOURCE[start..].find("\n}\n").unwrap()];
+    assert_eq!(body.trim(), "reporter_built_by(COMPILER, directory)");
+    let named = format!("{:?}", COMPILER);
+    assert_eq!(SOURCE.matches(&named).count(), 1, "{named} is named once");
+    assert_eq!(COMPILER, ["/usr/bin/", "cc"].concat());
+}
+
+/// What each report said of the marker: `None` where it was absent, its value where present.
+#[cfg(target_os = "macos")]
+fn markers_reported(report: &str) -> Vec<(String, Option<String>)> {
+    let mut seen = Vec::new();
+    for line in report.lines() {
+        if let Some(when) = line
+            .strip_prefix("--")
+            .and_then(|line| line.strip_suffix("--"))
+        {
+            seen.push((when.to_string(), None));
+        } else if let Some(value) = line.strip_prefix("COMMANDAGENT_BOOT_TAKEN_OUT") {
+            let last = seen.last_mut().expect("a report starts with its moment");
+            last.1 = Some(value.strip_prefix('=').unwrap_or(value).to_string());
+        }
+    }
+    seen
+}
+
+/// macOS, the real binary through `main`: the marker of a control taken out is the start's own.
+/// - Given a forged marker and a handoff, step 0 takes it out before its exec: step 1's image
+///   starts with none, and the run goes on to the provider.
+/// - Given a forged marker and nothing to hand over, step 0 takes it out all the same: the
+///   process ends with none.
+/// - Taking the selection out as a key, step 0 writes the one word and nothing else, and step 1
+///   takes it out again: the process ends with none. The run is refused for the control.
+/// - A preset key name expanded from a credential is written nowhere: no marker at all.
+///
+/// No report names any credential's value, and the end of every process has no marker.
+///
+/// What it needs of the machine, macOS only (elsewhere it is not built): `/usr/bin/cc`, to build
+/// the reporter (see [`reporter`]), and a binary that takes `DYLD_INSERT_LIBRARIES`, as cargo's
+/// unsigned, not hardened test build does. Where the library is not put in, no report is written,
+/// and the row fails, saying that, never passing for an empty report.
+#[cfg(target_os = "macos")]
+#[test]
+fn the_marker_is_the_starts_own_word_and_leaves_the_environment() {
+    let tools = tempfile::tempdir().unwrap();
+    let library = reporter(tools.path());
+    let word = || Some("a-control-of-the-run-budget".to_string());
+    let forged = || Some("forged".to_string());
+    // (row, the environment beside the reporter, the arguments, the preset, the reports' markers)
+    type Row = (
+        &'static str,
+        Vec<(&'static str, &'static str)>,
+        Vec<&'static str>,
+        Option<&'static str>,
+        Vec<(&'static str, Option<String>)>,
+    );
+    // An empty list of arguments is a run on the fake LM Studio; any other is put before a model
+    // and a prompt, with `<URL>` the fake's address.
+    let rows: Vec<Row> = vec![
+        (
+            "a forged marker and a handoff",
+            vec![
+                ("OPENAI_API_KEY", DUMMY),
+                ("COMMANDAGENT_BOOT_TAKEN_OUT", "forged"),
+            ],
+            vec![],
+            None,
+            vec![("start", forged()), ("start", None), ("end", None)],
+        ),
+        (
+            "a forged marker and nothing to hand over",
+            vec![("COMMANDAGENT_BOOT_TAKEN_OUT", "forged")],
+            vec![],
+            None,
+            vec![("start", forged()), ("end", None)],
+        ),
+        (
+            "the selection taken out as a key, beside a forged marker",
+            vec![
+                ("COMMANDAGENT_RUN_BUDGET", "wallet976"),
+                ("COMMANDAGENT_BOOT_TAKEN_OUT", "forged"),
+            ],
+            vec![
+                "--provider",
+                "openai-compatible",
+                "--base-url",
+                "<URL>/v1",
+                "--api-key-env",
+                "COMMANDAGENT_RUN_BUDGET",
+            ],
+            None,
+            vec![("start", forged()), ("start", word()), ("end", None)],
+        ),
+        (
+            "a key name expanded from a credential",
+            vec![("LM_STUDIO_API_TOKEN", NAME_SHAPED)],
+            vec![],
+            Some("${LM_STUDIO_API_TOKEN}"),
+            vec![("start", None), ("start", None), ("end", None)],
+        ),
+    ];
+    let mut wrong = Vec::new();
+    for (row, env, extra, preset, expected) in rows {
+        let workspace = match preset {
+            Some(api_key_env) => preset_workspace(api_key_env),
+            None => tempfile::tempdir().unwrap(),
+        };
+        let report = workspace.path().join("report.txt");
+        let provider = FakeProvider::start();
+        let mut command = command(workspace.path());
+        if preset.is_some() {
+            command.args(["--preset", "ref976"]);
+        }
+        if extra.is_empty() {
+            command.args(lm_studio_arguments(&provider.url));
+        } else {
+            command
+                .args(
+                    extra
+                        .iter()
+                        .map(|argument| argument.replace("<URL>", &provider.url)),
+                )
+                .args(["--model", "m", "--chat-retries", "0", "--prompt", "hello"]);
+        }
+        command
+            .env("DYLD_INSERT_LIBRARIES", &library)
+            .env("CA976_ENV_REPORT", &report);
+        for (name, value) in env {
+            command.env(name, value);
+        }
+        let output = command.output().unwrap();
+        let said = std::fs::read_to_string(&report).unwrap_or_default();
+        let seen = markers_reported(&said);
+        let expected = expected
+            .into_iter()
+            .map(|(when, marker)| (when.to_string(), marker))
+            .collect::<Vec<_>>();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let reached = !provider.drain().is_empty();
+        let ended_as_it_should = match row {
+            "the selection taken out as a key, beside a forged marker" => {
+                output.status.code() == Some(2)
+                    && stderr.contains("the run budget refused the entry: KeyIsControl")
+                    && !reached
+            }
+            _ => reached,
+        };
+        if seen != expected
+            || !ended_as_it_should
+            || said.contains(DUMMY)
+            || said.contains(NAME_SHAPED)
+        {
+            let unreported = if said.is_empty() {
+                " (no report at all: DYLD_INSERT_LIBRARIES was not taken, which this test needs)"
+            } else {
+                ""
+            };
+            wrong.push(format!(
+                "{row}: reports {seen:?}{unreported}, reached {reached}, exit {:?}: {stderr}",
+                output.status.code()
+            ));
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }

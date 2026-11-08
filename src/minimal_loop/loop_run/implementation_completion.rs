@@ -11,9 +11,13 @@ use repair_artifact_completion::{LegacyRead, RepairArtifactCompletion};
 use structured_stage_completion::{STAGE_HOLD_PREFIX, StageHold};
 
 impl RunSessionOptions {
+    /// One final-repair session, with a marker of its own: its sends are one final repair under a
+    /// wallet (Issue #976), and each call of this is another.
     pub(crate) fn final_acceptance_repair() -> Self {
         let mut options = Self::plan_step(RunSessionStepKind::Implement);
         options.require_mutation_before_contract_short_circuit = true;
+        options.final_repair =
+            Some(crate::structured_budget::session::FinalRepairMarker::default());
         options
     }
 }

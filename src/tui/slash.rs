@@ -476,6 +476,7 @@ pub fn handle_command(
     if let Some(result) = command_dispatch::immediate_result(command, &words, &config) {
         return result;
     }
+    crate::structured_budget::command::pin_profile(&config)?;
     crate::tui::presentation::accept_command(&parsed, &config);
     if let Some(inference) = config.profile_inference {
         crate::eval_events::emit(

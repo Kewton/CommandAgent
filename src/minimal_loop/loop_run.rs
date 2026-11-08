@@ -433,6 +433,7 @@ pub(crate) fn run_session_with_outcome_with_options(
     ui: &dyn InteractionUi,
     options: RunSessionOptions,
 ) -> anyhow::Result<RunSessionOutcome> {
+    let _final_repair = provider_call::enter_final_repair(options.final_repair.as_ref());
     let mut plan = RequirementPlan::default();
     let run = (client, session, user_prompt, required_paths, config, ui);
     let stages =
@@ -1342,7 +1343,7 @@ fn run_session_planned(
             &verify_repair_state.changed_paths_at_failure,
             &tool_calls,
         );
-        for mut call in tool_calls {
+        for (call_index, mut call) in tool_calls.into_iter().enumerate() {
             let mut split_bash_segments = Vec::new();
             let mut bash_policy_substituted = false;
             if ui.interrupted() {
@@ -1618,6 +1619,7 @@ fn run_session_planned(
                         )
                     })
                 } else {
+                    let registry = registry.for_call(config, chat_outcome.response, call_index);
                     registry.execute_with_cancel(
                         &call.name,
                         &call.arguments,

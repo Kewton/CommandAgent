@@ -29,6 +29,14 @@ pub(crate) struct LogicalId(pub(super) u64);
 #[serde(transparent)]
 pub(crate) struct FinalRepairId(pub(super) u64);
 
+#[cfg(test)]
+impl FinalRepairId {
+    /// Its place in the order the ledger issued final repairs, from 1.
+    pub(crate) fn number(self) -> u64 {
+        self.0
+    }
+}
+
 /// What a send is for. A label, except that a final repair must say so and must hold a
 /// [`FinalRepairClaim`], and nothing else may.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

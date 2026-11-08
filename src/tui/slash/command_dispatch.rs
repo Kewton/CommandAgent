@@ -126,6 +126,7 @@ pub(super) fn run_command(
             ui,
         ),
         SlashCommandKind::Resume => {
+            crate::structured_budget::command::refuse_resume(config)?;
             let resume = crate::runs::prepare_resume(&config.workspace_root, &parsed.goal)?;
             if let Some(error) = resume.workspace_drift_error() {
                 bail!("{error}");

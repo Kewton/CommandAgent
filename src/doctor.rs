@@ -653,6 +653,10 @@ fn add_config_file_checks(
 }
 
 fn add_provider_checks(checks: &mut Vec<DoctorCheck>, config: &Config) {
+    if let Some(refused) = run_budget_check(config) {
+        checks.push(refused);
+        return;
+    }
     let ollama_roles = [
         ("executor", config.provider, config.model.as_str()),
         (
@@ -810,6 +814,43 @@ fn add_provider_checks(checks: &mut Vec<DoctorCheck>, config: &Config) {
             process_credential,
         ));
     }
+}
+
+/// Why no provider check is sent, when none is. A provider check is a send no run budget counts,
+/// so with one selected none is sent. Nor is one sent when the key's variable is a control of the
+/// run budget, selected or not: on macOS the start takes that variable out of the environment,
+/// so a selection under that name would not be seen. The doctor returns before the run's own
+/// check of the names, so it makes the same ones here: the name the configuration kept, and the
+/// name the start took.
+fn run_budget_check(config: &Config) -> Option<DoctorCheck> {
+    use crate::structured_budget::entry::{
+        Unmetered, refuse, refuse_a_control_named_as_key, refuse_a_control_the_start_takes,
+    };
+    let (refusal, message, remediation) = match (
+        refuse(Unmetered::ProviderCheck),
+        refuse_a_control_named_as_key(config).and_then(|()| refuse_a_control_the_start_takes()),
+    ) {
+        (Ok(()), Ok(())) => return None,
+        (Err(refusal), _) => (
+            refusal,
+            "a run budget is selected, so no provider check is sent: nothing would count it",
+            "check the providers in a process with no run budget selected",
+        ),
+        (Ok(()), Err(refusal)) => (
+            refusal,
+            "the key's variable is a control of the run budget, so no provider check is sent",
+            "name the key with a variable of its own",
+        ),
+    };
+    Some(DoctorCheck::new(
+        "provider.run_budget",
+        "provider",
+        "Run budget",
+        CheckStatus::Fail,
+        message,
+        Some(remediation.to_string()),
+        json!({ "refusal": refusal.to_string() }),
+    ))
 }
 
 /// A credential as the run itself resolves it, so the report matches what the run will use.

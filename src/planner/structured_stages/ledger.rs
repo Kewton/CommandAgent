@@ -543,7 +543,6 @@ impl StageLedger {
     }
 
     /// What a later budget attaches a cost to. It reads and changes nothing.
-    #[allow(dead_code, reason = "G5's way in: its budget is what will call this")]
     pub(crate) fn attempt_identity(&self, key: &TargetKey) -> Option<AttemptIdentity> {
         self.machine.attempt_identity(key)
     }

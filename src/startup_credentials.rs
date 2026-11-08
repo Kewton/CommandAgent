@@ -7,10 +7,13 @@
 //!
 //! - Step 0, first in `main`: write the values to a pipe that takes them without blocking, then
 //!   exec the same binary with the same argv, without those variables, with the pipe's number
-//!   in [`BOOT_FD_ENV`].
+//!   in [`BOOT_FD_ENV`], and, when it took a control of the run budget out, one fixed word of
+//!   this source in [`TAKEN_OUT_ENV`]. Nothing else it writes there comes from a name, a
+//!   config, or an expansion, any of which can be a credential's value.
 //! - Step 1, the same pid after that exec: read the pipe within a bound, close it, and keep the
 //!   values in a read-only store in this process. They are not put back into the environment,
-//!   so no child can inherit them by accident.
+//!   so no child can inherit them by accident. Whether a control was taken out is kept once
+//!   beside them, and neither marker stays in the environment.
 //!
 //! The marker is not proof of anything. It names an input from outside this process, judged
 //! like one, and a marker beside a credential that is still in the environment is refused.
@@ -48,6 +51,16 @@ static HELD: OnceLock<Held> = OnceLock::new();
 
 fn held(name: &str) -> Option<&'static str> {
     HELD.get()?.0.get(name).map(String::as_str)
+}
+
+/// Set once, by step 1, when step 0's word says it took a control of the run budget out.
+static TOOK_A_CONTROL: OnceLock<()> = OnceLock::new();
+
+/// Whether this process's start took a control of the run budget out of the environment, as
+/// the start itself said when it took it. `false` when it said nothing: it took none, it took
+/// nothing out, on every other operating system, and for a library caller.
+pub(crate) fn the_start_took_a_control() -> bool {
+    TOOK_A_CONTROL.get().is_some()
 }
 
 /// A credential by name: what step 1 received, then the process environment. This is the only
@@ -93,7 +106,7 @@ pub fn bootstrap_gui() {
 /// The compatible provider's key name, by the same resolution a run uses. A command line that
 /// does not parse ends the process right after this with no tool started, so it adds no name.
 #[cfg(target_os = "macos")]
-fn cli_api_key_env() -> Option<String> {
+pub(crate) fn cli_api_key_env() -> Option<String> {
     let parsed = crate::provider_cli::parse_from(std::env::args_os()).ok()?;
     let root = parsed
         .cli
@@ -191,6 +204,13 @@ mod boot {
 
     /// Names an input from outside this process. It does not match the credential predicate.
     const BOOT_FD_ENV: &str = "COMMANDAGENT_BOOT_FD";
+    /// Says that step 0 took a control of the run budget out of the environment. An input from
+    /// outside like the other, and no credential name either. Its value is [`THE_WORD`] and
+    /// nothing else.
+    const TAKEN_OUT_ENV: &str = "COMMANDAGENT_BOOT_TAKEN_OUT";
+    /// The one value step 0 writes in [`TAKEN_OUT_ENV`], fixed here: no name, config, or
+    /// expansion is ever written in its place.
+    const THE_WORD: &str = "a-control-of-the-run-budget";
 
     /// A fixed reason, and never a name's value: this ends the start.
     fn stop(reason: &str) -> ! {
@@ -221,8 +241,12 @@ mod boot {
     }
 
     /// Step 0. A value that is not text was never readable as a credential, so it stays
-    /// unreadable: it leaves the environment and does not travel.
+    /// unreadable: it leaves the environment and does not travel. A marker this process was
+    /// given is no word of this start's: it leaves the environment first, exec or not, and only
+    /// this start's own judgement writes one again.
     fn hand_off(extra_name: fn() -> Option<String>) {
+        // SAFETY: this is the first act of `main`, while one thread runs.
+        unsafe { std::env::remove_var(TAKEN_OUT_ENV) };
         let names = protected_names(extra_name);
         let found = names
             .iter()
@@ -314,6 +338,12 @@ mod boot {
             }
         }
         command.env(BOOT_FD_ENV, reader.to_string());
+        if names
+            .iter()
+            .any(|name| crate::structured_budget::entry::is_a_control(name))
+        {
+            command.env(TAKEN_OUT_ENV, THE_WORD);
+        }
         set_flag(reader, libc::F_SETFD, 0);
         let _failure = command.exec();
         stop("this executable could not be started again")
@@ -332,11 +362,18 @@ mod boot {
     }
 
     /// Step 1. It holds the values before it judges their names, because the names can depend
-    /// on a config that refers to them, and every refusal ends the process right there.
+    /// on a config that refers to them, and every refusal ends the process right there. Whether
+    /// step 0 took a control out is kept as step 0 said it, and not found again from a config
+    /// that can have changed since: only its exact word says so, and any other value stops the
+    /// start. A handoff with no marker, step 0's when it took none or one made by hand, keeps
+    /// nothing.
     fn receive(marker: &OsStr, extra_name: fn() -> Option<String>) {
         let descriptor = parse_descriptor(marker);
+        let taken_out = std::env::var_os(TAKEN_OUT_ENV);
         // SAFETY: this is the first act of `main`, while one thread runs.
         unsafe { std::env::remove_var(BOOT_FD_ENV) };
+        // SAFETY: as above.
+        unsafe { std::env::remove_var(TAKEN_OUT_ENV) };
         let Some(descriptor) = descriptor else {
             stop("the handoff descriptor is not valid");
         };
@@ -354,6 +391,15 @@ mod boot {
         }
         if names.iter().any(|name| present(name).is_some()) {
             stop("a credential is still in the environment");
+        }
+        let Some(taken_out) = taken_out else {
+            return;
+        };
+        if taken_out != OsStr::new(THE_WORD) {
+            stop("the handoff's marker is not the start's word");
+        }
+        if super::TOOK_A_CONTROL.set(()).is_err() {
+            stop("the handoff arrived twice");
         }
     }
 
@@ -414,6 +460,12 @@ mod boot {
 
     #[cfg(test)]
     pub(super) const BOOT_FD_ENV_FOR_TEST: &str = BOOT_FD_ENV;
+
+    #[cfg(test)]
+    pub(super) const TAKEN_OUT_ENV_FOR_TEST: &str = TAKEN_OUT_ENV;
+
+    #[cfg(test)]
+    pub(super) const THE_WORD_FOR_TEST: &str = THE_WORD;
 }
 
 /// For a test that runs in a process of its own: fills the store once, as step 1 would.
@@ -679,6 +731,51 @@ mod tests {
         ] {
             assert_eq!(parse(bad), None, "{bad:?}");
         }
+    }
+
+    /// The marker's name is no credential name, and its one value is a word of this source that
+    /// is no name either: no variable can be named by it, so no value can stand in its place.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_marker_says_one_fixed_word_that_is_no_name() {
+        use super::boot::{TAKEN_OUT_ENV_FOR_TEST, THE_WORD_FOR_TEST};
+        assert!(!crate::sensitive_data::is_credential_name(
+            TAKEN_OUT_ENV_FOR_TEST
+        ));
+        assert!(!frame::is_name(THE_WORD_FOR_TEST));
+        assert!(!THE_WORD_FOR_TEST.is_empty());
+    }
+
+    /// A tool's child is started with the names its allowlist gives it, and the marker of the names
+    /// taken out is none of them: from this process's environment or set on the command, it does
+    /// not reach the child. `PATH`, on the same list, does: the child's environment was read.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_tool_child_does_not_inherit_the_names_taken_out() {
+        const TEST: &str = "a_tool_child_does_not_inherit_the_names_taken_out";
+        in_own_process(TEST, || {
+            use super::boot::TAKEN_OUT_ENV_FOR_TEST as MARKER;
+            // SAFETY: this process runs this test alone, on one thread at this point.
+            unsafe { std::env::set_var(MARKER, "COMMANDAGENT_RUN_BUDGET") };
+            // SAFETY: as above.
+            unsafe { std::env::set_var("PATH", "/usr/bin:/bin") };
+            let mut command = std::process::Command::new("/usr/bin/env");
+            command
+                .env(MARKER, "COMMANDAGENT_RUN_BUDGET")
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::null());
+            let child = crate::bounded_process::spawn_child(&mut command).unwrap();
+            let output = child.wait_with_output().unwrap();
+            let shown = String::from_utf8_lossy(&output.stdout);
+            assert!(output.status.success(), "{shown}");
+            assert!(
+                shown.lines().any(|line| line == "PATH=/usr/bin:/bin"),
+                "{shown}"
+            );
+            assert!(!shown.contains(MARKER), "{shown}");
+            assert!(!shown.contains("COMMANDAGENT_RUN_BUDGET"), "{shown}");
+        });
     }
 
     /// Nothing reads this pipe until after the exec, so a write that waited would never end. It

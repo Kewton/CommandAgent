@@ -69,6 +69,7 @@ pub(crate) struct RunSessionOptions {
     pub escalation_carryover: Option<EscalationCarryoverHandle>,
     pub recovery_obligation: crate::planner::recovery_repair_obligation::RepairObligation,
     pub request_guidance: Option<String>,
+    pub final_repair: Option<crate::structured_budget::session::FinalRepairMarker>,
 }
 
 impl Default for RunSessionOptions {
@@ -92,6 +93,7 @@ impl Default for RunSessionOptions {
             escalation_carryover: None,
             recovery_obligation: None,
             request_guidance: None,
+            final_repair: None,
         }
     }
 }

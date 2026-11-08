@@ -13,12 +13,15 @@
 //!
 //! A wallet protects itself only from commands the sandbox holds, and only if the workspace it was
 //! checked against is the one the sandbox holds them in. So a send also needs the sandbox applied
-//! and on that workspace.
+//! and on that workspace, and holding commands to the very places the wallet was judged against:
+//! the workspace, the run's temporary, and the caches, as they were when it opened. A sandbox
+//! installed again since, even on the same workspace, has a temporary of its own, and may let
+//! commands write more; no send goes out under it.
 
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use reqwest::header::CONTENT_TYPE;
@@ -26,10 +29,14 @@ use reqwest::{Client, RequestBuilder, Response, redirect};
 use serde_json::Value;
 use serde_json::value::RawValue;
 
-use super::identity::{PhysicalId, SendPurpose};
+use super::identity::{
+    AttemptBinding, LogicalId, LogicalKind, PhysicalId, ResponseIdentity, SendPurpose,
+    SubmissionSource,
+};
 use super::ledger::{BudgetLedger, LedgerFailure, LedgerOpen, LedgerRefusal, StartedPermit};
 use super::policy::RunBudgetPolicy;
 use super::reservation::{AttemptState, ReserveRequest, WalletState};
+use super::session::FinalRepairMarker;
 use super::settlement::{ReportedUsage, SettleReport, UnknownReason};
 use crate::providers::BilledCostUsd;
 use crate::tools::os_sandbox;
@@ -48,6 +55,9 @@ pub(crate) enum SendRefusal {
     SandboxNotApplied,
     /// The sandbox holds them in another workspace than the one the wallet was checked against.
     SandboxOnAnotherWorkspace,
+    /// The sandbox holds them to other places than the ones the wallet was judged against when it
+    /// opened: another temporary, or caches added or gone.
+    SandboxChangedSinceOpen,
     Unavailable,
 }
 
@@ -72,10 +82,27 @@ pub(crate) struct RunBudgetHandle {
     policy: Arc<RunBudgetPolicy>,
     /// As the wallet was checked against it, canonical.
     workspace: PathBuf,
+    /// Where the sandbox applied on the run let commands write when the wallet was judged by it.
+    opened_under: Option<SandboxSnapshot>,
+    /// The command running now, and the first send of it that the wallet refused, in memory only:
+    /// it is that command's, and stops every later send of it (`command.rs`).
+    command: Mutex<CommandRecord>,
     /// What a test says the sandbox is, in place of the state of the process. `None` reads that
     /// state, as a run does.
     #[cfg(test)]
     sandbox_view: Option<SandboxView>,
+}
+
+/// The command running now, by its number from the first, and the first refusal of it. A REPL's
+/// next command has the next number; a send keeps the number of the command it began in, so a
+/// refusal a late worker of an earlier command meets is that command's, and lands on no other.
+#[derive(Debug, Default)]
+struct CommandRecord {
+    number: u64,
+    refusal: Option<SendRefusal>,
+    /// The refusal of each earlier command the wallet refused, by its number: a late worker of one
+    /// of them is refused with it, and no other command reads it.
+    earlier: HashMap<u64, SendRefusal>,
 }
 
 /// The sandbox as one test sees it, so a test of a wallet does not have to install it in a state
@@ -97,6 +124,46 @@ impl PartialEq for RunBudgetHandle {
 
 impl Eq for RunBudgetHandle {}
 
+/// Every place a sandbox policy lets commands write, each as it really leads.
+///
+/// The workspace and the run's temporary that cannot be resolved are `None`, and so never equal to
+/// the resolved ones a wallet opens with. A cache that cannot be resolved is kept as the policy
+/// spells it, with nothing to tell it apart: a cache whose path is already canonical, removed
+/// since the open, compares equal to the one the wallet was judged against. That is meant. Its
+/// path is still the policy's, so it is still where commands may write; the ledger's bounds keep
+/// such a path as a root just the same (`WriteBounds::of` in `ledger.rs`), and a wallet was judged
+/// against it as one. A cache added, or one under another path, does differ, and is refused.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SandboxSnapshot {
+    workspace: Option<PathBuf>,
+    run_tmp_dir: Option<PathBuf>,
+    caches: Vec<PathBuf>,
+}
+
+impl SandboxSnapshot {
+    fn of(policy: &os_sandbox::SandboxPolicy) -> Self {
+        let caches = &policy.caches;
+        let mut roots = [
+            &caches.cargo_registry,
+            &caches.cargo_git,
+            &caches.cargo_package_cache,
+            &caches.npm,
+            &caches.pip,
+            &caches.playwright,
+        ]
+        .into_iter()
+        .flatten()
+        .map(|root| fs::canonicalize(root).unwrap_or_else(|_| root.clone()))
+        .collect::<Vec<_>>();
+        roots.sort();
+        Self {
+            workspace: fs::canonicalize(&policy.workspace_root).ok(),
+            run_tmp_dir: fs::canonicalize(&policy.run_tmp_dir).ok(),
+            caches: roots,
+        }
+    }
+}
+
 /// Whether the sandbox holds commands in the workspace this wallet was checked against.
 fn refuse_another_workspace(
     wallet_workspace: &Path,
@@ -114,14 +181,114 @@ impl RunBudgetHandle {
         let workspace =
             fs::canonicalize(request.workspace).map_err(|_| LedgerRefusal::Unavailable)?;
         let policy = request.policy.clone();
+        let opened_under = request
+            .command_writes
+            .as_ref()
+            .map(|writes| SandboxSnapshot::of(writes.policy()));
         let ledger = BudgetLedger::open(request)?;
         Ok(Self {
             ledger: Mutex::new(ledger),
             policy,
             workspace,
+            opened_under,
+            command: Mutex::new(CommandRecord::default()),
             #[cfg(test)]
             sandbox_view: None,
         })
+    }
+
+    fn command_record(&self) -> MutexGuard<'_, CommandRecord> {
+        self.command.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The number of the command running now.
+    pub(super) fn command_now(&self) -> u64 {
+        self.command_record().number
+    }
+
+    /// The refusal kept for command `command`: the running one's while it runs, and an earlier
+    /// one's after it, for its late workers only.
+    pub(super) fn refusal_kept_for(&self, command: u64) -> Option<SendRefusal> {
+        let record = self.command_record();
+        if record.number == command {
+            record.refusal
+        } else {
+            record.earlier.get(&command).copied()
+        }
+    }
+
+    /// Keeps a refusal of a send of command `command` for that command, before anyone could read
+    /// it, while it is the one running. A refusal of an earlier command is kept for none.
+    fn note_refused(&self, command: u64, refusal: SendRefusal) {
+        let mut record = self.command_record();
+        if record.number == command {
+            record.refusal.get_or_insert(refusal);
+        }
+    }
+
+    /// Keeps `refusal` for the command running now, as a refused send's, and gives it back.
+    pub(super) fn refuse_for_command(&self, refusal: SendRefusal) -> SendRefusal {
+        self.note_refused(self.command_now(), refusal);
+        refusal
+    }
+
+    /// One submission of the command running now (`submission.rs`). Once the wallet refused
+    /// anything of this command, nothing more of it is recorded; a refusal here is kept for the
+    /// command like a refused send's.
+    pub(super) fn record_submission(
+        &self,
+        kind: LogicalKind,
+        source: Option<SubmissionSource>,
+    ) -> Result<LogicalId, SendRefusal> {
+        let command = self.command_now();
+        if let Some(refused) = super::command::refusal_of(self, command) {
+            return Err(refused);
+        }
+        self.ledger()
+            .and_then(|mut ledger| Ok(ledger.record_submission(kind, source)?))
+            .inspect_err(|refusal| self.note_refused(command, *refusal))
+    }
+
+    /// Ties G4's attempt to a submission, on disk. A refusal is kept for the command.
+    pub(super) fn bind_attempt(
+        &self,
+        logical: LogicalId,
+        binding: AttemptBinding,
+    ) -> Result<(), SendRefusal> {
+        let command = self.command_now();
+        self.ledger()
+            .and_then(|mut ledger| Ok(ledger.bind_attempt(logical, binding)?))
+            .inspect_err(|refusal| self.note_refused(command, *refusal))
+    }
+
+    /// The first send of the command running now that the wallet refused.
+    pub(crate) fn refused_in_command(&self) -> Option<SendRefusal> {
+        self.command_record().refusal
+    }
+
+    /// A REPL's next command: it has the next number, and no refusal of its own yet. The last
+    /// command's refusal stays its own.
+    pub(crate) fn forget_command_refusals(&self) {
+        let mut record = self.command_record();
+        if let Some(refusal) = record.refusal.take() {
+            let number = record.number;
+            record.earlier.insert(number, refusal);
+        }
+        record.number = record.number.wrapping_add(1);
+    }
+
+    /// Whether a resume may go on in this wallet (`command.rs`). Nothing is opened again.
+    pub(super) fn refuse_resume(&self) -> Result<(), LedgerRefusal> {
+        self.ledger()
+            .map_err(|_| LedgerRefusal::Unavailable)?
+            .refuse_resume()
+    }
+
+    /// Pins `explicit` as the wallet's profile, in the ledger's own transaction (`command.rs`).
+    pub(super) fn pin_profile(&self, explicit: &str) -> Result<(), LedgerRefusal> {
+        self.ledger()
+            .map_err(|_| LedgerRefusal::Unavailable)?
+            .pin_profile(explicit)
     }
 
     /// This handle, judging the sandbox by `view` instead of by the state of the process.
@@ -155,35 +322,51 @@ impl RunBudgetHandle {
         if let Some(view) = &self.sandbox_view {
             return refuse_another_workspace(&self.workspace, view.applied_on.as_deref());
         }
-        if !os_sandbox::is_applied() {
+        // One reading of what is applied now, before anything else: none is no sandbox.
+        let Some(now) = os_sandbox::applied_policy() else {
             return Err(SendRefusal::SandboxNotApplied);
-        }
+        };
         refuse_another_workspace(
             &self.workspace,
             os_sandbox::installed_workspace_root().as_deref(),
-        )
+        )?;
+        if self.opened_under.as_ref() != Some(&SandboxSnapshot::of(&now)) {
+            return Err(SendRefusal::SandboxChangedSinceOpen);
+        }
+        Ok(())
     }
 
     /// Reserves and starts these bytes. A start that is refused has sent nothing, so its reservation
-    /// goes back.
+    /// goes back. A send of a final-repair session claims, with the ledger locked, a new final
+    /// repair when its session holds none yet and the session's one otherwise, and the session
+    /// keeps the one a new claim opened. Nothing of command `command` goes once the wallet refused
+    /// anything of it.
     fn begin<'b>(
         self: &Arc<Self>,
+        command: u64,
         body: &'b [u8],
         purpose: SendPurpose,
+        final_repair: Option<&FinalRepairMarker>,
     ) -> Result<(OpenSend, StartedPermit<'b>), SendRefusal> {
+        if let Some(refused) = super::command::refusal_of(self, command) {
+            return Err(refused);
+        }
         self.refuse_without_the_sandbox()?;
         let mut ledger = self.ledger()?;
-        let physical = ledger
-            .reserve(&ReserveRequest {
-                body,
-                purpose,
-                final_repair: None,
-            })?
-            .physical;
+        let reservation = ledger.reserve(&ReserveRequest {
+            body,
+            purpose,
+            final_repair: final_repair.map(FinalRepairMarker::claim),
+        })?;
+        if let Some(marker) = final_repair {
+            marker.opened(reservation.final_repair);
+        }
+        let physical = reservation.physical;
         match ledger.start(physical, body) {
             Ok(permit) => Ok((
                 OpenSend {
                     handle: self.clone(),
+                    command,
                     physical,
                     resolved: false,
                 },
@@ -235,6 +418,8 @@ impl RunBudgetHandle {
 #[derive(Debug)]
 pub(crate) struct OpenSend {
     handle: Arc<RunBudgetHandle>,
+    /// The command it began in.
+    command: u64,
     physical: PhysicalId,
     resolved: bool,
 }
@@ -245,9 +430,16 @@ impl OpenSend {
         self.handle.mark_unknown(self.physical, reason);
     }
 
-    fn settle(mut self, text: &str) -> Result<(), SendRefusal> {
+    /// The response, when this settled it: only a settled send is one a call can come from.
+    fn settle(mut self, text: &str) -> Result<Option<ResponseIdentity>, SendRefusal> {
         self.resolved = true;
-        self.handle.settle_response(self.physical, text).map(|_| ())
+        self.handle
+            .settle_response(self.physical, text)
+            .map(|report| match report {
+                Some(SettleReport::Settled(outcome)) => Some(outcome.response),
+                Some(SettleReport::Unknown(_)) | None => None,
+            })
+            .inspect_err(|refusal| self.handle.note_refused(self.command, *refusal))
     }
 }
 
@@ -260,13 +452,18 @@ impl Drop for OpenSend {
     }
 }
 
-/// The bytes of one request under a wallet, fixed for all its tries. They are serialized once, after
-/// everything a body gets has been added to it, so the digest on disk is of what leaves.
+/// The bytes of one request under a wallet, fixed for all its tries, with what they are for. They
+/// are serialized once, after everything a body gets has been added to it, so the digest on disk is
+/// of what leaves. A request of a final-repair session is a final repair, whatever its client's
+/// role, and holds that session's marker for every try.
 #[derive(Debug)]
 pub(crate) struct BudgetedBody {
     handle: Arc<RunBudgetHandle>,
+    /// The command this request is of, as it was when the request was made.
+    command: u64,
     bytes: Vec<u8>,
     purpose: SendPurpose,
+    final_repair: Option<FinalRepairMarker>,
 }
 
 impl BudgetedBody {
@@ -277,9 +474,20 @@ impl BudgetedBody {
     ) -> anyhow::Result<Self> {
         Ok(Self {
             handle: handle.clone(),
+            command: handle.command_now(),
             bytes: serde_json::to_vec(body)?,
             purpose,
+            final_repair: None,
         })
+    }
+
+    /// The request of the session `final_repair` marks, if any: then it is a final repair.
+    pub(crate) fn of_session(mut self, final_repair: Option<FinalRepairMarker>) -> Self {
+        if final_repair.is_some() {
+            self.purpose = SendPurpose::FinalRepair;
+        }
+        self.final_repair = final_repair;
+        self
     }
 
     /// One try: its own reservation and start on disk, and a request whose body only the permit can
@@ -288,7 +496,15 @@ impl BudgetedBody {
         &self,
         request: RequestBuilder,
     ) -> Result<(RequestBuilder, OpenSend), SendRefusal> {
-        let (send, permit) = self.handle.begin(&self.bytes, self.purpose)?;
+        let (send, permit) = self
+            .handle
+            .begin(
+                self.command,
+                &self.bytes,
+                self.purpose,
+                self.final_repair.as_ref(),
+            )
+            .inspect_err(|refusal| self.handle.note_refused(self.command, *refusal))?;
         let request = request
             .header(CONTENT_TYPE, "application/json")
             .body(permit.into_body().to_vec());
@@ -333,9 +549,17 @@ pub(crate) fn note_body_error(send: &mut Option<OpenSend>, error: &reqwest::Erro
 }
 
 pub(crate) fn settle_body(send: &mut Option<OpenSend>, text: &str) -> Result<(), SendRefusal> {
+    settle_body_identified(send, text).map(|_| ())
+}
+
+/// The same, with the response it settled, if it did: what the calls of that response are of.
+pub(crate) fn settle_body_identified(
+    send: &mut Option<OpenSend>,
+    text: &str,
+) -> Result<Option<ResponseIdentity>, SendRefusal> {
     match send.take() {
         Some(send) => send.settle(text),
-        None => Ok(()),
+        None => Ok(None),
     }
 }
 

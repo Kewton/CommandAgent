@@ -8,9 +8,9 @@
 //!   one: the handle is passed by value.
 //! - A wallet with an unresolved send or a set latch allows no send and no success.
 //!
-//! This is the money, the state machine, the ledger, the clock, the one send, and the factory's
-//! refusal. No entry opens a wallet yet, and with no wallet selected nothing here runs at all but
-//! the factory's look at whether one was.
+//! This is the money, the state machine, the ledger, the clock, the one send, the factory's
+//! refusal, and the entry that opens a run's wallet and refuses what it cannot count. With no wallet
+//! selected nothing here runs at all but a look at whether one was.
 
 #![allow(
     dead_code,
@@ -19,11 +19,17 @@
 
 pub(crate) mod admission;
 pub(crate) mod clock;
+pub(crate) mod command;
+pub(crate) mod entry;
 pub(crate) mod identity;
 pub(crate) mod ledger;
+pub(crate) mod outcome;
 pub(crate) mod policy;
 pub(crate) mod reservation;
+pub(crate) mod session;
 pub(crate) mod settlement;
+mod storage;
+pub(crate) mod submission;
 pub(crate) mod transport;
 
 #[cfg(test)]
@@ -190,6 +196,110 @@ pub(crate) mod test_support {
             self.0 ^= self.0 >> 7;
             self.0 ^= self.0 << 17;
             self.0
+        }
+    }
+
+    /// A wallet on a workspace of its own, judged by a sandbox the test holds, on a fake clock.
+    /// Nothing of the process's sandbox is read.
+    pub(crate) struct TestWallet {
+        _root: tempfile::TempDir,
+        pub(crate) workspace: std::path::PathBuf,
+        pub(crate) handle: Arc<super::transport::RunBudgetHandle>,
+        pub(crate) clock: Arc<FakeClock>,
+    }
+
+    impl TestWallet {
+        /// What settles a send at 10 per million dollars and 15 tokens.
+        pub(crate) const KNOWN: &'static str =
+            r#"{"usage":{"prompt_tokens":10,"completion_tokens":5,"cost":0.00001}}"#;
+
+        pub(crate) fn open(change: impl FnOnce(&mut Value)) -> Self {
+            let root = tempfile::tempdir().unwrap();
+            let base = std::fs::canonicalize(root.path()).unwrap();
+            let workspace = base.join("workspace");
+            let run_tmp = base.join("run-tmp");
+            std::fs::create_dir_all(&workspace).unwrap();
+            std::fs::create_dir_all(&run_tmp).unwrap();
+            let mut value = policy_value();
+            value["ledger_dir"] = json!(base.join("ledgers").to_str().unwrap());
+            change(&mut value);
+            let clock = FakeClock::at(7_000);
+            let handle = super::transport::RunBudgetHandle::open(super::ledger::LedgerOpen {
+                policy: Arc::new(decode(&value)),
+                workspace: &workspace,
+                explicit_profile: None,
+                entry: super::ledger::LedgerEntry::Fresh,
+                clock: clock.clone(),
+                command_writes: Some(super::ledger::CommandWrites::of(
+                    crate::tools::os_sandbox::SandboxPolicy::with_home(
+                        &workspace,
+                        &run_tmp,
+                        base.join("home"),
+                    ),
+                )),
+            })
+            .unwrap()
+            .with_sandbox_view(super::transport::SandboxView {
+                applied_on: Some(workspace.clone()),
+            });
+            Self {
+                _root: root,
+                workspace,
+                handle: Arc::new(handle),
+                clock,
+            }
+        }
+
+        /// One send asking for `asks` tokens of output, as a client of a session `marker` marks
+        /// makes it, settled with `report` when the wallet lets it out.
+        pub(crate) fn send_reporting(
+            &self,
+            asks: u64,
+            marker: Option<&super::session::FinalRepairMarker>,
+            report: &str,
+        ) -> Result<(), super::transport::SendRefusal> {
+            let body: Value = serde_json::from_slice(&body_asking_for(asks)).unwrap();
+            let budgeted =
+                super::transport::BudgetedBody::new(&self.handle, &body, SendPurpose::Executor)
+                    .unwrap()
+                    .of_session(marker.cloned());
+            let (_request, send) = budgeted
+                .begin(reqwest::Client::new().post("http://127.0.0.1:9/v1/chat/completions"))?;
+            super::transport::settle_body(&mut Some(send), report)
+        }
+
+        pub(crate) fn send(
+            &self,
+            asks: u64,
+            marker: Option<&super::session::FinalRepairMarker>,
+        ) -> Result<(), super::transport::SendRefusal> {
+            self.send_reporting(asks, marker, Self::KNOWN)
+        }
+
+        pub(crate) fn sends(&self) -> u64 {
+            self.handle.wallet().unwrap().physical_used()
+        }
+
+        /// One send of 50 tokens settled with [`Self::KNOWN`], and the response its settling
+        /// gave, as a client's worker gets it.
+        pub(crate) fn settled_response(&self) -> super::identity::ResponseIdentity {
+            self.try_settled_response().unwrap()
+        }
+
+        /// [`Self::settled_response`], or the refusal of its send.
+        pub(crate) fn try_settled_response(
+            &self,
+        ) -> Result<super::identity::ResponseIdentity, super::transport::SendRefusal> {
+            let body: Value = serde_json::from_slice(&body_asking_for(50)).unwrap();
+            let budgeted =
+                super::transport::BudgetedBody::new(&self.handle, &body, SendPurpose::Executor)
+                    .unwrap();
+            let (_request, send) = budgeted
+                .begin(reqwest::Client::new().post("http://127.0.0.1:9/v1/chat/completions"))?;
+            Ok(
+                super::transport::settle_body_identified(&mut Some(send), Self::KNOWN)?
+                    .expect("a known report settles the send"),
+            )
         }
     }
 }
