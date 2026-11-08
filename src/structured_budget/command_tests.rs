@@ -355,6 +355,67 @@ fn a_late_worker_of_the_last_command_leaves_the_next_with_no_refusal() {
     assert_eq!(wallet.send(SMALL, None), Ok(()), "the next command sends");
 }
 
+/// A worker of command N, whose wallet refused N, begins its send only after the next command
+/// began, in that order, by a channel and not a length of time. It sends nothing: it is refused
+/// with N's refusal, though the wallet would take what it asks for. The next command has no
+/// refusal of N's, and sends.
+#[test]
+fn a_late_worker_of_a_refused_command_sends_nothing_after_the_next_began() {
+    let wallet = TestWallet::open(cheap);
+    let config = config_on(&wallet.workspace, Some(wallet.handle.clone()));
+    let body: Value = serde_json::from_slice(&body_asking_for(SMALL)).unwrap();
+    let late = BudgetedBody::new(&wallet.handle, &body, SendPurpose::Executor).unwrap();
+    assert_eq!(wallet.send(BIG, None), Err(cost_refused()));
+    let (go, wait) = mpsc::channel::<()>();
+    let (done, finished) = mpsc::channel::<Option<SendRefusal>>();
+    let worker = std::thread::spawn(move || {
+        wait.recv().unwrap();
+        let refused = late
+            .begin(reqwest::Client::new().post("http://127.0.0.1:9/v1/chat/completions"))
+            .err();
+        done.send(refused).unwrap();
+    });
+    begin_command(&config);
+    go.send(()).unwrap();
+    assert_eq!(
+        finished.recv().unwrap(),
+        Some(cost_refused()),
+        "refused as its own command was"
+    );
+    worker.join().unwrap();
+    assert_eq!(wallet.sends(), 0, "nothing reserved or sent");
+    assert_eq!(refusal(&config), None, "not the next command's");
+    assert_eq!(refused(&config), None);
+    assert_eq!(wallet.send(SMALL, None), Ok(()), "the next command sends");
+    assert_eq!(wallet.sends(), 1);
+}
+
+/// The control: a late worker of a command the wallet refused nothing of sends, after the next
+/// command began, as before.
+#[test]
+fn a_late_worker_of_a_command_with_nothing_refused_sends_as_before() {
+    let wallet = TestWallet::open(cheap);
+    let config = config_on(&wallet.workspace, Some(wallet.handle.clone()));
+    let body: Value = serde_json::from_slice(&body_asking_for(SMALL)).unwrap();
+    let late = BudgetedBody::new(&wallet.handle, &body, SendPurpose::Executor).unwrap();
+    let (go, wait) = mpsc::channel::<()>();
+    let (done, finished) = mpsc::channel::<Option<SendRefusal>>();
+    let worker = std::thread::spawn(move || {
+        wait.recv().unwrap();
+        let sent = late
+            .begin(reqwest::Client::new().post("http://127.0.0.1:9/v1/chat/completions"))
+            .and_then(|(_request, send)| transport::settle_body(&mut Some(send), TestWallet::KNOWN))
+            .err();
+        done.send(sent).unwrap();
+    });
+    begin_command(&config);
+    go.send(()).unwrap();
+    assert_eq!(finished.recv().unwrap(), None, "it went");
+    worker.join().unwrap();
+    assert_eq!(wallet.sends(), 1);
+    assert_eq!(refused(&config), None);
+}
+
 /// The control: the same send refused in its own command is that command's.
 #[test]
 fn a_refusal_in_its_own_command_is_that_commands() {

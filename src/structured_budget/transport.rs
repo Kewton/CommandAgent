@@ -100,6 +100,9 @@ pub(crate) struct RunBudgetHandle {
 struct CommandRecord {
     number: u64,
     refusal: Option<SendRefusal>,
+    /// The refusal of each earlier command the wallet refused, by its number: a late worker of one
+    /// of them is refused with it, and no other command reads it.
+    earlier: HashMap<u64, SendRefusal>,
 }
 
 /// The sandbox as one test sees it, so a test of a wallet does not have to install it in a state
@@ -203,14 +206,14 @@ impl RunBudgetHandle {
         self.command_record().number
     }
 
-    /// The refusal kept for command `command`, while it is the one running. An earlier command's
-    /// is gone with it.
+    /// The refusal kept for command `command`: the running one's while it runs, and an earlier
+    /// one's after it, for its late workers only.
     pub(super) fn refusal_kept_for(&self, command: u64) -> Option<SendRefusal> {
         let record = self.command_record();
         if record.number == command {
             record.refusal
         } else {
-            None
+            record.earlier.get(&command).copied()
         }
     }
 
@@ -263,11 +266,15 @@ impl RunBudgetHandle {
         self.command_record().refusal
     }
 
-    /// A REPL's next command: it has the next number, and no refusal of its own yet.
+    /// A REPL's next command: it has the next number, and no refusal of its own yet. The last
+    /// command's refusal stays its own.
     pub(crate) fn forget_command_refusals(&self) {
         let mut record = self.command_record();
+        if let Some(refusal) = record.refusal.take() {
+            let number = record.number;
+            record.earlier.insert(number, refusal);
+        }
         record.number = record.number.wrapping_add(1);
-        record.refusal = None;
     }
 
     /// Whether a resume may go on in this wallet (`command.rs`). Nothing is opened again.
