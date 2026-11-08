@@ -9,7 +9,7 @@
     {"event": "structured_stage_incomplete", "code": "obligations_unmet", "when": "a run with an open stage wants to end as a success"},
     {"event": "structured_stage_incomplete", "code": "ledger_refused", "when": "a judgment finds the record cannot be used, with its path and way out under record"},
     {"event": "structured_stage_refused", "code": "ended_by_secret_value", "when": "a new process that did not ask would replace a record a secret ended"},
-    {"event": "stage_schema_refusal_limit", "code": "schema_refusal_limit", "when": "Issue #998: the call G2 refuses that reaches the target's or the run's limit, with stage, target, refusals, limit, and scope"}
+    {"event": "stage_schema_refusal_limit", "code": "schema_refusal_limit", "when": "Issue #998: the call G2 refuses that reaches the target's or the run's limit, with stage, target, refusals, limit, and scope; the counts are the process's for the workspace and profile, over its sessions, and scope run is every target's in them"}
   ],
   "refusals": [
     {"id": "no OS boundary", "refusal": "stage_contract_refused", "kind": "OsSandboxNotEnforced"},
@@ -92,7 +92,9 @@
       "a_tool_in_no_stage_gets_every_schema_refusal_back_as_data",
       "varied_schema_refusals_end_the_session_at_the_targets_limit",
       "under_a_wallet_the_schema_limit_can_end_the_session_first",
-      "under_a_wallet_its_stage_limit_can_end_the_session_first"
+      "under_a_wallet_its_stage_limit_can_end_the_session_first",
+      "schema_refusals_go_on_counting_in_the_next_session_to_the_targets_limit",
+      "schema_refusals_go_on_counting_in_the_next_session_to_the_runs_limit"
     ]},
     {"row": 5, "says": "cancel at the commit, resume, a broken record, and a swapped pin adopt only the current version; a tool with no OS limit makes no valid receipt, and an unknown cost is not zero", "tests": [
       "a_commit_cancelled_after_the_rename_or_not_durable_moves_the_generation_without_a_seal",

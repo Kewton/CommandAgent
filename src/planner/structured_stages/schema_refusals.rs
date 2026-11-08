@@ -3,20 +3,25 @@
 //! A call the schema refuses ends before G4 is asked: it spends no attempt, opens no record, and
 //! starts no process. A model that keeps getting the shape wrong, a little differently each time,
 //! would otherwise be stopped only by the session's iteration budget, one provider call each.
-//! Each refusal counts against its target and against the run, with the limits the descriptor
-//! gives G4's attempts, and the refusal that reaches either ends the run.
+//! Each refusal counts against its target and against all the targets of the workspace and
+//! profile (the event's `run` scope), with the limits the descriptor gives G4's attempts, and the
+//! refusal that reaches either ends the run.
 //!
-//! The counts are in memory: a resume in a new process starts them over (a known limit). G4's
-//! record and its counts are not touched.
+//! The counts are the process's, kept as G4's record is: one set for each workspace and profile
+//! of the process's ledger registry. They go on over sessions, phases, and final repairs, and
+//! nothing starts them over, a success or a step forward included: once a limit is reached, a
+//! later session of the process ends at its first refusal. They are in memory only: a new process,
+//! a resume among them, starts them at zero (a known limit), and G4's record is not touched.
 
 use std::collections::BTreeMap;
-use std::path::Path;
-use std::sync::{Mutex, PoisonError};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, PoisonError, Weak};
 
 use serde_json::{Value, json};
 
 use super::StageRun;
 use super::contract::{StageLimits, TargetKey};
+use super::ledger::LedgerRegistry;
 
 /// The code a run ends with at a limit.
 pub(crate) const SCHEMA_REFUSAL_LIMIT: &str = "schema_refusal_limit";
@@ -59,7 +64,7 @@ impl LimitReached {
     }
 }
 
-/// What a stage run's refusals have come to so far.
+/// What the refusals of one workspace and profile in the process have come to so far.
 #[derive(Debug, Default)]
 pub(crate) struct SchemaRefusals {
     counts: Mutex<Counts>,
@@ -92,6 +97,61 @@ impl SchemaRefusals {
         (counts.run >= limits.attempts_per_run)
             .then(|| reached(counts.run, limits.attempts_per_run, Scope::Run))
     }
+
+    /// The counts of this workspace and profile in the process `ledgers` stands for, shared by
+    /// every stage run of it, as its ledger is.
+    pub(crate) fn of_process(
+        ledgers: &Arc<LedgerRegistry>,
+        workspace: &Path,
+        profile: &str,
+    ) -> Arc<Self> {
+        static SHARED: Mutex<Shared> = Mutex::new(Shared { held: Vec::new() });
+        SHARED
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .counts_for(ledgers, workspace, profile)
+    }
+}
+
+/// One registry's counts, keyed as its ledgers are: by canonical workspace and profile.
+type OfRegistry = BTreeMap<(PathBuf, String), Arc<SchemaRefusals>>;
+
+/// Each live registry's counts.
+#[derive(Debug, Default)]
+struct Shared {
+    held: Vec<(Weak<LedgerRegistry>, OfRegistry)>,
+}
+
+impl Shared {
+    /// A registry dropped leaves its counts here until the next lookup, which drops them: none
+    /// could be another's that came to the same address.
+    fn counts_for(
+        &mut self,
+        ledgers: &Arc<LedgerRegistry>,
+        workspace: &Path,
+        profile: &str,
+    ) -> Arc<SchemaRefusals> {
+        self.held
+            .retain(|(registry, _)| registry.strong_count() > 0);
+        let index = match self
+            .held
+            .iter()
+            .position(|(registry, _)| std::ptr::eq(registry.as_ptr(), Arc::as_ptr(ledgers)))
+        {
+            Some(index) => index,
+            None => {
+                self.held.push((Arc::downgrade(ledgers), BTreeMap::new()));
+                self.held.len() - 1
+            }
+        };
+        // As the ledger is keyed; a workspace not there to resolve is taken as given.
+        let workspace = std::fs::canonicalize(workspace).unwrap_or_else(|_| workspace.into());
+        self.held[index]
+            .1
+            .entry((workspace, profile.to_string()))
+            .or_default()
+            .clone()
+    }
 }
 
 impl StageRun {
@@ -122,6 +182,7 @@ impl StageRun {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::path::Path;
     use std::sync::Arc;
 
     use super::super::StageRun;
@@ -130,7 +191,7 @@ mod tests {
         StageRunFacts, StageSetDeclaration, TargetDeclaration, TargetKey,
     };
     use super::super::ledger::{LedgerEntry, LedgerRegistry};
-    use super::{LimitReached, SchemaRefusals, Scope};
+    use super::{LimitReached, SchemaRefusals, Scope, Shared};
 
     fn key(stage: &str) -> TargetKey {
         TargetKey {
@@ -236,6 +297,23 @@ mod tests {
 
     /// Two stages with one tool each, and the given limits.
     fn run_with(temp: &tempfile::TempDir, attempts: (u32, u32), bind: bool) -> StageRun {
+        run_in(
+            temp,
+            attempts,
+            bind,
+            &Arc::new(LedgerRegistry::default()),
+            "a-profile",
+        )
+    }
+
+    /// The same, of a given process's registry and profile.
+    fn run_in(
+        temp: &tempfile::TempDir,
+        attempts: (u32, u32),
+        bind: bool,
+        ledgers: &Arc<LedgerRegistry>,
+        profile: &str,
+    ) -> StageRun {
         let root = std::fs::canonicalize(temp.path()).unwrap();
         let workspace = root.join("workspace");
         std::fs::create_dir_all(&workspace).unwrap();
@@ -276,8 +354,8 @@ mod tests {
             draft,
             BTreeMap::new(),
             workspace,
-            "a-profile".to_string(),
-            Arc::new(LedgerRegistry::default()),
+            profile.to_string(),
+            ledgers.clone(),
         );
         if bind {
             run.bind_session(
@@ -321,5 +399,92 @@ mod tests {
         assert!(run.note_schema_refusal("tool-upper", None));
         assert!(!run.note_schema_refusal("tool-lower", None));
         assert!(run.note_schema_refusal("tool-lower", None));
+    }
+
+    /// F-1: the next session's run, of the same process's registry, workspace, and profile, goes
+    /// on from the counts the first left, as G4's record does.
+    #[test]
+    fn the_next_run_of_the_process_goes_on_from_the_targets_count() {
+        let temp = tempfile::tempdir().unwrap();
+        let ledgers = Arc::new(LedgerRegistry::default());
+        let first = run_in(&temp, (3, 16), true, &ledgers, "a-profile");
+        assert!(!first.note_schema_refusal("tool-upper", None));
+        assert!(!first.note_schema_refusal("tool-upper", None));
+        drop(first);
+        let second = run_in(&temp, (3, 16), true, &ledgers, "a-profile");
+        assert!(second.note_schema_refusal("tool-upper", None));
+    }
+
+    #[test]
+    fn the_next_run_of_the_process_goes_on_from_the_runs_count() {
+        let temp = tempfile::tempdir().unwrap();
+        let ledgers = Arc::new(LedgerRegistry::default());
+        let first = run_in(&temp, (8, 3), true, &ledgers, "a-profile");
+        assert!(!first.note_schema_refusal("tool-upper", None));
+        assert!(!first.note_schema_refusal("tool-lower", None));
+        drop(first);
+        let second = run_in(&temp, (8, 3), true, &ledgers, "a-profile");
+        assert!(second.note_schema_refusal("tool-lower", None));
+    }
+
+    /// Another registry stands for another process, a resume among them: it starts over.
+    #[test]
+    fn another_process_starts_the_counts_over() {
+        let temp = tempfile::tempdir().unwrap();
+        let first = run_in(
+            &temp,
+            (3, 16),
+            true,
+            &Arc::new(LedgerRegistry::default()),
+            "a-profile",
+        );
+        assert!(!first.note_schema_refusal("tool-upper", None));
+        assert!(!first.note_schema_refusal("tool-upper", None));
+        let second = run_in(
+            &temp,
+            (3, 16),
+            true,
+            &Arc::new(LedgerRegistry::default()),
+            "a-profile",
+        );
+        assert!(!second.note_schema_refusal("tool-upper", None));
+        assert!(!second.note_schema_refusal("tool-upper", None));
+        assert!(second.note_schema_refusal("tool-upper", None));
+    }
+
+    /// The counts are kept as G4's records are: one for each workspace and profile.
+    #[test]
+    fn another_workspace_or_profile_counts_its_own() {
+        let temp = tempfile::tempdir().unwrap();
+        let elsewhere = tempfile::tempdir().unwrap();
+        let ledgers = Arc::new(LedgerRegistry::default());
+        let first = run_in(&temp, (2, 16), true, &ledgers, "a-profile");
+        assert!(!first.note_schema_refusal("tool-upper", None));
+        let other_profile = run_in(&temp, (2, 16), true, &ledgers, "another-profile");
+        assert!(!other_profile.note_schema_refusal("tool-upper", None));
+        let other_workspace = run_in(&elsewhere, (2, 16), true, &ledgers, "a-profile");
+        assert!(!other_workspace.note_schema_refusal("tool-upper", None));
+        let again = run_in(&temp, (2, 16), true, &ledgers, "a-profile");
+        assert!(again.note_schema_refusal("tool-upper", None));
+    }
+
+    /// A registry dropped takes its counts with it at the next lookup, so a new one that comes to
+    /// the same address starts at zero.
+    #[test]
+    fn a_registry_dropped_leaves_no_counts_behind() {
+        let mut shared = Shared::default();
+        let workspace = Path::new("not-there/workspace");
+        let gone = Arc::new(LedgerRegistry::default());
+        let counts = shared.counts_for(&gone, workspace, "a-profile");
+        assert_eq!(counts.note(&key("upper"), limits(2, 16)), None);
+        drop(counts);
+        drop(gone);
+        let kept = Arc::new(LedgerRegistry::default());
+        let counts = shared.counts_for(&kept, workspace, "a-profile");
+        assert_eq!(shared.held.len(), 1);
+        assert!(std::ptr::eq(shared.held[0].0.as_ptr(), Arc::as_ptr(&kept)));
+        assert_eq!(counts.note(&key("upper"), limits(2, 16)), None);
+        let same = shared.counts_for(&kept, workspace, "a-profile");
+        assert!(Arc::ptr_eq(&counts, &same));
     }
 }

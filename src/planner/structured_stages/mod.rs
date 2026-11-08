@@ -108,8 +108,9 @@ pub(crate) struct StageRun {
     /// Calls in a row that started no process. Nothing else limits them: they spend no attempt.
     calls_without_process: AtomicUsize,
     record_notice_shown: AtomicBool,
-    /// G2's refusals of the set's calls, which reach no attempt (Issue #998).
-    schema_refusals: schema_refusals::SchemaRefusals,
+    /// G2's refusals of the set's calls, which reach no attempt (Issue #998): the process's, as
+    /// the ledger is, so a later session goes on from them.
+    schema_refusals: Arc<schema_refusals::SchemaRefusals>,
 }
 
 /// A call's effect on whether a stage moved, for the loop's stagnation count. This is the only
@@ -397,6 +398,8 @@ impl StageRun {
         profile: String,
         ledgers: Arc<LedgerRegistry>,
     ) -> Self {
+        let schema_refusals =
+            schema_refusals::SchemaRefusals::of_process(&ledgers, &workspace, &profile);
         Self {
             draft,
             members,
@@ -408,7 +411,7 @@ impl StageRun {
             notes: Mutex::new(Vec::new()),
             calls_without_process: AtomicUsize::new(0),
             record_notice_shown: AtomicBool::new(false),
-            schema_refusals: schema_refusals::SchemaRefusals::default(),
+            schema_refusals,
         }
     }
 

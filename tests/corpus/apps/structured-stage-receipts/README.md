@@ -93,8 +93,13 @@ again and again is ended at the third by the loop's repeat guard, before these l
 that as the control. Under a run's wallet (Issue #976) each refusal is also a submission of its stage,
 and whichever limit is reached first ends the run with its own reason.
 
-The counts are in memory. A resume in a new process starts them over, and G4's ledger has no field
-for them: they are in the event and the run's end, not in the ledger.
+The counts are the process's, kept as G4's record is: one set for each workspace and profile. They
+go on over the sessions of the process, its phases and final repairs among them, and nothing starts
+them over, a success or a step forward included. A `scope` of `run` is that sum: every target's
+refusals in this workspace and profile in the process. Once a limit is reached, a later session of
+the process ends at its first refusal. The counts are in memory only: a new process, a resume among
+them, starts them at zero, and G4's ledger has no field for them: they are in the event and the run's
+end, not in the ledger.
 
 These rows are in `fixtures/cases.json` under `events`, `refusals`, and acceptance row 4.
 `off_control::the_corpus_names_the_schema_refusal_limit_as_the_code_writes_it` holds the two rows to

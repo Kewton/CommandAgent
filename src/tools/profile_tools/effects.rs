@@ -5833,6 +5833,102 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                 assert!(no_g4_record(&world));
             }
 
+            /// Issue #998 F-1: a session of `refused` calls the schema refuses, each a little
+            /// differently, and then only text. The calls are of `tool`.
+            fn refusals_then_text(tool: &'static str, refused: usize) -> Responder {
+                Arc::new(move |index, _| {
+                    let shapes = [
+                        json!({"mode": 5, "expected_revision": "initial"}),
+                        json!({"mode": "fast"}),
+                        json!({"mode": "fast", "expected_revision": "initial", "extra": 1}),
+                    ];
+                    if index > refused {
+                        return text_reply("done");
+                    }
+                    call_reply(tool, &shapes[(index - 1) % shapes.len()])
+                })
+            }
+
+            /// Issue #998 F-1: a session that ends short of a limit does not start the counts over
+            /// for the next session of the process, as G4's record does not. Five refusals in the
+            /// first and three in the second reach the eight per target; nothing is sent after the
+            /// eighth. A session after that ends at its first refusal.
+            #[test]
+            fn schema_refusals_go_on_counting_in_the_next_session_to_the_targets_limit() {
+                const NAME: &str =
+                    "schema_refusals_go_on_counting_in_the_next_session_to_the_targets_limit";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                let (_, first) = world.prompt(refusals_then_text(UPPER_TOOL, 5));
+                assert!(
+                    first
+                        .as_ref()
+                        .err()
+                        .is_none_or(|error| !error.contains("schema_refusal_limit")),
+                    "{first:?}"
+                );
+                assert!(limit_events(&world).is_empty());
+                let (requests, second) = world.prompt(refusals_then_text(UPPER_TOOL, usize::MAX));
+                let error = second.expect_err("the eighth refusal ends the session");
+                assert!(error.contains("schema_refusal_limit"), "{error}");
+                assert_eq!(requests.len(), 3, "nothing is sent after the eighth");
+                let limits = limit_events(&world);
+                assert_eq!(limits.len(), 1, "{limits:?}");
+                assert_eq!(limits[0]["stage"], "upper");
+                assert_eq!(limits[0]["refusals"], 8);
+                assert_eq!(limits[0]["limit"], 8);
+                assert_eq!(limits[0]["scope"], "target");
+                let (requests, third) = world.prompt(refusals_then_text(UPPER_TOOL, usize::MAX));
+                let error = third.expect_err("a limit reached stays reached in the process");
+                assert!(error.contains("schema_refusal_limit"), "{error}");
+                assert_eq!(requests.len(), 1);
+                let limits = limit_events(&world);
+                assert_eq!(limits.len(), 2, "{limits:?}");
+                assert_eq!(limits[1]["refusals"], 9);
+                assert!(no_g4_record(&world));
+                assert!(!world.marks.join(format!("started-{UPPER}")).exists());
+            }
+
+            /// Issue #998 F-1: the run's limit counts every target's refusals over the sessions of
+            /// the process. Two of the upper stage's in the first session and two of the lower's in
+            /// the second reach four for the run, while neither target is near its eight.
+            #[test]
+            fn schema_refusals_go_on_counting_in_the_next_session_to_the_runs_limit() {
+                const NAME: &str =
+                    "schema_refusals_go_on_counting_in_the_next_session_to_the_runs_limit";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                for tool in [UPPER, LOWER] {
+                    world.edit_descriptor(tool, |descriptor| {
+                        descriptor["stage"]["attempts_per_run"] = json!(4);
+                    });
+                }
+                let (_, first) = world.prompt(refusals_then_text(UPPER_TOOL, 2));
+                assert!(
+                    first
+                        .as_ref()
+                        .err()
+                        .is_none_or(|error| !error.contains("schema_refusal_limit")),
+                    "{first:?}"
+                );
+                assert!(limit_events(&world).is_empty());
+                let (requests, second) = world.prompt(refusals_then_text(LOWER_TOOL, usize::MAX));
+                let error = second.expect_err("the run's fourth refusal ends the session");
+                assert!(error.contains("schema_refusal_limit"), "{error}");
+                assert_eq!(requests.len(), 2, "nothing is sent after the fourth");
+                let limits = limit_events(&world);
+                assert_eq!(limits.len(), 1, "{limits:?}");
+                assert_eq!(limits[0]["stage"], "lower");
+                assert_eq!(limits[0]["refusals"], 4);
+                assert_eq!(limits[0]["limit"], 4);
+                assert_eq!(limits[0]["scope"], "run");
+                assert!(no_g4_record(&world));
+            }
+
             /// T2 (acceptance 4): two stages open get the one repair budget final acceptance has,
             /// and not one each.
             #[test]
