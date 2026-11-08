@@ -233,3 +233,108 @@ fn a_compile_regeneration_the_wallet_refused_leaves_the_run_no_success_after_rol
         "no report is made after the refusal: {event_text}"
     );
 }
+
+/// Issue #976 (G5, R1): a workspace whose declared dependencies differ from the ones last
+/// reconciled, under a wallet whose command a send of 99 tokens refused when `refused`. The run is
+/// offline, so a reconciliation stops before any package manager runs.
+fn r1_bench_976(
+    refused: bool,
+) -> (
+    crate::structured_budget::test_support::TestWallet,
+    crate::config::Config,
+    PathBuf,
+) {
+    let wallet = crate::structured_budget::test_support::TestWallet::open(|value| {
+        value["max_output_tokens"] = serde_json::json!(99);
+        value["limits"]["cost_usd"] = serde_json::json!("0.001");
+    });
+    if refused {
+        wallet.send(99, None).unwrap_err();
+    }
+    let workspace = wallet.workspace.clone();
+    let parsed = crate::provider_cli::parse_from([
+        "commandagent",
+        "--cwd",
+        workspace.to_str().unwrap(),
+        "--state-dir",
+        workspace.parent().unwrap().join("state").to_str().unwrap(),
+    ])
+    .unwrap();
+    let mut cfg =
+        crate::config::Config::from_cli_with_provider_options(parsed.cli, parsed.provider_options)
+            .unwrap();
+    cfg.field_sources.run_budget = Some(Arc::clone(&wallet.handle));
+    cfg.offline = true;
+    cfg.profile = crate::planner::profiles::nextjs::PROFILE_ID.to_string();
+    let events = workspace.parent().unwrap().join("events.jsonl");
+    cfg.eval_events_path = Some(events.clone());
+    std::fs::write(
+        workspace.join("package.json"),
+        r#"{"scripts":{"build":"next build"},"dependencies":{"next":"^14.2.0","react":"^18.3.0","react-dom":"^18.3.0"}}"#,
+    )
+    .unwrap();
+    std::fs::create_dir_all(workspace.join(".commandagent")).unwrap();
+    std::fs::write(workspace.join(R1_FINGERPRINT_976), "stale-976").unwrap();
+    assert!(dependency_setup::node_dependency_declarations_fingerprint_mismatch(&workspace));
+    (wallet, cfg, events)
+}
+
+const R1_FINGERPRINT_976: &str = ".commandagent/node-dependency-declarations.fingerprint";
+
+fn r1_report_976(cfg: &crate::config::Config) -> anyhow::Result<()> {
+    let plan = UltraPlan::deterministic(
+        "Create a Next.js route",
+        crate::planner::profiles::nextjs::PROFILE_ID,
+        "default",
+        "create",
+    );
+    let mut setup_authority = UltraRunSetupAuthorityState::default();
+    ultra_final_acceptance_report_with_deterministic_remedies(&plan, cfg, 0, &mut setup_authority)
+        .map(drop)
+}
+
+fn r1_events_976(path: &Path) -> Vec<serde_json::Value> {
+    std::fs::read_to_string(path)
+        .unwrap_or_default()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect()
+}
+
+/// R1: with the refusal kept, the final report's deterministic remedies start nothing: the
+/// wrapper returns the command's refusal before the reconciliation, with no event at all, no
+/// dependency setup attempted, and the fingerprint as it was.
+#[test]
+fn a_refused_command_reconciles_no_dependency() {
+    let (wallet, cfg, events) = r1_bench_976(true);
+    let error = r1_report_976(&cfg).unwrap_err();
+    assert!(
+        matches!(
+            error.downcast_ref::<crate::structured_budget::outcome::CommandRefusal>(),
+            Some(crate::structured_budget::outcome::CommandRefusal::SendRefused(_))
+        ),
+        "{error:#}"
+    );
+    assert_eq!(r1_events_976(&events), Vec::<serde_json::Value>::new());
+    assert_eq!(
+        std::fs::read_to_string(wallet.workspace.join(R1_FINGERPRINT_976)).unwrap(),
+        "stale-976"
+    );
+}
+
+/// The control: with nothing refused, the same workspace starts the reconciliation, which the
+/// offline run then stops.
+#[test]
+fn a_command_with_nothing_refused_reconciles_as_before() {
+    let (_wallet, cfg, events) = r1_bench_976(false);
+    let error = r1_report_976(&cfg).unwrap_err();
+    assert!(
+        format!("{error:#}").contains("dependency_setup_blocked_offline"),
+        "{error:#}"
+    );
+    let reconciliations = r1_events_976(&events)
+        .into_iter()
+        .filter(|event| event["event"] == "dependency_setup_reconciliation")
+        .count();
+    assert_eq!(reconciliations, 1);
+}

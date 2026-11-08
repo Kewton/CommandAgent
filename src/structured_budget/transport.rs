@@ -84,13 +84,22 @@ pub(crate) struct RunBudgetHandle {
     workspace: PathBuf,
     /// Where the sandbox applied on the run let commands write when the wallet was judged by it.
     opened_under: Option<SandboxSnapshot>,
-    /// The first send of the command running now that the wallet refused, in memory only: it is
-    /// that command's, and stops no later send (`outcome.rs`).
-    command_refusal: Mutex<Option<SendRefusal>>,
+    /// The command running now, and the first send of it that the wallet refused, in memory only:
+    /// it is that command's, and stops every later send of it (`command.rs`).
+    command: Mutex<CommandRecord>,
     /// What a test says the sandbox is, in place of the state of the process. `None` reads that
     /// state, as a run does.
     #[cfg(test)]
     sandbox_view: Option<SandboxView>,
+}
+
+/// The command running now, by its number from the first, and the first refusal of it. A REPL's
+/// next command has the next number; a send keeps the number of the command it began in, so a
+/// refusal a late worker of an earlier command meets is that command's, and lands on no other.
+#[derive(Debug, Default)]
+struct CommandRecord {
+    number: u64,
+    refusal: Option<SendRefusal>,
 }
 
 /// The sandbox as one test sees it, so a test of a wallet does not have to install it in a state
@@ -179,24 +188,44 @@ impl RunBudgetHandle {
             policy,
             workspace,
             opened_under,
-            command_refusal: Mutex::new(None),
+            command: Mutex::new(CommandRecord::default()),
             #[cfg(test)]
             sandbox_view: None,
         })
     }
 
-    /// Keeps a refusal of this command's send for the command, before anyone could read it.
-    fn note_refused(&self, refusal: SendRefusal) {
-        let mut kept = self
-            .command_refusal
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        kept.get_or_insert(refusal);
+    fn command_record(&self) -> MutexGuard<'_, CommandRecord> {
+        self.command.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Keeps `refusal` for the command, as a refused send's, and gives it back.
+    /// The number of the command running now.
+    pub(super) fn command_now(&self) -> u64 {
+        self.command_record().number
+    }
+
+    /// The refusal kept for command `command`, while it is the one running. An earlier command's
+    /// is gone with it.
+    pub(super) fn refusal_kept_for(&self, command: u64) -> Option<SendRefusal> {
+        let record = self.command_record();
+        if record.number == command {
+            record.refusal
+        } else {
+            None
+        }
+    }
+
+    /// Keeps a refusal of a send of command `command` for that command, before anyone could read
+    /// it, while it is the one running. A refusal of an earlier command is kept for none.
+    fn note_refused(&self, command: u64, refusal: SendRefusal) {
+        let mut record = self.command_record();
+        if record.number == command {
+            record.refusal.get_or_insert(refusal);
+        }
+    }
+
+    /// Keeps `refusal` for the command running now, as a refused send's, and gives it back.
     pub(super) fn refuse_for_command(&self, refusal: SendRefusal) -> SendRefusal {
-        self.note_refused(refusal);
+        self.note_refused(self.command_now(), refusal);
         refusal
     }
 
@@ -208,12 +237,13 @@ impl RunBudgetHandle {
         kind: LogicalKind,
         source: Option<SubmissionSource>,
     ) -> Result<LogicalId, SendRefusal> {
-        if let Some(refused) = self.refused_in_command() {
+        let command = self.command_now();
+        if let Some(refused) = super::command::refusal_of(self, command) {
             return Err(refused);
         }
         self.ledger()
             .and_then(|mut ledger| Ok(ledger.record_submission(kind, source)?))
-            .inspect_err(|refusal| self.note_refused(*refusal))
+            .inspect_err(|refusal| self.note_refused(command, *refusal))
     }
 
     /// Ties G4's attempt to a submission, on disk. A refusal is kept for the command.
@@ -222,25 +252,36 @@ impl RunBudgetHandle {
         logical: LogicalId,
         binding: AttemptBinding,
     ) -> Result<(), SendRefusal> {
+        let command = self.command_now();
         self.ledger()
             .and_then(|mut ledger| Ok(ledger.bind_attempt(logical, binding)?))
-            .inspect_err(|refusal| self.note_refused(*refusal))
+            .inspect_err(|refusal| self.note_refused(command, *refusal))
     }
 
     /// The first send of the command running now that the wallet refused.
     pub(crate) fn refused_in_command(&self) -> Option<SendRefusal> {
-        *self
-            .command_refusal
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        self.command_record().refusal
     }
 
-    /// A REPL's next command begins with no refusal of its own.
+    /// A REPL's next command: it has the next number, and no refusal of its own yet.
     pub(crate) fn forget_command_refusals(&self) {
-        *self
-            .command_refusal
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner) = None;
+        let mut record = self.command_record();
+        record.number = record.number.wrapping_add(1);
+        record.refusal = None;
+    }
+
+    /// Whether a resume may go on in this wallet (`command.rs`). Nothing is opened again.
+    pub(super) fn refuse_resume(&self) -> Result<(), LedgerRefusal> {
+        self.ledger()
+            .map_err(|_| LedgerRefusal::Unavailable)?
+            .refuse_resume()
+    }
+
+    /// Pins `explicit` as the wallet's profile, in the ledger's own transaction (`command.rs`).
+    pub(super) fn pin_profile(&self, explicit: &str) -> Result<(), LedgerRefusal> {
+        self.ledger()
+            .map_err(|_| LedgerRefusal::Unavailable)?
+            .pin_profile(explicit)
     }
 
     /// This handle, judging the sandbox by `view` instead of by the state of the process.
@@ -291,13 +332,18 @@ impl RunBudgetHandle {
     /// Reserves and starts these bytes. A start that is refused has sent nothing, so its reservation
     /// goes back. A send of a final-repair session claims, with the ledger locked, a new final
     /// repair when its session holds none yet and the session's one otherwise, and the session
-    /// keeps the one a new claim opened.
+    /// keeps the one a new claim opened. Nothing of command `command` goes once the wallet refused
+    /// anything of it.
     fn begin<'b>(
         self: &Arc<Self>,
+        command: u64,
         body: &'b [u8],
         purpose: SendPurpose,
         final_repair: Option<&FinalRepairMarker>,
     ) -> Result<(OpenSend, StartedPermit<'b>), SendRefusal> {
+        if let Some(refused) = super::command::refusal_of(self, command) {
+            return Err(refused);
+        }
         self.refuse_without_the_sandbox()?;
         let mut ledger = self.ledger()?;
         let reservation = ledger.reserve(&ReserveRequest {
@@ -313,6 +359,7 @@ impl RunBudgetHandle {
             Ok(permit) => Ok((
                 OpenSend {
                     handle: self.clone(),
+                    command,
                     physical,
                     resolved: false,
                 },
@@ -364,6 +411,8 @@ impl RunBudgetHandle {
 #[derive(Debug)]
 pub(crate) struct OpenSend {
     handle: Arc<RunBudgetHandle>,
+    /// The command it began in.
+    command: u64,
     physical: PhysicalId,
     resolved: bool,
 }
@@ -383,7 +432,7 @@ impl OpenSend {
                 Some(SettleReport::Settled(outcome)) => Some(outcome.response),
                 Some(SettleReport::Unknown(_)) | None => None,
             })
-            .inspect_err(|refusal| self.handle.note_refused(*refusal))
+            .inspect_err(|refusal| self.handle.note_refused(self.command, *refusal))
     }
 }
 
@@ -403,6 +452,8 @@ impl Drop for OpenSend {
 #[derive(Debug)]
 pub(crate) struct BudgetedBody {
     handle: Arc<RunBudgetHandle>,
+    /// The command this request is of, as it was when the request was made.
+    command: u64,
     bytes: Vec<u8>,
     purpose: SendPurpose,
     final_repair: Option<FinalRepairMarker>,
@@ -416,6 +467,7 @@ impl BudgetedBody {
     ) -> anyhow::Result<Self> {
         Ok(Self {
             handle: handle.clone(),
+            command: handle.command_now(),
             bytes: serde_json::to_vec(body)?,
             purpose,
             final_repair: None,
@@ -439,8 +491,13 @@ impl BudgetedBody {
     ) -> Result<(RequestBuilder, OpenSend), SendRefusal> {
         let (send, permit) = self
             .handle
-            .begin(&self.bytes, self.purpose, self.final_repair.as_ref())
-            .inspect_err(|refusal| self.handle.note_refused(*refusal))?;
+            .begin(
+                self.command,
+                &self.bytes,
+                self.purpose,
+                self.final_repair.as_ref(),
+            )
+            .inspect_err(|refusal| self.handle.note_refused(self.command, *refusal))?;
         let request = request
             .header(CONTENT_TYPE, "application/json")
             .body(permit.into_body().to_vec());

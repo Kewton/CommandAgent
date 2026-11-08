@@ -687,6 +687,7 @@ fn update_profile(config: &Config, words: &[String]) -> anyhow::Result<Config> {
     updated.profile_explicit = true;
     updated.profile_inference = None;
     updated.field_sources.profile = "repl".to_string();
+    crate::structured_budget::command::pin_profile(&updated)?;
     Ok(updated)
 }
 
@@ -1191,6 +1192,33 @@ mod tests {
             update_profile(&config, &crate::tui::slash::parse_words("/profile missing")).is_err()
         );
         assert!(update_executor_model(&config, &crate::tui::slash::parse_words("/model")).is_err());
+    }
+
+    /// Issue #976 (3e): `/profile` under a wallet pins the profile in it once, the same one again
+    /// goes on, and another is refused and leaves the configuration as it was.
+    #[test]
+    fn repl_profile_is_pinned_in_the_wallet_once() {
+        use crate::structured_budget::entry::EntryRefusal;
+        use crate::structured_budget::ledger::LedgerRefusal;
+        let wallet = crate::structured_budget::test_support::TestWallet::open(|_| {});
+        let mut config = session_config();
+        config.field_sources.run_budget = Some(wallet.handle.clone());
+        let words = |line: &str| crate::tui::slash::parse_words(line);
+        let pinned = update_profile(&config, &words("/profile next.js")).unwrap();
+        assert_eq!(
+            wallet.handle.wallet().unwrap().profile.as_deref(),
+            Some("nextjs")
+        );
+        assert!(update_profile(&pinned, &words("/profile nextjs")).is_ok());
+        let error = update_profile(&pinned, &words("/profile python-cli")).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<EntryRefusal>(),
+            Some(&EntryRefusal::Wallet(LedgerRefusal::ProfileChanged))
+        );
+        assert_eq!(
+            wallet.handle.wallet().unwrap().profile.as_deref(),
+            Some("nextjs")
+        );
     }
 
     #[test]

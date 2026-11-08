@@ -6,11 +6,12 @@
 //! wallet cannot be called settled (a latch, or a send unresolved).
 //!
 //! The refusal is kept where the send was refused, in its fixed words, before anything could read
-//! it: on the handle, in memory. Nothing of it goes to the ledger, and it stops no later send: the
-//! wallet judges each send as before. A command line runs one command, and keeps it to the end. A
-//! REPL begins each command with none, so a command is judged by its own refusals and by what the
-//! wallet holds then; with the wallet spent, its sends are refused again. Nothing ends a command's
-//! record earlier: a flow run again within one command still has it.
+//! it: on the handle, in memory. Nothing of it goes to the ledger. It stops every later send of its
+//! command, and every later step that would start one (`command.rs`). A command line runs one
+//! command, and keeps it to the end. A REPL begins each command with none, so a command is judged
+//! by its own refusals and by what the wallet holds then; with the wallet spent, its sends are
+//! refused again. Nothing ends a command's record earlier: a flow run again within one command
+//! still has it, and starts nothing.
 //!
 //! G5 is asked before G4. Every gate that can call a session, a plan, or a run a success asks here
 //! first, and only a success can become a refusal here: an error stays the error it was. With no

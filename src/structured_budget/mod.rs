@@ -19,6 +19,7 @@
 
 pub(crate) mod admission;
 pub(crate) mod clock;
+pub(crate) mod command;
 pub(crate) mod entry;
 pub(crate) mod identity;
 pub(crate) mod ledger;
@@ -282,16 +283,23 @@ pub(crate) mod test_support {
         /// One send of 50 tokens settled with [`Self::KNOWN`], and the response its settling
         /// gave, as a client's worker gets it.
         pub(crate) fn settled_response(&self) -> super::identity::ResponseIdentity {
+            self.try_settled_response().unwrap()
+        }
+
+        /// [`Self::settled_response`], or the refusal of its send.
+        pub(crate) fn try_settled_response(
+            &self,
+        ) -> Result<super::identity::ResponseIdentity, super::transport::SendRefusal> {
             let body: Value = serde_json::from_slice(&body_asking_for(50)).unwrap();
             let budgeted =
                 super::transport::BudgetedBody::new(&self.handle, &body, SendPurpose::Executor)
                     .unwrap();
             let (_request, send) = budgeted
-                .begin(reqwest::Client::new().post("http://127.0.0.1:9/v1/chat/completions"))
-                .unwrap();
-            super::transport::settle_body_identified(&mut Some(send), Self::KNOWN)
-                .unwrap()
-                .expect("a known report settles the send")
+                .begin(reqwest::Client::new().post("http://127.0.0.1:9/v1/chat/completions"))?;
+            Ok(
+                super::transport::settle_body_identified(&mut Some(send), Self::KNOWN)?
+                    .expect("a known report settles the send"),
+            )
         }
     }
 }

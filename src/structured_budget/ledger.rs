@@ -170,6 +170,9 @@ pub(crate) struct BudgetLedger {
     store: Store,
     clock: RunClock,
     failed: Option<LedgerRefusal>,
+    /// Whether this open made the wallet, there being no record of it before. In memory only: the
+    /// file says nothing of it, and means what it meant.
+    made_here: bool,
 }
 
 /// What a POST needs: the bytes that were reserved, from a start that is on disk. Only
@@ -869,6 +872,7 @@ impl BudgetLedger {
             .transpose()?;
         at_seam(Seam::AfterWalk, directory.path());
         let mut store = Store::open_on(directory, way)?;
+        let mut made_here = false;
         let wallet = match store.read_file()? {
             Some(bytes) => {
                 let found = continue_wallet(
@@ -892,6 +896,7 @@ impl BudgetLedger {
             None => {
                 let wallet = WalletState::new(&policy, workspace_sha256, explicit_profile);
                 store.write(&wallet)?;
+                made_here = true;
                 wallet
             }
         };
@@ -901,7 +906,39 @@ impl BudgetLedger {
             store,
             clock: RunClock::new(request.clock),
             failed: None,
+            made_here,
         })
+    }
+
+    /// Whether a resume may go on in this wallet: one this open made has no run before it to go on
+    /// with, and the file has to be what this handle last wrote. Nothing is opened again: a send
+    /// of this process may still be out, and an open would take it for one a crash left.
+    pub(crate) fn refuse_resume(&mut self) -> Result<(), LedgerRefusal> {
+        if self.made_here {
+            return Err(LedgerRefusal::Missing);
+        }
+        self.verified()
+    }
+
+    /// Pins the first explicit profile, in this wallet's own transaction, once; another one later
+    /// is refused, and so is one with nothing in its name. The same one again changes nothing.
+    pub(crate) fn pin_profile(&mut self, explicit: &str) -> Result<(), LedgerRefusal> {
+        let named = canonical_explicit_profile(explicit)?;
+        self.verified()?;
+        match self.wallet.profile.as_deref() {
+            Some(pinned) if pinned == named => Ok(()),
+            Some(_) => Err(LedgerRefusal::ProfileChanged),
+            None => {
+                let mut next = self.wallet.clone();
+                next.profile = Some(named);
+                if let Err(refusal) = self.store.write(&next) {
+                    self.failed = Some(refusal);
+                    return Err(refusal);
+                }
+                self.wallet = next;
+                Ok(())
+            }
+        }
     }
 
     pub(crate) fn wallet(&self) -> &WalletState {
@@ -1265,6 +1302,69 @@ mod tests {
                 Err(LedgerFailure::Budget(BudgetRefusal::PhysicalExceeded)),
                 "{entry:?}"
             );
+        }
+    }
+
+    /// Two ledgers as stages 1 and 2 wrote them (the record's types are as they were at fea0a54e),
+    /// with the run's own digests left out: one with a known send, a released one and a
+    /// submission, and no profile; one with those, an unknown send and its latch, and a profile.
+    const STAGE_TWO_KNOWN: &str = r#"{"attempts":[{"body_sha256":"6012542fd3f685b595377ee835722576da753cfaac9f7e152946dc11c8bd7fd4","final_repair":null,"input_bound":110,"output_bound":50,"physical":1,"purpose":"executor","reserved":"720000000000000","settlement":{"billed":"0","billed_usd":"0","cached_tokens":null,"completion_tokens":40,"computed":"600000000000000","consumed":"600000000000000","late":false,"prompt_tokens":100,"reasoning_tokens":null},"state":"settled","unknown_reason":null},{"body_sha256":"6012542fd3f685b595377ee835722576da753cfaac9f7e152946dc11c8bd7fd4","final_repair":null,"input_bound":110,"output_bound":50,"physical":2,"purpose":"executor","reserved":"720000000000000","settlement":null,"state":"released","unknown_reason":null}],"budget_id":"wallet-alpha","clock":{"final_repair_started_ms":null,"high_water_elapsed_ms":0,"started_wall_ms":7000},"latch":null,"logicals":[{"attempt":null,"id":1,"kind":{"kind":"general"},"source":null}],"policy_sha256":"POLICY","profile":null,"schema":"run-budget.ledger/v1","workspace_sha256":"WORKSPACE"}"#;
+    const STAGE_TWO_LATCHED: &str = r#"{"attempts":[{"body_sha256":"6012542fd3f685b595377ee835722576da753cfaac9f7e152946dc11c8bd7fd4","final_repair":null,"input_bound":110,"output_bound":50,"physical":1,"purpose":"executor","reserved":"720000000000000","settlement":{"billed":"0","billed_usd":"0","cached_tokens":null,"completion_tokens":40,"computed":"600000000000000","consumed":"600000000000000","late":false,"prompt_tokens":100,"reasoning_tokens":null},"state":"settled","unknown_reason":null},{"body_sha256":"6012542fd3f685b595377ee835722576da753cfaac9f7e152946dc11c8bd7fd4","final_repair":null,"input_bound":110,"output_bound":50,"physical":2,"purpose":"executor","reserved":"720000000000000","settlement":null,"state":"released","unknown_reason":null},{"body_sha256":"6012542fd3f685b595377ee835722576da753cfaac9f7e152946dc11c8bd7fd4","final_repair":null,"input_bound":110,"output_bound":50,"physical":3,"purpose":"executor","reserved":"720000000000000","settlement":null,"state":"unknown","unknown_reason":"timeout"}],"budget_id":"wallet-alpha","clock":{"final_repair_started_ms":null,"high_water_elapsed_ms":0,"started_wall_ms":7000},"latch":{"physical":3,"reason":"unknown_billing"},"logicals":[{"attempt":null,"id":1,"kind":{"kind":"general"},"source":null}],"policy_sha256":"POLICY","profile":"profile-a","schema":"run-budget.ledger/v1","workspace_sha256":"WORKSPACE"}"#;
+
+    /// Stage 1 and 2's ledgers, read by this code: the counts, what is held and what is spent are
+    /// what they were, and nothing reads them as more money.
+    #[test]
+    fn a_ledger_of_stages_one_and_two_reads_as_it_was() {
+        type Row = (
+            &'static str,
+            Option<&'static str>,
+            u64,
+            &'static str,
+            &'static str,
+            u128,
+            u128,
+            bool,
+        );
+        let rows: [Row; 2] = [
+            (STAGE_TWO_KNOWN, None, 1, "0.0006", "0", 140, 0, false),
+            (
+                STAGE_TWO_LATCHED,
+                Some("profile-a"),
+                2,
+                "0.0006",
+                "0.00072",
+                140,
+                160,
+                true,
+            ),
+        ];
+        for (body, profile, physical, spent, held, spent_tokens, held_tokens, latched) in rows {
+            let world = World::new();
+            drop(world.open_naming(profile).unwrap());
+            let workspace = fs::canonicalize(&world.workspace).unwrap();
+            let body = body.replace("POLICY", &world.policy.sha256).replace(
+                "WORKSPACE",
+                &sha256_hex(workspace.as_os_str().as_encoded_bytes()),
+            );
+            let sha256 = sha256_hex(body.as_bytes());
+            fs::write(
+                world.file(),
+                format!("{{\"sha256\":\"{sha256}\",\"body\":{body}}}"),
+            )
+            .unwrap();
+            for entry in [LedgerEntry::Resume, LedgerEntry::Fresh] {
+                let ledger = world.open_as(entry, &world.workspace, profile).unwrap();
+                let wallet = ledger.wallet();
+                assert_eq!(wallet.physical_used(), physical, "{entry:?}");
+                assert_eq!(wallet.logical_global_used(), 1, "{entry:?}");
+                assert_eq!(wallet.spent().unwrap(), money(spent), "{entry:?}");
+                assert_eq!(wallet.held().unwrap(), money(held), "{entry:?}");
+                assert_eq!(wallet.spent_tokens(), spent_tokens, "{entry:?}");
+                assert_eq!(wallet.held_tokens(), held_tokens, "{entry:?}");
+                assert_eq!(wallet.latch().is_some(), latched, "{entry:?}");
+                assert_eq!(wallet.profile.as_deref(), profile, "{entry:?}");
+                assert_eq!(wallet.attempts.len(), physical as usize + 1, "{entry:?}");
+            }
         }
     }
 

@@ -155,7 +155,9 @@ fn another_session_opens_another_and_one_past_the_limit_sends_nothing() {
     );
     assert_eq!(wallet.sends(), 2, "the refused one reserved nothing");
     assert_eq!(third.claim(), FinalRepairClaim::New, "it opened nothing");
-    // The sessions already open go on: continuing one counts nothing new.
+    // The sessions already open go on in the next command (3e: the refused one sends nothing more,
+    // on purpose, to close H3): continuing one counts nothing new.
+    wallet.handle.forget_command_refusals();
     assert_eq!(wallet.send(SendPurpose::Executor, Some(&first)), Ok(()));
     assert_eq!(wallet.send(SendPurpose::Executor, Some(&second)), Ok(()));
     assert_eq!(
@@ -168,6 +170,31 @@ fn another_session_opens_another_and_one_past_the_limit_sends_nothing() {
         ]
     );
     assert_eq!(wallet.handle.wallet().unwrap().final_repair_used(), 2);
+}
+
+/// In the command a final repair was refused in, no session open before it sends again: not a
+/// continue, not another purpose. The refusal stays the first one.
+#[test]
+fn after_a_refused_final_repair_no_session_of_the_command_sends() {
+    let wallet = Wallet::final_repairs(2);
+    let (first, second, third) = (
+        FinalRepairMarker::default(),
+        FinalRepairMarker::default(),
+        FinalRepairMarker::default(),
+    );
+    assert_eq!(wallet.send(SendPurpose::Executor, Some(&first)), Ok(()));
+    assert_eq!(wallet.send(SendPurpose::Executor, Some(&second)), Ok(()));
+    let limit = refused(BudgetRefusal::FinalRepairAttemptsExceeded);
+    assert_eq!(wallet.send(SendPurpose::Executor, Some(&third)), limit);
+    for marker in [Some(&first), Some(&second), None] {
+        assert_eq!(wallet.send(SendPurpose::Executor, marker), limit);
+    }
+    assert_eq!(wallet.sends(), 2, "nothing more reserved or sent");
+    assert_eq!(
+        wallet.handle.refused_in_command(),
+        limit.err(),
+        "the first refusal stays"
+    );
 }
 
 #[test]

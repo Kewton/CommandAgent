@@ -297,6 +297,7 @@ pub fn run_ultra_plan_with_ui(
     config: &Config,
     ui: &dyn InteractionUi,
 ) -> anyhow::Result<String> {
+    crate::structured_budget::command::guard(config)?;
     crate::tools::profile_tools::refuse_plan_for_client(&plan.profile, config, &*execution)?;
     let preset_plan = crate::planner::ultra_preset::is_profile_preset_plan(config, plan);
     let mut active_plan = plan.clone();

@@ -2777,14 +2777,18 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                     Self { wallet, config }
                 }
 
-                /// One call of a reply with no other call, as the loop makes it.
+                /// One call of a reply with no other call, as the loop makes it. A send the wallet
+                /// refuses gives no reply, and its refusal is the call's error.
                 fn call(
                     &self,
                     bench: &StageBench,
                     tool: &ProposalTool,
                     arguments: &Value,
                 ) -> anyhow::Result<Value> {
-                    let response = self.wallet.settled_response();
+                    let response = self
+                        .wallet
+                        .try_settled_response()
+                        .map_err(crate::structured_budget::transport::refused)?;
                     let budget = crate::structured_budget::submission::for_call(
                         &self.config,
                         Some(response),
@@ -2948,9 +2952,12 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                     refusal(&counted.config),
                     Some(CommandRefusal::SendRefused(SendRefusal::Wallet(_)))
                 ));
-                // Nothing more of the command is recorded, and nothing runs.
+                // Nothing more of the command is sent, recorded, or run: the send of the next
+                // reply is refused first (3e, on purpose, to close H3).
+                let sends = counted.wallet.sends();
                 let after = counted.ask(&bench, &bench.upper, "initial").unwrap_err();
                 assert!(after.downcast_ref::<SendRefusal>().is_some(), "{after:#}");
+                assert_eq!(counted.wallet.sends(), sends, "no send");
                 assert_eq!(counted.logicals().len(), 1);
                 assert_eq!(bench.starts(UPPER), 0);
             }

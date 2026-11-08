@@ -1481,6 +1481,121 @@ fn every_way_out_sends_nothing_under_a_selection_and_as_before_with_none() {
     assert_eq!(sent("sandbox"), "sandbox: sent 0: Ok(())", "{off:?}");
 }
 
+// ---- 3e: whatever the entry asks, the wallet is the one on disk ----
+
+/// A configuration of this world's workspace, under `state`, with `extra`.
+fn config_under(world: &World, state: &str, extra: &[&str]) -> Config {
+    let state = world.base.join(state);
+    let mut arguments = vec![
+        "commandagent",
+        "--cwd",
+        world.config.workspace_root.to_str().unwrap(),
+        "--state-dir",
+        state.to_str().unwrap(),
+        "--model",
+        "m-1",
+    ];
+    arguments.extend_from_slice(&COMPATIBLE);
+    arguments.extend_from_slice(&["--prompt", "say hello"]);
+    arguments.extend_from_slice(extra);
+    let parsed = crate::provider_cli::parse_from(arguments).unwrap();
+    Config::from_cli_with_provider_options(parsed.cli, parsed.provider_options).unwrap()
+}
+
+/// An open of `config` as the run's entry opens one, and what its wallet then holds: sends made,
+/// and the pinned profile. The handle is let go of after.
+fn opened_holding(config: &mut Config) -> Result<(u64, Option<String>), EntryRefusal> {
+    touched_by(true, config).0?;
+    let handle = config.field_sources.run_budget.take().unwrap();
+    let wallet = handle.wallet().unwrap();
+    Ok((wallet.physical_used(), wallet.profile))
+}
+
+/// Runs only as a child, with the selection. A wallet spent once is spent the same whether the
+/// next entry is fresh, a resume, a fresh session named with a resume, or under another state
+/// directory; another explicit profile or another workspace with the same ID is refused.
+#[test]
+fn a_wallet_is_the_one_on_disk_whatever_the_entry_asks_child() {
+    if !is_child() {
+        return;
+    }
+    use super::super::ledger::LedgerRefusal;
+    let mut world = World::new(&["--profile", "python-cli"]);
+    let (opened, _) = world.touched_by_open();
+    assert_eq!(opened, Ok(()));
+    let handle = world.config.field_sources.run_budget.take().unwrap();
+    let body: serde_json::Value = serde_json::from_slice(BODY).unwrap();
+    let budgeted = BudgetedBody::new(&handle, &body, SendPurpose::Executor).unwrap();
+    let (_request, send) = budgeted
+        .begin(reqwest::Client::new().post("http://127.0.0.1:9/v1/chat/completions"))
+        .unwrap();
+    super::super::transport::settle_body(
+        &mut Some(send),
+        super::super::test_support::TestWallet::KNOWN,
+    )
+    .unwrap();
+    assert_eq!(handle.wallet().unwrap().physical_used(), 1);
+    drop(budgeted);
+    drop(handle);
+
+    let pinned = Some("python-cli".to_string());
+    type Row<'a> = (&'a str, &'a str, &'a [&'a str]);
+    let rows: [Row<'_>; 5] = [
+        ("fresh", "state", &[]),
+        ("a resume", "state", &["--resume", "session-976"]),
+        (
+            "a fresh session named with a resume",
+            "state",
+            &["--resume", "session-976", "--fresh-session"],
+        ),
+        ("a fresh session", "state", &["--fresh-session"]),
+        ("another state directory", "state-other", &[]),
+    ];
+    let mut wrong = Vec::new();
+    for (name, state, extra) in rows {
+        let mut config = config_under(&world, state, extra);
+        match opened_holding(&mut config) {
+            Ok((1, profile)) if profile == pinned => {}
+            other => wrong.push(format!("{name}: {other:?}")),
+        }
+    }
+    let mut other_profile = config_under(&world, "state", &["--profile", "data"]);
+    let refused = opened_holding(&mut other_profile);
+    if refused != Err(EntryRefusal::Wallet(LedgerRefusal::ProfileChanged)) {
+        wrong.push(format!("another profile: {refused:?}"));
+    }
+
+    // Another workspace, with the sandbox on it, and the same ID.
+    let other = world.base.join("other-workspace");
+    std::fs::create_dir_all(&other).unwrap();
+    let run_tmp = world.base.join("state/sandbox/run-other");
+    std::fs::create_dir_all(&run_tmp).unwrap();
+    os_sandbox::install_for_test(
+        SandboxMode::Required,
+        SandboxPolicy::with_home(&other, &run_tmp, world.base.join("home")),
+        SandboxAvailability::Available,
+    );
+    world.config.workspace_root = other;
+    let mut elsewhere = config_under(&world, "state", &[]);
+    let refused = opened_holding(&mut elsewhere);
+    if refused != Err(EntryRefusal::Wallet(LedgerRefusal::WorkspaceChanged)) {
+        wrong.push(format!("another workspace: {refused:?}"));
+    }
+    assert_eq!(wrong, Vec::<String>::new());
+    println!(
+        "{}",
+        ran("a_wallet_is_the_one_on_disk_whatever_the_entry_asks_child")
+    );
+}
+
+#[test]
+fn a_wallet_is_the_one_on_disk_whatever_the_entry_asks() {
+    run_child(
+        "a_wallet_is_the_one_on_disk_whatever_the_entry_asks_child",
+        &[(RUN_BUDGET_ENV, WALLET)],
+    );
+}
+
 /// Where this file starts a child of its own. A unit test may start what production must not, and
 /// the guardrail that keeps production from starting a process directly knows a test by its
 /// `mod tests`, as in the other test files that start one. Its name is that word on purpose, so it

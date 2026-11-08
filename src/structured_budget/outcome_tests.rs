@@ -169,7 +169,8 @@ fn limit(refusal: BudgetRefusal) -> SendRefusal {
 }
 
 /// C4 (b), mended: the refused session's caller passes the refusal over and goes on, and the next
-/// session, whose send goes through, is still no success, nor is the plan.
+/// session sends nothing: its send is refused with the command's refusal. The command is no
+/// success, nor is the plan. (3e turned the send count around on purpose, to close H3.)
 #[test]
 fn a_refusal_passed_over_leaves_the_command_no_success() {
     let command = Command::under(cheap);
@@ -180,9 +181,12 @@ fn a_refusal_passed_over_leaves_the_command_no_success() {
     );
     assert_eq!(command.wallet.sends(), 0);
     let after = command.session(vec![turn(SMALL, write("target.txt", "small\n"))]);
-    assert_eq!(command.wallet.sends(), 1, "its send went out");
+    assert_eq!(command.wallet.sends(), 0, "its send did not go");
     let expected = CommandRefusal::SendRefused(limit(BudgetRefusal::CostExceeded));
-    assert_eq!(command_refusal(after.as_ref().unwrap_err()), Some(expected));
+    assert_eq!(
+        after.as_ref().unwrap_err().downcast_ref::<SendRefusal>(),
+        Some(&limit(BudgetRefusal::CostExceeded))
+    );
     let plan = crate::planner::structured_stages::refuse_unmet_plan(&command.config).unwrap_err();
     assert_eq!(command_refusal(&plan), Some(expected), "G5 answers first");
     assert_eq!(
@@ -512,8 +516,8 @@ fn an_ultra_run_within_its_limits_completes_as_before() {
 }
 
 /// T-RERUN: auto recovery runs a flow again within its command when the first failed. A refusal
-/// in the first is still the command's in the second, which goes all the way and is no success,
-/// with no completion said.
+/// in the first is still the command's in the second, which starts nothing, sends nothing, and is
+/// no success, with no completion said. (3e turned the send count around on purpose, to close H3.)
 #[test]
 fn a_flow_run_again_within_its_command_keeps_the_refusal_of_the_first() {
     let (command, events) = flow_command(cheap);
@@ -529,6 +533,6 @@ fn a_flow_run_again_within_its_command_keeps_the_refusal_of_the_first() {
         "{error:#}"
     );
     assert_eq!(refusal(&command.config), Some(want));
-    assert!(command.wallet.sends() > 0, "the second went on and sent");
+    assert_eq!(command.wallet.sends(), 0, "the second sent nothing");
     assert_eq!(completions(&events), 0);
 }
