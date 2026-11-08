@@ -163,11 +163,11 @@ mod tests {
         .to_string();
         let text = summary(&refusal(&data)).unwrap();
         let tokens = text.split(' ').collect::<Vec<_>>();
-        let first = tokens[6].strip_prefix("unknown_key@").unwrap();
+        let first = tokens[5].strip_prefix("unknown_key@").unwrap();
         assert_eq!(first.chars().count(), MAX_POINTER_CHARS, "{text}");
         assert!(first.ends_with("..."), "{text}");
-        assert_eq!(tokens[7], "unknown_key@/a?b?c?d?e?f", "{text}");
-        assert_eq!(tokens.len(), 8, "{text}");
+        assert_eq!(tokens[6], "unknown_key@/a?b?c?d?e?f", "{text}");
+        assert_eq!(tokens.len(), 7, "{text}");
     }
 
     #[test]
