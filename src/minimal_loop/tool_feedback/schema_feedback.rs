@@ -1,9 +1,10 @@
 //! Issue #997: a profile tool's schema refusal carries its violations as one
 //! JSON token. A long one does not fit the 500-character history snippet, whose
 //! whole-token cut then drops it and leaves the model `schema_violation:` only.
-//! A short summary of fixed codes and bounded pointers goes first, so at least
-//! one whole violation and the counts stay inside the snippet. The refusal's
-//! own text follows unchanged; the snippet, its limit and its scrub are not
+//! Only then, a short summary of fixed codes and bounded pointers goes first,
+//! so at least one whole violation and the counts stay inside the snippet. The
+//! refusal's own text follows unchanged. A refusal the snippet keeps whole gets
+//! today's feedback byte for byte. The snippet, its limit and its scrub are not
 //! touched here.
 
 use serde_json::Value;
@@ -45,13 +46,25 @@ pub(super) fn missing_read_or_schema(name: &str, error: &anyhow::Error) -> Optio
     super::path_feedback::missing_read(name, error).or_else(|| schema_violation(name, error))
 }
 
+/// `None`, so today's feedback stands byte for byte, unless the history snippet
+/// would cut today's text. Cut or not is read from the snippet itself: a whole
+/// text ends with the fixed last sentence, which no scrub replaces.
 fn schema_violation(name: &str, error: &anyhow::Error) -> Option<String> {
     let text = error.to_string();
     let summary = summary(&text)?;
+    let today = format!("{LEAD}{name}{AFTER_NAME}{text}. {LAST_SENTENCE}");
+    if crate::eval_events::body_snippet_whole_tokens(&today).ends_with(LAST_SENTENCE) {
+        return None;
+    }
     Some(format!(
-        "Tool call `{name}` was rejected with a recoverable validation error: {summary} {text}. Retry with the same tool or another available tool using a valid JSON object that matches the tool schema."
+        "{LEAD}{name}{AFTER_NAME}{summary} {text}. {LAST_SENTENCE}"
     ))
 }
+
+/// Today's fallback in `tool_feedback.rs`, in its parts.
+const LEAD: &str = "Tool call `";
+const AFTER_NAME: &str = "` was rejected with a recoverable validation error: ";
+const LAST_SENTENCE: &str = "Retry with the same tool or another available tool using a valid JSON object that matches the tool schema.";
 
 /// `None` unless the text after the marker is exactly the refusal's data.
 fn summary(text: &str) -> Option<String> {
@@ -124,7 +137,7 @@ fn shown_as_is(c: char) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_POINTER_CHARS, summary};
+    use super::{AFTER_NAME, LAST_SENTENCE, LEAD, MAX_POINTER_CHARS, summary};
 
     fn refusal(data: &str) -> String {
         format!("extension_tool_rejected: `T`: profile_tool_refused: schema_violation: {data}")
@@ -168,6 +181,16 @@ mod tests {
         assert!(first.ends_with("..."), "{text}");
         assert_eq!(tokens[6], "unknown_key@/a?b?c?d?e?f", "{text}");
         assert_eq!(tokens.len(), 7, "{text}");
+    }
+
+    /// The parts rebuild today's fallback exactly, so a whole refusal stays byte-identical.
+    #[test]
+    fn the_parts_are_today_s_fallback() {
+        let error = anyhow::anyhow!("some recoverable error");
+        assert_eq!(
+            super::super::recoverable_tool_feedback("T", &error, None),
+            format!("{LEAD}T{AFTER_NAME}some recoverable error. {LAST_SENTENCE}")
+        );
     }
 
     #[test]

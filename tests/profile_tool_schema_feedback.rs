@@ -481,22 +481,135 @@ fn a_long_refusal_reaches_the_provider_with_its_stage_a_whole_violation_and_the_
     set_env(REGISTRY_ENV, None);
 }
 
+/// The feedback before #997, built here the way base `fea0a54e` wrote it: the refusal's
+/// data is the validator's JSON of `(code, path)` pairs at `received_native`.
+fn today(tool: &str, violations: &[(&str, &str)]) -> String {
+    let violations = violations
+        .iter()
+        .map(|(code, path)| json!({"code": code, "path": path}))
+        .collect::<Vec<_>>();
+    let data = json!({"stage": "received_native", "violations": violations});
+    format!(
+        "Tool call `{tool}` was rejected with a recoverable validation error: extension_tool_rejected: `{tool}`: profile_tool_refused: schema_violation: {data}. Retry with the same tool or another available tool using a valid JSON object that matches the tool schema."
+    )
+}
+
+/// Two unknown keys, `a…` and `b…`, the second sized so that today's feedback has exactly
+/// `total` characters. The keys sort in this order, which is the validator's walk.
+fn sized_keys(total: usize) -> (String, String, String) {
+    let first = format!("a{}", "x".repeat(59));
+    let fixed = today(
+        TOOL,
+        &[("unknown_key", &format!("/{first}")), ("unknown_key", "/b")],
+    )
+    .chars()
+    .count();
+    let second = format!("b{}", "y".repeat(total - fixed));
+    let expected = today(
+        TOOL,
+        &[
+            ("unknown_key", &format!("/{first}")),
+            ("unknown_key", &format!("/{second}")),
+        ],
+    );
+    assert_eq!(expected.chars().count(), total);
+    (first, second, expected)
+}
+
 #[test]
-fn a_short_refusal_keeps_its_json_after_the_summary() {
+fn a_short_refusal_is_today_s_feedback_byte_for_byte() {
     let _guard = lock();
     let env = Env::new();
     let run = run(&env, r#"{"mode":"slow"}"#, false);
     let feedback = assert_bounded_refusal(&run, "short");
-    let summary = feedback
-        .find("schema_violation stage=received_native violations=1 shown=1 omitted=0: enum_mismatch@/mode")
-        .unwrap_or_else(|| panic!("{feedback}"));
-    let json = feedback
-        .find(
-            r#"{"stage":"received_native","violations":[{"code":"enum_mismatch","path":"/mode"}]}"#,
-        )
-        .unwrap_or_else(|| panic!("{feedback}"));
-    assert!(summary < json, "the summary must come first: {feedback}");
+    assert_eq!(feedback, today(TOOL, &[("enum_mismatch", "/mode")]));
     set_env(REGISTRY_ENV, None);
+}
+
+/// The refusal that failed `tests/profile_tool_schema.rs:683` when a summary went first:
+/// four violations fit today, and a summary in front would push the JSON out.
+#[test]
+fn a_four_violation_refusal_that_fits_today_is_today_s_feedback_byte_for_byte() {
+    let _guard = lock();
+    let env = Env::new();
+    let raw = r#"{"mode":"slow","limits":{"retries":9},"targets":[1],"name":"toolong"}"#;
+    let run = run(&env, raw, false);
+    let feedback = assert_bounded_refusal(&run, "four");
+    let expected = today(
+        TOOL,
+        &[
+            ("above_maximum", "/limits/retries"),
+            ("enum_mismatch", "/mode"),
+            ("string_too_long", "/name"),
+            ("wrong_type", "/targets/0"),
+        ],
+    );
+    let length = expected.chars().count();
+    assert!(length <= SNIPPET_LIMIT, "{length}");
+    assert!(
+        length > SNIPPET_LIMIT - 150,
+        "{length}: too short to need this case"
+    );
+    assert_eq!(feedback, expected);
+    set_env(REGISTRY_ENV, None);
+}
+
+#[test]
+fn a_refusal_of_exactly_the_snippet_limit_is_today_s_feedback_byte_for_byte() {
+    let _guard = lock();
+    let env = Env::new();
+    let (first, second, expected) = sized_keys(SNIPPET_LIMIT);
+    let raw = json!({"mode": "fast", first: 1, second: 2}).to_string();
+    let run = run(&env, &raw, false);
+    let feedback = assert_bounded_refusal(&run, "limit");
+    assert_eq!(feedback.chars().count(), SNIPPET_LIMIT);
+    assert_eq!(feedback, expected);
+    set_env(REGISTRY_ENV, None);
+}
+
+#[test]
+fn a_refusal_one_character_over_the_limit_leads_with_the_summary() {
+    let _guard = lock();
+    let env = Env::new();
+    let (first, second, expected) = sized_keys(SNIPPET_LIMIT + 1);
+    assert_eq!(expected.chars().count(), SNIPPET_LIMIT + 1);
+    let raw = json!({"mode": "fast", first.as_str(): 1, second.as_str(): 2}).to_string();
+    let run = run(&env, &raw, false);
+    let feedback = assert_bounded_refusal(&run, "limit + 1");
+    assert!(
+        feedback.contains("schema_violation stage=received_native violations=2 shown=2 omitted=0:"),
+        "{feedback}"
+    );
+    assert_eq!(
+        shown(&feedback),
+        vec![
+            ("unknown_key".to_string(), format!("/{first}")),
+            ("unknown_key".to_string(), format!("/{second}")),
+        ],
+        "{feedback}"
+    );
+    set_env(REGISTRY_ENV, None);
+}
+
+/// A secret in a refusal that fits: the decision is made on the scrubbed snippet, so the
+/// feedback is today's, scrubbed as today.
+#[test]
+fn a_fitting_refusal_with_a_secret_is_today_s_scrubbed_feedback() {
+    let _guard = lock();
+    for key in [DUMMY_SECRET, "my_api_key_field"] {
+        let env = Env::new();
+        let raw = json!({"mode": "fast", key: 1}).to_string();
+        let run = run(&env, &raw, true);
+        let expected = today(TOOL, &[("unknown_key", &format!("/{key}"))]);
+        let scrubbed = commandagent::eval_events::body_snippet_whole_tokens(&expected);
+        reset_scopes_for_tests();
+        let feedback = assert_bounded_refusal(&run, key);
+        assert_ne!(scrubbed, expected, "{key}: the scrub did nothing");
+        assert_eq!(feedback, scrubbed, "{key}");
+        assert!(!feedback.contains(key), "{key}: {feedback}");
+        assert!(!feedback.contains("schema_violation stage="), "{feedback}");
+        set_env(REGISTRY_ENV, None);
+    }
 }
 
 #[test]
@@ -529,12 +642,15 @@ fn control_whitespace_and_invisible_characters_never_reach_the_summary() {
     let _guard = lock();
     let env = Env::new();
     let key = "a\tb\u{7}c\u{202e}d\u{fffd}e f";
-    let raw = json!({"mode": "fast", key: 1}).to_string();
+    // Two long keys after it make the refusal too long for the snippet.
+    let raw = json!({"mode": "fast", key: 1, "x".repeat(120): 2, "y".repeat(120): 3}).to_string();
     let run = run(&env, &raw, false);
     let feedback = assert_bounded_refusal(&run, "characters");
+    let shown = shown(&feedback);
+    assert_eq!(shown.len(), 3, "{feedback}");
     assert_eq!(
-        shown(&feedback),
-        vec![("unknown_key".to_string(), "/a?b?c?d?e?f".to_string())],
+        shown[0],
+        ("unknown_key".to_string(), "/a?b?c?d?e?f".to_string()),
         "{feedback}"
     );
     assert!(!feedback.chars().any(char::is_control), "{feedback:?}");
@@ -551,7 +667,10 @@ fn a_secret_in_a_key_is_scrubbed_before_the_pointer_is_cut() {
     let env = Env::new();
     // The cut lands inside the secret: a cut before the scrub would leave its head.
     let padded = format!("{}{DUMMY_SECRET}", "p".repeat(40));
-    let raw = format!(r#"{{"mode":"fast","{padded}":1,"my_api_key_field":2,"{DUMMY_SECRET}":3}}"#);
+    // A third, long key makes the refusal too long for the snippet. No key holds
+    // `api_key`: that heuristic would replace the whole JSON token and make it short.
+    let long = "c".repeat(100);
+    let raw = format!(r#"{{"mode":"fast","{padded}":1,"{long}":2,"{DUMMY_SECRET}":3}}"#);
     let run = run(&env, &raw, true);
     reset_scopes_for_tests();
     let feedback = assert_bounded_refusal(&run, "secret");
@@ -559,7 +678,7 @@ fn a_secret_in_a_key_is_scrubbed_before_the_pointer_is_cut() {
         feedback.contains("violations=3 shown=3 omitted=0:"),
         "{feedback}"
     );
-    for fragment in [DUMMY_SECRET, &DUMMY_SECRET[..12], "my_api_key_field"] {
+    for fragment in [DUMMY_SECRET, &DUMMY_SECRET[..12]] {
         assert!(!feedback.contains(fragment), "`{fragment}`: {feedback}");
         assert!(
             !run.requests[1].contains(fragment),
