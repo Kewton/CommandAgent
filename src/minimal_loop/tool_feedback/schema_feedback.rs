@@ -9,6 +9,8 @@
 
 use serde_json::Value;
 
+use crate::tools::profile_tools::schema::MAX_DIAGNOSTICS;
+
 const MARKER: &str = "profile_tool_refused: schema_violation: ";
 const MAX_SHOWN: usize = 3;
 const MAX_POINTER_CHARS: usize = 64;
@@ -86,8 +88,14 @@ fn summary(text: &str) -> Option<String> {
         .take(MAX_SHOWN)
         .map(|(code, path)| format!("{}@{}", fixed(code, CODES), pointer(path)))
         .collect::<Vec<_>>();
+    // The validator stops at its most, so a full list may hide more.
+    let more = if items.len() >= MAX_DIAGNOSTICS {
+        "+"
+    } else {
+        ""
+    };
     Some(format!(
-        "schema_violation stage={} violations={} shown={} omitted={}: {}",
+        "schema_violation stage={} violations={}{more} shown={} omitted={}{more}: {}",
         fixed(stage, STAGES),
         items.len(),
         shown.len(),
@@ -105,7 +113,9 @@ fn fixed(value: &str, known: &[&'static str]) -> &'static str {
 }
 
 /// Scrubbed whole before it is cut, so no fragment of a secret survives the
-/// cut. One token: no whitespace, control or invisible format character.
+/// cut. One token: no whitespace, control character, or the invisible
+/// characters `shown_as_is` lists (format characters, bidirectional controls,
+/// tag characters and variation selectors).
 fn pointer(path: &str) -> String {
     let scrubbed = crate::eval_events::scrub_sensitive_text(path);
     let clean = scrubbed
@@ -130,14 +140,18 @@ fn shown_as_is(c: char) -> bool {
                 | '\u{200B}'..='\u{200F}'
                 | '\u{2028}'..='\u{202E}'
                 | '\u{2060}'..='\u{206F}'
+                | '\u{FE00}'..='\u{FE0F}'
                 | '\u{FEFF}'
                 | '\u{FFF9}'..='\u{FFFD}'
+                | '\u{E0000}'..='\u{E007F}'
+                | '\u{E0100}'..='\u{E01EF}'
         ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::{AFTER_NAME, LAST_SENTENCE, LEAD, MAX_POINTER_CHARS, summary};
+    use crate::tools::profile_tools::schema::MAX_DIAGNOSTICS;
 
     fn refusal(data: &str) -> String {
         format!("extension_tool_rejected: `T`: profile_tool_refused: schema_violation: {data}")
@@ -181,6 +195,63 @@ mod tests {
         assert!(first.ends_with("..."), "{text}");
         assert_eq!(tokens[6], "unknown_key@/a?b?c?d?e?f", "{text}");
         assert_eq!(tokens.len(), 7, "{text}");
+    }
+
+    /// Tag characters and both variation selector blocks are invisible: each is replaced.
+    #[test]
+    fn tag_characters_and_variation_selectors_are_replaced() {
+        for (label, c) in [
+            ("tag first", '\u{E0000}'),
+            ("tag A", '\u{E0041}'),
+            ("tag last", '\u{E007F}'),
+            ("selector first", '\u{FE00}'),
+            ("selector 16", '\u{FE0F}'),
+            ("supplement first", '\u{E0100}'),
+            ("supplement last", '\u{E01EF}'),
+        ] {
+            let data = serde_json::json!({
+                "stage": "received_native",
+                "violations": [{"path": format!("/a{c}b"), "code": "unknown_key"}],
+            })
+            .to_string();
+            assert_eq!(
+                summary(&refusal(&data)).as_deref(),
+                Some(
+                    "schema_violation stage=received_native violations=1 shown=1 omitted=0: unknown_key@/a?b"
+                ),
+                "{label}"
+            );
+        }
+    }
+
+    fn of_count(count: usize) -> String {
+        let violations = (0..count)
+            .map(|index| serde_json::json!({"path": format!("/k{index}"), "code": "unknown_key"}))
+            .collect::<Vec<_>>();
+        let data = serde_json::json!({"stage": "received_native", "violations": violations});
+        summary(&refusal(&data.to_string())).unwrap()
+    }
+
+    /// The validator stops counting at its limit, so a full list may hide more.
+    #[test]
+    fn a_full_list_of_violations_is_marked_as_possibly_more() {
+        let below = MAX_DIAGNOSTICS - 1;
+        assert!(
+            of_count(below).starts_with(&format!(
+                "schema_violation stage=received_native violations={below} shown=3 omitted={}: ",
+                below - 3
+            )),
+            "{}",
+            of_count(below)
+        );
+        assert!(
+            of_count(MAX_DIAGNOSTICS).starts_with(&format!(
+                "schema_violation stage=received_native violations={MAX_DIAGNOSTICS}+ shown=3 omitted={}+: ",
+                MAX_DIAGNOSTICS - 3
+            )),
+            "{}",
+            of_count(MAX_DIAGNOSTICS)
+        );
     }
 
     /// The parts rebuild today's fallback exactly, so a whole refusal stays byte-identical.

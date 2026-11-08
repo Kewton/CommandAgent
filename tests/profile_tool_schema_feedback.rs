@@ -444,8 +444,13 @@ fn assert_bounded_refusal(run: &Run, label: &str) -> String {
     feedback
 }
 
-/// Eight violations, the validator's most: the refusal's JSON alone is over the limit.
+/// Nine violations; the validator reports its most, eight. The refusal's JSON alone is
+/// over the limit. `/targets/1` is the ninth, the one the validator leaves out.
 const MANY: &str = r#"{"mode":"slow","limits":{"retries":9,"extra_limit_key":1},"targets":[1,2],"name":"toolong","alpha_extra_key":1,"bravo_extra_key":2}"#;
+/// `MANY` without `bravo_extra_key`: exactly eight, the validator's most.
+const EIGHT: &str = r#"{"mode":"slow","limits":{"retries":9,"extra_limit_key":1},"targets":[1,2],"name":"toolong","alpha_extra_key":1}"#;
+/// `MANY` without either extra top-level key: seven, under the validator's most.
+const SEVEN: &str = r#"{"mode":"slow","limits":{"retries":9,"extra_limit_key":1},"targets":[1,2],"name":"toolong"}"#;
 
 #[test]
 fn a_long_refusal_reaches_the_provider_with_its_stage_a_whole_violation_and_the_counts() {
@@ -458,8 +463,9 @@ fn a_long_refusal_reaches_the_provider_with_its_stage_a_whole_violation_and_the_
         feedback.contains("stage=received_native"),
         "the stage did not reach the provider: {feedback}"
     );
+    // The validator stopped at eight, so the count says there may be more.
     assert!(
-        feedback.contains("violations=8 shown=3 omitted=5:"),
+        feedback.contains("violations=8+ shown=3 omitted=5+:"),
         "{feedback}"
     );
     // The first three, in the validator's order (its object walk is by sorted key).
@@ -576,6 +582,95 @@ fn a_refusal_one_character_over_the_limit_leads_with_the_summary() {
     let raw = json!({"mode": "fast", first.as_str(): 1, second.as_str(): 2}).to_string();
     let run = run(&env, &raw, false);
     let feedback = assert_bounded_refusal(&run, "limit + 1");
+    assert!(
+        feedback.contains("schema_violation stage=received_native violations=2 shown=2 omitted=0:"),
+        "{feedback}"
+    );
+    assert_eq!(
+        shown(&feedback),
+        vec![
+            ("unknown_key".to_string(), format!("/{first}")),
+            ("unknown_key".to_string(), format!("/{second}")),
+        ],
+        "{feedback}"
+    );
+    set_env(REGISTRY_ENV, None);
+}
+
+/// Exactly the validator's most is marked like more, since the validator cannot tell them
+/// apart; one fewer is a plain count. Both are too long for the snippet.
+#[test]
+fn the_count_is_marked_once_the_validator_s_limit_is_reached() {
+    let _guard = lock();
+    for (raw, head) in [
+        (EIGHT, "violations=8+ shown=3 omitted=5+:"),
+        (SEVEN, "violations=7 shown=3 omitted=4:"),
+    ] {
+        let env = Env::new();
+        let run = run(&env, raw, false);
+        let feedback = assert_bounded_refusal(&run, head);
+        assert!(
+            feedback.contains(&format!("schema_violation stage=received_native {head}")),
+            "{feedback}"
+        );
+        assert_eq!(shown(&feedback).len(), 3, "{feedback}");
+        set_env(REGISTRY_ENV, None);
+    }
+}
+
+/// Like [`sized_keys`], with multi-byte characters in both keys: lengths are characters,
+/// and the text is over 500 bytes while it is at most 500 characters. Each pointer stays
+/// under the validator's 128 bytes.
+fn sized_multibyte_keys(total: usize) -> (String, String, String) {
+    let first = format!("a{}{}", "日".repeat(20), "x".repeat(39));
+    let fixed = today(
+        TOOL,
+        &[("unknown_key", &format!("/{first}")), ("unknown_key", "/b")],
+    )
+    .chars()
+    .count();
+    let second = format!("b{}", "é".repeat(total - fixed));
+    let expected = today(
+        TOOL,
+        &[
+            ("unknown_key", &format!("/{first}")),
+            ("unknown_key", &format!("/{second}")),
+        ],
+    );
+    assert_eq!(expected.chars().count(), total);
+    assert!(
+        expected.len() > SNIPPET_LIMIT + 50,
+        "{} bytes",
+        expected.len()
+    );
+    for key in [&first, &second] {
+        assert!(key.len() < 127, "{} bytes", key.len());
+    }
+    (first, second, expected)
+}
+
+#[test]
+fn a_multibyte_refusal_of_exactly_the_snippet_limit_is_today_s_feedback_byte_for_byte() {
+    let _guard = lock();
+    let env = Env::new();
+    let (first, second, expected) = sized_multibyte_keys(SNIPPET_LIMIT);
+    let raw = json!({"mode": "fast", first.as_str(): 1, second.as_str(): 2}).to_string();
+    let run = run(&env, &raw, false);
+    let feedback = assert_bounded_refusal(&run, "multibyte limit");
+    assert_eq!(feedback.chars().count(), SNIPPET_LIMIT);
+    assert!(feedback.len() > SNIPPET_LIMIT, "{} bytes", feedback.len());
+    assert_eq!(feedback, expected);
+    set_env(REGISTRY_ENV, None);
+}
+
+#[test]
+fn a_multibyte_refusal_one_character_over_the_limit_leads_with_the_summary() {
+    let _guard = lock();
+    let env = Env::new();
+    let (first, second, _) = sized_multibyte_keys(SNIPPET_LIMIT + 1);
+    let raw = json!({"mode": "fast", first.as_str(): 1, second.as_str(): 2}).to_string();
+    let run = run(&env, &raw, false);
+    let feedback = assert_bounded_refusal(&run, "multibyte limit + 1");
     assert!(
         feedback.contains("schema_violation stage=received_native violations=2 shown=2 omitted=0:"),
         "{feedback}"
@@ -852,7 +947,7 @@ printf '%s' "{{\"protocol\":\"profile-tool.result/v1\",\"request_id\":\"$rid\",\
         let refused = run(&env, MANY, false);
         let feedback = super::assert_bounded_refusal(&refused, "process");
         assert!(
-            feedback.contains("stage=received_native violations=8 shown=3 omitted=5:"),
+            feedback.contains("stage=received_native violations=8+ shown=3 omitted=5+:"),
             "{feedback}"
         );
         assert_eq!(shown(&feedback).len(), 3, "{feedback}");
