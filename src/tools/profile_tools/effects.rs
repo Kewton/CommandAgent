@@ -38,6 +38,7 @@ use crate::planner::structured_stages::ledger::{
 };
 use crate::planner::structured_stages::receipt::{ToolPins, sha256_hex};
 use crate::planner::structured_stages::resume::AdmittedPins;
+use crate::planner::structured_stages::schema_refusals::SCHEMA_REFUSAL_LIMIT;
 use crate::planner::structured_stages::state::{
     AttemptFailure, AttemptTicket, BeginDecision, BytesSource, CheckFailureKind, CommitDecision,
     CommitObservation, ExhaustedLimit, FailureDecision, InvalidatedTarget, LocalDecision,
@@ -641,6 +642,14 @@ impl ProposalTool {
                     emit_stage_refusal(context, self, data);
                 }
                 if error.kind == RefusalKind::SchemaViolation {
+                    // A stage's call takes as many of these as its limits allow, and then the
+                    // run ends (Issue #998).
+                    if let Some(stage) = self.stage.get()
+                        && stage
+                            .note_schema_refusal(&self.tool_id, context.eval_events_path.as_deref())
+                    {
+                        return Err(stage_ended(SCHEMA_REFUSAL_LIMIT).into());
+                    }
                     // A model can correct an argument, so this goes back to it as data.
                     anyhow::bail!("extension_tool_rejected: `{}`: {error}", self.name());
                 }
@@ -3012,6 +3021,153 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                 assert_eq!(state.logical_stage_used("upper"), 4);
                 assert_eq!(state.logical_stage_used("lower"), 2);
                 assert_eq!(refusal(&counted.config), None);
+            }
+        }
+
+        /// Issue #998: a call of a stage tool that G2 refuses counts against its target and the
+        /// run, apart from G4's attempts. The refusal that reaches a limit ends the run.
+        mod schema_refusal_limit {
+            use std::path::PathBuf;
+
+            use serde_json::{Value, json};
+
+            use super::super::super::EXPECTED_REVISION_ARGUMENT;
+            use super::{
+                LOWER, Phase, ProposalTool, RefusalKind, StageBench, UPPER, UPPER_OUTPUT, kind,
+                lower_key, stage_bench_with, upper_key,
+            };
+            use crate::tools::registry::recoverable_tool_error;
+
+            /// Each refused a little differently, as a model's calls are.
+            fn refused(index: usize) -> Value {
+                let shapes = [
+                    json!({"mode": 5, EXPECTED_REVISION_ARGUMENT: "initial"}),
+                    json!({"mode": "fast"}),
+                    json!({"mode": "fast", EXPECTED_REVISION_ARGUMENT: "initial", "extra": 1}),
+                ];
+                shapes[index % shapes.len()].clone()
+            }
+
+            fn events_path(bench: &StageBench) -> PathBuf {
+                bench.workspace.parent().unwrap().join("events.jsonl")
+            }
+
+            fn call(
+                bench: &StageBench,
+                tool: &ProposalTool,
+                arguments: &Value,
+            ) -> anyhow::Result<String> {
+                let mut context = bench.context();
+                context.eval_events_path = Some(events_path(bench));
+                tool.execute(arguments, &context, &|| false)
+            }
+
+            fn assert_refused_as_data(error: &anyhow::Error, label: &str) {
+                assert!(
+                    error.to_string().starts_with("extension_tool_rejected"),
+                    "{label}: {error:#}"
+                );
+                assert!(recoverable_tool_error(error), "{label}");
+            }
+
+            fn assert_ended(error: &anyhow::Error) {
+                assert_eq!(kind(error), RefusalKind::StageRunEnded, "{error:#}");
+                assert!(
+                    error.to_string().contains("schema_refusal_limit"),
+                    "{error:#}"
+                );
+                assert!(!recoverable_tool_error(error), "{error:#}");
+            }
+
+            fn limit_events(bench: &StageBench) -> Vec<Value> {
+                std::fs::read_to_string(events_path(bench))
+                    .unwrap_or_default()
+                    .lines()
+                    .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+                    .filter(|event| event["event"] == "stage_schema_refusal_limit")
+                    .collect()
+            }
+
+            /// The third refusal reaches the target's limit and ends the run. G4 spent no
+            /// attempt, left the target not ready, and started no process.
+            #[test]
+            fn refusals_of_a_stage_call_end_the_run_at_the_targets_limit_and_g4_records_nothing() {
+                let bench = stage_bench_with(3);
+                for index in 0..2 {
+                    let error = call(&bench, &bench.upper, &refused(index)).unwrap_err();
+                    assert_refused_as_data(&error, &format!("refusal {index}"));
+                }
+                assert!(limit_events(&bench).is_empty());
+                let error = call(&bench, &bench.upper, &refused(2)).unwrap_err();
+                assert_ended(&error);
+                let limits = limit_events(&bench);
+                assert_eq!(limits.len(), 1, "{limits:?}");
+                assert_eq!(
+                    limits[0],
+                    json!({
+                        "event": "stage_schema_refusal_limit",
+                        "stage": "upper",
+                        "target": "main",
+                        "refusals": 3,
+                        "limit": 3,
+                        "scope": "target",
+                        "schema_version": "1",
+                    })
+                );
+                assert_eq!(bench.starts(UPPER), 0, "no process");
+                assert_eq!(bench.attempts(&upper_key()), 0, "no attempt");
+                assert_eq!(bench.status(&upper_key()).0, Phase::NotReady);
+                assert!(bench.saved(UPPER_OUTPUT).is_none());
+            }
+
+            /// Fewer refusals than the limit take nothing from what follows: a valid call then
+            /// proceeds, spends attempt one, and commits.
+            #[test]
+            fn fewer_refusals_than_the_limit_then_a_valid_call_proceeds_and_commits() {
+                let bench = stage_bench_with(3);
+                for index in 0..2 {
+                    let error = call(&bench, &bench.upper, &refused(index)).unwrap_err();
+                    assert_refused_as_data(&error, &format!("refusal {index}"));
+                }
+                let answer = bench.call(&bench.upper, "fast", "initial").unwrap();
+                assert_eq!(answer["stage"]["status"], "sealed", "{answer}");
+                assert_eq!(bench.attempts(&upper_key()), 1);
+                assert_eq!(bench.starts(UPPER), 1);
+                assert!(bench.saved(UPPER_OUTPUT).is_some());
+                assert!(limit_events(&bench).is_empty());
+            }
+
+            /// With one attempt per target, the first refusal is the one at the limit.
+            #[test]
+            fn one_attempt_per_target_ends_the_run_at_the_first_refusal() {
+                let bench = stage_bench_with(1);
+                let error = call(&bench, &bench.upper, &refused(0)).unwrap_err();
+                assert_ended(&error);
+                let limits = limit_events(&bench);
+                assert_eq!(limits.len(), 1, "{limits:?}");
+                assert_eq!(limits[0]["refusals"], 1);
+                assert_eq!(limits[0]["limit"], 1);
+                assert_eq!(bench.attempts(&upper_key()), 0);
+            }
+
+            /// One target's refusals are not another's: each stops at its own count.
+            #[test]
+            fn each_target_counts_its_own_refusals() {
+                let bench = stage_bench_with(3);
+                for index in 0..2 {
+                    let upper = call(&bench, &bench.upper, &refused(index)).unwrap_err();
+                    assert_refused_as_data(&upper, "upper");
+                    let lower = call(&bench, &bench.lower, &refused(index)).unwrap_err();
+                    assert_refused_as_data(&lower, "lower");
+                }
+                let error = call(&bench, &bench.lower, &refused(2)).unwrap_err();
+                assert_ended(&error);
+                let limits = limit_events(&bench);
+                assert_eq!(limits.len(), 1, "{limits:?}");
+                assert_eq!(limits[0]["stage"], "lower");
+                assert_eq!(limits[0]["scope"], "target");
+                assert_eq!(bench.starts(LOWER), 0);
+                assert_eq!(bench.attempts(&lower_key()), 0);
             }
         }
 
@@ -5510,6 +5666,171 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                     crate::structured_budget::outcome::refusal(&config),
                     Some(crate::structured_budget::outcome::CommandRefusal::SendRefused(expected))
                 );
+            }
+
+            /// Issue #998: replies of one call of the upper stage's tool that the schema refuses,
+            /// each a little differently, as a model's are.
+            fn refused_call(index: usize) -> String {
+                let shapes = [
+                    json!({"mode": 5, "expected_revision": "initial"}),
+                    json!({"mode": "fast"}),
+                    json!({"mode": "fast", "expected_revision": "initial", "extra": 1}),
+                ];
+                call_reply(UPPER_TOOL, &shapes[index % shapes.len()])
+            }
+
+            /// What a session sent nothing but refused calls comes to, under a wallet or none.
+            struct Refused {
+                requests: usize,
+                ended: Result<(), String>,
+                outcome: Option<crate::structured_budget::outcome::CommandRefusal>,
+            }
+
+            fn refused_session(
+                world: &World,
+                wallet: Option<Arc<crate::structured_budget::test_support::TestWallet>>,
+            ) -> Refused {
+                let http = FakeHttp::start(Arc::new(|index, _| refused_call(index - 1)));
+                let mut config = world.config(&http.url);
+                // Room past the limit, so the loop's own budget is not what ends the session.
+                config.max_iterations = 20;
+                let mut inner = client_from_config(&config, false).unwrap();
+                let ended = match wallet {
+                    Some(wallet) => {
+                        config.field_sources.run_budget = Some(wallet.handle.clone());
+                        let mut client = WalletClient {
+                            inner,
+                            wallet,
+                            settled: Arc::default(),
+                        };
+                        run_session_with_outcome_with_ui(
+                            &mut client,
+                            &mut SessionSnapshot::new(),
+                            "Submit the upper stage.",
+                            &[],
+                            &config,
+                            &NOOP_UI,
+                        )
+                    }
+                    None => run_session_with_outcome_with_ui(
+                        inner.as_mut(),
+                        &mut SessionSnapshot::new(),
+                        "Submit the upper stage.",
+                        &[],
+                        &config,
+                        &NOOP_UI,
+                    ),
+                }
+                .map(|_| ())
+                .map_err(|error| format!("{error:#}"));
+                Refused {
+                    requests: http.finish().len(),
+                    ended,
+                    outcome: crate::structured_budget::outcome::refusal(&config),
+                }
+            }
+
+            fn limit_events(world: &World) -> Vec<Value> {
+                world
+                    .events()
+                    .lines()
+                    .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+                    .filter(|event| event["event"] == "stage_schema_refusal_limit")
+                    .collect()
+            }
+
+            fn no_g4_record(world: &World) -> bool {
+                std::fs::read_dir(world.evidence.join("state/structured-stages")).map_or(
+                    true,
+                    |entries| {
+                        entries
+                            .flatten()
+                            .all(|entry| !entry.path().join("ledger.json").exists())
+                    },
+                )
+            }
+
+            /// Issue #998: the eighth refusal reaches the descriptor's eight per target and ends
+            /// the session. Nothing is sent after it, and G4 recorded nothing.
+            #[test]
+            fn varied_schema_refusals_end_the_session_at_the_targets_limit() {
+                const NAME: &str = "varied_schema_refusals_end_the_session_at_the_targets_limit";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                let refused = refused_session(&world, None);
+                let error = refused.ended.expect_err("the limit ends the session");
+                assert!(error.contains("schema_refusal_limit"), "{error}");
+                assert_eq!(refused.requests, 8, "nothing is sent after the eighth");
+                let limits = limit_events(&world);
+                assert_eq!(limits.len(), 1, "{limits:?}");
+                assert_eq!(limits[0]["refusals"], 8);
+                assert_eq!(limits[0]["limit"], 8);
+                assert_eq!(limits[0]["scope"], "target");
+                assert!(no_g4_record(&world));
+                assert!(!world.marks.join(format!("started-{UPPER}")).exists());
+            }
+
+            /// Issue #998 with #976: under a wallet each refusal is a submission of its stage, and
+            /// with the wallet's limits far off, the schema's limit is what ends the session.
+            #[test]
+            fn under_a_wallet_the_schema_limit_can_end_the_session_first() {
+                const NAME: &str = "under_a_wallet_the_schema_limit_can_end_the_session_first";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                let wallet = Arc::new(crate::structured_budget::test_support::TestWallet::open(
+                    |_| {},
+                ));
+                let refused = refused_session(&world, Some(wallet.clone()));
+                let error = refused.ended.expect_err("the limit ends the session");
+                assert!(error.contains("schema_refusal_limit"), "{error}");
+                assert_eq!(refused.requests, 8);
+                let state = wallet.handle.wallet().unwrap();
+                assert_eq!(state.physical_used(), 8, "nothing sent after the eighth");
+                assert_eq!(
+                    state.logical_stage_used("upper"),
+                    8,
+                    "each was a submission"
+                );
+                assert_eq!(refused.outcome, None, "the wallet refused nothing");
+                assert_eq!(limit_events(&world).len(), 1);
+                assert!(no_g4_record(&world));
+            }
+
+            /// Issue #998 with #976: with the wallet's stage limit nearer, the wallet ends the
+            /// session first, with its own refusal, and the schema's limit is never reached.
+            #[test]
+            fn under_a_wallet_its_stage_limit_can_end_the_session_first() {
+                const NAME: &str = "under_a_wallet_its_stage_limit_can_end_the_session_first";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                let wallet = Arc::new(crate::structured_budget::test_support::TestWallet::open(
+                    |value| value["limits"]["logical_per_stage"] = json!(2),
+                ));
+                let refused = refused_session(&world, Some(wallet.clone()));
+                let error = refused.ended.expect_err("the wallet ends the session");
+                assert!(error.contains("LogicalStageExceeded"), "{error}");
+                assert!(!error.contains("schema_refusal_limit"), "{error}");
+                let state = wallet.handle.wallet().unwrap();
+                assert_eq!(state.logical_stage_used("upper"), 2);
+                assert_eq!(refused.requests, 3, "the third call's record was refused");
+                assert_eq!(state.physical_used(), 3, "nothing sent after the refusal");
+                let expected = crate::structured_budget::transport::SendRefusal::Wallet(
+                    crate::structured_budget::ledger::LedgerFailure::Budget(
+                        crate::structured_budget::reservation::BudgetRefusal::LogicalStageExceeded,
+                    ),
+                );
+                assert_eq!(
+                    refused.outcome,
+                    Some(crate::structured_budget::outcome::CommandRefusal::SendRefused(expected))
+                );
+                assert!(limit_events(&world).is_empty());
+                assert!(no_g4_record(&world));
             }
 
             /// T2 (acceptance 4): two stages open get the one repair budget final acceptance has,
@@ -10327,6 +10648,30 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
             "{error:#}"
         );
         assert!(crate::tools::registry::recoverable_tool_error(&error));
+        assert_eq!(bench.starts(), 0);
+    }
+
+    /// Issue #998: a tool in no stage has no limit on these. Each goes back as data, as before.
+    #[test]
+    fn a_tool_in_no_stage_gets_every_schema_refusal_back_as_data() {
+        let bench = bench(&good_script());
+        assert!(!bench.tool.has_stage());
+        for index in 0..12 {
+            let shapes = [
+                json!({"mode": 1}),
+                json!({"mode": [index]}),
+                json!({"mode": true}),
+            ];
+            let error = bench
+                .tool
+                .execute(&shapes[index % shapes.len()], &bench.context(), &|| false)
+                .unwrap_err();
+            assert!(
+                error.to_string().starts_with("extension_tool_rejected"),
+                "{index}: {error:#}"
+            );
+            assert!(crate::tools::registry::recoverable_tool_error(&error));
+        }
         assert_eq!(bench.starts(), 0);
     }
 

@@ -108,6 +108,8 @@ pub(crate) struct StageRun {
     /// Calls in a row that started no process. Nothing else limits them: they spend no attempt.
     calls_without_process: AtomicUsize,
     record_notice_shown: AtomicBool,
+    /// G2's refusals of the set's calls, which reach no attempt (Issue #998).
+    schema_refusals: schema_refusals::SchemaRefusals,
 }
 
 /// A call's effect on whether a stage moved, for the loop's stagnation count. This is the only
@@ -406,6 +408,7 @@ impl StageRun {
             notes: Mutex::new(Vec::new()),
             calls_without_process: AtomicUsize::new(0),
             record_notice_shown: AtomicBool::new(false),
+            schema_refusals: schema_refusals::SchemaRefusals::default(),
         }
     }
 
@@ -688,6 +691,7 @@ pub(crate) mod invalidation;
 pub(crate) mod ledger;
 pub(crate) mod receipt;
 pub(crate) mod resume;
+pub(crate) mod schema_refusals;
 pub(crate) mod state;
 
 #[cfg(test)]

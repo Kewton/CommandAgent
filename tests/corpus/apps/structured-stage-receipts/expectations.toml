@@ -36,6 +36,8 @@ fixtures/cases.json = [
   "\"id\": \"document-index-profile\"",
   "\"event\": \"structured_stage_incomplete\"",
   "\"event\": \"structured_stage_refused\"",
+  "\"event\": \"stage_schema_refusal_limit\"",
+  "\"kind\": \"schema_refusal_limit\"",
   "\"refusal\": \"stage_contract_refused\"",
   "\"refusal\": \"stage_incomplete\"",
   "\"refusal\": \"stage_ledger_refused\"",
