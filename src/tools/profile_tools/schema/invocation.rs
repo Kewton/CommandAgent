@@ -173,8 +173,9 @@ impl SchemaGuard {
 
     /// Decodes and validates one call's raw arguments, and leaves the receipt its
     /// execution attempt will meet. A refused call stays visible to the loop as an
-    /// empty object, because the raw text is not valid data.
-    fn receive(&self, raw: Result<&str, &'static str>) -> Value {
+    /// empty object, because the raw text is not valid data. The flag says whether the
+    /// call was accepted here, as the receipt records it.
+    fn receive(&self, raw: Result<&str, &'static str>) -> (Value, bool) {
         let outcome = raw
             .map_err(|code| vec![violation(code)])
             .and_then(|raw| {
@@ -186,8 +187,9 @@ impl SchemaGuard {
         let arguments = outcome
             .as_ref()
             .map_or_else(|_| Value::Object(Map::new()), Value::clone);
+        let accepted = outcome.is_ok();
         self.shared.push(&self.name, outcome);
-        arguments
+        (arguments, accepted)
     }
 }
 
@@ -250,7 +252,7 @@ impl ReceiveState {
                 return Err(ProfileToolRefusal::new(
                     RefusalKind::SchemaUnsupported,
                     format!(
-                        "tool `{name}` needs a Chat Completions wire; this client {}",
+                        "tool `{name}` needs a Chat Completions or Responses wire; this client {}",
                         wire.describe()
                     ),
                 ));
@@ -353,7 +355,8 @@ pub(crate) fn install_on_provider_worker(state: Option<Arc<ReceiveState>>) {
 }
 
 /// Right before a request leaves: the copy after the scrub must still be the adopted
-/// schema, and a client built for this one call must carry the wire.
+/// schema, and a client built for this one call must carry the wire (Chat Completions
+/// or Responses; an undeclared wire is refused).
 pub(crate) fn check_send(
     tools: &[ToolSpec],
     overriding_client: Option<&dyn ChatClient>,
@@ -391,7 +394,9 @@ pub(crate) fn check_send(
     Ok(())
 }
 
-fn is_schema_tool(name: &str) -> bool {
+/// Whether `name` is a schema tool the session on this thread admitted. Always false with
+/// no schema tool selected.
+pub(crate) fn is_schema_tool(name: &str) -> bool {
     with_current(|state| state.guards.contains_key(name).then_some(())).is_some()
 }
 
@@ -456,18 +461,32 @@ pub(crate) fn receive_native(
     raw: Option<&Value>,
     envelope_clean: bool,
 ) -> Option<ToolCall> {
+    receive_native_judged(name, id, raw, envelope_clean).map(|(call, _)| call)
+}
+
+/// [`receive_native`], with whether the call was accepted. A replay of the reply reads the
+/// flag as the parse recorded it, not from the arguments it left (Issue #1005).
+pub(crate) fn receive_native_judged(
+    name: &str,
+    id: impl FnOnce() -> String,
+    raw: Option<&Value>,
+    envelope_clean: bool,
+) -> Option<(ToolCall, bool)> {
     let guard = with_current(|state| state.guards.get(name).cloned())?;
     let raw = match raw.map(Value::as_str) {
         _ if !envelope_clean => Err("duplicate_key"),
         Some(Some(raw)) => Ok(raw),
         _ => Err("malformed_json"),
     };
-    let arguments = guard.receive(raw);
-    Some(ToolCall {
-        id: id(),
-        name: name.to_string(),
-        arguments,
-    })
+    let (arguments, accepted) = guard.receive(raw);
+    Some((
+        ToolCall {
+            id: id(),
+            name: name.to_string(),
+            arguments,
+        },
+        accepted,
+    ))
 }
 
 /// The safety net below the start's refusal: whatever a reply holds, in a schema session
@@ -597,6 +616,36 @@ mod text_reply_tests {
             assert_eq!(reply.content, form, "the reply was parsed");
             assert!(state.shared.take("T").is_none(), "{form}: a receipt exists");
         }
+    }
+}
+
+/// Issue #1005: a session with one schema tool `T` (an object of one optional string `s`, no
+/// other key), and its receipts, for the provider's own tests of the Responses wire.
+#[cfg(test)]
+pub(crate) mod provider_test_support {
+    use std::sync::{Arc, PoisonError};
+
+    use serde_json::Value;
+
+    use super::ReceiveState;
+
+    pub(crate) fn schema_state() -> Arc<ReceiveState> {
+        Arc::new(super::text_reply_tests::schema_state())
+    }
+
+    /// The schema `T` was adopted with, as a request must carry it.
+    pub(crate) fn adopted_schema(state: &ReceiveState) -> Value {
+        state.guards["T"].published_schema().clone()
+    }
+
+    /// How many receipts wait for an execution.
+    pub(crate) fn receipts(state: &ReceiveState) -> usize {
+        state
+            .shared
+            .receipts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .len()
     }
 }
 
@@ -734,36 +783,37 @@ mod send_tests {
         check_send(&[spec("Read", json!({"anything": true}))], None).unwrap();
     }
 
+    /// Issue #1005: Chat Completions and Responses carry the wire; an undeclared one does not.
     #[test]
     fn a_client_replaced_for_one_call_must_carry_the_wire() {
         let state = Arc::new(schema_state());
         let same = adopted(&state);
-        let carrying = WireClient(ProfileToolSchemaWire::ChatCompletions);
         let _scope = enter_session(state);
         let tool = [spec("T", same)];
 
         check_send(&tool, None).unwrap();
-        check_send(&tool, Some(&carrying)).unwrap();
         for wire in [
+            ProfileToolSchemaWire::ChatCompletions,
             ProfileToolSchemaWire::Responses,
-            ProfileToolSchemaWire::Undeclared,
         ] {
-            let client = WireClient(wire);
-            let error = refusal(&tool, Some(&client));
+            let carrying = WireClient(wire);
+            check_send(&tool, Some(&carrying)).unwrap();
+            // A changed schema is refused on a carrying client as well.
+            let changed = [spec("T", json!({}))];
             assert!(
-                error.starts_with("profile_tool_refused: schema_unsupported:"),
-                "{wire:?}: {error}"
+                refusal(&changed, Some(&carrying))
+                    .starts_with("profile_tool_refused: schema_scrubbed:"),
+                "{wire:?}"
             );
-            // A call that carries no schema tool is not this check's to refuse.
-            check_send(&[spec("Read", json!({}))], Some(&client)).unwrap();
         }
-
-        // A changed schema is refused on a carrying client as well.
-        let changed = [spec("T", json!({}))];
+        let client = WireClient(ProfileToolSchemaWire::Undeclared);
+        let error = refusal(&tool, Some(&client));
         assert!(
-            refusal(&changed, Some(&carrying))
-                .starts_with("profile_tool_refused: schema_scrubbed:")
+            error.starts_with("profile_tool_refused: schema_unsupported:"),
+            "{error}"
         );
+        // A call that carries no schema tool is not this check's to refuse.
+        check_send(&[spec("Read", json!({}))], Some(&client)).unwrap();
     }
 }
 

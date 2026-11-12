@@ -3754,5 +3754,1530 @@ printf '%s' "{{\"protocol\":\"profile-tool.result/v1\",\"request_id\":\"$rid\",\
                 );
             }
         }
+
+        /// Issue #1005: the stage tools on the Responses API, against Chat Completions. The paths,
+        /// the responder, the observation, and the placeholders are the ones above. Only the wire
+        /// is converted: a Responses request is read as the Chat Completions messages it stands
+        /// for, and the responder's reply goes out in the Responses shape with a new call ID per
+        /// call. The control is the golden recorded on Chat Completions on the base, or the same
+        /// calls on Chat Completions in the same test.
+        mod on_responses {
+            use std::sync::{Arc, Mutex};
+
+            use serde_json::{Value, json};
+
+            use super::super::super::responses_schema_fixture::{
+                APIS, Api, as_chat_body, chat_reply_as_responses, responses_reply,
+            };
+            use super::super::super::{
+                Env, LOWER_TOOL, LOWER_TOOL_ID, UPPER_TOOL, UPPER_TOOL_ID, WALK_PROFILE,
+                directory_pin, encode_base64, sha256,
+            };
+            use super::super::{
+                FakeHttp, NOOP_UI, Responder, SessionSnapshot, client_from_config, floor_with,
+                has_tool_answer, install_sandbox, limit_events, lock, reset_for_test,
+                run_session_with_outcome_with_ui, saved_attempts, text_reply,
+            };
+            use super::{
+                Call, GOLDEN, ReplayPath, Revision, events_of, ledgers, normalize_value,
+                number_revisions, parse_answer, paths, processes, responder, revision_in_answers,
+                root_paths, stopped, take_attempts, write_replay_tools,
+            };
+
+            /// The responder on the session's API: on Responses, the request is read as Chat
+            /// Completions messages and the reply is sent in the Responses shape.
+            fn on_api(api: Api, chat: Responder) -> Responder {
+                match api {
+                    Api::Chat => chat,
+                    Api::Responses => Arc::new(move |index, body| {
+                        chat_reply_as_responses(&chat(index, &as_chat_body(body)), index)
+                    }),
+                }
+            }
+
+            fn as_chat(api: Api, body: &Value) -> Value {
+                match api {
+                    Api::Chat => body.clone(),
+                    Api::Responses => as_chat_body(body),
+                }
+            }
+
+            /// The tool answers of a request's last turn: every tool message after the last
+            /// assistant message, in order.
+            fn turn_answers(body: &Value) -> Vec<Value> {
+                let messages = body["messages"].as_array().unwrap();
+                let start = messages
+                    .iter()
+                    .rposition(|message| message["role"] == "assistant")
+                    .map_or(0, |index| index + 1);
+                messages[start..]
+                    .iter()
+                    .filter(|message| message["role"] == "tool")
+                    .map(|message| parse_answer(message["content"].as_str().unwrap_or_default()))
+                    .collect()
+            }
+
+            /// `observe`, on either API, with the tools and the floor the caller gives. Each
+            /// request is read on the Chat Completions view; `turn_answers` adds every answer of
+            /// each request's last turn, for replies with more than one call.
+            fn observe_on(
+                api: Api,
+                floor: &Value,
+                chat: Responder,
+                replies: &Mutex<Vec<Value>>,
+            ) -> Value {
+                let env = Env::new();
+                write_replay_tools(&env, floor);
+                install_sandbox(&env);
+                let http = FakeHttp::start(on_api(api, chat));
+                let url = http.url.clone();
+                let mut config = super::super::config(&env, WALK_PROFILE, &url);
+                config.openai_api = api.openai_api();
+                let mut client = client_from_config(&config, false).unwrap();
+                let result = run_session_with_outcome_with_ui(
+                    client.as_mut(),
+                    &mut SessionSnapshot::new(),
+                    "Submit both stages.",
+                    &[],
+                    &config,
+                    &NOOP_UI,
+                )
+                .map(|_| ())
+                .map_err(|error| format!("{error:#}"));
+                let requests = http
+                    .finish()
+                    .iter()
+                    .map(|body| as_chat(api, body))
+                    .collect::<Vec<_>>();
+                reset_for_test();
+
+                let events = events_of(&env);
+                let ledgers = ledgers(&env);
+                let (stopped, refusal) = stopped(&events, &ledgers);
+                let answers = requests
+                    .iter()
+                    .map(|body| {
+                        if !has_tool_answer(body) {
+                            return Value::Null;
+                        }
+                        let text = body["messages"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .rev()
+                            .find(|message| message["role"] == "tool")
+                            .and_then(|message| message["content"].as_str())
+                            .unwrap_or_default();
+                        parse_answer(text)
+                    })
+                    .collect::<Vec<_>>();
+                let replies = replies.lock().unwrap().clone();
+                let observation = json!({
+                    "stopped": stopped,
+                    "refusal": refusal,
+                    "error": result.err(),
+                    "requests": requests.len(),
+                    "processes": processes(&events),
+                    "attempts_used": ledgers,
+                    "events": events
+                        .iter()
+                        .map(|event| event["event"].clone())
+                        .collect::<Vec<_>>(),
+                    "replies": replies,
+                    "answers": answers,
+                    "turn_answers": requests.iter().map(turn_answers).collect::<Vec<_>>(),
+                });
+                let paths = root_paths(&env);
+                number_revisions(&normalize_value(&paths, &url, &observation))
+            }
+
+            /// The golden's document, observed on `api`, with `turn_answers` taken out.
+            fn replay_on(api: Api) -> Value {
+                json!({
+                    "issue": "#1004",
+                    "kind": "attempts-replay",
+                    "source": "028d63d1",
+                    "placeholders": super::PLACEHOLDERS
+                        .iter()
+                        .map(|(marker, replaces)| json!({"placeholder": marker, "replaces": replaces}))
+                        .collect::<Vec<_>>(),
+                    "paths": paths()
+                        .iter()
+                        .map(|path: &ReplayPath| {
+                            let floor = floor_with(path.attempts_per_target, path.attempts_per_run);
+                            let replies: Arc<Mutex<Vec<Value>>> = Arc::default();
+                            let mut observation = observe_on(
+                                api,
+                                &floor,
+                                responder(path.calls.clone(), replies.clone()),
+                                &replies,
+                            );
+                            observation.as_object_mut().unwrap().remove("turn_answers");
+                            json!({"id": path.id, "floor": floor, "observation": observation})
+                        })
+                        .collect::<Vec<_>>(),
+                })
+            }
+
+            /// The attempts replay recorded on Chat Completions on the base: on Responses the
+            /// paths stop at the same stage and refusal, with the same error, requests, processes,
+            /// ledger counts, events, calls, and answers, and the answers' `attempts` are the
+            /// ones Chat Completions gives now.
+            #[test]
+            fn the_attempts_replay_on_responses_stops_where_the_base_did_on_chat() {
+                let _guard = lock();
+                let mut recorded: Value = serde_json::from_str(GOLDEN).unwrap();
+                take_attempts(&mut recorded);
+                let mut responses = replay_on(Api::Responses);
+                let responses_attempts = take_attempts(&mut responses);
+                assert_eq!(responses, recorded);
+                let mut chat = replay_on(Api::Chat);
+                let chat_attempts = take_attempts(&mut chat);
+                assert_eq!(chat, recorded);
+                assert_eq!(responses_attempts, chat_attempts);
+            }
+
+            /// A reply of several calls, each `(tool, mode, revision)`; past the replies, "done".
+            fn several(replies: Vec<Vec<Call>>, log: Arc<Mutex<Vec<Value>>>) -> Responder {
+                Arc::new(move |index, body| {
+                    let Some(calls) = replies.get(index - 1) else {
+                        log.lock().unwrap().push(json!({"text": "done"}));
+                        return text_reply("done");
+                    };
+                    let mut tool_calls = Vec::new();
+                    for (number, call) in calls.iter().enumerate() {
+                        let revision = match call.revision {
+                            Revision::Initial => "initial".to_string(),
+                            Revision::Of(stage) => revision_in_answers(body, stage)
+                                .unwrap_or_else(|| "initial".to_string()),
+                        };
+                        log.lock().unwrap().push(json!({
+                            "tool": call.tool,
+                            "mode": call.mode,
+                            "expected_revision": revision,
+                        }));
+                        tool_calls.push(json!({
+                            "id": format!("call-{index}-{number}"),
+                            "type": "function",
+                            "function": {
+                                "name": call.tool,
+                                "arguments": json!({"mode": call.mode, "expected_revision": revision}).to_string(),
+                            },
+                        }));
+                    }
+                    json!({"choices": [{"message": {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": tool_calls,
+                    }}]})
+                    .to_string()
+                })
+            }
+
+            fn call(tool: &'static str, mode: &'static str, revision: Revision) -> Call {
+                super::call(tool, mode, revision)
+            }
+
+            /// `(label, attempts per target, attempts per run, replies)`.
+            fn several_call_paths() -> Vec<(&'static str, u32, u32, Vec<Vec<Call>>)> {
+                use Revision::{Initial, Of};
+                vec![
+                    (
+                        "a failed and a good call of one tool in one reply",
+                        4,
+                        16,
+                        vec![vec![
+                            call(UPPER_TOOL, "bad", Initial),
+                            call(UPPER_TOOL, "good", Initial),
+                        ]],
+                    ),
+                    (
+                        "the same two calls the other way round: the second is stale after the seal",
+                        4,
+                        16,
+                        vec![vec![
+                            call(UPPER_TOOL, "good", Initial),
+                            call(UPPER_TOOL, "bad", Initial),
+                        ]],
+                    ),
+                    (
+                        "two tools in one reply, the lower not ready, then each again",
+                        4,
+                        16,
+                        vec![
+                            vec![
+                                call(LOWER_TOOL, "good", Initial),
+                                call(UPPER_TOOL, "good", Initial),
+                            ],
+                            vec![
+                                call(UPPER_TOOL, "good", Of("upper")),
+                                call(LOWER_TOOL, "good", Of("lower")),
+                            ],
+                        ],
+                    ),
+                    (
+                        "an upstream resubmission reopens the lower stage within one reply",
+                        4,
+                        16,
+                        vec![
+                            vec![call(UPPER_TOOL, "good", Initial)],
+                            vec![
+                                call(LOWER_TOOL, "good", Of("lower")),
+                                call(UPPER_TOOL, "again", Of("upper")),
+                                call(LOWER_TOOL, "good", Of("lower")),
+                            ],
+                            vec![call(LOWER_TOOL, "good", Of("lower"))],
+                        ],
+                    ),
+                    (
+                        "a call the schema refuses, then a valid one of the same tool",
+                        4,
+                        16,
+                        vec![vec![
+                            call(UPPER_TOOL, "ugly", Initial),
+                            call(UPPER_TOOL, "good", Initial),
+                        ]],
+                    ),
+                    (
+                        "a valid call, then one the schema refuses, of the same tool",
+                        4,
+                        16,
+                        vec![vec![
+                            call(UPPER_TOOL, "good", Initial),
+                            call(UPPER_TOOL, "ugly", Initial),
+                        ]],
+                    ),
+                    (
+                        "the schema refusals reach the target's limit within one reply",
+                        2,
+                        16,
+                        vec![vec![
+                            call(UPPER_TOOL, "ugly", Initial),
+                            call(UPPER_TOOL, "uglier", Initial),
+                            call(UPPER_TOOL, "good", Initial),
+                        ]],
+                    ),
+                    (
+                        "the same version again in one reply: no change",
+                        4,
+                        16,
+                        vec![
+                            vec![call(UPPER_TOOL, "good", Initial)],
+                            vec![
+                                call(UPPER_TOOL, "good", Of("upper")),
+                                call(UPPER_TOOL, "good", Of("upper")),
+                            ],
+                        ],
+                    ),
+                    (
+                        "the target's limit within one reply: no process after it",
+                        2,
+                        16,
+                        vec![vec![
+                            call(UPPER_TOOL, "bad", Initial),
+                            call(UPPER_TOOL, "worse", Initial),
+                            call(UPPER_TOOL, "good", Initial),
+                        ]],
+                    ),
+                ]
+            }
+
+            /// Several calls in one reply, of one tool and of two: on Responses each call is
+            /// checked and run in the reply's order, takes no other call's receipt, and the
+            /// processes, ledgers, attempts, answers, invalidation, and the stop at a limit are
+            /// the same as on Chat Completions.
+            #[test]
+            fn several_calls_in_one_reply_count_and_answer_as_on_chat() {
+                let _guard = lock();
+                let mut statuses = std::collections::BTreeSet::new();
+                let mut schema_refused = false;
+                for (label, per_target, per_run, replies) in several_call_paths() {
+                    let floor = floor_with(per_target, per_run);
+                    let mut seen = Vec::new();
+                    for api in APIS {
+                        let log: Arc<Mutex<Vec<Value>>> = Arc::default();
+                        let observation =
+                            observe_on(api, &floor, several(replies.clone(), log.clone()), &log);
+                        seen.push(observation);
+                    }
+                    assert_eq!(seen[1], seen[0], "{label}");
+                    let calls = replies.iter().map(Vec::len).sum::<usize>();
+                    assert!(
+                        seen[0]["processes"].as_u64().unwrap() <= calls as u64,
+                        "{label}"
+                    );
+                    for turn in seen[1]["turn_answers"].as_array().unwrap() {
+                        for answer in turn.as_array().unwrap() {
+                            schema_refused |= answer.to_string().contains("schema_violation");
+                            let status = answer["stage"]["status"]
+                                .as_str()
+                                .or_else(|| answer["status"].as_str())
+                                .unwrap_or("other");
+                            statuses.insert(status.to_string());
+                        }
+                    }
+                }
+                // The paths reach each of these answers, on both wires alike, and a call the
+                // schema refuses answers as data too.
+                for status in ["sealed", "resubmit", "stale", "not_ready", "no_change"] {
+                    assert!(statuses.contains(status), "{status}: {statuses:?}");
+                }
+                assert!(schema_refused, "no answer was a schema refusal");
+            }
+
+            fn upper_call(revision: &str, mode: &str) -> String {
+                let arguments = json!({"mode": mode, "expected_revision": revision}).to_string();
+                json!({"choices": [{"message": {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [{
+                        "id": "call-upper",
+                        "type": "function",
+                        "function": {"name": UPPER_TOOL, "arguments": arguments},
+                    }],
+                }}]})
+                .to_string()
+            }
+
+            /// A Responses reply with the same call and no call ID.
+            fn without_call_id(mode: &str) -> String {
+                responses_reply(vec![json!({
+                    "type": "function_call",
+                    "id": "fc_bad",
+                    "name": UPPER_TOOL,
+                    "arguments": json!({"mode": mode, "expected_revision": "initial"}).to_string(),
+                    "status": "completed",
+                })])
+            }
+
+            /// A reply with a bad call ID spends no attempt, adds no schema refusal, and submits
+            /// nothing: with it in front, the run's counts are those of the same calls without
+            /// it on Chat Completions.
+            #[test]
+            fn a_reply_with_a_bad_call_id_spends_no_attempt_and_adds_no_schema_refusal() {
+                let _guard = lock();
+                // A valid submission: one process, attempt one.
+                let mut counts = Vec::new();
+                for api in APIS {
+                    let env = Env::new();
+                    write_replay_tools(&env, &floor_with(4, 16));
+                    install_sandbox(&env);
+                    let chat: Responder = Arc::new(|index, _| match index {
+                        1 => upper_call("initial", "good"),
+                        _ => text_reply("done"),
+                    });
+                    let wire: Responder = match api {
+                        Api::Chat => chat,
+                        Api::Responses => Arc::new(move |index, body| match index {
+                            1 => without_call_id("good"),
+                            _ => chat_reply_as_responses(
+                                &chat(index - 1, &as_chat_body(body)),
+                                index,
+                            ),
+                        }),
+                    };
+                    let http = FakeHttp::start(wire);
+                    let mut config = super::super::config(&env, WALK_PROFILE, &http.url);
+                    config.openai_api = api.openai_api();
+                    let mut client = client_from_config(&config, false).unwrap();
+                    let _ = run_session_with_outcome_with_ui(
+                        client.as_mut(),
+                        &mut SessionSnapshot::new(),
+                        "Submit both stages.",
+                        &[],
+                        &config,
+                        &NOOP_UI,
+                    );
+                    let requests = http.finish();
+                    reset_for_test();
+                    let events = events_of(&env);
+                    let retries = events
+                        .iter()
+                        .filter(|event| event["event"] == "native_tool_parse_retry_feedback")
+                        .count();
+                    counts.push((saved_attempts(&env), processes(&events), ledgers(&env)));
+                    assert_eq!(retries, usize::from(api == Api::Responses), "{api:?}");
+                    assert!(!requests.is_empty());
+                }
+                assert_eq!(counts[0].0, 1);
+                assert_eq!(counts[1], counts[0]);
+
+                // A call the schema refuses, with one attempt per target: the first refusal is
+                // the one at the limit. The bad reply in front of it is not counted.
+                let mut ends = Vec::new();
+                for api in APIS {
+                    let env = Env::new();
+                    write_replay_tools(&env, &floor_with(1, 16));
+                    install_sandbox(&env);
+                    let refused = upper_call("initial", "ugly");
+                    let wire: Responder = match api {
+                        Api::Chat => Arc::new(move |_, _| refused.clone()),
+                        Api::Responses => Arc::new(move |index, _| match index {
+                            1 => without_call_id("ugly"),
+                            _ => chat_reply_as_responses(&refused, index),
+                        }),
+                    };
+                    let http = FakeHttp::start(wire);
+                    let mut config = super::super::config(&env, WALK_PROFILE, &http.url);
+                    config.openai_api = api.openai_api();
+                    let mut client = client_from_config(&config, false).unwrap();
+                    let result = run_session_with_outcome_with_ui(
+                        client.as_mut(),
+                        &mut SessionSnapshot::new(),
+                        "Submit both stages.",
+                        &[],
+                        &config,
+                        &NOOP_UI,
+                    )
+                    .map(|_| ())
+                    .map_err(|error| format!("{error:#}"));
+                    let requests = http.finish();
+                    reset_for_test();
+                    let error = result.expect_err("the limit ends the run");
+                    assert!(error.contains("schema_refusal_limit"), "{api:?}: {error}");
+                    let limits = limit_events(&env);
+                    assert_eq!(limits.len(), 1, "{api:?}");
+                    let limit = ["stage", "target", "refusals", "limit", "scope"]
+                        .map(|field| limits[0][field].clone());
+                    ends.push((requests.len(), limit, ledgers(&env)));
+                }
+                assert_eq!(ends[0].0, 1);
+                assert_eq!(ends[1].0, 2, "the bad reply, then the refusal at the limit");
+                assert_eq!(ends[1].1, ends[0].1);
+                assert_eq!(ends[1].2, ends[0].2);
+            }
+
+            /// A failed check with the protocol's most diagnostics, each at its longest: the
+            /// answer goes back on Responses as the same string as on Chat Completions, past 500
+            /// characters, within the stage budget, and as data with its status, code, and counts.
+            #[test]
+            fn a_long_stage_answer_goes_back_on_responses_as_on_chat() {
+                let _guard = lock();
+                let mut seen = Vec::new();
+                for api in APIS {
+                    let env = Env::new();
+                    write_long_tools(&env, &floor_with(4, 16));
+                    install_sandbox(&env);
+                    let chat: Responder = Arc::new(|index, _| match index {
+                        1 => upper_call("initial", "bad"),
+                        _ => text_reply("done"),
+                    });
+                    let http = FakeHttp::start(on_api(api, chat));
+                    let mut config = super::super::config(&env, WALK_PROFILE, &http.url);
+                    config.openai_api = api.openai_api();
+                    let mut client = client_from_config(&config, false).unwrap();
+                    let _ = run_session_with_outcome_with_ui(
+                        client.as_mut(),
+                        &mut SessionSnapshot::new(),
+                        "Submit both stages.",
+                        &[],
+                        &config,
+                        &NOOP_UI,
+                    );
+                    let requests = http.finish();
+                    reset_for_test();
+                    let second = as_chat(api, &requests[1]);
+                    let answer = second["messages"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .rev()
+                        .find(|message| message["role"] == "tool")
+                        .and_then(|message| message["content"].as_str())
+                        .unwrap()
+                        .to_string();
+                    seen.push(answer);
+                }
+                assert_eq!(seen[1], seen[0]);
+                let answer = &seen[1];
+                assert!(answer.chars().count() > 500, "{answer}");
+                assert!(answer.len() <= 5_120, "{}", answer.len());
+                let data: Value = serde_json::from_str(answer).unwrap();
+                assert_eq!(data["status"], "resubmit", "{data}");
+                assert_eq!(data["code"], "check_failed", "{data}");
+                assert_eq!(data["attempts"]["target"], json!({"used": 1, "limit": 4}));
+                assert_eq!(data["attempts"]["run"], json!({"used": 1, "limit": 16}));
+                assert!(
+                    data["diagnostics"]
+                        .as_array()
+                        .is_some_and(|list| !list.is_empty())
+                );
+            }
+
+            /// The replay's script, with a failed check's diagnostics at the protocol's limits.
+            fn long_script() -> String {
+                let diagnostics = (0..8)
+                    .map(|index| {
+                        format!(
+                            r#"{{"code":"{}","message":"{index}{}"}}"#,
+                            "c".repeat(64),
+                            " m".repeat(255)
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(",");
+                format!(
+                    r#"IFS= read -r request
+take() {{ local pattern="\"$1\":\"([^\"]+)\""; [[ $request =~ $pattern ]] && printf -v "$2" '%s' "${{BASH_REMATCH[1]}}"; }}
+take request_id rid; take tool_id tid; take runtime_sha256 run; take input_revision rev; take schema_sha256 sch
+status=passed; said='[]'
+if [[ $request == *'"mode":"bad"'* ]]; then status=failed; said='[{diagnostics}]'; fi
+printf '%s' "{{\"protocol\":\"profile-tool.result/v1\",\"request_id\":\"$rid\",\"tool_id\":\"$tid\",\"runtime_sha256\":\"$run\",\"input_revision\":\"$rev\",\"schema_sha256\":\"$sch\",\"checks\":[{{\"id\":\"shape\",\"status\":\"$status\"}}],\"outputs\":[{{\"id\":\"artifact\",\"sha256\":\"{digest}\",\"bytes_base64\":\"{encoded}\"}}],\"diagnostics\":$said}}"
+"#,
+                    digest = sha256(b"{\"stage\":\"one\"}\n"),
+                    encoded = encode_base64(b"{\"stage\":\"one\"}\n"),
+                )
+            }
+
+            /// The replay's tools with the long script.
+            fn write_long_tools(env: &Env, floor: &Value) {
+                write_replay_tools(env, floor);
+                for tool_id in [UPPER_TOOL_ID, LOWER_TOOL_ID] {
+                    let directory = env.tools.join(tool_id);
+                    std::fs::write(directory.join("tool.sh"), long_script()).unwrap();
+                    let path = env.registry.join(format!("profile-tools/{tool_id}.json"));
+                    let mut descriptor: Value =
+                        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+                    descriptor["process"]["dependency_directories"][0]["sha256"] =
+                        json!(directory_pin(&directory).unwrap());
+                    std::fs::write(&path, descriptor.to_string()).unwrap();
+                }
+            }
+        }
+    }
+}
+
+/// Issue #1005: the wire shapes of the same calls on Chat Completions and on Responses.
+#[path = "support/responses_schema_fixture.rs"]
+mod responses_schema_fixture;
+
+/// Everything the Responses off recording needs, in one place: the paths, the fake and its
+/// replies, the observation, and the normalization.
+mod responses_off {
+    use std::collections::{BTreeMap, VecDeque};
+    use std::io::{Read as _, Write as _};
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    use commandagent::config::{
+        Action, Config, ConfigFieldSources, NarrationMode, OllamaThink, OpenAiApi, PlanPreset,
+        PromptLayout, Provider,
+    };
+    use commandagent::minimal_loop::loop_run::run_session_with_outcome_with_ui;
+    use commandagent::providers::client_from_config;
+    use commandagent::sensitive_data::{SecretCatalog, install_scope};
+    use commandagent::state::SessionSnapshot;
+    use commandagent::tools::profile_tools::{
+        ProfileToolReadExecutor, ReadToolOutput, register_read_executor,
+    };
+    use commandagent::tui::NOOP_UI;
+    use serde_json::{Value, json};
+
+    use super::{REGISTRY_ENV, lock, sha256};
+
+    // -----------------------------------------------------------------------------------------
+    // The corpus's own synthetic inputs (structured-stage-receipts: the off rows with no stage).
+    // -----------------------------------------------------------------------------------------
+
+    pub(super) const SOURCE: &str = "9b4197a5cf624d4f2470eecdd6407643c78d31ab";
+    const DUMMY_SECRET: &str = "fake-dummy-credential-975-not-a-real-key";
+    const FLAT_PROFILE: &str = "stage-off-flat";
+    const FLAT_TOOL: &str = "stage-off-flat-read";
+    const FLAT_RUNTIME: &str = "stage-off-flat-runtime";
+    const FLAT_NAME: &str = "ReadFlatConfig";
+    const FLAT_PARAMETERS: &str = r#"[{"name":"path","kind":"workspace_path","required":true,"description":"Workspace-relative file."}]"#;
+    const FLAT_ARGUMENTS: &str = r#"{"path":"settings.json"}"#;
+    const FLAT_PROMPT: &str = "Read the settings.";
+    const WRITE_PROMPT: &str = "Write notes.txt and read it.";
+
+    /// The manifest of the off rows' flat profile, as the corpus's tests write it.
+    fn flat_manifest() -> String {
+        format!(
+            "[metadata]\nid = \"{FLAT_PROFILE}\"\ndisplay_name = \"Stage off\"\nschema_version = \"v2\"\ntask_family = \"generic\"\n[plan]\nintent = \"create\"\nphases = [\n  {{ id = \"implementation\", prompt = \"Write the notes for {{goal}}.\" }},\n]\n[artifacts]\nrequired = [\"notes.txt\"]\n[guidance.variants.contract]\ntriggers = [{{ condition = \"always\" }}]\nmessages = {{ instruction = \"Write notes.txt.\" }}\n[[checks.final]]\nid = \"scaffold_files_present\"\nparams = {{ files = [\"notes.txt\"] }}\n[profile_tools]\nschema_version = \"profile-tool.declaration/v1\"\nbuiltin_tools = [\"Read\", \"Write\"]\ntools = [\n  {{ id = \"{FLAT_TOOL}\", effect = \"read\" }},\n]\n"
+        )
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // The dummy values the replies carry. None is a real secret.
+    // -----------------------------------------------------------------------------------------
+
+    const SUMMARY: &str =
+        "dummy-summary-SECRET-sk-test-0000 fake-dummy-credential-975-not-a-real-key";
+    const ENCRYPTED: &str = "opaque-dummy-encrypted-content-0000";
+    const PREAMBLE: &str = "Reading the settings first. fake-dummy-credential-975-not-a-real-key";
+    const UNKNOWN_VALUE: &str =
+        "dummy-unknown-SECRET-0000 fake-dummy-credential-975-not-a-real-key";
+    const SAME_TEXT: &str = "Reading the settings.";
+
+    fn response(id: &str, output: Vec<Value>) -> Value {
+        json!({
+            "id": id,
+            "object": "response",
+            "model": "m",
+            "status": "completed",
+            "output": output,
+            "usage": {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15},
+        })
+    }
+
+    fn message(id: &str, text: &str) -> Value {
+        json!({
+            "type": "message",
+            "id": id,
+            "role": "assistant",
+            "status": "completed",
+            "content": [{"type": "output_text", "text": text, "annotations": []}],
+        })
+    }
+
+    fn function_call(item_id: &str, call_id: &str, name: &str, arguments: &str) -> Value {
+        json!({
+            "type": "function_call",
+            "id": item_id,
+            "call_id": call_id,
+            "name": name,
+            "arguments": arguments,
+            "status": "completed",
+        })
+    }
+
+    fn reasoning(id: &str) -> Value {
+        json!({
+            "type": "reasoning",
+            "id": id,
+            "summary": [{"type": "summary_text", "text": SUMMARY}],
+            "encrypted_content": ENCRYPTED,
+        })
+    }
+
+    fn unknown(id: &str) -> Value {
+        json!({
+            "type": "dummy_unknown_item",
+            "id": id,
+            "dummy_field": UNKNOWN_VALUE,
+            "dummy_object": {"dummy_nested": "dummy-unknown-nested-0000"},
+        })
+    }
+
+    fn done(id: &str) -> Value {
+        response(id, vec![message("msg_done", "done")])
+    }
+
+    fn flat_call(item_id: &str, call_id: &str) -> Value {
+        function_call(item_id, call_id, FLAT_NAME, FLAT_ARGUMENTS)
+    }
+
+    struct ResponsesPath {
+        id: &'static str,
+        profile: &'static str,
+        prompt: &'static str,
+        replies: fn() -> Vec<Value>,
+    }
+
+    /// Each path's item.id and call_id differ (`fc_item_N` / `call_N`).
+    const PATHS: [ResponsesPath; 6] = [
+        // The off row `chat-native-write-and-read`, on Responses.
+        ResponsesPath {
+            id: "round-trip",
+            profile: "generic",
+            prompt: WRITE_PROMPT,
+            replies: || {
+                vec![
+                    response(
+                        "resp_1",
+                        vec![function_call(
+                            "fc_item_1",
+                            "call_1",
+                            "Write",
+                            r#"{"path":"notes.txt","content":"the notes\n"}"#,
+                        )],
+                    ),
+                    response(
+                        "resp_2",
+                        vec![function_call(
+                            "fc_item_2",
+                            "call_2",
+                            "Read",
+                            r#"{"path":"notes.txt"}"#,
+                        )],
+                    ),
+                    done("resp_3"),
+                ]
+            },
+        },
+        ResponsesPath {
+            id: "text-and-call",
+            profile: FLAT_PROFILE,
+            prompt: FLAT_PROMPT,
+            replies: || {
+                vec![
+                    response(
+                        "resp_1",
+                        vec![message("msg_1", PREAMBLE), flat_call("fc_item_1", "call_1")],
+                    ),
+                    done("resp_2"),
+                ]
+            },
+        },
+        ResponsesPath {
+            id: "reasoning-item",
+            profile: FLAT_PROFILE,
+            prompt: FLAT_PROMPT,
+            replies: || {
+                vec![
+                    response(
+                        "resp_1",
+                        vec![reasoning("rs_1"), flat_call("fc_item_1", "call_1")],
+                    ),
+                    done("resp_2"),
+                ]
+            },
+        },
+        ResponsesPath {
+            id: "unknown-item",
+            profile: FLAT_PROFILE,
+            prompt: FLAT_PROMPT,
+            replies: || {
+                vec![
+                    response(
+                        "resp_1",
+                        vec![unknown("unk_1"), flat_call("fc_item_1", "call_1")],
+                    ),
+                    done("resp_2"),
+                ]
+            },
+        },
+        ResponsesPath {
+            id: "all-items-in-one-response",
+            profile: FLAT_PROFILE,
+            prompt: FLAT_PROMPT,
+            replies: || {
+                vec![
+                    response(
+                        "resp_1",
+                        vec![
+                            reasoning("rs_1"),
+                            message("msg_1", PREAMBLE),
+                            unknown("unk_1"),
+                            flat_call("fc_item_1", "call_1"),
+                        ],
+                    ),
+                    done("resp_2"),
+                ]
+            },
+        },
+        ResponsesPath {
+            id: "same-text-two-call-ids",
+            profile: FLAT_PROFILE,
+            prompt: FLAT_PROMPT,
+            replies: || {
+                vec![
+                    response(
+                        "resp_1",
+                        vec![
+                            reasoning("rs_1"),
+                            message("msg_1", SAME_TEXT),
+                            flat_call("fc_item_1", "call_1"),
+                        ],
+                    ),
+                    response(
+                        "resp_2",
+                        vec![
+                            reasoning("rs_2"),
+                            message("msg_2", SAME_TEXT),
+                            flat_call("fc_item_2", "call_2"),
+                        ],
+                    ),
+                    done("resp_3"),
+                ]
+            },
+        },
+    ];
+
+    // -----------------------------------------------------------------------------------------
+    // The operator side: the flat executor, its descriptor, and the extension root.
+    // -----------------------------------------------------------------------------------------
+
+    struct FlatReader;
+
+    impl std::fmt::Debug for FlatReader {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("FlatReader")
+        }
+    }
+
+    impl ProfileToolReadExecutor for FlatReader {
+        fn read(&self, _root: &Path, arguments: &Value) -> anyhow::Result<ReadToolOutput> {
+            Ok(ReadToolOutput {
+                text: format!("flat read of {arguments}"),
+                usage: None,
+            })
+        }
+    }
+
+    fn register_extension(root: &Path) {
+        let directory = root.join(format!("profiles/{FLAT_PROFILE}"));
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(directory.join("manifest.toml"), flat_manifest()).unwrap();
+        register_read_executor(FLAT_RUNTIME, Arc::new(FlatReader));
+        commandagent::planner::extension_profiles::register(root).unwrap();
+    }
+
+    fn write_flat_registry(registry: &Path) {
+        let directory = registry.join("profile-tools");
+        std::fs::create_dir_all(&directory).unwrap();
+        let descriptor = json!({
+            "protocol": "profile-tool.descriptor/v1",
+            "tool_id": FLAT_TOOL,
+            "name": FLAT_NAME,
+            "version": "1.0.0",
+            "description": "Read one configuration object.",
+            "effect": "read",
+            "parameters": serde_json::from_str::<Value>(FLAT_PARAMETERS).unwrap(),
+            "schema_sha256": sha256(FLAT_PARAMETERS.as_bytes()),
+            "runtime": {"kind": "in_process", "id": FLAT_RUNTIME},
+            "limits": {"max_input_bytes": 1024, "max_output_bytes": 4096},
+        });
+        std::fs::write(
+            directory.join(format!("{FLAT_TOOL}.json")),
+            descriptor.to_string(),
+        )
+        .unwrap();
+    }
+
+    fn set_env(name: &str, value: Option<&std::ffi::OsStr>) {
+        // SAFETY: every env mutation in this binary holds `LOCK`.
+        unsafe {
+            match value {
+                Some(value) => std::env::set_var(name, value),
+                None => std::env::remove_var(name),
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // The fake provider: 127.0.0.1, one scripted Responses reply per request, bodies kept.
+    // -----------------------------------------------------------------------------------------
+
+    struct FakeHttp {
+        url: String,
+        requests: Arc<Mutex<Vec<String>>>,
+        replies: Arc<Mutex<VecDeque<String>>>,
+        stop: Arc<AtomicBool>,
+        thread: Option<std::thread::JoinHandle<()>>,
+    }
+
+    impl FakeHttp {
+        fn start(replies: Vec<String>) -> Self {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let url = format!("http://{}", listener.local_addr().unwrap());
+            let requests: Arc<Mutex<Vec<String>>> = Arc::default();
+            let replies = Arc::new(Mutex::new(VecDeque::from(replies)));
+            let stop = Arc::new(AtomicBool::new(false));
+            let thread = {
+                let (requests, replies, stop) = (requests.clone(), replies.clone(), stop.clone());
+                std::thread::spawn(move || {
+                    while !stop.load(Ordering::SeqCst) {
+                        match listener.accept() {
+                            Ok((stream, _)) => serve(stream, &requests, &replies),
+                            Err(_) => std::thread::sleep(std::time::Duration::from_millis(2)),
+                        }
+                    }
+                })
+            };
+            Self {
+                url,
+                requests,
+                replies,
+                stop,
+                thread: Some(thread),
+            }
+        }
+
+        fn finish(mut self) -> (Vec<String>, usize) {
+            self.stop.store(true, Ordering::SeqCst);
+            self.thread.take().unwrap().join().unwrap();
+            let requests = self.requests.lock().unwrap().clone();
+            let unused = self.replies.lock().unwrap().len();
+            (requests, unused)
+        }
+    }
+
+    fn serve(
+        mut stream: std::net::TcpStream,
+        requests: &Mutex<Vec<String>>,
+        replies: &Mutex<VecDeque<String>>,
+    ) {
+        stream.set_nonblocking(false).unwrap();
+        let mut bytes = Vec::new();
+        let mut chunk = [0u8; 8192];
+        let body_start = loop {
+            let read = stream.read(&mut chunk).unwrap_or(0);
+            if read == 0 {
+                return;
+            }
+            bytes.extend_from_slice(&chunk[..read]);
+            if let Some(position) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
+                break position + 4;
+            }
+        };
+        let head = String::from_utf8_lossy(&bytes[..body_start]).to_ascii_lowercase();
+        let length = head
+            .lines()
+            .find_map(|line| line.strip_prefix("content-length:"))
+            .and_then(|value| value.trim().parse::<usize>().ok())
+            .unwrap_or(0);
+        while bytes.len() < body_start + length {
+            let read = stream.read(&mut chunk).unwrap_or(0);
+            if read == 0 {
+                break;
+            }
+            bytes.extend_from_slice(&chunk[..read]);
+        }
+        // Only the body is kept; no header (Authorization among them) is recorded.
+        let body = String::from_utf8_lossy(&bytes[body_start..]).to_string();
+        requests.lock().unwrap().push(body);
+        let reply = replies.lock().unwrap().pop_front().unwrap_or_else(|| {
+            response(
+                "resp_exhausted",
+                vec![message("msg_exhausted", "script exhausted")],
+            )
+            .to_string()
+        });
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{reply}",
+            reply.len()
+        );
+        let _ = stream.write_all(response.as_bytes());
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // The configuration: the off rows' fields, with the executor on the OpenAI-compatible
+    // Responses entry pointed at the fake.
+    // -----------------------------------------------------------------------------------------
+
+    fn base_config(root: &Path, evidence: &Path, profile: &str, url: &str) -> Config {
+        Config {
+            workspace_root: root.to_path_buf(),
+            state_dir: evidence.join("state"),
+            eval_events_path: Some(evidence.join("events.jsonl")),
+            completion_contract_path: None,
+            yes: true,
+            offline: false,
+            context_budget: 100_000,
+            model: "m".to_string(),
+            provider: Provider::LmStudio,
+            tool_protocol: None,
+            openai_api: OpenAiApi::ChatCompletions,
+            prompt_layout: PromptLayout::Stable,
+            plan_preset: PlanPreset::None,
+            intent_override: None,
+            planner_model: "m".to_string(),
+            planner_provider: Provider::LmStudio,
+            planner_think: Some(OllamaThink::False),
+            classifier_model: "m".to_string(),
+            classifier_provider: Provider::LmStudio,
+            openai_compatible: None,
+            ollama_host: "http://localhost:11434".to_string(),
+            ollama_think: None,
+            lm_studio_host: url.to_string(),
+            num_predict: 100,
+            max_iterations: 8,
+            recovery_plan_auto_runs: 0,
+            chat_timeout_secs: 30,
+            chat_timeout_source: "override:test".to_string(),
+            field_sources: ConfigFieldSources::default(),
+            chat_retries: 1,
+            stream: false,
+            resume: None,
+            fresh_session: false,
+            no_footer: false,
+            narration: NarrationMode::Normal,
+            profile: profile.to_string(),
+            profile_explicit: true,
+            profile_inference: None,
+            style: "default".to_string(),
+            action: Action::Repl,
+        }
+    }
+
+    /// `--provider openai-compatible --base-url <fake>/v1 --api responses`, parsed the way the
+    /// binary parses it. The caller has pointed HOME at an empty temporary directory.
+    fn responses_config(root: &Path, evidence: &Path, profile: &str, url: &str) -> Config {
+        let base_url = format!("{url}/v1");
+        let parsed = commandagent::provider_cli::parse_from([
+            "commandagent",
+            "--cwd",
+            root.to_str().unwrap(),
+            "--state-dir",
+            evidence.join("state").to_str().unwrap(),
+            "--model",
+            "m",
+            "--planner-model",
+            "m",
+            "--provider",
+            "openai-compatible",
+            "--base-url",
+            &base_url,
+            "--api",
+            "responses",
+        ])
+        .unwrap();
+        let parsed =
+            Config::from_cli_with_provider_options(parsed.cli, parsed.provider_options).unwrap();
+        let mut config = base_config(root, evidence, profile, url);
+        config.provider = parsed.provider;
+        config.openai_api = parsed.openai_api;
+        config.openai_compatible = parsed.openai_compatible;
+        assert_eq!(config.openai_api, OpenAiApi::Responses);
+        assert!(config.openai_compatible.is_some());
+        config
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // The normalization: exactly the rules in the recording's `normalization`.
+    // -----------------------------------------------------------------------------------------
+
+    pub(super) const NORMALIZATION: [&str; 6] = [
+        "temporary roots (workspace, evidence, registry, extension root, HOME; canonical and as created; longest first) -> <ROOT>",
+        "the fake's loopback URL http://127.0.0.1:<port>, then 127.0.0.1:<port> -> <LOOPBACK>",
+        "a JSON number under epoch, occurred_at_epoch_ms, duration_ms, elapsed_ms, estimated_prompt_tokens_sent, estimated_stable_prefix_chars -> \"<N>\" (the existing off comparison's NORMALIZED_NUMBER_FIELDS)",
+        "inside a string, epoch|occurred_at_epoch_ms|duration_ms|elapsed_ms then [\"]? spaces [:=] spaces digits -> the prefix and <TIME>; an ISO 8601 date-time inside a string -> <TIME>",
+        "the string value of run_nonce or process_nonce, wherever it appears -> <NONCE-n>; a UUID -> <UUID-n>; n by first appearance within a path",
+        "a revision's 16 lowercase hex digits as a whole word -> <REVISION-n>; n by first appearance within a path",
+    ];
+
+    /// The same keys as the existing off comparison (`off_control::NORMALIZED_NUMBER_FIELDS`).
+    const NORMALIZED_NUMBER_FIELDS: [&str; 6] = [
+        "epoch",
+        "occurred_at_epoch_ms",
+        "duration_ms",
+        "elapsed_ms",
+        "estimated_prompt_tokens_sent",
+        "estimated_stable_prefix_chars",
+    ];
+    const NONCE_KEYS: [&str; 2] = ["run_nonce", "process_nonce"];
+
+    pub(super) struct Normalizer {
+        url: String,
+        host: String,
+        roots: Vec<String>,
+        nonces: Vec<String>,
+        uuids: Vec<String>,
+        revisions: Vec<String>,
+        section: String,
+        /// Replacements per `<top-level observation key>/<kind>`.
+        pub(super) counts: BTreeMap<String, usize>,
+    }
+
+    impl Normalizer {
+        fn new(url: &str, roots: &[PathBuf]) -> Self {
+            let mut spelled = Vec::new();
+            for root in roots {
+                spelled.push(root.display().to_string());
+                if let Ok(canonical) = std::fs::canonicalize(root) {
+                    spelled.push(canonical.display().to_string());
+                }
+            }
+            spelled.sort_by(|a, b| b.len().cmp(&a.len()).then(a.cmp(b)));
+            spelled.dedup();
+            Self {
+                url: url.to_string(),
+                host: url.trim_start_matches("http://").to_string(),
+                roots: spelled,
+                nonces: Vec::new(),
+                uuids: Vec::new(),
+                revisions: Vec::new(),
+                section: String::new(),
+                counts: BTreeMap::new(),
+            }
+        }
+
+        fn count(&mut self, kind: &'static str, times: usize) {
+            if times > 0 {
+                *self
+                    .counts
+                    .entry(format!("{}/{kind}", self.section))
+                    .or_default() += times;
+            }
+        }
+
+        fn collect_nonces(&mut self, value: &Value) {
+            match value {
+                Value::Object(object) => {
+                    for (key, value) in object {
+                        if NONCE_KEYS.contains(&key.as_str())
+                            && let Some(text) = value.as_str()
+                            && !self.nonces.iter().any(|known| known == text)
+                        {
+                            self.nonces.push(text.to_string());
+                        }
+                        self.collect_nonces(value);
+                    }
+                }
+                Value::Array(items) => items.iter().for_each(|item| self.collect_nonces(item)),
+                _ => {}
+            }
+        }
+
+        fn value(&mut self, value: &Value) -> Value {
+            match value {
+                Value::Object(object) => Value::Object(
+                    object
+                        .iter()
+                        .map(|(key, value)| {
+                            let value = if NORMALIZED_NUMBER_FIELDS.contains(&key.as_str())
+                                && value.is_number()
+                            {
+                                self.count("number", 1);
+                                json!("<N>")
+                            } else {
+                                self.value(value)
+                            };
+                            (key.clone(), value)
+                        })
+                        .collect(),
+                ),
+                Value::Array(items) => {
+                    Value::Array(items.iter().map(|item| self.value(item)).collect())
+                }
+                Value::String(text) => Value::String(self.text(text)),
+                other => other.clone(),
+            }
+        }
+
+        fn numbered(
+            list: &mut Vec<String>,
+            prefix: &str,
+            regex: &regex::Regex,
+            text: &str,
+        ) -> (String, usize) {
+            let mut times = 0;
+            let replaced = regex
+                .replace_all(text, |captures: &regex::Captures<'_>| {
+                    let found = captures[0].to_string();
+                    let index = match list.iter().position(|known| *known == found) {
+                        Some(index) => index,
+                        None => {
+                            list.push(found);
+                            list.len() - 1
+                        }
+                    };
+                    times += 1;
+                    format!("<{prefix}-{}>", index + 1)
+                })
+                .into_owned();
+            (replaced, times)
+        }
+
+        fn text(&mut self, text: &str) -> String {
+            let mut text = text.to_string();
+            let times = text.matches(&self.url).count();
+            text = text.replace(&self.url, "<LOOPBACK>");
+            let host_times = text.matches(&self.host).count();
+            text = text.replace(&self.host, "<LOOPBACK>");
+            self.count("loopback", times + host_times);
+            for index in 0..self.roots.len() {
+                let root = self.roots[index].clone();
+                let times = text.matches(&root).count();
+                text = text.replace(&root, "<ROOT>");
+                self.count("root", times);
+            }
+            for index in 0..self.nonces.len() {
+                let nonce = self.nonces[index].clone();
+                let times = text.matches(&nonce).count();
+                text = text.replace(&nonce, &format!("<NONCE-{}>", index + 1));
+                self.count("nonce", times);
+            }
+            let iso = regex::Regex::new(
+                r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})?",
+            )
+            .unwrap();
+            let times = iso.find_iter(&text).count();
+            text = iso.replace_all(&text, "<TIME>").into_owned();
+            self.count("time", times);
+            let named = regex::Regex::new(
+                r#"(epoch|occurred_at_epoch_ms|duration_ms|elapsed_ms)("? *[:=] *)[0-9]+"#,
+            )
+            .unwrap();
+            let times = named.find_iter(&text).count();
+            text = named.replace_all(&text, "${1}${2}<TIME>").into_owned();
+            self.count("time", times);
+            let uuid = regex::Regex::new(
+                r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+            )
+            .unwrap();
+            let (replaced, times) = Self::numbered(&mut self.uuids, "UUID", &uuid, &text);
+            text = replaced;
+            self.count("uuid", times);
+            let revision = regex::Regex::new(r"\b[0-9a-f]{16}\b").unwrap();
+            let (replaced, times) =
+                Self::numbered(&mut self.revisions, "REVISION", &revision, &text);
+            text = replaced;
+            self.count("revision", times);
+            text
+        }
+
+        /// The same walk as `value`, with each top-level key named in the counts.
+        pub(super) fn normalize(&mut self, value: &Value) -> Value {
+            self.collect_nonces(value);
+            let Value::Object(object) = value else {
+                return self.value(value);
+            };
+            let mut normalized = serde_json::Map::new();
+            for (key, value) in object {
+                self.section = key.clone();
+                let value = if NORMALIZED_NUMBER_FIELDS.contains(&key.as_str()) && value.is_number()
+                {
+                    self.count("number", 1);
+                    json!("<N>")
+                } else {
+                    self.value(value)
+                };
+                normalized.insert(key.clone(), value);
+            }
+            Value::Object(normalized)
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // The observation of one path.
+    // -----------------------------------------------------------------------------------------
+
+    fn files_under(root: &Path, skip: &[&str]) -> BTreeMap<String, String> {
+        let mut files = BTreeMap::new();
+        let mut pending = vec![root.to_path_buf()];
+        while let Some(directory) = pending.pop() {
+            let Ok(entries) = std::fs::read_dir(directory) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    pending.push(path);
+                } else {
+                    let relative = path.strip_prefix(root).unwrap().display().to_string();
+                    if skip.contains(&relative.as_str()) {
+                        continue;
+                    }
+                    let text = String::from_utf8_lossy(&std::fs::read(&path).unwrap()).to_string();
+                    files.insert(relative, text);
+                }
+            }
+        }
+        files
+    }
+
+    fn as_json(text: &str) -> Value {
+        serde_json::from_str(text).unwrap_or_else(|_| Value::String(text.to_string()))
+    }
+
+    /// The raw observation of one path, then the same value normalized, and what was replaced.
+    fn observe(path: &ResponsesPath) -> (Value, BTreeMap<String, usize>) {
+        let home = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let evidence_dir = tempfile::tempdir().unwrap();
+        let registry = tempfile::tempdir().unwrap();
+        let extension = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(workspace.path()).unwrap();
+        let evidence = std::fs::canonicalize(evidence_dir.path()).unwrap();
+        std::fs::write(root.join("settings.json"), "{\"mode\":\"fast\"}").unwrap();
+        register_extension(&std::fs::canonicalize(extension.path()).unwrap());
+        write_flat_registry(registry.path());
+
+        let saved_home = std::env::var_os("HOME");
+        set_env("HOME", Some(home.path().as_os_str()));
+        set_env(
+            "COMMANDAGENT_COMPATIBLE_REASONING_EFFORT",
+            None::<&std::ffi::OsStr>,
+        );
+        set_env(
+            REGISTRY_ENV,
+            (path.profile == FLAT_PROFILE).then(|| registry.path().as_os_str()),
+        );
+
+        let replies = (path.replies)();
+        let http = FakeHttp::start(replies.iter().map(Value::to_string).collect());
+        let url = http.url.clone();
+        let config = responses_config(&root, &evidence, path.profile, &url);
+        let mut catalog = SecretCatalog::new();
+        catalog
+            .register_credential("DUMMY_API_KEY", DUMMY_SECRET)
+            .unwrap();
+        install_scope(catalog, Some(&root), config.eval_events_path.as_deref());
+        let mut client = client_from_config(&config, false).unwrap();
+        let mut snapshot = SessionSnapshot::new();
+        let outcome = run_session_with_outcome_with_ui(
+            client.as_mut(),
+            &mut snapshot,
+            path.prompt,
+            &[],
+            &config,
+            &NOOP_UI,
+        );
+        drop(client);
+        let (requests, unused) = http.finish();
+        set_env(REGISTRY_ENV, None::<&std::ffi::OsStr>);
+        set_env("HOME", saved_home.as_deref());
+
+        let outcome = match outcome {
+            Ok(outcome) => json!({"ok": {
+                "stop_reason": format!("{:?}", outcome.stop_reason),
+                "final_text": outcome.final_text,
+                "iterations": outcome.iterations,
+                "tool_calls": outcome.tool_calls,
+                "changed_paths": outcome.changed_paths,
+            }}),
+            Err(error) => json!({"err": format!("{error:#}")}),
+        };
+        let events = serde_json::Deserializer::from_str(
+            &std::fs::read_to_string(evidence.join("events.jsonl")).unwrap_or_default(),
+        )
+        .into_iter::<Value>()
+        .map(Result::unwrap)
+        .collect::<Vec<_>>();
+        let event_names = events
+            .iter()
+            .map(|event| event["event"].clone())
+            .collect::<Vec<_>>();
+        let raw = json!({
+            "replies": replies,
+            "requests": requests.iter().map(|body| as_json(body)).collect::<Vec<_>>(),
+            "request_count": requests.len(),
+            "unused_replies": unused,
+            "event_names": event_names,
+            "events": events,
+            "history": serde_json::to_value(&snapshot).unwrap(),
+            "state_files": files_under(&evidence, &["events.jsonl"])
+                .into_iter()
+                .map(|(name, text)| (name, as_json(&text)))
+                .collect::<BTreeMap<_, _>>(),
+            "artifacts": files_under(&root, &[]),
+            "outcome": outcome,
+        });
+        let roots = [
+            home.path().to_path_buf(),
+            workspace.path().to_path_buf(),
+            evidence_dir.path().to_path_buf(),
+            registry.path().to_path_buf(),
+            extension.path().to_path_buf(),
+        ];
+        let mut normalizer = Normalizer::new(&url, &roots);
+        let normalized = normalizer.normalize(&raw);
+        (normalized, normalizer.counts)
+    }
+
+    /// The whole recording, and the replacements per path.
+    pub(super) fn golden() -> (Value, Value) {
+        let mut paths = Vec::new();
+        let mut counts = serde_json::Map::new();
+        for path in &PATHS {
+            let (observation, replaced) = observe(path);
+            counts.insert(path.id.to_string(), json!(replaced));
+            paths.push(json!({"id": path.id, "observation": observation}));
+        }
+        let document = json!({
+            "issue": "#1005",
+            "kind": "responses-off",
+            "source": SOURCE,
+            "normalization": NORMALIZATION,
+            "paths": paths,
+        });
+        (document, Value::Object(counts))
+    }
+
+    #[test]
+    fn records_the_responses_off_golden() {
+        let Some(out) = std::env::var_os("RESPONSES_OFF_OUT") else {
+            return;
+        };
+        let _guard = lock();
+        let (document, counts) = golden();
+        let out = PathBuf::from(out);
+        std::fs::write(
+            &out,
+            format!("{}\n", serde_json::to_string_pretty(&document).unwrap()),
+        )
+        .unwrap();
+        let mut counts_path = out.into_os_string();
+        counts_path.push(".counts.json");
+        std::fs::write(
+            counts_path,
+            format!("{}\n", serde_json::to_string_pretty(&counts).unwrap()),
+        )
+        .unwrap();
+    }
+}
+
+/// The golden recorded on the base with `responses_off`, compared with what the same code
+/// observes now. Nothing is normalized here beyond the recorder's own rules.
+mod responses_off_comparison {
+    use serde_json::Value;
+
+    use super::responses_off::{SOURCE, golden};
+    use super::{lock, sha256};
+
+    const GOLDEN: &str =
+        include_str!("corpus/apps/structured-stage-receipts/fixtures/responses-off-golden.json");
+    const MANIFEST: &str =
+        include_str!("corpus/apps/structured-stage-receipts/source-manifest.json");
+
+    #[test]
+    fn the_responses_off_paths_match_the_base_recording_byte_for_byte() {
+        let _guard = lock();
+        let recorded: Value = serde_json::from_str(GOLDEN).unwrap();
+        let (now, _) = golden();
+        let (old_paths, new_paths) = (
+            recorded["paths"].as_array().unwrap(),
+            now["paths"].as_array().unwrap(),
+        );
+        assert_eq!(new_paths.len(), old_paths.len());
+        for (new, old) in new_paths.iter().zip(old_paths) {
+            assert_eq!(new["id"], old["id"]);
+            for (key, value) in old["observation"].as_object().unwrap() {
+                assert_eq!(&new["observation"][key], value, "{} {key}", old["id"]);
+            }
+            assert_eq!(new["observation"], old["observation"], "{}", old["id"]);
+        }
+        let text = format!("{}\n", serde_json::to_string_pretty(&now).unwrap());
+        assert!(text == GOLDEN, "the bytes differ from the base recording");
+    }
+
+    #[test]
+    fn the_manifest_pins_the_responses_off_golden_and_its_source() {
+        let manifest: Value = serde_json::from_str(MANIFEST).unwrap();
+        assert_eq!(manifest["responses_off_base_sha"], SOURCE);
+        assert_eq!(
+            manifest["fixture_sha256"]["responses-off-golden.json"],
+            sha256(GOLDEN.as_bytes())
+        );
+        let recorded: Value = serde_json::from_str(GOLDEN).unwrap();
+        assert_eq!(recorded["source"], SOURCE);
+        assert_eq!(recorded["kind"], "responses-off");
+    }
+
+    const RESPONSES_CASES: &str =
+        include_str!("corpus/apps/structured-stage-receipts/fixtures/responses-cases.json");
+
+    /// Issue #1005: the Responses rows name the API and the tool protocol on two axes, and the
+    /// test that runs each. A renamed test fails here.
+    #[test]
+    fn the_corpus_names_the_responses_rows_and_what_runs_them() {
+        let manifest: Value = serde_json::from_str(MANIFEST).unwrap();
+        assert_eq!(
+            manifest["fixture_sha256"]["responses-cases.json"],
+            sha256(RESPONSES_CASES.as_bytes())
+        );
+        let cases: Value = serde_json::from_str(RESPONSES_CASES).unwrap();
+        assert_eq!(cases["issue"], "#1005");
+        let source = include_str!("structured_stage_receipts.rs");
+        for row in cases["rows"].as_array().unwrap() {
+            assert_eq!(row["api"], "responses", "{row}");
+            assert_eq!(row["tool_protocol"], "native", "{row}");
+            let name = format!("fn {}(", row["test"].as_str().unwrap());
+            assert!(source.contains(&name), "{name} names nothing that runs");
+        }
     }
 }

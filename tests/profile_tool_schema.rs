@@ -3082,26 +3082,41 @@ fn parse_config(env: &Env, arguments: &[&str]) -> Config {
 }
 
 /// What each real client declares, and what the configuration says it would build,
-/// including the role override. Refusals happen before any connection.
+/// including the role override. Refusals happen before any connection. Issue #1005: the
+/// Responses API carries the wire too, on LM Studio and on OpenAI.
 #[test]
 fn the_wire_is_judged_from_the_real_client_and_the_effective_role() {
     let _guard = lock();
-    let endpoint = FakeHttp::start(Vec::new());
+    // A Responses request gets a Responses reply; any other takes the scripted text.
+    let endpoint = FakeHttp::with_responder(
+        Vec::new(),
+        Arc::new(|_, body| {
+            body.contains("\"input\"").then(|| {
+                json!({"output": [{"type": "message", "role": "assistant",
+                    "content": [{"type": "output_text", "text": "done"}]}]})
+                .to_string()
+            })
+        }),
+    );
     let url = endpoint.url.clone();
     set_env("GEMINI_API_KEY", Some("dummy-973-not-a-real-credential"));
     set_env("OPENAI_API_KEY", Some("dummy-973-not-a-real-credential"));
     type ConfigChange = fn(&mut Config);
-    let cases: [(&str, ConfigChange, bool); 6] = [
-        ("lm-studio chat", |_| {}, true),
+    let cases: [(&str, ConfigChange, ProfileToolSchemaWire); 6] = [
+        (
+            "lm-studio chat",
+            |_| {},
+            ProfileToolSchemaWire::ChatCompletions,
+        ),
         (
             "openai chat",
             |config: &mut Config| config.provider = Provider::Openai,
-            true,
+            ProfileToolSchemaWire::ChatCompletions,
         ),
         (
             "lm-studio responses",
             |config: &mut Config| config.openai_api = OpenAiApi::Responses,
-            false,
+            ProfileToolSchemaWire::Responses,
         ),
         (
             "openai responses",
@@ -3109,33 +3124,30 @@ fn the_wire_is_judged_from_the_real_client_and_the_effective_role() {
                 config.provider = Provider::Openai;
                 config.openai_api = OpenAiApi::Responses;
             },
-            false,
+            ProfileToolSchemaWire::Responses,
         ),
         (
             "gemini",
             |config: &mut Config| config.provider = Provider::Gemini,
-            false,
+            ProfileToolSchemaWire::Undeclared,
         ),
         (
             "ollama",
             |config: &mut Config| config.provider = Provider::Ollama,
-            false,
+            ProfileToolSchemaWire::Undeclared,
         ),
     ];
-    for (label, change, supported) in cases {
+    for (label, change, wire) in cases {
+        let supported = wire != ProfileToolSchemaWire::Undeclared;
         let env = Env::with_config_tool();
         let mut config = env.config(&url, Wire::Native);
         config.ollama_host = url.clone();
         change(&mut config);
         let mut client = client_from_config(&config, false).unwrap();
-        assert_eq!(
-            client.profile_tool_schema_wire() == ProfileToolSchemaWire::ChatCompletions,
-            supported,
-            "{label}"
-        );
+        assert_eq!(client.profile_tool_schema_wire(), wire, "{label}");
         // The OpenAI client has a fixed external endpoint, so it is never run here: a
-        // supported row runs only on the client pointed at the fake.
-        let session_result = (!supported || label == "lm-studio chat").then(|| {
+        // supported row runs only on the clients pointed at the fake.
+        let session_result = (!supported || label.starts_with("lm-studio")).then(|| {
             run_session(client.as_mut(), &mut SessionSnapshot::new(), "x", &config)
                 .map_err(|error| format!("{error:#}"))
         });
@@ -3159,8 +3171,18 @@ fn the_wire_is_judged_from_the_real_client_and_the_effective_role() {
         }
     }
     let (requests, _) = endpoint.finish();
-    // Only the supported rows connected: lm-studio chat, once.
-    assert_eq!(requests.len(), 1, "{requests:?}");
+    // Only the supported rows on the fake connected: lm-studio chat and lm-studio responses,
+    // once each, and the Responses request carried the schema tool.
+    assert_eq!(requests.len(), 2, "{requests:?}");
+    let responses: Value = serde_json::from_str(&requests[1]).unwrap();
+    let sent = responses["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tool| tool["name"] == CONFIG_TOOL)
+        .unwrap();
+    assert_eq!(sent["parameters"], config_root());
+    assert_eq!(sent["strict"], json!(false));
     set_env("GEMINI_API_KEY", None);
     set_env("OPENAI_API_KEY", None);
     set_env(REGISTRY_ENV, None);
@@ -3194,7 +3216,20 @@ fn an_openai_compatible_role_override_decides_the_wire_not_the_provider_field() 
     let _ = generate_step_plan(&mut planner, PLAN_GOAL, &config);
     assert!(planner.calls() > 0, "the executor role is what is judged");
 
-    // The override with the Responses API is refused, whatever else is set.
+    endpoint.finish();
+
+    // Issue #1005: the override with the Responses API carries the schema tool natively.
+    let endpoint = FakeHttp::with_responder(
+        Vec::new(),
+        Arc::new(|_, _| {
+            Some(
+                json!({"output": [{"type": "message", "role": "assistant",
+                    "content": [{"type": "output_text", "text": "done"}]}]})
+                .to_string(),
+            )
+        }),
+    );
+    let base = format!("{}/v1", endpoint.url);
     let env = Env::with_config_tool();
     let config = parse_config(
         &env,
@@ -3208,13 +3243,24 @@ fn an_openai_compatible_role_override_decides_the_wire_not_the_provider_field() 
         ],
     );
     let mut client = client_from_config(&config, false).unwrap();
-    let error =
-        run_session(client.as_mut(), &mut SessionSnapshot::new(), "x", &config).unwrap_err();
-    assert!(
-        format!("{error:#}").contains("schema_unsupported"),
-        "{error:#}"
+    assert_eq!(
+        client.profile_tool_schema_wire(),
+        ProfileToolSchemaWire::Responses
     );
-    endpoint.finish();
+    let result = run_session(client.as_mut(), &mut SessionSnapshot::new(), "x", &config)
+        .map_err(|error| format!("{error:#}"));
+    assert_eq!(result.as_deref(), Ok("done"));
+    let (requests, _) = endpoint.finish();
+    assert_eq!(requests.len(), 1, "{requests:?}");
+    let sent: Value = serde_json::from_str(&requests[0]).unwrap();
+    let tool = sent["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tool| tool["name"] == CONFIG_TOOL)
+        .unwrap();
+    assert_eq!(tool["parameters"], config_root());
+    assert_eq!(tool["strict"], json!(false));
 
     // A planner on another provider carries no schema tool, so it is not what decides.
     let env = Env::with_config_tool();

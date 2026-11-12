@@ -30,6 +30,18 @@ fake executors, and a temporary workspace.
   explicit-text XML parser's strict, relaxed, repaired, and refused paths, a flat
   extension's accepted and refused calls, and a dummy secret next to the words this issue
   reserves.
+- `fixtures/responses-off-golden.json` (Issue #1005): the Responses API with no schema tool,
+  recorded on `responses_off_base_sha` before the Responses schema wire existed, through the
+  OpenAI-compatible entry and a loopback fake. `tests/profile_tool_schema_responses.rs` holds the
+  recorder's own code (`responses_off`) and compares the same paths with it byte for byte. Its
+  normalization is the six rules written in the golden, and nothing in a request body is
+  normalized.
+- `fixtures/responses-cases.json` (Issue #1005): the Responses rows, on two axes, `api:
+  responses` and `tool_protocol: native`. The `wires` of `cases.json` stay as they are and are
+  not read as a Responses tool protocol. Each row's expectation is the same calls on Chat
+  Completions in the same test, the accepted rows of `cases.json` among them, or a golden; none
+  comes from the Responses implementation. `id_errors` names the call ID cases, which the test
+  asserts are the ones it runs.
 
 ## What the off comparison normalizes
 
@@ -43,9 +55,12 @@ Nothing is left out. Inside the recording, exactly these are replaced by a place
 
 ## Known limits
 
-- A schema tool runs on Chat Completions native tool calls only. On the text (XML) tool
-  protocol it is refused before the start as `schema_unsupported`; XML support is #978. The
-  XML rows in the off recording are the old parser's control, with no schema tool, and stay.
+- A schema tool runs on native tool calls only: Chat Completions, and the Responses API since
+  #1005. On the text (XML) tool protocol it is refused before the start as
+  `schema_unsupported`; XML support is #978. The XML rows in the off recording are the old
+  parser's control, with no schema tool, and stay.
+- A fake shows the host's contract on the Responses wire, not that a service accepts `strict`,
+  a call turn without its reasoning, or a turn with or without its preamble.
 - The binary registers no in-process runtime or compiler, as in G1, so through the CLI a
   schema tool is refused as `unavailable`. Success rows run through the library entries.
 - The mutation rows named in the issue's dispatch are measured by the leader, not here.

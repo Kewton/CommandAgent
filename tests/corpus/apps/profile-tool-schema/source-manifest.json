@@ -20,6 +20,7 @@
   "fixture_sha256": {
     "cases.json": "aa1bcbd77c8ff1860ea4897d4c3a18b7c8c5175fa9b2a859d0f2790ed222a258",
     "off-golden.json": "d989bdbae00deb29e6ded274543603cbd3f842081b5f35200a83d07d87ffde06",
+    "responses-cases.json": "54f058630cb71832f89cf802e6b35a12b598e08835d52fa8f708ff117f0b6756",
     "responses-off-golden.json": "b2b213aa2c93c5296a494c395a47760acbf897f87f41605da21d715d3922bd9e"
   }
 }

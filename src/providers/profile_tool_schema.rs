@@ -1,9 +1,10 @@
-//! Which clients can carry a G2 schema tool (Issue #973).
+//! Which clients can carry a G2 schema tool (Issue #973, Responses since Issue #1005).
 //!
 //! Support is declared, by the client or by the configuration that would build it.
 //! Nothing is inferred from a label, and a client that declares nothing, including an
-//! injected one, is refused rather than assumed. The Responses API, both Gemini APIs,
-//! and Ollama are refused here without any change to those clients.
+//! injected one, is refused rather than assumed. Chat Completions and the Responses API
+//! carry schema tools on the native tool protocol; both Gemini APIs and Ollama are
+//! refused here without any change to those clients.
 
 use serde_json::Value;
 
@@ -15,7 +16,7 @@ use super::parsing::sanitize_schema;
 pub enum ProfileToolSchemaWire {
     /// The Chat Completions request and parser, on the native tool protocol.
     ChatCompletions,
-    /// A client that has the Responses API selected.
+    /// The Responses request and parser, on the native tool protocol (Issue #1005).
     Responses,
     /// The default: Gemini, Ollama, a wrapper, and an injected client.
     Undeclared,
@@ -23,7 +24,7 @@ pub enum ProfileToolSchemaWire {
 
 impl ProfileToolSchemaWire {
     pub(crate) const fn carries_schema_tools(self) -> bool {
-        matches!(self, Self::ChatCompletions)
+        matches!(self, Self::ChatCompletions | Self::Responses)
     }
 
     pub(crate) const fn describe(self) -> &'static str {
