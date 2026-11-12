@@ -43,9 +43,9 @@ use super::resume::{
 use crate::tools::os_sandbox::SandboxPolicy;
 
 use super::state::{
-    AttemptFailure, AttemptIdentity, AttemptRequest, AttemptTicket, BeginDecision, BytesSource,
-    CommitDecision, CommitObservation, FailureDecision, LocalDecision, MachineSnapshot,
-    ObservedBytes, StageMachine, StageRefusal, StageVerdict,
+    AttemptCounts, AttemptFailure, AttemptIdentity, AttemptRequest, AttemptTicket, BeginDecision,
+    BytesSource, CommitDecision, CommitObservation, FailureDecision, LocalDecision,
+    MachineSnapshot, ObservedBytes, StageMachine, StageRefusal, StageVerdict,
 };
 
 const LEDGER_LEAF: &str = "structured-stages";
@@ -549,6 +549,11 @@ impl StageLedger {
 
     pub(crate) fn revision_of(&self, key: &TargetKey) -> Option<String> {
         self.machine.revision_of(key)
+    }
+
+    /// What a model is told of G4's counts (Issue #1004). It reads and changes nothing.
+    pub(crate) fn attempt_counts(&self, key: &TargetKey) -> Option<AttemptCounts> {
+        self.machine.attempt_counts(key)
     }
 
     #[cfg(test)]

@@ -6,9 +6,13 @@
 //! explicit byte budget instead of the 500-character flattened snippet.
 //! `Bash` is the model's only view of a command's diagnostics, so it keeps its
 //! line breaks and the head and tail of each stream up to a smaller budget
-//! (see the `bash` module). Every other tool keeps the flattened snippet.
+//! (see the `bash` module). A stage tool's answer is the model's only view of what its
+//! operator's checks said, so it keeps the flattened snippet's rule up to a budget derived from
+//! the protocol's diagnostic limits (see the `stage` module). Every other tool keeps the
+//! flattened snippet.
 
 mod bash;
+pub(crate) mod stage;
 
 const READ_TOOL_NAME: &str = "Read";
 const BASH_TOOL_NAME: &str = "Bash";
@@ -22,11 +26,13 @@ const TRUNCATION_NOTICE: &str = "[commandagent: read result truncated in history
 /// Bounded history content for a tool result produced by `name`.
 ///
 /// `name` is `None` for a message that carries no tool name. Only a tool named
-/// exactly `Read` or `Bash` gets a line-preserving policy.
+/// exactly `Read` or `Bash` gets a line-preserving policy. A name the session on
+/// this thread installed as a stage tool's gets the stage budget.
 pub(crate) fn history_content(name: Option<&str>, content: &str) -> String {
     match name {
         Some(READ_TOOL_NAME) => read_history_content(content),
         Some(BASH_TOOL_NAME) => bash::bash_history_content(content),
+        Some(name) if stage::is_stage_tool(name) => stage::stage_history_content(content),
         _ => crate::eval_events::body_snippet_whole_tokens(content),
     }
 }

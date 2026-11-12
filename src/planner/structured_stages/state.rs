@@ -445,6 +445,20 @@ pub(crate) struct AttemptIdentity {
     pub(crate) generation: u64,
 }
 
+/// One of G4's counts as it stands, with the limit the contract holds it to (Issue #1004).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct AttemptCount {
+    pub(crate) used: u32,
+    pub(crate) limit: u32,
+}
+
+/// A target's attempts and the run's, read and never written (Issue #1004).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct AttemptCounts {
+    pub(crate) target: AttemptCount,
+    pub(crate) run: AttemptCount,
+}
+
 /// Exactly the required IDs, once each, all passed. A missing one was not run, and one the
 /// operator did not ask for is unknown.
 pub(crate) fn judge_checks(
@@ -626,6 +640,23 @@ impl StageMachine {
             target: key.target.clone(),
             attempt: record.attempts_used,
             generation,
+        })
+    }
+
+    /// What G4 has counted for a target and for the run, each with its limit. It reads the same
+    /// fields `begin` judges and changes nothing; a target this contract does not have is `None`.
+    pub(crate) fn attempt_counts(&self, key: &TargetKey) -> Option<AttemptCounts> {
+        let record = self.record(key)?;
+        let limits = self.contract.limits();
+        Some(AttemptCounts {
+            target: AttemptCount {
+                used: record.attempts_used,
+                limit: limits.attempts_per_target,
+            },
+            run: AttemptCount {
+                used: self.snapshot.attempts_used,
+                limit: limits.attempts_per_run,
+            },
         })
     }
 
@@ -1249,10 +1280,10 @@ mod tests {
         two_stage_contract,
     };
     use super::{
-        AttemptFailure, AttemptRequest, AttemptTicket, BeginDecision, CheckFailureKind,
-        CommitDecision, CommitObservation, ExhaustedLimit, FailureDecision, INITIAL_REVISION,
-        InvalidatedTarget, LocalDecision, MAX_RECEIPT_HISTORY, ObservedBytes, Phase, StageMachine,
-        StageRefusal, TerminalFailure, UnverifiedReason, judge_checks,
+        AttemptCount, AttemptFailure, AttemptRequest, AttemptTicket, BeginDecision,
+        CheckFailureKind, CommitDecision, CommitObservation, ExhaustedLimit, FailureDecision,
+        INITIAL_REVISION, InvalidatedTarget, LocalDecision, MAX_RECEIPT_HISTORY, ObservedBytes,
+        Phase, StageMachine, StageRefusal, TerminalFailure, UnverifiedReason, judge_checks,
     };
 
     const NOW: u64 = 1_000_000;
@@ -2957,6 +2988,50 @@ mod tests {
             NOW,
         );
         assert!(fresh.attempt_identity(&alpha()).is_none());
+    }
+
+    /// Issue #1004: the counts a model is told are the ones `begin` judges, and reading them
+    /// changes nothing the ledger saves.
+    #[test]
+    fn the_attempt_counts_read_without_changing_the_snapshot() {
+        let (machine, _) = both_sealed();
+        let limits = machine.contract().limits();
+        let before = machine.snapshot().clone();
+        let counts = machine.attempt_counts(&alpha()).unwrap();
+        assert_eq!(machine.snapshot(), &before);
+        assert_eq!(
+            counts.target,
+            AttemptCount {
+                used: 1,
+                limit: limits.attempts_per_target
+            }
+        );
+        assert_eq!(
+            counts.run,
+            AttemptCount {
+                used: 2,
+                limit: limits.attempts_per_run
+            }
+        );
+        assert_eq!(
+            counts.run.used,
+            before
+                .targets
+                .iter()
+                .map(|record| record.attempts_used)
+                .sum::<u32>()
+        );
+        assert!(machine.attempt_counts(&key("alpha", "nowhere")).is_none());
+        assert_eq!(machine.snapshot(), &before);
+
+        let fresh = StageMachine::new(
+            machine.contract().clone(),
+            "run-c".to_string(),
+            "p".to_string(),
+            NOW,
+        );
+        let counts = fresh.attempt_counts(&beta()).unwrap();
+        assert_eq!((counts.target.used, counts.run.used), (0, 0));
     }
 
     #[test]

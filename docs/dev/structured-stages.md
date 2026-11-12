@@ -79,6 +79,31 @@ leaves what is sealed as it was. Any other bad result ends the run. Calls that s
 spend no attempt, so they have a limit of their own: `max(8, number of targets)` in a row, then
 `no_progress_limit`. A call that starts a process clears that count.
 
+### Attempts in the answer (Issue #1004)
+
+Every answer that goes back as data (`resubmit`, `sealed`, `unverified`, `not_adopted`,
+`no_change`, `stale`, `unknown_revision`, `not_ready`, `input_not_current`) carries G4's counts at
+its top:
+
+```json
+"attempts": {"target": {"used": 2, "limit": 4}, "run": {"used": 9, "limit": 32}}
+```
+
+- `target` is the target the call named; `run` is every target's attempts in the run.
+- `used` is the count as this call was judged, read right after `begin` under the same lock and
+  changing nothing. A call that started a process is in it.
+- `limit` is the contract's: the host's maximum narrowed by the descriptor.
+- A new upstream version reopens the targets below it and gives no attempt back: the first answer
+  of a reopened target goes on from its count before. A resume in a new process goes on from the
+  ledger.
+- The fixed form an answer falls to keeps `attempts` too. It holds only fixed words, the host's
+  revision, and these integers the host counts: no text an operator or a process chose.
+- The limit is G4's only. A run can end first at the schema refusals' limit, at
+  `no_progress_limit`, at the run's wallet, or at the deadline, so what remains is no promise of
+  what can still be spent. A run that reaches a limit ends with the same refusal as before; the
+  answer does not replace it.
+- The downstream entries of a sealed answer carry no counts of their own.
+
 ### The hold
 
 A session with an unmet obligation that wants to end is sent back with
@@ -321,9 +346,29 @@ Each row names what an operator sees and what to do.
 
 ### The model's view
 
-- **500 characters.** A tool result is cut in the history. Diagnostics have about 500 characters,
-  for the whole answer. `src/state/tool_history.rs` is not changed; an answer falls to a fixed form
-  that still says what happened, with `truncated: true`.
+- **The stage answer's budget (Issue #1004).** A stage tool's answer is the model's only view of
+  what its operator's checks said, as `Read` is of a file and `Bash` of a command, so the history
+  keeps it up to `STAGE_ANSWER_MAX_BYTES` (`src/state/tool_history/stage.rs`) instead of the
+  500-character snippet. The budget is derived from the protocol's limits and moves with them:
+  `512 + MAX_DIAGNOSTICS * (MAX_DIAGNOSTIC_CODE_BYTES + MAX_DIAGNOSTIC_MESSAGE_BYTES)`, 5,120 bytes
+  today, of which 512 bytes hold the rest of the JSON (its fixed keys, the syntax of each item, and
+  the attempt counts). The rule is the snippet's otherwise: the whole value is scrubbed, line breaks
+  become spaces, the legacy heuristics run, and the cut falls between whole tokens, on a char
+  boundary. An answer that JSON escapes or a redaction lengthen past the budget still falls, as
+  before, to fewer diagnostics, a shorter message, and then the fixed form, with `truncated: true`.
+  `fit_for_model` judges with the history's own rule for the tool's name on the thread it runs on.
+- **Diagnostics are data.** The wider budget lets more of what a process wrote reach the model.
+  That text is not trusted: the scrub and the redaction apply to it as to any result, and it is
+  data for the model, never an instruction.
+- **Which names get the budget.** Admission collects the function names the model calls the stage
+  tools by (not the descriptors' `tool_id`) and the session's scope installs them on the session's
+  thread; dropping the scope puts the previous set back. Another thread sees none of them, and every
+  other tool keeps its rule. Where no session installed them, a stage tool's answer gets the
+  500-character snippet, and the fixed form above still says what happened.
+- **A resume without the stage tools.** A session resumed in a run that admits no stage tool sends
+  an old, long stage answer through the 500-character snippet again, when the request is built. The
+  schema refusals' feedback goes into the history under the same function name, so for a stage
+  tool it gets the stage budget; its words are unchanged.
 - **`--prompt` (P1).** A session holds until everything is sealed, so a question asked on a stage
   profile ends as a non-success after at most 8 holds. Ask questions on another profile.
 - **`Implement` steps (N4), by reading the code, not measured.** A resubmission there counts as

@@ -378,6 +378,10 @@ mod off_control {
     const MANIFEST: &str =
         include_str!("corpus/apps/structured-stage-receipts/source-manifest.json");
     const BASE_SHA: &str = "d2360125210564351f30e42bbc1a9f5e51f2b3cc";
+    /// Issue #1004: the attempts replay was recorded on this commit, apart from the off control.
+    const ATTEMPTS_REPLAY_GOLDEN: &str =
+        include_str!("corpus/apps/structured-stage-receipts/fixtures/attempts-replay-golden.json");
+    const ATTEMPTS_REPLAY_BASE_SHA: &str = "028d63d196355f6ba68d64f2a47861f1260b2971";
     const DUMMY_SECRET: &str = "fake-dummy-credential-975-not-a-real-key";
     const FLAT_PROFILE: &str = "stage-off-flat";
     const FLAT_TOOL: &str = "stage-off-flat-read";
@@ -1351,6 +1355,16 @@ mod off_control {
             sha256(OFF_GOLDEN.as_bytes())
         );
         assert_eq!(manifest["base_sha"], BASE_SHA);
+        assert_eq!(
+            manifest["fixture_sha256"]["attempts-replay-golden.json"],
+            sha256(ATTEMPTS_REPLAY_GOLDEN.as_bytes())
+        );
+        assert_eq!(
+            manifest["attempts_replay_base_sha"],
+            ATTEMPTS_REPLAY_BASE_SHA
+        );
+        let golden: Value = serde_json::from_str(ATTEMPTS_REPLAY_GOLDEN).unwrap();
+        assert!(ATTEMPTS_REPLAY_BASE_SHA.starts_with(golden["source"].as_str().unwrap()));
     }
 
     /// The corpus says which tests stand for each acceptance row. A renamed test fails here.
@@ -1386,9 +1400,12 @@ mod off_control {
             ),
             include_str!("../src/tools/profile_tools/pre_run.rs"),
             include_str!("../src/tools/profile_tools/schema/binding.rs"),
+            include_str!("../src/tools/profile_tools/stage_attempts.rs"),
+            include_str!("../src/state/tool_history/stage.rs"),
+            include_str!("../src/tools/profile_tools/schema/invocation.rs"),
         ];
         let rows = cases["acceptance"].as_array().unwrap();
-        assert_eq!(rows.len(), 6);
+        assert_eq!(rows.len(), 7);
         for row in rows {
             let tests = row["tests"].as_array().unwrap();
             assert!(!tests.is_empty(), "{row}");
@@ -3063,5 +3080,679 @@ mod with_the_strict_isolation {
         assert_eq!(limits.len(), 1, "{limits:?}");
         assert_limit(&limits[0], "upper", (1, 1), "target");
         assert_eq!(ledger_files(&env), 0);
+    }
+
+    /// Issue #1004: the attempts replay. Two paths of calls over the synthetic two-stage profile
+    /// (`upper` -> `lower`), each to where G4's attempt limits end the run, and what the host did
+    /// on the way. Recorded on the base (028d63d1) and compared on the Issue's branch with this same
+    /// code: the paths, the responder, the observation, and the placeholders are all here.
+    mod attempts_replay {
+        use std::path::{Path, PathBuf};
+        use std::sync::{Arc, Mutex};
+
+        use regex::Regex;
+        use serde_json::{Value, json};
+
+        use super::super::{
+            Env, FIXED_INPUT, LOWER_OUTPUT, LOWER_TOOL, LOWER_TOOL_ID, UPPER_OUTPUT, UPPER_TOOL,
+            UPPER_TOOL_ID, WALK_PROFILE, directory_pin, encode_base64, extension_root, sha256,
+        };
+        use super::{
+            FakeHttp, NOOP_UI, Responder, SessionSnapshot, client_from_config, floor_with,
+            has_tool_answer, install_sandbox, lock, reset_for_test,
+            run_session_with_outcome_with_ui, text_reply, tool_reply,
+        };
+
+        /// What the process proposes: the first version, and the one a new upper submission
+        /// brings. Different bytes, so the second is a new revision and not `no_change`.
+        const VERSION_ONE: &[u8] = b"{\"stage\":\"one\"}\n";
+        const VERSION_TWO: &[u8] = b"{\"stage\":\"two\"}\n";
+        /// Written to stderr by every process, so a launch shows in the rejection's tail.
+        const LAUNCH_MARK: &str = "process-started";
+        const OUT_ENV: &str = "ATTEMPTS_REPLAY_OUT";
+
+        /// Only these are replaced, and nothing else.
+        const PLACEHOLDERS: [(&str, &str); 9] = [
+            (
+                "<REVISION-n>",
+                "a revision (16 hex digits), numbered by first appearance within a path",
+            ),
+            ("<NONCE>", "the value of run_nonce or process_nonce"),
+            ("<UUID>", "a UUID"),
+            ("<ROOT>", "the temporary workspace root"),
+            ("<EVIDENCE>", "the temporary evidence root"),
+            (
+                "<OPERATOR>",
+                "the temporary operator root (registry and tools)",
+            ),
+            ("<EXTENSION>", "the temporary extension profile root"),
+            ("<URL>", "the fake provider's loopback URL"),
+            (
+                "<N>",
+                "a time or duration: epoch, occurred_at_epoch_ms, duration_ms, elapsed_ms",
+            ),
+        ];
+        const TIME_FIELDS: [&str; 4] =
+            ["epoch", "occurred_at_epoch_ms", "duration_ms", "elapsed_ms"];
+        const NONCE_FIELDS: [&str; 2] = ["run_nonce", "process_nonce"];
+
+        #[derive(Clone, Copy)]
+        enum Revision {
+            /// The literal `initial`, before any answer named one.
+            Initial,
+            /// The latest revision the answers so far named for this stage.
+            Of(&'static str),
+        }
+
+        #[derive(Clone, Copy)]
+        struct Call {
+            tool: &'static str,
+            mode: &'static str,
+            revision: Revision,
+        }
+
+        const fn call(tool: &'static str, mode: &'static str, revision: Revision) -> Call {
+            Call {
+                tool,
+                mode,
+                revision,
+            }
+        }
+
+        struct ReplayPath {
+            id: &'static str,
+            attempts_per_target: u32,
+            attempts_per_run: u32,
+            calls: Vec<Call>,
+        }
+
+        /// `good` proposes the first version, `again` the second, and `bad` and `worse` fail the
+        /// `shape` check with a short diagnostic each. Two failing modes so that no two calls in a
+        /// row are the same.
+        fn paths() -> Vec<ReplayPath> {
+            use Revision::{Initial, Of};
+            vec![
+                // Back upstream, then the lower target's limit: upper sealed, lower resubmitted
+                // twice, a new upper version reopens lower, lower resubmitted once more, and the
+                // next lower call is past its target's limit of three.
+                ReplayPath {
+                    id: "back-upstream-then-target-limit",
+                    attempts_per_target: 3,
+                    attempts_per_run: 16,
+                    calls: vec![
+                        call(UPPER_TOOL, "good", Initial),
+                        call(LOWER_TOOL, "bad", Of("lower")),
+                        call(LOWER_TOOL, "worse", Of("lower")),
+                        call(UPPER_TOOL, "again", Of("upper")),
+                        call(LOWER_TOOL, "bad", Of("lower")),
+                        call(LOWER_TOOL, "worse", Of("lower")),
+                    ],
+                },
+                // The run's limit: five attempts over both targets, none at its own limit of
+                // four, and the sixth call is past the run's.
+                ReplayPath {
+                    id: "run-limit",
+                    attempts_per_target: 4,
+                    attempts_per_run: 5,
+                    calls: vec![
+                        call(UPPER_TOOL, "bad", Initial),
+                        call(UPPER_TOOL, "good", Initial),
+                        call(LOWER_TOOL, "bad", Of("lower")),
+                        call(LOWER_TOOL, "worse", Of("lower")),
+                        call(UPPER_TOOL, "again", Of("upper")),
+                        call(LOWER_TOOL, "bad", Of("lower")),
+                    ],
+                },
+            ]
+        }
+
+        fn stage_of(tool: &str) -> &'static str {
+            match tool {
+                UPPER_TOOL => "upper",
+                LOWER_TOOL => "lower",
+                _ => "unknown",
+            }
+        }
+
+        fn output_for(bytes: &[u8]) -> String {
+            format!(
+                r#"[{{"id":"artifact","sha256":"{}","bytes_base64":"{}"}}]"#,
+                sha256(bytes),
+                encode_base64(bytes)
+            )
+        }
+
+        /// The fixed script of both tools. Builtins only, as the strict isolation allows no fork.
+        fn replay_script() -> String {
+            format!(
+                r#"IFS= read -r request
+take() {{ local pattern="\"$1\":\"([^\"]+)\""; [[ $request =~ $pattern ]] && printf -v "$2" '%s' "${{BASH_REMATCH[1]}}"; }}
+take request_id rid; take tool_id tid; take runtime_sha256 run; take input_revision rev; take schema_sha256 sch
+printf '%s\n' '{mark}' >&2
+status=passed; said='[]'; out='{one}'
+if [[ $request == *'"mode":"bad"'* ]]; then status=failed; said='[{{"code":"shape","message":"the shape is off"}}]'; fi
+if [[ $request == *'"mode":"worse"'* ]]; then status=failed; said='[{{"code":"shape","message":"the shape is still off"}}]'; fi
+if [[ $request == *'"mode":"again"'* ]]; then out='{two}'; fi
+printf '%s' "{{\"protocol\":\"profile-tool.result/v1\",\"request_id\":\"$rid\",\"tool_id\":\"$tid\",\"runtime_sha256\":\"$run\",\"input_revision\":\"$rev\",\"schema_sha256\":\"$sch\",\"checks\":[{{\"id\":\"shape\",\"status\":\"$status\"}}],\"outputs\":$out,\"diagnostics\":$said}}"
+"#,
+                mark = LAUNCH_MARK,
+                one = output_for(VERSION_ONE),
+                two = output_for(VERSION_TWO),
+            )
+        }
+
+        fn replay_schema(inputs: &[&str]) -> Value {
+            json!({
+                "protocol": "profile-tool.schema/v1",
+                "root": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["mode", "expected_revision"],
+                    "properties": {
+                        "mode": {"type": "string", "enum": ["good", "again", "bad", "worse"]},
+                        "expected_revision": {"type": "string"},
+                    },
+                },
+                "inputs": inputs,
+            })
+        }
+
+        /// As `Env::write_tool`, with the replay's script and schema.
+        fn write_replay_tool(env: &Env, tool: (&str, &str, &str), inputs: &[&str], floor: &Value) {
+            let (tool_id, name, output) = tool;
+            let directory = env.tools.join(tool_id);
+            std::fs::create_dir_all(&directory).unwrap();
+            let script = directory.join("tool.sh");
+            std::fs::write(&script, replay_script()).unwrap();
+            let shell = std::fs::canonicalize("/bin/bash").unwrap();
+            let schema = replay_schema(inputs);
+            let descriptor = json!({
+                "protocol": "profile-tool.descriptor/v1",
+                "tool_id": tool_id,
+                "name": name,
+                "version": "1.0.0",
+                "description": "Propose one artifact for a synthetic fixture.",
+                "effect": "propose-artifacts",
+                "parameters": [],
+                "schema_sha256": sha256(serde_json::to_string(&schema).unwrap().as_bytes()),
+                "schema": schema,
+                "runtime": {"kind": "pinned_process", "id": "fixed-script"},
+                "limits": {"max_input_bytes": 1 << 20, "max_output_bytes": 64 * 1024},
+                "process": {
+                    "protocol": "profile-tool.process/v1",
+                    "executable": {
+                        "path": shell,
+                        "sha256": sha256(&std::fs::read(&shell).unwrap()),
+                    },
+                    "dependency_directories": [{
+                        "path": directory,
+                        "sha256": directory_pin(&directory).unwrap(),
+                    }],
+                    "argv": [script],
+                    "cwd": directory,
+                    "env": {"TOOL_MODE": "fixture"},
+                    "limits": {"timeout_ms": 10_000, "max_result_bytes": 64 * 1024},
+                    "outputs": [{"id": "artifact", "path": output}],
+                },
+                "stage": floor,
+            });
+            std::fs::write(
+                env.registry.join(format!("profile-tools/{tool_id}.json")),
+                descriptor.to_string(),
+            )
+            .unwrap();
+        }
+
+        fn write_replay_tools(env: &Env, floor: &Value) {
+            write_replay_tool(
+                env,
+                (UPPER_TOOL_ID, UPPER_TOOL, UPPER_OUTPUT),
+                &[FIXED_INPUT],
+                floor,
+            );
+            write_replay_tool(
+                env,
+                (LOWER_TOOL_ID, LOWER_TOOL, LOWER_OUTPUT),
+                &[UPPER_OUTPUT, FIXED_INPUT],
+                floor,
+            );
+        }
+
+        fn parse_answer(text: &str) -> Value {
+            serde_json::from_str(text).unwrap_or_else(|_| Value::String(text.to_string()))
+        }
+
+        /// The latest revision the tool answers in this request named for `stage`: a seal's or a
+        /// stale answer's own, or one in a `downstream` list. Nothing is written in by hand.
+        fn revision_in_answers(body: &Value, stage: &str) -> Option<String> {
+            let mut called = String::new();
+            let mut found = None;
+            for message in body["messages"].as_array()? {
+                if let Some(name) = message["tool_calls"][0]["function"]["name"].as_str() {
+                    called = name.to_string();
+                }
+                if message["role"] != "tool" {
+                    continue;
+                }
+                let answer = parse_answer(message["content"].as_str().unwrap_or_default());
+                if stage_of(&called) == stage
+                    && let Some(revision) = answer["stage"]["revision"]
+                        .as_str()
+                        .or_else(|| answer["revision"].as_str())
+                {
+                    found = Some(revision.to_string());
+                }
+                for entry in answer["stage"]["downstream"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                {
+                    if entry["stage"] == stage
+                        && let Some(revision) = entry["revision"].as_str()
+                    {
+                        found = Some(revision.to_string());
+                    }
+                }
+            }
+            found
+        }
+
+        /// Request `n` gets the path's call `n`; past the path, a plain text.
+        fn responder(calls: Vec<Call>, replies: Arc<Mutex<Vec<Value>>>) -> Responder {
+            Arc::new(move |index, body| {
+                let Some(call) = calls.get(index - 1) else {
+                    replies.lock().unwrap().push(json!({"text": "done"}));
+                    return text_reply("done");
+                };
+                let revision = match call.revision {
+                    Revision::Initial => Some("initial".to_string()),
+                    Revision::Of(stage) => revision_in_answers(body, stage),
+                };
+                let Some(revision) = revision else {
+                    replies
+                        .lock()
+                        .unwrap()
+                        .push(json!({"text": "no revision", "wanted": call.revision_stage()}));
+                    return text_reply("no revision");
+                };
+                replies.lock().unwrap().push(json!({
+                    "tool": call.tool,
+                    "mode": call.mode,
+                    "expected_revision": revision,
+                }));
+                tool_reply(call.tool, call.mode, &revision)
+            })
+        }
+
+        impl Call {
+            fn revision_stage(&self) -> &'static str {
+                match self.revision {
+                    Revision::Initial => "initial",
+                    Revision::Of(stage) => stage,
+                }
+            }
+        }
+
+        fn events_of(env: &Env) -> Vec<Value> {
+            std::fs::read_to_string(env.evidence.join("events.jsonl"))
+                .unwrap_or_default()
+                .lines()
+                .map(|line| serde_json::from_str(line).unwrap_or(Value::Null))
+                .collect()
+        }
+
+        /// The saved ledgers, each as its run's count and its targets' counts.
+        fn ledgers(env: &Env) -> Vec<Value> {
+            let leaf = env.evidence.join("state/structured-stages");
+            let mut files = std::fs::read_dir(leaf).map_or_else(
+                |_| Vec::new(),
+                |entries| {
+                    entries
+                        .flatten()
+                        .map(|entry| entry.path().join("ledger.json"))
+                        .filter(|file| file.exists())
+                        .collect::<Vec<_>>()
+                },
+            );
+            files.sort();
+            files
+                .iter()
+                .map(|file| {
+                    let saved: Value =
+                        serde_json::from_slice(&std::fs::read(file).unwrap()).unwrap();
+                    let targets = saved["body"]["targets"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .map(|record| {
+                            let key = format!(
+                                "{}/{}",
+                                record["key"]["stage"].as_str().unwrap_or_default(),
+                                record["key"]["target"].as_str().unwrap_or_default()
+                            );
+                            (key, record["attempts_used"].clone())
+                        })
+                        .collect::<serde_json::Map<_, _>>();
+                    json!({"run": saved["body"]["attempts_used"], "targets": targets})
+                })
+                .collect()
+        }
+
+        /// A launch is a rejection whose stderr tail has the script's mark, or a commit.
+        fn processes(events: &[Value]) -> usize {
+            events
+                .iter()
+                .filter(|event| {
+                    (event["event"] == "profile_tool_effect_rejected"
+                        && event["stderr_tail"]
+                            .as_str()
+                            .is_some_and(|tail| tail.contains(LAUNCH_MARK)))
+                        || event["event"] == "profile_tool_commit"
+                })
+                .count()
+        }
+
+        /// Where the run stopped and why, from the last rejection the host wrote: the tool's
+        /// stage, its target as the ledger names it, and the rejection's kind and code.
+        fn stopped(events: &[Value], ledgers: &[Value]) -> (Value, Value) {
+            let Some(last) = events
+                .iter()
+                .rev()
+                .find(|event| event["event"] == "profile_tool_effect_rejected")
+            else {
+                return (Value::Null, Value::Null);
+            };
+            let stage = stage_of(last["name"].as_str().unwrap_or_default());
+            let target = ledgers
+                .iter()
+                .flat_map(|ledger| {
+                    ledger["targets"]
+                        .as_object()
+                        .into_iter()
+                        .flatten()
+                        .map(|(key, _)| key.clone())
+                })
+                .find_map(|key| {
+                    key.strip_prefix(&format!("{stage}/"))
+                        .map(ToString::to_string)
+                });
+            (
+                json!({"stage": stage, "target": target}),
+                json!({"kind": last["kind"], "code": last["reason"]}),
+            )
+        }
+
+        fn root_paths(env: &Env) -> Vec<(PathBuf, &'static str)> {
+            let operator = env.registry.parent().unwrap().to_path_buf();
+            let mut paths = vec![
+                (env.root.clone(), "<ROOT>"),
+                (env.evidence.clone(), "<EVIDENCE>"),
+                (operator, "<OPERATOR>"),
+                (extension_root().to_path_buf(), "<EXTENSION>"),
+            ];
+            // The same roots as a caller may spell them, before `/private` is resolved.
+            let unresolved = paths
+                .iter()
+                .filter_map(|(path, marker)| {
+                    path.strip_prefix("/private")
+                        .ok()
+                        .map(|rest| (Path::new("/").join(rest), *marker))
+                })
+                .collect::<Vec<_>>();
+            paths.extend(unresolved);
+            paths
+        }
+
+        fn normalize_text(paths: &[(PathBuf, &str)], url: &str, text: &str) -> String {
+            let mut text = text.replace(url, "<URL>");
+            for (path, marker) in paths {
+                text = text.replace(&path.display().to_string(), marker);
+            }
+            for (pattern, replacement) in [
+                (
+                    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+                    "<UUID>",
+                ),
+                (r"elapsed_ms: [0-9]+", "elapsed_ms: <N>"),
+                (r"duration_ms=[0-9]+", "duration_ms=<N>"),
+                (r#""epoch": ?[0-9]+"#, r#""epoch":"<N>""#),
+                (
+                    r#""occurred_at_epoch_ms": ?[0-9]+"#,
+                    r#""occurred_at_epoch_ms":"<N>""#,
+                ),
+            ] {
+                text = Regex::new(pattern)
+                    .unwrap()
+                    .replace_all(&text, replacement)
+                    .into_owned();
+            }
+            text
+        }
+
+        fn normalize_value(paths: &[(PathBuf, &str)], url: &str, value: &Value) -> Value {
+            match value {
+                Value::Object(object) => Value::Object(
+                    object
+                        .iter()
+                        .map(|(key, value)| {
+                            let value = if TIME_FIELDS.contains(&key.as_str()) && value.is_number()
+                            {
+                                json!("<N>")
+                            } else if NONCE_FIELDS.contains(&key.as_str()) && value.is_string() {
+                                json!("<NONCE>")
+                            } else {
+                                normalize_value(paths, url, value)
+                            };
+                            (key.clone(), value)
+                        })
+                        .collect(),
+                ),
+                Value::Array(items) => Value::Array(
+                    items
+                        .iter()
+                        .map(|item| normalize_value(paths, url, item))
+                        .collect(),
+                ),
+                Value::String(text) => Value::String(normalize_text(paths, url, text)),
+                other => other.clone(),
+            }
+        }
+
+        /// Revisions are numbered by where they first appear in the path's observation, so the
+        /// same revision keeps one name and a new one gets the next.
+        fn number_revisions(value: &Value) -> Value {
+            let text = serde_json::to_string(value).unwrap();
+            let pattern = Regex::new(r"\b[0-9a-f]{16}\b").unwrap();
+            let mut seen: Vec<String> = Vec::new();
+            let numbered = pattern.replace_all(&text, |found: &regex::Captures<'_>| {
+                let revision = found[0].to_string();
+                let index = seen
+                    .iter()
+                    .position(|known| *known == revision)
+                    .unwrap_or_else(|| {
+                        seen.push(revision);
+                        seen.len() - 1
+                    });
+                format!("<REVISION-{}>", index + 1)
+            });
+            serde_json::from_str(&numbered).unwrap()
+        }
+
+        /// One path, run and observed, with only the placeholders replaced.
+        fn observe(path: &ReplayPath) -> Value {
+            let env = Env::new();
+            write_replay_tools(
+                &env,
+                &floor_with(path.attempts_per_target, path.attempts_per_run),
+            );
+            install_sandbox(&env);
+            let replies: Arc<Mutex<Vec<Value>>> = Arc::default();
+            let http = FakeHttp::start(responder(path.calls.clone(), replies.clone()));
+            let url = http.url.clone();
+            let config = super::config(&env, WALK_PROFILE, &url);
+            let mut client = client_from_config(&config, false).unwrap();
+            let result = run_session_with_outcome_with_ui(
+                client.as_mut(),
+                &mut SessionSnapshot::new(),
+                "Submit both stages.",
+                &[],
+                &config,
+                &NOOP_UI,
+            )
+            .map(|_| ())
+            .map_err(|error| format!("{error:#}"));
+            let requests = http.finish();
+            reset_for_test();
+
+            let events = events_of(&env);
+            let ledgers = ledgers(&env);
+            let (stopped, refusal) = stopped(&events, &ledgers);
+            let answers = requests
+                .iter()
+                .map(|body| {
+                    if !has_tool_answer(body) {
+                        return Value::Null;
+                    }
+                    let text = body["messages"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .rev()
+                        .find(|message| message["role"] == "tool")
+                        .and_then(|message| message["content"].as_str())
+                        .unwrap_or_default();
+                    parse_answer(text)
+                })
+                .collect::<Vec<_>>();
+            let replies = replies.lock().unwrap().clone();
+            let observation = json!({
+                "stopped": stopped,
+                "refusal": refusal,
+                "error": result.err(),
+                "requests": requests.len(),
+                "processes": processes(&events),
+                "attempts_used": ledgers,
+                "events": events
+                    .iter()
+                    .map(|event| event["event"].clone())
+                    .collect::<Vec<_>>(),
+                "replies": replies,
+                "answers": answers,
+            });
+            let paths = root_paths(&env);
+            number_revisions(&normalize_value(&paths, &url, &observation))
+        }
+
+        /// The whole golden: every path with its floor and its observation.
+        fn golden() -> Value {
+            json!({
+                "issue": "#1004",
+                "kind": "attempts-replay",
+                "source": "028d63d1",
+                "placeholders": PLACEHOLDERS
+                    .iter()
+                    .map(|(marker, replaces)| json!({"placeholder": marker, "replaces": replaces}))
+                    .collect::<Vec<_>>(),
+                "paths": paths()
+                    .iter()
+                    .map(|path| {
+                        json!({
+                            "id": path.id,
+                            "floor": floor_with(path.attempts_per_target, path.attempts_per_run),
+                            "observation": observe(path),
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+            })
+        }
+
+        /// Writes the golden where `ATTEMPTS_REPLAY_OUT` says; without it, does nothing.
+        #[test]
+        fn records_the_attempts_replay_golden() {
+            let Some(out) = std::env::var_os(OUT_ENV) else {
+                return;
+            };
+            let _guard = lock();
+            let mut text = serde_json::to_string_pretty(&golden()).unwrap();
+            text.push('\n');
+            std::fs::write(out, text).unwrap();
+        }
+
+        const GOLDEN: &str = include_str!(
+            "corpus/apps/structured-stage-receipts/fixtures/attempts-replay-golden.json"
+        );
+
+        /// Takes the top-level `attempts` out of every answer of every path, and returns what
+        /// each path's answers held there (`Null` for none).
+        fn take_attempts(document: &mut Value) -> Vec<Vec<Value>> {
+            document["paths"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .map(|path| {
+                    path["observation"]["answers"]
+                        .as_array_mut()
+                        .unwrap()
+                        .iter_mut()
+                        .map(|answer| {
+                            answer
+                                .as_object_mut()
+                                .and_then(|fields| fields.remove("attempts"))
+                                .unwrap_or(Value::Null)
+                        })
+                        .collect()
+                })
+                .collect()
+        }
+
+        /// The same two paths, recorded on the base, stop where they stopped there: the same
+        /// stage, refusal, error, requests, processes, ledger counts, events, calls, and every
+        /// answer once its top-level `attempts` is taken out. The base's answers had none.
+        #[test]
+        fn the_attempts_replay_stops_where_the_base_did() {
+            let _guard = lock();
+            let mut recorded: Value = serde_json::from_str(GOLDEN).unwrap();
+            let none = take_attempts(&mut recorded);
+            assert!(
+                none.iter().flatten().all(Value::is_null),
+                "the base's answers have no attempts: {none:?}"
+            );
+            assert!(!GOLDEN.contains("\"attempts\""));
+
+            let mut now = golden();
+            let attempts = take_attempts(&mut now);
+            assert_eq!(now, recorded);
+
+            // What the answers now say on top is G4's count, against the path's floor.
+            for ((path, said), observed) in paths()
+                .iter()
+                .zip(&attempts)
+                .zip(now["paths"].as_array().unwrap())
+            {
+                let answers = observed["observation"]["answers"].as_array().unwrap();
+                for (answer, attempts) in answers.iter().zip(said) {
+                    if answer.is_null() {
+                        assert!(attempts.is_null(), "{}", path.id);
+                        continue;
+                    }
+                    assert_eq!(
+                        attempts["target"]["limit"], path.attempts_per_target,
+                        "{}",
+                        path.id
+                    );
+                    assert_eq!(
+                        attempts["run"]["limit"], path.attempts_per_run,
+                        "{}",
+                        path.id
+                    );
+                }
+                let last = said.last().unwrap();
+                assert_eq!(
+                    last["run"]["used"], observed["observation"]["attempts_used"][0]["run"],
+                    "{}: the last answer's run count is the ledger's",
+                    path.id
+                );
+            }
+        }
     }
 }

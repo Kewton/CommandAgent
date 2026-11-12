@@ -27,7 +27,11 @@ fixtures/cases.json:kind = "synthetic"
 fixtures/off-golden.json:issue = "#975"
 fixtures/off-golden.json:kind = "synthetic"
 fixtures/off-golden.json:source = "d2360125"
+fixtures/attempts-replay-golden.json:issue = "#1004"
+fixtures/attempts-replay-golden.json:kind = "attempts-replay"
+fixtures/attempts-replay-golden.json:source = "028d63d1"
 source-manifest.json:base_sha = "d2360125210564351f30e42bbc1a9f5e51f2b3cc"
+source-manifest.json:attempts_replay_base_sha = "028d63d196355f6ba68d64f2a47861f1260b2971"
 source-manifest.json:origin = "synthetic"
 
 [fixture_contains]
@@ -41,7 +45,14 @@ fixtures/cases.json = [
   "\"refusal\": \"stage_contract_refused\"",
   "\"refusal\": \"stage_incomplete\"",
   "\"refusal\": \"stage_ledger_refused\"",
-  "\"refusal\": \"stage_run_ended\""
+  "\"refusal\": \"stage_run_ended\"",
+  "{\"row\": 7, "
+]
+fixtures/attempts-replay-golden.json = [
+  "\"id\": \"back-upstream-then-target-limit\"",
+  "\"id\": \"run-limit\"",
+  "\"code\": \"attempts_exhausted_for_target\"",
+  "\"code\": \"attempts_exhausted_for_run\""
 ]
 fixtures/off-golden.json = [
   "\"id\": \"chat-native-write-and-read\"",

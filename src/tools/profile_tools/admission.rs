@@ -161,6 +161,9 @@ pub struct AdmittedProfileTools {
     commits: Arc<Mutex<Vec<CommitReceipt>>>,
     /// `None` without a stage declaration, and then nothing below touches a ledger.
     stages: Option<Arc<StageRun>>,
+    /// The function names of the tools joined to `stages`, which the history keeps under the
+    /// stage budget while a session of this set runs (Issue #1004). Empty without a stage.
+    stage_names: Arc<BTreeSet<String>>,
 }
 
 #[cfg(test)]
@@ -175,6 +178,7 @@ impl AdmittedProfileTools {
             proposals: Vec::new(),
             commits: Arc::default(),
             stages: None,
+            stage_names: Arc::default(),
         }
     }
 
@@ -291,10 +295,14 @@ impl AdmittedProfileTools {
     }
 
     /// Installs this set on the session's thread. `None` for a set without a schema
-    /// tool, which leaves every parser on its existing path.
+    /// tool, which leaves every parser on its existing path. A stage tool is a proposal
+    /// tool, and admission refuses one without a schema, so a set with stages always gets a
+    /// scope, and its stage tools' names go on the thread with it.
     pub(crate) fn enter_session(&self) -> Option<invocation::SessionScope> {
-        (!self.schema_tools.is_empty())
-            .then(|| invocation::enter_session(self.schema_tools.clone()))
+        (!self.schema_tools.is_empty()).then(|| {
+            invocation::enter_session(self.schema_tools.clone())
+                .with_stage_names(self.stage_names.clone())
+        })
     }
 
     pub fn bindings(&self) -> &[AdmittedToolBinding] {
@@ -432,9 +440,12 @@ fn admit(
         bindings.push(binding);
         tools.push(tool);
     }
-    let stages = match draft {
-        Some(draft) => Some(stage_run(draft, &proposals, workspace, profile)?),
-        None => None,
+    let (stages, stage_names) = match draft {
+        Some(draft) => {
+            let (run, names) = stage_run(draft, &proposals, workspace, profile)?;
+            (Some(run), names)
+        }
+        None => (None, BTreeSet::new()),
     };
     Ok(AdmittedProfileTools {
         bindings,
@@ -445,6 +456,7 @@ fn admit(
         proposals,
         commits,
         stages,
+        stage_names: Arc::new(stage_names),
     })
 }
 
@@ -575,13 +587,14 @@ pub(crate) fn declared_stage_identity(
 }
 
 /// Joins the admitted tools to their stage set. Only now does the process's ledger table come
-/// into it, and only because a declaration is there.
+/// into it, and only because a declaration is there. With the run go the function names the
+/// model calls those tools by, which is what the history sees.
 fn stage_run(
     draft: StageContractDraft,
     proposals: &[Arc<ProposalTool>],
     workspace: &Path,
     profile: &str,
-) -> Result<Arc<StageRun>, ProfileToolRefusal> {
+) -> Result<(Arc<StageRun>, BTreeSet<String>), ProfileToolRefusal> {
     let mut members = BTreeMap::new();
     let mut staged = Vec::new();
     for tool_id in draft.tool_ids() {
@@ -602,10 +615,11 @@ fn stage_run(
         profile.to_string(),
         process_ledgers(),
     ));
+    let names = staged.iter().map(|tool| tool.name().to_string()).collect();
     for tool in staged {
         tool.attach_stage(run.clone());
     }
-    Ok(run)
+    Ok((run, names))
 }
 
 /// G3: the checks that need no run context, then the same schema adoption as any tool. A
