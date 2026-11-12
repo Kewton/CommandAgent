@@ -2,6 +2,13 @@
   "issue": "#973",
   "owner": "src/tools/profile_tools/schema/ the bounded schema subset, its raw decode, its one validator, and the host's input revision and schema binding, through the public session, planner, TUI, probe, and workflow entries",
   "base_sha": "29d4d369536eda948a226a1af74d6038a2203389",
+  "responses_off_base_sha": "9b4197a5cf624d4f2470eecdd6407643c78d31ab",
+  "responses_off_recording": {
+    "issue": "#1005",
+    "how": "fixtures/responses-off-golden.json was written by running the public session over the Responses API, with no schema profile tool, against the unchanged production code of responses_off_base_sha in a git-archive copy of that commit, through a loopback fake on 127.0.0.1 behind the OpenAI-compatible entry; the recorder file tests/profile_tool_schema_responses.rs existed in the copy only, and the copy's src/ was diffed against the archive with no difference",
+    "command": "RESPONSES_OFF_OUT=<out> HEAVY_LOCK_CLASS=cargo with-heavy-lock cargo test -j 4 --test profile_tool_schema_responses -- --exact responses_off::records_the_responses_off_golden, run twice; the two outputs were byte-identical",
+    "normalization": "the six number keys of the existing off comparison (tests/structured_stage_receipts.rs NORMALIZED_NUMBER_FIELDS: epoch, occurred_at_epoch_ms, duration_ms, elapsed_ms, estimated_prompt_tokens_sent, estimated_stable_prefix_chars) become \"<N>\" when the value is a number; inside strings the temporary roots become <ROOT>, the loopback URL <LOOPBACK>, times <TIME>, nonces and UUIDs <NONCE-n>/<UUID-n>, 16-hex revisions <REVISION-n>; nothing else, and no reasoning, preamble, argument, strict, call_id, item id, summary, encrypted_content, unknown item, or history value is normalized"
+  },
   "origin": "synthetic",
   "synthetic_source": {
     "cases": "hand-written generic profiles (a settings object and a document index), operator descriptors, and raw replies; none is copied from a run, a benchmark task, or an issue evidence file",
@@ -12,6 +19,7 @@
   "regenerate_digests": "shasum -a 256 fixtures/cases.json fixtures/off-golden.json",
   "fixture_sha256": {
     "cases.json": "aa1bcbd77c8ff1860ea4897d4c3a18b7c8c5175fa9b2a859d0f2790ed222a258",
-    "off-golden.json": "d989bdbae00deb29e6ded274543603cbd3f842081b5f35200a83d07d87ffde06"
+    "off-golden.json": "d989bdbae00deb29e6ded274543603cbd3f842081b5f35200a83d07d87ffde06",
+    "responses-off-golden.json": "b2b213aa2c93c5296a494c395a47760acbf897f87f41605da21d715d3922bd9e"
   }
 }

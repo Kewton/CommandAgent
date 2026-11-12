@@ -3,6 +3,13 @@
   "owner": "src/planner/structured_stages/ and src/minimal_loop/loop_run/implementation_completion/structured_stage_completion.rs: stages over propose-artifacts tools, bound to host receipts and input revisions, through the public session, planner, and CLI entries",
   "base_sha": "d2360125210564351f30e42bbc1a9f5e51f2b3cc",
   "attempts_replay_base_sha": "028d63d196355f6ba68d64f2a47861f1260b2971",
+  "responses_off_base_sha": "9b4197a5cf624d4f2470eecdd6407643c78d31ab",
+  "responses_off_recording": {
+    "issue": "#1005",
+    "how": "fixtures/responses-off-golden.json was written by running the public session over the Responses API, with no schema profile tool, against the unchanged production code of responses_off_base_sha in a git-archive copy of that commit, through a loopback fake on 127.0.0.1 behind the OpenAI-compatible entry; the recorder module was added to a test file of the copy only, and the copy's src/ was diffed against the archive with no difference",
+    "command": "RESPONSES_OFF_OUT=<out> HEAVY_LOCK_CLASS=cargo with-heavy-lock cargo test -j 4 --test stage_responses_off_recorder -- --exact responses_off::records_the_responses_off_golden (the recorder test file is tests/structured_stage_receipts.rs's top-level helpers plus mod responses_off), run twice; the two outputs were byte-identical",
+    "normalization": "the six number keys of the existing off comparison (tests/structured_stage_receipts.rs NORMALIZED_NUMBER_FIELDS: epoch, occurred_at_epoch_ms, duration_ms, elapsed_ms, estimated_prompt_tokens_sent, estimated_stable_prefix_chars) become \"<N>\" when the value is a number; inside strings the temporary roots become <ROOT>, the loopback URL <LOOPBACK>, times <TIME>, nonces and UUIDs <NONCE-n>/<UUID-n>, 16-hex revisions <REVISION-n>; nothing else, and no reasoning, preamble, argument, strict, call_id, item id, summary, encrypted_content, unknown item, or history value is normalized"
+  },
   "origin": "synthetic",
   "synthetic_source": {
     "cases": "hand-written generic profiles (a settings object and a document index), operator descriptors, fixed scripts, and raw replies; none is copied from a run, a benchmark task, or an issue evidence file",
@@ -14,6 +21,7 @@
   "fixture_sha256": {
     "cases.json": "ad6f11cc05a8510a3efeb5de66721b1e5ced202e486cffd89a28aade8ab6f8cd",
     "off-golden.json": "8e00b47bfe5dbe2b0d3f557248b327d6cc731b1a8217ee341ebcbadd152091d1",
-    "attempts-replay-golden.json": "eda6c94538b388d3b8cc530674decc0d08a2bf223a71d820bd3627cbd6e8e650"
+    "attempts-replay-golden.json": "eda6c94538b388d3b8cc530674decc0d08a2bf223a71d820bd3627cbd6e8e650",
+    "responses-off-golden.json": "3b171a3c2cbd807dc09518e5ccb518c334b944fc495c0d6a5df508db287f84fb"
   }
 }
