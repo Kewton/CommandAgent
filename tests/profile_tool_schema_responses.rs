@@ -2264,6 +2264,382 @@ mod g2 {
         set_env(REGISTRY_ENV, None);
     }
 
+    /// Every item of request `index` after its user messages.
+    fn after_user(run: &Run, index: usize) -> Vec<Value> {
+        input(run, index)
+            .into_iter()
+            .skip_while(|item| item.get("role").is_some())
+            .collect()
+    }
+
+    fn output_item(call_id: &str, output: &str) -> Value {
+        json!({"type": "function_call_output", "call_id": call_id, "output": output})
+    }
+
+    const CLEAN_UNKNOWN: &str = "dummy-unknown-clean-0000";
+
+    /// A clean reasoning item, preamble, and unknown item, then `call`.
+    fn clean_turn(call: Value) -> Vec<Value> {
+        vec![
+            reasoning("rs_1", CLEAN_SUMMARY, ENCRYPTED),
+            message("msg_1", CLEAN_PREAMBLE),
+            unknown("unk_1", CLEAN_UNKNOWN),
+            call,
+        ]
+    }
+
+    /// Condition (a) alone: a schema call G2 refuses although its raw arguments decode to the
+    /// host's `{}`, so the call matches and the scrub changes nothing. Only the refusal the parse
+    /// recorded keeps the turn from going back raw: the host's call with `"{}"` and its output
+    /// go, and no other item of the turn. An empty object the schema accepts goes back raw.
+    #[test]
+    fn a_refused_call_whose_raw_arguments_read_as_the_hosts_goes_back_rebuilt() {
+        let _guard = lock();
+        let padded = format!("{{{}}}", " ".repeat(64 * 1024));
+        for (label, raw, code) in [
+            (
+                "an empty object missing what is required",
+                "{}",
+                "missing_required",
+            ),
+            (
+                "an empty object past the size limit in spaces",
+                padded.as_str(),
+                "arguments_too_large",
+            ),
+        ] {
+            let env = Env::with_config(config_root());
+            let items = clean_turn(function_call("fc_1", "call_1", CONFIG_TOOL, raw));
+            let run = session(&env, Api::Responses, vec![responses_reply(items)]);
+            assert_eq!(run.result.as_deref(), Ok("done"), "{label}");
+            assert!(run.executed.is_empty(), "{label}");
+            let answer = run.last_output(1);
+            assert!(answer.contains("schema_violation"), "{label}: {answer}");
+            assert!(
+                answer.contains(&format!("\"code\":\"{code}\"")),
+                "{label}: {answer}"
+            );
+            let mut expected = rebuilt("call_1", CONFIG_TOOL, "{}");
+            expected.push(output_item("call_1", &answer));
+            assert_eq!(after_user(&run, 1), expected, "{label}");
+            for absent in [ENCRYPTED, CLEAN_SUMMARY, CLEAN_PREAMBLE, CLEAN_UNKNOWN] {
+                assert!(
+                    !holds_anywhere(&run.requests[1], absent),
+                    "{label}: {absent}"
+                );
+            }
+            assert!(!run.requests[1].contains(&" ".repeat(1024)), "{label}");
+        }
+
+        // The control: the same turn, with an empty object the schema accepts.
+        let env = Env::with_config(closed(json!({"s": {"type": "string"}})));
+        let items = clean_turn(function_call("fc_1", "call_1", CONFIG_TOOL, "{}"));
+        let run = session(&env, Api::Responses, vec![responses_reply(items.clone())]);
+        assert_eq!(run.result.as_deref(), Ok("done"));
+        assert_eq!(run.executed, vec![json!({})]);
+        assert_eq!(replayed(&run), items);
+        set_env(REGISTRY_ENV, None);
+    }
+
+    /// A raw turn whose text could hold what the scrub does not read: a call's arguments with a
+    /// repeated key, a schema tool's or another's, or a string of an item that reads as JSON and
+    /// whose content the scrub would change. The whole turn is rebuilt from the host's values,
+    /// as the host's fallback builds it, with no reasoning, preamble, or unknown item. The plain
+    /// secret under a repeated key is the control the scrub already caught.
+    #[test]
+    fn a_turn_whose_json_text_could_hide_a_secret_is_rebuilt_whole_from_the_host() {
+        let _guard = lock();
+        let escaped = format!("\\u0066{}", &DUMMY_SECRET[1..]);
+        assert!(DUMMY_SECRET.starts_with('f'));
+        let read_with = |first: &str| {
+            function_call(
+                "fc_1",
+                "call_1",
+                "Read",
+                &format!(r#"{{"path":"{first}","path":"notes.txt"}}"#),
+            )
+        };
+        let schema_call = function_call("fc_1", "call_1", CONFIG_TOOL, VALID_CONFIG);
+        let read_rebuilt = rebuilt("call_1", "Read", READ_NOTES);
+        let schema_rebuilt = rebuilt("call_1", CONFIG_TOOL, &parsed(VALID_CONFIG).to_string());
+        let rows: Vec<(&str, Vec<Value>, Vec<Value>)> = vec![
+            (
+                "a plain secret under a repeated key of another call",
+                clean_turn(read_with(DUMMY_SECRET)),
+                read_rebuilt.clone(),
+            ),
+            (
+                "an escaped secret under a repeated key of another call",
+                clean_turn(read_with(&escaped)),
+                read_rebuilt.clone(),
+            ),
+            (
+                "a repeated key of another call, with no secret",
+                clean_turn(read_with("other.txt")),
+                read_rebuilt,
+            ),
+            (
+                "an escaped secret in JSON text of an unknown item",
+                vec![
+                    reasoning("rs_1", CLEAN_SUMMARY, ENCRYPTED),
+                    message("msg_1", CLEAN_PREAMBLE),
+                    unknown("unk_1", &format!(r#"{{"value":"{escaped}"}}"#)),
+                    schema_call,
+                ],
+                schema_rebuilt,
+            ),
+        ];
+        for (label, items, expected) in rows {
+            let env = Env::with_config(config_root());
+            env.install_dummy_secret();
+            std::fs::write(env.root.join("notes.txt"), "text").unwrap();
+            let run = session(&env, Api::Responses, vec![responses_reply(items)]);
+            set_current(None);
+            assert_eq!(run.result.as_deref(), Ok("done"), "{label}");
+            let answer = run.last_output(1);
+            let mut whole = expected.clone();
+            whole.push(output_item("call_1", &answer));
+            assert_eq!(after_user(&run, 1), whole, "{label}");
+            for request in &run.requests {
+                assert!(!holds_anywhere(request, DUMMY_SECRET), "{label}");
+                assert!(!holds_anywhere(request, &escaped), "{label}");
+            }
+            for absent in [ENCRYPTED, CLEAN_SUMMARY, CLEAN_PREAMBLE] {
+                assert!(
+                    !holds_anywhere(&run.requests[1], absent),
+                    "{label}: {absent}"
+                );
+            }
+        }
+        set_env(REGISTRY_ENV, None);
+    }
+
+    /// Arguments that are not text at all (an object, an array, a number, null, or none) are
+    /// refused as data, as on Chat Completions: no parse retry, nothing runs, the model reads the
+    /// same refusal, and the call goes back with `"{}"`.
+    #[test]
+    fn arguments_that_are_not_text_are_refused_as_data_as_on_chat() {
+        let _guard = lock();
+        let forms: [(&str, Option<Value>); 5] = [
+            ("an object", Some(parsed(VALID_CONFIG))),
+            ("an array", Some(json!([VALID_CONFIG]))),
+            ("a number", Some(json!(7))),
+            ("null", Some(Value::Null)),
+            ("none", None),
+        ];
+        for (label, arguments) in forms {
+            let mut answers = Vec::new();
+            for api in APIS {
+                let reply = match api {
+                    Api::Chat => {
+                        let mut function = json!({"name": CONFIG_TOOL});
+                        if let Some(arguments) = &arguments {
+                            function["arguments"] = arguments.clone();
+                        }
+                        json!({"choices": [{"message": {
+                            "role": "assistant",
+                            "content": "",
+                            "tool_calls": [{"id": "call_1", "type": "function", "function": function}],
+                        }}]})
+                        .to_string()
+                    }
+                    Api::Responses => {
+                        let mut item = function_call("fc_1", "call_1", CONFIG_TOOL, "");
+                        match &arguments {
+                            Some(arguments) => item["arguments"] = arguments.clone(),
+                            None => {
+                                item.as_object_mut().unwrap().remove("arguments");
+                            }
+                        }
+                        responses_reply(vec![item])
+                    }
+                };
+                let env = Env::with_config(config_root());
+                let run = session(&env, api, vec![reply]);
+                assert!(run.executed.is_empty(), "{label} {api:?}");
+                assert_eq!(run.result.as_deref(), Ok("done"), "{label} {api:?}");
+                assert_eq!(run.requests.len(), 2, "{label} {api:?}");
+                let answer = run.last_output(1);
+                assert!(answer.contains("schema_violation"), "{label}: {answer}");
+                assert!(
+                    answer.contains("\"code\":\"malformed_json\""),
+                    "{label}: {answer}"
+                );
+                let calls = sent_calls(&run, 1);
+                assert_eq!(calls.len(), 1, "{label} {api:?}");
+                assert_eq!(calls[0]["function"]["arguments"], "{}", "{label} {api:?}");
+                assert!(
+                    !env.event_names()
+                        .iter()
+                        .any(|name| name == "native_tool_parse_retry_feedback"),
+                    "{label} {api:?}"
+                );
+                answers.push(answer);
+            }
+            assert_eq!(answers[1], answers[0], "{label}");
+        }
+        set_env(REGISTRY_ENV, None);
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // The loop's compaction: it removes messages one by one, not a call with its output.
+    // -----------------------------------------------------------------------------------------
+
+    /// The context budget of the compaction tests: it compacts past 4,000 characters.
+    const SMALL_BUDGET: usize = 1_000;
+
+    /// One client and one session history for each prompt in turn, as a REPL keeps them.
+    fn sessions(
+        env: &Env,
+        api: Api,
+        prompts: &[&str],
+        replies: Vec<String>,
+    ) -> (Vec<Result<String, String>>, Vec<String>) {
+        let reader = Arc::new(RecordingReader::default());
+        register_read_executor(RUNTIME, reader);
+        let http = FakeHttp::start(scripted(api, replies));
+        let mut config = env.config(api, CONFIG_PROFILE, &http.url);
+        config.context_budget = SMALL_BUDGET;
+        let mut client = client_from_config(&config, false).unwrap();
+        let mut snapshot = SessionSnapshot::new();
+        let results = prompts
+            .iter()
+            .map(|prompt| {
+                run_session_with_outcome_with_ui(
+                    client.as_mut(),
+                    &mut snapshot,
+                    prompt,
+                    &[],
+                    &config,
+                    &NOOP_UI,
+                )
+                .map(|outcome| outcome.final_text)
+                .map_err(|error| format!("{error:#}"))
+            })
+            .collect();
+        drop(client);
+        (results, http.finish())
+    }
+
+    fn read_call(call_id: &str, path: &str) -> (String, String) {
+        (call_id.to_string(), json!({"path": path}).to_string())
+    }
+
+    /// Two long Reads: before the third request the compaction removes the first call and keeps
+    /// its output, a recent Read's. On Responses with a schema tool that output answers no call,
+    /// so the session ends with the correlation error, through the existing retries and without
+    /// another request. Chat Completions sends the same history as it is.
+    #[test]
+    fn compaction_that_leaves_an_output_without_its_call_ends_the_responses_session() {
+        let _guard = lock();
+        let long = "a line of the file\n".repeat(600);
+        let calls = [
+            read_call("call_r1", "one.txt"),
+            read_call("call_r2", "two.txt"),
+        ];
+        for api in APIS {
+            let env = Env::with_config(config_root());
+            std::fs::write(env.root.join("one.txt"), &long).unwrap();
+            std::fs::write(env.root.join("two.txt"), &long).unwrap();
+            let replies = calls
+                .iter()
+                .map(|(id, raw)| api.calls(&[(id.as_str(), "Read", raw.as_str())]))
+                .collect();
+            let (results, requests) = sessions(&env, api, &[PROMPT], replies);
+            let third_ids = |requests: &[String]| {
+                let messages = view(&body(&requests[2]));
+                let answered = messages
+                    .iter()
+                    .filter_map(|message| message["tool_call_id"].as_str().map(str::to_string))
+                    .collect::<Vec<_>>();
+                let called = messages
+                    .iter()
+                    .flat_map(|message| {
+                        message["tool_calls"]
+                            .as_array()
+                            .cloned()
+                            .unwrap_or_default()
+                    })
+                    .filter_map(|call| call["id"].as_str().map(str::to_string))
+                    .collect::<Vec<_>>();
+                (answered, called)
+            };
+            match api {
+                Api::Responses => {
+                    assert_eq!(requests.len(), 2);
+                    let error = results[0].as_ref().unwrap_err();
+                    assert!(
+                        error.contains("OpenAI function_call call_id correlation invalid"),
+                        "{error}"
+                    );
+                    let retries = env
+                        .event_names()
+                        .iter()
+                        .filter(|name| *name == "native_tool_parse_retry_feedback")
+                        .count();
+                    assert_eq!(retries, 2);
+                }
+                Api::Chat => {
+                    assert_eq!(results[0].as_deref(), Ok("done"));
+                    assert_eq!(requests.len(), 3);
+                    let (answered, called) = third_ids(&requests);
+                    assert!(answered.contains(&"call_r1".to_string()), "{answered:?}");
+                    assert!(!called.contains(&"call_r1".to_string()), "{called:?}");
+                }
+            }
+        }
+        set_env(REGISTRY_ENV, None);
+    }
+
+    /// A long answer of an earlier session is what the compaction removes; every call keeps its
+    /// output, and the Responses session with a schema tool goes on.
+    #[test]
+    fn compaction_that_removes_only_text_keeps_the_responses_session_going() {
+        let _guard = lock();
+        let env = Env::with_config(config_root());
+        std::fs::write(env.root.join("notes.txt"), "text").unwrap();
+        let earlier = "an earlier long answer ".repeat(1_200);
+        let api = Api::Responses;
+        let replies = vec![
+            api.text(&earlier),
+            api.calls(&[("call_r1", "Read", READ_NOTES)]),
+            api.text("done"),
+        ];
+        let (results, requests) =
+            sessions(&env, api, &["Answer the first question.", PROMPT], replies);
+        assert!(results[0].is_ok(), "{results:?}");
+        assert_eq!(results[1].as_deref(), Ok("done"));
+        assert_eq!(requests.len(), 3);
+        assert!(
+            requests[1].contains(earlier.trim_end()),
+            "nothing to compact yet"
+        );
+        assert!(
+            !requests[2].contains("an earlier long answer"),
+            "not compacted"
+        );
+        let messages = view(&body(&requests[2]));
+        let calls = messages
+            .iter()
+            .flat_map(|message| {
+                message["tool_calls"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0]["id"], "call_r1");
+        assert_eq!(
+            tool_outputs(&body(&requests[2]))
+                .iter()
+                .map(|(id, _)| id.as_str())
+                .collect::<Vec<_>>(),
+            ["call_r1"]
+        );
+        set_env(REGISTRY_ENV, None);
+    }
+
     /// Two turns with the same text and the same call under different call IDs each go back
     /// once, in order, with their own reasoning; the text alone never picks the turn.
     #[test]

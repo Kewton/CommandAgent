@@ -426,18 +426,27 @@ parser, and replay as they were, byte for byte against `responses-off-golden.jso
   for the call.
 - **The history.** `function_call_output.output` is the tool message's text, which the history
   rule already fitted (a stage answer up to 5,120 bytes); the wire does not fit it again. A
-  history whose calls and outputs do not correlate by call ID is refused before the request
-  leaves, with `OpenAI function_call call_id correlation invalid`, and the same retry and end.
+  history whose calls and outputs do not correlate one to one by call ID is refused before the
+  request leaves, with `OpenAI function_call call_id correlation invalid`, and the same retry and
+  end: a call with an empty or repeated ID, a tool output with no call ID (which the parent's
+  request would send as user text), one that names no call before it or answers a call twice,
+  and a call no output answers.
 - **Replay.** A stored turn is found by its calls' IDs in order, never by its text. It goes back
   raw, every item once in its order (reasoning, a preamble message, an unknown item, the calls),
   only when (a) G2 refused none of its calls at parse time, (b) each raw call has the host's call
   ID, name, and decoded arguments, in the same number and order, and (c) the run's secret scrub
   leaves every raw item unchanged, including a message's text, a reasoning summary, any field of
   an unknown item, and the opaque encrypted content, which is compared and never read or shown.
-  Otherwise the whole turn is rebuilt from the host's values, as the fallback builds it: the
+  The scrub reads a string as written, so a string of an item that starts as JSON (a call's
+  `arguments`, of any tool, or a field of an unknown item) is read as JSON too, with repeated
+  keys seen, up to 1 MiB, depth 64, and four levels of JSON inside JSON: a repeated key, a
+  string past those limits, or content the scrub would change (an escaped secret, say) fails
+  (c). Otherwise the whole turn is rebuilt from the host's values, as the fallback builds it: the
   host's text and its calls with `arguments.to_string()` (`"{}"` for a refused call). That turn's
   reasoning, preamble, and unknown items are dropped. Unlike Chat Completions, a safe raw turn
-  sends its preamble message again.
+  sends its preamble message again. An assistant turn with no call is never found by its text,
+  so in a session with a schema tool it is always rebuilt from the host's text and its
+  reasoning is dropped, where a session without one replays it by its text.
 
 Known limits of the Responses wire:
 
@@ -450,7 +459,14 @@ Known limits of the Responses wire:
   duplicate, and the run ends with the error; Chat Completions would go on. No such server is
   known.
 - A history that does not correlate cannot be fixed by a retry; the run ends after the retries
-  without calling the provider. A real session has no known way into that state.
+  without calling the provider.
+- The loop's compaction (`src/minimal_loop/compact.rs`) removes messages one by one, oldest
+  first, and keeps recent Read outputs, but does not remove a call together with its output. When
+  it removes a call and keeps the output, the history no longer correlates, and a session with a
+  schema tool on the Responses API ends with the correlation error, where Chat Completions sends
+  the same history as it is. A compaction that removes only text, or a call with its output,
+  leaves the session going. Removing calls and outputs as pairs is the fix, in the compaction,
+  and is left to another Issue.
 - The reasoning is kept in the client's memory only, as before; nothing new is persisted, and a
   resume in another process sends none.
 

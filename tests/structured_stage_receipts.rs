@@ -3770,8 +3770,9 @@ printf '%s' "{{\"protocol\":\"profile-tool.result/v1\",\"request_id\":\"$rid\",\
                 APIS, Api, as_chat_body, chat_reply_as_responses, responses_reply,
             };
             use super::super::super::{
-                Env, LOWER_TOOL, LOWER_TOOL_ID, UPPER_TOOL, UPPER_TOOL_ID, WALK_PROFILE,
-                directory_pin, encode_base64, sha256,
+                Env, FIXED_INPUT, LOWER_OUTPUT, LOWER_TOOL, LOWER_TOOL_ID, UPPER_TOOL,
+                UPPER_TOOL_ID, WALK_PROFILE, directory_pin, encode_base64, floor, sha256,
+                stage_schema,
             };
             use super::super::{
                 FakeHttp, NOOP_UI, Responder, SessionSnapshot, client_from_config, floor_with,
@@ -4302,6 +4303,123 @@ printf '%s' "{{\"protocol\":\"profile-tool.result/v1\",\"request_id\":\"$rid\",\
                         .as_array()
                         .is_some_and(|list| !list.is_empty())
                 );
+            }
+
+            /// What the host must keep of an answer, as `fit_for_model` checks it.
+            const ANSWER_POINTERS: [&str; 7] = [
+                "/status",
+                "/code",
+                "/revision",
+                "/truncated",
+                "/stage/status",
+                "/stage/revision",
+                "/attempts",
+            ];
+
+            /// A long commit answer made to fall to its fixed form: the sealed output's path is
+            /// past 500 bytes and holds a word the history takes for a credential, which turns
+            /// the whole text into a marker, and no shorter list can take it out. The tool
+            /// message the host keeps and the output the next request carries, decoded, are the
+            /// same fixed data on both wires, with `truncated` set and the seven fields the
+            /// fitting keeps.
+            #[test]
+            fn a_long_answer_in_its_fixed_form_is_kept_and_sent_as_the_same_data() {
+                let _guard = lock();
+                let output = format!(
+                    "out/api_key_notes/{}upper.json",
+                    "a-long-directory-name-0000000000/".repeat(18)
+                );
+                assert!(output.len() > 500);
+                let mut seen = Vec::new();
+                for api in APIS {
+                    let env = Env::new();
+                    env.write_tool(
+                        (UPPER_TOOL_ID, UPPER_TOOL, &output),
+                        &stage_schema(&[FIXED_INPUT]),
+                        Some(floor()),
+                    );
+                    env.write_tool(
+                        (LOWER_TOOL_ID, LOWER_TOOL, LOWER_OUTPUT),
+                        &stage_schema(&[&output, FIXED_INPUT]),
+                        Some(floor()),
+                    );
+                    install_sandbox(&env);
+                    let chat: Responder = Arc::new(|index, _| match index {
+                        1 => upper_call("initial", "good"),
+                        _ => text_reply("done"),
+                    });
+                    let http = FakeHttp::start(on_api(api, chat));
+                    let mut config = super::super::config(&env, WALK_PROFILE, &http.url);
+                    config.openai_api = api.openai_api();
+                    let mut client = client_from_config(&config, false).unwrap();
+                    let mut snapshot = SessionSnapshot::new();
+                    let result = run_session_with_outcome_with_ui(
+                        client.as_mut(),
+                        &mut snapshot,
+                        "Submit both stages.",
+                        &[],
+                        &config,
+                        &NOOP_UI,
+                    )
+                    .map(|_| ())
+                    .map_err(|error| format!("{error:#}"));
+                    let requests = http.finish();
+                    reset_for_test();
+                    let kept = snapshot
+                        .messages
+                        .iter()
+                        .find(|message| {
+                            message.role == "tool" && message.name.as_deref() == Some(UPPER_TOOL)
+                        })
+                        .map(|message| message.content.clone())
+                        .unwrap_or_else(|| panic!("{api:?}: no answer kept: {result:?}"));
+                    let second = as_chat(api, &requests[1]);
+                    let sent = second["messages"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .rev()
+                        .find(|message| message["role"] == "tool")
+                        .and_then(|message| message["content"].as_str())
+                        .unwrap()
+                        .to_string();
+                    let kept_data = parse_answer(&kept);
+                    let sent_data = parse_answer(&sent);
+                    for pointer in ANSWER_POINTERS {
+                        assert_eq!(
+                            kept_data.pointer(pointer),
+                            sent_data.pointer(pointer),
+                            "{api:?} {pointer}"
+                        );
+                    }
+                    assert_eq!(sent_data, kept_data, "{api:?}");
+                    assert_eq!(sent_data["truncated"], true, "{api:?}: {sent}");
+                    // The fixed form: no path, digest, or list an operator or a process chose.
+                    let mut fields = sent_data
+                        .as_object()
+                        .unwrap()
+                        .keys()
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    fields.sort();
+                    assert_eq!(
+                        fields,
+                        ["attempts", "committed", "stage", "truncated"],
+                        "{api:?}: {sent}"
+                    );
+                    assert_eq!(sent_data["stage"]["status"], "sealed", "{api:?}: {sent}");
+                    assert!(
+                        sent_data["stage"]["revision"].is_string(),
+                        "{api:?}: {sent}"
+                    );
+                    assert!(sent_data["attempts"].is_object(), "{api:?}: {sent}");
+                    assert!(env.root.join(&output).exists(), "{api:?}: not committed");
+                    // Each workspace has a revision of its own; everything else is the same.
+                    let mut compared = sent_data;
+                    compared["stage"]["revision"] = json!("<revision>");
+                    seen.push(compared);
+                }
+                assert_eq!(seen[1], seen[0]);
             }
 
             /// The replay's script, with a failed check's diagnostics at the protocol's limits.

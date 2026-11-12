@@ -8,9 +8,11 @@
 //!   not tighten the operator's schema; every other definition is unchanged.
 //! - Receiving: every call ID of the reply is checked before any call is received, so a bad
 //!   reply leaves no receipt. A schema tool's raw `arguments` go to G2 as text.
+//! - Before a request leaves: its calls and tool outputs correlate one to one by call ID.
 //! - Replay: a stored turn's raw items go back only when G2 refused none of its calls, its
-//!   calls are exactly the host's, and the secret scrub leaves its items unchanged. Otherwise
-//!   the whole turn is rebuilt from the host's values, and its reasoning is dropped.
+//!   calls are exactly the host's, and the secret scrub leaves its items unchanged, JSON text
+//!   inside them read as well. Otherwise the whole turn is rebuilt from the host's values, and
+//!   its reasoning is dropped.
 
 use std::collections::BTreeSet;
 
@@ -21,9 +23,11 @@ use super::{
     ConversationState, StoredTurn, normalize_function_arguments, push_assistant_fallback,
     push_other,
 };
+use crate::sensitive_data::RedactionContext;
 use crate::state::{ConversationMessage, ToolCall};
 use crate::tools::args_recovery::recover_tool_arguments;
 use crate::tools::profile_tools::schema::invocation;
+use crate::tools::profile_tools::schema::raw_json::{self, DecodeError, DecodeLimits};
 use crate::tools::registry::ToolSpec;
 
 const CALL_ID_MISSING: &str = "OpenAI function_call call_id missing";
@@ -147,7 +151,9 @@ impl Receiver {
 }
 
 /// The request's history must correlate before it leaves: every call has a non-empty ID used
-/// once, and every tool output answers, once, a call before it.
+/// once, every tool output names a call before it and answers it once, and no call is left
+/// without its output. A tool output with no call ID is refused here, where the parent's
+/// request would send it as user text and leave its call unanswered.
 pub(super) fn check_correlation(messages: &[ConversationMessage]) -> anyhow::Result<()> {
     let mut calls = BTreeSet::new();
     let mut answered = BTreeSet::new();
@@ -157,12 +163,19 @@ pub(super) fn check_correlation(messages: &[ConversationMessage]) -> anyhow::Res
                 anyhow::bail!(CALL_ID_CORRELATION);
             }
         }
-        if message.role == "tool"
-            && let Some(id) = message.tool_call_id.as_deref()
-            && (!calls.contains(id) || !answered.insert(id))
-        {
+        if message.role != "tool" {
+            continue;
+        }
+        let Some(id) = message.tool_call_id.as_deref() else {
+            anyhow::bail!(CALL_ID_CORRELATION);
+        };
+        if !calls.contains(id) || !answered.insert(id) {
             anyhow::bail!(CALL_ID_CORRELATION);
         }
+    }
+    // Every answer names a call, so the same number means every call is answered.
+    if answered.len() != calls.len() {
+        anyhow::bail!(CALL_ID_CORRELATION);
     }
     Ok(())
 }
@@ -203,16 +216,78 @@ fn calls_match(turn: &StoredTurn, message: &ConversationMessage) -> bool {
             })
 }
 
+/// How much of a raw item's string is read as JSON. A string that starts as JSON and is past
+/// these limits cannot be read whole, so its turn is rebuilt.
+const INNER_JSON_LIMITS: DecodeLimits = DecodeLimits {
+    bytes: 1 << 20,
+    depth: 64,
+    elements: 1 << 16,
+    lossless_numbers: false,
+};
+
+/// How many times JSON text inside JSON text is read before the turn is rebuilt instead.
+const INNER_JSON_NESTING: usize = 4;
+
 /// (c) The scrub of this run leaves every raw item as it is: message text, a reasoning summary,
-/// and any field of an unknown item included. Opaque content is compared, never read.
+/// and any field of an unknown item included. Opaque content is compared, never read. The scrub
+/// reads a string as it is written, so a string that reads as JSON is read as well, with its
+/// repeated keys seen: one with a repeated key (a call's arguments included, whichever tool),
+/// one past the limits, or one whose content the scrub would change (an escaped secret, say)
+/// does not survive.
 fn survives_scrub(turn: &StoredTurn) -> bool {
-    let Some(context) = crate::sensitive_data::current() else {
+    let context = crate::sensitive_data::current();
+    if let Some(context) = &context {
+        let original = Value::Array(turn.output.clone());
+        let mut scrubbed = original.clone();
+        context.scrub_value_free(&mut scrubbed);
+        if scrubbed != original {
+            return false;
+        }
+    }
+    turn.output
+        .iter()
+        .all(|item| strings_survive(item, context.as_ref(), 0))
+}
+
+fn strings_survive(value: &Value, context: Option<&RedactionContext>, nesting: usize) -> bool {
+    match value {
+        Value::String(text) => json_text_survives(text, context, nesting),
+        Value::Array(items) => items
+            .iter()
+            .all(|item| strings_survive(item, context, nesting)),
+        Value::Object(fields) => fields
+            .values()
+            .all(|item| strings_survive(item, context, nesting)),
+        _ => true,
+    }
+}
+
+/// A string that does not start as a JSON object, array, or string is text, which the scrub has
+/// read already; so is one that turns out not to be JSON.
+fn json_text_survives(text: &str, context: Option<&RedactionContext>, nesting: usize) -> bool {
+    if !matches!(
+        text.trim_start().as_bytes().first(),
+        Some(b'{' | b'[' | b'"')
+    ) {
         return true;
-    };
-    let original = Value::Array(turn.output.clone());
-    let mut scrubbed = original.clone();
-    context.scrub_value_free(&mut scrubbed);
-    scrubbed == original
+    }
+    match raw_json::decode(text, INNER_JSON_LIMITS) {
+        Ok(inner) => {
+            if nesting >= INNER_JSON_NESTING {
+                return false;
+            }
+            if let Some(context) = context {
+                let mut scrubbed = inner.clone();
+                context.scrub_value_free(&mut scrubbed);
+                if scrubbed != inner {
+                    return false;
+                }
+            }
+            strings_survive(&inner, context, nesting + 1)
+        }
+        Err(DecodeError::Malformed | DecodeError::TrailingData) => true,
+        Err(_) => false,
+    }
 }
 
 /// The three conditions under which a turn's raw items may go back whole.
@@ -262,7 +337,9 @@ mod tests {
         CALL_ID_CORRELATION, CALL_ID_DUPLICATE, CALL_ID_EMPTY, CALL_ID_MISSING,
         CALL_ID_NOT_A_STRING,
     };
+    use crate::config::OpenAiApi;
     use crate::providers::ChatClient;
+    use crate::providers::lm_studio::LmStudioClient;
     use crate::providers::openai::OpenAiClient;
     use crate::sensitive_data::{RedactionContext, SecretCatalog, set_current};
     use crate::state::{ConversationMessage, ToolCall};
@@ -503,6 +580,96 @@ mod tests {
         }
     }
 
+    /// A tool output with no call ID, and a call no output answers (every call of a turn, or
+    /// one of them), are refused before the request leaves, with the same fixed text, on the
+    /// direct client and on the shared one (LM Studio and an OpenAI-compatible service). With no
+    /// schema tool selected each history is sent as it was.
+    #[test]
+    fn an_output_without_an_id_or_a_call_left_unanswered_is_refused_before_it_leaves() {
+        let user = || ConversationMessage::user("x");
+        let tool = |id: &str| ConversationMessage::tool_result("Read", Some(id), "text");
+        let asked = |ids: &[&str]| {
+            ConversationMessage::assistant("", ids.iter().map(|id| read_call(id)).collect())
+        };
+        let bad = [
+            (
+                "an output with no call ID",
+                vec![
+                    user(),
+                    asked(&["a"]),
+                    ConversationMessage::tool_result("Read", None::<&str>, "text"),
+                ],
+            ),
+            ("no call answered", vec![user(), asked(&["a", "b"])]),
+            (
+                "one call of two answered",
+                vec![user(), asked(&["a", "b"]), tool("a")],
+            ),
+            (
+                "an earlier turn left unanswered",
+                vec![user(), asked(&["a"]), asked(&["b"]), tool("b")],
+            ),
+        ];
+        for (label, messages) in &bad {
+            check_request(messages).unwrap_or_else(|error| panic!("{label}: {error}"));
+        }
+        let _scope = enter_session(schema_state());
+        for (label, messages) in &bad {
+            let error = check_request(messages).expect_err(label);
+            assert_eq!(error.to_string(), CALL_ID_CORRELATION, "{label}");
+        }
+        check_request(&[user(), asked(&["a", "b"]), tool("b"), tool("a")]).unwrap();
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let clients: Vec<(&str, Box<dyn ChatClient>)> = vec![
+            (
+                "direct",
+                Box::new(OpenAiClient::for_test_responses(
+                    "sk-test-not-real",
+                    url.clone(),
+                    None,
+                )),
+            ),
+            (
+                "lm studio",
+                Box::new(
+                    LmStudioClient::new(url.clone(), None, 2, 64, 0, OpenAiApi::Responses, None)
+                        .unwrap(),
+                ),
+            ),
+            (
+                "openai compatible",
+                Box::new(
+                    LmStudioClient::new_openai_compatible(
+                        format!("{url}/v1"),
+                        None,
+                        None,
+                        2,
+                        64,
+                        0,
+                        OpenAiApi::Responses,
+                        None,
+                    )
+                    .unwrap(),
+                ),
+            ),
+        ];
+        for (client_label, mut client) in clients {
+            for (label, messages) in &bad {
+                let error =
+                    ChatClient::chat(client.as_mut(), "m", messages, &[], true).expect_err(label);
+                assert_eq!(
+                    error.to_string(),
+                    CALL_ID_CORRELATION,
+                    "{client_label}: {label}"
+                );
+            }
+        }
+        listener.set_nonblocking(true).unwrap();
+        assert!(listener.accept().is_err(), "a request left");
+    }
+
     /// Serves `replies` in order on 127.0.0.1 and keeps each request body.
     fn loopback(
         replies: Vec<String>,
@@ -660,6 +827,13 @@ mod tests {
         // (a) G2 refused the call: the host's call with "{}", and nothing raw.
         assert_eq!(
             second_input(turn(r#"{"s":7}"#, "Submitting."), None, "out"),
+            rebuilt("{}", "out")
+        );
+        // (a) alone: an empty object past the size limit in spaces reads as the host's "{}", so
+        // only the refusal the parse recorded keeps it from going back.
+        let padded = format!("{{{}}}", " ".repeat(64 * 1024));
+        assert_eq!(
+            second_input(turn(&padded, "Submitting."), None, "out"),
             rebuilt("{}", "out")
         );
         // (b) The host holds other arguments than the raw call decodes to.
