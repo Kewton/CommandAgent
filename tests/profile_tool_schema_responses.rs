@@ -2414,6 +2414,79 @@ mod g2 {
         set_env(REGISTRY_ENV, None);
     }
 
+    /// A turn whose unknown item holds `field`, then a schema call the schema accepts.
+    fn turn_with_unknown_field(field: Value) -> Vec<Value> {
+        vec![
+            reasoning("rs_1", CLEAN_SUMMARY, ENCRYPTED),
+            message("msg_1", CLEAN_PREAMBLE),
+            json!({"type": "dummy_unknown_item", "id": "unk_1", "dummy_field": field}),
+            function_call("fc_1", "call_1", CONFIG_TOOL, VALID_CONFIG),
+        ]
+    }
+
+    /// Runs `items` as the first reply and returns what request 2 sent of that turn.
+    fn replayed_with_dummy_secret(label: &str, items: Vec<Value>) -> Vec<Value> {
+        let env = Env::with_config(config_root());
+        env.install_dummy_secret();
+        let run = session(&env, Api::Responses, vec![responses_reply(items)]);
+        set_current(None);
+        assert_eq!(run.result.as_deref(), Ok("done"), "{label}");
+        assert_eq!(run.executed, vec![parsed(VALID_CONFIG)], "{label}");
+        replayed(&run)
+    }
+
+    /// JSON text that is an element of an array inside a raw item is read as well: an escaped
+    /// secret there rebuilds the whole turn. The same array with clean JSON text goes back raw.
+    #[test]
+    fn json_text_inside_an_array_of_a_raw_item_is_read_before_the_turn_goes_back() {
+        let _guard = lock();
+        let escaped = format!("\\u0066{}", &DUMMY_SECRET[1..]);
+        assert!(DUMMY_SECRET.starts_with('f'));
+        let schema_rebuilt = rebuilt("call_1", CONFIG_TOOL, &parsed(VALID_CONFIG).to_string());
+
+        let hiding = turn_with_unknown_field(json!([
+            "dummy-unknown-clean-0000",
+            format!(r#"{{"value":"{escaped}"}}"#),
+        ]));
+        let sent = replayed_with_dummy_secret("an escaped secret in an array", hiding);
+        assert_eq!(sent, schema_rebuilt);
+
+        let clean = turn_with_unknown_field(json!([
+            "dummy-unknown-clean-0000",
+            r#"{"value":"dummy-unknown-clean-0001"}"#,
+        ]));
+        let sent = replayed_with_dummy_secret("clean JSON text in an array", clean.clone());
+        assert_eq!(sent, clean);
+        set_env(REGISTRY_ENV, None);
+    }
+
+    /// JSON text inside JSON text is read four times at most: a string that still reads as JSON
+    /// after four readings rebuilds the whole turn, and one that reads as plain text by then goes
+    /// back raw.
+    #[test]
+    fn json_text_nested_past_four_readings_rebuilds_the_turn() {
+        let _guard = lock();
+        // `layers` readings as a JSON string, then plain text.
+        let nested = |layers: usize| {
+            let mut text = "dummy-unknown-clean-0000".to_string();
+            for _ in 0..layers {
+                text = Value::String(text).to_string();
+            }
+            Value::String(text)
+        };
+        let four = turn_with_unknown_field(nested(4));
+        let sent = replayed_with_dummy_secret("four readings", four.clone());
+        assert_eq!(sent, four);
+
+        let five = turn_with_unknown_field(nested(5));
+        let sent = replayed_with_dummy_secret("five readings", five);
+        assert_eq!(
+            sent,
+            rebuilt("call_1", CONFIG_TOOL, &parsed(VALID_CONFIG).to_string())
+        );
+        set_env(REGISTRY_ENV, None);
+    }
+
     /// Arguments that are not text at all (an object, an array, a number, null, or none) are
     /// refused as data, as on Chat Completions: no parse retry, nothing runs, the model reads the
     /// same refusal, and the call goes back with `"{}"`.
