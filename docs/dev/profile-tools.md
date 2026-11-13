@@ -472,6 +472,10 @@ Known limits of the Responses wire:
   tool on the Responses API then ends with the correlation error before its next request, where
   Chat Completions sends the same history as it is. The fix is in the loop, and is left to
   another Issue.
+- The same holds when a run ends while the loop is handling the calls of one reply one by one,
+  for example when the user interrupts it: the calls not yet handled stay in the history without
+  an output, and if the same session goes on, its next request on the Responses API ends with the
+  correlation error before it is sent. The refusal stays as it is.
 - The reasoning is kept in the client's memory only, as before; nothing new is persisted, and a
   resume in another process sends none.
 
