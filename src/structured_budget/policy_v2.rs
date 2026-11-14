@@ -413,6 +413,19 @@ fn ledger_dir(text: &str) -> Result<PathBuf, PolicyV2Refusal> {
     Ok(path.to_path_buf())
 }
 
+/// Whether a declaration names this protocol. Only the one field is read, leniently, to choose
+/// the decoder; the decoder then reads the whole file as strictly as ever, so a file that only
+/// looks like v2 here is still refused there.
+pub(crate) fn names_protocol_v2(bytes: &[u8]) -> bool {
+    #[derive(Deserialize)]
+    struct Named {
+        protocol: String,
+    }
+    bytes.len() <= MAX_POLICY_BYTES
+        && serde_json::from_slice::<Named>(bytes)
+            .is_ok_and(|named| named.protocol == POLICY_V2_PROTOCOL)
+}
+
 impl RunBudgetPolicyV2 {
     /// The ID is the one the entry was asked to use: a file copied under another name is refused.
     pub(crate) fn decode(bytes: &[u8], expected_id: &str) -> Result<Self, PolicyV2Refusal> {

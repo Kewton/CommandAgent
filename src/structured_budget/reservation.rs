@@ -212,7 +212,7 @@ pub(crate) enum AttemptState {
 
 impl AttemptState {
     /// Still has a claim on the wallet, and blocks the next send.
-    const fn holds(self) -> bool {
+    pub(crate) const fn holds(self) -> bool {
         matches!(self, Self::Reserved | Self::Started | Self::Unknown)
     }
 }
@@ -252,6 +252,9 @@ pub(crate) enum BudgetRefusal {
     FinalRepairAttemptsExceeded,
     FinalRepairWallExceeded,
     InputBoundExceeded,
+    /// A request with an opaque item, under a `usage_tariff` policy that declares no
+    /// `provider_max_input_tokens` to bound it by.
+    InputBoundUndeclared,
     OutputBoundExceeded,
     RouteNotAdmitted,
     /// The bytes are not one object of the listed keys with one positive count of output tokens.

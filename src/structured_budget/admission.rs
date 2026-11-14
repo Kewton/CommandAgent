@@ -7,7 +7,8 @@
 //! With neither a selection nor a wallet, the only thing read here is the variable's presence in
 //! the environment, whatever its value.
 
-use crate::config::{Config, OpenAiApi, ProviderRole};
+use super::responses::AccountingBasis;
+use crate::config::{Config, OpenAiApi, Provider, ProviderRole};
 
 /// Selects a wallet by its ID.
 pub(crate) const RUN_BUDGET_ENV: &str = "COMMANDAGENT_RUN_BUDGET";
@@ -51,13 +52,57 @@ fn countable_route(config: &Config, role: ProviderRole) -> bool {
             .is_some_and(|compatible| compatible.applies_to(role))
 }
 
-/// Called before any client of a role is built.
+/// The basis of the run's wallet, if it holds one.
+fn basis(config: &Config) -> Option<AccountingBasis> {
+    config
+        .field_sources
+        .run_budget
+        .as_ref()
+        .map(|handle| handle.accounting_basis())
+}
+
+/// Called before any client of a role is built. A v1 wallet counts the generic Chat route as
+/// before. A `usage_tariff` wallet counts no route here: its one route, direct Responses, is
+/// admitted only by [`admit_responses_client`], which the factory calls for a client that carries
+/// the wallet's hook on each of its sends.
 pub(crate) fn admit_client(config: &Config, role: ProviderRole) -> Result<(), AdmissionRefusal> {
+    let basis = basis(config);
     decide(
         // The one reading of the selection: present, whatever its value, is selected.
         super::entry::selected(),
-        config.field_sources.run_budget.is_some(),
-        countable_route(config, role),
+        basis.is_some(),
+        basis == Some(AccountingBasis::ProviderBilled) && countable_route(config, role),
+    )
+}
+
+/// Whether a role's client would be the direct OpenAI Responses client: the Responses API, the
+/// built-in OpenAI provider for the role, and no compatible endpoint for it. Where it actually
+/// posts is checked again on every send, against the policy's endpoint.
+pub(crate) fn direct_responses_route(config: &Config, role: ProviderRole) -> bool {
+    let provider = match role {
+        ProviderRole::Executor => config.provider,
+        ProviderRole::Planner => config.planner_provider,
+        ProviderRole::Classifier => config.classifier_provider,
+    };
+    config.openai_api == OpenAiApi::Responses
+        && provider == Provider::Openai
+        && !config
+            .openai_compatible
+            .as_ref()
+            .is_some_and(|compatible| compatible.applies_to(role))
+}
+
+/// The decision for a client whose every send reserves on a `usage_tariff` wallet: only the
+/// direct Responses route, and only under that basis. With no wallet it is [`admit_client`]'s.
+pub(crate) fn admit_responses_client(
+    config: &Config,
+    role: ProviderRole,
+) -> Result<(), AdmissionRefusal> {
+    let basis = basis(config);
+    decide(
+        super::entry::selected(),
+        basis.is_some(),
+        basis == Some(AccountingBasis::UsageTariff) && direct_responses_route(config, role),
     )
 }
 
@@ -231,6 +276,136 @@ mod tests {
             }
         }
         assert_eq!(wrong, Vec::<String>::new());
+    }
+
+    /// A `usage_tariff` wallet on the run, in its own ledger directory.
+    fn holding_a_v2_wallet(config: &mut Config, root: &Path) {
+        use super::super::ledger_v2::LedgerOpenV2;
+        use super::super::policy_v2::RunBudgetPolicyV2;
+        use super::super::policy_v2::test_support::{WALLET as WALLET_V2, policy_v2_value};
+        let mut value = policy_v2_value();
+        value["ledger_dir"] = json!(root.join("ledgers").to_str().unwrap());
+        let policy = RunBudgetPolicyV2::decode(value.to_string().as_bytes(), WALLET_V2).unwrap();
+        let workspace = config.workspace_root.clone();
+        let run_tmp = root.join("run-tmp");
+        std::fs::create_dir_all(&run_tmp).unwrap();
+        let writes = SandboxPolicy::with_home(&workspace, &run_tmp, root.join("home"));
+        let handle = RunBudgetHandle::open_responses(LedgerOpenV2 {
+            policy: Arc::new(policy),
+            workspace: &workspace,
+            explicit_profile: None,
+            entry: LedgerEntry::Fresh,
+            clock: FakeClock::at(1),
+            command_writes: Some(CommandWrites::of(writes)),
+        })
+        .unwrap();
+        config.field_sources.run_budget = Some(Arc::new(handle));
+    }
+
+    /// Issue #1006: a `usage_tariff` wallet counts only the direct Responses route, and only
+    /// through the decision for a client that reserves on it; the factory's decision for every
+    /// other client refuses it, and a v1 wallet is never admitted there.
+    #[test]
+    fn a_usage_tariff_wallet_is_admitted_only_for_the_direct_responses_route() {
+        use super::{admit_client, admit_responses_client, direct_responses_route};
+        type Change = fn(&mut Config);
+        let direct: Change = |c| {
+            c.openai_compatible = None;
+            c.provider = Provider::Openai;
+            c.planner_provider = Provider::Openai;
+            c.classifier_provider = Provider::Openai;
+            c.openai_api = OpenAiApi::Responses;
+        };
+        let rows: [(&str, Change, bool); 6] = [
+            ("direct responses", direct, true),
+            (
+                "direct chat",
+                |c| {
+                    c.openai_compatible = None;
+                    c.provider = Provider::Openai;
+                    c.openai_api = OpenAiApi::ChatCompletions;
+                },
+                false,
+            ),
+            (
+                "compatible responses",
+                |c| c.openai_api = OpenAiApi::Responses,
+                false,
+            ),
+            ("compatible chat", |_| {}, false),
+            (
+                "ollama",
+                |c| {
+                    c.openai_compatible = None;
+                    c.provider = Provider::Ollama;
+                    c.openai_api = OpenAiApi::Responses;
+                },
+                false,
+            ),
+            (
+                "gemini",
+                |c| {
+                    c.openai_compatible = None;
+                    c.provider = Provider::Gemini;
+                    c.openai_api = OpenAiApi::Responses;
+                },
+                false,
+            ),
+        ];
+        let not_countable = Err(AdmissionRefusal::RouteNotCountable);
+        for (name, change, countable) in rows {
+            let root = tempfile::tempdir().unwrap();
+            let base = std::fs::canonicalize(root.path()).unwrap();
+            let mut config = config(&base, &COMPATIBLE);
+            change(&mut config);
+            assert_eq!(
+                direct_responses_route(&config, ProviderRole::Executor),
+                countable,
+                "{name}"
+            );
+            holding_a_v2_wallet(&mut config, &base);
+            assert_eq!(
+                admit_client(&config, ProviderRole::Executor),
+                not_countable,
+                "{name}"
+            );
+            let expected = if countable { Ok(()) } else { not_countable };
+            assert_eq!(
+                admit_responses_client(&config, ProviderRole::Executor),
+                expected,
+                "{name}"
+            );
+            // The factory refuses it as before: no client is built that nothing reserves on.
+            assert!(
+                client_from_config_for_role(&config, ProviderRole::Executor).is_err(),
+                "{name}"
+            );
+        }
+        // A v1 wallet on the direct Responses route is not admitted by either decision.
+        let root = tempfile::tempdir().unwrap();
+        let base = std::fs::canonicalize(root.path()).unwrap();
+        let mut v1 = config(&base, &COMPATIBLE);
+        direct(&mut v1);
+        holding_a_wallet(&mut v1, &base);
+        assert_eq!(admit_client(&v1, ProviderRole::Executor), not_countable);
+        assert_eq!(
+            admit_responses_client(&v1, ProviderRole::Executor),
+            not_countable
+        );
+        // A role whose provider is not OpenAI is not direct, whatever the executor's is.
+        let root = tempfile::tempdir().unwrap();
+        let base = std::fs::canonicalize(root.path()).unwrap();
+        let mut planner_elsewhere = config(&base, &COMPATIBLE);
+        direct(&mut planner_elsewhere);
+        planner_elsewhere.planner_provider = Provider::Ollama;
+        assert!(direct_responses_route(
+            &planner_elsewhere,
+            ProviderRole::Executor
+        ));
+        assert!(!direct_responses_route(
+            &planner_elsewhere,
+            ProviderRole::Planner
+        ));
     }
 
     /// The endpoint for every role but `left_out`, which is Ollama's.

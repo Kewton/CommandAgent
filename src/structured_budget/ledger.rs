@@ -117,6 +117,9 @@ pub(crate) enum LedgerRefusal {
     /// No sandbox applied on this workspace says where commands of the run can write, so no place
     /// can be judged out of their reach.
     SandboxPolicyUnknown,
+    /// The record on disk is of another ledger version or accounting basis than the declaration
+    /// opening it. A wallet keeps the basis it was made with; nothing converts it.
+    AccountingBasisChanged,
     /// Gone from under this handle during the run.
     Vanished,
     /// Not what this handle last wrote.
@@ -207,7 +210,13 @@ mod wallet_directory {
 
     impl WalletDirectory {
         pub(super) fn of(policy: &RunBudgetPolicy) -> Self {
-            Self(policy.ledger_dir.join(&policy.budget_id))
+            Self::at(&policy.ledger_dir, &policy.budget_id)
+        }
+
+        /// `<ledger_dir>/<budget_id>`, whatever version of declaration names the two: a wallet of
+        /// either accounting basis lives there, under the same lock.
+        pub(super) fn at(ledger_dir: &Path, budget_id: &str) -> Self {
+            Self(ledger_dir.join(budget_id))
         }
 
         pub(super) fn path(&self) -> &Path {
@@ -291,7 +300,7 @@ fn refuse_command_writes(real: &Path, bounds: &WriteBounds) -> Result<(), Ledger
 }
 
 #[derive(Debug)]
-struct Store {
+pub(super) struct Store {
     directory: WalletDirectory,
     /// Every real directory from the root to the wallet's own, as the walk entered or made it.
     chain: Chain,
@@ -463,6 +472,11 @@ struct EnvelopeIn {
 }
 
 fn encode(wallet: &WalletState) -> Result<Vec<u8>, LedgerRefusal> {
+    encode_body(wallet)
+}
+
+/// The envelope of any version's body: its digest beside it.
+pub(super) fn encode_body<T: Serialize>(wallet: &T) -> Result<Vec<u8>, LedgerRefusal> {
     let body = serde_json::to_string(wallet).map_err(|_| LedgerRefusal::Unavailable)?;
     let sha256 = sha256_hex(body.as_bytes());
     let body = RawValue::from_string(body).map_err(|_| LedgerRefusal::Unavailable)?;
@@ -474,11 +488,36 @@ fn encode(wallet: &WalletState) -> Result<Vec<u8>, LedgerRefusal> {
 }
 
 fn decode(bytes: &[u8]) -> Result<WalletState, LedgerRefusal> {
+    decode_body(bytes)
+}
+
+/// The body of an envelope whose digest holds.
+fn checked_body(bytes: &[u8]) -> Result<Box<RawValue>, LedgerRefusal> {
     let envelope: EnvelopeIn = serde_json::from_slice(bytes).map_err(|_| LedgerRefusal::Corrupt)?;
     if sha256_hex(envelope.body.get().as_bytes()) != envelope.sha256 {
         return Err(LedgerRefusal::Corrupt);
     }
-    serde_json::from_str(envelope.body.get()).map_err(|_| LedgerRefusal::Corrupt)
+    Ok(envelope.body)
+}
+
+pub(super) fn decode_body<T: serde::de::DeserializeOwned>(
+    bytes: &[u8],
+) -> Result<T, LedgerRefusal> {
+    let body = checked_body(bytes)?;
+    serde_json::from_str(body.get()).map_err(|_| LedgerRefusal::Corrupt)
+}
+
+/// The schema a record names, read before it is decoded as any one version, so that a record of
+/// one version is refused by the other for what it is and not as damage.
+pub(super) fn schema_of(bytes: &[u8]) -> Result<String, LedgerRefusal> {
+    #[derive(Deserialize)]
+    struct Named {
+        schema: String,
+    }
+    let body = checked_body(bytes)?;
+    serde_json::from_str::<Named>(body.get())
+        .map(|named| named.schema)
+        .map_err(|_| LedgerRefusal::Corrupt)
 }
 
 impl Store {
@@ -599,7 +638,11 @@ impl Store {
     /// Temporary, fsync, rename, fsync of the directory: on return it survives a crash, and a
     /// crash before that leaves the previous version whole.
     fn write(&mut self, wallet: &WalletState) -> Result<(), LedgerRefusal> {
-        let bytes = encode(wallet)?;
+        self.write_encoded(&encode(wallet)?)
+    }
+
+    /// [`Self::write`] of bytes already in their envelope.
+    pub(super) fn write_encoded(&mut self, bytes: &[u8]) -> Result<(), LedgerRefusal> {
         if !fits_a_ledger(bytes.len() as u64) {
             return Err(LedgerRefusal::Unavailable);
         }
@@ -615,13 +658,13 @@ impl Store {
         if !has_one_name(&file)? {
             return Err(LedgerRefusal::Unavailable);
         }
-        file.write_all(&bytes).map_err(unavailable)?;
+        file.write_all(bytes).map_err(unavailable)?;
         file.sync_all().map_err(unavailable)?;
         drop(file);
         at_seam(Seam::BeforeRename, self.directory.path());
         storage::rename_at(&self.held, LEDGER_TEMPORARY, LEDGER_FILE).map_err(unavailable)?;
         self.held.sync_all().map_err(unavailable)?;
-        self.expected_sha256 = Some(sha256_hex(&bytes));
+        self.expected_sha256 = Some(sha256_hex(bytes));
         // What was written is in the directory held: if it is no longer where it was judged, or
         // the path no longer leads there, nothing after this goes on there.
         if !self.in_its_place() {
@@ -635,7 +678,7 @@ impl Store {
     /// what this handle last wrote, with no other name. A lock file replaced under a holder would
     /// let the next process hold another one, and a directory moved from where it was judged, or
     /// a file with a name elsewhere, could be where commands of the run write.
-    fn verify_unchanged(&self) -> Result<(), LedgerRefusal> {
+    pub(super) fn verify_unchanged(&self) -> Result<(), LedgerRefusal> {
         let held = Identity::of(&self.lock).map_err(unavailable)?;
         let same_lock = storage::look_at(&self.held, OsStr::new(LOCK_FILE))
             .is_ok_and(|found| found == Some(Found::Entry(held)));
@@ -830,6 +873,74 @@ fn refuse_directory(
     judge_the_way(directory, workspace, bounds).map(drop)
 }
 
+/// What an open of either version has once the way is judged and the lock taken: the store, the
+/// run's identity, and what the file holds, if anything.
+pub(super) struct HeldStore {
+    pub(super) store: Store,
+    pub(super) workspace_sha256: String,
+    pub(super) explicit_profile: Option<String>,
+    pub(super) found: Option<Vec<u8>>,
+}
+
+/// The one way to a wallet's directory and its lock, for either version, in this order: the way
+/// judged, the workspace and the profile named, the store made and held, the file read.
+fn hold_store(
+    directory: WalletDirectory,
+    workspace: &Path,
+    explicit_profile: Option<&str>,
+    command_writes: Option<&CommandWrites>,
+) -> Result<HeldStore, LedgerRefusal> {
+    let bounds = WriteBounds::of(command_writes, workspace)?;
+    let way = judge_the_way(&directory, workspace, &bounds)?;
+    let workspace = fs::canonicalize(workspace).map_err(unavailable)?;
+    let workspace_sha256 = sha256_hex(workspace.as_os_str().as_bytes());
+    let explicit_profile = explicit_profile
+        .map(canonical_explicit_profile)
+        .transpose()?;
+    at_seam(Seam::AfterWalk, directory.path());
+    let store = Store::open_on(directory, way)?;
+    let found = store.read_file()?;
+    Ok(HeldStore {
+        store,
+        workspace_sha256,
+        explicit_profile,
+        found,
+    })
+}
+
+/// [`hold_store`] at `<ledger_dir>/<budget_id>`, for a wallet of the `usage_tariff` basis.
+pub(super) fn hold_store_at(
+    ledger_dir: &Path,
+    budget_id: &str,
+    workspace: &Path,
+    explicit_profile: Option<&str>,
+    command_writes: Option<&CommandWrites>,
+) -> Result<HeldStore, LedgerRefusal> {
+    hold_store(
+        WalletDirectory::at(ledger_dir, budget_id),
+        workspace,
+        explicit_profile,
+        command_writes,
+    )
+}
+
+/// A profile pinned against one named now, as an open of either version compares them.
+pub(super) fn pinned_profile_agrees(pinned: Option<&str>, named: Option<&str>) -> bool {
+    !matches!((pinned, named), (Some(pinned), Some(named)) if pinned != named)
+}
+
+/// The canonical name of an explicit profile, as [`BudgetLedger::pin_profile`] takes it.
+pub(super) fn canonical_profile(explicit: &str) -> Result<String, LedgerRefusal> {
+    canonical_explicit_profile(explicit)
+}
+
+impl Store {
+    /// The file is the one just read: its digest is what the next change holds it to.
+    pub(super) fn expect(&mut self, bytes: &[u8]) {
+        self.expected_sha256 = Some(sha256_hex(bytes));
+    }
+}
+
 /// The wallet already on disk, held to the declaration and the run that opened it.
 fn continue_wallet(
     bytes: &[u8],
@@ -837,6 +948,9 @@ fn continue_wallet(
     workspace_sha256: &str,
     explicit_profile: Option<&str>,
 ) -> Result<WalletState, LedgerRefusal> {
+    if schema_of(bytes)? == super::ledger_v2::WALLET_V2_SCHEMA {
+        return Err(LedgerRefusal::AccountingBasisChanged);
+    }
     let wallet = decode(bytes)?;
     if wallet.budget_id != policy.budget_id {
         return Err(LedgerRefusal::Corrupt);
@@ -861,19 +975,19 @@ fn continue_wallet(
 impl BudgetLedger {
     pub(crate) fn open(request: LedgerOpen<'_>) -> Result<Self, LedgerRefusal> {
         let policy = request.policy;
-        let directory = WalletDirectory::of(&policy);
-        let bounds = WriteBounds::of(request.command_writes.as_ref(), request.workspace)?;
-        let way = judge_the_way(&directory, request.workspace, &bounds)?;
-        let workspace = fs::canonicalize(request.workspace).map_err(unavailable)?;
-        let workspace_sha256 = sha256_hex(workspace.as_os_str().as_bytes());
-        let explicit_profile = request
-            .explicit_profile
-            .map(canonical_explicit_profile)
-            .transpose()?;
-        at_seam(Seam::AfterWalk, directory.path());
-        let mut store = Store::open_on(directory, way)?;
+        let HeldStore {
+            mut store,
+            workspace_sha256,
+            explicit_profile,
+            found,
+        } = hold_store(
+            WalletDirectory::of(&policy),
+            request.workspace,
+            request.explicit_profile,
+            request.command_writes.as_ref(),
+        )?;
         let mut made_here = false;
-        let wallet = match store.read_file()? {
+        let wallet = match found {
             Some(bytes) => {
                 let found = continue_wallet(
                     &bytes,
