@@ -275,6 +275,18 @@ pub(crate) fn client_from_config_for_role(
     config: &Config,
     role: ProviderRole,
 ) -> anyhow::Result<Box<dyn ChatClient>> {
+    // A `usage_tariff` wallet (Issue #1006) counts one client only: the direct OpenAI Responses
+    // client of an admitted role, built with the wallet so each of its sends is reserved. Every
+    // other client, a compatible endpoint's included, is refused before it exists.
+    if let Some(handle) = config.field_sources.run_budget.as_ref().filter(|handle| {
+        handle.accounting_basis()
+            == crate::structured_budget::responses::AccountingBasis::UsageTariff
+    }) {
+        crate::structured_budget::admission::admit_responses_client(config, role)?;
+        return Ok(Box::new(openai::OpenAiClient::from_env_under_run_budget(
+            config, role, handle,
+        )?));
+    }
     crate::structured_budget::admission::admit_client(config, role)?;
     if config
         .openai_compatible
