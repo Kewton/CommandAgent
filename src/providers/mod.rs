@@ -13,6 +13,7 @@ pub mod parsing;
 pub mod profile_tool_schema;
 pub(crate) mod startup;
 pub mod streaming;
+pub(crate) mod usage_observation;
 pub mod xml_fallback;
 pub(crate) mod xml_repair;
 

@@ -25,12 +25,14 @@ pub(crate) mod identity;
 pub(crate) mod ledger;
 pub(crate) mod outcome;
 pub(crate) mod policy;
+pub(crate) mod policy_v2;
 pub(crate) mod reservation;
 pub(crate) mod session;
 pub(crate) mod settlement;
 mod storage;
 pub(crate) mod submission;
 pub(crate) mod transport;
+pub(crate) mod usage_tariff;
 
 #[cfg(test)]
 pub(crate) mod test_support {
