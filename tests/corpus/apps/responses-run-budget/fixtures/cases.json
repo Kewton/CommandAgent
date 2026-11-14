@@ -1,0 +1,117 @@
+{
+  "issue": "#1006",
+  "kind": "synthetic",
+  "note": "Each row names the acceptance criterion of Issue #1006 and the tests that hold it. Prices, usages, replies, and items are synthetic; nothing is copied from a live response, a bench task, or a run record.",
+  "rows": [
+    {
+      "id": "ac1-route-and-pre-send-refusal",
+      "criterion": "AC1",
+      "tests": [
+        "tests/responses_run_budget.rs::ac1_the_direct_route_reserves_its_text_bound_on_the_one_wallet",
+        "tests/responses_run_budget.rs::ac1_a_request_the_policy_does_not_allow_sends_nothing",
+        "tests/responses_run_budget.rs::ac1_a_client_or_declaration_the_wallet_cannot_count_is_refused_before_it_exists",
+        "structured_budget::responses::tests::a_body_the_route_does_not_allow_is_refused_before_anything_is_reserved",
+        "structured_budget::responses::tests::an_opaque_body_with_no_declared_most_or_a_bound_past_the_most_sends_nothing",
+        "structured_budget::responses::tests::an_item_of_a_known_type_in_another_shape_is_refused_before_anything_is_reserved",
+        "structured_budget::admission::tests::a_usage_tariff_wallet_is_admitted_only_for_the_direct_responses_route",
+        "providers::openai::run_budget_tests::a_wallet_whose_endpoint_is_not_where_the_client_posts_sends_nothing"
+      ]
+    },
+    {
+      "id": "ac2-durable-attempt",
+      "criterion": "AC2",
+      "tests": [
+        "tests/responses_run_budget.rs::ac2_the_attempt_is_started_on_disk_when_it_arrives_and_a_retry_sends_nothing",
+        "tests/responses_run_budget.rs::ac2_exactly_the_cost_or_token_limit_passes_and_one_less_sends_nothing",
+        "tests/responses_run_budget.rs::ac2_a_ledger_that_cannot_be_written_sends_nothing",
+        "providers::openai::run_budget_tests::every_post_arrives_with_its_reservation_and_start_on_disk",
+        "providers::openai::run_budget_tests::replay::a_budget_for_text_alone_or_no_declared_most_sends_no_replay",
+        "structured_budget::responses::tests::the_opaque_reservation_is_larger_and_a_budget_for_text_alone_stops_the_replay",
+        "structured_budget::responses::tests::a_change_that_cannot_reach_the_disk_sends_nothing_and_refuses_everything_after"
+      ]
+    },
+    {
+      "id": "ac3-prices-and-breakdown",
+      "criterion": "AC3",
+      "tests": [
+        "tests/responses_run_budget.rs::ac3_a_bound_that_only_crosses_the_boundary_reserves_at_the_high_tier",
+        "structured_budget::usage_tariff::tests::every_cache_class_matches_the_oracle",
+        "structured_budget::usage_tariff::tests::the_tier_changes_between_272000_and_272001_for_the_whole_request",
+        "structured_budget::usage_tariff::tests::cached_and_written_input_count_toward_the_tier",
+        "structured_budget::usage_tariff::tests::the_reservation_takes_whichever_input_class_is_the_dearest",
+        "structured_budget::usage_tariff::tests::ttl_mode_needs_all_three_write_counts_even_at_zero",
+        "structured_budget::usage_tariff::tests::none_mode_allows_no_write_fields_and_only_zero_writes",
+        "providers::usage_observation::tests::an_unknown_key_passes_only_as_the_integer_zero"
+      ]
+    },
+    {
+      "id": "ac4-billed-origin",
+      "criterion": "AC4",
+      "tests": [
+        "tests/responses_run_budget.rs::ac4_a_v1_wallet_is_not_continued_as_v2_nor_a_v2_one_as_v1",
+        "tests/responses_run_budget.rs::ac4_a_changed_mode_or_declaration_is_refused_and_the_held_send_stays",
+        "structured_budget::responses::tests::a_complete_usage_is_charged_by_the_tariff_and_nothing_is_billed",
+        "structured_budget::outcome::tests::responses_1006::a_final_repair_is_charged_once_by_the_tariff_and_nothing_is_billed",
+        "tests/structured_run_budget.rs (v1, unchanged)"
+      ]
+    },
+    {
+      "id": "ac5-unknown-late-abnormal",
+      "criterion": "AC5",
+      "tests": [
+        "tests/responses_run_budget.rs::ac5_a_send_that_failed_holds_its_reservation_and_stops_every_later_run",
+        "tests/responses_run_budget.rs::ac5_a_process_that_ended_with_its_send_started_leaves_it_unknown_for_the_next",
+        "providers::openai::run_budget_tests::a_send_that_ends_unknown_is_never_followed_by_another_post",
+        "providers::openai::run_budget_tests::a_cancel_before_the_send_takes_nothing_and_one_after_it_keeps_the_reservation",
+        "structured_budget::responses::tests::every_unknown_response_keeps_the_reservation_and_stops_the_wallet",
+        "structured_budget::responses::tests::a_late_valid_usage_is_charged_once_and_the_latch_stays",
+        "structured_budget::outcome::tests::responses_1006::a_reply_of_another_tier_or_model_leaves_the_command_no_success",
+        "structured_budget::outcome::tests::responses_1006::a_late_reply_is_charged_once_and_the_command_stays_no_success"
+      ]
+    },
+    {
+      "id": "ac6-g2-session-common-wallet",
+      "criterion": "AC6",
+      "tests": [
+        "tests/responses_run_budget.rs::ac6_every_role_of_the_run_draws_on_the_one_wallet",
+        "structured_budget::outcome::tests::responses_1006::the_calls_of_one_charged_reply_are_submissions_of_its_one_send",
+        "structured_budget::outcome::tests::responses_1006::another_session_or_a_resume_gets_no_budget_back",
+        "providers::openai::run_budget_tests::final_repair::the_sends_of_one_final_repair_session_are_its_one_and_none_past_the_limit_goes",
+        "providers::openai::run_budget_tests::a_reply_whose_usage_is_unknown_stops_the_wallet_before_anything_reads_it",
+        "providers::openai_responses::usage_first_tests::a_reply_that_fails_or_is_refused_after_the_usage_still_reports_it"
+      ]
+    },
+    {
+      "id": "ac7-wallet-off-control",
+      "criterion": "AC7",
+      "tests": [
+        "tests/responses_run_budget.rs::ac7_with_no_wallet_a_run_is_what_the_base_recorded",
+        "tests/responses_run_budget.rs::ac7_the_off_comparison_sees_every_other_change",
+        "providers::openai::run_budget_tests::a_wallet_request_carries_the_default_tier_and_the_policy_s_output_and_off_is_as_the_base_sent",
+        "provider_call::cache_write_event_tests::a_reply_with_no_cache_write_gives_the_lines_the_base_gave_byte_for_byte",
+        "provider_call::cache_write_event_tests::a_reply_with_a_cache_write_adds_the_three_fields_and_nothing_else",
+        "provider_call::cache_write_event_tests::the_comparison_without_the_three_names_still_sees_any_other_change",
+        "tests/profile_tool_schema_responses.rs (the #1005 Responses off golden, unchanged)"
+      ]
+    },
+    {
+      "id": "ac8-per-call-events",
+      "criterion": "AC8",
+      "tests": [
+        "tests/responses_run_budget.rs::ac8_each_turn_carries_the_cache_write_its_reply_reported_and_nothing_else",
+        "tests/responses_run_budget.rs::ac8_a_sum_over_turn_events_alone_counts_each_reported_write_once",
+        "provider_call::cache_write_event_tests::each_kind_of_report_is_told_apart_and_both_events_agree",
+        "provider_call::cache_write_event_tests::an_aggregate_over_turn_events_alone_counts_each_write_once",
+        "provider_call::cache_write_event_tests::a_turn_whose_reply_fails_to_parse_keeps_its_cache_write_and_no_metadata",
+        "provider_call::cache_write_event_tests::no_call_carries_the_cache_write_of_the_one_before"
+      ]
+    },
+    {
+      "id": "ac9-sensitivity",
+      "criterion": "AC9",
+      "tests": [
+        "results of the two-point mutation runs recorded per task (T1 60, T2 46, T3 11, F1 13, T4 10, T5 7, F2 11 changes); each test above was shown red under a production change and green without it"
+      ]
+    }
+  ]
+}

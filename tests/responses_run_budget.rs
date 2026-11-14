@@ -1100,3 +1100,551 @@ fn ac8_a_sum_over_turn_events_alone_counts_each_reported_write_once() {
     // The response events repeat it; an aggregator reading both would count it twice.
     assert_eq!(sum("provider_response"), sum("provider_turn_duration"));
 }
+
+// ---- AC7: wallet off, against a recording of the unchanged base ----
+
+/// Issue #1006, AC7: with no wallet, what a run sends, the events it writes, the files it leaves
+/// and how it ends are what the unchanged base ff920681 gave for the same runs.
+///
+/// The base's record is `tests/corpus/apps/responses-run-budget/fixtures/off-golden.json`, written
+/// by [`off_control::records_the_off_golden`] in a git-archive copy of ff920681 (see that corpus's
+/// `source-manifest.json`). The only differences allowed are the values named in
+/// [`off_control::NORMALIZED`], each shown to vary between two runs of the base, and the three new
+/// event fields, removed by their exact names before an event line is compared.
+mod off_control {
+    use std::collections::{BTreeMap, VecDeque};
+
+    use super::*;
+
+    pub(super) const GOLDEN: &str =
+        "tests/corpus/apps/responses-run-budget/fixtures/off-golden.json";
+    pub(super) const NEW_FIELDS: [&str; 3] = [
+        "provider_cache_write_input_tokens",
+        "provider_cache_write_input_tokens_30m",
+        "provider_cache_write_input_tokens_12h",
+    ];
+    /// What differs between two runs of the base itself, and the build's own identity, and only
+    /// that. Each is listed with its evidence in the corpus's `source-manifest.json`.
+    pub(super) const NORMALIZED: [&str; 6] = [
+        "the run's temporary root, wherever it appears in a string -> <ROOT>",
+        "the fake's loopback address http://127.0.0.1:<port> and 127.0.0.1:<port> -> <LOOPBACK>",
+        "a JSON number, at any depth of an event, under one of TIMING_KEYS -> 0",
+        "the string or boolean under build_commit, build_dirty, build_timestamp -> \"<BUILD>\"",
+        "in the workspace lock file, the values of pid and run_id -> \"<PID>\", \"<RUN>\"",
+        "nothing else: every other byte of a request, an event line, a file, and the outcome is compared",
+    ];
+    /// The wall-clock values two runs of the base differ in.
+    pub(super) const TIMING_KEYS: [&str; 7] = [
+        "duration_ms",
+        "occurred_at_epoch_ms",
+        "executor_ms",
+        "provider_ms",
+        "total_ms",
+        "time_profile_provider_ms",
+        "time_profile_total_ms",
+    ];
+    /// What says which binary ran: the base and this code are two builds.
+    pub(super) const BUILD_KEYS: [&str; 3] = ["build_commit", "build_dirty", "build_timestamp"];
+
+    /// A provider on 127.0.0.1 that answers each request with the next of `replies` (the last one
+    /// again once they run out) and keeps each request's line and body.
+    struct Script {
+        url: String,
+        stop: Arc<AtomicBool>,
+        thread: JoinHandle<()>,
+        seen: Arc<Mutex<Vec<(String, String)>>>,
+    }
+
+    impl Script {
+        fn spawn(replies: Vec<(u16, String)>) -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let url = format!("http://{}", listener.local_addr().unwrap());
+            listener.set_nonblocking(true).unwrap();
+            let stop = Arc::new(AtomicBool::new(false));
+            let seen = Arc::new(Mutex::new(Vec::new()));
+            let (thread_stop, thread_seen) = (stop.clone(), seen.clone());
+            let thread = std::thread::spawn(move || {
+                let mut replies: VecDeque<(u16, String)> = replies.into();
+                while !thread_stop.load(Ordering::SeqCst) {
+                    let Ok((mut stream, _)) = listener.accept() else {
+                        std::thread::sleep(Duration::from_millis(5));
+                        continue;
+                    };
+                    stream.set_nonblocking(false).unwrap();
+                    let request = read_request(&mut stream);
+                    thread_seen.lock().unwrap().push(request);
+                    let (status, body) = if replies.len() > 1 {
+                        replies.pop_front().unwrap()
+                    } else {
+                        replies.front().cloned().unwrap()
+                    };
+                    let response = format!(
+                        "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = stream.write_all(response.as_bytes());
+                }
+            });
+            Self {
+                url,
+                stop,
+                thread,
+                seen,
+            }
+        }
+
+        fn finish(self) -> Vec<(String, String)> {
+            self.stop.store(true, Ordering::SeqCst);
+            self.thread.join().unwrap();
+            self.seen.lock().unwrap().clone()
+        }
+    }
+
+    fn usage(cache_write: bool) -> Value {
+        let mut usage = json!({
+            "input_tokens": 50,
+            "input_tokens_details": {"cached_tokens": 10},
+            "output_tokens": 5,
+            "output_tokens_details": {"reasoning_tokens": 2},
+            "total_tokens": 55
+        });
+        if cache_write {
+            usage["input_tokens_details"]["cache_write_tokens"] = json!(4);
+            usage["input_tokens_details"]["cache_write_tokens_details"] =
+                json!({"ttl_30m_tokens": 3, "ttl_12h_tokens": 1});
+        }
+        usage
+    }
+
+    fn responses_reply(id: &str, output: Value, cache_write: bool) -> String {
+        json!({
+            "id": id, "object": "response", "model": "m-1-snapshot", "status": "completed",
+            "service_tier": "default", "output": output, "usage": usage(cache_write)
+        })
+        .to_string()
+    }
+
+    fn text(id: &str, text: &str) -> Value {
+        json!({"type": "message", "id": id, "status": "completed", "role": "assistant",
+               "content": [{"type": "output_text", "text": text, "annotations": [], "logprobs": []}]})
+    }
+
+    fn write_call(call_id: &str) -> Value {
+        json!({"type": "function_call", "id": format!("fc_{call_id}"), "call_id": call_id,
+               "name": "Write", "status": "completed",
+               "arguments": "{\"path\":\"notes.txt\",\"content\":\"synthetic notes\\n\"}"})
+    }
+
+    fn reasoning() -> Value {
+        json!({"type": "reasoning", "id": "rs_off_1",
+               "summary": [{"type": "summary_text", "text": "synthetic summary"}],
+               "encrypted_content": "synthetic-encrypted"})
+    }
+
+    fn chat_reply(content: &str) -> String {
+        json!({
+            "id": "chat-off", "object": "chat.completion", "model": "m-1-snapshot",
+            "choices": [{"index": 0, "message": {"role": "assistant", "content": content}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 50, "completion_tokens": 5,
+                      "prompt_tokens_details": {"cached_tokens": 10, "cache_write_tokens": 4}}
+        })
+        .to_string()
+    }
+
+    /// One run of a path: its id, the API on the compatible entry (or `None` for the direct
+    /// client behind the proxy), and the replies.
+    struct OffPath {
+        id: &'static str,
+        api: Option<&'static str>,
+        replies: Vec<(u16, String)>,
+        retries: &'static str,
+    }
+
+    fn paths() -> Vec<OffPath> {
+        vec![
+            OffPath {
+                id: "responses-ordinary-reply",
+                api: Some("responses"),
+                replies: vec![(
+                    200,
+                    responses_reply("resp-o1", json!([text("msg_o1", "done")]), true),
+                )],
+                retries: "0",
+            },
+            OffPath {
+                id: "responses-tool-call",
+                api: Some("responses"),
+                replies: vec![
+                    (
+                        200,
+                        responses_reply("resp-t1", json!([write_call("call_t1")]), false),
+                    ),
+                    (
+                        200,
+                        responses_reply("resp-t2", json!([text("msg_t2", "done")]), true),
+                    ),
+                ],
+                retries: "0",
+            },
+            OffPath {
+                id: "responses-reasoning-replay",
+                api: Some("responses"),
+                replies: vec![
+                    (
+                        200,
+                        responses_reply(
+                            "resp-r1",
+                            json!([reasoning(), write_call("call_r1")]),
+                            false,
+                        ),
+                    ),
+                    (
+                        200,
+                        responses_reply("resp-r2", json!([text("msg_r2", "done")]), false),
+                    ),
+                ],
+                retries: "0",
+            },
+            OffPath {
+                id: "responses-retry",
+                api: Some("responses"),
+                replies: vec![
+                    (500, "{}".to_string()),
+                    (
+                        200,
+                        responses_reply("resp-x1", json!([text("msg_x1", "done")]), false),
+                    ),
+                ],
+                retries: "1",
+            },
+            OffPath {
+                id: "chat-ordinary-reply",
+                api: Some("chat-completions"),
+                replies: vec![(200, chat_reply("done"))],
+                retries: "0",
+            },
+            OffPath {
+                id: "direct-responses-retry",
+                api: None,
+                replies: Vec::new(),
+                retries: "1",
+            },
+        ]
+    }
+
+    fn files_under(root: &Path, at: &Path, out: &mut BTreeMap<String, String>) {
+        let Ok(entries) = std::fs::read_dir(at) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                files_under(root, &path, out);
+            } else {
+                let name = path
+                    .strip_prefix(root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .to_string();
+                let content = std::fs::read(&path).unwrap_or_default();
+                out.insert(name, String::from_utf8_lossy(&content).to_string());
+            }
+        }
+    }
+
+    fn normalize_text(text: &str, root: &str, loopback: Option<&str>) -> String {
+        let mut text = text.replace(root, "<ROOT>");
+        if let Some(url) = loopback {
+            text = text.replace(url, "<LOOPBACK>");
+            text = text.replace(url.trim_start_matches("http://"), "<LOOPBACK>");
+        }
+        text
+    }
+
+    fn normalize_value(value: &mut Value) {
+        match value {
+            Value::Object(map) => {
+                for (key, item) in map.iter_mut() {
+                    if TIMING_KEYS.contains(&key.as_str()) && item.is_number() {
+                        *item = json!(0);
+                    } else if BUILD_KEYS.contains(&key.as_str()) && !item.is_null() {
+                        *item = json!("<BUILD>");
+                    } else {
+                        normalize_value(item);
+                    }
+                }
+            }
+            Value::Array(items) => items.iter_mut().for_each(normalize_value),
+            _ => {}
+        }
+    }
+
+    fn normalize_event(line: &str, root: &str, loopback: Option<&str>) -> Option<String> {
+        let mut value: Value = serde_json::from_str(line).ok()?;
+        normalize_value(&mut value);
+        Some(normalize_text(&value.to_string(), root, loopback))
+    }
+
+    fn normalize_lock(content: &str) -> String {
+        match serde_json::from_str::<Value>(content) {
+            Ok(mut value) if value.get("pid").is_some() => {
+                value["pid"] = json!("<PID>");
+                value["run_id"] = json!("<RUN>");
+                value.to_string()
+            }
+            _ => content.to_string(),
+        }
+    }
+
+    /// Runs one path with no wallet and returns its record.
+    fn record(path: &OffPath) -> Value {
+        let world = World::new();
+        let root = world.base.to_str().unwrap().to_string();
+        let script = path.api.map(|_| Script::spawn(path.replies.clone()));
+        let base_url = script.as_ref().map(|script| format!("{}/v1", script.url));
+        let mut arguments: Vec<&str> = match (path.api, base_url.as_deref()) {
+            (Some(api), Some(url)) => vec![
+                "--provider",
+                "openai-compatible",
+                "--base-url",
+                url,
+                "--api",
+                api,
+            ],
+            _ => vec!["--provider", "openai", "--api", "responses"],
+        };
+        arguments.extend(["--model", "m-1", "--chat-retries", path.retries, "--yes"]);
+        let ran = world.run(None, Proxy::Close, &[], &arguments);
+        let loopback = script.as_ref().map(|script| script.url.clone());
+        let requests: Vec<Value> = script
+            .map(Script::finish)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(line, body)| {
+                json!({"line": line, "body": normalize_text(&body, &root, loopback.as_deref())})
+            })
+            .collect();
+        let events: Vec<String> = std::fs::read_to_string(world.base.join("events.jsonl"))
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|line| normalize_event(line, &root, loopback.as_deref()))
+            .collect();
+        let mut artifacts = BTreeMap::new();
+        let workspace = world.base.join("workspace");
+        files_under(&workspace, &workspace, &mut artifacts);
+        let artifacts: BTreeMap<String, String> = artifacts
+            .into_iter()
+            .map(|(name, content)| {
+                let content = if name == ".commandagent/lock" {
+                    normalize_lock(&content)
+                } else {
+                    content
+                };
+                (name, normalize_text(&content, &root, loopback.as_deref()))
+            })
+            .collect();
+        let mut ledgers = BTreeMap::new();
+        files_under(&world.ledgers(), &world.ledgers(), &mut ledgers);
+        json!({
+            "id": path.id,
+            "requests": requests,
+            "connects": ran.arrivals.len(),
+            "events": events,
+            "artifacts": artifacts,
+            "outcome": {"code": ran.code, "error": normalize_text(&ran.error, &root, loopback.as_deref())},
+            "ledger_files": ledgers.len()
+        })
+    }
+
+    pub(super) fn record_all() -> Vec<Value> {
+        paths().iter().map(record).collect()
+    }
+
+    /// An event line with the three new names taken out, by those exact names only.
+    pub(super) fn without_new_fields(line: &str) -> String {
+        let mut value: Value = serde_json::from_str(line).unwrap();
+        if let Some(object) = value.as_object_mut() {
+            for key in NEW_FIELDS {
+                object.remove(key);
+            }
+        }
+        value.to_string()
+    }
+
+    /// Every way `current` is not what the base recorded in `golden`.
+    pub(super) fn differences(golden: &Value, current: &Value) -> Vec<String> {
+        let mut found = Vec::new();
+        let id = golden["id"].as_str().unwrap_or("?");
+        for key in [
+            "id",
+            "requests",
+            "connects",
+            "artifacts",
+            "outcome",
+            "ledger_files",
+        ] {
+            if golden[key] != current[key] {
+                found.push(format!("{id}: {key} differs"));
+            }
+        }
+        let (golden_events, current_events) = (
+            golden["events"].as_array().cloned().unwrap_or_default(),
+            current["events"].as_array().cloned().unwrap_or_default(),
+        );
+        if golden_events.len() != current_events.len() {
+            found.push(format!(
+                "{id}: {} event lines, the base had {}",
+                current_events.len(),
+                golden_events.len()
+            ));
+        }
+        for (index, (base, now)) in golden_events.iter().zip(&current_events).enumerate() {
+            let (base, now) = (base.as_str().unwrap(), now.as_str().unwrap());
+            let has_new = NEW_FIELDS
+                .iter()
+                .any(|key| now.contains(&format!("\"{key}\"")));
+            let comparable = if has_new {
+                without_new_fields(now)
+            } else {
+                now.to_string()
+            };
+            if comparable != base {
+                found.push(format!("{id}: event line {index} differs"));
+            }
+        }
+        found
+    }
+
+    /// The recorder: run on the base copy with `RESPONSES_RUN_BUDGET_OFF_OUT` set; elsewhere it
+    /// does nothing.
+    #[test]
+    fn records_the_off_golden() {
+        let Some(out) = std::env::var_os("RESPONSES_RUN_BUDGET_OFF_OUT") else {
+            return;
+        };
+        let golden = json!({
+            "issue": "#1006",
+            "kind": "responses-run-budget-off",
+            "source": "ff920681",
+            "normalization": NORMALIZED,
+            "paths": record_all()
+        });
+        std::fs::write(out, serde_json::to_string_pretty(&golden).unwrap() + "\n").unwrap();
+    }
+}
+
+#[test]
+fn ac7_with_no_wallet_a_run_is_what_the_base_recorded() {
+    let golden: Value =
+        serde_json::from_str(&std::fs::read_to_string(off_control::GOLDEN).unwrap()).unwrap();
+    let paths = golden["paths"].as_array().unwrap();
+    let current = off_control::record_all();
+    assert_eq!(current.len(), paths.len());
+    let mut found = Vec::new();
+    let mut new_field_lines = 0;
+    for (base, now) in paths.iter().zip(&current) {
+        found.extend(off_control::differences(base, now));
+        assert_eq!(now["ledger_files"], json!(0), "no ledger with no wallet");
+        new_field_lines += now["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|line| {
+                off_control::NEW_FIELDS
+                    .iter()
+                    .any(|key| line.as_str().unwrap().contains(&format!("\"{key}\"")))
+            })
+            .count();
+    }
+    assert_eq!(found, Vec::<String>::new());
+    // The comparison did meet the new fields: the replies that report a cache write.
+    assert!(new_field_lines > 0);
+}
+
+#[test]
+fn ac7_the_off_comparison_sees_every_other_change() {
+    let golden: Value =
+        serde_json::from_str(&std::fs::read_to_string(off_control::GOLDEN).unwrap()).unwrap();
+    let base = golden["paths"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|path| path["id"] == "responses-ordinary-reply")
+        .unwrap()
+        .clone();
+    assert!(off_control::differences(&base, &base).is_empty());
+    let line = |value: &Value, index: usize| value["events"][index].as_str().unwrap().to_string();
+    let last = base["events"].as_array().unwrap().len() - 1;
+    type Change = Box<dyn Fn(&mut Value)>;
+    let changes: Vec<(&str, Change)> = vec![
+        (
+            "another field",
+            Box::new(move |v: &mut Value| {
+                let mut event: Value = serde_json::from_str(&line(v, last)).unwrap();
+                event["provider_cached_input_tokens"] = json!(999);
+                v["events"][last] = json!(event.to_string());
+            }),
+        ),
+        (
+            "a field like the new ones",
+            Box::new(move |v: &mut Value| {
+                let mut event: Value = serde_json::from_str(&line(v, last)).unwrap();
+                event["provider_cache_write_input_tokens_1h"] = json!(1);
+                v["events"][last] = json!(event.to_string());
+            }),
+        ),
+        (
+            "a line more",
+            Box::new(|v: &mut Value| {
+                v["events"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(json!("{\"event\":\"extra\"}"));
+            }),
+        ),
+        (
+            "a line less",
+            Box::new(|v: &mut Value| {
+                v["events"].as_array_mut().unwrap().pop();
+            }),
+        ),
+        (
+            "a request byte",
+            Box::new(|v: &mut Value| {
+                let body = v["requests"][0]["body"]
+                    .as_str()
+                    .unwrap()
+                    .replacen("m-1", "m-2", 1);
+                v["requests"][0]["body"] = json!(body);
+            }),
+        ),
+        (
+            "an artifact",
+            Box::new(|v: &mut Value| v["artifacts"]["x.txt"] = json!("x")),
+        ),
+        (
+            "the outcome",
+            Box::new(|v: &mut Value| v["outcome"]["code"] = json!(99)),
+        ),
+        (
+            "a ledger file",
+            Box::new(|v: &mut Value| v["ledger_files"] = json!(1)),
+        ),
+    ];
+    for (name, change) in changes {
+        let mut current = base.clone();
+        change(&mut current);
+        assert!(
+            !off_control::differences(&base, &current).is_empty(),
+            "{name}"
+        );
+    }
+    // Only the three exact names come out.
+    let mut current = base.clone();
+    let mut event: Value = serde_json::from_str(&line(&current, last)).unwrap();
+    for key in off_control::NEW_FIELDS {
+        event[key] = json!(7);
+    }
+    current["events"][last] = json!(event.to_string());
+    assert!(off_control::differences(&base, &current).is_empty());
+}
