@@ -58,7 +58,18 @@ const BODY_KEYS: [&str; 8] = [
 const INCLUDE_ALLOWED: &str = "reasoning.encrypted_content";
 const MESSAGE_ROLES: [&str; 4] = ["user", "assistant", "system", "developer"];
 const MESSAGE_KEYS: [&str; 5] = ["type", "role", "content", "id", "status"];
-const TEXT_PARTS: [&str; 2] = ["input_text", "output_text"];
+const TEXT_PART_KEYS: [&str; 2] = ["type", "text"];
+const OUTPUT_TEXT_KEYS: [&str; 4] = ["type", "text", "annotations", "logprobs"];
+const FUNCTION_CALL_KEYS: [&str; 6] = ["type", "id", "call_id", "name", "arguments", "status"];
+const FUNCTION_CALL_OUTPUT_KEYS: [&str; 3] = ["type", "call_id", "output"];
+const REASONING_KEYS: [&str; 6] = [
+    "type",
+    "id",
+    "summary",
+    "encrypted_content",
+    "content",
+    "status",
+];
 const TOOL_KEYS: [&str; 5] = ["type", "name", "description", "parameters", "strict"];
 
 /// One send about to be made under a `usage_tariff` wallet.
@@ -205,28 +216,93 @@ fn refuse_other_options(members: &BTreeMap<String, &RawValue>) -> Result<(), Bud
     Ok(())
 }
 
+/// The keys of an item are within `allowed`, every one of `strings` is there as a string, and
+/// every one of `optional_strings` that is there is a string.
+fn shaped(
+    item: &BTreeMap<String, &RawValue>,
+    allowed: &[&str],
+    strings: &[&str],
+    optional_strings: &[&str],
+) -> bool {
+    only_keys(item, allowed)
+        && strings
+            .iter()
+            .all(|key| item.get(*key).is_some_and(|raw| string(raw).is_some()))
+        && optional_strings
+            .iter()
+            .all(|key| item.get(*key).is_none_or(|raw| string(raw).is_some()))
+}
+
+fn empty_array(raw: &RawValue) -> bool {
+    array(raw).is_ok_and(|items| items.is_empty())
+}
+
+/// One text part, as the builder writes it or as a replayed reply holds it: `input_text` with its
+/// text, or `output_text` with its text and no annotation or logprob in it.
+fn is_text_part(raw: &RawValue) -> bool {
+    let Ok(part) = object(raw) else {
+        return false;
+    };
+    match part.get("type").and_then(|raw| string(raw)).as_deref() {
+        Some("input_text") => shaped(&part, &TEXT_PART_KEYS, &["type", "text"], &[]),
+        Some("output_text") => {
+            shaped(&part, &OUTPUT_TEXT_KEYS, &["type", "text"], &[])
+                && ["annotations", "logprobs"]
+                    .iter()
+                    .all(|key| part.get(*key).is_none_or(|raw| empty_array(raw)))
+        }
+        _ => false,
+    }
+}
+
 /// A message of text: a role, and text content as a string or as text parts.
 fn is_text_message(item: &BTreeMap<String, &RawValue>) -> bool {
     let role = item.get("role").and_then(|raw| string(raw));
     let content_is_text = match item.get("content") {
         Some(raw) if string(raw).is_some() => true,
-        Some(raw) => array(raw).is_ok_and(|parts| {
-            parts.iter().all(|part| {
-                object(part).is_ok_and(|part| {
-                    part.get("type")
-                        .and_then(|raw| string(raw))
-                        .is_some_and(|kind| TEXT_PARTS.contains(&kind.as_str()))
-                })
-            })
-        }),
+        Some(raw) => array(raw).is_ok_and(|parts| parts.iter().all(|part| is_text_part(part))),
         None => false,
     };
     role.is_some_and(|role| MESSAGE_ROLES.contains(&role.as_str()))
         && content_is_text
-        && only_keys(item, &MESSAGE_KEYS)
+        && shaped(item, &MESSAGE_KEYS, &[], &["type", "id", "status"])
 }
 
-/// Whether the input holds an opaque item. An item of a kind not listed is refused.
+/// A call as the reply held it: its call ID, name, and arguments as a string.
+fn is_function_call(item: &BTreeMap<String, &RawValue>) -> bool {
+    shaped(
+        item,
+        &FUNCTION_CALL_KEYS,
+        &["type", "call_id", "name", "arguments"],
+        &["id", "status"],
+    )
+}
+
+/// A call's output as the builder writes it: the call ID and the output as a string. An array of
+/// images or files is another input and is not this.
+fn is_function_call_output(item: &BTreeMap<String, &RawValue>) -> bool {
+    shaped(
+        item,
+        &FUNCTION_CALL_OUTPUT_KEYS,
+        &["type", "call_id", "output"],
+        &[],
+    )
+}
+
+/// A reasoning item as the reply held it. Its content is opaque, and it is bounded by the
+/// declared most input, not by its bytes; its keys and their kinds are still the wire's.
+fn is_reasoning(item: &BTreeMap<String, &RawValue>) -> bool {
+    shaped(
+        item,
+        &REASONING_KEYS,
+        &["type"],
+        &["id", "encrypted_content", "status"],
+    ) && item.get("summary").is_none_or(|raw| array(raw).is_ok())
+        && item.get("content").is_none_or(|raw| array(raw).is_ok())
+}
+
+/// Whether the input holds an opaque item. An item of a kind not listed, or of a listed kind in
+/// another shape than the wire's, is refused.
 fn input_has_opaque_item(raw: &RawValue) -> Result<bool, BudgetRefusal> {
     let mut opaque = false;
     for item in array(raw)? {
@@ -235,11 +311,18 @@ fn input_has_opaque_item(raw: &RawValue) -> Result<bool, BudgetRefusal> {
             None => None,
             Some(raw) => Some(string(raw).ok_or(BudgetRefusal::BodyNotAdmitted)?),
         };
-        match kind.as_deref() {
-            None | Some("message") if is_text_message(&item) => {}
-            Some("function_call" | "function_call_output") => {}
-            Some("reasoning") => opaque = true,
-            _ => return Err(BudgetRefusal::BodyNotAdmitted),
+        let admitted = match kind.as_deref() {
+            None | Some("message") => is_text_message(&item),
+            Some("function_call") => is_function_call(&item),
+            Some("function_call_output") => is_function_call_output(&item),
+            Some("reasoning") => {
+                opaque = true;
+                is_reasoning(&item)
+            }
+            _ => false,
+        };
+        if !admitted {
+            return Err(BudgetRefusal::BodyNotAdmitted);
         }
     }
     Ok(opaque)
@@ -352,9 +435,13 @@ fn judge_body(
     policy: &RunBudgetPolicyV2,
     text: &str,
 ) -> Result<BudgetCharge, (UnknownCause, Option<UsageCounts>)> {
-    let usage = read_responses_usage(text)
+    let reading = read_responses_usage(text);
+    // A usage the wallet cannot settle keeps what of it the reader could validate, as observed,
+    // and is never charged from it.
+    let observed = reading.observed.as_ref().map(UsageCounts::of);
+    let usage = reading
         .wallet
-        .map_err(|stop| (UnknownCause::Usage { stop }, None))?;
+        .map_err(|stop| (UnknownCause::Usage { stop }, observed))?;
     let counts = UsageCounts::of(&usage);
     refuse_another_responder(policy, text)
         .map_err(|stop| (UnknownCause::Response { stop }, Some(counts)))?;
@@ -1446,7 +1533,7 @@ mod tests {
                 UnknownCause::Usage {
                     stop: UsageStop::UnknownField,
                 },
-                false,
+                true,
             ),
             (
                 "total only",
@@ -1729,6 +1816,153 @@ mod tests {
             ledger.wallet().latch().unwrap().reason,
             LatchReason::OverReservation
         );
+    }
+
+    /// Review 1, should 1: a usage stopped for one unknown non-zero meter keeps the counts it
+    /// could validate, and the fixed reason, on disk; never the meter or the body.
+    #[test]
+    fn a_usage_stopped_for_an_unknown_meter_keeps_its_validated_counts() {
+        let world = World::new();
+        let mut ledger = world.open();
+        let text = text_body();
+        let id = started(&mut ledger, &text);
+        let reserved = ledger.wallet().attempt(id).unwrap().reserved;
+        let body = response_with(|v| v["usage"]["future_meter"] = json!(1));
+        assert_eq!(
+            ledger.settle_body(id, &body).unwrap(),
+            ResponsesSettle::Unknown(UnknownCause::Usage {
+                stop: UsageStop::UnknownField
+            })
+        );
+        assert_eq!(ledger.wallet().held().unwrap(), reserved);
+        assert_eq!(
+            ledger.reserve(&request(&text)).map(|r| r.physical),
+            Err(budget(BudgetRefusal::Latched))
+        );
+        let disk = world.on_disk();
+        let attempt = &disk["attempts"][0];
+        assert_eq!(attempt["state"], json!("unknown"));
+        assert_eq!(
+            attempt["unknown"],
+            json!({"kind": "usage", "stop": "unknown_field"})
+        );
+        let observed = &attempt["observed"];
+        assert_eq!(observed["input_tokens"], json!(100));
+        assert_eq!(observed["output_tokens"], json!(30));
+        assert_eq!(observed["cached_tokens"], json!(20));
+        assert_eq!(observed["cache_write_tokens"], json!(15));
+        assert_eq!(observed["cache_write_30m_tokens"], json!(10));
+        assert_eq!(observed["cache_write_12h_tokens"], json!(5));
+        assert_eq!(attempt["charged"], json!(null));
+        let text = disk.to_string();
+        assert!(!text.contains("future_meter"));
+        assert!(!text.contains("resp_1"));
+        // A stop for counts that do not hold together keeps nothing: a partial observation is not
+        // one.
+        let world = World::new();
+        let mut ledger = world.open();
+        let id = started(&mut ledger, &text_body());
+        let body =
+            response_with(|v| v["usage"]["output_tokens_details"]["reasoning_tokens"] = json!(31));
+        assert!(matches!(
+            ledger.settle_body(id, &body).unwrap(),
+            ResponsesSettle::Unknown(UnknownCause::Usage { .. })
+        ));
+        assert_eq!(ledger.wallet().attempt(id).unwrap().observed, None);
+    }
+
+    /// Review 1, should 2: an item of a known type is admitted only in the shape the wire uses.
+    #[test]
+    fn an_item_of_a_known_type_in_another_shape_is_refused_before_anything_is_reserved() {
+        let world = World::new();
+        let policy = world.policy();
+        let mut ledger = world.open();
+        let before = fs::read(world.file()).unwrap();
+        type Change = fn(&mut Value);
+        let rows: Vec<(&str, Change)> = vec![
+            ("file output", |v| {
+                v["input"][4]["output"] = json!([{"type": "input_file", "file_id": "f"}])
+            }),
+            ("image output", |v| {
+                v["input"][4]["output"] = json!([{"type": "input_image", "image_url": "x"}])
+            }),
+            ("number output", |v| v["input"][4]["output"] = json!(1)),
+            ("output extra key", |v| v["input"][4]["extra"] = json!("x")),
+            ("output no call id", |v| {
+                v["input"][4].as_object_mut().unwrap().remove("call_id");
+            }),
+            ("text not a string", |v| {
+                v["input"][1]["content"][0]["text"] = json!(1)
+            }),
+            ("text part extra key", |v| {
+                v["input"][1]["content"][0]["cache_control"] = json!({})
+            }),
+            ("text part no text", |v| {
+                v["input"][1]["content"][0]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("text");
+            }),
+            ("annotation", |v| {
+                v["input"][2]["content"][0]["annotations"] = json!([{"type": "url_citation"}])
+            }),
+            ("call extra key", |v| v["input"][3]["extra"] = json!("x")),
+            ("call arguments object", |v| {
+                v["input"][3]["arguments"] = json!({})
+            }),
+            ("call no name", |v| {
+                v["input"][3].as_object_mut().unwrap().remove("name");
+            }),
+            ("call id number", |v| v["input"][3]["call_id"] = json!(1)),
+            ("message id number", |v| v["input"][2]["id"] = json!(1)),
+            ("content number", |v| v["input"][0]["content"] = json!(1)),
+            ("reasoning extra key", |v| {
+                v["input"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(json!({"type": "reasoning", "id": "rs", "summary": [], "extra": 1}));
+            }),
+            ("reasoning content image", |v| {
+                v["input"].as_array_mut().unwrap().push(
+                    json!({"type": "reasoning", "id": "rs", "summary": [], "encrypted_content": 1}),
+                );
+            }),
+        ];
+        for (name, change) in rows {
+            let mut value = body_value(text_input(), 50);
+            change(&mut value);
+            let bytes = value.to_string().into_bytes();
+            assert_eq!(
+                admit_body(&policy, &bytes),
+                Err(BudgetRefusal::BodyNotAdmitted),
+                "{name}"
+            );
+            assert_eq!(
+                ledger.reserve(&request(&bytes)).map(|r| r.physical),
+                Err(budget(BudgetRefusal::BodyNotAdmitted)),
+                "{name}"
+            );
+        }
+        assert_eq!(fs::read(world.file()).unwrap(), before);
+        assert!(ledger.wallet().attempts.is_empty());
+        // The control: a replay as #1005 makes it, raw function and reasoning items with their
+        // ids and statuses, and a message as the API returned it.
+        let replay = json!([
+            {"role": "user", "content": [{"type": "input_text", "text": "hi"}]},
+            {"type": "reasoning", "id": "rs_1", "summary": [{"type": "summary_text", "text": "s"}],
+             "encrypted_content": "QUJD"},
+            {"type": "function_call", "id": "fc_1", "call_id": "c1", "name": "f",
+             "arguments": "{}", "status": "completed"},
+            {"type": "message", "id": "msg_1", "status": "completed", "role": "assistant",
+             "content": [{"type": "output_text", "text": "t", "annotations": [], "logprobs": []}]},
+            {"type": "function_call_output", "call_id": "c1", "output": "ok"}
+        ]);
+        let bytes = body_value(replay, 50).to_string().into_bytes();
+        assert_eq!(
+            admit_body(&policy, &bytes).map(|body| body.input_bound_method),
+            Ok(InputBoundMethod::ProviderMaxInputTokens)
+        );
+        assert!(ledger.reserve(&request(&bytes)).is_ok());
     }
 
     // ---- processes, versions, and the disk ----

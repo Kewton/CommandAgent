@@ -156,7 +156,13 @@ pub(crate) struct CacheWriteObservation {
 /// One reading of a Responses body.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ResponsesUsageReading {
+    /// A usage the wallet can settle: complete, allowlisted, and consistent.
     pub(crate) wallet: Result<ResponsesUsage, UsageStop>,
+    /// The allowlisted counts when each of them, and every rule between them, holds, whatever
+    /// keys the allowlist does not name say. Equal to `wallet` when that is `Ok`. On a stop it is
+    /// kept as what was observed and is never charged: an unknown meter could price something
+    /// these counts leave out. Neither an unknown key nor its value is in it.
+    pub(crate) observed: Option<ResponsesUsage>,
     pub(crate) cache_write: Option<CacheWriteObservation>,
 }
 
@@ -261,7 +267,7 @@ fn wallet_count(object: &Members<'_>, key: &str) -> Result<Option<u64>, UsageSto
 fn wallet_details<'a>(
     object: &Members<'a>,
     key: &str,
-    listed: &[&str],
+    listed: Option<&[&str]>,
 ) -> Result<Option<Members<'a>>, UsageStop> {
     match object.get(key) {
         Member::Absent => Ok(None),
@@ -274,11 +280,13 @@ fn wallet_details<'a>(
     }
 }
 
-fn checked_object(object: &Members<'_>, listed: &[&str]) -> Result<(), UsageStop> {
+/// No key twice, and, when `listed` is given, every key listed or the integer `0`. With no list
+/// the keys the allowlist does not name are passed over, never read.
+fn checked_object(object: &Members<'_>, listed: Option<&[&str]>) -> Result<(), UsageStop> {
     if object.has_repeat() {
         return Err(UsageStop::DuplicateKey);
     }
-    if !object.only_listed_or_zero(listed) {
+    if listed.is_some_and(|listed| !object.only_listed_or_zero(listed)) {
         return Err(UsageStop::UnknownField);
     }
     Ok(())
@@ -296,12 +304,22 @@ fn split_agrees(total: Option<u64>, ttl_30m: Option<u64>, ttl_12h: Option<u64>) 
 }
 
 fn wallet_usage(body: &str) -> Result<ResponsesUsage, UsageStop> {
+    allowlisted_usage(body, true)
+}
+
+/// The allowlisted counts under every rule; with `allowlist_only` false, keys the allowlist does
+/// not name are passed over instead of stopping the reading.
+fn allowlisted_usage(body: &str, allowlist_only: bool) -> Result<ResponsesUsage, UsageStop> {
+    let list = |keys: &'static [&'static str]| allowlist_only.then_some(keys);
     let usage = usage_object(body)?;
-    checked_object(&usage, USAGE_KEYS)?;
-    let input_details = wallet_details(&usage, RESPONSES_INPUT_DETAILS, INPUT_DETAILS_KEYS)?;
-    let output_details = wallet_details(&usage, RESPONSES_OUTPUT_DETAILS, OUTPUT_DETAILS_KEYS)?;
+    checked_object(&usage, list(USAGE_KEYS))?;
+    let input_details = wallet_details(&usage, RESPONSES_INPUT_DETAILS, list(INPUT_DETAILS_KEYS))?;
+    let output_details =
+        wallet_details(&usage, RESPONSES_OUTPUT_DETAILS, list(OUTPUT_DETAILS_KEYS))?;
     let write_details = match &input_details {
-        Some(details) => wallet_details(details, CACHE_WRITE_DETAILS, CACHE_WRITE_DETAILS_KEYS)?,
+        Some(details) => {
+            wallet_details(details, CACHE_WRITE_DETAILS, list(CACHE_WRITE_DETAILS_KEYS))?
+        }
         None => None,
     };
     let input = wallet_count(&usage, RESPONSES_INPUT)?;
@@ -414,8 +432,15 @@ fn observe(body: &str, input_key: &str, details_key: &str) -> Option<CacheWriteO
 
 /// Reads a Responses body once for the wallet and the telemetry.
 pub(crate) fn read_responses_usage(body: &str) -> ResponsesUsageReading {
+    let wallet = wallet_usage(body);
+    let observed = match wallet {
+        Ok(usage) => Some(usage),
+        Err(UsageStop::UnknownField) => allowlisted_usage(body, false).ok(),
+        Err(_) => None,
+    };
     ResponsesUsageReading {
-        wallet: wallet_usage(body),
+        wallet,
+        observed,
         cache_write: observe(body, RESPONSES_INPUT, RESPONSES_INPUT_DETAILS),
     }
 }
@@ -761,6 +786,51 @@ mod tests {
         // A key outside `usage` is not the wallet's.
         let body = with(|v| v["billing"] = json!({"amount": 3}));
         assert!(read_responses_usage(&body).wallet.is_ok());
+    }
+
+    #[test]
+    fn a_usage_stopped_only_for_an_unknown_key_is_still_observed_and_no_other_stop_is() {
+        let complete_usage = read_responses_usage(&complete().to_string())
+            .wallet
+            .unwrap();
+        for pointer in [
+            "/usage",
+            "/usage/input_tokens_details",
+            "/usage/output_tokens_details",
+            "/usage/input_tokens_details/cache_write_tokens_details",
+        ] {
+            let body = with(|v| v.pointer_mut(pointer).unwrap()["future_meter"] = json!(1));
+            let reading = read_responses_usage(&body);
+            assert_eq!(reading.wallet, Err(UsageStop::UnknownField), "{pointer}");
+            assert_eq!(reading.observed, Some(complete_usage), "{pointer}");
+        }
+        // A complete usage is observed as it is settled.
+        let reading = read_responses_usage(&complete().to_string());
+        assert_eq!(reading.observed, reading.wallet.ok());
+        // Any other stop observes nothing: a repeat, a bad value, a rule broken, a count missing,
+        // even with an unknown key beside it.
+        for body in [
+            with(|v| v["usage"]["future_meter"] = json!(1)).replace(
+                r#""input_tokens":1000"#,
+                r#""input_tokens":1,"input_tokens":1000"#,
+            ),
+            with(|v| {
+                v["usage"]["future_meter"] = json!(1);
+                v["usage"]["input_tokens"] = json!("1000");
+            }),
+            with(|v| {
+                v["usage"]["future_meter"] = json!(1);
+                v["usage"]["output_tokens_details"]["reasoning_tokens"] = json!(81);
+            }),
+            with(|v| {
+                v["usage"]["future_meter"] = json!(1);
+                v["usage"].as_object_mut().unwrap().remove("output_tokens");
+            }),
+            with(|v| v["usage"]["total_tokens"] = json!(1)),
+            "{}".to_string(),
+        ] {
+            assert_eq!(read_responses_usage(&body).observed, None, "{body}");
+        }
     }
 
     #[test]

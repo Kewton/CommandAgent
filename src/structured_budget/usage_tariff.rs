@@ -697,6 +697,72 @@ mod tests {
         assert!(reservation_bound(&tariff, 3, 0).is_ok());
     }
 
+    /// Review 1, should 3: each input class in turn is the one high price, and the reservation
+    /// takes it, in ttl mode on one tier and from a lower tier the bound also reaches.
+    #[test]
+    fn the_reservation_takes_whichever_input_class_is_the_dearest() {
+        // One tier, every rate 1, then one class at 100: the bound at 100, the output at 1.
+        let bound: u128 = 1000;
+        let output: u128 = 7;
+        let expected = |high: u128| (bound * high * UNIT + output * UNIT).div_ceil(1_000_000);
+        for key in [
+            "input_per_million",
+            "cached_input_per_million",
+            "cache_write_30m_per_million",
+            "cache_write_12h_per_million",
+        ] {
+            let mut value = policy_v2_value();
+            value["tariff"]["tiers"].as_array_mut().unwrap().truncate(1);
+            let tier = &mut value["tariff"]["tiers"][0];
+            for each in [
+                "input_per_million",
+                "cached_input_per_million",
+                "cache_write_30m_per_million",
+                "cache_write_12h_per_million",
+                "output_per_million",
+            ] {
+                tier[each] = json!("1");
+            }
+            tier[key] = json!("100");
+            let reserved = reservation_bound(&tariff_of(&value), 1000, 7).unwrap();
+            assert_eq!(reserved.units(), expected(100), "{key}");
+            // And the formula is not every class at 100.
+            assert_ne!(reserved.units(), expected(1), "{key}");
+        }
+        // Two tiers, the lower one's ordinary input the dearest: a bound past the boundary still
+        // takes it.
+        let mut value = policy_v2_value();
+        for index in [0, 1] {
+            let tier = &mut value["tariff"]["tiers"][index];
+            for each in [
+                "input_per_million",
+                "cached_input_per_million",
+                "cache_write_30m_per_million",
+                "cache_write_12h_per_million",
+                "output_per_million",
+            ] {
+                tier[each] = json!("1");
+            }
+        }
+        value["tariff"]["tiers"][0]["input_per_million"] = json!("100");
+        let past: u128 = 300_000;
+        assert_eq!(
+            reservation_bound(&tariff_of(&value), 300_000, 7)
+                .unwrap()
+                .units(),
+            (past * 100 * UNIT + output * UNIT).div_ceil(1_000_000)
+        );
+        // The same for the lower tier's 12h write.
+        value["tariff"]["tiers"][0]["input_per_million"] = json!("1");
+        value["tariff"]["tiers"][0]["cache_write_12h_per_million"] = json!("100");
+        assert_eq!(
+            reservation_bound(&tariff_of(&value), 300_000, 7)
+                .unwrap()
+                .units(),
+            (past * 100 * UNIT + output * UNIT).div_ceil(1_000_000)
+        );
+    }
+
     #[test]
     fn no_reachable_usage_costs_more_than_its_reservation() {
         let mut rng = Rng::seeded(1006);
