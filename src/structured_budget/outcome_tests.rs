@@ -536,3 +536,368 @@ fn a_flow_run_again_within_its_command_keeps_the_refusal_of_the_first() {
     assert_eq!(command.wallet.sends(), 0, "the second sent nothing");
     assert_eq!(completions(&events), 0);
 }
+
+/// Issue #1006 (T5, additions only): sessions of a run under a `usage_tariff` wallet. Every send
+/// goes through the wallet as the direct Responses client's does, `BudgetedBody::for_responses`
+/// with its endpoint, and is charged from a Responses reply in place of a response; no network.
+mod responses_1006 {
+    use std::sync::{Arc, Mutex};
+
+    use serde_json::{Value, json};
+
+    use super::super::super::identity::SendPurpose;
+    use super::super::super::ledger::{CommandWrites, LedgerEntry};
+    use super::super::super::ledger_v2::{LedgerOpenV2, ProviderBilled, UnknownCause};
+    use super::super::super::policy_v2::RunBudgetPolicyV2;
+    use super::super::super::policy_v2::test_support::{WALLET, policy_v2_value};
+    use super::super::super::reservation::{AttemptState, BudgetRefusal};
+    use super::super::super::test_support::FakeClock;
+    use super::super::super::transport::{self, BudgetedBody, RunBudgetHandle, SandboxView};
+    use super::super::{CommandRefusal, refusal};
+    use super::{config_on, limit, write};
+    use crate::config::Config;
+    use crate::minimal_loop::loop_run::{
+        RunSessionOptions, RunSessionOutcome, run_session_with_outcome_with_options,
+    };
+    use crate::providers::{AssistantReply, ChatClient};
+    use crate::state::{ConversationMessage, SessionSnapshot, ToolCall};
+    use crate::tools::os_sandbox::SandboxPolicy;
+    use crate::tools::registry::ToolSpec;
+    use crate::tui::NOOP_UI;
+
+    const ENDPOINT: &str = "https://api.example.test/v1/responses";
+    const UNIT: u128 = 1_000_000_000_000_000_000;
+
+    /// 100 in, 20 cached, 10 written for 30m and 5 for 12h, 30 out: at 2 / 0.2 / 2.5 / 4 / 8 per
+    /// million, 65*2 + 20*0.2 + 10*2.5 + 5*4 + 30*8 = 419 micro-dollars.
+    const USAGE: &str = r#"{"input_tokens":100,"input_tokens_details":{"cached_tokens":20,"cache_write_tokens":15,"cache_write_tokens_details":{"ttl_30m_tokens":10,"ttl_12h_tokens":5}},"output_tokens":30,"output_tokens_details":{"reasoning_tokens":10},"total_tokens":130}"#;
+    const CHARGED: u128 = 419 * UNIT / 1_000_000;
+
+    fn reply_text(model: Option<&str>, tier: Option<&str>) -> String {
+        let mut value = json!({"id": "resp-1006", "output": [], "usage": serde_json::from_str::<Value>(USAGE).unwrap()});
+        if let Some(model) = model {
+            value["model"] = json!(model);
+        }
+        if let Some(tier) = tier {
+            value["service_tier"] = json!(tier);
+        }
+        value.to_string()
+    }
+
+    fn charged_reply() -> String {
+        reply_text(Some("m-1-snapshot-a"), Some("default"))
+    }
+
+    struct World {
+        _root: tempfile::TempDir,
+        workspace: std::path::PathBuf,
+        base: std::path::PathBuf,
+        handle: Arc<RunBudgetHandle>,
+        config: Config,
+    }
+
+    impl World {
+        fn new(change: impl FnOnce(&mut Value)) -> Self {
+            let root = tempfile::tempdir().unwrap();
+            let base = std::fs::canonicalize(root.path()).unwrap();
+            let workspace = base.join("workspace");
+            std::fs::create_dir_all(&workspace).unwrap();
+            std::fs::create_dir_all(base.join("run-tmp")).unwrap();
+            let mut value = policy_v2_value();
+            value["ledger_dir"] = json!(base.join("ledgers").to_str().unwrap());
+            value["route"]["endpoint"] = json!(ENDPOINT);
+            change(&mut value);
+            let handle = Self::handle_of(&base, &workspace, &value, LedgerEntry::Fresh);
+            let config = config_on(&workspace, Some(handle.clone()));
+            Self {
+                _root: root,
+                workspace,
+                base,
+                handle,
+                config,
+            }
+        }
+
+        fn handle_of(
+            base: &std::path::Path,
+            workspace: &std::path::Path,
+            value: &Value,
+            entry: LedgerEntry,
+        ) -> Arc<RunBudgetHandle> {
+            let policy = RunBudgetPolicyV2::decode(value.to_string().as_bytes(), WALLET).unwrap();
+            Arc::new(
+                RunBudgetHandle::open_responses(LedgerOpenV2 {
+                    policy: Arc::new(policy),
+                    workspace,
+                    explicit_profile: None,
+                    entry,
+                    clock: FakeClock::at(7_000),
+                    command_writes: Some(CommandWrites::of(SandboxPolicy::with_home(
+                        workspace,
+                        &base.join("run-tmp"),
+                        base.join("home"),
+                    ))),
+                })
+                .unwrap()
+                .with_sandbox_view(SandboxView {
+                    applied_on: Some(workspace.to_path_buf()),
+                }),
+            )
+        }
+
+        fn session(&self, client: &mut Responses) -> anyhow::Result<RunSessionOutcome> {
+            run_session_with_outcome_with_options(
+                client,
+                &mut SessionSnapshot::new(),
+                "Repair final acceptance.\n\nRequired final artifacts:\n- target.txt",
+                &["target.txt".to_string()],
+                &self.config,
+                &NOOP_UI,
+                RunSessionOptions::final_acceptance_repair(),
+            )
+        }
+    }
+
+    /// A client whose every call is one send of the wallet, charged from `reply`.
+    #[derive(Clone)]
+    struct Responses {
+        handle: Arc<RunBudgetHandle>,
+        reply: String,
+        answer: Arc<Mutex<Vec<AssistantReply>>>,
+    }
+
+    impl Responses {
+        fn of(world: &World, reply: String, answers: Vec<AssistantReply>) -> Self {
+            Self {
+                handle: world.handle.clone(),
+                reply,
+                answer: Arc::new(Mutex::new(answers)),
+            }
+        }
+    }
+
+    fn body() -> Value {
+        json!({
+            "model": "m-1",
+            "input": [{"role": "user", "content": [{"type": "input_text", "text": "repair"}]}],
+            "max_output_tokens": 50,
+            "reasoning": {"effort": "high"},
+            "store": false,
+            "include": ["reasoning.encrypted_content"],
+            "service_tier": "default"
+        })
+    }
+
+    impl ChatClient for Responses {
+        fn label(&self) -> &str {
+            "responses-1006"
+        }
+
+        fn boxed_clone(&self) -> Box<dyn ChatClient> {
+            Box::new(self.clone())
+        }
+
+        fn chat(
+            &mut self,
+            _model: &str,
+            _messages: &[ConversationMessage],
+            _tools: &[ToolSpec],
+            _native_tools_enabled: bool,
+        ) -> anyhow::Result<AssistantReply> {
+            let budgeted = BudgetedBody::for_responses(
+                &self.handle,
+                &body(),
+                SendPurpose::Executor,
+                ENDPOINT,
+            )?
+            .of_session(crate::provider_call::current_final_repair());
+            let (_request, send) = budgeted
+                .begin(reqwest::Client::new().post(ENDPOINT))
+                .map_err(transport::refused)?;
+            if let Some(response) = transport::settle_body_identified(&mut Some(send), &self.reply)
+                .map_err(transport::refused)?
+            {
+                crate::provider_call::note_settled_response(response);
+            }
+            let mut answers = self.answer.lock().unwrap();
+            anyhow::ensure!(!answers.is_empty(), "the script ran out");
+            Ok(answers.remove(0))
+        }
+    }
+
+    fn two_writes() -> AssistantReply {
+        AssistantReply {
+            content: String::new(),
+            tool_calls: vec![
+                ToolCall::new("Write", json!({"path": "target.txt", "content": "one\n"})),
+                ToolCall::new("Write", json!({"path": "other.txt", "content": "two\n"})),
+            ],
+            prompt_tokens: None,
+            completion_tokens: None,
+        }
+    }
+
+    /// AC3, AC4, AC6: a final repair's reply is charged once by the tariff, nothing is billed,
+    /// and the command is a success.
+    #[test]
+    fn a_final_repair_is_charged_once_by_the_tariff_and_nothing_is_billed() {
+        let world = World::new(|_| {});
+        let mut client = Responses::of(&world, charged_reply(), vec![two_writes()]);
+        world.session(&mut client).unwrap();
+        assert_eq!(refusal(&world.config), None);
+        let wallet = world.handle.responses_wallet().unwrap();
+        assert_eq!(wallet.attempts.len(), 1, "one physical send for two calls");
+        let attempt = &wallet.attempts[0];
+        assert_eq!(attempt.purpose, SendPurpose::FinalRepair);
+        assert_eq!(attempt.state, AttemptState::Settled);
+        assert_eq!(attempt.provider_billed, ProviderBilled::Unreported);
+        assert_eq!(attempt.charged.unwrap().charged.units(), CHARGED);
+        assert_eq!(wallet.spent().unwrap().units(), CHARGED);
+        assert!(world.workspace.join("target.txt").exists());
+    }
+
+    /// AC6: the calls of one charged reply are submissions of its one send, each once, and the
+    /// host's logical counts run apart from the physical one.
+    #[test]
+    fn the_calls_of_one_charged_reply_are_submissions_of_its_one_send() {
+        let world = World::new(|v| v["limits"]["logical_global"] = json!(2));
+        let budgeted =
+            BudgetedBody::for_responses(&world.handle, &body(), SendPurpose::Executor, ENDPOINT)
+                .unwrap();
+        let (_request, send) = budgeted
+            .begin(reqwest::Client::new().post(ENDPOINT))
+            .unwrap();
+        let response = transport::settle_body_identified(&mut Some(send), &charged_reply())
+            .unwrap()
+            .expect("charged");
+        for index in 0..2 {
+            crate::structured_budget::submission::for_call(&world.config, Some(response), index)
+                .unwrap()
+                .record(super::super::super::identity::LogicalKind::General)
+                .unwrap();
+        }
+        // The same call again, or a third over the logical limit, is refused.
+        assert!(
+            crate::structured_budget::submission::for_call(&world.config, Some(response), 1)
+                .unwrap()
+                .record(super::super::super::identity::LogicalKind::General)
+                .is_err()
+        );
+        let wallet = world.handle.responses_wallet().unwrap();
+        assert_eq!(wallet.physical_used(), 1);
+        assert_eq!(wallet.logical_global_used(), 2);
+        assert_eq!(wallet.spent().unwrap().units(), CHARGED);
+    }
+
+    /// AC5: a reply whose service tier or model is not the route's is not charged: the send is
+    /// unknown, its reservation held, and the command is no success, whatever the session did.
+    #[test]
+    fn a_reply_of_another_tier_or_model_leaves_the_command_no_success() {
+        for (name, text) in [
+            ("no tier", reply_text(Some("m-1-snapshot-a"), None)),
+            ("flex", reply_text(Some("m-1-snapshot-a"), Some("flex"))),
+            ("alias", reply_text(Some("m-1"), Some("default"))),
+            (
+                "prefix",
+                reply_text(Some("m-1-snapshot-a-2"), Some("default")),
+            ),
+        ] {
+            let world = World::new(|_| {});
+            let mut client = Responses::of(&world, text, vec![write("target.txt", "x\n")]);
+            let _ = world.session(&mut client);
+            let wallet = world.handle.responses_wallet().unwrap();
+            assert_eq!(wallet.attempts[0].state, AttemptState::Unknown, "{name}");
+            assert!(
+                matches!(
+                    wallet.attempts[0].unknown,
+                    Some(UnknownCause::Response { .. })
+                ),
+                "{name}"
+            );
+            assert_eq!(
+                wallet.held().unwrap(),
+                wallet.attempts[0].reserved,
+                "{name}"
+            );
+            assert_eq!(
+                wallet.logicals.len(),
+                0,
+                "{name}: no call of it is a submission"
+            );
+            assert!(
+                matches!(
+                    refusal(&world.config),
+                    Some(CommandRefusal::WalletUnsettled(_) | CommandRefusal::SendRefused(_))
+                ),
+                "{name}"
+            );
+        }
+    }
+
+    /// AC5: a late valid reply of a send already unknown is charged once, and the latch stays.
+    #[test]
+    fn a_late_reply_is_charged_once_and_the_command_stays_no_success() {
+        let world = World::new(|_| {});
+        let budgeted =
+            BudgetedBody::for_responses(&world.handle, &body(), SendPurpose::Executor, ENDPOINT)
+                .unwrap();
+        let (_request, send) = budgeted
+            .begin(reqwest::Client::new().post(ENDPOINT))
+            .unwrap();
+        drop(send);
+        let wallet = world.handle.responses_wallet().unwrap();
+        let physical = wallet.attempts[0].physical;
+        assert_eq!(wallet.attempts[0].state, AttemptState::Unknown);
+        world
+            .handle
+            .settle_response(physical, &charged_reply())
+            .unwrap();
+        assert!(
+            world
+                .handle
+                .settle_response(physical, &charged_reply())
+                .is_err()
+        );
+        let wallet = world.handle.responses_wallet().unwrap();
+        assert_eq!(wallet.spent().unwrap().units(), CHARGED);
+        assert!(wallet.attempts[0].charged.unwrap().late);
+        assert_eq!(
+            refusal(&world.config),
+            Some(CommandRefusal::WalletUnsettled(limit(
+                BudgetRefusal::Latched
+            )))
+        );
+    }
+
+    /// AC6: what one session spent is spent for the next session and for a resumed run.
+    #[test]
+    fn another_session_or_a_resume_gets_no_budget_back() {
+        let world = World::new(|_| {});
+        let mut client = Responses::of(&world, charged_reply(), vec![write("target.txt", "x\n")]);
+        world.session(&mut client).unwrap();
+        let spent = world.handle.responses_wallet().unwrap().spent().unwrap();
+        let mut again = Responses::of(&world, charged_reply(), vec![write("target.txt", "y\n")]);
+        world.session(&mut again).unwrap();
+        let wallet = world.handle.responses_wallet().unwrap();
+        assert_eq!(wallet.spent().unwrap().units(), 2 * spent.units());
+        assert_eq!(wallet.attempts.len(), 2);
+        // A resume of the same wallet, in a new process.
+        let mut value = policy_v2_value();
+        value["ledger_dir"] = json!(world.base.join("ledgers").to_str().unwrap());
+        value["route"]["endpoint"] = json!(ENDPOINT);
+        let World {
+            _root: root,
+            workspace,
+            base,
+            handle,
+            config,
+        } = world;
+        drop((client, again, handle, config));
+        let resumed = World::handle_of(&base, &workspace, &value, LedgerEntry::Resume);
+        assert_eq!(
+            resumed.responses_wallet().unwrap().spent().unwrap().units(),
+            2 * spent.units()
+        );
+        drop(root);
+    }
+}
