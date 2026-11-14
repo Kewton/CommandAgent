@@ -2733,7 +2733,7 @@ mod cache_write_event_tests {
     fn the_comparison_without_the_three_names_still_sees_any_other_change() {
         // The removal takes the three names only: a change to any other field, or a line more,
         // is still a difference.
-        let base = normalized(BASE_R1[1]);
+        let base = split(&normalized(BASE_R1[1])).0;
         for key in [
             "provider_cached_input_tokens",
             "provider_total_tokens",
