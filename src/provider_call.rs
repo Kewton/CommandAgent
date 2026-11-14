@@ -1220,6 +1220,14 @@ fn provider_turn_telemetry_from_result<'a>(
     response_metadata: Option<ProviderResponseMetadata>,
     cache_write: Option<CacheWriteObservation>,
 ) -> ProviderTurnTelemetry<'a> {
+    // Issue #1006: a reply that no reader saw in this call (the planner pipeline's adopted
+    // prefetch, replayed) carries the cache write read when it was fetched, in its metadata. A
+    // turn with no metadata stays with none.
+    let cache_write = cache_write.or_else(|| {
+        response_metadata
+            .as_ref()
+            .and_then(|metadata| metadata.cache_write)
+    });
     let reply = result.as_ref().ok();
     let prompt_eval_duration = timing
         .as_ref()
@@ -2693,7 +2701,7 @@ mod cache_write_event_tests {
     /// as it is: each capture has a model name of its own (see [`unique_model`]).
     fn normalize(value: &mut serde_json::Value) {
         for key in ["duration_ms"] {
-            if value.get(key).is_some() {
+            if value.get(key).is_some_and(serde_json::Value::is_u64) {
                 value[key] = serde_json::json!(0);
             }
         }
@@ -3000,6 +3008,113 @@ mod cache_write_event_tests {
     }
 
     /// Success, then a failure, then a reply with nothing: no call keeps what an earlier one had.
+    /// A client that answers with a reply it holds, as the planner pipeline's adopted prefetch
+    /// does: no parser runs in the call, and the reply's metadata is the one read when it was
+    /// fetched.
+    #[derive(Clone)]
+    struct Replaying {
+        metadata: Option<ProviderResponseMetadata>,
+    }
+
+    impl ChatClient for Replaying {
+        fn label(&self) -> &str {
+            "replaying-1006"
+        }
+
+        fn boxed_clone(&self) -> Box<dyn ChatClient> {
+            Box::new(self.clone())
+        }
+
+        fn chat(
+            &mut self,
+            _model: &str,
+            _messages: &[ConversationMessage],
+            _tools: &[ToolSpec],
+            _native_tools_enabled: bool,
+        ) -> anyhow::Result<AssistantReply> {
+            Ok(AssistantReply::text("prefetched"))
+        }
+
+        fn take_response_metadata(&mut self) -> Option<ProviderResponseMetadata> {
+            self.metadata.take()
+        }
+    }
+
+    /// Review 3, should 1: a reply replayed with its metadata carries that metadata's cache write
+    /// to its turn, once; a replay with no metadata has none.
+    #[test]
+    fn a_replayed_reply_carries_the_cache_write_read_when_it_was_fetched() {
+        use crate::providers::usage_observation::{CacheWriteObservation, CacheWriteTtl};
+        let turns = |metadata: Option<ProviderResponseMetadata>| {
+            let tmp = tempfile::tempdir().expect("tempdir");
+            let events_path = tmp.path().join("events.jsonl");
+            let mut config = super::tests::test_config(tmp.path(), events_path.clone(), 2);
+            config.model = unique_model();
+            let mut client = Replaying { metadata };
+            let outcome = chat(
+                &mut client,
+                &config,
+                ProviderCallScope::PlannerStep,
+                &config.model,
+                &[ConversationMessage::user("hello")],
+                &[],
+                false,
+            );
+            assert_eq!(outcome.result.unwrap().content, "prefetched");
+            std::fs::read_to_string(events_path)
+                .unwrap()
+                .lines()
+                .filter(|line| line.contains("\"event\":\"provider_turn_duration\""))
+                .map(|line| serde_json::Value::Object(split(line).1))
+                .collect::<Vec<_>>()
+        };
+        let held = ProviderResponseMetadata {
+            response_id: Some("resp-prefetch".to_string()),
+            cache_write: Some(CacheWriteObservation {
+                total: 9,
+                ttl: Some(CacheWriteTtl {
+                    ttl_30m: 4,
+                    ttl_12h: 5,
+                }),
+            }),
+            ..ProviderResponseMetadata::default()
+        };
+        assert_eq!(
+            turns(Some(held)),
+            vec![serde_json::json!({
+                "provider_cache_write_input_tokens": 9,
+                "provider_cache_write_input_tokens_30m": 4,
+                "provider_cache_write_input_tokens_12h": 5
+            })]
+        );
+        assert_eq!(turns(None), vec![serde_json::json!({})]);
+        let without = ProviderResponseMetadata {
+            response_id: Some("resp-prefetch".to_string()),
+            ..ProviderResponseMetadata::default()
+        };
+        assert_eq!(turns(Some(without)), vec![serde_json::json!({})]);
+    }
+
+    /// Review 3, should 2: only a non-negative integer duration is normalized; anything else stays
+    /// and makes the comparison fail.
+    #[test]
+    fn the_normalization_takes_only_an_integer_duration() {
+        let base = normalized(BASE_R0[1]);
+        let mut timed: serde_json::Value = serde_json::from_str(BASE_R0[1]).unwrap();
+        timed["duration_ms"] = serde_json::json!(1234);
+        assert_eq!(normalized(&timed.to_string()), base);
+        for bad in [
+            serde_json::json!(null),
+            serde_json::json!(-1),
+            serde_json::json!(1.5),
+            serde_json::json!("0"),
+        ] {
+            let mut changed: serde_json::Value = serde_json::from_str(BASE_R0[1]).unwrap();
+            changed["duration_ms"] = bad.clone();
+            assert_ne!(normalized(&changed.to_string()), base, "{bad}");
+        }
+    }
+
     #[test]
     fn no_call_carries_the_cache_write_of_the_one_before() {
         use serde_json::json;

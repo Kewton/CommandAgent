@@ -1352,7 +1352,16 @@ mod off_control {
         }
     }
 
+    /// With `RESPONSES_RUN_BUDGET_OFF_RAW` set, the recorder keeps every value as the run wrote it:
+    /// the evidence that each normalized value varies between two runs of the base.
+    fn raw() -> bool {
+        std::env::var_os("RESPONSES_RUN_BUDGET_OFF_RAW").is_some()
+    }
+
     fn normalize_text(text: &str, root: &str, loopback: Option<&str>) -> String {
+        if raw() {
+            return text.to_string();
+        }
         let mut text = text.replace(root, "<ROOT>");
         if let Some(url) = loopback {
             text = text.replace(url, "<LOOPBACK>");
@@ -1365,9 +1374,16 @@ mod off_control {
         match value {
             Value::Object(map) => {
                 for (key, item) in map.iter_mut() {
-                    if TIMING_KEYS.contains(&key.as_str()) && item.is_number() {
+                    // A value is normalized only when it has the type it is known to have: a
+                    // duration a non-negative integer, a commit and a time strings, a dirty flag a
+                    // boolean. Anything else is kept, and so is a difference.
+                    let build_typed = match key.as_str() {
+                        "build_dirty" => item.is_boolean(),
+                        _ => item.is_string(),
+                    };
+                    if TIMING_KEYS.contains(&key.as_str()) && item.is_u64() {
                         *item = json!(0);
-                    } else if BUILD_KEYS.contains(&key.as_str()) && !item.is_null() {
+                    } else if BUILD_KEYS.contains(&key.as_str()) && build_typed {
                         *item = json!("<BUILD>");
                     } else {
                         normalize_value(item);
@@ -1379,10 +1395,22 @@ mod off_control {
         }
     }
 
-    fn normalize_event(line: &str, root: &str, loopback: Option<&str>) -> Option<String> {
-        let mut value: Value = serde_json::from_str(line).ok()?;
-        normalize_value(&mut value);
-        Some(normalize_text(&value.to_string(), root, loopback))
+    /// One event line, normalized as a recording does, with no root or loopback in it.
+    pub(super) fn normalize_line(line: &str) -> String {
+        normalize_event(line, "\u{0}", None)
+    }
+
+    /// A line that is not JSON is kept as it came, marked, so it is a difference and not dropped.
+    fn normalize_event(line: &str, root: &str, loopback: Option<&str>) -> String {
+        match serde_json::from_str::<Value>(line) {
+            Ok(mut value) => {
+                if !raw() {
+                    normalize_value(&mut value);
+                }
+                normalize_text(&value.to_string(), root, loopback)
+            }
+            Err(_) => format!("<NOT JSON> {}", normalize_text(line, root, loopback)),
+        }
     }
 
     fn normalize_lock(content: &str) -> String {
@@ -1427,7 +1455,7 @@ mod off_control {
         let events: Vec<String> = std::fs::read_to_string(world.base.join("events.jsonl"))
             .unwrap_or_default()
             .lines()
-            .filter_map(|line| normalize_event(line, &root, loopback.as_deref()))
+            .map(|line| normalize_event(line, &root, loopback.as_deref()))
             .collect();
         let mut artifacts = BTreeMap::new();
         let workspace = world.base.join("workspace");
@@ -1435,7 +1463,7 @@ mod off_control {
         let artifacts: BTreeMap<String, String> = artifacts
             .into_iter()
             .map(|(name, content)| {
-                let content = if name == ".commandagent/lock" {
+                let content = if name == ".commandagent/lock" && !raw() {
                     normalize_lock(&content)
                 } else {
                     content
@@ -1522,13 +1550,22 @@ mod off_control {
         let Some(out) = std::env::var_os("RESPONSES_RUN_BUDGET_OFF_OUT") else {
             return;
         };
-        let golden = json!({
+        let version = std::process::Command::new(env!("CARGO_BIN_EXE_commandagent"))
+            .arg("--version")
+            .output()
+            .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+            .unwrap_or_default();
+        let mut golden = json!({
             "issue": "#1006",
             "kind": "responses-run-budget-off",
             "source": "ff920681",
             "normalization": NORMALIZED,
             "paths": record_all()
         });
+        if raw() {
+            golden["raw"] = json!(true);
+            golden["binary_version"] = json!(version);
+        }
         std::fs::write(out, serde_json::to_string_pretty(&golden).unwrap() + "\n").unwrap();
     }
 }
@@ -1647,4 +1684,89 @@ fn ac7_the_off_comparison_sees_every_other_change() {
     }
     current["events"][last] = json!(event.to_string());
     assert!(off_control::differences(&base, &current).is_empty());
+}
+
+/// Review 3, should 2: the off comparison's preprocessing normalizes a value only when it has the
+/// expected type, and a line that is not JSON fails the comparison.
+#[test]
+fn ac7_the_preprocessing_does_not_hide_a_changed_type_or_a_bad_line() {
+    let golden: Value =
+        serde_json::from_str(&std::fs::read_to_string(off_control::GOLDEN).unwrap()).unwrap();
+    let base = golden["paths"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|path| path["id"] == "responses-ordinary-reply")
+        .unwrap()
+        .clone();
+    let events = base["events"].as_array().unwrap();
+    let find = |name: &str| {
+        events
+            .iter()
+            .position(|line| {
+                line.as_str()
+                    .unwrap()
+                    .contains(&format!("\"event\":\"{name}\""))
+            })
+            .unwrap()
+    };
+    let (turn, stop) = (find("provider_turn_duration"), find("tui_command_stop"));
+    // A raw line as a run writes it, normalized the way the recorder does.
+    let renormalized = |index: usize, change: &dyn Fn(&mut Value)| {
+        let mut raw: Value = serde_json::from_str(events[index].as_str().unwrap()).unwrap();
+        change(&mut raw);
+        let mut current = base.clone();
+        current["events"][index] = json!(off_control::normalize_line(&raw.to_string()));
+        off_control::differences(&base, &current)
+    };
+    // The control: real values of the right type normalize to the base's.
+    assert!(renormalized(turn, &|v| v["duration_ms"] = json!(1234)).is_empty());
+    assert!(
+        renormalized(stop, &|v| {
+            v["build_dirty"] = json!(false);
+            v["build_commit"] = json!("0123abcd");
+            v["build_timestamp"] = json!("2026-11-14T00:00:00+09:00");
+        })
+        .is_empty()
+    );
+    // Another type is not normalized away.
+    for (name, index, change) in [
+        (
+            "duration null",
+            turn,
+            Box::new(|v: &mut Value| v["duration_ms"] = json!(null)) as Box<dyn Fn(&mut Value)>,
+        ),
+        (
+            "duration negative",
+            turn,
+            Box::new(|v: &mut Value| v["duration_ms"] = json!(-1)),
+        ),
+        (
+            "dirty a number",
+            stop,
+            Box::new(|v: &mut Value| v["build_dirty"] = json!(0)),
+        ),
+        (
+            "commit a number",
+            stop,
+            Box::new(|v: &mut Value| v["build_commit"] = json!(1)),
+        ),
+        (
+            "timestamp null",
+            stop,
+            Box::new(|v: &mut Value| v["build_timestamp"] = json!(null)),
+        ),
+    ] {
+        assert!(!renormalized(index, &*change).is_empty(), "{name}");
+    }
+    // A line that is not JSON is kept as a line, and so is a difference.
+    let mut current = base.clone();
+    current["events"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!(off_control::normalize_line("{not json")));
+    assert!(!off_control::differences(&base, &current).is_empty());
+    let mut current = base.clone();
+    current["events"][turn] = json!(off_control::normalize_line("{\"event\":"));
+    assert!(!off_control::differences(&base, &current).is_empty());
 }
