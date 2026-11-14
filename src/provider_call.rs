@@ -2700,10 +2700,11 @@ mod cache_write_event_tests {
     /// What varies between runs, and only that: the wall time. The stable-prefix estimate is kept
     /// as it is: each capture has a model name of its own (see [`unique_model`]).
     fn normalize(value: &mut serde_json::Value) {
-        for key in ["duration_ms"] {
-            if value.get(key).is_some_and(serde_json::Value::is_u64) {
-                value[key] = serde_json::json!(0);
-            }
+        if value
+            .get("duration_ms")
+            .is_some_and(serde_json::Value::is_u64)
+        {
+            value["duration_ms"] = serde_json::json!(0);
         }
     }
 
