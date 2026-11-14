@@ -1,0 +1,3617 @@
+{
+  "issue": "#1005",
+  "kind": "responses-off",
+  "normalization": [
+    "temporary roots (workspace, evidence, registry, extension root, HOME; canonical and as created; longest first) -> <ROOT>",
+    "the fake's loopback URL http://127.0.0.1:<port>, then 127.0.0.1:<port> -> <LOOPBACK>",
+    "a JSON number under epoch, occurred_at_epoch_ms, duration_ms, elapsed_ms, estimated_prompt_tokens_sent, estimated_stable_prefix_chars -> \"<N>\" (the existing off comparison's NORMALIZED_NUMBER_FIELDS)",
+    "inside a string, epoch|occurred_at_epoch_ms|duration_ms|elapsed_ms then [\"]? spaces [:=] spaces digits -> the prefix and <TIME>; an ISO 8601 date-time inside a string -> <TIME>",
+    "the string value of run_nonce or process_nonce, wherever it appears -> <NONCE-n>; a UUID -> <UUID-n>; n by first appearance within a path",
+    "a revision's 16 lowercase hex digits as a whole word -> <REVISION-n>; n by first appearance within a path"
+  ],
+  "paths": [
+    {
+      "id": "round-trip",
+      "observation": {
+        "artifacts": {
+          "settings.json": "{\"mode\":\"fast\"}"
+        },
+        "event_names": [
+          "step_obligation_scope",
+          "provider_request",
+          "provider_response",
+          "provider_turn_duration",
+          "tool_call_raw",
+          "extension_tool_call",
+          "extension_tool_result",
+          "tool_execute",
+          "provider_request",
+          "provider_response",
+          "provider_turn_duration",
+          "context_truncation_suspected"
+        ],
+        "events": [
+          {
+            "completion_contract_path_merge_enabled": true,
+            "completion_contract_paths": [],
+            "completion_contract_verification_enabled": true,
+            "contract_enforcement": "enforce",
+            "contract_paths_merged": false,
+            "effective_required_paths": [],
+            "event": "step_obligation_scope",
+            "explicit_required_paths": [],
+            "initially_missing_paths": [],
+            "phase_scope": "",
+            "prompt_extracted_paths": [],
+            "prompt_extracted_paths_enabled": true,
+            "schema_version": "1",
+            "session_scope": "minimal-loop",
+            "step_kind": ""
+          },
+          {
+            "api": "responses",
+            "event": "provider_request",
+            "model": "m",
+            "provider": "openai-compatible",
+            "schema_version": "1",
+            "tools": 3
+          },
+          {
+            "api": "responses",
+            "attempt": 1,
+            "event": "provider_response",
+            "model": "m",
+            "provider": "openai-compatible",
+            "reasoning_tokens": null,
+            "response_id": "resp_1",
+            "response_model": "m",
+            "schema_version": "1",
+            "system_fingerprint": null,
+            "tool_calls": 1
+          },
+          {
+            "aborted_by_user": false,
+            "caller_scope": "executor",
+            "duration_ms": "<N>",
+            "estimated_prompt_tokens_sent": "<N>",
+            "estimated_stable_prefix_chars": "<N>",
+            "eval_count": 5,
+            "eval_duration": null,
+            "event": "provider_turn_duration",
+            "finish_reason": "stop",
+            "generation_seconds": null,
+            "load_duration": null,
+            "load_seconds": null,
+            "model": "m",
+            "native_tools_enabled": true,
+            "num_predict": 100,
+            "ok": true,
+            "output_limit_reached": false,
+            "prefill_seconds": null,
+            "prompt_eval_count": 10,
+            "prompt_eval_duration": null,
+            "prompt_layout": "stable",
+            "provider": "openai-compatible",
+            "provider_created_epoch": null,
+            "provider_model_id": "m",
+            "provider_response_id": "resp_1",
+            "provider_service_tier": null,
+            "provider_total_tokens": 15,
+            "schema_version": "1",
+            "system_fingerprint": null,
+            "think": "omitted",
+            "timed_out": false,
+            "timeout_ms": 30000,
+            "timeout_secs": 30,
+            "timeout_source": "override:test",
+            "tokens_per_second_eval": null,
+            "tool_calls_in_response": 1,
+            "tools": 3,
+            "total_duration": null,
+            "write_or_edit_succeeded": false
+          },
+          {
+            "arguments": {
+              "argument_keys": [
+                "path"
+              ],
+              "argument_summaries": {
+                "path": {
+                  "preview": "settings.json",
+                  "string_len": 13,
+                  "type": "string"
+                }
+              },
+              "arguments_type": "object"
+            },
+            "event": "tool_call_raw",
+            "name": "ReadFlatConfig",
+            "schema_version": "1"
+          },
+          {
+            "access": "read_only",
+            "arguments": {
+              "argument_keys": [
+                "path"
+              ],
+              "argument_summaries": {
+                "path": {
+                  "preview": "settings.json",
+                  "string_len": 13,
+                  "type": "string"
+                }
+              },
+              "arguments_type": "object"
+            },
+            "event": "extension_tool_call",
+            "name": "ReadFlatConfig",
+            "network_access": "none",
+            "schema_version": "1",
+            "transport": "profile_tool"
+          },
+          {
+            "access": "read_only",
+            "event": "extension_tool_result",
+            "name": "ReadFlatConfig",
+            "ok": true,
+            "reason": null,
+            "result_bytes": 37,
+            "schema_version": "1",
+            "transport": "profile_tool"
+          },
+          {
+            "event": "tool_execute",
+            "name": "ReadFlatConfig",
+            "schema_version": "1",
+            "status": "ok"
+          },
+          {
+            "api": "responses",
+            "event": "provider_request",
+            "model": "m",
+            "provider": "openai-compatible",
+            "schema_version": "1",
+            "tools": 3
+          },
+          {
+            "api": "responses",
+            "attempt": 1,
+            "event": "provider_response",
+            "model": "m",
+            "provider": "openai-compatible",
+            "reasoning_tokens": null,
+            "response_id": "resp_2",
+            "response_model": "m",
+            "schema_version": "1",
+            "system_fingerprint": null,
+            "tool_calls": 0
+          },
+          {
+            "aborted_by_user": false,
+            "caller_scope": "executor",
+            "duration_ms": "<N>",
+            "estimated_prompt_tokens_sent": "<N>",
+            "estimated_stable_prefix_chars": "<N>",
+            "eval_count": 5,
+            "eval_duration": null,
+            "event": "provider_turn_duration",
+            "finish_reason": "stop",
+            "generation_seconds": null,
+            "load_duration": null,
+            "load_seconds": null,
+            "model": "m",
+            "native_tools_enabled": true,
+            "num_predict": 100,
+            "ok": true,
+            "output_limit_reached": false,
+            "prefill_seconds": null,
+            "prompt_eval_count": 10,
+            "prompt_eval_duration": null,
+            "prompt_layout": "stable",
+            "provider": "openai-compatible",
+            "provider_created_epoch": null,
+            "provider_model_id": "m",
+            "provider_response_id": "resp_2",
+            "provider_service_tier": null,
+            "provider_total_tokens": 15,
+            "schema_version": "1",
+            "system_fingerprint": null,
+            "think": "omitted",
+            "timed_out": false,
+            "timeout_ms": 30000,
+            "timeout_secs": 30,
+            "timeout_source": "override:test",
+            "tokens_per_second_eval": null,
+            "tool_calls_in_response": 0,
+            "tools": 3,
+            "total_duration": null,
+            "write_or_edit_succeeded": false
+          },
+          {
+            "caller_scope": "executor",
+            "estimated_prompt_tokens_sent": "<N>",
+            "eval_count": 5,
+            "event": "context_truncation_suspected",
+            "finish_reason": "stop",
+            "level": "WARNING",
+            "model": "m",
+            "persistent_undercut_count": 2,
+            "prompt_eval_count": 10,
+            "provider": "openai-compatible",
+            "schema_version": "1",
+            "threshold_percent": 70
+          }
+        ],
+        "history": {
+          "id": "<UUID-1>",
+          "messages": [
+            {
+              "content": "Read the settings.",
+              "role": "user",
+              "tool_calls": []
+            },
+            {
+              "content": "",
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "arguments": {
+                    "path": "settings.json"
+                  },
+                  "id": "call_1",
+                  "name": "ReadFlatConfig"
+                }
+              ]
+            },
+            {
+              "content": "flat read of {\"path\":\"settings.json\"}",
+              "name": "ReadFlatConfig",
+              "role": "tool",
+              "tool_call_id": "call_1",
+              "tool_calls": []
+            },
+            {
+              "content": "done",
+              "role": "assistant",
+              "tool_calls": []
+            }
+          ],
+          "native_tools_disabled": false,
+          "schema_version": 1
+        },
+        "outcome": {
+          "ok": {
+            "changed_paths": [],
+            "final_text": "done",
+            "iterations": 2,
+            "stop_reason": "AssistantFinal",
+            "tool_calls": 1
+          }
+        },
+        "replies": [
+          {
+            "id": "resp_1",
+            "model": "m",
+            "object": "response",
+            "output": [
+              {
+                "arguments": "{\"path\":\"settings.json\"}",
+                "call_id": "call_1",
+                "id": "fc_item_1",
+                "name": "ReadFlatConfig",
+                "status": "completed",
+                "type": "function_call"
+              }
+            ],
+            "status": "completed",
+            "usage": {
+              "input_tokens": 10,
+              "output_tokens": 5,
+              "total_tokens": 15
+            }
+          },
+          {
+            "id": "resp_2",
+            "model": "m",
+            "object": "response",
+            "output": [
+              {
+                "content": [
+                  {
+                    "annotations": [],
+                    "text": "done",
+                    "type": "output_text"
+                  }
+                ],
+                "id": "msg_done",
+                "role": "assistant",
+                "status": "completed",
+                "type": "message"
+              }
+            ],
+            "status": "completed",
+            "usage": {
+              "input_tokens": 10,
+              "output_tokens": 5,
+              "total_tokens": 15
+            }
+          }
+        ],
+        "request_count": 2,
+        "requests": [
+          {
+            "input": [
+              {
+                "content": [
+                  {
+                    "text": "You are commandagent, a local coding agent. Work only inside workspace `<ROOT>`.\nUse tools for file changes, repository facts, file inspection, build/test checks, and any action that changes the workspace.\nDo not end with planned future work. Do not claim files, tests, or builds succeeded unless you observed them with tools.\nUse workspace-relative paths only, and do not read or write outside the workspace.\nDo not claim completion until requested files and evidence are present.\n\nProfile guidance:\nWrite notes.txt.",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "system"
+              },
+              {
+                "content": [
+                  {
+                    "text": "Read the settings.",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "user"
+              }
+            ],
+            "max_output_tokens": 100,
+            "model": "m",
+            "tools": [
+              {
+                "description": "Read a workspace-relative file path.",
+                "name": "Read",
+                "parameters": {
+                  "properties": {
+                    "end_line": {
+                      "type": "integer"
+                    },
+                    "path": {
+                      "type": "string"
+                    },
+                    "start_line": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "type": "object"
+                },
+                "type": "function"
+              },
+              {
+                "description": "Write a workspace-relative file path. Parent directories are created automatically.",
+                "name": "Write",
+                "parameters": {
+                  "properties": {
+                    "content": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "content"
+                  ],
+                  "type": "object"
+                },
+                "type": "function"
+              },
+              {
+                "description": "Read one configuration object.",
+                "name": "ReadFlatConfig",
+                "parameters": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "path": {
+                      "description": "Workspace-relative file.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "type": "object"
+                },
+                "type": "function"
+              }
+            ]
+          },
+          {
+            "input": [
+              {
+                "content": [
+                  {
+                    "text": "You are commandagent, a local coding agent. Work only inside workspace `<ROOT>`.\nUse tools for file changes, repository facts, file inspection, build/test checks, and any action that changes the workspace.\nDo not end with planned future work. Do not claim files, tests, or builds succeeded unless you observed them with tools.\nUse workspace-relative paths only, and do not read or write outside the workspace.\nDo not claim completion until requested files and evidence are present.\n\nProfile guidance:\nWrite notes.txt.",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "system"
+              },
+              {
+                "content": [
+                  {
+                    "text": "Read the settings.",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "arguments": "{\"path\":\"settings.json\"}",
+                "call_id": "call_1",
+                "id": "fc_item_1",
+                "name": "ReadFlatConfig",
+                "status": "completed",
+                "type": "function_call"
+              },
+              {
+                "call_id": "call_1",
+                "output": "flat read of {\"path\":\"settings.json\"}",
+                "type": "function_call_output"
+              }
+            ],
+            "max_output_tokens": 100,
+            "model": "m",
+            "tools": [
+              {
+                "description": "Read a workspace-relative file path.",
+                "name": "Read",
+                "parameters": {
+                  "properties": {
+                    "end_line": {
+                      "type": "integer"
+                    },
+                    "path": {
+                      "type": "string"
+                    },
+                    "start_line": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "type": "object"
+                },
+                "type": "function"
+              },
+              {
+                "description": "Write a workspace-relative file path. Parent directories are created automatically.",
+                "name": "Write",
+                "parameters": {
+                  "properties": {
+                    "content": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "content"
+                  ],
+                  "type": "object"
+                },
+                "type": "function"
+              },
+              {
+                "description": "Read one configuration object.",
+                "name": "ReadFlatConfig",
+                "parameters": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "path": {
+                      "description": "Workspace-relative file.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "type": "object"
+                },
+                "type": "function"
+              }
+            ]
+          }
+        ],
+        "state_files": {},
+        "unused_replies": 0
+      }
+    },
+    {
+      "id": "text-and-call",
+      "observation": {
+        "artifacts": {
+          "settings.json": "{\"mode\":\"fast\"}"
+        },
+        "event_names": [
+          "step_obligation_scope",
+          "provider_request",
+          "provider_response",
+          "provider_turn_duration",
+          "context_truncation_suspected",
+          "tool_call_raw",
+          "extension_tool_call",
+          "extension_tool_result",
+          "tool_execute",
+          "provider_request",
+          "provider_response",
+          "provider_turn_duration",
+          "context_truncation_suspected"
+        ],
+        "events": [
+          {
+            "completion_contract_path_merge_enabled": true,
+            "completion_contract_paths": [],
+            "completion_contract_verification_enabled": true,
+            "contract_enforcement": "enforce",
+            "contract_paths_merged": false,
+            "effective_required_paths": [],
+            "event": "step_obligation_scope",
+            "explicit_required_paths": [],
+            "initially_missing_paths": [],
+            "phase_scope": "",
+            "prompt_extracted_paths": [],
+            "prompt_extracted_paths_enabled": true,
+            "schema_version": "1",
+            "session_scope": "minimal-loop",
+            "step_kind": ""
+          },
+          {
+            "api": "responses",
+            "event": "provider_request",
+            "model": "m",
+            "provider": "openai-compatible",
+            "schema_version": "1",
+            "tools": 3
+          },
+          {
+            "api": "responses",
+            "attempt": 1,
+            "event": "provider_response",
+            "model": "m",
+            "provider": "openai-compatible",
+            "reasoning_tokens": null,
+            "response_id": "resp_1",
+            "response_model": "m",
+            "schema_version": "1",
+            "system_fingerprint": null,
+            "tool_calls": 1
+          },
+          {
+            "aborted_by_user": false,
+            "caller_scope": "executor",
+            "duration_ms": "<N>",
+            "estimated_prompt_tokens_sent": "<N>",
+            "estimated_stable_prefix_chars": "<N>",
+            "eval_count": 5,
+            "eval_duration": null,
+            "event": "provider_turn_duration",
+            "finish_reason": "stop",
+            "generation_seconds": null,
+            "load_duration": null,
+            "load_seconds": null,
+            "model": "m",
+            "native_tools_enabled": true,
+            "num_predict": 100,
+            "ok": true,
+            "output_limit_reached": false,
+            "prefill_seconds": null,
+            "prompt_eval_count": 10,
+            "prompt_eval_duration": null,
+            "prompt_layout": "stable",
+            "provider": "openai-compatible",
+            "provider_created_epoch": null,
+            "provider_model_id": "m",
+            "provider_response_id": "resp_1",
+            "provider_service_tier": null,
+            "provider_total_tokens": 15,
+            "schema_version": "1",
+            "system_fingerprint": null,
+            "think": "omitted",
+            "timed_out": false,
+            "timeout_ms": 30000,
+            "timeout_secs": 30,
+            "timeout_source": "override:test",
+            "tokens_per_second_eval": null,
+            "tool_calls_in_response": 1,
+            "tools": 3,
+            "total_duration": null,
+            "write_or_edit_succeeded": false
+          },
+          {
+            "caller_scope": "executor",
+            "estimated_prompt_tokens_sent": "<N>",
+            "eval_count": 5,
+            "event": "context_truncation_suspected",
+            "finish_reason": "stop",
+            "level": "WARNING",
+            "model": "m",
+            "persistent_undercut_count": 3,
+            "prompt_eval_count": 10,
+            "provider": "openai-compatible",
+            "schema_version": "1",
+            "threshold_percent": 70
+          },
+          {
+            "arguments": {
+              "argument_keys": [
+                "path"
+              ],
+              "argument_summaries": {
+                "path": {
+                  "preview": "settings.json",
+                  "string_len": 13,
+                  "type": "string"
+                }
+              },
+              "arguments_type": "object"
+            },
+            "event": "tool_call_raw",
+            "name": "ReadFlatConfig",
+            "schema_version": "1"
+          },
+          {
+            "access": "read_only",
+            "arguments": {
+              "argument_keys": [
+                "path"
+              ],
+              "argument_summaries": {
+                "path": {
+                  "preview": "settings.json",
+                  "string_len": 13,
+                  "type": "string"
+                }
+              },
+              "arguments_type": "object"
+            },
+            "event": "extension_tool_call",
+            "name": "ReadFlatConfig",
+            "network_access": "none",
+            "schema_version": "1",
+            "transport": "profile_tool"
+          },
+          {
+            "access": "read_only",
+            "event": "extension_tool_result",
+            "name": "ReadFlatConfig",
+            "ok": true,
+            "reason": null,
+            "result_bytes": 37,
+            "schema_version": "1",
+            "transport": "profile_tool"
+          },
+          {
+            "event": "tool_execute",
+            "name": "ReadFlatConfig",
+            "schema_version": "1",
+            "status": "ok"
+          },
+          {
+            "api": "responses",
+            "event": "provider_request",
+            "model": "m",
+            "provider": "openai-compatible",
+            "schema_version": "1",
+            "tools": 3
+          },
+          {
+            "api": "responses",
+            "attempt": 1,
+            "event": "provider_response",
+            "model": "m",
+            "provider": "openai-compatible",
+            "reasoning_tokens": null,
+            "response_id": "resp_2",
+            "response_model": "m",
+            "schema_version": "1",
+            "system_fingerprint": null,
+            "tool_calls": 0
+          },
+          {
+            "aborted_by_user": false,
+            "caller_scope": "executor",
+            "duration_ms": "<N>",
+            "estimated_prompt_tokens_sent": "<N>",
+            "estimated_stable_prefix_chars": "<N>",
+            "eval_count": 5,
+            "eval_duration": null,
+            "event": "provider_turn_duration",
+            "finish_reason": "stop",
+            "generation_seconds": null,
+            "load_duration": null,
+            "load_seconds": null,
+            "model": "m",
+            "native_tools_enabled": true,
+            "num_predict": 100,
+            "ok": true,
+            "output_limit_reached": false,
+            "prefill_seconds": null,
+            "prompt_eval_count": 10,
+            "prompt_eval_duration": null,
+            "prompt_layout": "stable",
+            "provider": "openai-compatible",
+            "provider_created_epoch": null,
+            "provider_model_id": "m",
+            "provider_response_id": "resp_2",
+            "provider_service_tier": null,
+            "provider_total_tokens": 15,
+            "schema_version": "1",
+            "system_fingerprint": null,
+            "think": "omitted",
+            "timed_out": false,
+            "timeout_ms": 30000,
+            "timeout_secs": 30,
+            "timeout_source": "override:test",
+            "tokens_per_second_eval": null,
+            "tool_calls_in_response": 0,
+            "tools": 3,
+            "total_duration": null,
+            "write_or_edit_succeeded": false
+          },
+          {
+            "caller_scope": "executor",
+            "estimated_prompt_tokens_sent": "<N>",
+            "eval_count": 5,
+            "event": "context_truncation_suspected",
+            "finish_reason": "stop",
+            "level": "WARNING",
+            "model": "m",
+            "persistent_undercut_count": 4,
+            "prompt_eval_count": 10,
+            "provider": "openai-compatible",
+            "schema_version": "1",
+            "threshold_percent": 70
+          }
+        ],
+        "history": {
+          "id": "<UUID-1>",
+          "messages": [
+            {
+              "content": "Read the settings.",
+              "role": "user",
+              "tool_calls": []
+            },
+            {
+              "content": "Reading the settings first. fake-dummy-credential-973-not-a-real-key",
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "arguments": {
+                    "path": "settings.json"
+                  },
+                  "id": "call_1",
+                  "name": "ReadFlatConfig"
+                }
+              ]
+            },
+            {
+              "content": "flat read of {\"path\":\"settings.json\"}",
+              "name": "ReadFlatConfig",
+              "role": "tool",
+              "tool_call_id": "call_1",
+              "tool_calls": []
+            },
+            {
+              "content": "done",
+              "role": "assistant",
+              "tool_calls": []
+            }
+          ],
+          "native_tools_disabled": false,
+          "schema_version": 1
+        },
+        "outcome": {
+          "ok": {
+            "changed_paths": [],
+            "final_text": "done",
+            "iterations": 2,
+            "stop_reason": "AssistantFinal",
+            "tool_calls": 1
+          }
+        },
+        "replies": [
+          {
+            "id": "resp_1",
+            "model": "m",
+            "object": "response",
+            "output": [
+              {
+                "content": [
+                  {
+                    "annotations": [],
+                    "text": "Reading the settings first. fake-dummy-credential-973-not-a-real-key",
+                    "type": "output_text"
+                  }
+                ],
+                "id": "msg_1",
+                "role": "assistant",
+                "status": "completed",
+                "type": "message"
+              },
+              {
+                "arguments": "{\"path\":\"settings.json\"}",
+                "call_id": "call_1",
+                "id": "fc_item_1",
+                "name": "ReadFlatConfig",
+                "status": "completed",
+                "type": "function_call"
+              }
+            ],
+            "status": "completed",
+            "usage": {
+              "input_tokens": 10,
+              "output_tokens": 5,
+              "total_tokens": 15
+            }
+          },
+          {
+            "id": "resp_2",
+            "model": "m",
+            "object": "response",
+            "output": [
+              {
+                "content": [
+                  {
+                    "annotations": [],
+                    "text": "done",
+                    "type": "output_text"
+                  }
+                ],
+                "id": "msg_done",
+                "role": "assistant",
+                "status": "completed",
+                "type": "message"
+              }
+            ],
+            "status": "completed",
+            "usage": {
+              "input_tokens": 10,
+              "output_tokens": 5,
+              "total_tokens": 15
+            }
+          }
+        ],
+        "request_count": 2,
+        "requests": [
+          {
+            "input": [
+              {
+                "content": [
+                  {
+                    "text": "You are commandagent, a local coding agent. Work only inside workspace `<ROOT>`.\nUse tools for file changes, repository facts, file inspection, build/test checks, and any action that changes the workspace.\nDo not end with planned future work. Do not claim files, tests, or builds succeeded unless you observed them with tools.\nUse workspace-relative paths only, and do not read or write outside the workspace.\nDo not claim completion until requested files and evidence are present.\n\nProfile guidance:\nWrite notes.txt.",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "system"
+              },
+              {
+                "content": [
+                  {
+                    "text": "Read the settings.",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "user"
+              }
+            ],
+            "max_output_tokens": 100,
+            "model": "m",
+            "tools": [
+              {
+                "description": "Read a workspace-relative file path.",
+                "name": "Read",
+                "parameters": {
+                  "properties": {
+                    "end_line": {
+                      "type": "integer"
+                    },
+                    "path": {
+                      "type": "string"
+                    },
+                    "start_line": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "type": "object"
+                },
+                "type": "function"
+              },
+              {
+                "description": "Write a workspace-relative file path. Parent directories are created automatically.",
+                "name": "Write",
+                "parameters": {
+                  "properties": {
+                    "content": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "content"
+                  ],
+                  "type": "object"
+                },
+                "type": "function"
+              },
+              {
+                "description": "Read one configuration object.",
+                "name": "ReadFlatConfig",
+                "parameters": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "path": {
+                      "description": "Workspace-relative file.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "type": "object"
+                },
+                "type": "function"
+              }
+            ]
+          },
+          {
+            "input": [
+              {
+                "content": [
+                  {
+                    "text": "You are commandagent, a local coding agent. Work only inside workspace `<ROOT>`.\nUse tools for file changes, repository facts, file inspection, build/test checks, and any action that changes the workspace.\nDo not end with planned future work. Do not claim files, tests, or builds succeeded unless you observed them with tools.\nUse workspace-relative paths only, and do not read or write outside the workspace.\nDo not claim completion until requested files and evidence are present.\n\nProfile guidance:\nWrite notes.txt.",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "system"
+              },
+              {
+                "content": [
+                  {
+                    "text": "Read the settings.",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "arguments": "{\"path\":\"settings.json\"}",
+                "call_id": "call_1",
+                "name": "ReadFlatConfig",
+                "type": "function_call"
+              },
+              {
+                "call_id": "call_1",
+                "output": "flat read of {\"path\":\"settings.json\"}",
+                "type": "function_call_output"
+              }
+            ],
+            "max_output_tokens": 100,
+            "model": "m",
+            "tools": [
+              {
+                "description": "Read a workspace-relative file path.",
+                "name": "Read",
+                "parameters": {
+                  "properties": {
+                    "end_line": {
+                      "type": "integer"
+                    },
+                    "path": {
+                      "type": "string"
+                    },
+                    "start_line": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "type": "object"
+                },
+                "type": "function"
+              },
+              {
+                "description": "Write a workspace-relative file path. Parent directories are created automatically.",
+                "name": "Write",
+                "parameters": {
+                  "properties": {
+                    "content": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "content"
+                  ],
+                  "type": "object"
+                },
+                "type": "function"
+              },
+              {
+                "description": "Read one configuration object.",
+                "name": "ReadFlatConfig",
+                "parameters": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "path": {
+                      "description": "Workspace-relative file.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "type": "object"
+                },
+                "type": "function"
+              }
+            ]
+          }
+        ],
+        "state_files": {},
+        "unused_replies": 0
+      }
+    },
+    {
+      "id": "reasoning-item",
+      "observation": {
+        "artifacts": {
+          "settings.json": "{\"mode\":\"fast\"}"
+        },
+        "event_names": [
+          "step_obligation_scope",
+          "provider_request",
+          "provider_response",
+          "provider_turn_duration",
+          "context_truncation_suspected",
+          "tool_call_raw",
+          "extension_tool_call",
+          "extension_tool_result",
+          "tool_execute",
+          "provider_request",
+          "provider_response",
+          "provider_turn_duration",
+          "context_truncation_suspected"
+        ],
+        "events": [
+          {
+            "completion_contract_path_merge_enabled": true,
+            "completion_contract_paths": [],
+            "completion_contract_verification_enabled": true,
+            "contract_enforcement": "enforce",
+            "contract_paths_merged": false,
+            "effective_required_paths": [],
+            "event": "step_obligation_scope",
+            "explicit_required_paths": [],
+            "initially_missing_paths": [],
+            "phase_scope": "",
+            "prompt_extracted_paths": [],
+            "prompt_extracted_paths_enabled": true,
+            "schema_version": "1",
+            "session_scope": "minimal-loop",
+            "step_kind": ""
+          },
+          {
+            "api": "responses",
+            "event": "provider_request",
+            "model": "m",
+            "provider": "openai-compatible",
+            "schema_version": "1",
+            "tools": 3
+          },
+          {
+            "api": "responses",
+            "attempt": 1,
+            "event": "provider_response",
+            "model": "m",
+            "provider": "openai-compatible",
+            "reasoning_tokens": null,
+            "response_id": "resp_1",
+            "response_model": "m",
+            "schema_version": "1",
+            "system_fingerprint": null,
+            "tool_calls": 1
+          },
+          {
+            "aborted_by_user": false,
+            "caller_scope": "executor",
+            "duration_ms": "<N>",
+            "estimated_prompt_tokens_sent": "<N>",
+            "estimated_stable_prefix_chars": "<N>",
+            "eval_count": 5,
+            "eval_duration": null,
+            "event": "provider_turn_duration",
+            "finish_reason": "stop",
+            "generation_seconds": null,
+            "load_duration": null,
+            "load_seconds": null,
+            "model": "m",
+            "native_tools_enabled": true,
+            "num_predict": 100,
+            "ok": true,
+            "output_limit_reached": false,
+            "prefill_seconds": null,
+            "prompt_eval_count": 10,
+            "prompt_eval_duration": null,
+            "prompt_layout": "stable",
+            "provider": "openai-compatible",
+            "provider_created_epoch": null,
+            "provider_model_id": "m",
+            "provider_response_id": "resp_1",
+            "provider_service_tier": null,
+            "provider_total_tokens": 15,
+            "schema_version": "1",
+            "system_fingerprint": null,
+            "think": "omitted",
+            "timed_out": false,
+            "timeout_ms": 30000,
+            "timeout_secs": 30,
+            "timeout_source": "override:test",
+            "tokens_per_second_eval": null,
+            "tool_calls_in_response": 1,
+            "tools": 3,
+            "total_duration": null,
+            "write_or_edit_succeeded": false
+          },
+          {
+            "caller_scope": "executor",
+            "estimated_prompt_tokens_sent": "<N>",
+            "eval_count": 5,
+            "event": "context_truncation_suspected",
+            "finish_reason": "stop",
+            "level": "WARNING",
+            "model": "m",
+            "persistent_undercut_count": 5,
+            "prompt_eval_count": 10,
+            "provider": "openai-compatible",
+            "schema_version": "1",
+            "threshold_percent": 70
+          },
+          {
+            "arguments": {
+              "argument_keys": [
+                "path"
+              ],
+              "argument_summaries": {
+                "path": {
+                  "preview": "settings.json",
+                  "string_len": 13,
+                  "type": "string"
+                }
+              },
+              "arguments_type": "object"
+            },
+            "event": "tool_call_raw",
+            "name": "ReadFlatConfig",
+            "schema_version": "1"
+          },
+          {
+            "access": "read_only",
+            "arguments": {
+              "argument_keys": [
+                "path"
+              ],
+              "argument_summaries": {
+                "path": {
+                  "preview": "settings.json",
+                  "string_len": 13,
+                  "type": "string"
+                }
+              },
+              "arguments_type": "object"
+            },
+            "event": "extension_tool_call",
+            "name": "ReadFlatConfig",
+            "network_access": "none",
+            "schema_version": "1",
+            "transport": "profile_tool"
+          },
+          {
+            "access": "read_only",
+            "event": "extension_tool_result",
+            "name": "ReadFlatConfig",
+            "ok": true,
+            "reason": null,
+            "result_bytes": 37,
+            "schema_version": "1",
+            "transport": "profile_tool"
+          },
+          {
+            "event": "tool_execute",
+            "name": "ReadFlatConfig",
+            "schema_version": "1",
+            "status": "ok"
+          },
+          {
+            "api": "responses",
+            "event": "provider_request",
+            "model": "m",
+            "provider": "openai-compatible",
+            "schema_version": "1",
+            "tools": 3
+          },
+          {
+            "api": "responses",
+            "attempt": 1,
+            "event": "provider_response",
+            "model": "m",
+            "provider": "openai-compatible",
+            "reasoning_tokens": null,
+            "response_id": "resp_2",
+            "response_model": "m",
+            "schema_version": "1",
+            "system_fingerprint": null,
+            "tool_calls": 0
+          },
+          {
+            "aborted_by_user": false,
+            "caller_scope": "executor",
+            "duration_ms": "<N>",
+            "estimated_prompt_tokens_sent": "<N>",
+            "estimated_stable_prefix_chars": "<N>",
+            "eval_count": 5,
+            "eval_duration": null,
+            "event": "provider_turn_duration",
+            "finish_reason": "stop",
+            "generation_seconds": null,
+            "load_duration": null,
+            "load_seconds": null,
+            "model": "m",
+            "native_tools_enabled": true,
+            "num_predict": 100,
+            "ok": true,
+            "output_limit_reached": false,
+            "prefill_seconds": null,
+            "prompt_eval_count": 10,
+            "prompt_eval_duration": null,
+            "prompt_layout": "stable",
+            "provider": "openai-compatible",
+            "provider_created_epoch": null,
+            "provider_model_id": "m",
+            "provider_response_id": "resp_2",
+            "provider_service_tier": null,
+            "provider_total_tokens": 15,
+            "schema_version": "1",
+            "system_fingerprint": null,
+            "think": "omitted",
+            "timed_out": false,
+            "timeout_ms": 30000,
+            "timeout_secs": 30,
+            "timeout_source": "override:test",
+            "tokens_per_second_eval": null,
+            "tool_calls_in_response": 0,
+            "tools": 3,
+            "total_duration": null,
+            "write_or_edit_succeeded": false
+          },
+          {
+            "caller_scope": "executor",
+            "estimated_prompt_tokens_sent": "<N>",
+            "eval_count": 5,
+            "event": "context_truncation_suspected",
+            "finish_reason": "stop",
+            "level": "WARNING",
+            "model": "m",
+            "persistent_undercut_count": 6,
+            "prompt_eval_count": 10,
+            "provider": "openai-compatible",
+            "schema_version": "1",
+            "threshold_percent": 70
+          }
+        ],
+        "history": {
+          "id": "<UUID-1>",
+          "messages": [
+            {
+              "content": "Read the settings.",
+              "role": "user",
+              "tool_calls": []
+            },
+            {
+              "content": "",
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "arguments": {
+                    "path": "settings.json"
+                  },
+                  "id": "call_1",
+                  "name": "ReadFlatConfig"
+                }
+              ]
+            },
+            {
+              "content": "flat read of {\"path\":\"settings.json\"}",
+              "name": "ReadFlatConfig",
+              "role": "tool",
+              "tool_call_id": "call_1",
+              "tool_calls": []
+            },
+            {
+              "content": "done",
+              "role": "assistant",
+              "tool_calls": []
+            }
+          ],
+          "native_tools_disabled": false,
+          "schema_version": 1
+        },
+        "outcome": {
+          "ok": {
+            "changed_paths": [],
+            "final_text": "done",
+            "iterations": 2,
+            "stop_reason": "AssistantFinal",
+            "tool_calls": 1
+          }
+        },
+        "replies": [
+          {
+            "id": "resp_1",
+            "model": "m",
+            "object": "response",
+            "output": [
+              {
+                "encrypted_content": "opaque-dummy-encrypted-content-0000",
+                "id": "rs_1",
+                "summary": [
+                  {
+                    "text": "dummy-summary-SECRET-sk-test-0000 fake-dummy-credential-973-not-a-real-key",
+                    "type": "summary_text"
+                  }
+                ],
+                "type": "reasoning"
+              },
+              {
+                "arguments": "{\"path\":\"settings.json\"}",
+                "call_id": "call_1",
+                "id": "fc_item_1",
+                "name": "ReadFlatConfig",
+                "status": "completed",
+                "type": "function_call"
+              }
+            ],
+            "status": "completed",
+            "usage": {
+              "input_tokens": 10,
+              "output_tokens": 5,
+              "total_tokens": 15
+            }
+          },
+          {
+            "id": "resp_2",
+            "model": "m",
+            "object": "response",
+            "output": [
+              {
+                "content": [
+                  {
+                    "annotations": [],
+                    "text": "done",
+                    "type": "output_text"
+                  }
+                ],
+                "id": "msg_done",
+                "role": "assistant",
+                "status": "completed",
+                "type": "message"
+              }
+            ],
+            "status": "completed",
+            "usage": {
+              "input_tokens": 10,
+              "output_tokens": 5,
+              "total_tokens": 15
+            }
+          }
+        ],
+        "request_count": 2,
+        "requests": [
+          {
+            "input": [
+              {
+                "content": [
+                  {
+                    "text": "You are commandagent, a local coding agent. Work only inside workspace `<ROOT>`.\nUse tools for file changes, repository facts, file inspection, build/test checks, and any action that changes the workspace.\nDo not end with planned future work. Do not claim files, tests, or builds succeeded unless you observed them with tools.\nUse workspace-relative paths only, and do not read or write outside the workspace.\nDo not claim completion until requested files and evidence are present.\n\nProfile guidance:\nWrite notes.txt.",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "system"
+              },
+              {
+                "content": [
+                  {
+                    "text": "Read the settings.",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "user"
+              }
+            ],
+            "max_output_tokens": 100,
+            "model": "m",
+            "tools": [
+              {
+                "description": "Read a workspace-relative file path.",
+                "name": "Read",
+                "parameters": {
+                  "properties": {
+                    "end_line": {
+                      "type": "integer"
+                    },
+                    "path": {
+                      "type": "string"
+                    },
+                    "start_line": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "type": "object"
+                },
+                "type": "function"
+              },
+              {
+                "description": "Write a workspace-relative file path. Parent directories are created automatically.",
+                "name": "Write",
+                "parameters": {
+                  "properties": {
+                    "content": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "content"
+                  ],
+                  "type": "object"
+                },
+                "type": "function"
+              },
+              {
+                "description": "Read one configuration object.",
+                "name": "ReadFlatConfig",
+                "parameters": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "path": {
+                      "description": "Workspace-relative file.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "type": "object"
+                },
+                "type": "function"
+              }
+            ]
+          },
+          {
+            "input": [
+              {
+                "content": [
+                  {
+                    "text": "You are commandagent, a local coding agent. Work only inside workspace `<ROOT>`.\nUse tools for file changes, repository facts, file inspection, build/test checks, and any action that changes the workspace.\nDo not end with planned future work. Do not claim files, tests, or builds succeeded unless you observed them with tools.\nUse workspace-relative paths only, and do not read or write outside the workspace.\nDo not claim completion until requested files and evidence are present.\n\nProfile guidance:\nWrite notes.txt.",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "system"
+              },
+              {
+                "content": [
+                  {
+                    "text": "Read the settings.",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "encrypted_content": "opaque-dummy-encrypted-content-0000",
+                "id": "rs_1",
+                "summary": [
+                  {
+                    "text": "dummy-summary-SECRET-sk-test-0000 fake-dummy-credential-973-not-a-real-key",
+                    "type": "summary_text"
+                  }
+                ],
+                "type": "reasoning"
+              },
+              {
+                "arguments": "{\"path\":\"settings.json\"}",
+                "call_id": "call_1",
+                "id": "fc_item_1",
+                "name": "ReadFlatConfig",
+                "status": "completed",
+                "type": "function_call"
+              },
+              {
+                "call_id": "call_1",
+                "output": "flat read of {\"path\":\"settings.json\"}",
+                "type": "function_call_output"
+              }
+            ],
+            "max_output_tokens": 100,
+            "model": "m",
+            "tools": [
+              {
+                "description": "Read a workspace-relative file path.",
+                "name": "Read",
+                "parameters": {
+                  "properties": {
+                    "end_line": {
+                      "type": "integer"
+                    },
+                    "path": {
+                      "type": "string"
+                    },
+                    "start_line": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "type": "object"
+                },
+                "type": "function"
+              },
+              {
+                "description": "Write a workspace-relative file path. Parent directories are created automatically.",
+                "name": "Write",
+                "parameters": {
+                  "properties": {
+                    "content": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "content"
+                  ],
+                  "type": "object"
+                },
+                "type": "function"
+              },
+              {
+                "description": "Read one configuration object.",
+                "name": "ReadFlatConfig",
+                "parameters": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "path": {
+                      "description": "Workspace-relative file.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "type": "object"
+                },
+                "type": "function"
+              }
+            ]
+          }
+        ],
+        "state_files": {},
+        "unused_replies": 0
+      }
+    },
+    {
+      "id": "unknown-item",
+      "observation": {
+        "artifacts": {
+          "settings.json": "{\"mode\":\"fast\"}"
+        },
+        "event_names": [
+          "step_obligation_scope",
+          "provider_request",
+          "provider_response",
+          "provider_turn_duration",
+          "context_truncation_suspected",
+          "tool_call_raw",
+          "extension_tool_call",
+          "extension_tool_result",
+          "tool_execute",
+          "provider_request",
+          "provider_response",
+          "provider_turn_duration",
+          "context_truncation_suspected"
+        ],
+        "events": [
+          {
+            "completion_contract_path_merge_enabled": true,
+            "completion_contract_paths": [],
+            "completion_contract_verification_enabled": true,
+            "contract_enforcement": "enforce",
+            "contract_paths_merged": false,
+            "effective_required_paths": [],
+            "event": "step_obligation_scope",
+            "explicit_required_paths": [],
+            "initially_missing_paths": [],
+            "phase_scope": "",
+            "prompt_extracted_paths": [],
+            "prompt_extracted_paths_enabled": true,
+            "schema_version": "1",
+            "session_scope": "minimal-loop",
+            "step_kind": ""
+          },
+          {
+            "api": "responses",
+            "event": "provider_request",
+            "model": "m",
+            "provider": "openai-compatible",
+            "schema_version": "1",
+            "tools": 3
+          },
+          {
+            "api": "responses",
+            "attempt": 1,
+            "event": "provider_response",
+            "model": "m",
+            "provider": "openai-compatible",
+            "reasoning_tokens": null,
+            "response_id": "resp_1",
+            "response_model": "m",
+            "schema_version": "1",
+            "system_fingerprint": null,
+            "tool_calls": 1
+          },
+          {
+            "aborted_by_user": false,
+            "caller_scope": "executor",
+            "duration_ms": "<N>",
+            "estimated_prompt_tokens_sent": "<N>",
+            "estimated_stable_prefix_chars": "<N>",
+            "eval_count": 5,
+            "eval_duration": null,
+            "event": "provider_turn_duration",
+            "finish_reason": "stop",
+            "generation_seconds": null,
+            "load_duration": null,
+            "load_seconds": null,
+            "model": "m",
+            "native_tools_enabled": true,
+            "num_predict": 100,
+            "ok": true,
+            "output_limit_reached": false,
+            "prefill_seconds": null,
+            "prompt_eval_count": 10,
+            "prompt_eval_duration": null,
+            "prompt_layout": "stable",
+            "provider": "openai-compatible",
+            "provider_created_epoch": null,
+            "provider_model_id": "m",
+            "provider_response_id": "resp_1",
+            "provider_service_tier": null,
+            "provider_total_tokens": 15,
+            "schema_version": "1",
+            "system_fingerprint": null,
+            "think": "omitted",
+            "timed_out": false,
+            "timeout_ms": 30000,
+            "timeout_secs": 30,
+            "timeout_source": "override:test",
+            "tokens_per_second_eval": null,
+            "tool_calls_in_response": 1,
+            "tools": 3,
+            "total_duration": null,
+            "write_or_edit_succeeded": false
+          },
+          {
+            "caller_scope": "executor",
+            "estimated_prompt_tokens_sent": "<N>",
+            "eval_count": 5,
+            "event": "context_truncation_suspected",
+            "finish_reason": "stop",
+            "level": "WARNING",
+            "model": "m",
+            "persistent_undercut_count": 7,
+            "prompt_eval_count": 10,
+            "provider": "openai-compatible",
+            "schema_version": "1",
+            "threshold_percent": 70
+          },
+          {
+            "arguments": {
+              "argument_keys": [
+                "path"
+              ],
+              "argument_summaries": {
+                "path": {
+                  "preview": "settings.json",
+                  "string_len": 13,
+                  "type": "string"
+                }
+              },
+              "arguments_type": "object"
+            },
+            "event": "tool_call_raw",
+            "name": "ReadFlatConfig",
+            "schema_version": "1"
+          },
+          {
+            "access": "read_only",
+            "arguments": {
+              "argument_keys": [
+                "path"
+              ],
+              "argument_summaries": {
+                "path": {
+                  "preview": "settings.json",
+                  "string_len": 13,
+                  "type": "string"
+                }
+              },
+              "arguments_type": "object"
+            },
+            "event": "extension_tool_call",
+            "name": "ReadFlatConfig",
+            "network_access": "none",
+            "schema_version": "1",
+            "transport": "profile_tool"
+          },
+          {
+            "access": "read_only",
+            "event": "extension_tool_result",
+            "name": "ReadFlatConfig",
+            "ok": true,
+            "reason": null,
+            "result_bytes": 37,
+            "schema_version": "1",
+            "transport": "profile_tool"
+          },
+          {
+            "event": "tool_execute",
+            "name": "ReadFlatConfig",
+            "schema_version": "1",
+            "status": "ok"
+          },
+          {
+            "api": "responses",
+            "event": "provider_request",
+            "model": "m",
+            "provider": "openai-compatible",
+            "schema_version": "1",
+            "tools": 3
+          },
+          {
+            "api": "responses",
+            "attempt": 1,
+            "event": "provider_response",
+            "model": "m",
+            "provider": "openai-compatible",
+            "reasoning_tokens": null,
+            "response_id": "resp_2",
+            "response_model": "m",
+            "schema_version": "1",
+            "system_fingerprint": null,
+            "tool_calls": 0
+          },
+          {
+            "aborted_by_user": false,
+            "caller_scope": "executor",
+            "duration_ms": "<N>",
+            "estimated_prompt_tokens_sent": "<N>",
+            "estimated_stable_prefix_chars": "<N>",
+            "eval_count": 5,
+            "eval_duration": null,
+            "event": "provider_turn_duration",
+            "finish_reason": "stop",
+            "generation_seconds": null,
+            "load_duration": null,
+            "load_seconds": null,
+            "model": "m",
+            "native_tools_enabled": true,
+            "num_predict": 100,
+            "ok": true,
+            "output_limit_reached": false,
+            "prefill_seconds": null,
+            "prompt_eval_count": 10,
+            "prompt_eval_duration": null,
+            "prompt_layout": "stable",
+            "provider": "openai-compatible",
+            "provider_created_epoch": null,
+            "provider_model_id": "m",
+            "provider_response_id": "resp_2",
+            "provider_service_tier": null,
+            "provider_total_tokens": 15,
+            "schema_version": "1",
+            "system_fingerprint": null,
+            "think": "omitted",
+            "timed_out": false,
+            "timeout_ms": 30000,
+            "timeout_secs": 30,
+            "timeout_source": "override:test",
+            "tokens_per_second_eval": null,
+            "tool_calls_in_response": 0,
+            "tools": 3,
+            "total_duration": null,
+            "write_or_edit_succeeded": false
+          },
+          {
+            "caller_scope": "executor",
+            "estimated_prompt_tokens_sent": "<N>",
+            "eval_count": 5,
+            "event": "context_truncation_suspected",
+            "finish_reason": "stop",
+            "level": "WARNING",
+            "model": "m",
+            "persistent_undercut_count": 8,
+            "prompt_eval_count": 10,
+            "provider": "openai-compatible",
+            "schema_version": "1",
+            "threshold_percent": 70
+          }
+        ],
+        "history": {
+          "id": "<UUID-1>",
+          "messages": [
+            {
+              "content": "Read the settings.",
+              "role": "user",
+              "tool_calls": []
+            },
+            {
+              "content": "",
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "arguments": {
+                    "path": "settings.json"
+                  },
+                  "id": "call_1",
+                  "name": "ReadFlatConfig"
+                }
+              ]
+            },
+            {
+              "content": "flat read of {\"path\":\"settings.json\"}",
+              "name": "ReadFlatConfig",
+              "role": "tool",
+              "tool_call_id": "call_1",
+              "tool_calls": []
+            },
+            {
+              "content": "done",
+              "role": "assistant",
+              "tool_calls": []
+            }
+          ],
+          "native_tools_disabled": false,
+          "schema_version": 1
+        },
+        "outcome": {
+          "ok": {
+            "changed_paths": [],
+            "final_text": "done",
+            "iterations": 2,
+            "stop_reason": "AssistantFinal",
+            "tool_calls": 1
+          }
+        },
+        "replies": [
+          {
+            "id": "resp_1",
+            "model": "m",
+            "object": "response",
+            "output": [
+              {
+                "dummy_field": "dummy-unknown-SECRET-0000 fake-dummy-credential-973-not-a-real-key",
+                "dummy_object": {
+                  "dummy_nested": "dummy-unknown-nested-0000"
+                },
+                "id": "unk_1",
+                "type": "dummy_unknown_item"
+              },
+              {
+                "arguments": "{\"path\":\"settings.json\"}",
+                "call_id": "call_1",
+                "id": "fc_item_1",
+                "name": "ReadFlatConfig",
+                "status": "completed",
+                "type": "function_call"
+              }
+            ],
+            "status": "completed",
+            "usage": {
+              "input_tokens": 10,
+              "output_tokens": 5,
+              "total_tokens": 15
+            }
+          },
+          {
+            "id": "resp_2",
+            "model": "m",
+            "object": "response",
+            "output": [
+              {
+                "content": [
+                  {
+                    "annotations": [],
+                    "text": "done",
+                    "type": "output_text"
+                  }
+                ],
+                "id": "msg_done",
+                "role": "assistant",
+                "status": "completed",
+                "type": "message"
+              }
+            ],
+            "status": "completed",
+            "usage": {
+              "input_tokens": 10,
+              "output_tokens": 5,
+              "total_tokens": 15
+            }
+          }
+        ],
+        "request_count": 2,
+        "requests": [
+          {
+            "input": [
+              {
+                "content": [
+                  {
+                    "text": "You are commandagent, a local coding agent. Work only inside workspace `<ROOT>`.\nUse tools for file changes, repository facts, file inspection, build/test checks, and any action that changes the workspace.\nDo not end with planned future work. Do not claim files, tests, or builds succeeded unless you observed them with tools.\nUse workspace-relative paths only, and do not read or write outside the workspace.\nDo not claim completion until requested files and evidence are present.\n\nProfile guidance:\nWrite notes.txt.",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "system"
+              },
+              {
+                "content": [
+                  {
+                    "text": "Read the settings.",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "user"
+              }
+            ],
+            "max_output_tokens": 100,
+            "model": "m",
+            "tools": [
+              {
+                "description": "Read a workspace-relative file path.",
+                "name": "Read",
+                "parameters": {
+                  "properties": {
+                    "end_line": {
+                      "type": "integer"
+                    },
+                    "path": {
+                      "type": "string"
+                    },
+                    "start_line": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "type": "object"
+                },
+                "type": "function"
+              },
+              {
+                "description": "Write a workspace-relative file path. Parent directories are created automatically.",
+                "name": "Write",
+                "parameters": {
+                  "properties": {
+                    "content": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "content"
+                  ],
+                  "type": "object"
+                },
+                "type": "function"
+              },
+              {
+                "description": "Read one configuration object.",
+                "name": "ReadFlatConfig",
+                "parameters": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "path": {
+                      "description": "Workspace-relative file.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "type": "object"
+                },
+                "type": "function"
+              }
+            ]
+          },
+          {
+            "input": [
+              {
+                "content": [
+                  {
+                    "text": "You are commandagent, a local coding agent. Work only inside workspace `<ROOT>`.\nUse tools for file changes, repository facts, file inspection, build/test checks, and any action that changes the workspace.\nDo not end with planned future work. Do not claim files, tests, or builds succeeded unless you observed them with tools.\nUse workspace-relative paths only, and do not read or write outside the workspace.\nDo not claim completion until requested files and evidence are present.\n\nProfile guidance:\nWrite notes.txt.",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "system"
+              },
+              {
+                "content": [
+                  {
+                    "text": "Read the settings.",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "dummy_field": "dummy-unknown-SECRET-0000 fake-dummy-credential-973-not-a-real-key",
+                "dummy_object": {
+                  "dummy_nested": "dummy-unknown-nested-0000"
+                },
+                "id": "unk_1",
+                "type": "dummy_unknown_item"
+              },
+              {
+                "arguments": "{\"path\":\"settings.json\"}",
+                "call_id": "call_1",
+                "id": "fc_item_1",
+                "name": "ReadFlatConfig",
+                "status": "completed",
+                "type": "function_call"
+              },
+              {
+                "call_id": "call_1",
+                "output": "flat read of {\"path\":\"settings.json\"}",
+                "type": "function_call_output"
+              }
+            ],
+            "max_output_tokens": 100,
+            "model": "m",
+            "tools": [
+              {
+                "description": "Read a workspace-relative file path.",
+                "name": "Read",
+                "parameters": {
+                  "properties": {
+                    "end_line": {
+                      "type": "integer"
+                    },
+                    "path": {
+                      "type": "string"
+                    },
+                    "start_line": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "type": "object"
+                },
+                "type": "function"
+              },
+              {
+                "description": "Write a workspace-relative file path. Parent directories are created automatically.",
+                "name": "Write",
+                "parameters": {
+                  "properties": {
+                    "content": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "content"
+                  ],
+                  "type": "object"
+                },
+                "type": "function"
+              },
+              {
+                "description": "Read one configuration object.",
+                "name": "ReadFlatConfig",
+                "parameters": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "path": {
+                      "description": "Workspace-relative file.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "type": "object"
+                },
+                "type": "function"
+              }
+            ]
+          }
+        ],
+        "state_files": {},
+        "unused_replies": 0
+      }
+    },
+    {
+      "id": "all-items-in-one-response",
+      "observation": {
+        "artifacts": {
+          "settings.json": "{\"mode\":\"fast\"}"
+        },
+        "event_names": [
+          "step_obligation_scope",
+          "provider_request",
+          "provider_response",
+          "provider_turn_duration",
+          "context_truncation_suspected",
+          "tool_call_raw",
+          "extension_tool_call",
+          "extension_tool_result",
+          "tool_execute",
+          "provider_request",
+          "provider_response",
+          "provider_turn_duration",
+          "context_truncation_suspected"
+        ],
+        "events": [
+          {
+            "completion_contract_path_merge_enabled": true,
+            "completion_contract_paths": [],
+            "completion_contract_verification_enabled": true,
+            "contract_enforcement": "enforce",
+            "contract_paths_merged": false,
+            "effective_required_paths": [],
+            "event": "step_obligation_scope",
+            "explicit_required_paths": [],
+            "initially_missing_paths": [],
+            "phase_scope": "",
+            "prompt_extracted_paths": [],
+            "prompt_extracted_paths_enabled": true,
+            "schema_version": "1",
+            "session_scope": "minimal-loop",
+            "step_kind": ""
+          },
+          {
+            "api": "responses",
+            "event": "provider_request",
+            "model": "m",
+            "provider": "openai-compatible",
+            "schema_version": "1",
+            "tools": 3
+          },
+          {
+            "api": "responses",
+            "attempt": 1,
+            "event": "provider_response",
+            "model": "m",
+            "provider": "openai-compatible",
+            "reasoning_tokens": null,
+            "response_id": "resp_1",
+            "response_model": "m",
+            "schema_version": "1",
+            "system_fingerprint": null,
+            "tool_calls": 1
+          },
+          {
+            "aborted_by_user": false,
+            "caller_scope": "executor",
+            "duration_ms": "<N>",
+            "estimated_prompt_tokens_sent": "<N>",
+            "estimated_stable_prefix_chars": "<N>",
+            "eval_count": 5,
+            "eval_duration": null,
+            "event": "provider_turn_duration",
+            "finish_reason": "stop",
+            "generation_seconds": null,
+            "load_duration": null,
+            "load_seconds": null,
+            "model": "m",
+            "native_tools_enabled": true,
+            "num_predict": 100,
+            "ok": true,
+            "output_limit_reached": false,
+            "prefill_seconds": null,
+            "prompt_eval_count": 10,
+            "prompt_eval_duration": null,
+            "prompt_layout": "stable",
+            "provider": "openai-compatible",
+            "provider_created_epoch": null,
+            "provider_model_id": "m",
+            "provider_response_id": "resp_1",
+            "provider_service_tier": null,
+            "provider_total_tokens": 15,
+            "schema_version": "1",
+            "system_fingerprint": null,
+            "think": "omitted",
+            "timed_out": false,
+            "timeout_ms": 30000,
+            "timeout_secs": 30,
+            "timeout_source": "override:test",
+            "tokens_per_second_eval": null,
+            "tool_calls_in_response": 1,
+            "tools": 3,
+            "total_duration": null,
+            "write_or_edit_succeeded": false
+          },
+          {
+            "caller_scope": "executor",
+            "estimated_prompt_tokens_sent": "<N>",
+            "eval_count": 5,
+            "event": "context_truncation_suspected",
+            "finish_reason": "stop",
+            "level": "WARNING",
+            "model": "m",
+            "persistent_undercut_count": 9,
+            "prompt_eval_count": 10,
+            "provider": "openai-compatible",
+            "schema_version": "1",
+            "threshold_percent": 70
+          },
+          {
+            "arguments": {
+              "argument_keys": [
+                "path"
+              ],
+              "argument_summaries": {
+                "path": {
+                  "preview": "settings.json",
+                  "string_len": 13,
+                  "type": "string"
+                }
+              },
+              "arguments_type": "object"
+            },
+            "event": "tool_call_raw",
+            "name": "ReadFlatConfig",
+            "schema_version": "1"
+          },
+          {
+            "access": "read_only",
+            "arguments": {
+              "argument_keys": [
+                "path"
+              ],
+              "argument_summaries": {
+                "path": {
+                  "preview": "settings.json",
+                  "string_len": 13,
+                  "type": "string"
+                }
+              },
+              "arguments_type": "object"
+            },
+            "event": "extension_tool_call",
+            "name": "ReadFlatConfig",
+            "network_access": "none",
+            "schema_version": "1",
+            "transport": "profile_tool"
+          },
+          {
+            "access": "read_only",
+            "event": "extension_tool_result",
+            "name": "ReadFlatConfig",
+            "ok": true,
+            "reason": null,
+            "result_bytes": 37,
+            "schema_version": "1",
+            "transport": "profile_tool"
+          },
+          {
+            "event": "tool_execute",
+            "name": "ReadFlatConfig",
+            "schema_version": "1",
+            "status": "ok"
+          },
+          {
+            "api": "responses",
+            "event": "provider_request",
+            "model": "m",
+            "provider": "openai-compatible",
+            "schema_version": "1",
+            "tools": 3
+          },
+          {
+            "api": "responses",
+            "attempt": 1,
+            "event": "provider_response",
+            "model": "m",
+            "provider": "openai-compatible",
+            "reasoning_tokens": null,
+            "response_id": "resp_2",
+            "response_model": "m",
+            "schema_version": "1",
+            "system_fingerprint": null,
+            "tool_calls": 0
+          },
+          {
+            "aborted_by_user": false,
+            "caller_scope": "executor",
+            "duration_ms": "<N>",
+            "estimated_prompt_tokens_sent": "<N>",
+            "estimated_stable_prefix_chars": "<N>",
+            "eval_count": 5,
+            "eval_duration": null,
+            "event": "provider_turn_duration",
+            "finish_reason": "stop",
+            "generation_seconds": null,
+            "load_duration": null,
+            "load_seconds": null,
+            "model": "m",
+            "native_tools_enabled": true,
+            "num_predict": 100,
+            "ok": true,
+            "output_limit_reached": false,
+            "prefill_seconds": null,
+            "prompt_eval_count": 10,
+            "prompt_eval_duration": null,
+            "prompt_layout": "stable",
+            "provider": "openai-compatible",
+            "provider_created_epoch": null,
+            "provider_model_id": "m",
+            "provider_response_id": "resp_2",
+            "provider_service_tier": null,
+            "provider_total_tokens": 15,
+            "schema_version": "1",
+            "system_fingerprint": null,
+            "think": "omitted",
+            "timed_out": false,
+            "timeout_ms": 30000,
+            "timeout_secs": 30,
+            "timeout_source": "override:test",
+            "tokens_per_second_eval": null,
+            "tool_calls_in_response": 0,
+            "tools": 3,
+            "total_duration": null,
+            "write_or_edit_succeeded": false
+          },
+          {
+            "caller_scope": "executor",
+            "estimated_prompt_tokens_sent": "<N>",
+            "eval_count": 5,
+            "event": "context_truncation_suspected",
+            "finish_reason": "stop",
+            "level": "WARNING",
+            "model": "m",
+            "persistent_undercut_count": 10,
+            "prompt_eval_count": 10,
+            "provider": "openai-compatible",
+            "schema_version": "1",
+            "threshold_percent": 70
+          }
+        ],
+        "history": {
+          "id": "<UUID-1>",
+          "messages": [
+            {
+              "content": "Read the settings.",
+              "role": "user",
+              "tool_calls": []
+            },
+            {
+              "content": "Reading the settings first. fake-dummy-credential-973-not-a-real-key",
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "arguments": {
+                    "path": "settings.json"
+                  },
+                  "id": "call_1",
+                  "name": "ReadFlatConfig"
+                }
+              ]
+            },
+            {
+              "content": "flat read of {\"path\":\"settings.json\"}",
+              "name": "ReadFlatConfig",
+              "role": "tool",
+              "tool_call_id": "call_1",
+              "tool_calls": []
+            },
+            {
+              "content": "done",
+              "role": "assistant",
+              "tool_calls": []
+            }
+          ],
+          "native_tools_disabled": false,
+          "schema_version": 1
+        },
+        "outcome": {
+          "ok": {
+            "changed_paths": [],
+            "final_text": "done",
+            "iterations": 2,
+            "stop_reason": "AssistantFinal",
+            "tool_calls": 1
+          }
+        },
+        "replies": [
+          {
+            "id": "resp_1",
+            "model": "m",
+            "object": "response",
+            "output": [
+              {
+                "encrypted_content": "opaque-dummy-encrypted-content-0000",
+                "id": "rs_1",
+                "summary": [
+                  {
+                    "text": "dummy-summary-SECRET-sk-test-0000 fake-dummy-credential-973-not-a-real-key",
+                    "type": "summary_text"
+                  }
+                ],
+                "type": "reasoning"
+              },
+              {
+                "content": [
+                  {
+                    "annotations": [],
+                    "text": "Reading the settings first. fake-dummy-credential-973-not-a-real-key",
+                    "type": "output_text"
+                  }
+                ],
+                "id": "msg_1",
+                "role": "assistant",
+                "status": "completed",
+                "type": "message"
+              },
+              {
+                "dummy_field": "dummy-unknown-SECRET-0000 fake-dummy-credential-973-not-a-real-key",
+                "dummy_object": {
+                  "dummy_nested": "dummy-unknown-nested-0000"
+                },
+                "id": "unk_1",
+                "type": "dummy_unknown_item"
+              },
+              {
+                "arguments": "{\"path\":\"settings.json\"}",
+                "call_id": "call_1",
+                "id": "fc_item_1",
+                "name": "ReadFlatConfig",
+                "status": "completed",
+                "type": "function_call"
+              }
+            ],
+            "status": "completed",
+            "usage": {
+              "input_tokens": 10,
+              "output_tokens": 5,
+              "total_tokens": 15
+            }
+          },
+          {
+            "id": "resp_2",
+            "model": "m",
+            "object": "response",
+            "output": [
+              {
+                "content": [
+                  {
+                    "annotations": [],
+                    "text": "done",
+                    "type": "output_text"
+                  }
+                ],
+                "id": "msg_done",
+                "role": "assistant",
+                "status": "completed",
+                "type": "message"
+              }
+            ],
+            "status": "completed",
+            "usage": {
+              "input_tokens": 10,
+              "output_tokens": 5,
+              "total_tokens": 15
+            }
+          }
+        ],
+        "request_count": 2,
+        "requests": [
+          {
+            "input": [
+              {
+                "content": [
+                  {
+                    "text": "You are commandagent, a local coding agent. Work only inside workspace `<ROOT>`.\nUse tools for file changes, repository facts, file inspection, build/test checks, and any action that changes the workspace.\nDo not end with planned future work. Do not claim files, tests, or builds succeeded unless you observed them with tools.\nUse workspace-relative paths only, and do not read or write outside the workspace.\nDo not claim completion until requested files and evidence are present.\n\nProfile guidance:\nWrite notes.txt.",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "system"
+              },
+              {
+                "content": [
+                  {
+                    "text": "Read the settings.",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "user"
+              }
+            ],
+            "max_output_tokens": 100,
+            "model": "m",
+            "tools": [
+              {
+                "description": "Read a workspace-relative file path.",
+                "name": "Read",
+                "parameters": {
+                  "properties": {
+                    "end_line": {
+                      "type": "integer"
+                    },
+                    "path": {
+                      "type": "string"
+                    },
+                    "start_line": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "type": "object"
+                },
+                "type": "function"
+              },
+              {
+                "description": "Write a workspace-relative file path. Parent directories are created automatically.",
+                "name": "Write",
+                "parameters": {
+                  "properties": {
+                    "content": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "content"
+                  ],
+                  "type": "object"
+                },
+                "type": "function"
+              },
+              {
+                "description": "Read one configuration object.",
+                "name": "ReadFlatConfig",
+                "parameters": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "path": {
+                      "description": "Workspace-relative file.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "type": "object"
+                },
+                "type": "function"
+              }
+            ]
+          },
+          {
+            "input": [
+              {
+                "content": [
+                  {
+                    "text": "You are commandagent, a local coding agent. Work only inside workspace `<ROOT>`.\nUse tools for file changes, repository facts, file inspection, build/test checks, and any action that changes the workspace.\nDo not end with planned future work. Do not claim files, tests, or builds succeeded unless you observed them with tools.\nUse workspace-relative paths only, and do not read or write outside the workspace.\nDo not claim completion until requested files and evidence are present.\n\nProfile guidance:\nWrite notes.txt.",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "system"
+              },
+              {
+                "content": [
+                  {
+                    "text": "Read the settings.",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "arguments": "{\"path\":\"settings.json\"}",
+                "call_id": "call_1",
+                "name": "ReadFlatConfig",
+                "type": "function_call"
+              },
+              {
+                "call_id": "call_1",
+                "output": "flat read of {\"path\":\"settings.json\"}",
+                "type": "function_call_output"
+              }
+            ],
+            "max_output_tokens": 100,
+            "model": "m",
+            "tools": [
+              {
+                "description": "Read a workspace-relative file path.",
+                "name": "Read",
+                "parameters": {
+                  "properties": {
+                    "end_line": {
+                      "type": "integer"
+                    },
+                    "path": {
+                      "type": "string"
+                    },
+                    "start_line": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "type": "object"
+                },
+                "type": "function"
+              },
+              {
+                "description": "Write a workspace-relative file path. Parent directories are created automatically.",
+                "name": "Write",
+                "parameters": {
+                  "properties": {
+                    "content": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "content"
+                  ],
+                  "type": "object"
+                },
+                "type": "function"
+              },
+              {
+                "description": "Read one configuration object.",
+                "name": "ReadFlatConfig",
+                "parameters": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "path": {
+                      "description": "Workspace-relative file.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "type": "object"
+                },
+                "type": "function"
+              }
+            ]
+          }
+        ],
+        "state_files": {},
+        "unused_replies": 0
+      }
+    },
+    {
+      "id": "same-text-two-call-ids",
+      "observation": {
+        "artifacts": {
+          "settings.json": "{\"mode\":\"fast\"}"
+        },
+        "event_names": [
+          "step_obligation_scope",
+          "provider_request",
+          "provider_response",
+          "provider_turn_duration",
+          "context_truncation_suspected",
+          "tool_call_raw",
+          "extension_tool_call",
+          "extension_tool_result",
+          "tool_execute",
+          "provider_request",
+          "provider_response",
+          "provider_turn_duration",
+          "context_truncation_suspected",
+          "tool_call_raw",
+          "extension_tool_call",
+          "extension_tool_result",
+          "tool_execute",
+          "provider_request",
+          "provider_response",
+          "provider_turn_duration",
+          "context_truncation_suspected"
+        ],
+        "events": [
+          {
+            "completion_contract_path_merge_enabled": true,
+            "completion_contract_paths": [],
+            "completion_contract_verification_enabled": true,
+            "contract_enforcement": "enforce",
+            "contract_paths_merged": false,
+            "effective_required_paths": [],
+            "event": "step_obligation_scope",
+            "explicit_required_paths": [],
+            "initially_missing_paths": [],
+            "phase_scope": "",
+            "prompt_extracted_paths": [],
+            "prompt_extracted_paths_enabled": true,
+            "schema_version": "1",
+            "session_scope": "minimal-loop",
+            "step_kind": ""
+          },
+          {
+            "api": "responses",
+            "event": "provider_request",
+            "model": "m",
+            "provider": "openai-compatible",
+            "schema_version": "1",
+            "tools": 3
+          },
+          {
+            "api": "responses",
+            "attempt": 1,
+            "event": "provider_response",
+            "model": "m",
+            "provider": "openai-compatible",
+            "reasoning_tokens": null,
+            "response_id": "resp_1",
+            "response_model": "m",
+            "schema_version": "1",
+            "system_fingerprint": null,
+            "tool_calls": 1
+          },
+          {
+            "aborted_by_user": false,
+            "caller_scope": "executor",
+            "duration_ms": "<N>",
+            "estimated_prompt_tokens_sent": "<N>",
+            "estimated_stable_prefix_chars": "<N>",
+            "eval_count": 5,
+            "eval_duration": null,
+            "event": "provider_turn_duration",
+            "finish_reason": "stop",
+            "generation_seconds": null,
+            "load_duration": null,
+            "load_seconds": null,
+            "model": "m",
+            "native_tools_enabled": true,
+            "num_predict": 100,
+            "ok": true,
+            "output_limit_reached": false,
+            "prefill_seconds": null,
+            "prompt_eval_count": 10,
+            "prompt_eval_duration": null,
+            "prompt_layout": "stable",
+            "provider": "openai-compatible",
+            "provider_created_epoch": null,
+            "provider_model_id": "m",
+            "provider_response_id": "resp_1",
+            "provider_service_tier": null,
+            "provider_total_tokens": 15,
+            "schema_version": "1",
+            "system_fingerprint": null,
+            "think": "omitted",
+            "timed_out": false,
+            "timeout_ms": 30000,
+            "timeout_secs": 30,
+            "timeout_source": "override:test",
+            "tokens_per_second_eval": null,
+            "tool_calls_in_response": 1,
+            "tools": 3,
+            "total_duration": null,
+            "write_or_edit_succeeded": false
+          },
+          {
+            "caller_scope": "executor",
+            "estimated_prompt_tokens_sent": "<N>",
+            "eval_count": 5,
+            "event": "context_truncation_suspected",
+            "finish_reason": "stop",
+            "level": "WARNING",
+            "model": "m",
+            "persistent_undercut_count": 11,
+            "prompt_eval_count": 10,
+            "provider": "openai-compatible",
+            "schema_version": "1",
+            "threshold_percent": 70
+          },
+          {
+            "arguments": {
+              "argument_keys": [
+                "path"
+              ],
+              "argument_summaries": {
+                "path": {
+                  "preview": "settings.json",
+                  "string_len": 13,
+                  "type": "string"
+                }
+              },
+              "arguments_type": "object"
+            },
+            "event": "tool_call_raw",
+            "name": "ReadFlatConfig",
+            "schema_version": "1"
+          },
+          {
+            "access": "read_only",
+            "arguments": {
+              "argument_keys": [
+                "path"
+              ],
+              "argument_summaries": {
+                "path": {
+                  "preview": "settings.json",
+                  "string_len": 13,
+                  "type": "string"
+                }
+              },
+              "arguments_type": "object"
+            },
+            "event": "extension_tool_call",
+            "name": "ReadFlatConfig",
+            "network_access": "none",
+            "schema_version": "1",
+            "transport": "profile_tool"
+          },
+          {
+            "access": "read_only",
+            "event": "extension_tool_result",
+            "name": "ReadFlatConfig",
+            "ok": true,
+            "reason": null,
+            "result_bytes": 37,
+            "schema_version": "1",
+            "transport": "profile_tool"
+          },
+          {
+            "event": "tool_execute",
+            "name": "ReadFlatConfig",
+            "schema_version": "1",
+            "status": "ok"
+          },
+          {
+            "api": "responses",
+            "event": "provider_request",
+            "model": "m",
+            "provider": "openai-compatible",
+            "schema_version": "1",
+            "tools": 3
+          },
+          {
+            "api": "responses",
+            "attempt": 1,
+            "event": "provider_response",
+            "model": "m",
+            "provider": "openai-compatible",
+            "reasoning_tokens": null,
+            "response_id": "resp_2",
+            "response_model": "m",
+            "schema_version": "1",
+            "system_fingerprint": null,
+            "tool_calls": 1
+          },
+          {
+            "aborted_by_user": false,
+            "caller_scope": "executor",
+            "duration_ms": "<N>",
+            "estimated_prompt_tokens_sent": "<N>",
+            "estimated_stable_prefix_chars": "<N>",
+            "eval_count": 5,
+            "eval_duration": null,
+            "event": "provider_turn_duration",
+            "finish_reason": "stop",
+            "generation_seconds": null,
+            "load_duration": null,
+            "load_seconds": null,
+            "model": "m",
+            "native_tools_enabled": true,
+            "num_predict": 100,
+            "ok": true,
+            "output_limit_reached": false,
+            "prefill_seconds": null,
+            "prompt_eval_count": 10,
+            "prompt_eval_duration": null,
+            "prompt_layout": "stable",
+            "provider": "openai-compatible",
+            "provider_created_epoch": null,
+            "provider_model_id": "m",
+            "provider_response_id": "resp_2",
+            "provider_service_tier": null,
+            "provider_total_tokens": 15,
+            "schema_version": "1",
+            "system_fingerprint": null,
+            "think": "omitted",
+            "timed_out": false,
+            "timeout_ms": 30000,
+            "timeout_secs": 30,
+            "timeout_source": "override:test",
+            "tokens_per_second_eval": null,
+            "tool_calls_in_response": 1,
+            "tools": 3,
+            "total_duration": null,
+            "write_or_edit_succeeded": false
+          },
+          {
+            "caller_scope": "executor",
+            "estimated_prompt_tokens_sent": "<N>",
+            "eval_count": 5,
+            "event": "context_truncation_suspected",
+            "finish_reason": "stop",
+            "level": "WARNING",
+            "model": "m",
+            "persistent_undercut_count": 12,
+            "prompt_eval_count": 10,
+            "provider": "openai-compatible",
+            "schema_version": "1",
+            "threshold_percent": 70
+          },
+          {
+            "arguments": {
+              "argument_keys": [
+                "path"
+              ],
+              "argument_summaries": {
+                "path": {
+                  "preview": "settings.json",
+                  "string_len": 13,
+                  "type": "string"
+                }
+              },
+              "arguments_type": "object"
+            },
+            "event": "tool_call_raw",
+            "name": "ReadFlatConfig",
+            "schema_version": "1"
+          },
+          {
+            "access": "read_only",
+            "arguments": {
+              "argument_keys": [
+                "path"
+              ],
+              "argument_summaries": {
+                "path": {
+                  "preview": "settings.json",
+                  "string_len": 13,
+                  "type": "string"
+                }
+              },
+              "arguments_type": "object"
+            },
+            "event": "extension_tool_call",
+            "name": "ReadFlatConfig",
+            "network_access": "none",
+            "schema_version": "1",
+            "transport": "profile_tool"
+          },
+          {
+            "access": "read_only",
+            "event": "extension_tool_result",
+            "name": "ReadFlatConfig",
+            "ok": true,
+            "reason": null,
+            "result_bytes": 37,
+            "schema_version": "1",
+            "transport": "profile_tool"
+          },
+          {
+            "event": "tool_execute",
+            "name": "ReadFlatConfig",
+            "schema_version": "1",
+            "status": "ok"
+          },
+          {
+            "api": "responses",
+            "event": "provider_request",
+            "model": "m",
+            "provider": "openai-compatible",
+            "schema_version": "1",
+            "tools": 3
+          },
+          {
+            "api": "responses",
+            "attempt": 1,
+            "event": "provider_response",
+            "model": "m",
+            "provider": "openai-compatible",
+            "reasoning_tokens": null,
+            "response_id": "resp_3",
+            "response_model": "m",
+            "schema_version": "1",
+            "system_fingerprint": null,
+            "tool_calls": 0
+          },
+          {
+            "aborted_by_user": false,
+            "caller_scope": "executor",
+            "duration_ms": "<N>",
+            "estimated_prompt_tokens_sent": "<N>",
+            "estimated_stable_prefix_chars": "<N>",
+            "eval_count": 5,
+            "eval_duration": null,
+            "event": "provider_turn_duration",
+            "finish_reason": "stop",
+            "generation_seconds": null,
+            "load_duration": null,
+            "load_seconds": null,
+            "model": "m",
+            "native_tools_enabled": true,
+            "num_predict": 100,
+            "ok": true,
+            "output_limit_reached": false,
+            "prefill_seconds": null,
+            "prompt_eval_count": 10,
+            "prompt_eval_duration": null,
+            "prompt_layout": "stable",
+            "provider": "openai-compatible",
+            "provider_created_epoch": null,
+            "provider_model_id": "m",
+            "provider_response_id": "resp_3",
+            "provider_service_tier": null,
+            "provider_total_tokens": 15,
+            "schema_version": "1",
+            "system_fingerprint": null,
+            "think": "omitted",
+            "timed_out": false,
+            "timeout_ms": 30000,
+            "timeout_secs": 30,
+            "timeout_source": "override:test",
+            "tokens_per_second_eval": null,
+            "tool_calls_in_response": 0,
+            "tools": 3,
+            "total_duration": null,
+            "write_or_edit_succeeded": false
+          },
+          {
+            "caller_scope": "executor",
+            "estimated_prompt_tokens_sent": "<N>",
+            "eval_count": 5,
+            "event": "context_truncation_suspected",
+            "finish_reason": "stop",
+            "level": "WARNING",
+            "model": "m",
+            "persistent_undercut_count": 13,
+            "prompt_eval_count": 10,
+            "provider": "openai-compatible",
+            "schema_version": "1",
+            "threshold_percent": 70
+          }
+        ],
+        "history": {
+          "id": "<UUID-1>",
+          "messages": [
+            {
+              "content": "Read the settings.",
+              "role": "user",
+              "tool_calls": []
+            },
+            {
+              "content": "Reading the settings.",
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "arguments": {
+                    "path": "settings.json"
+                  },
+                  "id": "call_1",
+                  "name": "ReadFlatConfig"
+                }
+              ]
+            },
+            {
+              "content": "flat read of {\"path\":\"settings.json\"}",
+              "name": "ReadFlatConfig",
+              "role": "tool",
+              "tool_call_id": "call_1",
+              "tool_calls": []
+            },
+            {
+              "content": "Reading the settings.",
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "arguments": {
+                    "path": "settings.json"
+                  },
+                  "id": "call_2",
+                  "name": "ReadFlatConfig"
+                }
+              ]
+            },
+            {
+              "content": "flat read of {\"path\":\"settings.json\"}",
+              "name": "ReadFlatConfig",
+              "role": "tool",
+              "tool_call_id": "call_2",
+              "tool_calls": []
+            },
+            {
+              "content": "done",
+              "role": "assistant",
+              "tool_calls": []
+            }
+          ],
+          "native_tools_disabled": false,
+          "schema_version": 1
+        },
+        "outcome": {
+          "ok": {
+            "changed_paths": [],
+            "final_text": "done",
+            "iterations": 3,
+            "stop_reason": "AssistantFinal",
+            "tool_calls": 2
+          }
+        },
+        "replies": [
+          {
+            "id": "resp_1",
+            "model": "m",
+            "object": "response",
+            "output": [
+              {
+                "encrypted_content": "opaque-dummy-encrypted-content-0000",
+                "id": "rs_1",
+                "summary": [
+                  {
+                    "text": "dummy-summary-SECRET-sk-test-0000 fake-dummy-credential-973-not-a-real-key",
+                    "type": "summary_text"
+                  }
+                ],
+                "type": "reasoning"
+              },
+              {
+                "content": [
+                  {
+                    "annotations": [],
+                    "text": "Reading the settings.",
+                    "type": "output_text"
+                  }
+                ],
+                "id": "msg_1",
+                "role": "assistant",
+                "status": "completed",
+                "type": "message"
+              },
+              {
+                "arguments": "{\"path\":\"settings.json\"}",
+                "call_id": "call_1",
+                "id": "fc_item_1",
+                "name": "ReadFlatConfig",
+                "status": "completed",
+                "type": "function_call"
+              }
+            ],
+            "status": "completed",
+            "usage": {
+              "input_tokens": 10,
+              "output_tokens": 5,
+              "total_tokens": 15
+            }
+          },
+          {
+            "id": "resp_2",
+            "model": "m",
+            "object": "response",
+            "output": [
+              {
+                "encrypted_content": "opaque-dummy-encrypted-content-0000",
+                "id": "rs_2",
+                "summary": [
+                  {
+                    "text": "dummy-summary-SECRET-sk-test-0000 fake-dummy-credential-973-not-a-real-key",
+                    "type": "summary_text"
+                  }
+                ],
+                "type": "reasoning"
+              },
+              {
+                "content": [
+                  {
+                    "annotations": [],
+                    "text": "Reading the settings.",
+                    "type": "output_text"
+                  }
+                ],
+                "id": "msg_2",
+                "role": "assistant",
+                "status": "completed",
+                "type": "message"
+              },
+              {
+                "arguments": "{\"path\":\"settings.json\"}",
+                "call_id": "call_2",
+                "id": "fc_item_2",
+                "name": "ReadFlatConfig",
+                "status": "completed",
+                "type": "function_call"
+              }
+            ],
+            "status": "completed",
+            "usage": {
+              "input_tokens": 10,
+              "output_tokens": 5,
+              "total_tokens": 15
+            }
+          },
+          {
+            "id": "resp_3",
+            "model": "m",
+            "object": "response",
+            "output": [
+              {
+                "content": [
+                  {
+                    "annotations": [],
+                    "text": "done",
+                    "type": "output_text"
+                  }
+                ],
+                "id": "msg_done",
+                "role": "assistant",
+                "status": "completed",
+                "type": "message"
+              }
+            ],
+            "status": "completed",
+            "usage": {
+              "input_tokens": 10,
+              "output_tokens": 5,
+              "total_tokens": 15
+            }
+          }
+        ],
+        "request_count": 3,
+        "requests": [
+          {
+            "input": [
+              {
+                "content": [
+                  {
+                    "text": "You are commandagent, a local coding agent. Work only inside workspace `<ROOT>`.\nUse tools for file changes, repository facts, file inspection, build/test checks, and any action that changes the workspace.\nDo not end with planned future work. Do not claim files, tests, or builds succeeded unless you observed them with tools.\nUse workspace-relative paths only, and do not read or write outside the workspace.\nDo not claim completion until requested files and evidence are present.\n\nProfile guidance:\nWrite notes.txt.",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "system"
+              },
+              {
+                "content": [
+                  {
+                    "text": "Read the settings.",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "user"
+              }
+            ],
+            "max_output_tokens": 100,
+            "model": "m",
+            "tools": [
+              {
+                "description": "Read a workspace-relative file path.",
+                "name": "Read",
+                "parameters": {
+                  "properties": {
+                    "end_line": {
+                      "type": "integer"
+                    },
+                    "path": {
+                      "type": "string"
+                    },
+                    "start_line": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "type": "object"
+                },
+                "type": "function"
+              },
+              {
+                "description": "Write a workspace-relative file path. Parent directories are created automatically.",
+                "name": "Write",
+                "parameters": {
+                  "properties": {
+                    "content": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "content"
+                  ],
+                  "type": "object"
+                },
+                "type": "function"
+              },
+              {
+                "description": "Read one configuration object.",
+                "name": "ReadFlatConfig",
+                "parameters": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "path": {
+                      "description": "Workspace-relative file.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "type": "object"
+                },
+                "type": "function"
+              }
+            ]
+          },
+          {
+            "input": [
+              {
+                "content": [
+                  {
+                    "text": "You are commandagent, a local coding agent. Work only inside workspace `<ROOT>`.\nUse tools for file changes, repository facts, file inspection, build/test checks, and any action that changes the workspace.\nDo not end with planned future work. Do not claim files, tests, or builds succeeded unless you observed them with tools.\nUse workspace-relative paths only, and do not read or write outside the workspace.\nDo not claim completion until requested files and evidence are present.\n\nProfile guidance:\nWrite notes.txt.",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "system"
+              },
+              {
+                "content": [
+                  {
+                    "text": "Read the settings.",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "arguments": "{\"path\":\"settings.json\"}",
+                "call_id": "call_1",
+                "name": "ReadFlatConfig",
+                "type": "function_call"
+              },
+              {
+                "call_id": "call_1",
+                "output": "flat read of {\"path\":\"settings.json\"}",
+                "type": "function_call_output"
+              }
+            ],
+            "max_output_tokens": 100,
+            "model": "m",
+            "tools": [
+              {
+                "description": "Read a workspace-relative file path.",
+                "name": "Read",
+                "parameters": {
+                  "properties": {
+                    "end_line": {
+                      "type": "integer"
+                    },
+                    "path": {
+                      "type": "string"
+                    },
+                    "start_line": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "type": "object"
+                },
+                "type": "function"
+              },
+              {
+                "description": "Write a workspace-relative file path. Parent directories are created automatically.",
+                "name": "Write",
+                "parameters": {
+                  "properties": {
+                    "content": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "content"
+                  ],
+                  "type": "object"
+                },
+                "type": "function"
+              },
+              {
+                "description": "Read one configuration object.",
+                "name": "ReadFlatConfig",
+                "parameters": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "path": {
+                      "description": "Workspace-relative file.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "type": "object"
+                },
+                "type": "function"
+              }
+            ]
+          },
+          {
+            "input": [
+              {
+                "content": [
+                  {
+                    "text": "You are commandagent, a local coding agent. Work only inside workspace `<ROOT>`.\nUse tools for file changes, repository facts, file inspection, build/test checks, and any action that changes the workspace.\nDo not end with planned future work. Do not claim files, tests, or builds succeeded unless you observed them with tools.\nUse workspace-relative paths only, and do not read or write outside the workspace.\nDo not claim completion until requested files and evidence are present.\n\nProfile guidance:\nWrite notes.txt.",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "system"
+              },
+              {
+                "content": [
+                  {
+                    "text": "Read the settings.",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "arguments": "{\"path\":\"settings.json\"}",
+                "call_id": "call_1",
+                "name": "ReadFlatConfig",
+                "type": "function_call"
+              },
+              {
+                "call_id": "call_1",
+                "output": "flat read of {\"path\":\"settings.json\"}",
+                "type": "function_call_output"
+              },
+              {
+                "arguments": "{\"path\":\"settings.json\"}",
+                "call_id": "call_2",
+                "name": "ReadFlatConfig",
+                "type": "function_call"
+              },
+              {
+                "call_id": "call_2",
+                "output": "flat read of {\"path\":\"settings.json\"}",
+                "type": "function_call_output"
+              }
+            ],
+            "max_output_tokens": 100,
+            "model": "m",
+            "tools": [
+              {
+                "description": "Read a workspace-relative file path.",
+                "name": "Read",
+                "parameters": {
+                  "properties": {
+                    "end_line": {
+                      "type": "integer"
+                    },
+                    "path": {
+                      "type": "string"
+                    },
+                    "start_line": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "type": "object"
+                },
+                "type": "function"
+              },
+              {
+                "description": "Write a workspace-relative file path. Parent directories are created automatically.",
+                "name": "Write",
+                "parameters": {
+                  "properties": {
+                    "content": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "content"
+                  ],
+                  "type": "object"
+                },
+                "type": "function"
+              },
+              {
+                "description": "Read one configuration object.",
+                "name": "ReadFlatConfig",
+                "parameters": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "path": {
+                      "description": "Workspace-relative file.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path"
+                  ],
+                  "type": "object"
+                },
+                "type": "function"
+              }
+            ]
+          }
+        ],
+        "state_files": {},
+        "unused_replies": 0
+      }
+    }
+  ],
+  "source": "9b4197a5cf624d4f2470eecdd6407643c78d31ab"
+}

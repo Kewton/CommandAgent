@@ -29,6 +29,8 @@ fixtures/off-golden.json:kind = "synthetic"
 fixtures/off-golden.json:source = "29d4d369"
 source-manifest.json:base_sha = "29d4d369536eda948a226a1af74d6038a2203389"
 source-manifest.json:origin = "synthetic"
+fixtures/responses-cases.json:issue = "#1005"
+fixtures/responses-cases.json:kind = "synthetic"
 
 [fixture_contains]
 fixtures/cases.json = [
@@ -46,6 +48,12 @@ fixtures/cases.json = [
   "\"refusal\": \"schema_scrubbed\"",
   "\"refusal\": \"input_revision_unavailable\"",
   "\"code\": \"duplicate_key\""
+]
+fixtures/responses-cases.json = [
+  "\"api\": \"responses\"",
+  "\"tool_protocol\": \"native\"",
+  "\"chat_control\": \"config-object-profile\"",
+  "\"chat_control\": \"document-index-profile\""
 ]
 fixtures/off-golden.json = [
   "\"id\": \"chat-native-recovery-and-last-value\"",

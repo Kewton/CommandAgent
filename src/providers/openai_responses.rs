@@ -5,7 +5,7 @@ use crate::state::{ConversationMessage, ToolCall};
 use crate::tools::args_recovery::recover_tool_arguments;
 use crate::tools::registry::ToolSpec;
 
-use super::parsing::sanitized_tool_schema;
+mod profile_schema;
 
 /// Provider-owned conversation state for Responses API reasoning items.
 ///
@@ -24,6 +24,9 @@ pub(crate) struct ConversationState {
 struct StoredTurn {
     reply: AssistantReply,
     output: Vec<Value>,
+    /// Whether G2 refused a call of this turn when it was parsed (Issue #1005). Always false
+    /// outside a session with a schema tool, where nothing reads it.
+    refused: bool,
 }
 
 impl ConversationState {
@@ -32,6 +35,7 @@ impl ConversationState {
             self.turns.push(StoredTurn {
                 reply: parsed.reply.clone(),
                 output: parsed.output.clone(),
+                refused: parsed.refused,
             });
         }
     }
@@ -42,6 +46,16 @@ pub(crate) struct ParsedResponse {
     pub(crate) reply: AssistantReply,
     pub(crate) metadata: ProviderResponseMetadata,
     output: Vec<Value>,
+    refused: bool,
+}
+
+/// What must hold before a request leaves (Issue #1005). Only a session with a schema tool
+/// checks anything: the request's calls and tool outputs must correlate by call ID.
+pub(crate) fn check_request(messages: &[ConversationMessage]) -> anyhow::Result<()> {
+    if profile_schema::in_session() {
+        profile_schema::check_correlation(messages)?;
+    }
+    Ok(())
 }
 
 pub(crate) fn build_request(
@@ -123,7 +137,7 @@ fn build_base_request(
         "max_output_tokens": max_predict,
     });
     if native_tools_enabled && !tools.is_empty() {
-        body["tools"] = Value::Array(tools.iter().map(sanitized_tool_schema).collect());
+        body["tools"] = Value::Array(tools.iter().map(profile_schema::tool_definition).collect());
     }
     if let Some(effort) = reasoning_effort {
         body["reasoning"] = json!({"effort": effort});
@@ -132,6 +146,9 @@ fn build_base_request(
 }
 
 fn responses_input(messages: &[ConversationMessage], state: &ConversationState) -> Vec<Value> {
+    if profile_schema::in_session() {
+        return profile_schema::input(messages, state);
+    }
     let mut input = Vec::new();
     let mut used_turns = vec![false; state.turns.len()];
     for message in messages {
@@ -148,21 +165,28 @@ fn responses_input(messages: &[ConversationMessage], state: &ConversationState) 
                     push_assistant_fallback(&mut input, message);
                 }
             }
-            "tool" => {
-                if let Some(call_id) = message.tool_call_id.as_deref() {
-                    input.push(json!({
-                        "type": "function_call_output",
-                        "call_id": call_id,
-                        "output": message.content,
-                    }));
-                } else {
-                    input.push(message_item("user", "input_text", &message.content));
-                }
-            }
-            role => input.push(message_item(role, "input_text", &message.content)),
+            _ => push_other(&mut input, message),
         }
     }
     input
+}
+
+/// A message that is not the assistant's: a tool's output, or a message of its own role.
+fn push_other(input: &mut Vec<Value>, message: &ConversationMessage) {
+    match message.role.as_str() {
+        "tool" => {
+            if let Some(call_id) = message.tool_call_id.as_deref() {
+                input.push(json!({
+                    "type": "function_call_output",
+                    "call_id": call_id,
+                    "output": message.content,
+                }));
+            } else {
+                input.push(message_item("user", "input_text", &message.content));
+            }
+        }
+        role => input.push(message_item(role, "input_text", &message.content)),
+    }
 }
 
 fn same_reply(message: &ConversationMessage, reply: &AssistantReply) -> bool {
@@ -191,17 +215,48 @@ fn message_item(role: &str, content_type: &str, content: &str) -> Value {
 }
 
 pub(crate) fn parse_response(body: &str) -> anyhow::Result<ParsedResponse> {
+    parse_response_with(body, None)
+}
+
+/// The reply to a request built from `messages` and `state`. In a session with a schema tool,
+/// every call ID is checked before any call is received, and a schema tool's raw arguments go
+/// to G2 (Issue #1005); otherwise this is [`parse_response`].
+pub(crate) fn parse_session_response(
+    body: &str,
+    messages: &[ConversationMessage],
+    state: &ConversationState,
+) -> anyhow::Result<ParsedResponse> {
+    if !profile_schema::in_session() {
+        return parse_response(body);
+    }
+    parse_response_with(body, Some((messages, state)))
+}
+
+fn parse_response_with(
+    body: &str,
+    session: Option<(&[ConversationMessage], &ConversationState)>,
+) -> anyhow::Result<ParsedResponse> {
     let value: Value = serde_json::from_str(body)?;
     let output = value
         .get("output")
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
+    let mut receiver = match session {
+        Some((messages, state)) => {
+            profile_schema::check_call_ids(&output, messages, state)?;
+            Some(profile_schema::Receiver::new(body))
+        }
+        None => None,
+    };
     let mut content = String::new();
     let mut tool_calls = Vec::new();
     for item in &output {
         match item.get("type").and_then(Value::as_str).unwrap_or_default() {
-            "function_call" => tool_calls.push(parse_function_call(item)?),
+            "function_call" => tool_calls.push(match receiver.as_mut() {
+                Some(receiver) => receiver.call(item)?,
+                None => parse_function_call(item)?,
+            }),
             "message" => append_message_text(item, &mut content),
             // Reasoning items are deliberately opaque. They are retained in
             // `output` and replayed byte-for-value, never rendered as prose.
@@ -253,6 +308,7 @@ pub(crate) fn parse_response(body: &str) -> anyhow::Result<ParsedResponse> {
         },
         metadata,
         output,
+        refused: receiver.is_some_and(|receiver| receiver.refused()),
     })
 }
 

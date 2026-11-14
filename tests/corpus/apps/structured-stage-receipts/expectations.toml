@@ -33,6 +33,8 @@ fixtures/attempts-replay-golden.json:source = "028d63d1"
 source-manifest.json:base_sha = "d2360125210564351f30e42bbc1a9f5e51f2b3cc"
 source-manifest.json:attempts_replay_base_sha = "028d63d196355f6ba68d64f2a47861f1260b2971"
 source-manifest.json:origin = "synthetic"
+fixtures/responses-cases.json:issue = "#1005"
+fixtures/responses-cases.json:kind = "synthetic"
 
 [fixture_contains]
 fixtures/cases.json = [
@@ -53,6 +55,11 @@ fixtures/attempts-replay-golden.json = [
   "\"id\": \"run-limit\"",
   "\"code\": \"attempts_exhausted_for_target\"",
   "\"code\": \"attempts_exhausted_for_run\""
+]
+fixtures/responses-cases.json = [
+  "\"api\": \"responses\"",
+  "\"tool_protocol\": \"native\"",
+  "\"control\": \"fixtures/attempts-replay-golden.json\""
 ]
 fixtures/off-golden.json = [
   "\"id\": \"chat-native-write-and-read\"",

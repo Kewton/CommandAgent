@@ -126,6 +126,27 @@ replaced by a placeholder: a revision's 16 hex digits, the nonces, UUIDs, the te
 fake's URL, and times and durations. The file is not rewritten by this feature; its digest is pinned
 in `source-manifest.json`.
 
+## The Responses API (Issue #1005)
+
+Stage tools run on the Responses API with the same host contract as on Chat Completions.
+`fixtures/responses-cases.json` names each row on two axes, `api: responses` and `tool_protocol:
+native`, with its control and its test; the `wires` of `cases.json` are not read as a Responses
+tool protocol.
+
+- `with_the_strict_isolation::attempts_replay::on_responses` runs the attempts replay's paths,
+  responder, observation, and placeholders on Responses. Only the wire is converted: a request is
+  read as the Chat Completions messages it stands for, and a reply goes out in the Responses shape
+  with a new call ID per call. The control is `fixtures/attempts-replay-golden.json`, unchanged,
+  and the answers' `attempts` are those Chat Completions gives now. The same module compares
+  several calls in one reply (one tool and two, a seal and a stale call in one reply, an upstream
+  resubmission, `not_ready`, a limit reached within a reply), a reply with a bad call ID, and a
+  long stage answer with Chat Completions run in the same test.
+- `fixtures/responses-off-golden.json` is the Responses API with no stage, recorded on
+  `responses_off_base_sha` before the Responses schema wire existed. `responses_off` in
+  `tests/structured_stage_receipts.rs` is the recorder's own code, and
+  `responses_off_comparison` compares the same paths with it byte for byte, with the six rules
+  written in the golden and nothing else.
+
 ## Which test runs where
 
 Nothing here is skipped, except `the_notice_on_a_real_terminal_with_the_footer_and_the_spinner`, which
@@ -134,6 +155,7 @@ needs a terminal and someone to read it.
 | Test | macOS | Linux and others |
 | --- | --- | --- |
 | `off_control::*` | Yes | Yes |
+| `responses_off_comparison::*` | Yes | Yes |
 | Unit: `tools::profile_tools::effects::tests::stages::*`, with its `sessions` running whole sessions | Yes | Yes, with an unconfined launch only a test build can ask for |
 | Unit: `planner::structured_stages::*`, `structured_stage_completion::tests::*`, `tools::profile_tools::pre_run::tests::*` | Yes | Yes |
 | `where_the_strict_isolation_does_not_exist_a_stage_tool_is_unavailable` | No | Yes |

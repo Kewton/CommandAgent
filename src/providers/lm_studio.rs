@@ -321,6 +321,7 @@ impl LmStudioClient {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone();
+        openai_responses::check_request(messages)?;
         let body = match self.reasoning_effort {
             Some(effort) => openai_responses::build_lm_studio_request_with_effort(
                 model,
@@ -343,7 +344,7 @@ impl LmStudioClient {
         let body = self.route(body)?;
         self.emit_request(model, "responses", tools, native_tools_enabled);
         let (body, attempt) = self.post_json("/v1/responses", model, "responses", &body)?;
-        match openai_responses::parse_response(&body) {
+        match openai_responses::parse_session_response(&body, messages, &state) {
             Ok(parsed) => {
                 self.responses_state
                     .lock()

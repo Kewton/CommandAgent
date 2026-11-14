@@ -289,10 +289,12 @@ The body of #973 does not define where a dynamic schema comes from, what a revis
 which providers qualify. These were decided with the project manager's approval.
 
 - **Providers.** Reception and sending cover native tool calls on the Chat Completions wire
-  (OpenAI chat, LM Studio, OpenAI-compatible). This was narrowed from the first decision,
+  (OpenAI chat, LM Studio, OpenAI-compatible) and, since #1005, on the Responses API wire
+  (direct OpenAI, LM Studio, OpenAI-compatible; see "The Responses API" below). This was
+  narrowed from the first decision,
   which also covered explicit text (XML): the XML parser reads on from text it has closed up,
   so it cannot show that a call's arguments are what the reply held. The user approved the
-  narrowing, and XML support moved to #978. The text tool protocol, the Responses API, both
+  narrowing, and XML support moved to #978. The text tool protocol, both
   Gemini APIs, and Ollama are refused as `schema_unsupported` before any provider call, in
   `schema/invocation.rs` and `src/providers/profile_tool_schema.rs`, with those clients and the
   XML parser unchanged. Support is declared by the client
@@ -397,6 +399,86 @@ does not satisfy an artifact or a stage, and an unreported usage stays `None`.
   secret scope. A custom client that parses on another thread produces no receipt, so its calls
   are refused rather than trusted.
 
+### The Responses API
+
+Issue #1005. The Responses wire carries a schema tool with the same host contract as Chat
+Completions: the same admission, receipts, validator, refusal feedback, G4 counts, and history
+rules. Its own code is `src/providers/openai_responses/profile_schema.rs`, and everything in it
+applies only in a session with a schema tool; a session without one keeps the Responses request,
+parser, and replay as they were, byte for byte against `responses-off-golden.json`.
+
+- **Sending.** A function definition is the flat `type`, `name`, `description`, `parameters`.
+  An admitted schema tool says `strict: false`, so the service does not tighten the schema (no
+  optional key made required, no `null` added); its `parameters` are the adopted schema as a
+  value. No other definition and no request without a schema tool gains a field. Direct OpenAI
+  keeps `store: false`, its encrypted-reasoning `include`, its effort, and `max_output_tokens`;
+  a compatible server gets none of the OpenAI-only fields. A server that rejects `strict` fails
+  as an HTTP error does today; nothing is resent without it.
+- **Receiving.** Before any call of a reply is received, every `function_call` must have a
+  `call_id` that is there, is a non-empty string, and is new to the reply and to the
+  conversation (the client's stored turns and the history being sent, as one set). Otherwise the
+  whole reply fails the parse with a fixed text naming `function_call` (`OpenAI function_call
+  call_id missing`, `is not a string`, `empty`, `duplicate`), with no ID, argument, or secret in
+  it: nothing of it runs, leaves a receipt, or is stored, and the loop retries it as a malformed
+  native call up to its existing limit, then ends the run with that error, never on XML. A
+  schema tool's raw `arguments` go to G2 as text, with the whole body checked for a repeated key;
+  any other call keeps the parser it had, with the checked `call_id`. `item.id` is never used
+  for the call.
+- **The history.** `function_call_output.output` is the tool message's text, which the history
+  rule already fitted (a stage answer up to 5,120 bytes); the wire does not fit it again. A
+  history whose calls and outputs do not correlate one to one by call ID is refused before the
+  request leaves, with `OpenAI function_call call_id correlation invalid`, and the same retry and
+  end: a call with an empty or repeated ID, a tool output with no call ID (which the parent's
+  request would send as user text), one that names no call before it or answers a call twice,
+  and a call no output answers.
+- **Replay.** A stored turn is found by its calls' IDs in order, never by its text. It goes back
+  raw, every item once in its order (reasoning, a preamble message, an unknown item, the calls),
+  only when (a) G2 refused none of its calls at parse time, (b) each raw call has the host's call
+  ID, name, and decoded arguments, in the same number and order, and (c) the run's secret scrub
+  leaves every raw item unchanged, including a message's text, a reasoning summary, any field of
+  an unknown item, and the opaque encrypted content, which is compared and never read or shown.
+  The scrub reads a string as written, so a string of an item that starts as JSON (a call's
+  `arguments`, of any tool, or a field of an unknown item) is read as JSON too, with repeated
+  keys seen, up to 1 MiB, depth 64, and four levels of JSON inside JSON: a repeated key, a
+  string past those limits, or content the scrub would change (an escaped secret, say) fails
+  (c). Otherwise the whole turn is rebuilt from the host's values, as the fallback builds it: the
+  host's text and its calls with `arguments.to_string()` (`"{}"` for a refused call). That turn's
+  reasoning, preamble, and unknown items are dropped. Unlike Chat Completions, a safe raw turn
+  sends its preamble message again. An assistant turn with no call is never found by its text,
+  so in a session with a schema tool it is always rebuilt from the host's text and its
+  reasoning is dropped, where a session without one replays it by its text.
+
+Known limits of the Responses wire:
+
+- A turn that fails a condition loses its reasoning on purpose. Whether a service accepts a call
+  turn without its reasoning, or a turn with or without its preamble, is not shown by a fake.
+- A change of tools or prefix (a G4 schema update, a compaction) may make the service drop
+  reasoning; the host's decisions and counts do not depend on it.
+- Whether LM Studio or an OpenAI-compatible server accepts `strict` is not measured.
+- A server that sends the same `call_id` in every reply fails from its second call turn on, as a
+  duplicate, and the run ends with the error; Chat Completions would go on. No such server is
+  known.
+- A history that does not correlate cannot be fixed by a retry; the run ends after the retries
+  without calling the provider.
+- The loop's compaction (`src/minimal_loop/compact.rs`) removes messages one by one, oldest
+  first, and keeps recent Read outputs, but does not remove a call together with its output. When
+  it removes a call and keeps the output, the history no longer correlates, and a session with a
+  schema tool on the Responses API ends with the correlation error, where Chat Completions sends
+  the same history as it is. A compaction that removes only text, or a call with its output,
+  leaves the session going. Removing calls and outputs as pairs is the fix, in the compaction,
+  and is left to another Issue.
+- When one reply has several calls and a write-required rejection stops one before the last,
+  the loop leaves the batch there and the calls after it get no output; a session with a schema
+  tool on the Responses API then ends with the correlation error before its next request, where
+  Chat Completions sends the same history as it is. The fix is in the loop, and is left to
+  another Issue.
+- The same holds when a run ends while the loop is handling the calls of one reply one by one,
+  for example when the user interrupts it: the calls not yet handled stay in the history without
+  an output, and if the same session goes on, its next request on the Responses API ends with the
+  correlation error before it is sent. The refusal stays as it is.
+- The reasoning is kept in the client's memory only, as before; nothing new is persisted, and a
+  resume in another process sends none.
+
 ## Bindings
 
 `admit_selected` returns `AdmittedProfileTools`. Each `AdmittedToolBinding` holds the
@@ -411,8 +493,9 @@ draft with the `static` ceiling. `commit_receipts()` returns what the commit lea
 Issue #974. A process the operator pinned proposes bytes for one declared output. Only the host,
 after checking them, adopts them. The process is not given a workspace to write in: its input
 arrives on stdin, its candidate leaves on stdout, and the operating system refuses everything
-else. A tool with this effect always has a G2 schema, so it runs on Chat Completions native tool
-calls only, and is refused on the text tool protocol before the start.
+else. A tool with this effect always has a G2 schema, so it runs on native tool calls only (Chat
+Completions, or the Responses API since #1005), and is refused on the text tool protocol before
+the start.
 
 ### Who owns what
 
