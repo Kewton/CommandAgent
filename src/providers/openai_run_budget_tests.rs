@@ -189,6 +189,7 @@ struct World {
     ledger_file: PathBuf,
     wallet_dir: PathBuf,
     handle: Arc<RunBudgetHandle>,
+    clock: Arc<FakeClock>,
 }
 
 impl World {
@@ -204,12 +205,13 @@ impl World {
         change(&mut value);
         let mut policy = RunBudgetPolicyV2::decode(value.to_string().as_bytes(), WALLET).unwrap();
         policy.route.endpoint = endpoint.to_string();
+        let clock = FakeClock::at(7_000);
         let handle = RunBudgetHandle::open_responses(LedgerOpenV2 {
             policy: Arc::new(policy),
             workspace: &workspace,
             explicit_profile: None,
             entry: LedgerEntry::Fresh,
-            clock: FakeClock::at(7_000),
+            clock: clock.clone(),
             command_writes: Some(CommandWrites::of(SandboxPolicy::with_home(
                 &workspace,
                 &base.join("run-tmp"),
@@ -221,6 +223,7 @@ impl World {
             applied_on: Some(workspace.clone()),
         });
         Self {
+            clock,
             _root: root,
             workspace,
             ledger_file: ledgers.join(WALLET).join("ledger.json"),
@@ -648,5 +651,327 @@ mod factory {
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(output.status.success(), "{stdout}\n{stderr}");
         assert!(stdout.contains(RAN), "{stdout}\n{stderr}");
+    }
+}
+
+/// Review 2, S1: a final repair's sends on the direct client are the session's, as the v1 client's
+/// are (`lm_studio.rs` `final_repair` tests).
+mod final_repair {
+    use super::*;
+    use crate::structured_budget::identity::SendPurpose;
+    use crate::structured_budget::session::FinalRepairMarker;
+
+    fn attempts(world: &World) -> Vec<(SendPurpose, Option<u64>)> {
+        world
+            .attempts()
+            .iter()
+            .map(|attempt| (attempt.purpose, attempt.final_repair.map(|id| id.number())))
+            .collect()
+    }
+
+    #[test]
+    fn the_sends_of_one_final_repair_session_are_its_one_and_none_past_the_limit_goes() {
+        let (world, mut client, fake) = wallet_and_fake(
+            |_| vec![Reply::Status(200, CHARGED.into()); 3],
+            0,
+            |v| v["limits"]["final_repair_attempts"] = json!(1),
+        );
+        let marker = FinalRepairMarker::default();
+        {
+            let _session = crate::provider_call::enter_final_repair(Some(&marker));
+            say_hello(&mut client).unwrap();
+            say_hello(&mut client).unwrap();
+        }
+        // A second final repair session, past the limit of one: nothing leaves.
+        let other = FinalRepairMarker::default();
+        {
+            let _session = crate::provider_call::enter_final_repair(Some(&other));
+            assert!(say_hello(&mut client).is_err());
+        }
+        assert_eq!(fake.finish().len(), 2);
+        assert_eq!(
+            attempts(&world),
+            vec![(SendPurpose::FinalRepair, Some(1)); 2]
+        );
+    }
+
+    #[test]
+    fn a_final_repair_send_past_its_window_is_not_sent() {
+        let (world, mut client, fake) = wallet_and_fake(
+            |_| vec![Reply::Status(200, CHARGED.into()); 2],
+            0,
+            |v| v["limits"]["final_repair_seconds"] = json!(1),
+        );
+        let marker = FinalRepairMarker::default();
+        let _session = crate::provider_call::enter_final_repair(Some(&marker));
+        say_hello(&mut client).unwrap();
+        world.clock.advance(1_001);
+        assert!(say_hello(&mut client).is_err());
+        assert_eq!(fake.finish().len(), 1);
+        assert_eq!(attempts(&world), vec![(SendPurpose::FinalRepair, Some(1))]);
+    }
+}
+
+/// Review 2, S2: the second request of a session, built by the client's own builder, replays the
+/// first reply's reasoning, call and message, and its admission takes the documented shapes.
+///
+/// The items below are synthetic, written from the Responses API reference ("Create": the output
+/// and input item types), not copied from any observed response; `encrypted_content` is a short
+/// synthetic string that no provider could decrypt.
+mod replay {
+    use super::*;
+
+    pub(super) fn reasoning() -> Value {
+        json!({
+            "type": "reasoning",
+            "id": "rs_synthetic_1",
+            "summary": [{"type": "summary_text", "text": "synthetic summary"}],
+            "encrypted_content": "synthetic-encrypted"
+        })
+    }
+
+    pub(super) fn call() -> Value {
+        json!({
+            "type": "function_call",
+            "id": "fc_synthetic_1",
+            "call_id": "call_synthetic_1",
+            "name": "f",
+            "arguments": "{}",
+            "status": "completed"
+        })
+    }
+
+    pub(super) fn message() -> Value {
+        json!({
+            "type": "message",
+            "id": "msg_synthetic_1",
+            "status": "completed",
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": "t", "annotations": [], "logprobs": []}]
+        })
+    }
+
+    fn first_reply(items: &[Value]) -> String {
+        let mut reply: Value = serde_json::from_str(CHARGED).unwrap();
+        reply["output"] = json!(items);
+        reply.to_string()
+    }
+
+    /// The first call, the reply to it as the session's history, and the second call that replays
+    /// it: what the fake saw, and how the second call ended.
+    fn replay_with(
+        items: [Value; 3],
+        change: impl FnOnce(&mut Value),
+    ) -> (
+        World,
+        Vec<Received>,
+        anyhow::Result<AssistantReply>,
+        Vec<u8>,
+    ) {
+        let first = first_reply(&items);
+        let (world, mut client, fake) = wallet_and_fake(
+            move |_| {
+                vec![
+                    Reply::Status(200, first),
+                    Reply::Status(200, CHARGED.into()),
+                ]
+            },
+            0,
+            change,
+        );
+        let user = ConversationMessage::user("hello");
+        let reply = client
+            .dispatch("m-1", std::slice::from_ref(&user), &[], false)
+            .unwrap();
+        let call_id = reply.tool_calls[0].id.clone();
+        let history = vec![
+            user,
+            ConversationMessage::assistant(reply.content.clone(), reply.tool_calls.clone()),
+            ConversationMessage::tool_result("f", Some(&call_id), "ok"),
+        ];
+        let after_first = std::fs::read(&world.ledger_file).unwrap();
+        let second = client.dispatch("m-1", &history, &[], false);
+        (world, fake.finish(), second, after_first)
+    }
+
+    fn refusal_of(result: &anyhow::Result<AssistantReply>) -> String {
+        format!("{:#}", result.as_ref().map(|_| ()).unwrap_err())
+    }
+
+    #[test]
+    fn the_replay_is_reserved_at_the_declared_most_input() {
+        let (world, received, second, _) = replay_with([reasoning(), call(), message()], |_| {});
+        assert!(second.is_ok(), "{second:?}");
+        assert_eq!(received.len(), 2);
+        let body: Value = serde_json::from_str(&received[1].body).unwrap();
+        // The client's builder replayed the three items as they came, and the call's output.
+        let input = body["input"].as_array().unwrap();
+        assert_eq!(input[1], reasoning());
+        assert_eq!(input[2], call());
+        assert_eq!(input[3], message());
+        assert_eq!(input[4]["type"], json!("function_call_output"));
+        let attempt = received[1].attempt.as_ref().unwrap();
+        assert_eq!(attempt["state"], json!("started"));
+        assert_eq!(
+            attempt["input_bound_method"],
+            json!("provider_max_input_tokens")
+        );
+        assert_eq!(attempt["input_bound"], json!(1_050_000));
+        let attempts = world.attempts();
+        assert_eq!(attempts.len(), 2);
+    }
+
+    #[test]
+    fn a_budget_for_text_alone_or_no_declared_most_sends_no_replay() {
+        // Enough for the first send and its charge, not for the replay's reservation.
+        let (world, received, second, after_first) =
+            replay_with([reasoning(), call(), message()], |v| {
+                v["limits"]["cost_usd"] = json!("1");
+            });
+        assert_eq!(received.len(), 1);
+        assert!(refusal_of(&second).contains("CostExceeded"), "{second:?}");
+        assert_eq!(world.attempts().len(), 1);
+        assert_eq!(std::fs::read(&world.ledger_file).unwrap(), after_first);
+        let (world, received, second, after_first) =
+            replay_with([reasoning(), call(), message()], |v| {
+                v["input_bound"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("provider_max_input_tokens");
+            });
+        assert_eq!(received.len(), 1);
+        assert!(
+            refusal_of(&second).contains("InputBoundUndeclared"),
+            "{second:?}"
+        );
+        assert_eq!(world.attempts().len(), 1);
+        assert_eq!(std::fs::read(&world.ledger_file).unwrap(), after_first);
+    }
+
+    type Change = fn(&mut [Value; 3]);
+
+    /// Optional keys the reference documents, each alone, with a documented value.
+    #[test]
+    fn each_documented_optional_key_is_replayed() {
+        let rows: Vec<(&str, Change)> = vec![
+            ("phase commentary", |i| i[2]["phase"] = json!("commentary")),
+            ("phase final_answer", |i| {
+                i[2]["phase"] = json!("final_answer")
+            }),
+            ("phase null", |i| i[2]["phase"] = json!(null)),
+            ("caller direct", |i| {
+                i[1]["caller"] = json!({"type": "direct"})
+            }),
+            ("async false", |i| i[1]["async"] = json!(false)),
+            ("namespace", |i| {
+                i[1]["namespace"] = json!("synthetic-namespace")
+            }),
+            ("encrypted null", |i| {
+                i[0]["encrypted_content"] = json!(null)
+            }),
+            ("reasoning content", |i| {
+                i[0]["content"] = json!([{"type": "reasoning_text", "text": "synthetic"}]);
+            }),
+            ("statuses", |i| {
+                i[0]["status"] = json!("completed");
+                i[1]["status"] = json!("incomplete");
+                i[2]["status"] = json!("in_progress");
+            }),
+            ("no encrypted content", |i| {
+                i[0].as_object_mut().unwrap().remove("encrypted_content");
+            }),
+        ];
+        for (name, change) in rows {
+            let mut items = [reasoning(), call(), message()];
+            change(&mut items);
+            let (world, received, second, _) = replay_with(items, |_| {});
+            assert!(second.is_ok(), "{name}: {second:?}");
+            assert_eq!(received.len(), 2, "{name}");
+            assert_eq!(world.attempts().len(), 2, "{name}");
+        }
+    }
+
+    /// Shapes still refused, and values the reference does not allow, each alone: no second POST,
+    /// no attempt added, the ledger as the first call left it.
+    #[test]
+    fn each_undocumented_or_still_refused_shape_sends_no_replay() {
+        let rows: Vec<(&str, Change)> = vec![
+            // Still refused by the PM's decision.
+            ("refusal part", |i| {
+                i[2]["content"] = json!([{"type": "refusal", "refusal": "no"}])
+            }),
+            ("annotation", |i| {
+                i[2]["content"][0]["annotations"] = json!([{"type": "url_citation"}])
+            }),
+            ("logprob", |i| {
+                i[2]["content"][0]["logprobs"] = json!([{"token": "t"}])
+            }),
+            ("breakpoint", |i| {
+                i[2]["content"][0]["prompt_cache_breakpoint"] = json!({"mode": "explicit"})
+            }),
+            ("caller program", |i| {
+                i[1]["caller"] = json!({"type": "program", "caller_id": "p"})
+            }),
+            ("caller extra", |i| {
+                i[1]["caller"] = json!({"type": "direct", "x": 1})
+            }),
+            ("async true", |i| i[1]["async"] = json!(true)),
+            ("namespace number", |i| i[1]["namespace"] = json!(1)),
+            ("phase other", |i| i[2]["phase"] = json!("analysis")),
+            ("unknown key", |i| i[1]["created_by"] = json!("x")),
+            // Tightened to the reference.
+            ("message status unknown", |i| i[2]["status"] = json!("done")),
+            ("call status unknown", |i| i[1]["status"] = json!("done")),
+            ("reasoning status unknown", |i| {
+                i[0]["status"] = json!("done")
+            }),
+            ("message without id", |i| {
+                i[2].as_object_mut().unwrap().remove("id");
+            }),
+            ("message without status", |i| {
+                i[2].as_object_mut().unwrap().remove("status");
+            }),
+            ("reasoning without id", |i| {
+                i[0].as_object_mut().unwrap().remove("id");
+            }),
+            ("reasoning without summary", |i| {
+                i[0].as_object_mut().unwrap().remove("summary");
+            }),
+            ("summary of another type", |i| {
+                i[0]["summary"] = json!([{"type": "reasoning_text", "text": "s"}])
+            }),
+            ("summary text a number", |i| {
+                i[0]["summary"] = json!([{"type": "summary_text", "text": 1}])
+            }),
+            ("summary extra key", |i| {
+                i[0]["summary"] = json!([{"type": "summary_text", "text": "s", "x": 1}])
+            }),
+            ("content of another type", |i| {
+                i[0]["content"] = json!([{"type": "summary_text", "text": "s"}])
+            }),
+            ("content text a number", |i| {
+                i[0]["content"] = json!([{"type": "reasoning_text", "text": 1}])
+            }),
+            ("encrypted a number", |i| {
+                i[0]["encrypted_content"] = json!(1)
+            }),
+            ("message of another role", |i| i[2]["role"] = json!("user")),
+        ];
+        for (name, change) in rows {
+            let mut items = [reasoning(), call(), message()];
+            change(&mut items);
+            let (world, received, second, after_first) = replay_with(items, |_| {});
+            assert_eq!(received.len(), 1, "{name}: {second:?}");
+            assert!(
+                refusal_of(&second).contains("BodyNotAdmitted"),
+                "{name}: {second:?}"
+            );
+            assert_eq!(world.attempts().len(), 1, "{name}");
+            assert_eq!(
+                std::fs::read(&world.ledger_file).unwrap(),
+                after_first,
+                "{name}"
+            );
+        }
     }
 }

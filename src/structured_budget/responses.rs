@@ -57,10 +57,21 @@ const BODY_KEYS: [&str; 8] = [
 ];
 const INCLUDE_ALLOWED: &str = "reasoning.encrypted_content";
 const MESSAGE_ROLES: [&str; 4] = ["user", "assistant", "system", "developer"];
-const MESSAGE_KEYS: [&str; 5] = ["type", "role", "content", "id", "status"];
+const INPUT_MESSAGE_KEYS: [&str; 3] = ["role", "content", "phase"];
+const OUTPUT_MESSAGE_KEYS: [&str; 6] = ["type", "id", "status", "role", "content", "phase"];
 const TEXT_PART_KEYS: [&str; 2] = ["type", "text"];
 const OUTPUT_TEXT_KEYS: [&str; 4] = ["type", "text", "annotations", "logprobs"];
-const FUNCTION_CALL_KEYS: [&str; 6] = ["type", "id", "call_id", "name", "arguments", "status"];
+const FUNCTION_CALL_KEYS: [&str; 9] = [
+    "type",
+    "id",
+    "call_id",
+    "name",
+    "arguments",
+    "status",
+    "caller",
+    "async",
+    "namespace",
+];
 const FUNCTION_CALL_OUTPUT_KEYS: [&str; 3] = ["type", "call_id", "output"];
 const REASONING_KEYS: [&str; 6] = [
     "type",
@@ -237,13 +248,48 @@ fn empty_array(raw: &RawValue) -> bool {
     array(raw).is_ok_and(|items| items.is_empty())
 }
 
+/// The item statuses the reference lists, the one for a message, a call, and a reasoning item.
+const STATUSES: [&str; 3] = ["in_progress", "completed", "incomplete"];
+/// A message's documented phases; `null` is allowed beside them.
+const PHASES: [&str; 2] = ["commentary", "final_answer"];
+
+fn one_of(raw: &RawValue, values: &[&str]) -> bool {
+    string(raw).is_some_and(|value| values.contains(&value.as_str()))
+}
+
+fn is_null(raw: &RawValue) -> bool {
+    raw.get().trim() == "null"
+}
+
+/// `key` is absent, or holds one of `values` (or `null`, when `nullable`).
+fn optional_one_of(
+    item: &BTreeMap<String, &RawValue>,
+    key: &str,
+    values: &[&str],
+    nullable: bool,
+) -> bool {
+    item.get(key)
+        .is_none_or(|raw| one_of(raw, values) || (nullable && is_null(raw)))
+}
+
+/// An object of exactly `type` and a string `text`, its type `kind`.
+fn is_typed_text(raw: &RawValue, kind: &str) -> bool {
+    object(raw).is_ok_and(|part| {
+        part.len() == 2
+            && part.get("type").is_some_and(|raw| one_of(raw, &[kind]))
+            && part.get("text").is_some_and(|raw| string(raw).is_some())
+    })
+}
+
 /// One text part, as the builder writes it or as a replayed reply holds it: `input_text` with its
-/// text, or `output_text` with its text and no annotation or logprob in it.
-fn is_text_part(raw: &RawValue) -> bool {
+/// text, or `output_text` with its text and no annotation or logprob in it. A refusal part, an
+/// annotation, a logprob, or a cache breakpoint is refused.
+fn is_text_part(raw: &RawValue, kinds: &[&str]) -> bool {
     let Ok(part) = object(raw) else {
         return false;
     };
     match part.get("type").and_then(|raw| string(raw)).as_deref() {
+        Some(kind) if !kinds.contains(&kind) => false,
         Some("input_text") => shaped(&part, &TEXT_PART_KEYS, &["type", "text"], &[]),
         Some("output_text") => {
             shaped(&part, &OUTPUT_TEXT_KEYS, &["type", "text"], &[])
@@ -255,31 +301,62 @@ fn is_text_part(raw: &RawValue) -> bool {
     }
 }
 
-/// A message of text: a role, and text content as a string or as text parts.
-fn is_text_message(item: &BTreeMap<String, &RawValue>) -> bool {
-    let role = item.get("role").and_then(|raw| string(raw));
-    let content_is_text = match item.get("content") {
+fn content_is_text(item: &BTreeMap<String, &RawValue>, kinds: &[&str]) -> bool {
+    match item.get("content") {
         Some(raw) if string(raw).is_some() => true,
-        Some(raw) => array(raw).is_ok_and(|parts| parts.iter().all(|part| is_text_part(part))),
+        Some(raw) => {
+            array(raw).is_ok_and(|parts| parts.iter().all(|part| is_text_part(part, kinds)))
+        }
         None => false,
-    };
-    role.is_some_and(|role| MESSAGE_ROLES.contains(&role.as_str()))
-        && content_is_text
-        && shaped(item, &MESSAGE_KEYS, &[], &["type", "id", "status"])
+    }
 }
 
-/// A call as the reply held it: its call ID, name, and arguments as a string.
+/// A message the builder writes, with no `type`: a role, and text content as a string or as text
+/// parts, and the documented optional phase.
+fn is_text_message(item: &BTreeMap<String, &RawValue>) -> bool {
+    item.get("role")
+        .is_some_and(|raw| one_of(raw, &MESSAGE_ROLES))
+        && content_is_text(item, &["input_text", "output_text"])
+        && shaped(item, &INPUT_MESSAGE_KEYS, &["role"], &[])
+        && optional_one_of(item, "phase", &PHASES, true)
+}
+
+/// A reply's message, replayed as it came: the assistant's, with its ID, a documented status, its
+/// text, and the documented optional phase.
+fn is_output_message(item: &BTreeMap<String, &RawValue>) -> bool {
+    item.get("role")
+        .is_some_and(|raw| one_of(raw, &["assistant"]))
+        && item.get("status").is_some_and(|raw| one_of(raw, &STATUSES))
+        && content_is_text(item, &["output_text"])
+        && shaped(item, &OUTPUT_MESSAGE_KEYS, &["type", "id", "role"], &[])
+        && optional_one_of(item, "phase", &PHASES, true)
+}
+
+/// A call as the reply held it: its call ID, name, and arguments as a string, and the documented
+/// optional keys with the values a direct call has: a documented status, `caller` exactly
+/// `{"type":"direct"}`, `async` exactly `false`, and a string `namespace`.
 fn is_function_call(item: &BTreeMap<String, &RawValue>) -> bool {
     shaped(
         item,
         &FUNCTION_CALL_KEYS,
         &["type", "call_id", "name", "arguments"],
-        &["id", "status"],
-    )
+        &["id", "namespace"],
+    ) && optional_one_of(item, "status", &STATUSES, false)
+        && item.get("caller").is_none_or(|raw| {
+            object(raw).is_ok_and(|caller| {
+                caller.len() == 1
+                    && caller
+                        .get("type")
+                        .is_some_and(|raw| one_of(raw, &["direct"]))
+            })
+        })
+        && item
+            .get("async")
+            .is_none_or(|raw| raw.get().trim() == "false")
 }
 
 /// A call's output as the builder writes it: the call ID and the output as a string. An array of
-/// images or files is another input and is not this.
+/// images or files is another input and is not this, and none of its optional keys is taken.
 fn is_function_call_output(item: &BTreeMap<String, &RawValue>) -> bool {
     shaped(
         item,
@@ -289,16 +366,26 @@ fn is_function_call_output(item: &BTreeMap<String, &RawValue>) -> bool {
     )
 }
 
-/// A reasoning item as the reply held it. Its content is opaque, and it is bounded by the
-/// declared most input, not by its bytes; its keys and their kinds are still the wire's.
+/// A reasoning item as the reply held it: its ID, its summary of `summary_text` parts, and the
+/// documented optional `reasoning_text` content, encrypted content (a string or `null`), and
+/// status. Its content is opaque, and it is bounded by the declared most input, not by its bytes.
 fn is_reasoning(item: &BTreeMap<String, &RawValue>) -> bool {
-    shaped(
-        item,
-        &REASONING_KEYS,
-        &["type"],
-        &["id", "encrypted_content", "status"],
-    ) && item.get("summary").is_none_or(|raw| array(raw).is_ok())
-        && item.get("content").is_none_or(|raw| array(raw).is_ok())
+    shaped(item, &REASONING_KEYS, &["type", "id"], &[])
+        && item.get("summary").is_some_and(|raw| {
+            array(raw)
+                .is_ok_and(|parts| parts.iter().all(|part| is_typed_text(part, "summary_text")))
+        })
+        && item.get("content").is_none_or(|raw| {
+            array(raw).is_ok_and(|parts| {
+                parts
+                    .iter()
+                    .all(|part| is_typed_text(part, "reasoning_text"))
+            })
+        })
+        && item
+            .get("encrypted_content")
+            .is_none_or(|raw| string(raw).is_some() || is_null(raw))
+        && optional_one_of(item, "status", &STATUSES, false)
 }
 
 /// Whether the input holds an opaque item. An item of a kind not listed, or of a listed kind in
@@ -312,7 +399,8 @@ fn input_has_opaque_item(raw: &RawValue) -> Result<bool, BudgetRefusal> {
             Some(raw) => Some(string(raw).ok_or(BudgetRefusal::BodyNotAdmitted)?),
         };
         let admitted = match kind.as_deref() {
-            None | Some("message") => is_text_message(&item),
+            None => is_text_message(&item),
+            Some("message") => is_output_message(&item),
             Some("function_call") => is_function_call(&item),
             Some("function_call_output") => is_function_call_output(&item),
             Some("reasoning") => {
@@ -1963,6 +2051,73 @@ mod tests {
             Ok(InputBoundMethod::ProviderMaxInputTokens)
         );
         assert!(ledger.reserve(&request(&bytes)).is_ok());
+    }
+
+    /// Review 2 S2, PM decision: shapes the client never builds stay refused, and the items as
+    /// #1005's replay tests hold them (`tests/profile_tool_schema_responses.rs` `message`,
+    /// `function_call`, `reasoning`) are admitted.
+    #[test]
+    fn what_the_builder_never_writes_is_refused_and_1005s_replayed_items_are_admitted() {
+        let world = World::new();
+        let policy = world.policy();
+        type Change = fn(&mut Value);
+        let rows: Vec<(&str, Change)> = vec![
+            ("breakpoint", |v| {
+                v["input"][1]["content"][0]["prompt_cache_breakpoint"] = json!({"mode": "explicit"})
+            }),
+            ("output id", |v| v["input"][4]["id"] = json!("fco_1")),
+            ("output caller", |v| {
+                v["input"][4]["caller"] = json!({"type": "direct"})
+            }),
+            ("output name", |v| v["input"][4]["name"] = json!("f")),
+            ("output namespace", |v| {
+                v["input"][4]["namespace"] = json!("n")
+            }),
+            ("output status", |v| {
+                v["input"][4]["status"] = json!("completed")
+            }),
+            ("input refusal part", |v| {
+                v["input"][1]["content"] = json!([{"type": "refusal", "refusal": "no"}])
+            }),
+            ("input phase other", |v| {
+                v["input"][1]["phase"] = json!("analysis")
+            }),
+            ("typed user message", |v| {
+                v["input"][1]["type"] = json!("message")
+            }),
+            ("input_text in a reply's message", |v| {
+                v["input"][2]["content"][0]["type"] = json!("input_text")
+            }),
+        ];
+        for (name, change) in rows {
+            let mut value = body_value(text_input(), 50);
+            change(&mut value);
+            assert_eq!(
+                admit_body(&policy, value.to_string().as_bytes()),
+                Err(BudgetRefusal::BodyNotAdmitted),
+                "{name}"
+            );
+        }
+        // An input message may carry a documented phase.
+        let mut value = body_value(text_input(), 50);
+        value["input"][1]["phase"] = json!("commentary");
+        assert!(admit_body(&policy, value.to_string().as_bytes()).is_ok());
+        // #1005's items, as its replay tests write them.
+        let replay = json!([
+            {"role": "user", "content": [{"type": "input_text", "text": "hi"}]},
+            {"type": "reasoning", "id": "rs_1", "summary": [{"type": "summary_text", "text": "s"}],
+             "encrypted_content": "dummy-encrypted"},
+            {"type": "function_call", "id": "fc_1", "call_id": "c1", "name": "f",
+             "arguments": "{}", "status": "completed"},
+            {"type": "message", "id": "msg_1", "role": "assistant", "status": "completed",
+             "content": [{"type": "output_text", "text": "t", "annotations": []}]},
+            {"type": "function_call_output", "call_id": "c1", "output": "ok"}
+        ]);
+        assert_eq!(
+            admit_body(&policy, body_value(replay, 50).to_string().as_bytes())
+                .map(|body| body.input_bound_method),
+            Ok(InputBoundMethod::ProviderMaxInputTokens)
+        );
     }
 
     // ---- processes, versions, and the disk ----
