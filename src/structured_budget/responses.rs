@@ -2120,6 +2120,217 @@ mod tests {
         );
     }
 
+    /// F5: a tool is admitted only as a named function; either part missing alone refuses it.
+    #[test]
+    fn a_tool_is_refused_unless_it_is_a_named_function() {
+        let world = World::new();
+        let policy = world.policy();
+        for (name, tool) in [
+            (
+                "named, not a function",
+                json!({"type": "custom", "name": "x"}),
+            ),
+            ("a function with no name", json!({"type": "function"})),
+        ] {
+            let mut value = body_value(text_input(), 50);
+            value["tools"] = json!([tool]);
+            assert_eq!(
+                admit_body(&policy, value.to_string().as_bytes()).map(|_| ()),
+                Err(BudgetRefusal::BodyNotAdmitted),
+                "{name}"
+            );
+        }
+        let mut value = body_value(text_input(), 50);
+        value["tools"] = json!([{"type": "function", "name": "x"}]);
+        assert!(admit_body(&policy, value.to_string().as_bytes()).is_ok());
+    }
+
+    /// F5: a response's `model` or `service_tier` twice, each alone, is a repeated key.
+    #[test]
+    fn a_model_or_a_tier_twice_in_a_response_is_a_repeated_key() {
+        let text = text_body();
+        let once = response();
+        for (name, body) in [
+            (
+                "model twice",
+                once.replacen(
+                    r#""model":"m-1-snapshot-a""#,
+                    r#""model":"m-1-snapshot-a","model":"m-1-snapshot-a""#,
+                    1,
+                ),
+            ),
+            (
+                "tier twice",
+                once.replacen(
+                    r#""service_tier":"default""#,
+                    r#""service_tier":"default","service_tier":"default""#,
+                    1,
+                ),
+            ),
+        ] {
+            assert_ne!(body, once, "{name}");
+            let world = World::new();
+            let mut ledger = world.open();
+            let id = started(&mut ledger, &text);
+            assert_eq!(
+                ledger.settle_body(id, &body).unwrap(),
+                ResponsesSettle::Unknown(UnknownCause::Response {
+                    stop: ResponseStop::DuplicateKey
+                }),
+                "{name}"
+            );
+        }
+    }
+
+    /// F5: a charge that would carry what the wallet spent past counting leaves a started send
+    /// unknown, its reservation held and the latch set, and changes nothing of one already
+    /// unknown. The spent amount near the top of the range is set on the records directly: no
+    /// reservation can be made beside it.
+    #[test]
+    fn a_charge_past_counting_leaves_the_send_unknown_once() {
+        use super::super::clock::RunClock;
+        use super::super::ledger_v2::{BudgetCharge, UsageCounts};
+        let world = World::new();
+        let policy = world.policy();
+        let text = text_body();
+        let mut wallet =
+            super::super::ledger_v2::WalletStateV2::new(&policy, "w".to_string(), None);
+        let mut clock = RunClock::new(world.clock.clone());
+        let first = wallet
+            .reserve(&policy, &request(&text), &mut clock)
+            .unwrap()
+            .physical;
+        wallet.start(&policy, first, &text).unwrap();
+        wallet.settle_body(&policy, first, &response()).unwrap();
+        // What was spent, now the largest amount there is.
+        let usage = UsageCounts::of(
+            &crate::providers::usage_observation::read_responses_usage(&response())
+                .wallet
+                .unwrap(),
+        );
+        wallet.attempts[0].charged = Some(BudgetCharge {
+            usage,
+            tier: 0,
+            charged: Money::from_units(u128::MAX),
+            late: false,
+        });
+        // A second send started beside it, as the records would hold it.
+        let mut started_one = wallet.attempts[0].clone();
+        let second = PhysicalId(2);
+        started_one.physical = second;
+        started_one.state = AttemptState::Started;
+        started_one.charged = None;
+        wallet.attempts.push(started_one);
+        let overflow = ResponsesSettle::Unknown(UnknownCause::Charge {
+            stop: ChargeStop::Overflow,
+        });
+        assert_eq!(
+            wallet.settle_body(&policy, second, &response()).unwrap(),
+            overflow
+        );
+        let attempt = wallet.attempt(second).unwrap();
+        assert_eq!(attempt.state, AttemptState::Unknown);
+        assert_eq!(
+            attempt.unknown,
+            Some(UnknownCause::Charge {
+                stop: ChargeStop::Overflow
+            })
+        );
+        assert_eq!(attempt.observed, Some(usage));
+        assert_eq!(attempt.charged, None);
+        assert_eq!(wallet.latch().unwrap().reason, LatchReason::UnknownBilling);
+        let before = wallet.clone();
+        // Late, from unknown: the same overflow, and nothing changes.
+        assert_eq!(
+            wallet.settle_body(&policy, second, &response()).unwrap(),
+            overflow
+        );
+        assert_eq!(wallet, before);
+    }
+
+    /// F5: a normal charge leaves no observation; a late one keeps what was observed when the
+    /// send went unknown.
+    #[test]
+    fn a_late_charge_keeps_what_was_observed_and_a_normal_one_has_none() {
+        let text = text_body();
+        let world = World::new();
+        let mut ledger = world.open();
+        let id = started(&mut ledger, &text);
+        ledger.settle_body(id, &response()).unwrap();
+        assert_eq!(ledger.wallet().attempt(id).unwrap().observed, None);
+        // Unknown for another model, with its usage observed; then the late valid reply.
+        let world = World::new();
+        let mut ledger = world.open();
+        let id = started(&mut ledger, &text);
+        let other = response_with(|v| v["model"] = json!("m-1-other"));
+        assert!(matches!(
+            ledger.settle_body(id, &other).unwrap(),
+            ResponsesSettle::Unknown(UnknownCause::Response { .. })
+        ));
+        let observed = ledger.wallet().attempt(id).unwrap().observed;
+        assert!(observed.is_some());
+        assert!(matches!(
+            ledger.settle_body(id, &response()).unwrap(),
+            ResponsesSettle::Charged { .. }
+        ));
+        let attempt = ledger.wallet().attempt(id).unwrap();
+        assert!(attempt.charged.unwrap().late);
+        assert_eq!(attempt.observed, observed);
+    }
+
+    /// F5: each latch of a charge holds exactly at its bound and is set one past it.
+    #[test]
+    fn the_latches_of_a_charge_hold_exactly_at_their_bounds() {
+        let text = text_body();
+        let bound = text.len() as u64 + 4;
+        // The whole bound written for 12h, the dearest input class, and the whole output: the
+        // charge is exactly the reservation.
+        let usage = |input: u64, cached: u64, written_12h: u64, output: u64| {
+            move |v: &mut Value| {
+                v["usage"] = json!({
+                    "input_tokens": input,
+                    "input_tokens_details": {"cached_tokens": cached, "cache_write_tokens": written_12h,
+                        "cache_write_tokens_details": {"ttl_30m_tokens": 0, "ttl_12h_tokens": written_12h}},
+                    "output_tokens": output
+                });
+            }
+        };
+        let settle = |change: &dyn Fn(&mut Value)| {
+            let world = World::new();
+            let mut ledger = world.open();
+            let id = started(&mut ledger, &text);
+            let reserved = ledger.wallet().attempt(id).unwrap().reserved;
+            let ResponsesSettle::Charged { charged, .. } = ledger
+                .settle_body(id, &response_with(|v| change(v)))
+                .unwrap()
+            else {
+                panic!("not charged");
+            };
+            (
+                charged,
+                reserved,
+                ledger.wallet().latch().map(|latch| latch.reason),
+            )
+        };
+        let (charged, reserved, latch) = settle(&usage(bound, 0, bound, 50));
+        assert_eq!(charged, reserved, "at the reservation");
+        assert_eq!(latch, None, "at every bound");
+        let (charged, reserved, latch) = settle(&usage(bound + 1, 0, bound + 1, 50));
+        assert!(charged > reserved);
+        assert_eq!(latch, Some(LatchReason::OverReservation));
+        // Input and output at and past their bounds, at the cheapest class: no other latch.
+        assert_eq!(settle(&usage(bound, bound, 0, 1)).2, None);
+        assert_eq!(
+            settle(&usage(bound + 1, bound + 1, 0, 1)).2,
+            Some(LatchReason::InputOverBound)
+        );
+        assert_eq!(settle(&usage(10, 10, 0, 50)).2, None);
+        assert_eq!(
+            settle(&usage(10, 10, 0, 51)).2,
+            Some(LatchReason::OutputOverBound)
+        );
+    }
+
     // ---- processes, versions, and the disk ----
 
     #[test]

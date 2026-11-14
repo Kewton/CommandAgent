@@ -1031,6 +1031,28 @@ mod tests {
         }
     }
 
+    /// F5: each part of the endpoint rule alone refuses it: a user with no password, a password
+    /// with no user, and a plain http scheme, each with everything else of the URL as allowed.
+    #[test]
+    fn each_part_of_the_endpoint_rule_refuses_it_alone() {
+        for bad in [
+            "https://user@api.example.test/v1/responses",
+            "https://:pw@api.example.test/v1/responses",
+            "https://user:pw@api.example.test/v1/responses",
+            "http://api.example.test/v1/responses",
+        ] {
+            assert_eq!(
+                refused(|v| v["route"]["endpoint"] = json!(bad)),
+                PolicyV2Refusal::InvalidEndpoint,
+                "{bad}"
+            );
+        }
+        // The control: the same URL with none of them.
+        let mut value = policy_v2_value();
+        value["route"]["endpoint"] = json!("https://api.example.test/v1/responses");
+        assert!(decoded(&value).is_ok());
+    }
+
     #[test]
     fn the_endpoint_is_one_absolute_https_url() {
         for bad in [
