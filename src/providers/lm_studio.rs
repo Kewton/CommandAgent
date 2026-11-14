@@ -428,6 +428,11 @@ impl LmStudioClient {
         {
             event["provider_billed_cost_usd"] = cost;
         }
+        // Issue #1006: the validated cache write, additive and only when reported.
+        crate::providers::usage_observation::add_event_fields(
+            &mut event,
+            metadata.cache_write.as_ref(),
+        );
         eval_events::emit(self.eval_events_path.as_deref(), event);
     }
 

@@ -255,6 +255,11 @@ impl OpenAiClient {
             event["service_tier"] = json!(metadata.service_tier);
             event["reasoning_tokens"] = json!(metadata.reasoning_tokens);
         }
+        // Issue #1006: the validated cache write, additive and only when reported.
+        crate::providers::usage_observation::add_event_fields(
+            &mut event,
+            metadata.cache_write.as_ref(),
+        );
         eval_events::emit(self.eval_events_path.as_deref(), event);
     }
 

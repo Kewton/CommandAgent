@@ -20,11 +20,6 @@
 //! A Chat body has only the telemetry answer ([`observe_chat_cache_write`]), from the Chat paths of
 //! the same table.
 
-#![allow(
-    dead_code,
-    reason = "the wallet and the telemetry take this reading when their send paths are wired in"
-)]
-
 use serde::de::{Deserializer, MapAccess, Visitor};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -88,6 +83,8 @@ pub(crate) enum UsageStop {
 }
 
 impl UsageStop {
+    /// The fixed word, as the ledger writes it.
+    #[cfg(test)]
     pub(crate) const fn as_str(self) -> &'static str {
         match self {
             Self::ResponseMalformed => "response_malformed",
@@ -126,6 +123,7 @@ pub(crate) struct ResponsesUsage {
 }
 
 impl ResponsesUsage {
+    #[cfg(test)]
     /// What the telemetry records of this usage's cache writes: the same values the wallet took.
     pub(crate) fn cache_write_observation(&self) -> Option<CacheWriteObservation> {
         let total = self.cache_write_tokens?;
@@ -140,17 +138,39 @@ impl ResponsesUsage {
 /// The TTL split of a cache write, recorded only when both counts were reported and add up to the
 /// total.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct CacheWriteTtl {
-    pub(crate) ttl_30m: u64,
-    pub(crate) ttl_12h: u64,
+pub struct CacheWriteTtl {
+    pub ttl_30m: u64,
+    pub ttl_12h: u64,
 }
 
 /// A cache write a provider actually reported and that is valid. A body that reports none has no
 /// value of this type, so a missing total is never a zero.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct CacheWriteObservation {
-    pub(crate) total: u64,
-    pub(crate) ttl: Option<CacheWriteTtl>,
+pub struct CacheWriteObservation {
+    pub total: u64,
+    pub ttl: Option<CacheWriteTtl>,
+}
+
+/// The three optional event fields of a cache write, on `provider_turn_duration` and on the same
+/// response's `provider_response` (Issue #1006, design 5). Only an observation that was obtained
+/// and validated adds anything: the total alone when no valid split was reported, the split
+/// beside it when both TTLs were. The counts are the provider's integers, exactly.
+pub(crate) const EVENT_TOTAL: &str = "provider_cache_write_input_tokens";
+pub(crate) const EVENT_TTL_30M: &str = "provider_cache_write_input_tokens_30m";
+pub(crate) const EVENT_TTL_12H: &str = "provider_cache_write_input_tokens_12h";
+
+pub(crate) fn add_event_fields(
+    event: &mut serde_json::Value,
+    observation: Option<&CacheWriteObservation>,
+) {
+    let Some(observation) = observation else {
+        return;
+    };
+    event[EVENT_TOTAL] = serde_json::json!(observation.total);
+    if let Some(ttl) = observation.ttl {
+        event[EVENT_TTL_30M] = serde_json::json!(ttl.ttl_30m);
+        event[EVENT_TTL_12H] = serde_json::json!(ttl.ttl_12h);
+    }
 }
 
 /// One reading of a Responses body.

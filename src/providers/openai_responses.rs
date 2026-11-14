@@ -236,6 +236,10 @@ fn parse_response_with(
     body: &str,
     session: Option<(&[ConversationMessage], &ConversationState)>,
 ) -> anyhow::Result<ParsedResponse> {
+    // The usage is read and validated first, by the reader the wallet shares, so that a call ID,
+    // tool, or parser failure below does not lose what the response reported (Issue #1006).
+    let cache_write = crate::providers::usage_observation::read_responses_usage(body).cache_write;
+    crate::provider_call::note_cache_write(cache_write);
     let value: Value = serde_json::from_str(body)?;
     let output = value
         .get("output")
@@ -298,6 +302,7 @@ fn parse_response_with(
         // Issue #947 reads a billed amount from Chat Completions only; the
         // Responses API keeps reporting none.
         billed_cost_usd: None,
+        cache_write,
     };
     Ok(ParsedResponse {
         reply: AssistantReply {
@@ -501,5 +506,132 @@ mod tests {
 
         assert_eq!(with_message.reply.content, "hello");
         assert_eq!(fallback.reply.content, "fallback");
+    }
+}
+
+/// Issue #1006: the usage is read before the call IDs, G2, and the tools, so a reply that then
+/// fails or is refused still reports its cache write on the turn's own path.
+#[cfg(test)]
+mod usage_first_tests {
+    use serde_json::{Value, json};
+
+    use super::{ConversationState, parse_session_response};
+    use crate::provider_call::noting_cache_write;
+    use crate::providers::usage_observation::{CacheWriteObservation, CacheWriteTtl};
+    use crate::state::ConversationMessage;
+    use crate::tools::profile_tools::schema::invocation::provider_test_support::schema_state;
+    use crate::tools::profile_tools::schema::invocation::{enter_session, for_provider_worker};
+
+    const WRITTEN: CacheWriteObservation = CacheWriteObservation {
+        total: 9,
+        ttl: Some(CacheWriteTtl {
+            ttl_30m: 4,
+            ttl_12h: 5,
+        }),
+    };
+
+    fn reply(output: Value, extra: Value) -> String {
+        let mut value = json!({
+            "id": "resp_1",
+            "model": "m",
+            "output": output,
+            "usage": {
+                "input_tokens": 20,
+                "input_tokens_details": {"cached_tokens": 1, "cache_write_tokens": 9,
+                    "cache_write_tokens_details": {"ttl_30m_tokens": 4, "ttl_12h_tokens": 5}},
+                "output_tokens": 3,
+                "total_tokens": 23
+            }
+        });
+        for (key, item) in extra.as_object().unwrap() {
+            value[key] = item.clone();
+        }
+        value.to_string()
+    }
+
+    fn call(id: &str, name: &str, arguments: &str) -> Value {
+        json!({"type": "function_call", "id": "fc", "call_id": id, "name": name, "arguments": arguments})
+    }
+
+    #[test]
+    fn a_reply_that_fails_or_is_refused_after_the_usage_still_reports_it() {
+        let history = vec![ConversationMessage::user("x")];
+        let stored = ConversationState::default();
+        // A parser error: a call with no name.
+        let (parsed, observed) = noting_cache_write(|| {
+            parse_session_response(
+                &reply(
+                    json!([{"type": "function_call", "call_id": "c", "arguments": "{}"}]),
+                    json!({}),
+                ),
+                &history,
+                &stored,
+            )
+        });
+        assert!(parsed.is_err());
+        assert_eq!(observed, Some(WRITTEN));
+        // An incomplete reply with no visible text.
+        let (parsed, observed) = noting_cache_write(|| {
+            parse_session_response(
+                &reply(json!([]), json!({"status": "incomplete"})),
+                &history,
+                &stored,
+            )
+        });
+        let parsed = parsed.unwrap();
+        assert!(parsed.reply.content.is_empty());
+        assert_eq!(parsed.metadata.cache_write, Some(WRITTEN));
+        assert_eq!(observed, Some(WRITTEN));
+
+        // In a session with a schema tool: a call ID that does not correlate, and a call G2
+        // refuses.
+        let state = schema_state();
+        let _scope = enter_session(state.clone());
+        for_provider_worker();
+        let (parsed, observed) = noting_cache_write(|| {
+            parse_session_response(
+                &reply(
+                    json!([
+                        call("same", "T", r#"{"s":"v"}"#),
+                        call("same", "T", r#"{"s":"v"}"#)
+                    ]),
+                    json!({}),
+                ),
+                &history,
+                &stored,
+            )
+        });
+        assert!(parsed.is_err(), "a duplicate call ID fails the reply");
+        assert_eq!(observed, Some(WRITTEN));
+        for_provider_worker();
+        let (parsed, observed) = noting_cache_write(|| {
+            parse_session_response(
+                &reply(json!([call("new", "T", r#"{"s":1}"#)]), json!({})),
+                &history,
+                &stored,
+            )
+        });
+        assert!(
+            parsed.unwrap().refused,
+            "G2 refuses a call its schema does not take"
+        );
+        assert_eq!(observed, Some(WRITTEN));
+    }
+
+    #[test]
+    fn a_reply_with_no_valid_cache_write_reports_none() {
+        let history = vec![ConversationMessage::user("x")];
+        let stored = ConversationState::default();
+        for usage in [
+            json!({"input_tokens": 2, "input_tokens_details": {"cached_tokens": 0}, "output_tokens": 1}),
+            json!({"input_tokens": 2, "input_tokens_details": {"cached_tokens": 0, "cache_write_tokens": null}, "output_tokens": 1}),
+            json!({"input_tokens": 2, "input_tokens_details": {"cached_tokens": 0, "cache_write_tokens": "2"}, "output_tokens": 1}),
+        ] {
+            let body = json!({"id": "r", "output": [], "usage": usage}).to_string();
+            let (parsed, observed) =
+                noting_cache_write(|| parse_session_response(&body, &history, &stored));
+            assert_eq!(parsed.unwrap().metadata.cache_write, None, "{usage}");
+            assert_eq!(observed, None, "{usage}");
+        }
     }
 }

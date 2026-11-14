@@ -13,7 +13,7 @@ pub mod parsing;
 pub mod profile_tool_schema;
 pub(crate) mod startup;
 pub mod streaming;
-pub(crate) mod usage_observation;
+pub mod usage_observation;
 pub mod xml_fallback;
 pub(crate) mod xml_repair;
 
@@ -54,6 +54,12 @@ pub struct ProviderResponseMetadata {
     /// When the amount text equals or contains a registered secret value, both
     /// events leave the field out, exactly as for an unreported amount.
     pub billed_cost_usd: Option<BilledCostUsd>,
+    /// The cache write this response reported, validated by the reader the wallet shares (Issue
+    /// #1006). `None` is not reported or not valid, never zero. The `provider_response` event of
+    /// the response carries it as the three `provider_cache_write_input_tokens*` fields; the
+    /// turn's `provider_turn_duration` carries the same values, taken on their own path so that a
+    /// turn whose reply then failed to parse still has them. Count them once per turn.
+    pub cache_write: Option<usage_observation::CacheWriteObservation>,
 }
 
 /// A provider-reported USD amount, kept as the exact decimal text of the JSON
