@@ -2577,18 +2577,37 @@ mod cache_write_event_tests {
     const C1: &str = r#"{"id":"chatcmpl-c1","model":"m-snap","created":1787000000,"choices":[{"message":{"content":"hello"}}],"usage":{"prompt_tokens":8,"completion_tokens":6,"prompt_tokens_details":{"cached_tokens":3,"cache_write_tokens":2,"cache_write_tokens_details":{"ttl_30m_tokens":1,"ttl_12h_tokens":1}},"cost":0.0012}}"#;
 
     /// The provider_response and provider_turn_duration lines of one call, `duration_ms` set to 0.
+    /// A model name no other capture of this process uses: the prompt-prefix cache of
+    /// `estimate_stable_prefix_chars` is process-global and keyed by provider and model, so a
+    /// call never sees another test's prompt there.
+    fn unique_model() -> String {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        format!(
+            "m-1006-call-{}",
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        )
+    }
+
     fn capture(responses: bool, reply: &str) -> Vec<String> {
-        let (lines, failed) = capture_any(responses, reply);
+        capture_as(responses, reply, &unique_model())
+    }
+
+    fn capture_as(responses: bool, reply: &str, model: &str) -> Vec<String> {
+        let (lines, failed) = capture_any_as(responses, reply, model);
         assert!(!failed, "{reply}");
         lines
     }
 
     fn capture_any(responses: bool, reply: &str) -> (Vec<String>, bool) {
+        capture_any_as(responses, reply, &unique_model())
+    }
+
+    fn capture_any_as(responses: bool, reply: &str, model: &str) -> (Vec<String>, bool) {
         let reply = reply.to_string();
         let tmp = tempfile::tempdir().expect("tempdir");
         let events_path = tmp.path().join("events.jsonl");
         let mut config = super::tests::test_config(tmp.path(), events_path.clone(), 2);
-        config.model = "m-1".to_string();
+        config.model = model.to_string();
         let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
         let address = listener.local_addr().expect("address");
         let server = std::thread::spawn(move || {
@@ -2654,26 +2673,26 @@ mod cache_write_event_tests {
     }
 
     const BASE_R0: [&str; 2] = [
-        r#"{"api":"responses","attempt":1,"event":"provider_response","model":"m-1","provider":"openai","reasoning_tokens":4,"response_id":"resp-c0","response_model":"m-snap","schema_version":"1","service_tier":"default","system_fingerprint":null,"tool_calls":0}"#,
-        r#"{"aborted_by_user":false,"caller_scope":"executor","duration_ms":0,"estimated_prompt_tokens_sent":5,"estimated_stable_prefix_chars":0,"eval_count":6,"eval_duration":null,"event":"provider_turn_duration","finish_reason":"stop","generation_seconds":null,"load_duration":null,"load_seconds":null,"model":"m-1","native_tools_enabled":false,"ok":true,"prefill_seconds":null,"prompt_eval_count":8,"prompt_eval_duration":null,"prompt_layout":"stable","provider":"openai","provider_cached_input_tokens":3,"provider_created_epoch":1785542400,"provider_model_id":"m-snap","provider_reasoning_tokens":4,"provider_response_id":"resp-c0","provider_service_tier":"default","provider_total_tokens":14,"schema_version":"1","system_fingerprint":null,"think":"omitted","timed_out":false,"timeout_ms":2000,"timeout_secs":2,"timeout_source":"override:test","tokens_per_second_eval":null,"tool_calls_in_response":0,"tools":0,"total_duration":null,"write_or_edit_succeeded":false}"#,
+        r#"{"api":"responses","attempt":1,"event":"provider_response","model":"m-1006-r0","provider":"openai","reasoning_tokens":4,"response_id":"resp-c0","response_model":"m-snap","schema_version":"1","service_tier":"default","system_fingerprint":null,"tool_calls":0}"#,
+        r#"{"aborted_by_user":false,"caller_scope":"executor","duration_ms":0,"estimated_prompt_tokens_sent":5,"estimated_stable_prefix_chars":0,"eval_count":6,"eval_duration":null,"event":"provider_turn_duration","finish_reason":"stop","generation_seconds":null,"load_duration":null,"load_seconds":null,"model":"m-1006-r0","native_tools_enabled":false,"ok":true,"prefill_seconds":null,"prompt_eval_count":8,"prompt_eval_duration":null,"prompt_layout":"stable","provider":"openai","provider_cached_input_tokens":3,"provider_created_epoch":1785542400,"provider_model_id":"m-snap","provider_reasoning_tokens":4,"provider_response_id":"resp-c0","provider_service_tier":"default","provider_total_tokens":14,"schema_version":"1","system_fingerprint":null,"think":"omitted","timed_out":false,"timeout_ms":2000,"timeout_secs":2,"timeout_source":"override:test","tokens_per_second_eval":null,"tool_calls_in_response":0,"tools":0,"total_duration":null,"write_or_edit_succeeded":false}"#,
     ];
     const BASE_R1: [&str; 2] = [
-        r#"{"api":"responses","attempt":1,"event":"provider_response","model":"m-1","provider":"openai","reasoning_tokens":4,"response_id":"resp-c1","response_model":"m-snap","schema_version":"1","service_tier":"default","system_fingerprint":null,"tool_calls":0}"#,
-        r#"{"aborted_by_user":false,"caller_scope":"executor","duration_ms":0,"estimated_prompt_tokens_sent":5,"estimated_stable_prefix_chars":25,"eval_count":6,"eval_duration":null,"event":"provider_turn_duration","finish_reason":"stop","generation_seconds":null,"load_duration":null,"load_seconds":null,"model":"m-1","native_tools_enabled":false,"ok":true,"prefill_seconds":null,"prompt_eval_count":8,"prompt_eval_duration":null,"prompt_layout":"stable","provider":"openai","provider_cached_input_tokens":3,"provider_created_epoch":1785542400,"provider_model_id":"m-snap","provider_reasoning_tokens":4,"provider_response_id":"resp-c1","provider_service_tier":"default","provider_total_tokens":14,"schema_version":"1","system_fingerprint":null,"think":"omitted","timed_out":false,"timeout_ms":2000,"timeout_secs":2,"timeout_source":"override:test","tokens_per_second_eval":null,"tool_calls_in_response":0,"tools":0,"total_duration":null,"write_or_edit_succeeded":false}"#,
+        r#"{"api":"responses","attempt":1,"event":"provider_response","model":"m-1006-r1","provider":"openai","reasoning_tokens":4,"response_id":"resp-c1","response_model":"m-snap","schema_version":"1","service_tier":"default","system_fingerprint":null,"tool_calls":0}"#,
+        r#"{"aborted_by_user":false,"caller_scope":"executor","duration_ms":0,"estimated_prompt_tokens_sent":5,"estimated_stable_prefix_chars":0,"eval_count":6,"eval_duration":null,"event":"provider_turn_duration","finish_reason":"stop","generation_seconds":null,"load_duration":null,"load_seconds":null,"model":"m-1006-r1","native_tools_enabled":false,"ok":true,"prefill_seconds":null,"prompt_eval_count":8,"prompt_eval_duration":null,"prompt_layout":"stable","provider":"openai","provider_cached_input_tokens":3,"provider_created_epoch":1785542400,"provider_model_id":"m-snap","provider_reasoning_tokens":4,"provider_response_id":"resp-c1","provider_service_tier":"default","provider_total_tokens":14,"schema_version":"1","system_fingerprint":null,"think":"omitted","timed_out":false,"timeout_ms":2000,"timeout_secs":2,"timeout_source":"override:test","tokens_per_second_eval":null,"tool_calls_in_response":0,"tools":0,"total_duration":null,"write_or_edit_succeeded":false}"#,
     ];
     const BASE_C0: [&str; 2] = [
-        r#"{"api":"chat_completions","attempt":1,"event":"provider_response","model":"m-1","provider":"lm-studio","provider_billed_cost_usd":"0.0012","response_model":"m-snap","schema_version":"1","system_fingerprint":null,"tool_calls":0}"#,
-        r#"{"aborted_by_user":false,"caller_scope":"executor","duration_ms":0,"estimated_prompt_tokens_sent":5,"estimated_stable_prefix_chars":0,"eval_count":6,"eval_duration":null,"event":"provider_turn_duration","finish_reason":"stop","generation_seconds":null,"load_duration":null,"load_seconds":null,"model":"m-1","native_tools_enabled":false,"ok":true,"prefill_seconds":null,"prompt_eval_count":8,"prompt_eval_duration":null,"prompt_layout":"stable","provider":"lm-studio","provider_billed_cost_usd":"0.0012","provider_cached_input_tokens":3,"provider_created_epoch":1787000000,"provider_model_id":"m-snap","provider_response_id":"chatcmpl-c0","provider_service_tier":null,"schema_version":"1","system_fingerprint":null,"think":"omitted","timed_out":false,"timeout_ms":2000,"timeout_secs":2,"timeout_source":"override:test","tokens_per_second_eval":null,"tool_calls_in_response":0,"tools":0,"total_duration":null,"write_or_edit_succeeded":false}"#,
+        r#"{"api":"chat_completions","attempt":1,"event":"provider_response","model":"m-1006-c0","provider":"lm-studio","provider_billed_cost_usd":"0.0012","response_model":"m-snap","schema_version":"1","system_fingerprint":null,"tool_calls":0}"#,
+        r#"{"aborted_by_user":false,"caller_scope":"executor","duration_ms":0,"estimated_prompt_tokens_sent":5,"estimated_stable_prefix_chars":0,"eval_count":6,"eval_duration":null,"event":"provider_turn_duration","finish_reason":"stop","generation_seconds":null,"load_duration":null,"load_seconds":null,"model":"m-1006-c0","native_tools_enabled":false,"ok":true,"prefill_seconds":null,"prompt_eval_count":8,"prompt_eval_duration":null,"prompt_layout":"stable","provider":"lm-studio","provider_billed_cost_usd":"0.0012","provider_cached_input_tokens":3,"provider_created_epoch":1787000000,"provider_model_id":"m-snap","provider_response_id":"chatcmpl-c0","provider_service_tier":null,"schema_version":"1","system_fingerprint":null,"think":"omitted","timed_out":false,"timeout_ms":2000,"timeout_secs":2,"timeout_source":"override:test","tokens_per_second_eval":null,"tool_calls_in_response":0,"tools":0,"total_duration":null,"write_or_edit_succeeded":false}"#,
     ];
     const BASE_C1: [&str; 2] = [
-        r#"{"api":"chat_completions","attempt":1,"event":"provider_response","model":"m-1","provider":"lm-studio","provider_billed_cost_usd":"0.0012","response_model":"m-snap","schema_version":"1","system_fingerprint":null,"tool_calls":0}"#,
-        r#"{"aborted_by_user":false,"caller_scope":"executor","duration_ms":0,"estimated_prompt_tokens_sent":5,"estimated_stable_prefix_chars":25,"eval_count":6,"eval_duration":null,"event":"provider_turn_duration","finish_reason":"stop","generation_seconds":null,"load_duration":null,"load_seconds":null,"model":"m-1","native_tools_enabled":false,"ok":true,"prefill_seconds":null,"prompt_eval_count":8,"prompt_eval_duration":null,"prompt_layout":"stable","provider":"lm-studio","provider_billed_cost_usd":"0.0012","provider_cached_input_tokens":3,"provider_created_epoch":1787000000,"provider_model_id":"m-snap","provider_response_id":"chatcmpl-c1","provider_service_tier":null,"schema_version":"1","system_fingerprint":null,"think":"omitted","timed_out":false,"timeout_ms":2000,"timeout_secs":2,"timeout_source":"override:test","tokens_per_second_eval":null,"tool_calls_in_response":0,"tools":0,"total_duration":null,"write_or_edit_succeeded":false}"#,
+        r#"{"api":"chat_completions","attempt":1,"event":"provider_response","model":"m-1006-c1","provider":"lm-studio","provider_billed_cost_usd":"0.0012","response_model":"m-snap","schema_version":"1","system_fingerprint":null,"tool_calls":0}"#,
+        r#"{"aborted_by_user":false,"caller_scope":"executor","duration_ms":0,"estimated_prompt_tokens_sent":5,"estimated_stable_prefix_chars":0,"eval_count":6,"eval_duration":null,"event":"provider_turn_duration","finish_reason":"stop","generation_seconds":null,"load_duration":null,"load_seconds":null,"model":"m-1006-c1","native_tools_enabled":false,"ok":true,"prefill_seconds":null,"prompt_eval_count":8,"prompt_eval_duration":null,"prompt_layout":"stable","provider":"lm-studio","provider_billed_cost_usd":"0.0012","provider_cached_input_tokens":3,"provider_created_epoch":1787000000,"provider_model_id":"m-snap","provider_response_id":"chatcmpl-c1","provider_service_tier":null,"schema_version":"1","system_fingerprint":null,"think":"omitted","timed_out":false,"timeout_ms":2000,"timeout_secs":2,"timeout_source":"override:test","tokens_per_second_eval":null,"tool_calls_in_response":0,"tools":0,"total_duration":null,"write_or_edit_succeeded":false}"#,
     ];
 
-    /// What varies between runs, and only that: the wall time, and the stable-prefix estimate a
-    /// process keeps across calls (it depends on what ran before in the same process).
+    /// What varies between runs, and only that: the wall time. The stable-prefix estimate is kept
+    /// as it is: each capture has a model name of its own (see [`unique_model`]).
     fn normalize(value: &mut serde_json::Value) {
-        for key in ["duration_ms", "estimated_stable_prefix_chars"] {
+        for key in ["duration_ms"] {
             if value.get(key).is_some() {
                 value[key] = serde_json::json!(0);
             }
@@ -2704,8 +2723,11 @@ mod cache_write_event_tests {
 
     #[test]
     fn a_reply_with_no_cache_write_gives_the_lines_the_base_gave_byte_for_byte() {
-        for (responses, reply, base) in [(true, R0, BASE_R0), (false, C0, BASE_C0)] {
-            let lines = capture(responses, reply);
+        for (responses, reply, base, model) in [
+            (true, R0, BASE_R0, "m-1006-r0"),
+            (false, C0, BASE_C0, "m-1006-c0"),
+        ] {
+            let lines = capture_as(responses, reply, model);
             let base = base.map(normalized);
             assert_eq!(lines, base.to_vec(), "{reply}");
         }
@@ -2713,8 +2735,11 @@ mod cache_write_event_tests {
 
     #[test]
     fn a_reply_with_a_cache_write_adds_the_three_fields_and_nothing_else() {
-        for (responses, reply, base) in [(true, R1, BASE_R1), (false, C1, BASE_C1)] {
-            let lines = capture(responses, reply);
+        for (responses, reply, base, model) in [
+            (true, R1, BASE_R1, "m-1006-r1"),
+            (false, C1, BASE_C1, "m-1006-c1"),
+        ] {
+            let lines = capture_as(responses, reply, model);
             assert_eq!(lines.len(), 2);
             let expected = serde_json::json!({
                 "provider_cache_write_input_tokens": 2,
