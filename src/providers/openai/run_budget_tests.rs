@@ -514,8 +514,11 @@ fn a_wallet_whose_endpoint_is_not_where_the_client_posts_sends_nothing() {
     let _ = world.workspace;
 }
 
-/// The factory, in a child whose environment holds a key and the selection.
-mod factory {
+/// The factory, in a child whose environment holds a key and the selection. A `tests` module
+/// under `#[cfg(test)]`, the form the protection coverage audit reads as test code for the child
+/// process this test starts.
+#[cfg(test)]
+mod tests {
     use super::*;
     use crate::config::Config;
 
@@ -594,8 +597,7 @@ mod factory {
             ProviderRole::Executor,
         )
         .unwrap();
-        let error = client
-            .chat("m-1", &off_messages(), &[], false)
+        let error = ChatClient::chat(client.as_mut(), "m-1", &off_messages(), &[], false)
             .map(|_| ())
             .unwrap_err();
         assert_eq!(
@@ -633,7 +635,7 @@ mod factory {
         let output = std::process::Command::new(std::env::current_exe().unwrap())
             .args([
                 "--exact",
-                "providers::openai::run_budget_tests::factory::the_factory_builds_the_direct_client_with_the_wallet_and_nothing_else_child",
+                "providers::openai::run_budget_tests::tests::the_factory_builds_the_direct_client_with_the_wallet_and_nothing_else_child",
                 "--nocapture",
                 "--test-threads=1",
             ])

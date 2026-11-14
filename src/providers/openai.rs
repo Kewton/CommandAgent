@@ -524,7 +524,6 @@ pub fn parse_openai_response(body: &str) -> anyhow::Result<AssistantReply> {
 }
 
 #[cfg(test)]
-#[path = "openai_run_budget_tests.rs"]
 mod run_budget_tests;
 
 #[cfg(test)]
