@@ -72,5 +72,17 @@ them once per turn, from the turn event.
 
 Base `ff920681b8bfa9d6e11560837a83ffd96f6340bd`, a git-archive copy with its own target, only
 `tests/responses_run_budget.rs` added. The recorder ran twice there; the outputs were byte-identical.
-The normalization is listed in `source-manifest.json` with the evidence for each value. Nothing else
-is normalized, and `estimated_stable_prefix_chars` is compared as it is.
+The normalization is listed in `source-manifest.json`, each value with its evidence from two raw
+(un-normalized) runs of the base:
+
+- the temporary root and the loopback address: each run's own;
+- a non-negative integer under `duration_ms`, `occurred_at_epoch_ms`, `executor_ms`, `provider_ms`,
+  `total_ms`, `time_profile_provider_ms`, `time_profile_total_ms`: wall-clock, different in every
+  occurrence between the two runs;
+- a string under `build_commit` or `build_timestamp`: the binary's identity, another build;
+- a boolean under `build_dirty`: equal here (false), kept normalized as the state of the building
+  tree, not of the run;
+- `pid` and `run_id` in the workspace lock file: different in every run.
+
+A value of another type than the one named is not normalized, and a line that is not JSON is kept as a
+difference. Nothing else is normalized, and `estimated_stable_prefix_chars` is compared as it is.

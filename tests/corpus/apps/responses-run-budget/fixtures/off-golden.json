@@ -4,8 +4,8 @@
   "normalization": [
     "the run's temporary root, wherever it appears in a string -> <ROOT>",
     "the fake's loopback address http://127.0.0.1:<port> and 127.0.0.1:<port> -> <LOOPBACK>",
-    "a JSON number, at any depth of an event, under one of TIMING_KEYS -> 0",
-    "the string or boolean under build_commit, build_dirty, build_timestamp -> \"<BUILD>\"",
+    "a non-negative integer, at any depth of an event, under one of TIMING_KEYS -> 0; any other type is kept",
+    "a string under build_commit or build_timestamp, a boolean under build_dirty -> \"<BUILD>\"; any other type is kept",
     "in the workspace lock file, the values of pid and run_id -> \"<PID>\", \"<RUN>\"",
     "nothing else: every other byte of a request, an event line, a file, and the outcome is compared"
   ],

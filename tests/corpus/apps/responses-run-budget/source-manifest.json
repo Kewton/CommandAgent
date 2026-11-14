@@ -6,14 +6,16 @@
     "how": "fixtures/off-golden.json was written by tests/responses_run_budget.rs off_control::records_the_off_golden, run against the unchanged production code of base_sha in a git-archive copy of that commit (only tests/responses_run_budget.rs added to the copy; its src/ is the archive's), with no wallet selected; the compatible paths go to a fake on 127.0.0.1, the direct path to a proxy on 127.0.0.1 that closes each CONNECT",
     "command": "RESPONSES_RUN_BUDGET_OFF_OUT=<out> HEAVY_LOCK_CLASS=cargo with-heavy-lock cargo test -j 4 --test responses_run_budget -- --exact off_control::records_the_off_golden, run twice in the base copy; the two outputs were byte-identical (cmp), and two runs of the current code were byte-identical too",
     "normalization": [
-      "the run's temporary root -> <ROOT>; the fake's loopback address -> <LOOPBACK>: each run makes its own",
-      "a JSON number under duration_ms, occurred_at_epoch_ms, executor_ms, provider_ms, total_ms, time_profile_provider_ms, time_profile_total_ms -> 0: found by diffing two unnormalized runs, which differed in these keys only (wall-clock time)",
-      "build_commit, build_dirty, build_timestamp -> <BUILD>: the identity of the binary, which is another build for the base and for this code",
-      "in .commandagent/lock, pid and run_id -> <PID>, <RUN>: differed between the two unnormalized runs",
-      "estimated_stable_prefix_chars is not normalized: each run is its own process"
+      "the run's temporary root -> <ROOT>; the fake's loopback address -> <LOOPBACK>: each run makes its own (two raw base runs: every request body and workspace_root differ only by the temporary root)",
+      "a non-negative integer under duration_ms, occurred_at_epoch_ms, executor_ms, provider_ms, total_ms, time_profile_provider_ms, time_profile_total_ms -> 0, any other type kept: in the two raw base runs every occurrence of each key differed (duration_ms 20/20, occurred_at_epoch_ms 12/12, executor_ms 12/12, provider_ms 12/12, total_ms 12/12, time_profile_provider_ms 6/6, time_profile_total_ms 6/6)",
+      "a string under build_commit or build_timestamp -> <BUILD>: equal within the base's two runs (unknown/unknown) and different from the current build (commit and build time) in all 12 occurrences; they name the binary",
+      "a boolean under build_dirty -> <BUILD>: equal in the two raw base runs and in the current build (false, 12/12); kept normalized because it is the state of the building tree, not the run: any build from a tree with an uncommitted edit (a developer's change, an in-place mutation) reports true with no change in behaviour",
+      "in .commandagent/lock, pid and run_id -> <PID>, <RUN>: both differed between the two raw base runs on every path",
+      "estimated_stable_prefix_chars and every other value are compared as they are"
     ],
     "comparison": "tests/responses_run_budget.rs ac7_with_no_wallet_a_run_is_what_the_base_recorded: requests, CONNECT count, artifacts, outcome and ledger files equal; each event line byte-equal, after the exact names provider_cache_write_input_tokens, provider_cache_write_input_tokens_30m and provider_cache_write_input_tokens_12h are taken out of a line that has them; ac7_the_off_comparison_sees_every_other_change shows any other change fails it",
-    "direct_client_scope": "the direct client's own 2xx off bytes cannot pass through the binary (it posts to https://api.openai.com only, and no production path repoints it); its off request bytes and retry, and its event lines, are compared with captures of base_sha in providers::openai::run_budget_tests (OFF_BODY_AT_BASE) and provider_call::cache_write_event_tests (BASE_R0/R1/C0/C1, re-captured in F2 with a model name per capture)"
+    "direct_client_scope": "the direct client's own 2xx off bytes cannot pass through the binary (it posts to https://api.openai.com only, and no production path repoints it); its off request bytes and retry, and its event lines, are compared with captures of base_sha in providers::openai::run_budget_tests (OFF_BODY_AT_BASE) and provider_call::cache_write_event_tests (BASE_R0/R1/C0/C1, re-captured in F2 with a model name per capture)",
+    "raw_evidence": "results/L-196/F3/{base-raw-1.json,base-raw-2.json,current-raw-1.json,current-raw-2.json,raw-side-by-side.json,compare_raw.py} in the CommandAgent-develop workspace (not in the repository): two un-normalized runs of the base and of the current code, and every normalized value side by side"
   },
   "origin": "synthetic",
   "synthetic_source": {
@@ -25,6 +27,6 @@
   "regenerate_digests": "shasum -a 256 fixtures/cases.json fixtures/off-golden.json",
   "fixture_sha256": {
     "cases.json": "701fe401e529be47ea8dd32ba3c1aa0258cfd57939e68a156dffbe015547afb2",
-    "off-golden.json": "13edf0c5598d17083fab300b2225a6a1ffddb17cb91d0dbdeaf659ebae914e6d"
+    "off-golden.json": "8996b99271675358c69853d5c7828b7cfa1190d84143d12cc28c8e4e9e274699"
   }
 }

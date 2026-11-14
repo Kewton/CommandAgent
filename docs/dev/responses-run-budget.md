@@ -113,6 +113,22 @@ U1).
   `tests/corpus/apps/responses-run-budget`). A reply that fails to parse still hands its observation
   to the turn, on a path apart from the response metadata.
 
+## Wallet-off control
+
+`tests/responses_run_budget.rs` compares the binary's wallet-off runs with a recording of the base
+ff920681 (`tests/corpus/apps/responses-run-budget/fixtures/off-golden.json`). It compares requests,
+the connection count, files, the outcome, and each event line byte for byte.
+
+Only these are normalized, each shown to vary between two raw runs of the base or to name the build:
+- the temporary root and loopback address;
+- the wall-clock integers `duration_ms`, `occurred_at_epoch_ms`, `executor_ms`, `provider_ms`,
+  `total_ms`, `time_profile_provider_ms` and `time_profile_total_ms`;
+- the build strings `build_commit` and `build_timestamp`, and the build flag `build_dirty`;
+- the lock file's `pid` and `run_id`.
+
+A value of another type, or a line that is not JSON, is a difference. The three new cache-write fields
+are removed by name before an event line is compared.
+
 ## Decisions
 
 - **U1:** v1 and v2 share the wallet's path and lock; the decode branches on schema and basis; a change of
