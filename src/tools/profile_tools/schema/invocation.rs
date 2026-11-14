@@ -7,7 +7,7 @@
 //! selected nothing is installed, and every function here returns at once.
 
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -23,6 +23,7 @@ use crate::config::{Config, ToolProtocol};
 use crate::providers::ChatClient;
 use crate::providers::profile_tool_schema::{self, ProfileToolSchemaWire};
 use crate::state::ToolCall;
+use crate::state::tool_history::stage::{StageNamesGuard, enter_stage_names};
 use crate::tools::args_recovery::{ToolArgsRecovery, recover_tool_arguments};
 use crate::tools::registry::ToolSpec;
 
@@ -298,10 +299,21 @@ fn with_current<T>(read: impl FnOnce(&ReceiveState) -> Option<T>) -> Option<T> {
     CURRENT.with(|current| current.borrow().as_deref().and_then(read))
 }
 
-/// Holds a session's state on its thread, and puts the previous one back.
+/// Holds a session's state on its thread, and puts the previous one back. With a stage set,
+/// it also holds the stage tools' names for the history, and puts those back too.
 #[derive(Debug)]
 pub(crate) struct SessionScope {
     previous: Option<Arc<ReceiveState>>,
+    stage_names: Option<StageNamesGuard>,
+}
+
+impl SessionScope {
+    /// Installs the function names of the session's stage tools on this thread, for as long as
+    /// this scope lives (Issue #1004).
+    pub(crate) fn with_stage_names(mut self, names: Arc<BTreeSet<String>>) -> Self {
+        self.stage_names = Some(enter_stage_names(names));
+        self
+    }
 }
 
 impl Drop for SessionScope {
@@ -315,6 +327,7 @@ pub(crate) fn enter_session(state: Arc<ReceiveState>) -> SessionScope {
     state.shared.in_session.store(true, Ordering::SeqCst);
     SessionScope {
         previous: CURRENT.with(|current| current.borrow_mut().replace(state)),
+        stage_names: None,
     }
 }
 
@@ -751,5 +764,44 @@ mod send_tests {
             refusal(&changed, Some(&carrying))
                 .starts_with("profile_tool_refused: schema_scrubbed:")
         );
+    }
+}
+
+/// Issue #1004: a session's scope carries its stage tools' names for the history, and puts
+/// whatever was there back when it ends.
+#[cfg(test)]
+mod stage_name_tests {
+    use std::collections::BTreeSet;
+    use std::sync::Arc;
+
+    use super::{ReceiveState, enter_session};
+    use crate::eval_events::body_snippet_whole_tokens;
+    use crate::state::tool_history::history_content;
+    use crate::state::tool_history::stage::STAGE_ANSWER_MAX_BYTES;
+
+    fn names(list: &[&str]) -> Arc<BTreeSet<String>> {
+        Arc::new(list.iter().map(|name| (*name).to_string()).collect())
+    }
+
+    #[test]
+    fn a_session_scope_holds_the_stage_names_and_its_drop_puts_the_previous_back() {
+        let long = "abcdefgh ".repeat(1_000);
+        let kept = |name: &str| history_content(Some(name), &long);
+        let snippet = body_snippet_whole_tokens(&long);
+        assert_eq!(kept("ProposeUpper"), snippet);
+        let outer = enter_session(Arc::new(ReceiveState::default()))
+            .with_stage_names(names(&["ProposeUpper"]));
+        let staged = kept("ProposeUpper");
+        assert!(staged.len() > 500 && staged.len() <= STAGE_ANSWER_MAX_BYTES);
+        {
+            let _inner = enter_session(Arc::new(ReceiveState::default()))
+                .with_stage_names(names(&["ProposeLower"]));
+            assert_eq!(kept("ProposeUpper"), snippet);
+            assert_eq!(kept("ProposeLower"), staged);
+        }
+        assert_eq!(kept("ProposeUpper"), staged);
+        assert_eq!(kept("ProposeLower"), snippet);
+        drop(outer);
+        assert_eq!(kept("ProposeUpper"), snippet);
     }
 }

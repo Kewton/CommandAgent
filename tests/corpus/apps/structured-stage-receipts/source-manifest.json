@@ -2,6 +2,7 @@
   "issue": "#975",
   "owner": "src/planner/structured_stages/ and src/minimal_loop/loop_run/implementation_completion/structured_stage_completion.rs: stages over propose-artifacts tools, bound to host receipts and input revisions, through the public session, planner, and CLI entries",
   "base_sha": "d2360125210564351f30e42bbc1a9f5e51f2b3cc",
+  "attempts_replay_base_sha": "028d63d196355f6ba68d64f2a47861f1260b2971",
   "origin": "synthetic",
   "synthetic_source": {
     "cases": "hand-written generic profiles (a settings object and a document index), operator descriptors, fixed scripts, and raw replies; none is copied from a run, a benchmark task, or an issue evidence file",
@@ -11,7 +12,8 @@
   "derived_fixture": "tests/structured_stage_receipts.rs reads fixtures/cases.json and fixtures/off-golden.json",
   "regenerate_digests": "shasum -a 256 fixtures/cases.json fixtures/off-golden.json",
   "fixture_sha256": {
-    "cases.json": "f98dcfd4edb8c2b33a5357737a36a87260815ccd9d7ce4c169abff22d568442d",
-    "off-golden.json": "8e00b47bfe5dbe2b0d3f557248b327d6cc731b1a8217ee341ebcbadd152091d1"
+    "cases.json": "ad6f11cc05a8510a3efeb5de66721b1e5ced202e486cffd89a28aade8ab6f8cd",
+    "off-golden.json": "8e00b47bfe5dbe2b0d3f557248b327d6cc731b1a8217ee341ebcbadd152091d1",
+    "attempts-replay-golden.json": "eda6c94538b388d3b8cc530674decc0d08a2bf223a71d820bd3627cbd6e8e650"
   }
 }

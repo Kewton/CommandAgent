@@ -1,0 +1,401 @@
+{
+  "issue": "#1004",
+  "kind": "attempts-replay",
+  "paths": [
+    {
+      "floor": {
+        "attempts_per_run": 16,
+        "attempts_per_target": 3,
+        "deadline_seconds": 600,
+        "required_checks": [
+          "shape"
+        ]
+      },
+      "id": "back-upstream-then-target-limit",
+      "observation": {
+        "answers": [
+          null,
+          {
+            "committed": true,
+            "committed_sha256": "83724881a138f09507112cb2766937c6145472de0cdb3fbd0ded144a41b57e50",
+            "path": "out/upper.json",
+            "stage": {
+              "downstream": [
+                {
+                  "revision": "g1-<REVISION-1>",
+                  "stage": "lower",
+                  "target": "main"
+                }
+              ],
+              "revision": "g1-<REVISION-2>",
+              "status": "sealed"
+            }
+          },
+          {
+            "code": "check_failed",
+            "diagnostics": [
+              {
+                "code": "shape",
+                "message": "the shape is off"
+              }
+            ],
+            "status": "resubmit",
+            "truncated": false
+          },
+          {
+            "code": "check_failed",
+            "diagnostics": [
+              {
+                "code": "shape",
+                "message": "the shape is still off"
+              }
+            ],
+            "status": "resubmit",
+            "truncated": false
+          },
+          {
+            "committed": true,
+            "committed_sha256": "b8a1e296a501d749c2e0edf61bc8232dc636699d1936ad93d5975637c63945ea",
+            "path": "out/upper.json",
+            "stage": {
+              "downstream": [
+                {
+                  "revision": "g2-<REVISION-3>",
+                  "stage": "lower",
+                  "target": "main"
+                }
+              ],
+              "revision": "g2-<REVISION-4>",
+              "status": "sealed"
+            }
+          },
+          {
+            "code": "check_failed",
+            "diagnostics": [
+              {
+                "code": "shape",
+                "message": "the shape is off"
+              }
+            ],
+            "status": "resubmit",
+            "truncated": false
+          }
+        ],
+        "attempts_used": [
+          {
+            "run": 5,
+            "targets": {
+              "lower/main": 3,
+              "upper/main": 2
+            }
+          }
+        ],
+        "error": "profile_tool_refused: stage_run_ended: attempts_exhausted_for_target",
+        "events": [
+          "step_obligation_scope",
+          "provider_request",
+          "provider_response",
+          "provider_turn_duration",
+          "tool_call_raw",
+          "profile_tool_effect_call",
+          "profile_tool_commit",
+          "tool_execute",
+          "provider_request",
+          "provider_response",
+          "provider_turn_duration",
+          "tool_call_raw",
+          "profile_tool_effect_call",
+          "profile_tool_effect_rejected",
+          "tool_execute",
+          "provider_request",
+          "provider_response",
+          "provider_turn_duration",
+          "tool_call_raw",
+          "profile_tool_effect_call",
+          "profile_tool_effect_rejected",
+          "tool_execute",
+          "provider_request",
+          "provider_response",
+          "provider_turn_duration",
+          "tool_call_raw",
+          "profile_tool_effect_call",
+          "profile_tool_commit",
+          "tool_execute",
+          "provider_request",
+          "provider_response",
+          "provider_turn_duration",
+          "tool_call_raw",
+          "profile_tool_effect_call",
+          "profile_tool_effect_rejected",
+          "tool_execute",
+          "provider_request",
+          "provider_response",
+          "provider_turn_duration",
+          "tool_call_raw",
+          "profile_tool_effect_call",
+          "profile_tool_effect_rejected",
+          "tool_execute"
+        ],
+        "processes": 5,
+        "refusal": {
+          "code": "attempts_exhausted_for_target",
+          "kind": "stage_run_ended"
+        },
+        "replies": [
+          {
+            "expected_revision": "initial",
+            "mode": "good",
+            "tool": "ProposeUpper"
+          },
+          {
+            "expected_revision": "g1-<REVISION-1>",
+            "mode": "bad",
+            "tool": "ProposeLower"
+          },
+          {
+            "expected_revision": "g1-<REVISION-1>",
+            "mode": "worse",
+            "tool": "ProposeLower"
+          },
+          {
+            "expected_revision": "g1-<REVISION-2>",
+            "mode": "again",
+            "tool": "ProposeUpper"
+          },
+          {
+            "expected_revision": "g2-<REVISION-3>",
+            "mode": "bad",
+            "tool": "ProposeLower"
+          },
+          {
+            "expected_revision": "g2-<REVISION-3>",
+            "mode": "worse",
+            "tool": "ProposeLower"
+          }
+        ],
+        "requests": 6,
+        "stopped": {
+          "stage": "lower",
+          "target": "main"
+        }
+      }
+    },
+    {
+      "floor": {
+        "attempts_per_run": 5,
+        "attempts_per_target": 4,
+        "deadline_seconds": 600,
+        "required_checks": [
+          "shape"
+        ]
+      },
+      "id": "run-limit",
+      "observation": {
+        "answers": [
+          null,
+          {
+            "code": "check_failed",
+            "diagnostics": [
+              {
+                "code": "shape",
+                "message": "the shape is off"
+              }
+            ],
+            "status": "resubmit",
+            "truncated": false
+          },
+          {
+            "committed": true,
+            "committed_sha256": "83724881a138f09507112cb2766937c6145472de0cdb3fbd0ded144a41b57e50",
+            "path": "out/upper.json",
+            "stage": {
+              "downstream": [
+                {
+                  "revision": "g1-<REVISION-1>",
+                  "stage": "lower",
+                  "target": "main"
+                }
+              ],
+              "revision": "g1-<REVISION-2>",
+              "status": "sealed"
+            }
+          },
+          {
+            "code": "check_failed",
+            "diagnostics": [
+              {
+                "code": "shape",
+                "message": "the shape is off"
+              }
+            ],
+            "status": "resubmit",
+            "truncated": false
+          },
+          {
+            "code": "check_failed",
+            "diagnostics": [
+              {
+                "code": "shape",
+                "message": "the shape is still off"
+              }
+            ],
+            "status": "resubmit",
+            "truncated": false
+          },
+          {
+            "committed": true,
+            "committed_sha256": "b8a1e296a501d749c2e0edf61bc8232dc636699d1936ad93d5975637c63945ea",
+            "path": "out/upper.json",
+            "stage": {
+              "downstream": [
+                {
+                  "revision": "g2-<REVISION-3>",
+                  "stage": "lower",
+                  "target": "main"
+                }
+              ],
+              "revision": "g2-<REVISION-4>",
+              "status": "sealed"
+            }
+          }
+        ],
+        "attempts_used": [
+          {
+            "run": 5,
+            "targets": {
+              "lower/main": 2,
+              "upper/main": 3
+            }
+          }
+        ],
+        "error": "profile_tool_refused: stage_run_ended: attempts_exhausted_for_run",
+        "events": [
+          "step_obligation_scope",
+          "provider_request",
+          "provider_response",
+          "provider_turn_duration",
+          "tool_call_raw",
+          "profile_tool_effect_call",
+          "profile_tool_effect_rejected",
+          "tool_execute",
+          "provider_request",
+          "provider_response",
+          "provider_turn_duration",
+          "tool_call_raw",
+          "profile_tool_effect_call",
+          "profile_tool_commit",
+          "tool_execute",
+          "provider_request",
+          "provider_response",
+          "provider_turn_duration",
+          "tool_call_raw",
+          "profile_tool_effect_call",
+          "profile_tool_effect_rejected",
+          "tool_execute",
+          "provider_request",
+          "provider_response",
+          "provider_turn_duration",
+          "tool_call_raw",
+          "profile_tool_effect_call",
+          "profile_tool_effect_rejected",
+          "tool_execute",
+          "provider_request",
+          "provider_response",
+          "provider_turn_duration",
+          "tool_call_raw",
+          "profile_tool_effect_call",
+          "profile_tool_commit",
+          "tool_execute",
+          "provider_request",
+          "provider_response",
+          "provider_turn_duration",
+          "tool_call_raw",
+          "profile_tool_effect_call",
+          "profile_tool_effect_rejected",
+          "tool_execute"
+        ],
+        "processes": 5,
+        "refusal": {
+          "code": "attempts_exhausted_for_run",
+          "kind": "stage_run_ended"
+        },
+        "replies": [
+          {
+            "expected_revision": "initial",
+            "mode": "bad",
+            "tool": "ProposeUpper"
+          },
+          {
+            "expected_revision": "initial",
+            "mode": "good",
+            "tool": "ProposeUpper"
+          },
+          {
+            "expected_revision": "g1-<REVISION-1>",
+            "mode": "bad",
+            "tool": "ProposeLower"
+          },
+          {
+            "expected_revision": "g1-<REVISION-1>",
+            "mode": "worse",
+            "tool": "ProposeLower"
+          },
+          {
+            "expected_revision": "g1-<REVISION-2>",
+            "mode": "again",
+            "tool": "ProposeUpper"
+          },
+          {
+            "expected_revision": "g2-<REVISION-3>",
+            "mode": "bad",
+            "tool": "ProposeLower"
+          }
+        ],
+        "requests": 6,
+        "stopped": {
+          "stage": "lower",
+          "target": "main"
+        }
+      }
+    }
+  ],
+  "placeholders": [
+    {
+      "placeholder": "<REVISION-n>",
+      "replaces": "a revision (16 hex digits), numbered by first appearance within a path"
+    },
+    {
+      "placeholder": "<NONCE>",
+      "replaces": "the value of run_nonce or process_nonce"
+    },
+    {
+      "placeholder": "<UUID>",
+      "replaces": "a UUID"
+    },
+    {
+      "placeholder": "<ROOT>",
+      "replaces": "the temporary workspace root"
+    },
+    {
+      "placeholder": "<EVIDENCE>",
+      "replaces": "the temporary evidence root"
+    },
+    {
+      "placeholder": "<OPERATOR>",
+      "replaces": "the temporary operator root (registry and tools)"
+    },
+    {
+      "placeholder": "<EXTENSION>",
+      "replaces": "the temporary extension profile root"
+    },
+    {
+      "placeholder": "<URL>",
+      "replaces": "the fake provider's loopback URL"
+    },
+    {
+      "placeholder": "<N>",
+      "replaces": "a time or duration: epoch, occurred_at_epoch_ms, duration_ms, elapsed_ms"
+    }
+  ],
+  "source": "028d63d1"
+}

@@ -181,6 +181,30 @@
       "transition_a_decoded_value_coming_or_going_keeps_the_record",
       "transition_a_builtin_profile_finds_its_pack_record_under_any_root",
       "transition_another_builtin_profile_with_the_same_pack_has_no_record"
+    ]},
+    {"row": 7, "says": "Issue #1004: every stage answer that goes back as data says, at its top, the attempts its target and the run have used and their limits, read under begin's lock without changing the record; a new upper version gives nothing back, a resume goes on from the record, and the fixed form keeps them; a stage tool's answer keeps what the protocol's diagnostic limits allow in the history, on the session's thread only, by the function names admission joined to the stages; the replay of two paths stops where the base did", "tests": [
+      "the_attempt_counts_read_without_changing_the_snapshot",
+      "the_counts_go_at_the_top_of_an_answer_and_nothing_else_moves",
+      "no_counts_or_no_object_leaves_the_answer_as_it_was",
+      "the_counts_are_numbers_the_host_holds_and_no_text",
+      "the_stage_budget_is_derived_from_the_protocol_limits",
+      "the_copied_rule_with_the_snippets_measure_is_the_snippet",
+      "the_stage_rule_applied_twice_returns_the_same_text",
+      "a_secret_past_the_snippets_edge_is_still_replaced",
+      "a_text_with_no_word_that_fits_is_cut_on_a_char_boundary",
+      "a_guard_makes_the_name_a_stage_tool_until_it_is_dropped",
+      "another_thread_does_not_see_the_names",
+      "a_nested_guard_puts_the_outer_set_back_when_dropped",
+      "a_session_scope_holds_the_stage_names_and_its_drop_puts_the_previous_back",
+      "what_the_real_history_keeps_of_a_commit_still_says_it_sealed",
+      "every_stage_answer_fitted_for_a_name_goes_through_that_names_history_whole",
+      "every_answer_tells_the_model_the_attempts_of_its_target_and_of_the_run",
+      "an_answer_that_falls_to_its_fixed_form_still_says_the_attempts",
+      "the_first_answer_after_a_resume_goes_on_from_the_previous_count",
+      "every_diagnostic_the_protocol_accepts_reaches_the_model_and_survives_a_save",
+      "the_history_knows_the_admitted_stage_tools_by_their_function_names",
+      "the_attempts_replay_stops_where_the_base_did",
+      "the_corpus_manifest_pins_its_fixtures"
     ]}
   ],
   "off": [

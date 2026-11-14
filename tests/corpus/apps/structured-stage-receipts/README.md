@@ -105,6 +105,27 @@ These rows are in `fixtures/cases.json` under `events`, `refusals`, and acceptan
 `off_control::the_corpus_names_the_schema_refusal_limit_as_the_code_writes_it` holds the two rows to
 the code. The off control is unchanged: a run with no stage never reaches this count.
 
+## Attempts in the answer (Issue #1004)
+
+Every stage answer that goes back as data now says, at its top, the attempts its target and the
+run have used and their limits (`attempts`), and the history keeps a stage tool's answer up to a
+budget derived from the protocol's diagnostic limits. Acceptance row 7 in `fixtures/cases.json`
+names the tests.
+
+`fixtures/attempts-replay-golden.json` holds two paths of calls over the synthetic two-stage
+profile, each to where G4's limits end the run: back upstream and then the lower target's limit,
+and the run's limit. It was recorded on the production code of
+`028d63d196355f6ba68d64f2a47861f1260b2971` (`attempts_replay_base_sha` in `source-manifest.json`),
+before the answers carried any `attempts`, in a copy of that commit, with the module
+`with_the_strict_isolation::attempts_replay` of `tests/structured_stage_receipts.rs`: its
+`records_the_attempts_replay_golden` writes the file when `ATTEMPTS_REPLAY_OUT` names one, and does
+nothing otherwise. The same module compares: `the_attempts_replay_stops_where_the_base_did` runs
+both paths again, takes the top-level `attempts` out of each request's last tool answer, and requires
+the whole document to equal the recording. The recording has no `attempts` key. Only these are
+replaced by a placeholder: a revision's 16 hex digits, the nonces, UUIDs, the temporary roots, the
+fake's URL, and times and durations. The file is not rewritten by this feature; its digest is pinned
+in `source-manifest.json`.
+
 ## Which test runs where
 
 Nothing here is skipped, except `the_notice_on_a_real_terminal_with_the_footer_and_the_spinner`, which
@@ -116,7 +137,7 @@ needs a terminal and someone to read it.
 | Unit: `tools::profile_tools::effects::tests::stages::*`, with its `sessions` running whole sessions | Yes | Yes, with an unconfined launch only a test build can ask for |
 | Unit: `planner::structured_stages::*`, `structured_stage_completion::tests::*`, `tools::profile_tools::pre_run::tests::*` | Yes | Yes |
 | `where_the_strict_isolation_does_not_exist_a_stage_tool_is_unavailable` | No | Yes |
-| `with_the_strict_isolation::*`, each with the real isolation | Yes | No |
+| `with_the_strict_isolation::*`, each with the real isolation, `attempts_replay::*` among them | Yes | No |
 
 ## Known limits
 

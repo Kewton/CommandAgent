@@ -35,6 +35,7 @@ pub mod protocol;
 pub mod schema;
 mod secret_output;
 pub mod selection;
+mod stage_attempts;
 
 use std::fmt;
 use std::path::Path;

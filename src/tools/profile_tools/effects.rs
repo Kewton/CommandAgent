@@ -28,6 +28,7 @@ use super::schema::binding::AdoptedInputs;
 use super::schema::invocation::SchemaGuard;
 use super::secret_output::SecretForms;
 use super::selection::DeclaredTool;
+use super::stage_attempts::with_attempts;
 use super::{ProfileToolRefusal, RefusalKind};
 use crate::config::{Action, Config, OpenAiCompatibleConfig};
 use crate::eval_events;
@@ -40,9 +41,9 @@ use crate::planner::structured_stages::receipt::{ToolPins, sha256_hex};
 use crate::planner::structured_stages::resume::AdmittedPins;
 use crate::planner::structured_stages::schema_refusals::SCHEMA_REFUSAL_LIMIT;
 use crate::planner::structured_stages::state::{
-    AttemptFailure, AttemptTicket, BeginDecision, BytesSource, CheckFailureKind, CommitDecision,
-    CommitObservation, ExhaustedLimit, FailureDecision, InvalidatedTarget, LocalDecision,
-    ObservedBytes, TerminalFailure, judge_checks,
+    AttemptCounts, AttemptFailure, AttemptTicket, BeginDecision, BytesSource, CheckFailureKind,
+    CommitDecision, CommitObservation, ExhaustedLimit, FailureDecision, InvalidatedTarget,
+    LocalDecision, ObservedBytes, TerminalFailure, judge_checks,
 };
 use crate::planner::structured_stages::{
     StageCallFacts, StageMember, StageNote, StageRun, ledger_refused,
@@ -812,6 +813,7 @@ impl ProposalTool {
             // before this call is judged against it.
             let _ = held.verdict(&bytes);
             let decision = held.begin(&target.key, request).map_err(ledger_refused)?;
+            notes.stage_attempts = held.attempt_counts(&target.key);
             let bound = bind_started(call.submission, &decision, &held, &target.key);
             (decision, bound)
         };
@@ -860,7 +862,11 @@ impl ProposalTool {
         target: &AdmittedTarget,
         notes: &mut RunNotes,
     ) -> Result<String, ProfileToolRefusal> {
-        let plain = |answer: Value| fit_for_model(answer.clone(), "", answer);
+        let counts = notes.stage_attempts;
+        let fit = |answer: Value, pointer: &str, fixed: Value| {
+            self.fit_stage_answer(answer, pointer, fixed, counts)
+        };
+        let plain = |answer: Value| fit(answer.clone(), "", answer);
         let (ok, answer) = match decision {
             BeginDecision::NoChange { revision } => (
                 true,
@@ -879,7 +885,7 @@ impl ProposalTool {
             ),
             BeginDecision::NotReady { waiting_on } => (
                 false,
-                fit_for_model(
+                fit(
                     json!({"status": "not_ready", "waiting_on": waiting_on}),
                     "/waiting_on",
                     json!({"status": "not_ready"}),
@@ -887,7 +893,7 @@ impl ProposalTool {
             ),
             BeginDecision::InputNotCurrent { path } => (
                 false,
-                fit_for_model(
+                fit(
                     json!({"status": "input_not_current", "path": path}),
                     "",
                     json!({"status": "input_not_current"}),
@@ -1005,7 +1011,7 @@ impl ProposalTool {
                     "status": "no_change",
                     "revision": locked(ledger)?.revision_of(&target.key),
                 });
-                return Ok(fit_for_model(answer.clone(), "", answer));
+                return Ok(self.fit_stage_answer(answer.clone(), "", answer, notes.stage_attempts));
             }
             LocalDecision::Resubmit(kind) => {
                 return Ok(self.answer_failed_check(
@@ -1062,7 +1068,29 @@ impl ProposalTool {
         if decision.is_progress() {
             call.stage.readopt_readers(contract, target, &receipt)?;
         }
-        Ok(stage_receipt_for_model(&receipt, &decision))
+        Ok(stage_receipt_for_model(
+            &receipt,
+            &decision,
+            notes.stage_attempts,
+            self.name(),
+        ))
+    }
+
+    /// Every stage answer that goes back as data: G4's counts at its top and in what it falls
+    /// to, fitted to what the history keeps of this tool's results on this thread.
+    fn fit_stage_answer(
+        &self,
+        answer: Value,
+        pointer: &str,
+        fixed: Value,
+        counts: Option<AttemptCounts>,
+    ) -> String {
+        fit_for_model(
+            with_attempts(answer, counts),
+            pointer,
+            with_attempts(fixed, counts),
+            self.name(),
+        )
     }
 
     /// The one failure a model may answer with another submission. Its diagnostics are data, in
@@ -1087,7 +1115,7 @@ impl ProposalTool {
             ),
             notes,
         );
-        fit_for_model(
+        self.fit_stage_answer(
             json!({
                 "status": "resubmit",
                 "code": code,
@@ -1096,6 +1124,7 @@ impl ProposalTool {
             }),
             "/diagnostics",
             json!({"status": "resubmit", "code": code}),
+            notes.stage_attempts,
         )
     }
 
@@ -1355,28 +1384,23 @@ fn downstream_for_model(invalidated: &[InvalidatedTarget]) -> Vec<Value> {
         .collect()
 }
 
-/// What the history keeps of a tool result that is neither `Read` nor `Bash`, in characters. A
-/// longer one is cut wherever the limit falls, which makes a JSON answer unreadable.
-const MODEL_RESULT_CHARS: usize = 500;
-
 /// What an answer must still say after the history has been through it.
-const MODEL_ANSWER_FIELDS: [&str; 6] = [
+const MODEL_ANSWER_FIELDS: [&str; 7] = [
     "/status",
     "/code",
     "/revision",
     "/truncated",
     "/stage/status",
     "/stage/revision",
+    "/attempts",
 ];
 
 /// Whether the model reads this answer as it was meant. The history scrubs, redacts, and cuts, so
 /// only what comes out of it can tell: one token that looks like a credential turns the whole
-/// text into a marker, and a home path grows when it is redacted.
-fn reaches_model_whole(text: &str, answer: &Value) -> bool {
-    let kept = eval_events::body_snippet_whole_tokens(text);
-    if kept.chars().count() > MODEL_RESULT_CHARS {
-        return false;
-    }
+/// text into a marker, and a home path grows when it is redacted. It is the history's own rule
+/// for `name` on this thread, so whatever budget that rule has decides, and nothing here does.
+fn reaches_model_whole(text: &str, answer: &Value, name: &str) -> bool {
+    let kept = crate::state::tool_history::history_content(Some(name), text);
     serde_json::from_str::<Value>(&kept).is_ok_and(|read| {
         MODEL_ANSWER_FIELDS
             .iter()
@@ -1384,14 +1408,16 @@ fn reaches_model_whole(text: &str, answer: &Value) -> bool {
     })
 }
 
-/// The only way a stage tool's answer leaves the host. The list at `pointer` gives way, last item
-/// first, and a long message before its item, and `truncated` says so. Past that it falls to
-/// `fixed`, which holds no value an operator or a process chose. A model that does not get a
-/// revision here gets it from the `stale` its next call meets.
-fn fit_for_model(mut answer: Value, pointer: &str, mut fixed: Value) -> String {
+/// The only way a stage tool's answer leaves the host, as tool `name`. The list at `pointer`
+/// gives way, last item first, and a long message before its item, and `truncated` says so. Past
+/// that it falls to `fixed`, which holds no text an operator or a process chose: only fixed words,
+/// the host's revision, and the integers the host counts and holds to their limits (`used` and
+/// `limit` of `attempts`). A model that does not get a revision here gets it from the `stale` its
+/// next call meets.
+fn fit_for_model(mut answer: Value, pointer: &str, mut fixed: Value, name: &str) -> String {
     loop {
         let text = answer.to_string();
-        if reaches_model_whole(&text, &answer) {
+        if reaches_model_whole(&text, &answer, name) {
             return text;
         }
         let Some(list) = answer
@@ -1426,8 +1452,13 @@ fn fit_for_model(mut answer: Value, pointer: &str, mut fixed: Value) -> String {
 
 /// What the model needs of a receipt, where the stage stands now, and the revision each target
 /// below it has to name next, so that no call of theirs starts out stale. The whole receipt is on
-/// the event and in `commit_receipts()`.
-fn stage_receipt_for_model(receipt: &CommitReceipt, decision: &CommitDecision) -> String {
+/// the event and in `commit_receipts()`. G4's counts go at its top, and in what it falls to.
+fn stage_receipt_for_model(
+    receipt: &CommitReceipt,
+    decision: &CommitDecision,
+    counts: Option<AttemptCounts>,
+    name: &str,
+) -> String {
     let (stage, fixed_stage) = match decision {
         CommitDecision::Sealed {
             revision,
@@ -1460,14 +1491,21 @@ fn stage_receipt_for_model(receipt: &CommitReceipt, decision: &CommitDecision) -
         ),
     };
     fit_for_model(
-        json!({
-            "committed": receipt.committed,
-            "committed_sha256": receipt.committed_sha256,
-            "path": receipt.path,
-            "stage": stage,
-        }),
+        with_attempts(
+            json!({
+                "committed": receipt.committed,
+                "committed_sha256": receipt.committed_sha256,
+                "path": receipt.path,
+                "stage": stage,
+            }),
+            counts,
+        ),
         "/stage/downstream",
-        json!({"committed": receipt.committed, "stage": fixed_stage}),
+        with_attempts(
+            json!({"committed": receipt.committed, "stage": fixed_stage}),
+            counts,
+        ),
+        name,
     )
 }
 
@@ -1664,6 +1702,8 @@ struct RunNotes {
     /// A commit stood and sealed. A commit that stood unverified moved the bytes, not the stage.
     stage_moved: bool,
     secret_in_output: bool,
+    /// G4's counts for the called target and the run, read right after `begin` under its lock.
+    stage_attempts: Option<AttemptCounts>,
 }
 
 /// The whole of one call on every platform. The launch is unconfined here, which only a
@@ -2418,7 +2458,7 @@ field() { printf '%s' "$request" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }
         };
         use super::super::{
             BoundedDiagnostics, CheckFailureKind, CommitReceipt, Diagnostic,
-            EXPECTED_REVISION_ARGUMENT, MODEL_RESULT_CHARS, ProposalParts, ProposalTool, RunNotes,
+            EXPECTED_REVISION_ARGUMENT, MODEL_ANSWER_FIELDS, ProposalParts, ProposalTool, RunNotes,
             arguments_sha256, arguments_without_revision, fit_for_model,
         };
         use super::{DUMMY, kind, sha256};
@@ -3369,7 +3409,13 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
             assert_eq!(bench.starts(UPPER), 1);
 
             let again = bench.call(&bench.upper, "fast", &current).unwrap();
-            assert_eq!(again, json!({"status": "no_change", "revision": current}));
+            // Issue #1004: the whole answer, with G4's counts: the seal's one attempt, no other.
+            assert_eq!(
+                again,
+                json!({"status": "no_change", "revision": current, "attempts": {
+                    "target": {"used": 1, "limit": 8}, "run": {"used": 1, "limit": 64},
+                }})
+            );
             assert_eq!(bench.starts(UPPER), 1, "no process");
             assert_eq!(bench.attempts(&upper_key()), 1, "no attempt");
             assert_eq!(bench.status(&upper_key()), before);
@@ -3432,7 +3478,13 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
             let current = answer["stage"]["revision"].as_str().unwrap().to_string();
 
             let stale = bench.call(&bench.upper, "other", "initial").unwrap();
-            assert_eq!(stale, json!({"status": "stale", "revision": current}));
+            // Issue #1004: the whole answer, with G4's counts: the seal's one attempt, no other.
+            assert_eq!(
+                stale,
+                json!({"status": "stale", "revision": current, "attempts": {
+                    "target": {"used": 1, "limit": 8}, "run": {"used": 1, "limit": 64},
+                }})
+            );
             assert_eq!(bench.starts(UPPER), 1);
             assert_eq!(bench.attempts(&upper_key()), 1);
 
@@ -3520,16 +3572,17 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                 ], "truncated": false})
             };
             let overhead = answer(String::new()).to_string().chars().count();
-            let at_edge = "m".repeat(MODEL_RESULT_CHARS - overhead);
+            // 500: the SNIPPET_LIMIT of src/eval_events.rs.
+            let at_edge = "m".repeat(500 - overhead);
             let fixed = json!({"status": "resubmit", "code": "c"});
-            let whole = fit_for_model(answer(at_edge.clone()), "/diagnostics", fixed.clone());
-            assert_eq!(whole.chars().count(), MODEL_RESULT_CHARS);
+            let whole = fit_for_model(answer(at_edge.clone()), "/diagnostics", fixed.clone(), "P");
+            assert_eq!(whole.chars().count(), 500);
             assert!(whole.contains(&at_edge));
             assert!(whole.contains(r#""truncated":false"#), "{whole}");
             assert_eq!(crate::eval_events::body_snippet_whole_tokens(&whole), whole);
 
-            let over = fit_for_model(answer(format!("{at_edge}m")), "/diagnostics", fixed);
-            assert!(over.chars().count() <= MODEL_RESULT_CHARS);
+            let over = fit_for_model(answer(format!("{at_edge}m")), "/diagnostics", fixed, "P");
+            assert!(over.chars().count() <= 500);
             let read: Value = serde_json::from_str(&over).unwrap();
             assert_eq!(read["truncated"], true);
             assert!(
@@ -3562,7 +3615,8 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                     &|| false,
                 )
                 .unwrap();
-            assert!(text.chars().count() <= MODEL_RESULT_CHARS, "{text}");
+            // 500: the SNIPPET_LIMIT of src/eval_events.rs.
+            assert!(text.chars().count() <= 500, "{text}");
             assert_eq!(crate::eval_events::body_snippet_whole_tokens(&text), text);
             let read: Value = serde_json::from_str(&text).unwrap();
             assert_eq!(read["truncated"], true);
@@ -3575,8 +3629,9 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                 json!({"waiting_on": many}),
                 "/waiting_on",
                 json!({"status": "not_ready"}),
+                "P",
             );
-            assert!(fitted.chars().count() <= MODEL_RESULT_CHARS);
+            assert!(fitted.chars().count() <= 500);
             let read: Value = serde_json::from_str(&fitted).unwrap();
             assert_eq!(read["truncated"], true);
             assert_eq!(read["waiting_on"][0]["stage"], "stage-0");
@@ -3746,7 +3801,8 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
 
         fn kept_by_history(text: &str) -> Value {
             let kept = crate::eval_events::body_snippet_whole_tokens(text);
-            assert!(kept.chars().count() <= MODEL_RESULT_CHARS, "{kept}");
+            // 500: the SNIPPET_LIMIT of src/eval_events.rs.
+            assert!(kept.chars().count() <= 500, "{kept}");
             serde_json::from_str(&kept).unwrap_or_else(|_| panic!("not data: {kept}"))
         }
 
@@ -3771,7 +3827,8 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                 )
             };
             let overhead = answer("n", String::new(), false).chars().count();
-            let room = MODEL_RESULT_CHARS - overhead;
+            // 500: the SNIPPET_LIMIT of src/eval_events.rs.
+            let room = 500 - overhead;
             for (label, text) in [
                 (
                     "a credential word in a code",
@@ -3840,7 +3897,7 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                 format!("{}b", "a/".repeat(400)),
             ] {
                 let (receipt, decision) = sealed_receipt(&path);
-                let text = super::super::stage_receipt_for_model(&receipt, &decision);
+                let text = super::super::stage_receipt_for_model(&receipt, &decision, None, "P");
                 let read = kept_by_history(&text);
                 assert_eq!(read["committed"], true, "{path}: {text}");
                 assert_eq!(read["stage"]["status"], "sealed", "{path}: {text}");
@@ -3855,7 +3912,9 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                 );
             }
             let (receipt, decision) = sealed_receipt("out/plain.json");
-            let read = kept_by_history(&super::super::stage_receipt_for_model(&receipt, &decision));
+            let read = kept_by_history(&super::super::stage_receipt_for_model(
+                &receipt, &decision, None, "P",
+            ));
             assert_eq!(read["path"], "out/plain.json");
             assert!(read.get("truncated").is_none_or(|cut| cut == false));
         }
@@ -4563,7 +4622,13 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
             let lower_before = bench.status(&lower_key());
 
             let again = bench.call(&bench.upper, "slow", &current).unwrap();
-            assert_eq!(again, json!({"status": "no_change", "revision": current}));
+            // Issue #1004: the whole answer, with G4's counts: two upper attempts, three in all.
+            assert_eq!(
+                again,
+                json!({"status": "no_change", "revision": current, "attempts": {
+                    "target": {"used": 2, "limit": 8}, "run": {"used": 3, "limit": 64},
+                }})
+            );
             assert_eq!(bench.starts(UPPER), 2, "the process ran");
             assert_eq!(bench.attempts(&upper_key()), 2, "the attempt is spent");
             assert_eq!(bench.status(&upper_key()), upper_before);
@@ -4940,31 +5005,226 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
         }
 
         /// The history's real function, not the snippet it calls: an answer has to survive what
-        /// a name the history redacts does to it, on every OS.
+        /// a name the history redacts does to it, on every OS. On a thread with no session the
+        /// names are no stage tool's and the 500-character rule holds; with the session's names
+        /// installed the same answers reach the stage budget (Issue #1004).
         #[test]
         fn what_the_real_history_keeps_of_a_commit_still_says_it_sealed() {
+            use crate::state::tool_history::history_content;
+            use crate::state::tool_history::stage::{STAGE_ANSWER_MAX_BYTES, enter_stage_names};
+
             let bench = stage_bench();
             let answer = bench.seal_upper();
-            let kept = crate::state::tool_history::history_content(
-                Some("ProposeUpper"),
-                &answer.to_string(),
-            );
+            let long = json!({"status": "resubmit", "note": "x".repeat(4000)}).to_string();
+            let resubmit = |name: &str, note: usize| {
+                super::super::fit_for_model(
+                    json!({"status": "resubmit", "code": "check_failed", "note": "x".repeat(note)}),
+                    "/note",
+                    json!({"status": "resubmit", "code": "check_failed"}),
+                    name,
+                )
+            };
+            let fields_stay = |kept: &Value, answered: &Value| {
+                for field in ["/stage/status", "/stage/revision", "/code", "/truncated"] {
+                    assert_eq!(
+                        kept.pointer(field),
+                        answered.pointer(field),
+                        "{field}: {kept}"
+                    );
+                }
+            };
+
+            // No session on this thread: the 500-character rule, as before.
+            let kept = history_content(Some("ProposeUpper"), &answer.to_string());
             let kept: Value = serde_json::from_str(&kept).unwrap();
             assert_eq!(kept["stage"]["status"], "sealed", "{kept}");
             assert_eq!(kept["stage"]["revision"], answer["stage"]["revision"]);
-
-            let long = json!({"status": "resubmit", "note": "x".repeat(4000)}).to_string();
-            let cut = crate::state::tool_history::history_content(Some("ProposeUpper"), &long);
-            assert!(cut.chars().count() <= MODEL_RESULT_CHARS, "{cut}");
-            let answered = super::super::fit_for_model(
-                json!({"status": "resubmit", "code": "check_failed", "note": "x".repeat(4000)}),
-                "/note",
-                json!({"status": "resubmit", "code": "check_failed"}),
-            );
-            let kept = crate::state::tool_history::history_content(Some("P"), &answered);
+            fields_stay(&kept, &answer);
+            let cut = history_content(Some("ProposeUpper"), &long);
+            // 500: the SNIPPET_LIMIT of src/eval_events.rs.
+            assert!(cut.chars().count() <= 500, "{cut}");
+            let answered = resubmit("P", 4000);
+            let kept = history_content(Some("P"), &answered);
+            assert!(kept.chars().count() <= 500, "{kept}");
             let kept: Value = serde_json::from_str(&kept).unwrap();
             assert_eq!(kept["code"], "check_failed", "{kept}");
             assert_eq!(kept["truncated"], true, "{kept}");
+            fields_stay(&kept, &serde_json::from_str(&answered).unwrap());
+
+            // The session's names on this thread: the same answers reach the stage budget.
+            let names = ["ProposeUpper", "P"].map(str::to_string);
+            let _guard = enter_stage_names(std::sync::Arc::new(names.into_iter().collect()));
+            let kept = history_content(Some("ProposeUpper"), &answer.to_string());
+            assert_eq!(kept, answer.to_string());
+            let kept: Value = serde_json::from_str(&kept).unwrap();
+            assert_eq!(kept["stage"]["status"], "sealed", "{kept}");
+            fields_stay(&kept, &answer);
+            let cut = history_content(Some("ProposeUpper"), &long);
+            assert!(cut.chars().count() > 500, "{cut}");
+            assert!(cut.len() <= STAGE_ANSWER_MAX_BYTES);
+            let answered = resubmit("P", 4000);
+            let kept = history_content(Some("P"), &answered);
+            assert!(kept.len() > 500 && kept.len() <= STAGE_ANSWER_MAX_BYTES);
+            let kept: Value = serde_json::from_str(&kept).unwrap();
+            assert_eq!(kept["code"], "check_failed", "{kept}");
+            assert_eq!(kept["note"], "x".repeat(4000), "nothing was cut");
+            fields_stay(&kept, &serde_json::from_str(&answered).unwrap());
+            let answered = resubmit("P", STAGE_ANSWER_MAX_BYTES);
+            let kept = history_content(Some("P"), &answered);
+            assert!(kept.len() <= STAGE_ANSWER_MAX_BYTES);
+            let kept: Value = serde_json::from_str(&kept).unwrap();
+            assert_eq!(kept["code"], "check_failed", "{kept}");
+            assert_eq!(kept["truncated"], true, "{kept}");
+            fields_stay(&kept, &serde_json::from_str(&answered).unwrap());
+        }
+
+        /// Issue #1004: every shape of stage answer, each long, with G4's counts. What
+        /// `fit_for_model` gives as tool `name` goes through the history whole on this thread,
+        /// with or without the session's names, and says every field it must, `attempts` too.
+        #[test]
+        fn every_stage_answer_fitted_for_a_name_goes_through_that_names_history_whole() {
+            use super::super::super::stage_attempts::with_attempts;
+            use crate::planner::structured_stages::state::{
+                AttemptCount, AttemptCounts, InvalidatedTarget,
+            };
+            use crate::state::tool_history::history_content;
+            use crate::state::tool_history::stage::{STAGE_ANSWER_MAX_BYTES, enter_stage_names};
+
+            const NAME: &str = "ProposeUpper";
+            let counts = Some(AttemptCounts {
+                target: AttemptCount { used: 3, limit: 8 },
+                run: AttemptCount {
+                    used: 17,
+                    limit: 32,
+                },
+            });
+            let fit = |answer: Value, pointer: &str, fixed: Value| {
+                super::super::fit_for_model(
+                    with_attempts(answer, counts),
+                    pointer,
+                    with_attempts(fixed, counts),
+                    NAME,
+                )
+            };
+            let long_path = format!("{}b.json", "a/".repeat(2_000));
+            let downstream = (0..200)
+                .map(|index| InvalidatedTarget {
+                    key: TargetKey {
+                        stage: format!("stage-{index}"),
+                        target: "main".to_string(),
+                    },
+                    revision: format!("g1-{index:016x}"),
+                })
+                .collect::<Vec<_>>();
+            let waiting = (0..400)
+                .map(|index| json!({"stage": format!("stage-{index}"), "target": "main"}))
+                .collect::<Vec<_>>();
+            let diagnostics = (0..8)
+                .map(|index| json!({"code": "c".repeat(64), "message": format!("{index}{}", "m ".repeat(400))}))
+                .collect::<Vec<_>>();
+            let receipt = |decision: CommitDecision| {
+                let (receipt, _) = sealed_receipt(&long_path);
+                super::super::stage_receipt_for_model(&receipt, &decision, counts, NAME)
+            };
+            let shapes = || {
+                vec![
+                    (
+                        "resubmit",
+                        fit(
+                            json!({"status": "resubmit", "code": "check_failed",
+                                "diagnostics": diagnostics.clone(), "truncated": false}),
+                            "/diagnostics",
+                            json!({"status": "resubmit", "code": "check_failed"}),
+                        ),
+                    ),
+                    (
+                        "sealed",
+                        receipt(CommitDecision::Sealed {
+                            revision: "g2-0123456789abcdef".to_string(),
+                            receipt_sha256: "f".repeat(64),
+                            invalidated: downstream.clone(),
+                        }),
+                    ),
+                    (
+                        "unverified",
+                        receipt(CommitDecision::StoodUnverified {
+                            revision: "g2-0123456789abcdef".to_string(),
+                            reason: UnverifiedReason::ChangedDuringCommit,
+                            invalidated: downstream.clone(),
+                        }),
+                    ),
+                    ("not_adopted", receipt(CommitDecision::NotAdopted)),
+                    (
+                        "no_change",
+                        fit(
+                            json!({"status": "no_change", "revision": "g1-0123456789abcdef"}),
+                            "",
+                            json!({"status": "no_change", "revision": "g1-0123456789abcdef"}),
+                        ),
+                    ),
+                    (
+                        "stale",
+                        fit(
+                            json!({"status": "stale", "revision": "g3-0123456789abcdef"}),
+                            "",
+                            json!({"status": "stale", "revision": "g3-0123456789abcdef"}),
+                        ),
+                    ),
+                    (
+                        "unknown_revision",
+                        fit(
+                            json!({"status": "unknown_revision", "revision": "g1-0123456789abcdef"}),
+                            "",
+                            json!({"status": "unknown_revision", "revision": "g1-0123456789abcdef"}),
+                        ),
+                    ),
+                    (
+                        "not_ready",
+                        fit(
+                            json!({"status": "not_ready", "waiting_on": waiting.clone()}),
+                            "/waiting_on",
+                            json!({"status": "not_ready"}),
+                        ),
+                    ),
+                    (
+                        "input_not_current",
+                        fit(
+                            json!({"status": "input_not_current", "path": long_path.clone()}),
+                            "",
+                            json!({"status": "input_not_current"}),
+                        ),
+                    ),
+                ]
+            };
+            let check = |staged: bool| {
+                for (label, fitted) in shapes() {
+                    let before: Value = serde_json::from_str(&fitted).unwrap();
+                    let kept = history_content(Some(NAME), &fitted);
+                    let after: Value = serde_json::from_str(&kept)
+                        .unwrap_or_else(|_| panic!("{label} ({staged}): not data: {kept}"));
+                    for field in MODEL_ANSWER_FIELDS {
+                        assert_eq!(
+                            after.pointer(field),
+                            before.pointer(field),
+                            "{label} ({staged}) {field}: {kept}"
+                        );
+                    }
+                    assert_eq!(
+                        after["attempts"],
+                        json!({"target": {"used": 3, "limit": 8}, "run": {"used": 17, "limit": 32}}),
+                        "{label} ({staged})"
+                    );
+                    if staged {
+                        assert!(kept.len() <= STAGE_ANSWER_MAX_BYTES, "{label}");
+                    } else {
+                        // 500: the SNIPPET_LIMIT of src/eval_events.rs.
+                        assert!(kept.chars().count() <= 500, "{label}: {kept}");
+                    }
+                }
+            };
+            check(false);
+            let _guard = enter_stage_names(std::sync::Arc::new([NAME.to_string()].into()));
+            check(true);
         }
 
         /// A cooked terminal, as with `COMMANDAGENT_NO_INTERRUPT` or a stdin that is no terminal:
@@ -7253,6 +7513,390 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                     serde_json::from_slice(&std::fs::read(directory.join("ledger.json")).unwrap())
                         .unwrap();
                 saved["body"]["attempts_used"].as_u64().unwrap()
+            }
+
+            /// Issue #1004: a prompt over `snapshot`, with room for a longer path than the default.
+            fn prompt_over(
+                world: &World,
+                snapshot: &mut SessionSnapshot,
+                responder: Responder,
+            ) -> (Vec<Value>, Result<(), String>) {
+                let http = FakeHttp::start(responder);
+                let mut config = world.config(&http.url);
+                config.max_iterations = 12;
+                let mut client = client_from_config(&config, false).unwrap();
+                let result = run_session_with_outcome_with_ui(
+                    client.as_mut(),
+                    snapshot,
+                    "Submit both stages.",
+                    &[],
+                    &config,
+                    &NOOP_UI,
+                )
+                .map(|_| ())
+                .map_err(|error| format!("{error:#}"));
+                (http.finish(), result)
+            }
+
+            /// What an answer says of G4's counts: target used and limit, run used and limit.
+            fn attempts_of(answer: &Value) -> (u64, u64, u64, u64) {
+                let count = |scope: &str, field: &str| {
+                    answer["attempts"][scope][field]
+                        .as_u64()
+                        .unwrap_or_else(|| panic!("no attempts.{scope}.{field}: {answer}"))
+                };
+                (
+                    count("target", "used"),
+                    count("target", "limit"),
+                    count("run", "used"),
+                    count("run", "limit"),
+                )
+            }
+
+            /// Issue #1004: what the next request carries back of each call says how many attempts
+            /// its target and the run have used, against the descriptor's limits (8 and 32). Every
+            /// resubmission counts one more; the run is the sum over targets; a new upper version
+            /// does not give the lower its attempts back; and an answer that falls to its fixed
+            /// form still says them.
+            #[test]
+            fn every_answer_tells_the_model_the_attempts_of_its_target_and_of_the_run() {
+                const NAME: &str =
+                    "every_answer_tells_the_model_the_attempts_of_its_target_and_of_the_run";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                let marks = world.marks.clone();
+                let failed = r#"[{"id":"shape","status":"failed"}]"#;
+                std::fs::write(marks.join(format!("checks-{UPPER}")), failed).unwrap();
+                let revisions = Arc::new(Mutex::new((String::new(), String::new())));
+                let responder: Responder = Arc::new(move |index, body| {
+                    let mark = |name: String, text: &str| std::fs::write(marks.join(name), text);
+                    let mut revisions = revisions.lock().unwrap();
+                    match index {
+                        1 => submit(UPPER_TOOL, "u1", "initial"),
+                        2 => submit(UPPER_TOOL, "u2", "initial"),
+                        3 => {
+                            std::fs::remove_file(marks.join(format!("checks-{UPPER}"))).unwrap();
+                            submit(UPPER_TOOL, "u3", "initial")
+                        }
+                        4 => {
+                            let answer = last_answer(body);
+                            revisions.0 = answer["stage"]["revision"].as_str().unwrap().into();
+                            revisions.1 = revision_below(&answer);
+                            mark(format!("checks-{LOWER}"), failed).unwrap();
+                            submit(LOWER_TOOL, "l1", &revisions.1)
+                        }
+                        5 => submit(LOWER_TOOL, "l2", &revisions.1),
+                        6 => {
+                            mark(format!("second-{UPPER}"), "").unwrap();
+                            submit(UPPER_TOOL, "u4", &revisions.0)
+                        }
+                        7 => {
+                            revisions.1 = revision_below(&last_answer(body));
+                            submit(LOWER_TOOL, "l3", &revisions.1)
+                        }
+                        8 => {
+                            // One credential-like word: the history turns the whole answer into
+                            // a marker, so its list has to give way.
+                            let said = r#"[{"code":"missing_api_key","message":"m"}]"#;
+                            mark(format!("diagnostics-{LOWER}"), said).unwrap();
+                            submit(LOWER_TOOL, "l4", &revisions.1)
+                        }
+                        _ => text_reply("done"),
+                    }
+                });
+                let (requests, result) =
+                    prompt_over(&world, &mut SessionSnapshot::new(), responder);
+                assert_stage_incomplete(&result);
+                assert_eq!(requests.len(), 9, "{result:?}");
+                let answers = requests[1..].iter().map(last_answer).collect::<Vec<_>>();
+                let statuses = answers
+                    .iter()
+                    .map(|answer| {
+                        answer["status"]
+                            .as_str()
+                            .or_else(|| answer["stage"]["status"].as_str())
+                            .unwrap_or_default()
+                            .to_string()
+                    })
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    statuses,
+                    [
+                        "resubmit", "resubmit", "sealed", "resubmit", "resubmit", "sealed",
+                        "resubmit", "resubmit"
+                    ],
+                    "{answers:?}"
+                );
+                let counts = answers.iter().map(attempts_of).collect::<Vec<_>>();
+                assert_eq!(
+                    counts,
+                    [
+                        (1, 8, 1, 32),
+                        (2, 8, 2, 32),
+                        (3, 8, 3, 32),
+                        (1, 8, 4, 32),
+                        (2, 8, 5, 32),
+                        (4, 8, 6, 32),
+                        // The lower goes on from two after the new upper version: nothing came back.
+                        (3, 8, 7, 32),
+                        (4, 8, 8, 32),
+                    ]
+                );
+                // The run is every target's attempts: the upper's 4 and the lower's 4.
+                assert_eq!(saved_attempts(&world), 8);
+                // The last answer lost its list to the history, and still says the counts.
+                let last = &answers[7];
+                assert_eq!(last["truncated"], true, "{last}");
+                assert_eq!(last["code"], "check_failed", "{last}");
+                assert_eq!(last["diagnostics"], json!([]), "{last}");
+            }
+
+            /// Issue #1004: an answer that can only reach the model in its fixed form still says
+            /// the counts. The operator's output path holds a word the history replaces with the
+            /// whole answer, and only the fixed form leaves the path out.
+            #[test]
+            fn an_answer_that_falls_to_its_fixed_form_still_says_the_attempts() {
+                const NAME: &str = "an_answer_that_falls_to_its_fixed_form_still_says_the_attempts";
+                const MARKED_OUTPUT: &str = "out/api_key_upper.json";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                write_descriptor(&world.base, (UPPER, UPPER_TOOL, MARKED_OUTPUT), &[FIXED]);
+                write_descriptor(
+                    &world.base,
+                    (LOWER, LOWER_TOOL, LOWER_OUTPUT),
+                    &[MARKED_OUTPUT, FIXED],
+                );
+                let _live = world.enter();
+                let marks = world.marks.clone();
+                std::fs::write(
+                    marks.join(format!("checks-{UPPER}")),
+                    r#"[{"id":"shape","status":"failed"}]"#,
+                )
+                .unwrap();
+                let responder: Responder = Arc::new(move |index, _| match index {
+                    1 => submit(UPPER_TOOL, "u1", "initial"),
+                    2 => {
+                        std::fs::remove_file(marks.join(format!("checks-{UPPER}"))).unwrap();
+                        submit(UPPER_TOOL, "u2", "initial")
+                    }
+                    _ => text_reply("done"),
+                });
+                let (requests, result) =
+                    prompt_over(&world, &mut SessionSnapshot::new(), responder);
+                assert_stage_incomplete(&result);
+                assert!(requests.len() >= 3, "{result:?}");
+                let sealed = last_answer(&requests[2]);
+                assert_eq!(sealed["stage"]["status"], "sealed", "{sealed}");
+                assert_eq!(sealed["truncated"], true, "{sealed}");
+                assert!(sealed.get("path").is_none(), "the fixed form: {sealed}");
+                assert!(sealed["stage"].get("downstream").is_none(), "{sealed}");
+                assert_eq!(attempts_of(&sealed), (2, 8, 2, 32), "{sealed}");
+                assert_eq!(
+                    std::fs::read(world.root.join(MARKED_OUTPUT))
+                        .ok()
+                        .as_deref(),
+                    Some(super::VERSION_ONE)
+                );
+            }
+
+            /// Issue #1004: the first answer after a resume in a new process goes on from the
+            /// count the previous process left in the ledger.
+            #[test]
+            fn the_first_answer_after_a_resume_goes_on_from_the_previous_count() {
+                const NAME: &str =
+                    "the_first_answer_after_a_resume_goes_on_from_the_previous_count";
+                let Some(base) = world_base() else {
+                    let temp = prepared();
+                    let base = std::fs::canonicalize(temp.path()).unwrap();
+                    for role in ["first", "second"] {
+                        let child = run_child(NAME, &base, &[(ROLE_ENV, role)]);
+                        assert!(
+                            child.success,
+                            "{role}: {}\n{}",
+                            child.stdout,
+                            String::from_utf8_lossy(&child.stderr)
+                        );
+                    }
+                    return;
+                };
+                let world = World::at(Path::new(&base));
+                let _live = world.enter();
+                if std::env::var_os(ROLE_ENV).is_some_and(|role| role == "first") {
+                    std::fs::write(
+                        world.marks.join(format!("checks-{UPPER}")),
+                        r#"[{"id":"shape","status":"failed"}]"#,
+                    )
+                    .unwrap();
+                    let (requests, result) = world.prompt(Arc::new(|index, _| match index {
+                        1 => submit(UPPER_TOOL, "u1", "initial"),
+                        _ => text_reply("stopping here"),
+                    }));
+                    assert_stage_incomplete(&result);
+                    assert_eq!(attempts_of(&last_answer(&requests[1])), (1, 8, 1, 32));
+                    assert_eq!(saved_attempts(&world), 1);
+                    return;
+                }
+                let plans = world.root.join(".anvil/plans");
+                std::fs::create_dir_all(&plans).unwrap();
+                std::fs::write(
+                    plans.join("recovery.yaml"),
+                    format!(
+                        "goal: \"finish\"\nprofile: \"{PROFILE}\"\nphases:\n  - id: \"finish\"\n    prompt: \"Submit the upper stage.\"\n  - id: \"after\"\n    prompt: \"Submit the lower stage.\"\n"
+                    ),
+                )
+                .unwrap();
+                let http = FakeHttp::start(Arc::new(|_, body| {
+                    if !body["tools"].to_string().contains(UPPER_TOOL) {
+                        return text_reply(
+                            &json!({"goal": "finish", "steps": [{
+                                "id": "step-setup",
+                                "kind": "setup",
+                                "expected_result": "pass",
+                                "instruction": "Submit the upper stage",
+                                "expected_paths": [],
+                                "verify": [],
+                            }]})
+                            .to_string(),
+                        );
+                    }
+                    if has_answer(body) {
+                        return text_reply("stopping here");
+                    }
+                    submit(UPPER_TOOL, "u2", "initial")
+                }));
+                let config = world.config(&http.url);
+                let mut planner = client_from_config(&config, true).unwrap();
+                let mut execution = client_from_config(&config, false).unwrap();
+                let result = crate::tui::slash::handle_command(
+                    "/resume .anvil/plans/recovery.yaml",
+                    &config,
+                    planner.as_mut(),
+                    execution.as_mut(),
+                    &NOOP_UI,
+                );
+                let requests = http.finish();
+                let first = requests
+                    .iter()
+                    .find(|body| has_answer(body))
+                    .map(last_answer)
+                    .unwrap_or_else(|| panic!("no answer: {result:?}"));
+                assert_eq!(first["status"], "resubmit", "{first}");
+                assert_eq!(attempts_of(&first), (2, 8, 2, 32), "{first}");
+                assert_eq!(saved_attempts(&world), 2);
+            }
+
+            /// Issue #1004 (5a): what the protocol lets a process say reaches the model. Eight
+            /// diagnostics, each with a 64-byte code and a 512-byte message, come back whole,
+            /// and the same text goes out again from a session saved and loaded.
+            #[test]
+            fn every_diagnostic_the_protocol_accepts_reaches_the_model_and_survives_a_save() {
+                const NAME: &str =
+                    "every_diagnostic_the_protocol_accepts_reaches_the_model_and_survives_a_save";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                let said = (0..8)
+                    .map(|index| {
+                        json!({
+                            "code": format!("{index}{}", "c".repeat(63)),
+                            "message": format!("{index}{}", "m".repeat(511)),
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                std::fs::write(
+                    world.marks.join(format!("checks-{UPPER}")),
+                    r#"[{"id":"shape","status":"failed"}]"#,
+                )
+                .unwrap();
+                std::fs::write(
+                    world.marks.join(format!("diagnostics-{UPPER}")),
+                    Value::Array(said.clone()).to_string(),
+                )
+                .unwrap();
+                let mut snapshot = SessionSnapshot::new();
+                let (requests, result) = prompt_over(
+                    &world,
+                    &mut snapshot,
+                    Arc::new(|index, _| match index {
+                        1 => submit(UPPER_TOOL, "u1", "initial"),
+                        _ => text_reply("done"),
+                    }),
+                );
+                assert_stage_incomplete(&result);
+                let sent = |body: &Value| {
+                    messages(body)
+                        .iter()
+                        .rev()
+                        .find(|message| message["role"] == "tool")
+                        .and_then(|message| message["content"].as_str())
+                        .unwrap_or_else(|| panic!("no answer: {body}"))
+                        .to_string()
+                };
+                let text = sent(&requests[1]);
+                assert!(text.chars().count() > 500, "{text}");
+                let answer: Value = serde_json::from_str(&text).unwrap();
+                assert_eq!(answer["status"], "resubmit", "{answer}");
+                assert_eq!(answer["diagnostics"], Value::Array(said), "nothing is cut");
+                assert_eq!(answer["truncated"], false);
+                assert_eq!(attempts_of(&answer), (1, 8, 1, 32));
+
+                let store = crate::state::SessionStore::new(world.evidence.join("sessions"));
+                store.save(&snapshot).unwrap();
+                let mut loaded = store.load(&snapshot.id).unwrap();
+                let (requests, _) =
+                    prompt_over(&world, &mut loaded, Arc::new(|_, _| text_reply("done")));
+                assert_eq!(sent(&requests[0]), text);
+            }
+
+            /// Issue #1004 (5d): the names the history knows are the function names admission
+            /// joined to the stage set, on the session's thread, and not the descriptors' IDs.
+            #[test]
+            fn the_history_knows_the_admitted_stage_tools_by_their_function_names() {
+                use crate::state::tool_history::history_content;
+                use crate::state::tool_history::stage::stage_history_content;
+
+                const NAME: &str =
+                    "the_history_knows_the_admitted_stage_tools_by_their_function_names";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                let long = "abcdefgh ".repeat(1_000);
+                let snippet = crate::eval_events::body_snippet_whole_tokens(&long);
+                let staged = stage_history_content(&long);
+                assert_ne!(staged, snippet);
+                for (profile, names, ids) in [
+                    (PROFILE, [UPPER_TOOL, LOWER_TOOL], [UPPER, LOWER]),
+                    (
+                        INDEX_PROFILE,
+                        ["ProposeIndexUpper", "ProposeIndexLower"],
+                        ["stage-index-upper", "stage-index-lower"],
+                    ),
+                ] {
+                    let admitted =
+                        crate::tools::profile_tools::admit_selected(&world.root, profile, None)
+                            .unwrap()
+                            .unwrap();
+                    assert!(admitted.stage_run().is_some(), "{profile}");
+                    for name in names {
+                        assert_eq!(history_content(Some(name), &long), snippet, "{name}");
+                    }
+                    let scope = admitted.enter_session().expect("a stage set has a scope");
+                    for name in names {
+                        assert_eq!(history_content(Some(name), &long), staged, "{name}");
+                    }
+                    for id in ids {
+                        assert_eq!(history_content(Some(id), &long), snippet, "{id}");
+                    }
+                    drop(scope);
+                    for name in names {
+                        assert_eq!(history_content(Some(name), &long), snippet, "{name}");
+                    }
+                }
             }
 
             /// What the loop's own count of missing-artifact stagnation says after `batches`
