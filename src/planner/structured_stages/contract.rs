@@ -813,14 +813,14 @@ mod tests {
         let build = |count: usize| {
             let (mut declaration, tools) = independent(20);
             let mut added = 0;
-            'all: for downstream in 1..20 {
+            'all: for (downstream, stage) in
+                declaration.stages.iter_mut().enumerate().take(20).skip(1)
+            {
                 for upstream in 0..downstream {
                     if added == count {
                         break 'all;
                     }
-                    declaration.stages[downstream]
-                        .depends_on
-                        .push(format!("s{upstream:03}"));
+                    stage.depends_on.push(format!("s{upstream:03}"));
                     added += 1;
                 }
             }
