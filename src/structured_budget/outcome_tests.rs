@@ -760,7 +760,7 @@ mod responses_1006 {
     /// host's logical counts run apart from the physical one.
     #[test]
     fn the_calls_of_one_charged_reply_are_submissions_of_its_one_send() {
-        let world = World::new(|v| v["limits"]["logical_global"] = json!(2));
+        let world = World::new(|v| v["limits"]["logical_global"] = json!(3));
         let budgeted =
             BudgetedBody::for_responses(&world.handle, &body(), SendPurpose::Executor, ENDPOINT)
                 .unwrap();
@@ -776,13 +776,13 @@ mod responses_1006 {
                 .record(super::super::super::identity::LogicalKind::General)
                 .unwrap();
         }
-        // The same call again, or a third over the logical limit, is refused.
-        assert!(
+        // The same call again is refused for what it is, with the logical limit not yet reached.
+        let again =
             crate::structured_budget::submission::for_call(&world.config, Some(response), 1)
                 .unwrap()
                 .record(super::super::super::identity::LogicalKind::General)
-                .is_err()
-        );
+                .unwrap_err();
+        assert_eq!(again, limit(BudgetRefusal::DuplicateSubmission));
         let wallet = world.handle.responses_wallet().unwrap();
         assert_eq!(wallet.physical_used(), 1);
         assert_eq!(wallet.logical_global_used(), 2);
