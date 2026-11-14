@@ -713,6 +713,15 @@ mod tests {
                 );
             }
         }
+        // With no split to disagree with, a malformed total is neither a zero nor a total.
+        for bad in [json!(null), json!(-1), json!(1.5), json!("200"), json!([])] {
+            let body = with(|v| {
+                let details = v["usage"]["input_tokens_details"].as_object_mut().unwrap();
+                details.remove("cache_write_tokens_details");
+                details.insert("cache_write_tokens".into(), bad.clone());
+            });
+            assert_eq!(read_responses_usage(&body).cache_write, None, "{bad}");
+        }
     }
 
     #[test]
