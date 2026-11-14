@@ -580,6 +580,26 @@ mod factory {
             let client = crate::providers::client_from_config_for_role(&config, role).unwrap();
             assert_eq!(client.label(), "openai", "{role:?}");
         }
+        // What the factory built sends through the wallet: a wallet whose policy names another
+        // endpoint than the one the client posts to refuses the send before anything leaves (a
+        // client with no wallet would go to the network, here a proxy on a closed port).
+        let elsewhere = World::new("https://api.example.test/v1/responses", |_| {});
+        let mut config_elsewhere = config.clone();
+        config_elsewhere.field_sources.run_budget = Some(elsewhere.handle.clone());
+        let mut client = crate::providers::client_from_config_for_role(
+            &config_elsewhere,
+            ProviderRole::Executor,
+        )
+        .unwrap();
+        let error = client
+            .chat("m-1", &off_messages(), &[], false)
+            .map(|_| ())
+            .unwrap_err();
+        assert_eq!(
+            format!("{error:#}"),
+            "the run budget refused the send: Wallet(Budget(RouteNotAdmitted))"
+        );
+        assert!(elsewhere.attempts().is_empty());
         // Direct Chat Completions under it: refused.
         let mut chat = config.clone();
         chat.openai_api = OpenAiApi::ChatCompletions;
@@ -618,6 +638,9 @@ mod factory {
             .env("HOME", home.path())
             .env(CHILD, "1")
             .env("OPENAI_API_KEY", "sk-test-not-real")
+            .env("HTTPS_PROXY", "http://127.0.0.1:9")
+            .env("HTTP_PROXY", "http://127.0.0.1:9")
+            .env("ALL_PROXY", "http://127.0.0.1:9")
             .env(crate::structured_budget::admission::RUN_BUDGET_ENV, WALLET)
             .output()
             .unwrap();
