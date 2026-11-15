@@ -1,0 +1,9 @@
+{"event":"run_start","workspace_root":"/tmp/cm0/billed","provider":"openai-compatible","model":"billed-model","schema_version":"1"}
+{"event":"provider_response","response_id":"resp-1","provider_billed_cost_usd":"0.0012","schema_version":"1"}
+{"event":"provider_turn_duration","caller_scope":"planner_step","duration_ms":1000,"prompt_eval_count":100,"eval_count":20,"provider_billed_cost_usd":"0.0012","schema_version":"1"}
+{"event":"provider_response","response_id":"resp-2","provider_billed_cost_usd":"0.00034","schema_version":"1"}
+{"event":"provider_turn_duration","caller_scope":"executor","duration_ms":2000,"prompt_eval_count":200,"eval_count":40,"provider_billed_cost_usd":"0.00034","schema_version":"1"}
+{"event":"provider_response","response_id":"resp-3","provider_billed_cost_usd":"0.5","schema_version":"1"}
+{"event":"provider_turn_duration","caller_scope":"executor","duration_ms":3000,"prompt_eval_count":300,"eval_count":60,"provider_billed_cost_usd":"0.5","schema_version":"1"}
+{"event":"tui_command_stop","ok":true,"status":"completed","assurance_level":"static","release_gate_status":"not_applicable","stop_reason":"completed","next_action":"none","failure_kind":"","time_profile_total_ms":6000,"schema_version":"1"}
+{"event":"run_stop","ok":true,"status":"completed","assurance_level":"static","release_gate_status":"not_applicable","stop_reason":"completed","next_action":"none","schema_version":"1"}

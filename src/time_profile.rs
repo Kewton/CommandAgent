@@ -544,10 +544,15 @@ pub fn aggregate_event_path(path: Option<&Path>) -> TimeProfile {
 pub fn render_summary_sections(events: &[Value]) -> Option<String> {
     let profile = aggregate_events(events);
     (profile.total_ms() > 0).then(|| {
+        let mut usage = profile.provider_usage_by_role_markdown();
+        if let Some(line) = crate::headless_summary::billed_cost_summary_line(events) {
+            usage.push_str("\n\n");
+            usage.push_str(&line);
+        }
         format!(
             "{}\n\n{}\n\n{}\n\n{}",
             profile.summary_line(),
-            profile.provider_usage_by_role_markdown(),
+            usage,
             profile.phase_table_markdown(),
             profile.generation_profile_markdown()
         )
@@ -814,6 +819,41 @@ fn percent(part: u64, total: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn fixture_events(case: &str) -> Vec<Value> {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/corpus/apps/cm0-headless-summary/fixtures")
+            .join(case)
+            .join("events.jsonl");
+        std::fs::read_to_string(path)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn provider_billed_cost_line_follows_the_role_table_only_when_reported() {
+        let billed = render_summary_sections(&fixture_events("billed")).unwrap();
+        assert!(
+            billed.contains("Provider billed cost: $0.50154 (3/3 calls reported)"),
+            "{billed}"
+        );
+        assert!(!billed.contains("calls reported) (incomplete)"), "{billed}");
+        let table_end = billed.find("| executor |").unwrap();
+        assert!(billed.find("Provider billed cost").unwrap() > table_end);
+
+        let incomplete = render_summary_sections(&fixture_events("billed-incomplete")).unwrap();
+        assert!(
+            incomplete.contains("Provider billed cost: $0.00154 (2/3 calls reported) (incomplete)"),
+            "{incomplete}"
+        );
+
+        for case in ["full", "billed-none"] {
+            let rendered = render_summary_sections(&fixture_events(case)).unwrap();
+            assert!(!rendered.contains("Provider billed cost"), "{case}");
+        }
+    }
 
     #[test]
     fn issue440_additive_response_counts_preserve_provider_totals_and_legacy_streams() {
