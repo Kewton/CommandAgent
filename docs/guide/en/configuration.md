@@ -283,6 +283,8 @@ variables also affect normal user-visible behavior:
 | `COMMANDAGENT_SYSTEM_GUIDANCE` | Adds one common guidance text to the system prompt of every provider request of a direct `--prompt` run. Unset or empty changes nothing. See below. |
 | `COMMANDAGENT_COMPATIBLE_REASONING_EFFORT` | Declares a reasoning effort for the roles that use the OpenAI-compatible transport (`openai-compatible` and `lm-studio`). Unset or empty sends nothing. See below. |
 | `COMMANDAGENT_COMPLETION_OBLIGATION_REVIEW` | Experimental. `once` asks a generic edit run to review the request's obligations once before its first normal final answer. Unset, empty, or `off` (the default) changes nothing. See below. |
+| `COMMANDAGENT_ADAPTER_CONFIG_ROOT` | The operator root: an absolute directory outside the workspace that holds `profile-tools/<id>.json` and `run-budgets/<id>.json`. See [Operator Root, Profile Tools, and Run Budget](profile-tools.md). |
+| `COMMANDAGENT_RUN_BUDGET` | Selects a run budget by ID, read from `<operator root>/run-budgets/<id>.json`. Unset means off. See [Run Budget](profile-tools.md#run-budget). |
 | `COMMANDAGENT_REQUIREMENT_PLAN` | Experimental. `once` asks a new generic run to write a short requirement plan note before its first implementation step. Unset, empty, or `off` (the default) changes nothing. See below. |
 | `COMMANDAGENT_BUDGET_CLOSING` | Experimental. `once` tells a generic direct run once, three calls before its iteration limit, to close out, and keeps a final with an unresolved failed check or write from ending the run as a normal final. Unset, empty, or `off` (the default) changes nothing. See below. |
 

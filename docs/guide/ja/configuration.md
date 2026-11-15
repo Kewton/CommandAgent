@@ -294,6 +294,8 @@ OpenAI キーと任意の `LM_STUDIO_API_TOKEN` はプロセス環境だけか�
 | `COMMANDAGENT_SYSTEM_GUIDANCE` | direct の `--prompt` の run で、provider へのすべての request の system prompt に共通の案内文を 1 つ足します。未設定・空文字なら何も変わりません。下を参照してください。 |
 | `COMMANDAGENT_COMPATIBLE_REASONING_EFFORT` | OpenAI 互換の transport（`openai-compatible` と `lm-studio`）を使う role に推論の強さを宣言します。未設定・空文字なら何も送りません。下を参照してください。 |
 | `COMMANDAGENT_COMPLETION_OBLIGATION_REVIEW` | 実験用です。`once` で、generic の編集 run が最初の通常の最終回答の前に依頼の義務を一度だけ見直します。未設定・空文字・`off`（既定）なら何も変わりません。下を参照してください。 |
+| `COMMANDAGENT_ADAPTER_CONFIG_ROOT` | operator root。ワークスペースの外にある絶対パスのディレクトリで、`profile-tools/<id>.json` と `run-budgets/<id>.json` を置きます。[operator root・profile tools・run budget](profile-tools.md) を参照してください。 |
+| `COMMANDAGENT_RUN_BUDGET` | ID で run budget を選びます。宣言は `<operator root>/run-budgets/<id>.json` から読みます。未設定なら off です。[run budget](profile-tools.md#run-budget) を参照してください。 |
 | `COMMANDAGENT_REQUIREMENT_PLAN` | 実験用です。`once` で、新しい generic の run が最初の実装の前に短い要求計画ノートを書きます。未設定・空文字・`off`（既定）なら何も変わりません。下を参照してください。 |
 | `COMMANDAGENT_BUDGET_CLOSING` | 実験用です。`once` で、generic の direct run の反復上限の 3 回前に締めを一度だけ案内し、失敗した確認や書込みが未解決のままの final を通常の final として終わらせません。未設定・空文字・`off`（既定）なら何も変わりません。下を参照してください。 |
 

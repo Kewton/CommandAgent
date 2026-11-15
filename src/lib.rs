@@ -26,6 +26,8 @@ pub mod eval_events;
 mod evidence_envelope;
 mod extension_inventory;
 pub mod fetch_probe;
+#[cfg(test)]
+mod guide_examples_tests;
 mod headless_summary;
 pub mod minimal_loop;
 pub mod mode;
