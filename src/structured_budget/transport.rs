@@ -33,11 +33,15 @@ use super::identity::{
     AttemptBinding, LogicalId, LogicalKind, PhysicalId, ResponseIdentity, SendPurpose,
     SubmissionSource,
 };
-use super::ledger::{BudgetLedger, LedgerFailure, LedgerOpen, LedgerRefusal, StartedPermit};
+use super::ledger::{BudgetLedger, LedgerFailure, LedgerOpen, LedgerRefusal};
+use super::ledger_v2::{BudgetLedgerV2, LedgerOpenV2, WalletStateV2};
 use super::policy::RunBudgetPolicy;
-use super::reservation::{AttemptState, ReserveRequest, WalletState};
+use super::reservation::{AttemptState, BudgetRefusal, ReserveRequest, WalletState};
+use super::responses::{
+    AccountingBasis, ResponsesReserveRequest, ResponsesSettle, unknown_reason_of,
+};
 use super::session::FinalRepairMarker;
-use super::settlement::{ReportedUsage, SettleReport, UnknownReason};
+use super::settlement::{ReportedUsage, SettleOutcome, SettleReport, UnknownReason};
 use crate::providers::BilledCostUsd;
 use crate::tools::os_sandbox;
 
@@ -78,8 +82,7 @@ impl From<LedgerFailure> for SendRefusal {
 /// One wallet, held for as long as this value lives, and shared by every clone of a client.
 #[derive(Debug)]
 pub(crate) struct RunBudgetHandle {
-    ledger: Mutex<BudgetLedger>,
-    policy: Arc<RunBudgetPolicy>,
+    wallet: Wallet,
     /// As the wallet was checked against it, canonical.
     workspace: PathBuf,
     /// Where the sandbox applied on the run let commands write when the wallet was judged by it.
@@ -92,6 +95,23 @@ pub(crate) struct RunBudgetHandle {
     #[cfg(test)]
     sandbox_view: Option<SandboxView>,
 }
+
+/// The wallet itself, of one accounting basis for its whole life (Issue #1006, U1). A send of the
+/// other basis is refused before anything is reserved.
+#[derive(Debug)]
+enum Wallet {
+    /// v1: generic Chat Completions, settled on the provider's billed amount.
+    Chat {
+        ledger: Mutex<BudgetLedger>,
+        policy: Arc<RunBudgetPolicy>,
+    },
+    /// v2 `usage_tariff`: direct Responses, charged by the fixed tariff on validated usage.
+    Responses { ledger: Mutex<BudgetLedgerV2> },
+}
+
+/// What a wallet of the other basis says to a send it cannot count.
+const OTHER_BASIS: SendRefusal =
+    SendRefusal::Wallet(LedgerFailure::Budget(BudgetRefusal::RouteNotAdmitted));
 
 /// The command running now, by its number from the first, and the first refusal of it. A REPL's
 /// next command has the next number; a send keeps the number of the command it began in, so a
@@ -187,14 +207,45 @@ impl RunBudgetHandle {
             .map(|writes| SandboxSnapshot::of(writes.policy()));
         let ledger = BudgetLedger::open(request)?;
         Ok(Self {
-            ledger: Mutex::new(ledger),
-            policy,
+            wallet: Wallet::Chat {
+                ledger: Mutex::new(ledger),
+                policy,
+            },
             workspace,
             opened_under,
             command: Mutex::new(CommandRecord::default()),
             #[cfg(test)]
             sandbox_view: None,
         })
+    }
+
+    /// A `usage_tariff` wallet, in the same place and under the same lock as a v1 one.
+    pub(crate) fn open_responses(request: LedgerOpenV2<'_>) -> Result<Self, LedgerRefusal> {
+        let workspace =
+            fs::canonicalize(request.workspace).map_err(|_| LedgerRefusal::Unavailable)?;
+        let opened_under = request
+            .command_writes
+            .as_ref()
+            .map(|writes| SandboxSnapshot::of(writes.policy()));
+        let ledger = BudgetLedgerV2::open(request)?;
+        Ok(Self {
+            wallet: Wallet::Responses {
+                ledger: Mutex::new(ledger),
+            },
+            workspace,
+            opened_under,
+            command: Mutex::new(CommandRecord::default()),
+            #[cfg(test)]
+            sandbox_view: None,
+        })
+    }
+
+    /// The basis this wallet counts on.
+    pub(crate) fn accounting_basis(&self) -> AccountingBasis {
+        match &self.wallet {
+            Wallet::Chat { .. } => AccountingBasis::ProviderBilled,
+            Wallet::Responses { .. } => AccountingBasis::UsageTariff,
+        }
     }
 
     fn command_record(&self) -> MutexGuard<'_, CommandRecord> {
@@ -244,9 +295,15 @@ impl RunBudgetHandle {
         if let Some(refused) = super::command::refusal_of(self, command) {
             return Err(refused);
         }
-        self.ledger()
-            .and_then(|mut ledger| Ok(ledger.record_submission(kind, source)?))
-            .inspect_err(|refusal| self.note_refused(command, *refusal))
+        match &self.wallet {
+            Wallet::Chat { .. } => self
+                .ledger()
+                .and_then(|mut ledger| Ok(ledger.record_submission(kind, source)?)),
+            Wallet::Responses { .. } => self
+                .responses_ledger()
+                .and_then(|mut ledger| Ok(ledger.record_submission(kind, source)?)),
+        }
+        .inspect_err(|refusal| self.note_refused(command, *refusal))
     }
 
     /// Ties G4's attempt to a submission, on disk. A refusal is kept for the command.
@@ -256,9 +313,15 @@ impl RunBudgetHandle {
         binding: AttemptBinding,
     ) -> Result<(), SendRefusal> {
         let command = self.command_now();
-        self.ledger()
-            .and_then(|mut ledger| Ok(ledger.bind_attempt(logical, binding)?))
-            .inspect_err(|refusal| self.note_refused(command, *refusal))
+        match &self.wallet {
+            Wallet::Chat { .. } => self
+                .ledger()
+                .and_then(|mut ledger| Ok(ledger.bind_attempt(logical, binding)?)),
+            Wallet::Responses { .. } => self
+                .responses_ledger()
+                .and_then(|mut ledger| Ok(ledger.bind_attempt(logical, binding)?)),
+        }
+        .inspect_err(|refusal| self.note_refused(command, *refusal))
     }
 
     /// The first send of the command running now that the wallet refused.
@@ -279,16 +342,30 @@ impl RunBudgetHandle {
 
     /// Whether a resume may go on in this wallet (`command.rs`). Nothing is opened again.
     pub(super) fn refuse_resume(&self) -> Result<(), LedgerRefusal> {
-        self.ledger()
-            .map_err(|_| LedgerRefusal::Unavailable)?
-            .refuse_resume()
+        match &self.wallet {
+            Wallet::Chat { .. } => self
+                .ledger()
+                .map_err(|_| LedgerRefusal::Unavailable)?
+                .refuse_resume(),
+            Wallet::Responses { .. } => self
+                .responses_ledger()
+                .map_err(|_| LedgerRefusal::Unavailable)?
+                .refuse_resume(),
+        }
     }
 
     /// Pins `explicit` as the wallet's profile, in the ledger's own transaction (`command.rs`).
     pub(super) fn pin_profile(&self, explicit: &str) -> Result<(), LedgerRefusal> {
-        self.ledger()
-            .map_err(|_| LedgerRefusal::Unavailable)?
-            .pin_profile(explicit)
+        match &self.wallet {
+            Wallet::Chat { .. } => self
+                .ledger()
+                .map_err(|_| LedgerRefusal::Unavailable)?
+                .pin_profile(explicit),
+            Wallet::Responses { .. } => self
+                .responses_ledger()
+                .map_err(|_| LedgerRefusal::Unavailable)?
+                .pin_profile(explicit),
+        }
     }
 
     /// This handle, judging the sandbox by `view` instead of by the state of the process.
@@ -300,21 +377,46 @@ impl RunBudgetHandle {
 
     /// The most output a body of this wallet may ask for.
     pub(crate) fn max_output_tokens(&self) -> u64 {
-        self.policy.max_output_tokens
+        match &self.wallet {
+            Wallet::Chat { policy, .. } => policy.max_output_tokens,
+            Wallet::Responses { ledger } => {
+                ledger.lock().map_or(0, |ledger| ledger.max_output_tokens())
+            }
+        }
     }
 
     /// A panic elsewhere with the lock held says nothing about the file, and the next change holds
-    /// the file to what this handle wrote, so the wallet is as safe to refuse from as ever.
+    /// the file to what this handle wrote, so the wallet is as safe to refuse from as ever. A
+    /// `usage_tariff` wallet has no v1 ledger: what takes one is a send it cannot count.
     fn ledger(&self) -> Result<MutexGuard<'_, BudgetLedger>, SendRefusal> {
-        self.ledger.lock().map_err(|_| SendRefusal::Unavailable)
+        match &self.wallet {
+            Wallet::Chat { ledger, .. } => ledger.lock().map_err(|_| SendRefusal::Unavailable),
+            Wallet::Responses { .. } => Err(OTHER_BASIS),
+        }
+    }
+
+    /// The `usage_tariff` ledger, or the refusal of a v1 wallet to count a Responses send.
+    pub(super) fn responses_ledger(&self) -> Result<MutexGuard<'_, BudgetLedgerV2>, SendRefusal> {
+        match &self.wallet {
+            Wallet::Responses { ledger } => ledger.lock().map_err(|_| SendRefusal::Unavailable),
+            Wallet::Chat { .. } => Err(OTHER_BASIS),
+        }
     }
 
     pub(crate) fn wallet(&self) -> Result<WalletState, SendRefusal> {
         Ok(self.ledger()?.wallet().clone())
     }
 
+    /// The `usage_tariff` wallet's records, as they are on disk.
+    pub(crate) fn responses_wallet(&self) -> Result<WalletStateV2, SendRefusal> {
+        Ok(self.responses_ledger()?.wallet().clone())
+    }
+
     pub(crate) fn success_gate(&self) -> Result<(), SendRefusal> {
-        Ok(self.ledger()?.success_gate()?)
+        match &self.wallet {
+            Wallet::Chat { .. } => Ok(self.ledger()?.success_gate()?),
+            Wallet::Responses { .. } => Ok(self.responses_ledger()?.success_gate()?),
+        }
     }
 
     fn refuse_without_the_sandbox(&self) -> Result<(), SendRefusal> {
@@ -347,11 +449,19 @@ impl RunBudgetHandle {
         body: &'b [u8],
         purpose: SendPurpose,
         final_repair: Option<&FinalRepairMarker>,
-    ) -> Result<(OpenSend, StartedPermit<'b>), SendRefusal> {
+        endpoint: Option<&str>,
+    ) -> Result<(OpenSend, &'b [u8]), SendRefusal> {
         if let Some(refused) = super::command::refusal_of(self, command) {
             return Err(refused);
         }
         self.refuse_without_the_sandbox()?;
+        if let Wallet::Responses { .. } = &self.wallet {
+            return self.begin_responses(command, body, purpose, final_repair, endpoint);
+        }
+        // A body of a Responses endpoint is not one a v1 wallet counts.
+        if endpoint.is_some() {
+            return Err(OTHER_BASIS);
+        }
         let mut ledger = self.ledger()?;
         let reservation = ledger.reserve(&ReserveRequest {
             body,
@@ -370,7 +480,46 @@ impl RunBudgetHandle {
                     physical,
                     resolved: false,
                 },
-                permit,
+                permit.into_body(),
+            )),
+            Err(refusal) => {
+                let _ = ledger.release(physical);
+                Err(refusal.into())
+            }
+        }
+    }
+
+    /// [`Self::begin`] for a `usage_tariff` wallet: the same steps, on its ledger, with the
+    /// endpoint the transport posts to. A start that is refused releases what it reserved.
+    fn begin_responses<'b>(
+        self: &Arc<Self>,
+        command: u64,
+        body: &'b [u8],
+        purpose: SendPurpose,
+        final_repair: Option<&FinalRepairMarker>,
+        endpoint: Option<&str>,
+    ) -> Result<(OpenSend, &'b [u8]), SendRefusal> {
+        let endpoint = endpoint.ok_or(OTHER_BASIS)?;
+        let mut ledger = self.responses_ledger()?;
+        let reservation = ledger.reserve(&ResponsesReserveRequest {
+            body,
+            endpoint,
+            purpose,
+            final_repair: final_repair.map(FinalRepairMarker::claim),
+        })?;
+        if let Some(marker) = final_repair {
+            marker.opened(reservation.final_repair);
+        }
+        let physical = reservation.physical;
+        match ledger.start(physical, body) {
+            Ok(permit) => Ok((
+                OpenSend {
+                    handle: self.clone(),
+                    command,
+                    physical,
+                    resolved: false,
+                },
+                permit.into_body(),
             )),
             Err(refusal) => {
                 let _ = ledger.release(physical);
@@ -386,6 +535,21 @@ impl RunBudgetHandle {
         physical: PhysicalId,
         text: &str,
     ) -> Result<Option<SettleReport>, SendRefusal> {
+        if let Wallet::Responses { .. } = &self.wallet {
+            let settled = self.responses_ledger()?.settle_body(physical, text)?;
+            return Ok(Some(match settled {
+                ResponsesSettle::Charged {
+                    response,
+                    charged,
+                    latched,
+                } => SettleReport::Settled(SettleOutcome {
+                    response,
+                    consumed: charged,
+                    latched,
+                }),
+                ResponsesSettle::Unknown(cause) => SettleReport::Unknown(unknown_reason_of(cause)),
+            }));
+        }
         let mut ledger = self.ledger()?;
         let usage = match read_usage(text) {
             Ok(usage) => usage,
@@ -407,8 +571,17 @@ impl RunBudgetHandle {
     fn mark_unknown(&self, physical: PhysicalId, reason: UnknownReason) {
         // A file that cannot take it stays `started`, which the next process reads as unknown, and
         // the handle refuses everything from here on.
-        if let Ok(mut ledger) = self.ledger() {
-            let _ = ledger.mark_unknown(physical, reason);
+        match &self.wallet {
+            Wallet::Chat { .. } => {
+                if let Ok(mut ledger) = self.ledger() {
+                    let _ = ledger.mark_unknown(physical, reason);
+                }
+            }
+            Wallet::Responses { .. } => {
+                if let Ok(mut ledger) = self.responses_ledger() {
+                    let _ = ledger.mark_unknown(physical, reason);
+                }
+            }
         }
     }
 }
@@ -464,6 +637,8 @@ pub(crate) struct BudgetedBody {
     bytes: Vec<u8>,
     purpose: SendPurpose,
     final_repair: Option<FinalRepairMarker>,
+    /// Where a Responses request is posted, from its transport; `None` for a v1 request.
+    endpoint: Option<String>,
 }
 
 impl BudgetedBody {
@@ -478,7 +653,26 @@ impl BudgetedBody {
             bytes: serde_json::to_vec(body)?,
             purpose,
             final_repair: None,
+            endpoint: None,
         })
+    }
+
+    /// The bytes of one Responses request of a `usage_tariff` wallet, posted to `endpoint`. A v1
+    /// wallet refuses every try of it.
+    pub(crate) fn for_responses(
+        handle: &Arc<RunBudgetHandle>,
+        body: &Value,
+        purpose: SendPurpose,
+        endpoint: &str,
+    ) -> anyhow::Result<Self> {
+        let mut budgeted = Self::new(handle, body, purpose)?;
+        budgeted.endpoint = Some(endpoint.to_string());
+        Ok(budgeted)
+    }
+
+    /// The exact bytes every try sends, as their digest is kept.
+    pub(crate) fn bytes(&self) -> &[u8] {
+        &self.bytes
     }
 
     /// The request of the session `final_repair` marks, if any: then it is a final repair.
@@ -496,18 +690,19 @@ impl BudgetedBody {
         &self,
         request: RequestBuilder,
     ) -> Result<(RequestBuilder, OpenSend), SendRefusal> {
-        let (send, permit) = self
+        let (send, permitted) = self
             .handle
             .begin(
                 self.command,
                 &self.bytes,
                 self.purpose,
                 self.final_repair.as_ref(),
+                self.endpoint.as_deref(),
             )
             .inspect_err(|refusal| self.handle.note_refused(self.command, *refusal))?;
         let request = request
             .header(CONTENT_TYPE, "application/json")
-            .body(permit.into_body().to_vec());
+            .body(permitted.to_vec());
         Ok((request, send))
     }
 }

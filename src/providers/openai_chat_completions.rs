@@ -151,6 +151,10 @@ fn chat_message(message: &ConversationMessage, native_tools_enabled: bool) -> Va
 pub(crate) fn parse_response(
     body: &str,
 ) -> anyhow::Result<(AssistantReply, ProviderResponseMetadata)> {
+    // Issue #1006: the cache write at the table's Chat paths only, read before anything else of
+    // the reply, so a reply that then fails to parse still has it. Telemetry only.
+    let cache_write = crate::providers::usage_observation::observe_chat_cache_write(body);
+    crate::provider_call::note_cache_write(cache_write);
     let value: Value = serde_json::from_str(body)?;
     let message = value
         .get("choices")
@@ -198,6 +202,7 @@ pub(crate) fn parse_response(
         reasoning_tokens: reasoning_tokens(usage, reply.completion_tokens),
         total_tokens: None,
         billed_cost_usd: billed_cost_usd(body),
+        cache_write,
     };
     Ok((reply, metadata))
 }

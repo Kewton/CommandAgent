@@ -13,6 +13,7 @@ pub mod parsing;
 pub mod profile_tool_schema;
 pub(crate) mod startup;
 pub mod streaming;
+pub mod usage_observation;
 pub mod xml_fallback;
 pub(crate) mod xml_repair;
 
@@ -53,6 +54,12 @@ pub struct ProviderResponseMetadata {
     /// When the amount text equals or contains a registered secret value, both
     /// events leave the field out, exactly as for an unreported amount.
     pub billed_cost_usd: Option<BilledCostUsd>,
+    /// The cache write this response reported, validated by the reader the wallet shares (Issue
+    /// #1006). `None` is not reported or not valid, never zero. The `provider_response` event of
+    /// the response carries it as the three `provider_cache_write_input_tokens*` fields; the
+    /// turn's `provider_turn_duration` carries the same values, taken on their own path so that a
+    /// turn whose reply then failed to parse still has them. Count them once per turn.
+    pub cache_write: Option<usage_observation::CacheWriteObservation>,
 }
 
 /// A provider-reported USD amount, kept as the exact decimal text of the JSON
@@ -274,6 +281,18 @@ pub(crate) fn client_from_config_for_role(
     config: &Config,
     role: ProviderRole,
 ) -> anyhow::Result<Box<dyn ChatClient>> {
+    // A `usage_tariff` wallet (Issue #1006) counts one client only: the direct OpenAI Responses
+    // client of an admitted role, built with the wallet so each of its sends is reserved. Every
+    // other client, a compatible endpoint's included, is refused before it exists.
+    if let Some(handle) = config.field_sources.run_budget.as_ref().filter(|handle| {
+        handle.accounting_basis()
+            == crate::structured_budget::responses::AccountingBasis::UsageTariff
+    }) {
+        crate::structured_budget::admission::admit_responses_client(config, role)?;
+        return Ok(Box::new(openai::OpenAiClient::from_env_under_run_budget(
+            config, role, handle,
+        )?));
+    }
     crate::structured_budget::admission::admit_client(config, role)?;
     if config
         .openai_compatible

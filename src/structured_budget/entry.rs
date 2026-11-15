@@ -22,7 +22,9 @@ use std::sync::Arc;
 use super::admission::RUN_BUDGET_ENV;
 use super::clock::SystemBudgetClock;
 use super::ledger::{CommandWrites, LedgerEntry, LedgerOpen, LedgerRefusal};
+use super::ledger_v2::LedgerOpenV2;
 use super::policy::{PolicyRefusal, RunBudgetPolicy, valid_budget_id};
+use super::policy_v2::{PolicyV2Refusal, RunBudgetPolicyV2, names_protocol_v2};
 use super::transport::RunBudgetHandle;
 use crate::config::{Action, Config};
 use crate::tools::os_sandbox::SandboxMode;
@@ -63,6 +65,8 @@ pub(crate) enum EntryRefusal {
     /// The declaration is somewhere a command of the run can write.
     PolicyInCommandReach,
     Policy(PolicyRefusal),
+    /// A `run-budget.policy/v2` declaration the v2 decoder refused.
+    PolicyV2(PolicyV2Refusal),
     /// No sandbox is applied on the run, so no place can be judged out of its commands' reach.
     NoSandboxPolicy,
     Wallet(LedgerRefusal),
@@ -229,17 +233,46 @@ fn open_noting(
         LedgerEntry::Fresh
     };
     touch("ledger");
-    let handle = RunBudgetHandle::open(LedgerOpen {
-        policy: Arc::new(policy),
-        workspace: &config.workspace_root,
-        explicit_profile: config.profile_explicit.then_some(config.profile.as_str()),
-        entry,
-        clock,
-        command_writes: Some(writes),
-    })
+    let explicit_profile = config.profile_explicit.then_some(config.profile.as_str());
+    let handle = match policy {
+        Declared::V1(policy) => RunBudgetHandle::open(LedgerOpen {
+            policy: Arc::new(policy),
+            workspace: &config.workspace_root,
+            explicit_profile,
+            entry,
+            clock,
+            command_writes: Some(writes),
+        }),
+        Declared::V2(policy) => RunBudgetHandle::open_responses(LedgerOpenV2 {
+            policy: Arc::new(policy),
+            workspace: &config.workspace_root,
+            explicit_profile,
+            entry,
+            clock,
+            command_writes: Some(writes),
+        }),
+    }
     .map_err(EntryRefusal::Wallet)?;
     config.field_sources.run_budget = Some(Arc::new(handle));
     Ok(())
+}
+
+/// A declaration of either protocol. Which one is read off its `protocol`; any file that does not
+/// name v2 is decoded as v1, exactly as before v2 existed.
+enum Declared {
+    V1(RunBudgetPolicy),
+    V2(RunBudgetPolicyV2),
+}
+
+fn decode_declared(bytes: &[u8], id: &str) -> Result<Declared, EntryRefusal> {
+    if names_protocol_v2(bytes) {
+        return RunBudgetPolicyV2::decode(bytes, id)
+            .map(Declared::V2)
+            .map_err(EntryRefusal::PolicyV2);
+    }
+    RunBudgetPolicy::decode(bytes, id)
+        .map(Declared::V1)
+        .map_err(EntryRefusal::Policy)
 }
 
 /// The operator's declaration of `id`, read with a bound through a walk that follows no link below
@@ -248,7 +281,7 @@ fn read_policy(
     id: &str,
     writes: &CommandWrites,
     touch: &mut dyn FnMut(&'static str),
-) -> Result<RunBudgetPolicy, EntryRefusal> {
+) -> Result<Declared, EntryRefusal> {
     touch("root");
     let root = crate::planner::artifact_contract_checks::config_root_from_environment()
         .filter(|root| root.is_absolute())
@@ -265,7 +298,7 @@ fn read_policy(
     file.take(MOST_POLICY_BYTES_READ)
         .read_to_end(&mut bytes)
         .map_err(|_| EntryRefusal::PolicyUnreadable)?;
-    RunBudgetPolicy::decode(&bytes, id).map_err(EntryRefusal::Policy)
+    decode_declared(&bytes, id)
 }
 
 /// Whether `path` is under the workspace, the run's temporary, or a cache the sandbox lets its
@@ -347,3 +380,62 @@ fn commands_are_handed(name: &str) -> bool {
 #[cfg(test)]
 #[path = "entry_tests.rs"]
 mod tests;
+
+/// Issue #1006: which decoder a declaration goes to.
+#[cfg(test)]
+mod declared_tests {
+    use serde_json::json;
+
+    use super::super::policy::PolicyRefusal;
+    use super::super::policy_v2::PolicyV2Refusal;
+    use super::super::policy_v2::test_support::{WALLET, policy_v2_value};
+    use super::super::test_support::policy_value;
+    use super::{Declared, EntryRefusal, decode_declared};
+
+    #[test]
+    fn a_declaration_goes_to_the_decoder_its_protocol_names() {
+        let v2 = policy_v2_value().to_string();
+        assert!(matches!(
+            decode_declared(v2.as_bytes(), WALLET),
+            Ok(Declared::V2(_))
+        ));
+        let mut v1 = policy_value();
+        v1["budget_id"] = json!(WALLET);
+        assert!(matches!(
+            decode_declared(v1.to_string().as_bytes(), WALLET),
+            Ok(Declared::V1(_))
+        ));
+        // A v2 file that is not right is refused by the v2 decoder, in its words.
+        let mut bad = policy_v2_value();
+        bad["extra"] = json!(0);
+        assert!(matches!(
+            decode_declared(bad.to_string().as_bytes(), WALLET),
+            Err(EntryRefusal::PolicyV2(PolicyV2Refusal::Malformed))
+        ));
+        let mut bad = policy_v2_value();
+        bad["accounting_basis"] = json!("provider_billed");
+        assert!(matches!(
+            decode_declared(bad.to_string().as_bytes(), WALLET),
+            Err(EntryRefusal::PolicyV2(
+                PolicyV2Refusal::WrongAccountingBasis
+            ))
+        ));
+        // Anything that does not name v2 is v1's, as before: another protocol, no protocol, or
+        // not JSON.
+        let mut other = policy_value();
+        other["protocol"] = json!("run-budget.policy/v3");
+        assert!(matches!(
+            decode_declared(other.to_string().as_bytes(), "wallet-alpha"),
+            Err(EntryRefusal::Policy(PolicyRefusal::WrongProtocol))
+        ));
+        assert!(matches!(
+            decode_declared(b"not json", WALLET),
+            Err(EntryRefusal::Policy(PolicyRefusal::Malformed))
+        ));
+        let huge = vec![b' '; (1 << 20) + 1];
+        assert!(matches!(
+            decode_declared(&huge, WALLET),
+            Err(EntryRefusal::Policy(PolicyRefusal::TooLarge))
+        ));
+    }
+}

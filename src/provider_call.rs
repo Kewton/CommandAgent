@@ -8,6 +8,7 @@ use serde_json::json;
 use crate::config::{Config, OllamaThink, Provider};
 use crate::eval_events;
 use crate::providers::streaming::CancelToken;
+use crate::providers::usage_observation::CacheWriteObservation;
 use crate::providers::{AssistantReply, ChatClient, ProviderResponseMetadata, ResponseTiming};
 use crate::state::ConversationMessage;
 use crate::structured_budget::identity::ResponseIdentity;
@@ -127,6 +128,40 @@ pub(crate) fn note_settled_response(response: ResponseIdentity) {
     });
 }
 
+thread_local! {
+    /// On a call's worker, the cache write its reply reported, once the reply's reader saw it
+    /// (Issue #1006). Apart from the response metadata, so a reply that then fails to parse still
+    /// carries it to the turn's event, and a metadata of `None` stays `None`.
+    static CACHE_WRITE: std::cell::Cell<Option<Option<CacheWriteObservation>>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// The reply of the call this thread runs reported `observation` (or nothing valid). A thread
+/// that is no call's worker keeps nothing.
+pub(crate) fn note_cache_write(observation: Option<CacheWriteObservation>) {
+    CACHE_WRITE.with(|slot| {
+        if slot.get().is_some() {
+            slot.set(Some(observation));
+        }
+    });
+}
+
+fn open_cache_write_on_worker() {
+    CACHE_WRITE.with(|slot| slot.set(Some(None)));
+}
+
+fn take_cache_write_on_worker() -> Option<CacheWriteObservation> {
+    CACHE_WRITE.with(std::cell::Cell::take).flatten()
+}
+
+/// What `run` noted as a call's worker would, for a test of a reader outside a call.
+#[cfg(test)]
+pub(crate) fn noting_cache_write<R>(run: impl FnOnce() -> R) -> (R, Option<CacheWriteObservation>) {
+    open_cache_write_on_worker();
+    let result = run();
+    (result, take_cache_write_on_worker())
+}
+
 /// Gives the call's worker a place for its response, empty.
 fn open_settled_on_worker() {
     SETTLED.with(|settled| settled.set(Some(None)));
@@ -201,6 +236,8 @@ struct ProviderTurnTelemetry<'a> {
     load_seconds: Option<f64>,
     tokens_per_second_eval: Option<f64>,
     response_metadata: Option<ProviderResponseMetadata>,
+    /// The reply's validated cache write, on its own path (Issue #1006).
+    cache_write: Option<CacheWriteObservation>,
     finish_reason: String,
     elapsed: Duration,
     timed_out: bool,
@@ -227,6 +264,7 @@ struct ProviderWorkerResult {
     timing: Option<ResponseTiming>,
     response_metadata: Option<ProviderResponseMetadata>,
     response: Option<ResponseIdentity>,
+    cache_write: Option<CacheWriteObservation>,
 }
 
 enum ProviderWorkerMessage {
@@ -503,6 +541,7 @@ where
         crate::tools::profile_tools::schema::invocation::install_on_provider_worker(schema_tools);
         install_final_repair_on_worker(worker_final_repair);
         open_settled_on_worker();
+        open_cache_write_on_worker();
         let worker_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let result = if stream {
                 worker_client.chat_stream(
@@ -525,6 +564,7 @@ where
                 timing,
                 response_metadata,
                 response: take_settled_on_worker(),
+                cache_write: take_cache_write_on_worker(),
             }
         }));
         let message = match worker_result {
@@ -608,6 +648,7 @@ where
                         load_seconds: None,
                         tokens_per_second_eval: None,
                         response_metadata: None,
+                        cache_write: None,
                         finish_reason: "timeout".to_string(),
                         elapsed,
                         timed_out: true,
@@ -673,6 +714,7 @@ where
                             &result,
                             None,
                             None,
+                            None,
                         ),
                     );
                     record_provider_trace(
@@ -709,6 +751,7 @@ where
                     timing,
                     response_metadata,
                     response,
+                    cache_write,
                 } = *worker_result;
                 let result = enforce_response_limit(result, max_response_bytes);
                 let response = response.filter(|_| result.is_ok());
@@ -739,6 +782,7 @@ where
                         &result,
                         timing,
                         response_metadata,
+                        cache_write,
                     ),
                 );
                 client.provider_turn_carried_result();
@@ -786,6 +830,7 @@ where
                         load_seconds: None,
                         tokens_per_second_eval: None,
                         response_metadata: None,
+                        cache_write: None,
                         finish_reason: "panic".to_string(),
                         elapsed,
                         timed_out: false,
@@ -838,6 +883,7 @@ where
                         load_seconds: None,
                         tokens_per_second_eval: None,
                         response_metadata: None,
+                        cache_write: None,
                         finish_reason: "error".to_string(),
                         elapsed,
                         timed_out: false,
@@ -1149,6 +1195,7 @@ fn provider_aborted_by_user(
             load_seconds: None,
             tokens_per_second_eval: None,
             response_metadata: None,
+            cache_write: None,
             finish_reason: "aborted_by_user".to_string(),
             elapsed,
             timed_out: false,
@@ -1171,7 +1218,16 @@ fn provider_turn_telemetry_from_result<'a>(
     result: &anyhow::Result<AssistantReply>,
     timing: Option<ResponseTiming>,
     response_metadata: Option<ProviderResponseMetadata>,
+    cache_write: Option<CacheWriteObservation>,
 ) -> ProviderTurnTelemetry<'a> {
+    // Issue #1006: a reply that no reader saw in this call (the planner pipeline's adopted
+    // prefetch, replayed) carries the cache write read when it was fetched, in its metadata. A
+    // turn with no metadata stays with none.
+    let cache_write = cache_write.or_else(|| {
+        response_metadata
+            .as_ref()
+            .and_then(|metadata| metadata.cache_write)
+    });
     let reply = result.as_ref().ok();
     let prompt_eval_duration = timing
         .as_ref()
@@ -1210,6 +1266,7 @@ fn provider_turn_telemetry_from_result<'a>(
         load_seconds,
         tokens_per_second_eval,
         response_metadata,
+        cache_write,
         finish_reason: if base.timed_out {
             "timeout".to_string()
         } else if result.is_ok() {
@@ -1295,6 +1352,13 @@ fn emit_provider_turn_duration(config: &Config, telemetry: ProviderTurnTelemetry
             value["provider_billed_cost_usd"] = cost;
         }
     }
+    // Issue #1006: additive and only when the reply's reader obtained and validated it, on a turn
+    // that failed to parse too. The same response's provider_response repeats it; count it once
+    // per turn, from this event.
+    crate::providers::usage_observation::add_event_fields(
+        &mut value,
+        telemetry.cache_write.as_ref(),
+    );
     eval_events::emit(config.eval_events_path.as_deref(), value);
     maybe_emit_context_truncation_warning(config, &telemetry);
 }
@@ -2503,5 +2567,580 @@ mod tests {
             Some(120)
         );
         assert_eq!(next, Duration::from_secs(180));
+    }
+}
+
+#[cfg(test)]
+mod cache_write_event_tests {
+    use std::io::{Read as _, Write as _};
+    use std::net::TcpListener;
+
+    use super::*;
+    use crate::config::Provider;
+    use crate::state::ConversationMessage;
+
+    const R0: &str = r#"{"id":"resp-c0","model":"m-snap","created_at":1785542400,"service_tier":"default","output":[{"type":"message","content":[{"type":"output_text","text":"hello"}]}],"usage":{"input_tokens":8,"input_tokens_details":{"cached_tokens":3},"output_tokens":6,"output_tokens_details":{"reasoning_tokens":4},"total_tokens":14}}"#;
+    const R1: &str = r#"{"id":"resp-c1","model":"m-snap","created_at":1785542400,"service_tier":"default","output":[{"type":"message","content":[{"type":"output_text","text":"hello"}]}],"usage":{"input_tokens":8,"input_tokens_details":{"cached_tokens":3,"cache_write_tokens":2,"cache_write_tokens_details":{"ttl_30m_tokens":1,"ttl_12h_tokens":1}},"output_tokens":6,"output_tokens_details":{"reasoning_tokens":4},"total_tokens":14}}"#;
+    const C0: &str = r#"{"id":"chatcmpl-c0","model":"m-snap","created":1787000000,"choices":[{"message":{"content":"hello"}}],"usage":{"prompt_tokens":8,"completion_tokens":6,"prompt_tokens_details":{"cached_tokens":3},"cost":0.0012}}"#;
+    const C1: &str = r#"{"id":"chatcmpl-c1","model":"m-snap","created":1787000000,"choices":[{"message":{"content":"hello"}}],"usage":{"prompt_tokens":8,"completion_tokens":6,"prompt_tokens_details":{"cached_tokens":3,"cache_write_tokens":2,"cache_write_tokens_details":{"ttl_30m_tokens":1,"ttl_12h_tokens":1}},"cost":0.0012}}"#;
+
+    /// The provider_response and provider_turn_duration lines of one call, `duration_ms` set to 0.
+    /// A model name no other capture of this process uses: the prompt-prefix cache of
+    /// `estimate_stable_prefix_chars` is process-global and keyed by provider and model, so a
+    /// call never sees another test's prompt there.
+    fn unique_model() -> String {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        format!(
+            "m-1006-call-{}",
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        )
+    }
+
+    fn capture(responses: bool, reply: &str) -> Vec<String> {
+        capture_as(responses, reply, &unique_model())
+    }
+
+    fn capture_as(responses: bool, reply: &str, model: &str) -> Vec<String> {
+        let (lines, failed) = capture_any_as(responses, reply, model);
+        assert!(!failed, "{reply}");
+        lines
+    }
+
+    fn capture_any(responses: bool, reply: &str) -> (Vec<String>, bool) {
+        capture_any_as(responses, reply, &unique_model())
+    }
+
+    fn capture_any_as(responses: bool, reply: &str, model: &str) -> (Vec<String>, bool) {
+        let reply = reply.to_string();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let events_path = tmp.path().join("events.jsonl");
+        let mut config = super::tests::test_config(tmp.path(), events_path.clone(), 2);
+        config.model = model.to_string();
+        let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+        let address = listener.local_addr().expect("address");
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut request = [0_u8; 16384];
+            let _ = stream.read(&mut request).expect("request");
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                reply.len(),
+                reply
+            )
+            .expect("response");
+        });
+        let mut client: Box<dyn crate::providers::ChatClient> = if responses {
+            config.provider = Provider::Openai;
+            config.openai_api = crate::config::OpenAiApi::Responses;
+            Box::new(crate::providers::openai::OpenAiClient::for_test_responses(
+                "sk-test-only-not-real-123456789",
+                format!("http://{address}"),
+                Some(events_path.clone()),
+            ))
+        } else {
+            config.provider = Provider::LmStudio;
+            Box::new(
+                crate::providers::lm_studio::LmStudioClient::new(
+                    format!("http://{address}"),
+                    None,
+                    2,
+                    128,
+                    0,
+                    crate::config::OpenAiApi::ChatCompletions,
+                    Some(events_path.clone()),
+                )
+                .expect("client"),
+            )
+        };
+        let outcome = chat(
+            client.as_mut(),
+            &config,
+            ProviderCallScope::Executor,
+            &config.model,
+            &[ConversationMessage::user("hello")],
+            &[],
+            false,
+        );
+        server.join().expect("server");
+        let failed = outcome.result.is_err();
+        let lines = std::fs::read_to_string(events_path)
+            .expect("events")
+            .lines()
+            .filter_map(|line| {
+                let mut value: serde_json::Value = serde_json::from_str(line).ok()?;
+                let name = value["event"].as_str()?.to_string();
+                if name != "provider_response" && name != "provider_turn_duration" {
+                    return None;
+                }
+                normalize(&mut value);
+                Some(value.to_string())
+            })
+            .collect();
+        (lines, failed)
+    }
+
+    const BASE_R0: [&str; 2] = [
+        r#"{"api":"responses","attempt":1,"event":"provider_response","model":"m-1006-r0","provider":"openai","reasoning_tokens":4,"response_id":"resp-c0","response_model":"m-snap","schema_version":"1","service_tier":"default","system_fingerprint":null,"tool_calls":0}"#,
+        r#"{"aborted_by_user":false,"caller_scope":"executor","duration_ms":0,"estimated_prompt_tokens_sent":5,"estimated_stable_prefix_chars":0,"eval_count":6,"eval_duration":null,"event":"provider_turn_duration","finish_reason":"stop","generation_seconds":null,"load_duration":null,"load_seconds":null,"model":"m-1006-r0","native_tools_enabled":false,"ok":true,"prefill_seconds":null,"prompt_eval_count":8,"prompt_eval_duration":null,"prompt_layout":"stable","provider":"openai","provider_cached_input_tokens":3,"provider_created_epoch":1785542400,"provider_model_id":"m-snap","provider_reasoning_tokens":4,"provider_response_id":"resp-c0","provider_service_tier":"default","provider_total_tokens":14,"schema_version":"1","system_fingerprint":null,"think":"omitted","timed_out":false,"timeout_ms":2000,"timeout_secs":2,"timeout_source":"override:test","tokens_per_second_eval":null,"tool_calls_in_response":0,"tools":0,"total_duration":null,"write_or_edit_succeeded":false}"#,
+    ];
+    const BASE_R1: [&str; 2] = [
+        r#"{"api":"responses","attempt":1,"event":"provider_response","model":"m-1006-r1","provider":"openai","reasoning_tokens":4,"response_id":"resp-c1","response_model":"m-snap","schema_version":"1","service_tier":"default","system_fingerprint":null,"tool_calls":0}"#,
+        r#"{"aborted_by_user":false,"caller_scope":"executor","duration_ms":0,"estimated_prompt_tokens_sent":5,"estimated_stable_prefix_chars":0,"eval_count":6,"eval_duration":null,"event":"provider_turn_duration","finish_reason":"stop","generation_seconds":null,"load_duration":null,"load_seconds":null,"model":"m-1006-r1","native_tools_enabled":false,"ok":true,"prefill_seconds":null,"prompt_eval_count":8,"prompt_eval_duration":null,"prompt_layout":"stable","provider":"openai","provider_cached_input_tokens":3,"provider_created_epoch":1785542400,"provider_model_id":"m-snap","provider_reasoning_tokens":4,"provider_response_id":"resp-c1","provider_service_tier":"default","provider_total_tokens":14,"schema_version":"1","system_fingerprint":null,"think":"omitted","timed_out":false,"timeout_ms":2000,"timeout_secs":2,"timeout_source":"override:test","tokens_per_second_eval":null,"tool_calls_in_response":0,"tools":0,"total_duration":null,"write_or_edit_succeeded":false}"#,
+    ];
+    const BASE_C0: [&str; 2] = [
+        r#"{"api":"chat_completions","attempt":1,"event":"provider_response","model":"m-1006-c0","provider":"lm-studio","provider_billed_cost_usd":"0.0012","response_model":"m-snap","schema_version":"1","system_fingerprint":null,"tool_calls":0}"#,
+        r#"{"aborted_by_user":false,"caller_scope":"executor","duration_ms":0,"estimated_prompt_tokens_sent":5,"estimated_stable_prefix_chars":0,"eval_count":6,"eval_duration":null,"event":"provider_turn_duration","finish_reason":"stop","generation_seconds":null,"load_duration":null,"load_seconds":null,"model":"m-1006-c0","native_tools_enabled":false,"ok":true,"prefill_seconds":null,"prompt_eval_count":8,"prompt_eval_duration":null,"prompt_layout":"stable","provider":"lm-studio","provider_billed_cost_usd":"0.0012","provider_cached_input_tokens":3,"provider_created_epoch":1787000000,"provider_model_id":"m-snap","provider_response_id":"chatcmpl-c0","provider_service_tier":null,"schema_version":"1","system_fingerprint":null,"think":"omitted","timed_out":false,"timeout_ms":2000,"timeout_secs":2,"timeout_source":"override:test","tokens_per_second_eval":null,"tool_calls_in_response":0,"tools":0,"total_duration":null,"write_or_edit_succeeded":false}"#,
+    ];
+    const BASE_C1: [&str; 2] = [
+        r#"{"api":"chat_completions","attempt":1,"event":"provider_response","model":"m-1006-c1","provider":"lm-studio","provider_billed_cost_usd":"0.0012","response_model":"m-snap","schema_version":"1","system_fingerprint":null,"tool_calls":0}"#,
+        r#"{"aborted_by_user":false,"caller_scope":"executor","duration_ms":0,"estimated_prompt_tokens_sent":5,"estimated_stable_prefix_chars":0,"eval_count":6,"eval_duration":null,"event":"provider_turn_duration","finish_reason":"stop","generation_seconds":null,"load_duration":null,"load_seconds":null,"model":"m-1006-c1","native_tools_enabled":false,"ok":true,"prefill_seconds":null,"prompt_eval_count":8,"prompt_eval_duration":null,"prompt_layout":"stable","provider":"lm-studio","provider_billed_cost_usd":"0.0012","provider_cached_input_tokens":3,"provider_created_epoch":1787000000,"provider_model_id":"m-snap","provider_response_id":"chatcmpl-c1","provider_service_tier":null,"schema_version":"1","system_fingerprint":null,"think":"omitted","timed_out":false,"timeout_ms":2000,"timeout_secs":2,"timeout_source":"override:test","tokens_per_second_eval":null,"tool_calls_in_response":0,"tools":0,"total_duration":null,"write_or_edit_succeeded":false}"#,
+    ];
+
+    /// What varies between runs, and only that: the wall time. The stable-prefix estimate is kept
+    /// as it is: each capture has a model name of its own (see [`unique_model`]).
+    fn normalize(value: &mut serde_json::Value) {
+        if value
+            .get("duration_ms")
+            .is_some_and(serde_json::Value::is_u64)
+        {
+            value["duration_ms"] = serde_json::json!(0);
+        }
+    }
+
+    fn normalized(line: &str) -> String {
+        let mut value: serde_json::Value = serde_json::from_str(line).unwrap();
+        normalize(&mut value);
+        value.to_string()
+    }
+
+    /// The line without the three new names, and those three, apart.
+    fn split(line: &str) -> (String, serde_json::Map<String, serde_json::Value>) {
+        let mut value: serde_json::Value = serde_json::from_str(line).unwrap();
+        let mut taken = serde_json::Map::new();
+        for key in [
+            "provider_cache_write_input_tokens",
+            "provider_cache_write_input_tokens_30m",
+            "provider_cache_write_input_tokens_12h",
+        ] {
+            if let Some(found) = value.as_object_mut().unwrap().remove(key) {
+                taken.insert(key.to_string(), found);
+            }
+        }
+        (value.to_string(), taken)
+    }
+
+    #[test]
+    fn a_reply_with_no_cache_write_gives_the_lines_the_base_gave_byte_for_byte() {
+        for (responses, reply, base, model) in [
+            (true, R0, BASE_R0, "m-1006-r0"),
+            (false, C0, BASE_C0, "m-1006-c0"),
+        ] {
+            let lines = capture_as(responses, reply, model);
+            let base = base.map(normalized);
+            assert_eq!(lines, base.to_vec(), "{reply}");
+        }
+    }
+
+    #[test]
+    fn a_reply_with_a_cache_write_adds_the_three_fields_and_nothing_else() {
+        for (responses, reply, base, model) in [
+            (true, R1, BASE_R1, "m-1006-r1"),
+            (false, C1, BASE_C1, "m-1006-c1"),
+        ] {
+            let lines = capture_as(responses, reply, model);
+            assert_eq!(lines.len(), 2);
+            let expected = serde_json::json!({
+                "provider_cache_write_input_tokens": 2,
+                "provider_cache_write_input_tokens_30m": 1,
+                "provider_cache_write_input_tokens_12h": 1
+            });
+            for (line, base) in lines.iter().zip(base) {
+                let (rest, taken) = split(line);
+                assert_eq!(rest, normalized(base), "{reply}");
+                assert_eq!(serde_json::Value::Object(taken), expected, "{line}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_comparison_without_the_three_names_still_sees_any_other_change() {
+        // The removal takes the three names only: a change to any other field, or a line more,
+        // is still a difference.
+        let base = split(&normalized(BASE_R1[1])).0;
+        for key in [
+            "provider_cached_input_tokens",
+            "provider_total_tokens",
+            "eval_count",
+            "ok",
+        ] {
+            let mut changed: serde_json::Value = serde_json::from_str(&base).unwrap();
+            changed[key] = serde_json::json!("changed");
+            assert_ne!(split(&changed.to_string()).0, base, "{key}");
+        }
+        let mut added: serde_json::Value = serde_json::from_str(&base).unwrap();
+        added["provider_cache_write_input_tokens_1h"] = serde_json::json!(1);
+        assert_ne!(split(&added.to_string()).0, base);
+    }
+
+    /// The cache-write fields of the turn event and of the response event of one call.
+    fn fields_of(responses: bool, reply: &str) -> (serde_json::Value, serde_json::Value) {
+        let lines = capture(responses, reply);
+        let pick = |name: &str| {
+            let line = lines
+                .iter()
+                .find(|line| line.contains(&format!("\"event\":\"{name}\"")))
+                .unwrap();
+            serde_json::Value::Object(split(line).1)
+        };
+        (pick("provider_turn_duration"), pick("provider_response"))
+    }
+
+    fn responses_reply(details: serde_json::Value) -> String {
+        serde_json::json!({
+            "id": "resp", "model": "m-snap", "service_tier": "default",
+            "output": [{"type": "message", "content": [{"type": "output_text", "text": "hello"}]}],
+            "usage": {"input_tokens": 100, "input_tokens_details": details, "output_tokens": 6}
+        })
+        .to_string()
+    }
+
+    fn chat_reply(usage: serde_json::Value) -> String {
+        serde_json::json!({
+            "id": "chat", "model": "m-snap",
+            "choices": [{"message": {"content": "hello"}}],
+            "usage": usage
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn each_kind_of_report_is_told_apart_and_both_events_agree() {
+        use serde_json::json;
+        let rows = [
+            (
+                "explicit zero",
+                json!({"cached_tokens": 0, "cache_write_tokens": 0,
+                "cache_write_tokens_details": {"ttl_30m_tokens": 0, "ttl_12h_tokens": 0}}),
+                json!({"provider_cache_write_input_tokens": 0, "provider_cache_write_input_tokens_30m": 0,
+                    "provider_cache_write_input_tokens_12h": 0}),
+            ),
+            ("missing", json!({"cached_tokens": 0}), json!({})),
+            (
+                "null",
+                json!({"cached_tokens": 0, "cache_write_tokens": null}),
+                json!({}),
+            ),
+            (
+                "bad type",
+                json!({"cached_tokens": 0, "cache_write_tokens": "40"}),
+                json!({}),
+            ),
+            (
+                "negative",
+                json!({"cached_tokens": 0, "cache_write_tokens": -1}),
+                json!({}),
+            ),
+            (
+                "total only",
+                json!({"cached_tokens": 0, "cache_write_tokens": 40}),
+                json!({"provider_cache_write_input_tokens": 40}),
+            ),
+            (
+                "ttl mismatch",
+                json!({"cached_tokens": 0, "cache_write_tokens": 40,
+                "cache_write_tokens_details": {"ttl_30m_tokens": 30, "ttl_12h_tokens": 11}}),
+                json!({}),
+            ),
+            (
+                "mixed ttl",
+                json!({"cached_tokens": 0, "cache_write_tokens": 40,
+                "cache_write_tokens_details": {"ttl_30m_tokens": 30, "ttl_12h_tokens": 10}}),
+                json!({"provider_cache_write_input_tokens": 40, "provider_cache_write_input_tokens_30m": 30,
+                    "provider_cache_write_input_tokens_12h": 10}),
+            ),
+            (
+                "one ttl",
+                json!({"cached_tokens": 0, "cache_write_tokens": 40,
+                "cache_write_tokens_details": {"ttl_30m_tokens": 30}}),
+                json!({"provider_cache_write_input_tokens": 40}),
+            ),
+            (
+                "past the input",
+                json!({"cached_tokens": 61, "cache_write_tokens": 40}),
+                json!({}),
+            ),
+            (
+                "past u32",
+                json!({"cached_tokens": 0, "cache_write_tokens": 5_000_000_000_u64}),
+                json!({}),
+            ),
+        ];
+        for (name, details, expected) in rows {
+            let (turn, response) = fields_of(true, &responses_reply(details));
+            assert_eq!(turn, expected, "responses {name}");
+            assert_eq!(response, turn, "responses {name}");
+        }
+        // The same reader on the Chat paths, and nothing from a name the table does not list.
+        let rows = [
+            (
+                "chat ttl",
+                json!({"prompt_tokens": 100, "completion_tokens": 6,
+                "prompt_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 7,
+                    "cache_write_tokens_details": {"ttl_30m_tokens": 7, "ttl_12h_tokens": 0}}}),
+                json!({"provider_cache_write_input_tokens": 7, "provider_cache_write_input_tokens_30m": 7,
+                    "provider_cache_write_input_tokens_12h": 0}),
+            ),
+            (
+                "decoy at the top",
+                json!({"prompt_tokens": 100, "completion_tokens": 6, "cache_write_tokens": 7}),
+                json!({}),
+            ),
+            (
+                "decoy another name",
+                json!({"prompt_tokens": 100, "completion_tokens": 6,
+                "prompt_tokens_details": {"cache_creation_input_tokens": 7}}),
+                json!({}),
+            ),
+            (
+                "decoy the responses path",
+                json!({"prompt_tokens": 100, "completion_tokens": 6,
+                "input_tokens_details": {"cache_write_tokens": 7}}),
+                json!({}),
+            ),
+        ];
+        for (name, usage, expected) in rows {
+            let (turn, response) = fields_of(false, &chat_reply(usage));
+            assert_eq!(turn, expected, "{name}");
+            assert_eq!(response, turn, "{name}");
+        }
+    }
+
+    #[test]
+    fn an_aggregate_over_turn_events_alone_counts_each_write_once() {
+        use serde_json::json;
+        let writes = [(5_u64, 2_u64, 3_u64), (0, 0, 0), (90, 89, 1)];
+        let mut all = Vec::new();
+        for (total, ttl_30m, ttl_12h) in writes {
+            let reply = responses_reply(json!({"cached_tokens": 0, "cache_write_tokens": total,
+                "cache_write_tokens_details": {"ttl_30m_tokens": ttl_30m, "ttl_12h_tokens": ttl_12h}}));
+            all.extend(capture(true, &reply));
+        }
+        // One without any report, which adds nothing.
+        all.extend(capture(true, &responses_reply(json!({"cached_tokens": 0}))));
+        let sum = |event: &str, key: &str| -> u64 {
+            all.iter()
+                .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+                .filter(|value| value["event"] == event)
+                .filter_map(|value| value[key].as_u64())
+                .sum()
+        };
+        let oracle_total: u64 = writes.iter().map(|w| w.0).sum();
+        let oracle_30m: u64 = writes.iter().map(|w| w.1).sum();
+        let oracle_12h: u64 = writes.iter().map(|w| w.2).sum();
+        assert_eq!(
+            sum(
+                "provider_turn_duration",
+                "provider_cache_write_input_tokens"
+            ),
+            oracle_total
+        );
+        assert_eq!(
+            sum(
+                "provider_turn_duration",
+                "provider_cache_write_input_tokens_30m"
+            ),
+            oracle_30m
+        );
+        assert_eq!(
+            sum(
+                "provider_turn_duration",
+                "provider_cache_write_input_tokens_12h"
+            ),
+            oracle_12h
+        );
+        // Reading both events would count each write twice: an aggregator reads turns only.
+        assert_eq!(
+            sum("provider_response", "provider_cache_write_input_tokens"),
+            oracle_total
+        );
+    }
+
+    /// A reply that fails to parse after its usage was read: the turn is an error, its metadata
+    /// is as it was (none of the five metadata fields), and the cache write is still on it.
+    #[test]
+    fn a_turn_whose_reply_fails_to_parse_keeps_its_cache_write_and_no_metadata() {
+        use serde_json::json;
+        let reply = json!({
+            "id": "resp", "model": "m-snap", "service_tier": "default",
+            "output": [{"type": "function_call", "call_id": "c", "arguments": "{}"}],
+            "usage": {"input_tokens": 100, "input_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 9,
+                "cache_write_tokens_details": {"ttl_30m_tokens": 4, "ttl_12h_tokens": 5}}, "output_tokens": 6}
+        })
+        .to_string();
+        let (lines, failed) = capture_any(true, &reply);
+        assert!(failed);
+        let turn: serde_json::Value = serde_json::from_str(
+            lines
+                .iter()
+                .find(|l| l.contains("provider_turn_duration"))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(turn["ok"], json!(false));
+        for key in [
+            "provider_response_id",
+            "provider_model_id",
+            "provider_service_tier",
+            "provider_created_epoch",
+            "system_fingerprint",
+        ] {
+            assert!(turn.get(key).is_none(), "{key}");
+        }
+        assert_eq!(turn["provider_cache_write_input_tokens"], json!(9));
+        assert_eq!(turn["provider_cache_write_input_tokens_30m"], json!(4));
+        assert_eq!(turn["provider_cache_write_input_tokens_12h"], json!(5));
+        // No provider_response is written for it.
+        assert!(
+            !lines
+                .iter()
+                .any(|l| l.contains("\"event\":\"provider_response\""))
+        );
+    }
+
+    /// Success, then a failure, then a reply with nothing: no call keeps what an earlier one had.
+    /// A client that answers with a reply it holds, as the planner pipeline's adopted prefetch
+    /// does: no parser runs in the call, and the reply's metadata is the one read when it was
+    /// fetched.
+    #[derive(Clone)]
+    struct Replaying {
+        metadata: Option<ProviderResponseMetadata>,
+    }
+
+    impl ChatClient for Replaying {
+        fn label(&self) -> &str {
+            "replaying-1006"
+        }
+
+        fn boxed_clone(&self) -> Box<dyn ChatClient> {
+            Box::new(self.clone())
+        }
+
+        fn chat(
+            &mut self,
+            _model: &str,
+            _messages: &[ConversationMessage],
+            _tools: &[ToolSpec],
+            _native_tools_enabled: bool,
+        ) -> anyhow::Result<AssistantReply> {
+            Ok(AssistantReply::text("prefetched"))
+        }
+
+        fn take_response_metadata(&mut self) -> Option<ProviderResponseMetadata> {
+            self.metadata.take()
+        }
+    }
+
+    /// Review 3, should 1: a reply replayed with its metadata carries that metadata's cache write
+    /// to its turn, once; a replay with no metadata has none.
+    #[test]
+    fn a_replayed_reply_carries_the_cache_write_read_when_it_was_fetched() {
+        use crate::providers::usage_observation::{CacheWriteObservation, CacheWriteTtl};
+        let turns = |metadata: Option<ProviderResponseMetadata>| {
+            let tmp = tempfile::tempdir().expect("tempdir");
+            let events_path = tmp.path().join("events.jsonl");
+            let mut config = super::tests::test_config(tmp.path(), events_path.clone(), 2);
+            config.model = unique_model();
+            let mut client = Replaying { metadata };
+            let outcome = chat(
+                &mut client,
+                &config,
+                ProviderCallScope::PlannerStep,
+                &config.model,
+                &[ConversationMessage::user("hello")],
+                &[],
+                false,
+            );
+            assert_eq!(outcome.result.unwrap().content, "prefetched");
+            std::fs::read_to_string(events_path)
+                .unwrap()
+                .lines()
+                .filter(|line| line.contains("\"event\":\"provider_turn_duration\""))
+                .map(|line| serde_json::Value::Object(split(line).1))
+                .collect::<Vec<_>>()
+        };
+        let held = ProviderResponseMetadata {
+            response_id: Some("resp-prefetch".to_string()),
+            cache_write: Some(CacheWriteObservation {
+                total: 9,
+                ttl: Some(CacheWriteTtl {
+                    ttl_30m: 4,
+                    ttl_12h: 5,
+                }),
+            }),
+            ..ProviderResponseMetadata::default()
+        };
+        assert_eq!(
+            turns(Some(held)),
+            vec![serde_json::json!({
+                "provider_cache_write_input_tokens": 9,
+                "provider_cache_write_input_tokens_30m": 4,
+                "provider_cache_write_input_tokens_12h": 5
+            })]
+        );
+        assert_eq!(turns(None), vec![serde_json::json!({})]);
+        let without = ProviderResponseMetadata {
+            response_id: Some("resp-prefetch".to_string()),
+            ..ProviderResponseMetadata::default()
+        };
+        assert_eq!(turns(Some(without)), vec![serde_json::json!({})]);
+    }
+
+    /// Review 3, should 2: only a non-negative integer duration is normalized; anything else stays
+    /// and makes the comparison fail.
+    #[test]
+    fn the_normalization_takes_only_an_integer_duration() {
+        let base = normalized(BASE_R0[1]);
+        let mut timed: serde_json::Value = serde_json::from_str(BASE_R0[1]).unwrap();
+        timed["duration_ms"] = serde_json::json!(1234);
+        assert_eq!(normalized(&timed.to_string()), base);
+        for bad in [
+            serde_json::json!(null),
+            serde_json::json!(-1),
+            serde_json::json!(1.5),
+            serde_json::json!("0"),
+        ] {
+            let mut changed: serde_json::Value = serde_json::from_str(BASE_R0[1]).unwrap();
+            changed["duration_ms"] = bad.clone();
+            assert_ne!(normalized(&changed.to_string()), base, "{bad}");
+        }
+    }
+
+    #[test]
+    fn no_call_carries_the_cache_write_of_the_one_before() {
+        use serde_json::json;
+        let first = capture(
+            true,
+            &responses_reply(json!({"cached_tokens": 0, "cache_write_tokens": 3})),
+        );
+        assert!(
+            first
+                .iter()
+                .all(|l| l.contains("provider_cache_write_input_tokens"))
+        );
+        let (failed, _) = capture_any(
+            true,
+            r#"{"id":"r","output":[{"type":"function_call","call_id":"c","arguments":"{}"}]}"#,
+        );
+        assert!(
+            failed
+                .iter()
+                .all(|l| !l.contains("provider_cache_write_input_tokens"))
+        );
+        let last = capture(true, &responses_reply(json!({"cached_tokens": 0})));
+        assert!(
+            last.iter()
+                .all(|l| !l.contains("provider_cache_write_input_tokens"))
+        );
     }
 }
