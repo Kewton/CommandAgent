@@ -3077,6 +3077,29 @@ mod tests {
         }
 
         #[test]
+        fn a_body_bytes_bound_is_past_the_overhead_and_not_equal_to_it() {
+            let world = World::new();
+            let policy = world.policy();
+            let overhead = policy.input_bound.input_overhead;
+            let wallet = baseline(&world);
+            // Send 3 is a final repair given back: its bound is checked, no charge rides on it.
+            assert_eq!(
+                wallet.attempts[2].input_bound_method,
+                InputBoundMethod::BodyBytesPlusOverhead
+            );
+            let bound_at = |bound: u64| {
+                let mut changed = wallet.clone();
+                changed.attempts[2].input_bound = bound;
+                changed.attempts[2].reserved =
+                    reservation_bound(&policy.tariff, bound, changed.attempts[2].output_bound)
+                        .unwrap();
+                changed
+            };
+            refused(&world, &bound_at(overhead), "a bound equal to the overhead");
+            accepted(&world, &bound_at(overhead + 1));
+        }
+
+        #[test]
         fn a_record_whose_send_disagrees_with_its_state_is_refused() {
             let world = World::new();
             let policy = world.policy();
