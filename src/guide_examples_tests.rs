@@ -72,6 +72,21 @@ fn the_v2_budget_example_is_routed_to_and_accepted_by_the_v2_decoder() {
 }
 
 #[test]
+fn the_v2_example_names_the_endpoint_the_direct_client_posts_to() {
+    // The direct client's base URL and path are private literals in `providers/openai.rs`
+    // (`OPENAI_BASE_URL` and `"/v1/responses"`); no `pub(crate)` constant holds the whole
+    // endpoint, so the literal is compared here.
+    for (language, page) in PAGES {
+        let value: serde_json::Value =
+            serde_json::from_str(&example(page, "run-budget-v2-example")).unwrap();
+        assert_eq!(
+            value["route"]["endpoint"], "https://api.openai.com/v1/responses",
+            "{language}"
+        );
+    }
+}
+
+#[test]
 fn the_two_language_pages_carry_the_same_examples() {
     for name in [
         "descriptor-example",

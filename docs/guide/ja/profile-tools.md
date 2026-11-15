@@ -118,8 +118,12 @@ tools = [
 
 ### tool が拒否されるとき
 
-拒否はすべて最初の provider 呼び出しの前に起きます。メッセージは
+admission（受付）の拒否は、起動時、最初の provider 呼び出しの前に起きます。メッセージは
 `profile_tool_refused: <kind>: <reason>` の形で、command は終了コード 2 で終わります。
+
+pin は、実行の直前にも毎回比べ直されます。受付の後に pin したファイルが変わっていれば、
+モデルが tool を呼んだ時点で、この確認が実行時にその呼び出しを拒否します。tool は実行されず、
+run は終わります。この拒否は、provider 呼び出しが既に行われた後に起きます。
 
 | Kind | よくある原因 |
 | --- | --- |
@@ -220,7 +224,7 @@ v2 のファイルは、OpenAI 直接の Responses の run 用です。provider 
   },
   "route": {
     "api": "responses",
-    "endpoint": "https://api.example.test/v1/responses",
+    "endpoint": "https://api.openai.com/v1/responses",
     "model": "example-model",
     "response_models": ["example-model-snapshot"],
     "effort": "high",
@@ -251,8 +255,10 @@ v2 のファイルは、OpenAI 直接の Responses の run 用です。provider 
 }
 ```
 
-- `route.endpoint` は、認証情報・query・fragment の無い、絶対の `https` URL です。transport が
-  実際に POST する先と比べられます。
+- `route.endpoint` は、direct client が POST する endpoint、`https://api.openai.com/v1/responses`
+  でなければなりません。transport が実際に POST する先と比べられ、違う値ではすべての送信が拒否されます。
+  書いてあるとおりに使ってください。
+- モデル・応答モデル・価格・上限は、自分の値に置き換えてください。上の値は例で、実際の価格ではありません。
 - `response_models` は、受け入れる応答モデル名を完全一致で並べます。別のモデルの応答は、その送信を
   不明のまま残します。
 - `cache_write_mode` は `ttl_30m_12h`（書き込みを TTL ごとに値付けする。すべての tier に
@@ -289,6 +295,11 @@ v2 のファイルは、OpenAI 直接の Responses の run 用です。provider 
 | `provider_billed_cost_usd_total` | 合計の 10 進の文字列。額を報告した呼び出しが 1 件も無いときは `null` |
 | `provider_billed_cost_complete` | すべての呼び出しが額を報告したら `true`、欠けがあれば `false`、provider の呼び出しが無い run は `null` |
 | `provider_billed_cost_calls` | 額を報告した呼び出しの件数 |
+
+18 桁より細かい額は、18 桁目へ切り上げて数えるので、合計が過小になることはありません。合計が
+桁あふれしたときは、すべての呼び出しが額を報告していても `provider_billed_cost_usd_total` は
+`null`、`provider_billed_cost_complete` は `false` になり、合計が無いので `summary.md` に行は
+書かれません。
 
 額が 1 件以上報告されたとき、`summary.md` の provider 使用量の表の後に 1 行が足されます。例：
 `Provider billed cost: $0.50154 (3/3 calls reported)`。欠けがあれば末尾に ` (incomplete)` が付きます。

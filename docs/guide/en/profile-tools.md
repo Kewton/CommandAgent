@@ -124,8 +124,14 @@ bytes before it adopts them.
 
 ### When a tool is refused
 
-Every refusal happens before the first provider call. The message has the form
-`profile_tool_refused: <kind>: <reason>`, and the command ends with exit code 2.
+Admission refusals happen at start-up, before the first provider call. The
+message has the form `profile_tool_refused: <kind>: <reason>`, and the command
+ends with exit code 2.
+
+The pins are also compared again right before each execution. If a pinned file
+changed after admission, that check refuses the call at run time, when the model
+calls the tool: the tool is not executed and the run ends. This refusal comes
+after provider calls have already been made.
 
 | Kind | Typical cause |
 | --- | --- |
@@ -231,7 +237,7 @@ validated usage.
   },
   "route": {
     "api": "responses",
-    "endpoint": "https://api.example.test/v1/responses",
+    "endpoint": "https://api.openai.com/v1/responses",
     "model": "example-model",
     "response_models": ["example-model-snapshot"],
     "effort": "high",
@@ -262,8 +268,11 @@ validated usage.
 }
 ```
 
-- `route.endpoint` is an absolute `https` URL with no credentials, query, or
-  fragment. It is compared with where the transport really posts.
+- `route.endpoint` must be the endpoint the direct client posts to,
+  `https://api.openai.com/v1/responses`. It is compared with where the transport
+  really posts, and a different value refuses every send. Keep it as written.
+- Replace the model, the response models, the prices, and the limits with your
+  own values. The ones above are examples, not real prices.
 - `response_models` lists the exact response model names you accept. A reply from
   another model leaves the send unknown.
 - `cache_write_mode` is `ttl_30m_12h` (writes are priced per TTL, and every tier
@@ -305,6 +314,11 @@ from a price table.
 | `provider_billed_cost_usd_total` | The sum as a decimal string, or `null` when no call reported an amount |
 | `provider_billed_cost_complete` | `true` when every call reported an amount, `false` when some did not, `null` when the run made no provider call |
 | `provider_billed_cost_calls` | How many calls reported an amount |
+
+Each amount finer than 18 decimal places is rounded up to the 18th place, so the
+total never undercounts. If the sum overflows, `provider_billed_cost_usd_total`
+is `null` and `provider_billed_cost_complete` is `false`, even when every call
+reported an amount, and `summary.md` has no line because there is no total.
 
 `summary.md` gains one line after the provider usage table when at least one
 amount was reported, for example

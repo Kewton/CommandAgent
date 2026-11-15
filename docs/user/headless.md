@@ -52,8 +52,8 @@ provider turns. The additive `pack` object is omitted when no pack was selected.
 | `events_path` | Exact event-stream path used by the run. |
 | `duration_secs` | Existing terminal `time_profile_total_ms`, converted from milliseconds to seconds; not a new wall-clock estimate. |
 | `provider_cost_usd` | Persisted provider/run cost when one exists; CommandAgent does not invent prices from tokens. |
-| `provider_billed_cost_usd_total` | Sum of the amounts the provider reported as billed, one per provider call (the `provider_turn_duration` event), as a decimal string; `null` when no call reported an amount. It is never computed from a price table, and a Responses run reports none. |
-| `provider_billed_cost_complete` | `true` when every provider call reported an amount, `false` when some or all did not, `null` when the run made no provider call. |
+| `provider_billed_cost_usd_total` | Sum of the amounts the provider reported as billed, one per provider call (the `provider_turn_duration` event), as a decimal string; `null` when no call reported an amount. Each amount finer than 18 decimal places is rounded up; if the sum overflows, the total is `null` and `provider_billed_cost_complete` is `false` even when every call reported, and `summary.md` has no billed line. It is never computed from a price table, and a Responses run reports none. |
+| `provider_billed_cost_complete` | `true` when every provider call reported an amount, `false` when some or all did not (or the sum overflowed), `null` when the run made no provider call. |
 | `provider_billed_cost_calls` | Number of provider calls that reported an amount; `0` when none did. |
 | `provider_usage_by_role` | Provider wall time and provider-reported prompt, generation, thinking-token, and prefill-ratio measurements grouped as `planner`, `executor`, `repair`, and `acceptance-repair`. Missing provider-reported measurements are `null`; the ratio is a fraction from `0.0` to `1.0`. |
 | `stop_class` | Failed terminal event `failure_kind`; `null` for a successful terminal. |

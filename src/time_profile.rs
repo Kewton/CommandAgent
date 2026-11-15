@@ -543,9 +543,12 @@ pub fn aggregate_event_path(path: Option<&Path>) -> TimeProfile {
 
 pub fn render_summary_sections(events: &[Value]) -> Option<String> {
     let profile = aggregate_events(events);
-    (profile.total_ms() > 0).then(|| {
+    // A billed amount is shown even on a run whose measured time is 0 ms (durations under a
+    // millisecond are truncated); with no billed amount the output is as before.
+    let billed_line = crate::headless_summary::billed_cost_summary_line(events);
+    (profile.total_ms() > 0 || billed_line.is_some()).then(|| {
         let mut usage = profile.provider_usage_by_role_markdown();
-        if let Some(line) = crate::headless_summary::billed_cost_summary_line(events) {
+        if let Some(line) = billed_line {
             usage.push_str("\n\n");
             usage.push_str(&line);
         }
@@ -853,6 +856,25 @@ mod tests {
             let rendered = render_summary_sections(&fixture_events(case)).unwrap();
             assert!(!rendered.contains("Provider billed cost"), "{case}");
         }
+    }
+
+    #[test]
+    fn billed_line_survives_a_zero_millisecond_run_and_nothing_else_changes() {
+        let turn = |billed: Option<&str>| {
+            let mut event =
+                json!({"event":"provider_turn_duration","caller_scope":"executor","duration_ms":0});
+            if let Some(amount) = billed {
+                event["provider_billed_cost_usd"] = json!(amount);
+            }
+            event
+        };
+        let with_amount = render_summary_sections(&[turn(Some("0.1"))]).unwrap();
+        assert!(
+            with_amount.contains("Provider billed cost: $0.1 (1/1 calls reported)"),
+            "{with_amount}"
+        );
+        assert_eq!(render_summary_sections(&[turn(None)]), None);
+        assert_eq!(render_summary_sections(&[]), None);
     }
 
     #[test]
