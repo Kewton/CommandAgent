@@ -70,8 +70,9 @@ them once per turn, from the turn event.
 
 ## Off recording
 
-Base `ff920681b8bfa9d6e11560837a83ffd96f6340bd`, a git-archive copy with its own target, only
-`tests/responses_run_budget.rs` added. The recorder ran twice there; the outputs were byte-identical.
+Base `ff920681b8bfa9d6e11560837a83ffd96f6340bd`, a fresh git-archive copy with its own target, only
+`tests/responses_run_budget.rs` added (re-recorded in F6 with the fixed root length). The recorder ran
+there with the default `TMPDIR` and with `TMPDIR=/tmp`; the outputs were byte-identical.
 The normalization is listed in `source-manifest.json`, each value with its evidence from two raw
 (un-normalized) runs of the base:
 
@@ -82,7 +83,24 @@ The normalization is listed in `source-manifest.json`, each value with its evide
 - a string under `build_commit` or `build_timestamp`: the binary's identity, another build;
 - a boolean under `build_dirty`: equal here (false), kept normalized as the state of the building
   tree, not of the run;
-- `pid` and `run_id` in the workspace lock file: different in every run.
+- `pid` and `run_id` in the workspace lock file: different in every run;
+- in a `bash_sandbox_status` event, a `backend` that is `seatbelt`, `landlock` or `none` (the names in
+  `src/tools/os_sandbox.rs`): the host's OS sandbox, `seatbelt` on macOS and `landlock` on Linux,
+  not something the run chose. Any other name, another type, or the field gone is a difference, and
+  the rest of the event (`applied`, `mode`, `reason`) is compared.
 
 A value of another type than the one named is not normalized, and a line that is not JSON is kept as a
-difference. Nothing else is normalized, and `estimated_stable_prefix_chars` is compared as it is.
+difference. Nothing else is normalized.
+
+**Fixed root length.** The prompt-size estimates (`estimated_prompt_tokens_sent`,
+`estimated_stable_prefix_chars`, and the sums of them in `context_truncation_suspected`,
+`tui_command_stop.time_profile` and `time_profile.profile`) count the raw workspace path, which
+`<ROOT>` hides in the request bodies. They are not normalized. Instead, each off path runs in a root
+that is exactly 128 bytes after canonicalization on every host: the temporary directory with one
+directory of `p`s under it (`World::fixed_length`). A temporary directory longer than 126 bytes
+fails the test before the run. The base was recorded with the same rule, and the estimates are
+compared exactly.
+
+**Diagnostics.** A difference names the path, the event line and its event, the first differing
+field and both values, e.g. `responses-ordinary-reply: event line 7 (provider_turn_duration): field
+estimated_prompt_tokens_sent: base 573 now 586`. The message changes, not the verdict.

@@ -30,6 +30,9 @@ use serde_json::{Value, json};
 const UNIT: u128 = 1_000_000_000_000_000_000;
 const KEY: &str = "sk-test-not-a-real-key-1006";
 const ENDPOINT: &str = "https://api.openai.com/v1/responses";
+/// The byte length of an off-control world's canonical root on every host (see
+/// [`World::fixed_length`]).
+const FIXED_ROOT_LENGTH: usize = 128;
 
 /// What the fake proxy does with an attempt.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -286,6 +289,33 @@ impl World {
     fn new() -> Self {
         let root = tempfile::tempdir().unwrap();
         let base = std::fs::canonicalize(root.path()).unwrap();
+        Self::at(root, base)
+    }
+
+    /// A world whose root, as the product sees it after canonicalization, is exactly
+    /// [`FIXED_ROOT_LENGTH`] bytes long on every host: the temporary directory with one padded
+    /// directory under it. The prompt-size estimates of a run count the raw workspace path, so
+    /// the off control is recorded and compared at one length. A temporary directory too long
+    /// for the target fails here, not as a difference later.
+    fn fixed_length() -> Self {
+        let root = tempfile::tempdir().unwrap();
+        let canonical = std::fs::canonicalize(root.path()).unwrap();
+        let length = canonical.as_os_str().len();
+        assert!(
+            length + 2 <= FIXED_ROOT_LENGTH,
+            "the temporary directory {} is {length} bytes; the off control needs it at most {} \
+             (set TMPDIR to a shorter directory)",
+            canonical.display(),
+            FIXED_ROOT_LENGTH - 2
+        );
+        let base = canonical.join("p".repeat(FIXED_ROOT_LENGTH - length - 1));
+        std::fs::create_dir(&base).unwrap();
+        let base = std::fs::canonicalize(base).unwrap();
+        assert_eq!(base.as_os_str().len(), FIXED_ROOT_LENGTH);
+        Self::at(root, base)
+    }
+
+    fn at(root: tempfile::TempDir, base: PathBuf) -> Self {
         for directory in [
             "workspace",
             "state",
@@ -1125,12 +1155,14 @@ mod off_control {
     ];
     /// What differs between two runs of the base itself, and the build's own identity, and only
     /// that. Each is listed with its evidence in the corpus's `source-manifest.json`.
-    pub(super) const NORMALIZED: [&str; 6] = [
+    pub(super) const NORMALIZED: [&str; 8] = [
         "the run's temporary root, wherever it appears in a string -> <ROOT>",
         "the fake's loopback address http://127.0.0.1:<port> and 127.0.0.1:<port> -> <LOOPBACK>",
         "a non-negative integer, at any depth of an event, under one of TIMING_KEYS -> 0; any other type is kept",
         "a string under build_commit or build_timestamp, a boolean under build_dirty -> \"<BUILD>\"; any other type is kept",
         "in the workspace lock file, the values of pid and run_id -> \"<PID>\", \"<RUN>\"",
+        "in a bash_sandbox_status event, a backend that is one of SANDBOX_BACKENDS -> \"<SANDBOX_BACKEND>\"; any other value or type is kept",
+        "not normalized: the run's root is exactly FIXED_ROOT_LENGTH bytes on every host, so the prompt-size estimates are compared as they are",
         "nothing else: every other byte of a request, an event line, a file, and the outcome is compared",
     ];
     /// The wall-clock values two runs of the base differ in.
@@ -1145,6 +1177,8 @@ mod off_control {
     ];
     /// What says which binary ran: the base and this code are two builds.
     pub(super) const BUILD_KEYS: [&str; 3] = ["build_commit", "build_dirty", "build_timestamp"];
+    /// The host's OS sandbox, as `src/tools/os_sandbox.rs` names it: macOS, Linux, or neither.
+    pub(super) const SANDBOX_BACKENDS: [&str; 3] = ["seatbelt", "landlock", "none"];
 
     /// A provider on 127.0.0.1 that answers each request with the next of `replies` (the last one
     /// again once they run out) and keeps each request's line and body.
@@ -1395,6 +1429,21 @@ mod off_control {
         }
     }
 
+    /// The sandbox backend of a `bash_sandbox_status` event names the host, not the run. Only a
+    /// known backend's name is normalized; the rest of the event is compared.
+    fn normalize_backend(value: &mut Value) {
+        if value.get("event").and_then(Value::as_str) != Some("bash_sandbox_status") {
+            return;
+        }
+        if let Some(backend) = value.get_mut("backend")
+            && backend
+                .as_str()
+                .is_some_and(|name| SANDBOX_BACKENDS.contains(&name))
+        {
+            *backend = json!("<SANDBOX_BACKEND>");
+        }
+    }
+
     /// One event line, normalized as a recording does, with no root or loopback in it.
     pub(super) fn normalize_line(line: &str) -> String {
         normalize_event(line, "\u{0}", None)
@@ -1406,6 +1455,7 @@ mod off_control {
             Ok(mut value) => {
                 if !raw() {
                     normalize_value(&mut value);
+                    normalize_backend(&mut value);
                 }
                 normalize_text(&value.to_string(), root, loopback)
             }
@@ -1426,7 +1476,7 @@ mod off_control {
 
     /// Runs one path with no wallet and returns its record.
     fn record(path: &OffPath) -> Value {
-        let world = World::new();
+        let world = World::fixed_length();
         let root = world.base.to_str().unwrap().to_string();
         let script = path.api.map(|_| Script::spawn(path.replies.clone()));
         let base_url = script.as_ref().map(|script| format!("{}/v1", script.url));
@@ -1499,6 +1549,61 @@ mod off_control {
         value.to_string()
     }
 
+    /// The first place, in key order, where `now` is not `base`: its path from `at` and both
+    /// values (`<absent>` for a missing one). The fixtures hold no secret value.
+    fn first_difference(base: &Value, now: &Value, at: &str) -> Option<(String, String, String)> {
+        if base == now {
+            return None;
+        }
+        let shown = |value: Option<&Value>| value.map_or("<absent>".to_string(), Value::to_string);
+        match (base, now) {
+            (Value::Object(left), Value::Object(right)) => {
+                let mut keys: Vec<&String> = left.keys().chain(right.keys()).collect();
+                keys.sort();
+                keys.dedup();
+                keys.into_iter().find_map(|key| {
+                    let path = format!("{at}.{key}");
+                    match (left.get(key), right.get(key)) {
+                        (Some(l), Some(r)) => first_difference(l, r, &path),
+                        (l, r) if l != r => Some((path, shown(l), shown(r))),
+                        _ => None,
+                    }
+                })
+            }
+            (Value::Array(left), Value::Array(right)) => {
+                (0..left.len().max(right.len())).find_map(|index| {
+                    let path = format!("{at}[{index}]");
+                    match (left.get(index), right.get(index)) {
+                        (Some(l), Some(r)) => first_difference(l, r, &path),
+                        (l, r) => Some((path, shown(l), shown(r))),
+                    }
+                })
+            }
+            _ => Some((at.to_string(), base.to_string(), now.to_string())),
+        }
+    }
+
+    /// Where two event lines differ: `(<event>): field <name>: base <v> now <v>`, or both lines
+    /// whole when one is not JSON.
+    fn line_difference(base: &str, now: &str) -> String {
+        match (
+            serde_json::from_str::<Value>(base),
+            serde_json::from_str::<Value>(now),
+        ) {
+            (Ok(left), Ok(right)) => {
+                let event = left["event"].as_str().unwrap_or("?").to_string();
+                match first_difference(&left, &right, "") {
+                    Some((field, l, r)) => format!(
+                        "({event}): field {}: base {l} now {r}",
+                        field.trim_start_matches('.')
+                    ),
+                    None => format!("({event}): same value, other bytes: base {base} now {now}"),
+                }
+            }
+            _ => format!("(not JSON): base {base} now {now}"),
+        }
+    }
+
     /// Every way `current` is not what the base recorded in `golden`.
     pub(super) fn differences(golden: &Value, current: &Value) -> Vec<String> {
         let mut found = Vec::new();
@@ -1511,8 +1616,8 @@ mod off_control {
             "outcome",
             "ledger_files",
         ] {
-            if golden[key] != current[key] {
-                found.push(format!("{id}: {key} differs"));
+            if let Some((at, base, now)) = first_difference(&golden[key], &current[key], key) {
+                found.push(format!("{id}: {at}: base {base} now {now}"));
             }
         }
         let (golden_events, current_events) = (
@@ -1537,7 +1642,10 @@ mod off_control {
                 now.to_string()
             };
             if comparable != base {
-                found.push(format!("{id}: event line {index} differs"));
+                found.push(format!(
+                    "{id}: event line {index} {}",
+                    line_difference(base, &comparable)
+                ));
             }
         }
         found
@@ -1769,4 +1877,147 @@ fn ac7_the_preprocessing_does_not_hide_a_changed_type_or_a_bad_line() {
     let mut current = base.clone();
     current["events"][turn] = json!(off_control::normalize_line("{\"event\":"));
     assert!(!off_control::differences(&base, &current).is_empty());
+}
+
+/// The base's record of its ordinary Responses path, and the index of its first line of `event`.
+fn off_ordinary_reply() -> Value {
+    let golden: Value =
+        serde_json::from_str(&std::fs::read_to_string(off_control::GOLDEN).unwrap()).unwrap();
+    golden["paths"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|path| path["id"] == "responses-ordinary-reply")
+        .unwrap()
+        .clone()
+}
+
+fn off_line_of(base: &Value, event: &str) -> usize {
+    base["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .position(|line| {
+            line.as_str()
+                .unwrap()
+                .contains(&format!("\"event\":\"{event}\""))
+        })
+        .unwrap()
+}
+
+/// The differences after line `index` of `base` is written raw with `change` and normalized
+/// the way the recorder does.
+fn off_renormalized(base: &Value, index: usize, change: &dyn Fn(&mut Value)) -> Vec<String> {
+    let mut raw: Value = serde_json::from_str(base["events"][index].as_str().unwrap()).unwrap();
+    change(&mut raw);
+    let mut current = base.clone();
+    current["events"][index] = json!(off_control::normalize_line(&raw.to_string()));
+    off_control::differences(base, &current)
+}
+
+/// F6: the host's sandbox backend is normalized only when it is a known backend's name; any
+/// other value or type, or the field gone, is still a difference.
+#[test]
+fn ac7_only_a_known_sandbox_backend_is_normalized() {
+    let base = off_ordinary_reply();
+    let status = off_line_of(&base, "bash_sandbox_status");
+    assert!(
+        base["events"][status]
+            .as_str()
+            .unwrap()
+            .contains("\"backend\":\"<SANDBOX_BACKEND>\"")
+    );
+    for name in off_control::SANDBOX_BACKENDS {
+        assert!(
+            off_renormalized(&base, status, &|v| v["backend"] = json!(name)).is_empty(),
+            "{name}"
+        );
+    }
+    let others: Vec<(&str, Value)> = vec![
+        ("an unknown name", json!("bubblewrap")),
+        ("another case", json!("Seatbelt")),
+        ("an empty string", json!("")),
+        ("a number", json!(1)),
+        ("null", json!(null)),
+        ("a boolean", json!(true)),
+        ("an object", json!({"name": "seatbelt"})),
+    ];
+    for (name, value) in others {
+        let found = off_renormalized(&base, status, &|v| v["backend"] = value.clone());
+        assert_eq!(found.len(), 1, "{name}");
+        assert!(found[0].contains("field backend"), "{name}: {found:?}");
+    }
+    let gone = off_renormalized(&base, status, &|v| {
+        v.as_object_mut().unwrap().remove("backend");
+    });
+    assert!(!gone.is_empty());
+    // The rest of the event is still compared.
+    assert!(!off_renormalized(&base, status, &|v| v["applied"] = json!(false)).is_empty());
+    // A backend field in another event is not touched.
+    let other = off_control::normalize_line(r#"{"backend":"seatbelt","event":"other"}"#);
+    assert!(other.contains("\"seatbelt\""));
+}
+
+/// F6: a difference names the first differing field and both values, not only the line.
+#[test]
+fn ac7_a_difference_names_its_field_and_both_values() {
+    let base = off_ordinary_reply();
+    let turn = off_line_of(&base, "provider_turn_duration");
+    let event: Value = serde_json::from_str(base["events"][turn].as_str().unwrap()).unwrap();
+    let was = event["estimated_prompt_tokens_sent"].clone();
+    assert!(was.is_u64());
+    let found = off_renormalized(&base, turn, &|v| {
+        v["estimated_prompt_tokens_sent"] = json!(was.as_u64().unwrap() + 13)
+    });
+    assert_eq!(
+        found,
+        vec![format!(
+            "responses-ordinary-reply: event line {turn} (provider_turn_duration): field \
+             estimated_prompt_tokens_sent: base {was} now {}",
+            was.as_u64().unwrap() + 13
+        )]
+    );
+    // A field gone, and one nested in an object.
+    let found = off_renormalized(&base, turn, &|v| {
+        v.as_object_mut()
+            .unwrap()
+            .remove("estimated_prompt_tokens_sent");
+    });
+    assert_eq!(
+        found,
+        vec![format!(
+            "responses-ordinary-reply: event line {turn} (provider_turn_duration): field \
+             estimated_prompt_tokens_sent: base {was} now <absent>"
+        )]
+    );
+    let profile = off_line_of(&base, "time_profile");
+    let found = off_renormalized(&base, profile, &|v| v["profile"]["extra"] = json!(1));
+    assert_eq!(
+        found,
+        vec![format!(
+            "responses-ordinary-reply: event line {profile} (time_profile): field \
+             profile.extra: base <absent> now 1"
+        )]
+    );
+    // Outside the event lines: the path into the record.
+    let mut current = base.clone();
+    current["outcome"]["code"] = json!(99);
+    assert_eq!(
+        off_control::differences(&base, &current),
+        vec![format!(
+            "responses-ordinary-reply: outcome.code: base {} now 99",
+            base["outcome"]["code"]
+        )]
+    );
+    // A line that is not JSON is shown whole.
+    let mut current = base.clone();
+    current["events"][turn] = json!(off_control::normalize_line("{\"event\":"));
+    let found = off_control::differences(&base, &current);
+    assert_eq!(found.len(), 1);
+    assert!(
+        found[0].starts_with(&format!(
+            "responses-ordinary-reply: event line {turn} (not JSON): base "
+        )),
+        "{found:?}"
+    );
 }
