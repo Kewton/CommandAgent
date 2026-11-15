@@ -2674,4 +2674,573 @@ mod tests {
         );
         assert_eq!(wallet.sends(), 0);
     }
+
+    /// F7: the stop and money checks of the ledger of this basis, each at its bound and one
+    /// past it, and each consistency rule against a record broken in exactly its way.
+    mod group_b {
+        use super::*;
+        use crate::planner::profile_descriptor::PYTHON_CLI_PROFILE_ID;
+        use crate::structured_budget::identity::{
+            AttemptBinding, FinalRepairId, LogicalId, ResponseIdentity,
+        };
+        use crate::structured_budget::ledger::encode_body;
+        use crate::structured_budget::ledger_v2::{UsageCounts, WalletStateV2};
+
+        type Change = Box<dyn Fn(&mut Value)>;
+        type UsageChange = Box<dyn Fn(&mut UsageCounts)>;
+
+        fn repair(body: &[u8], claim: FinalRepairClaim) -> ResponsesReserveRequest<'_> {
+            ResponsesReserveRequest {
+                purpose: SendPurpose::FinalRepair,
+                final_repair: Some(claim),
+                ..request(body)
+            }
+        }
+
+        fn stage(name: &str) -> LogicalKind {
+            LogicalKind::Stage {
+                stage: name.to_string(),
+            }
+        }
+
+        fn binding(stage: &str, attempt: u32) -> AttemptBinding {
+            AttemptBinding {
+                run_nonce: "nonce".to_string(),
+                stage: stage.to_string(),
+                target: "target".to_string(),
+                attempt,
+                generation: 1,
+            }
+        }
+
+        fn open_naming(
+            world: &World,
+            profile: Option<&str>,
+        ) -> Result<BudgetLedgerV2, LedgerRefusal> {
+            BudgetLedgerV2::open(LedgerOpenV2 {
+                policy: world.policy(),
+                workspace: &world.workspace,
+                explicit_profile: profile,
+                entry: LedgerEntry::Fresh,
+                clock: world.clock.clone(),
+                command_writes: Some(world.writes()),
+            })
+        }
+
+        /// Two charged sends (1, 2), two final repairs reserved and given back (3, 4), and a
+        /// submission of each charged send in stage `s`.
+        fn baseline(world: &World) -> WalletStateV2 {
+            let text = text_body();
+            let mut ledger = world.open();
+            let first = charged(&mut ledger, &text);
+            let second = charged(&mut ledger, &text);
+            let one = ledger
+                .reserve(&repair(&text, FinalRepairClaim::New))
+                .unwrap();
+            ledger.release(one.physical).unwrap();
+            let two = ledger
+                .reserve(&repair(&text, FinalRepairClaim::New))
+                .unwrap();
+            ledger.release(two.physical).unwrap();
+            for physical in [first, second] {
+                ledger
+                    .record_submission(
+                        stage("s"),
+                        Some(ResponseIdentity::of_settled(physical).call(0)),
+                    )
+                    .unwrap();
+            }
+            let wallet = ledger.wallet().clone();
+            assert_eq!(wallet.final_repair_used(), 2);
+            assert!(wallet.is_consistent(&world.policy()));
+            wallet
+        }
+
+        /// One send started and then unknown for a timeout: its reservation held, the latch set.
+        fn unknown_wallet(world: &World) -> WalletStateV2 {
+            let mut ledger = world.open();
+            let id = started(&mut ledger, &text_body());
+            ledger.mark_unknown(id, UnknownReason::Timeout).unwrap();
+            let wallet = ledger.wallet().clone();
+            assert!(wallet.latch().is_some());
+            assert!(wallet.is_consistent(&world.policy()));
+            wallet
+        }
+
+        /// `wallet` written as the ledger file, which the next open refuses as corrupt, and the
+        /// same check on the record itself.
+        fn refused(world: &World, wallet: &WalletStateV2, name: &str) {
+            assert!(!wallet.is_consistent(&world.policy()), "{name}");
+            fs::write(world.file(), encode_body(wallet).unwrap()).unwrap();
+            assert_eq!(
+                world
+                    .open_with(world.policy(), LedgerEntry::Resume)
+                    .map(|_| ()),
+                Err(LedgerRefusal::Corrupt),
+                "{name}"
+            );
+        }
+
+        /// The same file, unchanged, opens: what makes the others refused is their one change.
+        fn accepted(world: &World, wallet: &WalletStateV2) {
+            assert!(wallet.is_consistent(&world.policy()));
+            fs::write(world.file(), encode_body(wallet).unwrap()).unwrap();
+            assert!(world.open_with(world.policy(), LedgerEntry::Resume).is_ok());
+        }
+
+        // ---- the limits a record read back is held to ----
+
+        #[test]
+        fn a_record_is_within_its_limits_exactly_at_each_one_and_not_one_past_it() {
+            let world = World::new();
+            let wallet = baseline(&world);
+            let at = |change: &dyn Fn(&mut Value)| {
+                let mut value = world.value.clone();
+                let limits = &mut value["limits"];
+                limits["cost_usd"] = json!(decimal(2 * CHARGE_UNITS));
+                limits["physical_sends"] = json!(2);
+                limits["logical_global"] = json!(2);
+                limits["logical_per_stage"] = json!(2);
+                limits["final_repair_attempts"] = json!(2);
+                limits["tokens"] = json!(2 * 130);
+                change(&mut value);
+                World::policy_of(&value)
+            };
+            assert_eq!(wallet.spent_tokens(), 260);
+            assert_eq!(wallet.held_tokens(), 0);
+            assert!(wallet.is_consistent(&at(&|_| {})));
+            let past: Vec<(&str, Change)> = vec![
+                (
+                    "cost",
+                    Box::new(|v| v["limits"]["cost_usd"] = json!(decimal(2 * CHARGE_UNITS - 1))),
+                ),
+                (
+                    "physical",
+                    Box::new(|v| v["limits"]["physical_sends"] = json!(1)),
+                ),
+                (
+                    "logical",
+                    Box::new(|v| v["limits"]["logical_global"] = json!(1)),
+                ),
+                (
+                    "stage",
+                    Box::new(|v| v["limits"]["logical_per_stage"] = json!(1)),
+                ),
+                (
+                    "final repair",
+                    Box::new(|v| v["limits"]["final_repair_attempts"] = json!(1)),
+                ),
+                ("tokens", Box::new(|v| v["limits"]["tokens"] = json!(259))),
+            ];
+            for (name, change) in past {
+                assert!(!wallet.is_consistent(&at(&*change)), "{name}");
+            }
+        }
+
+        #[test]
+        fn the_tokens_held_are_the_input_and_output_bounds_of_each_held_send() {
+            let world = World::new();
+            let text = text_body();
+            let mut ledger = world.open();
+            assert_eq!(ledger.wallet().held_tokens(), 0);
+            let id = ledger.reserve(&request(&text)).unwrap().physical;
+            let attempt = ledger.wallet().attempt(id).unwrap().clone();
+            assert_eq!(attempt.input_bound, text.len() as u64 + 4);
+            assert_eq!(attempt.output_bound, 50);
+            assert_eq!(
+                ledger.wallet().held_tokens(),
+                u128::from(attempt.input_bound) + 50
+            );
+            ledger.release(id).unwrap();
+            assert_eq!(ledger.wallet().held_tokens(), 0);
+            // A send left unknown holds its bounds too.
+            let unknown = unknown_wallet(&World::new());
+            assert_eq!(
+                unknown.held_tokens(),
+                u128::from(text.len() as u64 + 4 + 50)
+            );
+        }
+
+        // ---- the windows, at their bound and one past it ----
+
+        #[test]
+        fn a_send_starts_exactly_at_the_deadline_and_not_one_past_it() {
+            let text = text_body();
+            let world = World::with(|v| v["limits"]["wall_seconds"] = json!(10));
+            let mut ledger = world.open();
+            let id = ledger.reserve(&request(&text)).unwrap().physical;
+            world.clock.advance(10_000);
+            assert!(ledger.start(id, &text).is_ok());
+            assert!(matches!(
+                ledger.settle_body(id, &response()).unwrap(),
+                ResponsesSettle::Charged { latched: false, .. }
+            ));
+            assert!(!ledger.wallet().past_the_deadline(&world.policy()));
+            let world = World::with(|v| v["limits"]["wall_seconds"] = json!(10));
+            let mut ledger = world.open();
+            let id = ledger.reserve(&request(&text)).unwrap().physical;
+            world.clock.advance(10_001);
+            assert_eq!(
+                ledger.start(id, &text).map(|permit| permit.physical()),
+                Err(budget(BudgetRefusal::WallExceeded))
+            );
+        }
+
+        #[test]
+        fn a_final_repair_is_reserved_and_started_exactly_at_its_window_and_not_one_past_it() {
+            let text = text_body();
+            let world = || World::with(|v| v["limits"]["final_repair_seconds"] = json!(5));
+            // Reserved at the window's end, and not one past it.
+            let w = world();
+            let mut ledger = w.open();
+            let first = ledger
+                .reserve(&repair(&text, FinalRepairClaim::New))
+                .unwrap();
+            let id = first.final_repair.unwrap();
+            ledger.release(first.physical).unwrap();
+            w.clock.advance(5_000);
+            let again = ledger
+                .reserve(&repair(&text, FinalRepairClaim::Continue(id)))
+                .unwrap();
+            ledger.release(again.physical).unwrap();
+            w.clock.advance(1);
+            assert_eq!(
+                ledger
+                    .reserve(&repair(&text, FinalRepairClaim::Continue(id)))
+                    .map(|r| r.physical),
+                Err(budget(BudgetRefusal::FinalRepairWallExceeded))
+            );
+            // Started at the window's end, and not one past it.
+            let w = world();
+            let mut ledger = w.open();
+            let reserved = ledger
+                .reserve(&repair(&text, FinalRepairClaim::New))
+                .unwrap();
+            w.clock.advance(5_000);
+            assert!(ledger.start(reserved.physical, &text).is_ok());
+            assert!(!ledger.wallet().past_the_final_repair_window(&w.policy()));
+            let w = world();
+            let mut ledger = w.open();
+            let reserved = ledger
+                .reserve(&repair(&text, FinalRepairClaim::New))
+                .unwrap();
+            w.clock.advance(5_001);
+            assert_eq!(
+                ledger
+                    .start(reserved.physical, &text)
+                    .map(|permit| permit.physical()),
+                Err(budget(BudgetRefusal::FinalRepairWallExceeded))
+            );
+        }
+
+        #[test]
+        fn a_final_repair_continues_only_one_that_was_issued() {
+            let text = text_body();
+            let world = World::new();
+            let mut ledger = world.open();
+            let first = ledger
+                .reserve(&repair(&text, FinalRepairClaim::New))
+                .unwrap();
+            assert_eq!(first.final_repair, Some(FinalRepairId(1)));
+            ledger.release(first.physical).unwrap();
+            for missing in [0, 2] {
+                assert_eq!(
+                    ledger
+                        .reserve(&repair(
+                            &text,
+                            FinalRepairClaim::Continue(FinalRepairId(missing))
+                        ))
+                        .map(|r| r.physical),
+                    Err(budget(BudgetRefusal::NoSuchFinalRepair)),
+                    "{missing}"
+                );
+            }
+            assert!(
+                ledger
+                    .reserve(&repair(&text, FinalRepairClaim::Continue(FinalRepairId(1))))
+                    .is_ok()
+            );
+        }
+
+        // ---- submissions and their bindings ----
+
+        #[test]
+        fn submissions_are_numbered_from_one_and_each_binds_to_its_own_stage_once() {
+            let world = World::new();
+            let mut ledger = world.open();
+            assert_eq!(ledger.record_submission(stage("a"), None), Ok(LogicalId(1)));
+            assert_eq!(ledger.record_submission(stage("b"), None), Ok(LogicalId(2)));
+            assert_eq!(
+                ledger.record_submission(LogicalKind::General, None),
+                Ok(LogicalId(3))
+            );
+            assert_eq!(ledger.bind_attempt(LogicalId(1), binding("a", 1)), Ok(()));
+            assert_eq!(ledger.wallet().logicals[0].attempt, Some(binding("a", 1)));
+            assert_eq!(ledger.wallet().logicals[1].attempt, None);
+            assert_eq!(
+                world.on_disk()["logicals"][0]["attempt"]["stage"],
+                json!("a")
+            );
+            // The same binding again is the one it has; another is refused.
+            assert_eq!(ledger.bind_attempt(LogicalId(1), binding("a", 1)), Ok(()));
+            assert_eq!(
+                ledger.bind_attempt(LogicalId(1), binding("a", 2)),
+                Err(budget(BudgetRefusal::AlreadyBound))
+            );
+            assert_eq!(ledger.wallet().logicals[0].attempt, Some(binding("a", 1)));
+            // Another stage, a general submission, one that does not exist.
+            assert_eq!(
+                ledger.bind_attempt(LogicalId(2), binding("a", 1)),
+                Err(budget(BudgetRefusal::BindingStageDiffers))
+            );
+            assert_eq!(
+                ledger.bind_attempt(LogicalId(3), binding("a", 1)),
+                Err(budget(BudgetRefusal::BindingStageDiffers))
+            );
+            assert_eq!(
+                ledger.bind_attempt(LogicalId(9), binding("a", 1)),
+                Err(budget(BudgetRefusal::NoSuchLogical))
+            );
+            assert_eq!(ledger.bind_attempt(LogicalId(2), binding("b", 1)), Ok(()));
+            assert_eq!(ledger.wallet().logicals[1].attempt, Some(binding("b", 1)));
+            assert!(ledger.wallet().is_consistent(&world.policy()));
+        }
+
+        // ---- a record broken in exactly one way ----
+
+        #[test]
+        fn a_record_whose_submissions_disagree_is_refused() {
+            let world = World::new();
+            let wallet = baseline(&world);
+            accepted(&world, &wallet);
+            let mut changed = wallet.clone();
+            changed.logicals[0].id = LogicalId(5);
+            refused(&world, &changed, "a number out of order");
+            let mut changed = wallet.clone();
+            changed.logicals[1].source = changed.logicals[0].source;
+            refused(&world, &changed, "a send submitted twice");
+            let mut changed = wallet.clone();
+            changed.logicals[1].source = Some(ResponseIdentity::of_settled(PhysicalId(3)).call(0));
+            refused(&world, &changed, "a send not charged");
+        }
+
+        #[test]
+        fn a_record_whose_clock_disagrees_is_refused() {
+            // A wallet with nothing in it has no clock, and that is consistent; a final repair
+            // window in it is not.
+            let world = World::new();
+            let fresh = world.open().wallet().clone();
+            assert!(fresh.attempts.is_empty() && fresh.logicals.is_empty());
+            accepted(&world, &fresh);
+            let mut changed = fresh.clone();
+            changed.clock.final_repair_started_ms = Some(0);
+            refused(&world, &changed, "a window with no final repair");
+            // Submissions alone start it.
+            let world = World::new();
+            let mut ledger = world.open();
+            ledger
+                .record_submission(LogicalKind::General, None)
+                .unwrap();
+            let only_logicals = ledger.wallet().clone();
+            drop(ledger);
+            accepted(&world, &only_logicals);
+            let mut changed = only_logicals.clone();
+            changed.clock.started_wall_ms = None;
+            refused(&world, &changed, "submissions with no clock");
+            let world = World::new();
+            let wallet = baseline(&world);
+            let mut changed = wallet.clone();
+            changed.clock.started_wall_ms = None;
+            refused(&world, &changed, "sends with no clock");
+            let mut changed = wallet.clone();
+            changed.clock.final_repair_started_ms = None;
+            refused(&world, &changed, "final repairs with no window");
+        }
+
+        #[test]
+        fn a_record_whose_final_repairs_disagree_is_refused() {
+            let world = World::new();
+            let wallet = baseline(&world);
+            let mut changed = wallet.clone();
+            changed.attempts[2].purpose = SendPurpose::Executor;
+            refused(&world, &changed, "a final repair of another purpose");
+            let mut changed = wallet.clone();
+            changed.attempts[3].final_repair = Some(FinalRepairId(3));
+            refused(&world, &changed, "a final repair skipped");
+            let mut changed = wallet.clone();
+            changed.attempts[0].final_repair = Some(FinalRepairId(1));
+            refused(
+                &world,
+                &changed,
+                "a send of another purpose with a final repair",
+            );
+        }
+
+        #[test]
+        fn a_record_whose_send_disagrees_with_its_state_is_refused() {
+            let world = World::new();
+            let policy = world.policy();
+            let wallet = baseline(&world);
+            // No output bound.
+            let mut changed = wallet.clone();
+            changed.attempts[2].output_bound = 0;
+            changed.attempts[2].reserved =
+                reservation_bound(&policy.tariff, changed.attempts[2].input_bound, 0).unwrap();
+            refused(&world, &changed, "no output bound");
+            // A send given back with a cause of unknown.
+            let mut changed = wallet.clone();
+            changed.attempts[2].unknown = Some(UnknownCause::Transport {
+                reason: UnknownReason::Timeout,
+            });
+            refused(&world, &changed, "a released send with a cause");
+            // A charge past the input bound with no latch, though within the reservation.
+            let mut changed = wallet.clone();
+            changed.attempts[0].input_bound = 99;
+            changed.attempts[0].reserved = reservation_bound(&policy.tariff, 99, 50).unwrap();
+            assert!(changed.attempts[0].charged.unwrap().charged <= changed.attempts[0].reserved);
+            assert_eq!(changed.attempts[0].charged.unwrap().usage.input_tokens, 100);
+            refused(&world, &changed, "input past its bound, not latched");
+            changed.latch = Some(crate::structured_budget::reservation::Latch {
+                reason: LatchReason::InputOverBound,
+                physical: PhysicalId(1),
+            });
+            accepted(&world, &changed);
+
+            let world = World::new();
+            let wallet = unknown_wallet(&world);
+            let mut changed = wallet.clone();
+            changed.attempts[0].unknown = None;
+            refused(&world, &changed, "unknown with no cause");
+            let mut changed = wallet.clone();
+            changed.latch = None;
+            refused(&world, &changed, "unknown with no latch");
+        }
+
+        #[test]
+        fn a_usage_kept_as_observed_is_held_to_the_readers_rules() {
+            let world = World::new();
+            let wallet = unknown_wallet(&world);
+            let usage = UsageCounts {
+                input_tokens: 100,
+                output_tokens: 30,
+                cached_tokens: 20,
+                reasoning_tokens: Some(10),
+                total_tokens: Some(130),
+                cache_write_tokens: Some(15),
+                cache_write_30m_tokens: Some(10),
+                cache_write_12h_tokens: Some(5),
+            };
+            let with = |change: &dyn Fn(&mut UsageCounts)| {
+                let mut counts = usage;
+                change(&mut counts);
+                let mut changed = wallet.clone();
+                changed.attempts[0].observed = Some(counts);
+                changed
+            };
+            accepted(&world, &with(&|_| {}));
+            // One TTL reported, exactly the total.
+            accepted(
+                &world,
+                &with(&|u| {
+                    u.cache_write_30m_tokens = Some(15);
+                    u.cache_write_12h_tokens = None;
+                }),
+            );
+            accepted(
+                &world,
+                &with(&|u| {
+                    u.cache_write_30m_tokens = None;
+                    u.cache_write_12h_tokens = Some(15);
+                }),
+            );
+            let broken: Vec<(&str, UsageChange)> = vec![
+                (
+                    "split not the total",
+                    Box::new(|u| u.cache_write_12h_tokens = Some(4)),
+                ),
+                (
+                    "one TTL past the total",
+                    Box::new(|u| {
+                        u.cache_write_30m_tokens = Some(16);
+                        u.cache_write_12h_tokens = None;
+                    }),
+                ),
+                (
+                    "a split with no total",
+                    Box::new(|u| u.cache_write_tokens = None),
+                ),
+                (
+                    "cached and written past the input, no total",
+                    Box::new(|u| {
+                        u.cached_tokens = 90;
+                        u.total_tokens = None;
+                    }),
+                ),
+                (
+                    "reasoning past the output, no total",
+                    Box::new(|u| {
+                        u.reasoning_tokens = Some(31);
+                        u.total_tokens = None;
+                    }),
+                ),
+                (
+                    "a total not the sum",
+                    Box::new(|u| u.total_tokens = Some(131)),
+                ),
+            ];
+            for (name, change) in broken {
+                refused(&world, &with(&*change), name);
+            }
+        }
+
+        // ---- resume, profile, output ----
+
+        #[test]
+        fn a_wallet_made_by_this_open_is_not_resumed() {
+            let world = World::new();
+            let mut ledger = world.open();
+            assert_eq!(ledger.refuse_resume(), Err(LedgerRefusal::Missing));
+            drop(ledger);
+            let mut ledger = world.open();
+            assert_eq!(ledger.refuse_resume(), Ok(()));
+        }
+
+        #[test]
+        fn a_profile_is_pinned_by_its_canonical_name_and_another_is_refused() {
+            let world = World::new();
+            let mut ledger = world.open();
+            assert_eq!(ledger.wallet().profile, None);
+            assert_eq!(ledger.pin_profile(" Py "), Ok(()));
+            assert_eq!(
+                ledger.wallet().profile.as_deref(),
+                Some(PYTHON_CLI_PROFILE_ID)
+            );
+            assert_eq!(world.on_disk()["profile"], json!(PYTHON_CLI_PROFILE_ID));
+            assert_eq!(ledger.pin_profile("python"), Ok(()));
+            assert_eq!(
+                ledger.pin_profile("rust-cli"),
+                Err(LedgerRefusal::ProfileChanged)
+            );
+            assert_eq!(
+                ledger.wallet().profile.as_deref(),
+                Some(PYTHON_CLI_PROFILE_ID)
+            );
+            drop(ledger);
+            // An open naming another profile is refused; the same one or none goes on.
+            assert_eq!(
+                open_naming(&world, Some("rust-cli")).map(|_| ()),
+                Err(LedgerRefusal::ProfileChanged)
+            );
+            assert!(open_naming(&world, Some("py")).is_ok());
+            assert!(open_naming(&world, None).is_ok());
+        }
+
+        #[test]
+        fn the_most_output_is_the_policys() {
+            let world = World::with(|v| v["max_output_tokens"] = json!(37));
+            assert_eq!(world.open().max_output_tokens(), 37);
+            let world = World::with(|v| v["max_output_tokens"] = json!(37));
+            assert_eq!(world.handle().max_output_tokens(), 37);
+        }
+    }
 }
