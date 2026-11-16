@@ -108,6 +108,7 @@ Open `$ROOT/operator/profile-tools/example-parse.json`. The parts that matter:
   },
   "inputs": ["input/items.txt"]
 },
+"runtime": {"kind": "pinned_process", "id": "example-bash-tools"},
 "process": {
   "executable": {"path": "/bin/bash", "sha256": "0000…"},
   "dependency_directories": [{"path": "<ROOT>/tools", "sha256": "0000…"}],
@@ -126,6 +127,9 @@ Open `$ROOT/operator/profile-tools/example-parse.json`. The parts that matter:
 - `schema_sha256` ships with its real value, because the schema is the same on
   every machine. The executable pin and the directory pin depend on your
   machine, so they ship as zeros and you copy them in at step 5.
+- `runtime.id` is a label you choose. For a `pinned_process` the host does not
+  look it up, so it need not be unique: the two sample tools share one, and a
+  different label per tool works as well.
 - `outputs` holds exactly one entry. Its `path` is the operator's choice; the
   process never sees it.
 - `stage` is the operator's floor. Without it the stage tool is refused.
@@ -189,6 +193,23 @@ it as it is; the repository tests it against a reference implementation.
   escaping. Keep them to letters, digits, spaces, and `._-`; a `"` or `\` breaks
   the result, and the run ends with `result_rejected: … result_malformed`.
 
+### Try a Script by Hand
+
+Before you pin anything, you can run a stage script outside the host by feeding
+it one request line. Nothing compares the binding values here, so placeholders
+do:
+
+```bash
+input=$(base64 < "$ROOT/workspace/input/items.txt")
+printf '{"request_id":"try","tool_id":"example-parse","runtime_sha256":"-","input_revision":"-","schema_sha256":"-","inputs":[{"path":"input/items.txt","sha256":"-","bytes_base64":"%s"}],"outputs":["items"]}\n' "$input" |
+  bash "$ROOT/tools/parse.sh"
+```
+
+It prints the result document: `checks` shows each check, and
+`outputs[0].bytes_base64` is the proposed file. This run is not sandboxed, so a
+script that works here can still fail under the host if it forks or runs another
+program; keep to the table above.
+
 ## 5. Check the Root and Copy the Pins
 
 Define the environment once, then ask the host whether a run would admit what
@@ -235,6 +256,21 @@ For each tool, copy the `calculated` value of `executable` into
 copy it; nothing writes them for you. Run the check again: it exits `0` with
 `status: pass`.
 
+To check the values yourself:
+
+- The executable pin is the SHA-256 of the file: `shasum -a 256 /bin/bash`.
+- The directory pin is the SHA-256 of one line per entry at any depth, the
+  lines sorted by bytes, each followed by a newline. A file's line is `f`, NUL,
+  its path relative to the directory, NUL, and the file's SHA-256 in hex (a
+  subdirectory gives `d`, NUL, path; a symlink `l`, NUL, path, NUL, target).
+  Permissions and times are not part of it. For a directory of plain files
+  only, such as `tools/`:
+
+  ```bash
+  ( cd "$ROOT/tools" && export LC_ALL=C && shopt -s dotglob &&
+    for f in *; do printf 'f\0%s\0%s\n' "$f" "$(shasum -a 256 < "$f" | cut -c1-64)"; done ) | shasum -a 256
+  ```
+
 - `schema_sha256` already matches.
 - Any later edit of a file under `tools/` changes the directory pin. Run the
   check again and copy the new value.
@@ -249,7 +285,8 @@ python3 -I "$ROOT/rehearse/fake_model.py" --replies "$ROOT/rehearse/replies.json
   --port 8765 --record "$ROOT/requests.jsonl"
 ```
 
-Then run the prompt with the same environment and flags:
+It is ready when it prints `listening http://127.0.0.1:8765/v1`. Then run the
+prompt with the same environment and flags:
 
 ```bash
 ca "${FLAGS[@]}" --summary-json --prompt "Produce out/report.json."
@@ -296,6 +333,11 @@ decided:
 | `run_budget.stop` | `null` |
 | `run_budget.sends.settled` | The number of requests the fake answered, counted over the wallet's life |
 
+The files the stages adopted are under `structured_stages.stages[].artifact`
+(`path` and `committed_sha256`), not under `changed_files`. `changed_files` is
+what `git status` shows in the workspace; the sample's workspace is not a Git
+repository, so it is `[]` and the run warns `workspace is not Git-managed`.
+
 The wallet is one wallet for its whole life: its sends, money, and wall clock
 count across runs from its first send. After its limits, lay out a fresh copy
 with `setup.sh` or declare a new budget ID; an edited declaration of an existing
@@ -319,7 +361,10 @@ directory pin as in step 5.
 ## 8. Adapt It to Your Own Two Stages
 
 1. Copy the sample with `setup.sh` into a new directory, and rename the profile
-   directory and its `[metadata] id`.
+   directory and its `[metadata] id`. The command `setup.sh` prints is for the
+   sample only. Delete the sample scripts and input you do not use
+   (`tools/parse.sh`, `tools/check.sh`, `workspace/input/items.txt`): every
+   file under `tools/` is part of the directory pin.
 2. In the manifest, give your tools and stages their IDs, and set
    `[artifacts] required`, the `files` of `[[checks.final]]`, and the phase
    prompt under `[plan]` to your final file. Rewrite the
@@ -334,7 +379,13 @@ directory pin as in step 5.
    `calculated` value.
 4. Write each script with `lib.sh`: read the request, decode the input, decide
    your checks, and call `emit_result` with the output's text.
-5. Point `replies.json` at your tool names, change `--profile` in `FLAGS` to
+5. For a wallet of your own, rename `operator/run-budgets/example-wallet.json`
+   and its `budget_id` together, and set `COMMANDAGENT_RUN_BUDGET` in `ca` to
+   the new ID; the preset and the route can stay. The file name must equal
+   `budget_id`: otherwise the check fails `run_budget.declaration` as
+   `Policy(BudgetIdDiffers)`, and the run exits `2` with `the run budget
+   refused the entry: Policy(BudgetIdDiffers)`.
+6. Point `replies.json` at your tool names, change `--profile` in `FLAGS` to
    your profile ID, then run steps 5 and 6.
 
 Keep the limits of this version in mind: macOS only, one output per tool, and

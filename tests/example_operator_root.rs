@@ -33,6 +33,10 @@ const WALLET: &str = "example-wallet";
 const TOOLS: [&str; 2] = ["example-parse", "example-check"];
 const UNUSED_URL: &str = "http://127.0.0.1:9/v1";
 
+/// What stage `parse` makes of the shipped `workspace/input/items.txt`.
+const ITEMS: &[u8] =
+    b"{\"items\":[{\"name\":\"apple\",\"quantity\":3},{\"name\":\"pear\",\"quantity\":0},{\"name\":\"plum\",\"quantity\":12}]}\n";
+
 /// The environment the guide's `ca` wrapper gives `commandagent` (besides the caller's `PATH`),
 /// with `$ROOT` for the laid-out root. The tests run the binary with exactly these.
 const RUN_ENV: [(&str, &str); 5] = [
@@ -104,6 +108,11 @@ impl Operator {
         assert!(output.status.success(), "setup.sh: {}", said(&output));
         let printed = String::from_utf8_lossy(&output.stdout);
         assert!(printed.contains("--operator-check --json"), "{printed}");
+        assert!(
+            printed.contains("This command is for the sample only.")
+                && printed.contains("every file under tools/ is part of the directory pin"),
+            "{printed}"
+        );
         for directory in ["home", "tmp"] {
             let made = root.join(directory);
             assert_eq!(
@@ -196,6 +205,63 @@ fn the_tutorial_runs_commandagent_the_way_these_tests_do() {
                 _ => {}
             }
         }
+    }
+}
+
+/// The one `bash` block of the tutorial in `language` that holds `needle`, as the reader copies it.
+fn bash_block(language: &str, needle: &str) -> String {
+    let text = std::fs::read_to_string(tutorial(language)).unwrap();
+    let mut blocks = Vec::new();
+    let mut current: Option<String> = None;
+    for line in text.lines() {
+        match (line.trim_start(), current.as_mut()) {
+            ("```bash", None) => current = Some(String::new()),
+            ("```", Some(_)) => blocks.push(current.take().unwrap()),
+            (_, Some(block)) => {
+                block.push_str(line);
+                block.push('\n');
+            }
+            _ => {}
+        }
+    }
+    let found: Vec<String> = blocks
+        .into_iter()
+        .filter(|block| block.contains(needle))
+        .collect();
+    assert_eq!(found.len(), 1, "{language}: blocks holding `{needle}`");
+    found.into_iter().next().unwrap()
+}
+
+/// "Try a script by hand": the guide's hand-made request line, run outside the host against a
+/// fresh layout, gets the stage's result with its check passed and the expected file.
+#[test]
+fn the_tutorials_hand_request_runs_the_stage_script() {
+    let operator = Operator::new();
+    for language in ["en", "ja"] {
+        let block = bash_block(language, "\"outputs\":[\"items\"]");
+        let output = Command::new("/bin/bash")
+            .arg("-c")
+            .arg(&block)
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin")
+            .env("LC_ALL", "C")
+            .env("ROOT", &operator.root)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{language}: {}", said(&output));
+        let result: Value = serde_json::from_slice(&output.stdout)
+            .unwrap_or_else(|error| panic!("{language}: {error}: {}", said(&output)));
+        assert_eq!(result["protocol"], "profile-tool.result/v1");
+        assert_eq!(
+            result["checks"],
+            json!([{"id": "lines", "status": "passed"}])
+        );
+        assert_eq!(result["outputs"][0]["sha256"], sha256(ITEMS), "{language}");
+        assert_eq!(
+            result["outputs"][0]["bytes_base64"],
+            encode_base64(ITEMS),
+            "{language}"
+        );
     }
 }
 
@@ -680,8 +746,6 @@ fn the_sample_and_the_tutorial_name_no_user_and_no_machine() {
 mod macos {
     use super::*;
 
-    const ITEMS: &[u8] =
-        b"{\"items\":[{\"name\":\"apple\",\"quantity\":3},{\"name\":\"pear\",\"quantity\":0},{\"name\":\"plum\",\"quantity\":12}]}\n";
     const REPORT: &[u8] = b"{\"items\":3,\"total\":15}\n";
 
     impl Operator {
@@ -719,6 +783,47 @@ mod macos {
             }
         }
 
+        /// Step 5's "check the values yourself": `shasum -a 256 /bin/bash` and the guide's
+        /// directory recipe, in both languages, give the `calculated` pins the check shows.
+        fn pins_match_the_guides_recipes(&self, report: &Value) {
+            let calculated = |kind: &str| -> Vec<String> {
+                let mut values: Vec<String> = report["pins"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|pin| pin["pin"] == kind)
+                    .map(|pin| pin["calculated"].as_str().unwrap().to_string())
+                    .collect();
+                values.dedup();
+                values
+            };
+            let run = |script: &str| -> String {
+                let output = Command::new("/bin/bash")
+                    .arg("-c")
+                    .arg(script)
+                    .env_clear()
+                    .env("PATH", "/usr/bin:/bin")
+                    .env("ROOT", &self.root)
+                    .output()
+                    .unwrap();
+                assert!(output.status.success(), "{}", said(&output));
+                String::from_utf8(output.stdout).unwrap()[..64].to_string()
+            };
+            assert_eq!(
+                calculated("executable"),
+                [run("shasum -a 256 /bin/bash")],
+                "{report:#}"
+            );
+            for language in ["en", "ja"] {
+                let recipe = bash_block(language, "shopt -s dotglob");
+                assert_eq!(
+                    calculated("dependency_directory"),
+                    [run(&recipe)],
+                    "{language}: {report:#}"
+                );
+            }
+        }
+
         /// From a fresh layout to a root the check passes, with no connection to the fake.
         fn pinned(&self, fake: &Fake) {
             let (code, report) = self.check(&fake.url);
@@ -729,6 +834,7 @@ mod macos {
                 (&json!("fail"), &json!("invalid_pin")),
                 "{report:#}"
             );
+            self.pins_match_the_guides_recipes(&report);
             self.copy_pins(&report);
             let (code, report) = self.check(&fake.url);
             assert_eq!(code, Some(0), "{report:#}");

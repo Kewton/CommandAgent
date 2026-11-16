@@ -105,6 +105,7 @@ stages = [
   },
   "inputs": ["input/items.txt"]
 },
+"runtime": {"kind": "pinned_process", "id": "example-bash-tools"},
 "process": {
   "executable": {"path": "/bin/bash", "sha256": "0000…"},
   "dependency_directories": [{"path": "<ROOT>/tools", "sha256": "0000…"}],
@@ -122,6 +123,9 @@ stages = [
   host はこれを process への問い合わせから外します。
 - `schema_sha256` は本物の値で同梱しています。schema はどの機械でも同じだからです。
   実行体の pin とディレクトリの pin は機械ごとに違うので 0 で同梱し、手順 5 で写します。
+- `runtime.id` はあなたが決める名札です。`pinned_process` では host がこれを引かないので、
+  一意である必要はありません。見本の 2 つの tool は 1 つを共有していますが、tool ごとに
+  違う名札にしても動きます。
 - `outputs` はちょうど 1 つです。その `path` は operator が決め、process には見えません。
 - `stage` は operator の下限です。これが無いと段の tool は拒否されます。
 
@@ -181,6 +185,21 @@ process は `deny default` の方針の下で動きます。fork、pin した実
   空白・`._-` だけにしてください。`"` や `\` があると結果が壊れ、run は
   `result_rejected: … result_malformed` で終わります。
 
+### script を手で試す
+
+何かを pin する前に、要求を 1 行渡して、host の外で段の script を動かせます。ここでは
+要求と同じ値を返す欄（`request_id` など）を誰も突き合わせないので、仮の値で足ります:
+
+```bash
+input=$(base64 < "$ROOT/workspace/input/items.txt")
+printf '{"request_id":"try","tool_id":"example-parse","runtime_sha256":"-","input_revision":"-","schema_sha256":"-","inputs":[{"path":"input/items.txt","sha256":"-","bytes_base64":"%s"}],"outputs":["items"]}\n' "$input" |
+  bash "$ROOT/tools/parse.sh"
+```
+
+結果の文書が出ます。`checks` が各検査を、`outputs[0].bytes_base64` が提案するファイルを
+示します。この実行は sandbox の外なので、ここで動く script でも、fork したり別の
+プログラムを動かしたりすると host の下では失敗します。上の表を守ってください。
+
 ## 5. root を確かめて pin を写す
 
 環境を一度定義し、宣言したものを run が受け入れるかを host に尋ねます。確認は provider を
@@ -226,6 +245,20 @@ tool ごとに、`executable` の `calculated` の値を `process.executable.sha
 写す前に、それぞれの値が何を pin するかを確かめてください。自動で書き込む仕組みはありません。
 もう一度確認すると、`status: pass` で `0` で終わります。
 
+値を自分で確かめるには:
+
+- 実行体の pin はそのファイルの SHA-256 です: `shasum -a 256 /bin/bash`。
+- ディレクトリの pin は、深さを問わず entry ごとに 1 行を作り、行をバイト順に並べ、各行の
+  後に改行を付けたものの SHA-256 です。ファイルの行は `f`、NUL、ディレクトリからの相対
+  パス、NUL、ファイルの SHA-256（16 進）です（サブディレクトリは `d`、NUL、パス。symlink は
+  `l`、NUL、パス、NUL、リンク先）。権限と時刻は含みません。`tools/` のように普通の
+  ファイルだけのディレクトリなら:
+
+  ```bash
+  ( cd "$ROOT/tools" && export LC_ALL=C && shopt -s dotglob &&
+    for f in *; do printf 'f\0%s\0%s\n' "$f" "$(shasum -a 256 < "$f" | cut -c1-64)"; done ) | shasum -a 256
+  ```
+
 - `schema_sha256` は最初から一致しています。
 - 後で `tools/` の下のファイルを直すと、ディレクトリの pin が変わります。確認をやり直し、
   新しい値を写してください。
@@ -240,7 +273,8 @@ python3 -I "$ROOT/rehearse/fake_model.py" --replies "$ROOT/rehearse/replies.json
   --port 8765 --record "$ROOT/requests.jsonl"
 ```
 
-そのうえで、同じ環境とフラグで prompt を実行します:
+`listening http://127.0.0.1:8765/v1` と出たら準備ができています。そのうえで、同じ環境と
+フラグで prompt を実行します:
 
 ```bash
 ca "${FLAGS[@]}" --summary-json --prompt "Produce out/report.json."
@@ -284,6 +318,11 @@ wallet の `upstream_only` と `allow_fallbacks` に、preset の `model` は wa
 | `run_budget.stop` | `null` |
 | `run_budget.sends.settled` | 偽のモデルが答えた要求の数。wallet が存在する間（作り直すまで）を通して数えます |
 
+段が採用したファイルは `changed_files` ではなく `structured_stages.stages[].artifact`
+（`path` と `committed_sha256`）に出ます。`changed_files` はワークスペースで `git status` が
+示すものです。見本のワークスペースは Git の repository ではないので `[]` になり、run は
+`workspace is not Git-managed` と警告します。
+
 wallet は、存在する間（作り直すまで）ずっと 1 つの wallet です。送信・金額・経過時間は最初の送信から run を
 またいで数えます。上限に達したら、`setup.sh` で新しい複製を配置するか、新しい budget ID を
 宣言してください。既存の wallet の宣言を直したものは拒否されます。
@@ -306,7 +345,10 @@ ca "${FLAGS[@]}" --prompt "Produce out/report.json."
 ## 8. 自分の 2 段に合わせる
 
 1. `setup.sh` で見本を新しいディレクトリに複製し、プロファイルのディレクトリと
-   `[metadata] id` の名前を変えます。
+   `[metadata] id` の名前を変えます。`setup.sh` が表示するコマンドは見本のためだけの
+   ものです。使わない見本の script と入力（`tools/parse.sh`、`tools/check.sh`、
+   `workspace/input/items.txt`）は消してください。`tools/` の下のファイルはすべて
+   ディレクトリの pin に入ります。
 2. manifest で自分の tool と段に ID を付け、`[artifacts] required`、`[[checks.final]]` の
    `files`、`[plan]` の phase の prompt を最終のファイルにします。
    `[guidance.variants.contract]` の文言は、自分の tool の `name` で書き直します。
@@ -318,7 +360,13 @@ ca "${FLAGS[@]}" --prompt "Produce out/report.json."
    並べた compact な JSON の SHA-256 で、`--operator-check` が `calculated` の値を示します。
 4. `lib.sh` を使って各 script を書きます: 要求を読み、入力を復号し、検査を決め、出力の
    文字列で `emit_result` を呼びます。
-5. `replies.json` を自分の tool の名前に向け、`FLAGS` の `--profile` を自分のプロファイルの
+5. 自分の wallet を使うなら、`operator/run-budgets/example-wallet.json` のファイル名と
+   その `budget_id` を一緒に変え、`ca` の `COMMANDAGENT_RUN_BUDGET` を新しい ID にします。
+   preset と route は変えなくてかまいません。ファイル名は `budget_id` と同じでなければ
+   なりません。違うと、確認は `run_budget.declaration` が `Policy(BudgetIdDiffers)` で
+   失敗し、run は `the run budget refused the entry: Policy(BudgetIdDiffers)` で `2` で
+   終わります。
+6. `replies.json` を自分の tool の名前に向け、`FLAGS` の `--profile` を自分のプロファイルの
    ID に変えて、手順 5 と 6 を実行します。
 
 この版の制約を覚えておいてください: macOS だけ、tool 1 つにつき出力 1 つ、そして偽の

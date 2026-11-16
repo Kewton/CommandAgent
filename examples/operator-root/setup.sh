@@ -59,7 +59,10 @@ cat <<EOF
 Laid out the example in $root
 
 Next, check the operator root and copy the pins it calculates (step 5 of the
-guide; \$ROOT/home and \$ROOT/tmp keep your own settings out of the run):
+guide; \$ROOT/home and \$ROOT/tmp keep your own settings out of the run).
+This command is for the sample only. For your own extension, follow step 8 of
+the guide: rename what it lists and delete the sample scripts and input you do
+not use, because every file under tools/ is part of the directory pin.
 
   env -i PATH="\$PATH" HOME=$root/home TMPDIR=$root/tmp \\
     COMMANDAGENT_ADAPTER_CONFIG_ROOT=$root/operator \\
