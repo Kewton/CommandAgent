@@ -268,6 +268,7 @@ impl World {
         .unwrap();
     }
 
+    #[cfg(target_os = "macos")]
     fn write_stage_tools(&self) {
         self.write_tool(UPPER, "out/upper.json", &[FIXED_INPUT], |_| {});
         self.write_tool(

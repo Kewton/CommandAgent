@@ -120,14 +120,17 @@ pub(super) mod test_hook {
 
     /// A watched probe's removal of its temporary area fails on this thread, through the real
     /// removal, and the area is left where it was for the test to see and remove.
+    #[cfg(target_os = "macos")]
     pub(in super::super) struct FaultyCleanup;
 
+    #[cfg(target_os = "macos")]
     impl Drop for FaultyCleanup {
         fn drop(&mut self) {
             CLEANUP_FAULT.with(|flag| flag.set(false));
         }
     }
 
+    #[cfg(target_os = "macos")]
     pub(in super::super) fn cleanup_fault() -> FaultyCleanup {
         CLEANUP_FAULT.with(|flag| flag.set(true));
         FaultyCleanup
