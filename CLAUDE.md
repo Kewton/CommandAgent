@@ -21,7 +21,8 @@ workers.
 - Command Code workers do the development work under the leader. Helpers
   keep them moving: send investigation of unknowns (unclear requirements, root
   causes, unexpected behavior, plan review) to Codex_Sub (`codex-3`), and
-  clear, mechanical tasks to Antigravity (`antigravity`).
+  clear, mechanical tasks to Claude 4 (`claude-4`). Antigravity is not part of
+  the team (harness document, section 1).
 - You approve plans and dispatch. The user has delegated PR creation (for
   Issues whose dispatch the user approved, 2026-10-13) and merge approval
   (2026-09-30) to you. Approve PR creation only when every condition in harness
