@@ -190,8 +190,8 @@ pub(crate) mod probe_area {
             drop(area);
             return;
         }
-        let path = area.keep();
-        let removed = remove(&path);
+        let path = area.path().to_path_buf();
+        let removed = remove(area);
         let gone = removed && std::fs::symlink_metadata(&path).is_err();
         WATCH.with(|watch| {
             if let Some(seen) = watch.borrow_mut().as_mut() {
@@ -203,12 +203,14 @@ pub(crate) mod probe_area {
         });
     }
 
-    fn remove(path: &std::path::Path) -> bool {
+    /// The area's own removal, its result kept. Under the test fault it is kept on disk instead.
+    fn remove(area: tempfile::TempDir) -> bool {
         #[cfg(test)]
         if super::test_hook::is_cleanup_fault() {
+            let _ = area.keep();
             return false;
         }
-        std::fs::remove_dir_all(path).is_ok()
+        area.close().is_ok()
     }
 }
 
@@ -795,7 +797,8 @@ mod tests {
                 left.starts_with(std::fs::canonicalize(std::env::temp_dir()).unwrap())
                     || left.starts_with(std::env::temp_dir())
             );
-            std::fs::remove_dir_all(left).unwrap();
+            // The probe's write was refused, so the area it left is empty.
+            std::fs::remove_dir(left).unwrap();
         }
     }
 
