@@ -316,18 +316,34 @@ run budget を選んだ run は、終わるときに wallet の状態を 1 回�
 記録します。structured stages を宣言した run も、同じように `structured_stages_summary` に記録します。
 `--summary-json` はこれらの event を読み、2 つの object を足します。宣言の無い機能の object は出ません。
 summary は run 自身の event だけを読み、ledger は読みません。そのため、この機能より前に記録された run
-には、どちらの object もありません。
+には、どちらの object もありません。数えるのは今の run だけで、最後の `run_start` から後の event です。
+events の path を使い回す run に、前の run の object が出ることはありません。
+
+これは **direct command の run だけ**が対象です（`--prompt`・`--plan-run` などの direct command）。REPL の
+session には、欄も節も出ません。
 
 | object | 欄 | 意味 |
 | --- | --- | --- |
-| `run_budget` | `record` | `observed`。wallet を時間内に読めなかったとき（たとえば `SIGINT` の時に送信がまだ lock を持っていた）は `unavailable`。`unavailable` の記録に額は無く、`0` も入りません |
+| `run_budget` | `record` | `observed` または `unavailable`（理由は下に並べます）。`unavailable` の記録に額は無く、`0` も入りません。`accounting_basis` と `stop` は残ります |
 | `run_budget` | `accounting_basis` | `provider_billed`（v1）または `usage_tariff`（v2） |
 | `run_budget` | `limit_usd`・`spent_usd`・`held_usd` | 費用の上限・使った額・まだ押さえている額。10 進の文字列です。v1 は確定した送信ごとの消費額、v2 は送信ごとの単価表による額を使った額として数えます |
 | `run_budget` | `declared_tariff_charge_usd_total` | v2 だけ。あなたが宣言した単価表を検証済みの使用量に当てた額の合計で、**provider の請求ではありません**。v2 では `spent_usd` と同じ値です |
 | `run_budget` | `sends`・`unknown`・`latch` | 状態ごとの送信の数、unknown の送信とその理由、latch とその理由。語は ledger のものです |
-| `run_budget` | `stop` | `null`、またはこの command で wallet が実際に拒否したこと。上限による拒否は `kind` が `limit` で、宣言の上限の名前（`cost_usd` など）が `limit` に入ります。それ以外は `refused` です。額から推し量った停止は出ません |
-| `structured_stages` | `complete`・`ledger_intact` | run の終わりの、ただ 1 つの段の判定の答え。後で summary を作っても、ファイルを判定し直しません |
+| `run_budget` | `stop` | `null`、またはこの command で wallet が実際に拒否したこと。上限による拒否は `kind` が `limit` で、宣言の上限の名前（`cost_usd` など）が `limit` に入ります。それ以外は `refused` です。額から推し量った停止は出ません。run が ledger の外に持っているので、`unavailable` にも残ります |
+| `structured_stages` | `record`・`complete`・`ledger_intact` | `observed` なら run の終わりの、ただ 1 つの段の判定の答え。`unavailable` なら他に何もありません。後で summary を作っても、ファイルを判定し直しません |
 | `structured_stages` | `stages` | target ごとの `phase`・`sealed`・`attempts`（`used`・`limit`）・`artifact`（`path`・`committed_sha256`）。この run で検査が落ちた試行があれば `failed_checks` |
+
+何も保証できないとき、記録は `unavailable` になります。
+
+- wallet の ledger の lock か段の lock が、run の終わりの締め切りまでに空かなかった（締め切りは wallet と
+  段で共有の合わせて 1 秒。たとえば `SIGINT` の時に送信がまだ lock を持っていた）。
+- lock が poisoned だった。
+- wallet の ledger のファイルが、run の書いたものではなくなっていた。
+- 合計が桁あふれした。
+- run が段の記録を一度も開かなかった（最初の段の呼び出しと段の gate の前に終わった）、または宣言した段に
+  session が bind されなかった。
+- 記録した event を読み戻せない。`observed` と言っているのに中身が decode できない記録は、JSON でも
+  `summary.md` でも `unavailable` として出します。
 
 `summary.md` には、ある object ごとに短い節が、請求額の行の後に足されます。`assurance` は変わりません。
 段がすべて sealed でも、ここに出るだけで `static` は上がりません。
