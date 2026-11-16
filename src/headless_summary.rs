@@ -417,6 +417,9 @@ fn display_path(path: impl AsRef<Path>) -> String {
 }
 
 #[cfg(test)]
+mod golden_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
