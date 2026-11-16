@@ -7,10 +7,16 @@ repository rules in `AGENTS.md`; it does not relax any of them.
 
 ## 1. Chain of responsibility
 
+Antigravity is not part of the team. By the user's decision of 2026-11-16
+(Google Antigravity additional terms, section 6, and the official FAQ; our
+sign-in is a personal plan), no AI session sends to, starts, schedules, or
+enables auto-yes for an `antigravity` instance, or runs `agy`, including
+read-only commands such as `agy --version`.
+
 ```text
 User ──> PM ──> Development leader ──> Workers (one per Issue worktree)
           │            │
-          └──> Helpers <┘   (Codex_Sub: investigates unknowns / Antigravity: clear, easy tasks)
+          └──> Helpers <┘   (Codex_Sub: investigates unknowns / Claude 4: clear, easy tasks)
 ```
 
 | Role | Session (worktree / instance) | CLI | Uses | Owns |
@@ -19,18 +25,19 @@ User ──> PM ──> Development leader ──> Workers (one per Issue worktr
 | PM | `commandagent-develop` / `claude` | Claude Code | `cmate-delegate` | Scoping, briefs, plan review and dispatch approval, progress reports, escalation |
 | Development leader | `commandagent-develop` / `claude-3` (alias `Claude_Dev`) | Claude Code (Claude Sonnet 5.5) | `cmate-orchestrate` (+ `cmate-delegate` for helpers) | plan → dispatch → merge → uat runs, worker supervision |
 | Helper (investigation) | `commandagent-develop` / `codex-3` (alias `Codex_Sub`) | Codex | receives briefs | Investigating what blocks the leader or workers: unclear requirements, root causes, unknown behavior, plan review |
-| Helper (easy) | `commandagent-develop` / `antigravity` (alias `Antigravity`) | Antigravity | receives briefs | Clearly specified, mechanical work: running commands, collecting data, tabulating |
+| Helper (easy) | `commandagent-develop` / `claude-4` (alias `Claude 4`) | Claude Code | receives briefs | Clearly specified, mechanical work: running commands, collecting data, tabulating |
 | Worker | each Issue worktree, primary instance | Command Code (DeepSeek V4.1 Flash) | `cmate-worker-development` | Implementing exactly one Issue inside its worktree |
 
 Instance ids are the source of truth; re-check them with
 `commandmate instances commandagent-develop --json` before sending. Never send
 to your own instance. Other instances in the roster (`codex`, `codex-2`,
-`claude-2`) are not part of this chain unless the user assigns them. When
-Codex_Sub is unavailable (see section 6 for hangs), the user may assign
-`claude-2` (alias `Claude_Sub`, Claude Code) as the investigation helper;
-record the substitution in the ledger. A cold `claude-2` can take over 60
-seconds to reach its prompt, so the first send may time out; capture the pane
-and resend once.
+`claude-2`) are not part of this chain unless the user assigns them. The
+`antigravity` instance stays registered but is never sent to or started (see
+above). When Codex_Sub is unavailable (see section 6 for hangs), the user may
+assign `claude-2` (alias `Claude_Sub`, Claude Code) as the investigation
+helper; record the substitution in the ledger. A cold `claude-2` can take over
+60 seconds to reach its prompt, so the first send may time out; capture the
+pane and resend once.
 
 Messages flow only along the arrows. The PM does not message workers directly;
 the leader does not ask the user directly (it asks the PM). Either the PM or the
@@ -198,7 +205,7 @@ Approval is always written, never implied: the PM's dispatch brief says
    commandmate sync                                   # first: sync resets the pin
    commandmate instances <issue-worktree-id> remove claude --kill
    commandmate instances <issue-worktree-id> remove codex
-   commandmate instances <issue-worktree-id> remove antigravity
+   commandmate instances <issue-worktree-id> remove antigravity  # keeps agy from launching
    commandmate ls --json                              # cliToolId must be command-code
    ```
 
@@ -341,7 +348,7 @@ The signal sites, their defenses, and the functions to compare against
 | --- | --- |
 | PM | not applicable |
 | Development leader | on, with the stop pattern below, 8 hours. Prompts that auto-yes leaves open go to the PM |
-| Helpers (Codex_Sub, Antigravity) | on, with the stop pattern below, 8 hours |
+| Helpers (Codex_Sub, Claude 4) | on, with the stop pattern below, 8 hours |
 | Workers | on, through dispatch `--auto-yes`. It can switch off mid-run; the leader watches each worker's `autoYes`, answers an open prompt inside the Issue's scope (otherwise reports to the PM), and re-enables it |
 
 auto-yes answers tool prompts only. It does not grant any authority in
@@ -407,7 +414,7 @@ work over. Route by what is needed:
   verification or a stuck worker, how existing code actually behaves, whether a
   plan's dependencies and scope are right. It returns findings and a
   recommendation with `file:line` evidence; the leader or worker applies them.
-- **Antigravity (`antigravity`)**: the steps and the expected output can be
+- **Claude 4 (`claude-4`)**: the steps and the expected output can be
   written down in advance — running a command set, collecting metrics,
   executing prepared cases, summarizing files into a fixed table.
 
@@ -465,9 +472,6 @@ workers under `cmate-orchestrate`.
   brief. Also compact before a long brief mid-Issue. Make each brief
   self-contained: it points to earlier report files for state. If a compacted
   leader stalls again, ask the user to restart the session.
-- Antigravity may stop on multi-line command prompts that auto-yes does not
-  answer. The requester answers `1` only when the command is inside the brief's
-  scope; otherwise report it upward.
 - Codex may refuse offensive security work ("This content can't be shown") and
   keep refusing in the same conversation. Do not rephrase to get around it.
   Reassign or rescope the task; `/new` resets a Codex conversation for an

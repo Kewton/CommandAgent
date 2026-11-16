@@ -56,8 +56,9 @@ remain available when the user invokes them by name.
 - **Helpers**: they keep the leader and workers moving and do not take their
   work over. Codex_Sub (`codex-3`) investigates what blocks them: unclear
   requirements, root causes, unexpected behavior, and plan review, returning
-  findings with `file:line` evidence. Antigravity (`antigravity`) takes clear,
-  mechanical tasks. Helpers follow the brief they receive and do not implement
+  findings with `file:line` evidence. Claude 4 (`claude-4`) takes clear,
+  mechanical tasks (Antigravity is not part of the team; see the harness
+  document, section 1). Helpers follow the brief they receive and do not implement
   Issue code.
 - **Workers**: Command Code sessions in each Issue worktree. A worker
   implements exactly one Issue, follows the dispatch contract and
