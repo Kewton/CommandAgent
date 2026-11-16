@@ -70,7 +70,7 @@ internal integration surface and is intentionally not a public user flag.
 | `--ux-demo` | none | off | Run the offline presentation UX demo. | [Action exclusivity](#conflicts-and-combinations) |
 | `--model-probe` | none | off | Run the bounded model behavior probe battery. | [Model probe](model-probe.md) |
 | `--doctor` | none | off | Diagnose configuration files, provider readiness, interaction probes, and the local environment. Depending on the configured provider, reachability checks connect to that host (for example OpenAI /v1/models or Responses, Ollama, or LM Studio); a check is skipped when its API key is absent. | [Slash `/doctor`](slash-commands.md#command-reference) |
-| `--operator-check` | none | off | Check, without a provider call and without writing anything, whether the run's admission accepts the operator root's declarations (profile tools, structured stages, run budget) for this configuration, and show their pins. Exit 0 when every check passes, 1 when one fails. | [Check an operator root](profile-tools.md#check-an-operator-root-without-a-run) |
+| `--operator-check` | none | off | Check, without a provider call and leaving nothing behind, whether a non-interactive --prompt run's admission accepts the operator root's declarations (profile tools, structured stages, run budget) for this configuration, and show their pins. The isolation probe makes and removes a temporary area under the system temporary directory, holds a loopback socket, and starts a sandboxed child. Exit 0 when every check passes, 1 when one fails. | [Check an operator root](profile-tools.md#check-an-operator-root-without-a-run) |
 | `--json` | none | off | Render --doctor, --extensions, --runs, or --operator-check output as stable machine-readable JSON. | [Slash `/doctor`](slash-commands.md#command-reference) |
 | `--completions` | `<SHELL>`: `bash`, `elvish`, `fish`, `powershell`, `zsh` | none | Generate a completion script from the current Clap definition and write it to stdout. | [Shell completions and man page](#shell-completions-and-man-page) |
 | `--generate-man` | none | off | Generate the `commandagent(1)` man page from the current Clap definition and write it to stdout. | [Shell completions and man page](#shell-completions-and-man-page) |
@@ -258,7 +258,7 @@ See [Configuration](configuration.md) for the exact per-field layers.
   `--doctor`, `--extensions`, `--runs`, and `--operator-check`; using `--json`
   without one of those targets is rejected.
 - `--operator-check` resolves the configuration as a run does and judges it as a
-  non-interactive `--prompt` run, with no provider call and nothing written. It
+  non-interactive `--prompt` run, with no provider call, leaving nothing behind. It
   exits `0` when every check passes, `1` when one fails or cannot be vouched
   for, and `2` when the configuration itself is refused, as a run would be. It
   conflicts with every other action, a trailing goal, and `--summary-json`.

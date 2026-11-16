@@ -69,7 +69,7 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 | `--ux-demo` | なし | オフ | オフラインのプレゼンテーション UX デモを実行します。 | [排他関係と組み合わせ](#排他関係と組み合わせ) |
 | `--model-probe` | なし | オフ | 限定的なモデル動作プローブ一式を実行します。 | [モデルプローブ](model-probe.md) |
 | `--doctor` | なし | オフ | 設定ファイル、プロバイダ readiness、interaction probe、ローカル環境を診断します。設定されたプロバイダによっては、そのホストへ到達確認を行います（例: OpenAI の /v1/models または Responses、Ollama、LM Studio）。API キーがない確認は試行しません。 | [スラッシュ `/doctor`](slash-commands.md#コマンド一覧) |
-| `--operator-check` | なし | オフ | provider を呼ばず、何も書かずに、この設定で run の受理が operator root の宣言（profile tools・structured stages・run budget）を受け付けるかを確かめ、pin の値を表示します。すべての検査が通れば exit 0、1 つでも通らなければ 1 です。 | [operator root を run なしで確かめる](profile-tools.md#run-なしで-operator-root-を確かめる) |
+| `--operator-check` | なし | オフ | provider を呼ばず、何も残さずに、この設定で非対話の `--prompt` run の受理が operator root の宣言（profile tools・structured stages・run budget）を受け付けるかを確かめ、pin の値を表示します。隔離の probe は、システムの一時ディレクトリの下に一時領域を作って消し、loopback の socket を持ち、sandbox の中で子プロセスを起動します。すべての検査が通れば exit 0、1 つでも通らなければ 1 です。 | [operator root を run なしで確かめる](profile-tools.md#run-なしで-operator-root-を確かめる) |
 | `--json` | なし | オフ | `--doctor`、`--extensions`、`--runs`、または `--operator-check` の出力を安定した機械可読 JSON として表示します。 | [スラッシュ `/doctor`](slash-commands.md#コマンド一覧) |
 | `--completions` | `<SHELL>`: `bash`、`elvish`、`fish`、`powershell`、`zsh` | なし | 現在の Clap 定義から補完スクリプトを生成し、stdout に出力します。 | [シェル補完と man ページ](#シェル補完と-man-ページ) |
 | `--generate-man` | なし | オフ | 現在の Clap 定義から `commandagent(1)` man ページを生成し、stdout に出力します。 | [シェル補完と man ページ](#シェル補完と-man-ページ) |
@@ -195,7 +195,7 @@ context budget、timeout、profile、footer、stream などは `Config::from_cli
   トップレベルの `extension_root` 設定を解決します。`--json` は `--doctor`、
   `--extensions`、`--runs`、`--operator-check` に適用され、これらの対象なしで使うと拒否されます。
 - `--operator-check` は run と同じように設定を解決し、非対話の `--prompt` run として判定します。
-  provider は呼ばず、何も書きません。すべての検査が通れば exit `0`、1 つでも通らないか確かめ
+  provider は呼ばず、何も残しません。すべての検査が通れば exit `0`、1 つでも通らないか確かめ
   きれなければ `1`、設定そのものが拒否されれば run と同じく `2` です。ほかのすべての action、
   末尾のゴール、`--summary-json` と排他です。
 - `--plan-steps`、`--plan-run`、`--ultra-plan`、`--ultra-plan-run` には末尾のゴールが必要です。

@@ -1,8 +1,8 @@
 //! `--operator-check` (Issue #1013): the run's own admission of the operator root's declarations,
-//! with no provider call and nothing written.
+//! with no provider call, leaving nothing behind.
 //!
-//! The configuration is resolved as a run resolves it and judged as a non-interactive `--prompt`
-//! run. Every check calls the function the run calls. Where that function writes, its owner module
+//! The configuration is resolved as a non-interactive `--prompt` run resolves it, and judged as
+//! one. Every check calls the function the run calls. Where that function writes, its owner module
 //! splits the judging part out and both the run and this check call it:
 //!
 //! - the OS sandbox is diagnosed, not installed (`os_sandbox::diagnose`): no
@@ -11,12 +11,18 @@
 //!   opened: no directory, no lock, no ledger written (`entry::check_without_opening`). A ledger
 //!   already there is read without the lock and held to the declaration by the run's own
 //!   continuation; the report always says the read was not locked;
-//! - the route is admitted by the basis of the declaration (`admission::admit_route_on`), the
-//!   same choice the client factory makes, and no client is built;
+//! - the executor's route is admitted by the basis of the declaration (`admission::admit_route_on`),
+//!   the same choice the client factory makes, and no client is built;
 //! - a stage set is judged with the sandbox as diagnosed (`StageRunFacts::of_diagnosis`), and no
 //!   stage ledger is opened;
-//! - the isolation probe a proposal tool's admission runs is the same probe, under watch: its
-//!   temporary area is removed here and looked at again, and one left behind fails the check.
+//! - the request-pattern setting is resolved as the run resolves it and judged by the same refusal
+//!   (`request_pattern::refuse_unmetered`), and the secret scope is built as the run builds it;
+//! - the isolation probe a proposal tool's admission runs is the same probe, under watch. It makes
+//!   a temporary area under the system temporary directory, holds a loopback socket, and starts a
+//!   sandboxed child; the area is removed here and looked at again, and one left behind fails the
+//!   check. An interrupt during the probe can leave that empty area, as the run's own probe can.
+//!
+//! The whole report goes through the run's secret scrub once, just before it is printed.
 //!
 //! A pass means: the declarations, the configuration, and the probes are accepted now. It promises
 //! nothing about a later run; see [`NOT_CHECKED_BY_DESIGN`].
@@ -25,14 +31,14 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::cli::Cli;
-use crate::config::{Action, Config, ProviderCliOptions, ProviderRole};
+use crate::config::{Config, ProviderCliOptions, ProviderRole};
 use crate::planner::structured_stages::contract::StageRunFacts;
 use crate::structured_budget::entry::{self, UnlockedLedger, WalletCheck};
 use crate::structured_budget::ledger::{CommandWrites, LedgerEntry};
 use crate::structured_budget::responses::AccountingBasis;
 use crate::tools::os_sandbox::{self, SandboxDiagnosis};
 use crate::tools::profile_tools::admission::AdmittedProfileTools;
-use crate::tools::profile_tools::descriptor::{self, ShownPin};
+use crate::tools::profile_tools::descriptor::{self, PinKind, ShownPin};
 use crate::tools::profile_tools::isolation::probe_area::{self, ProbeCleanup};
 use crate::tools::profile_tools::pre_run;
 
@@ -40,14 +46,16 @@ pub(crate) const SCHEMA_VERSION: &str = "commandagent.operator-check/v1";
 
 /// What no check without a run can see. Shown in every report and in the docs.
 pub(crate) const NOT_CHECKED_BY_DESIGN: &[&str] = &[
-    "provider connectivity and authentication",
+    "provider connectivity and authentication, including whether the provider key is set",
     "the model, service tier, and usage the provider actually returns",
     "the real request body, its token bound, and the reservation",
     "late responses and the latches they set",
     "creating the sandbox temporary, the wallet directory and lock, and saving the ledger at the real start",
-    "whether another process holds the wallet's lock now",
+    "whether another process holds the wallet's lock or the workspace lock now",
+    "the existing state of the stage ledger",
+    "a session to resume",
+    "the schema-tool preflight against the built client's own wire; the check uses the configured executor's wire",
     "pins changed after this check; a run compares them again before each process",
-    "request-pattern routing settings",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -58,23 +66,81 @@ pub(crate) enum Status {
     /// Read, but nothing can be vouched for: a ledger that changed while it was read.
     Unverified,
     NotDeclared,
-    /// Not reached: a step it depends on did not pass.
+    /// Not reached, or not part of the judged run.
     NotChecked,
 }
 
 impl Status {
-    const fn label(self) -> &'static str {
-        match self {
-            Self::Pass => "pass",
-            Self::Fail => "fail",
-            Self::Unverified => "unverified",
-            Self::NotDeclared => "not_declared",
-            Self::NotChecked => "not_checked",
-        }
-    }
-
     const fn blocks(self) -> bool {
         matches!(self, Self::Fail | Self::Unverified)
+    }
+}
+
+/// Every check, by its id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CheckId {
+    Controls,
+    Pack,
+    ProfileTools,
+    ProbeCleanup,
+    OsSandbox,
+    ArtifactContract,
+    StructuredStages,
+    Declaration,
+    Ledger,
+    RouteExecutor,
+    RoutePlanner,
+    RequestPattern,
+    SecretScope,
+}
+
+impl CheckId {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Controls => "run_budget.controls",
+            Self::Pack => "pack",
+            Self::ProfileTools => "profile_tools",
+            Self::ProbeCleanup => "isolation.probe_cleanup",
+            Self::OsSandbox => "os_sandbox",
+            Self::ArtifactContract => "artifact_contract",
+            Self::StructuredStages => "structured_stages",
+            Self::Declaration => "run_budget.declaration",
+            Self::Ledger => "run_budget.ledger",
+            Self::RouteExecutor => "run_budget.route.executor",
+            Self::RoutePlanner => "run_budget.route.planner",
+            Self::RequestPattern => "request_pattern",
+            Self::SecretScope => "secret_scope",
+        }
+    }
+}
+
+/// The check's own words for an outcome no refusal type names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OwnCode {
+    Absent,
+    Continues,
+    ChangedWhileRead,
+    ProbeAreaLeft,
+    Applied,
+    NotApplied,
+    PackRefused,
+    ArtifactContractRefused,
+    SecretScopeRefused,
+}
+
+impl OwnCode {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Absent => "absent",
+            Self::Continues => "continues",
+            Self::ChangedWhileRead => "changed_while_read",
+            Self::ProbeAreaLeft => "probe_area_left",
+            Self::Applied => "applied",
+            Self::NotApplied => "not_applied",
+            Self::PackRefused => "pack_refused",
+            Self::ArtifactContractRefused => "artifact_contract_refused",
+            Self::SecretScopeRefused => "secret_scope_refused",
+        }
     }
 }
 
@@ -89,12 +155,12 @@ pub(crate) struct Check {
     pub(crate) data: Value,
 }
 
-fn check(id: &'static str, status: Status, code: Option<&str>, detail: impl Into<String>) -> Check {
+fn check(id: CheckId, status: Status, code: Option<&str>, detail: impl Into<String>) -> Check {
     Check {
-        id,
+        id: id.as_str(),
         status,
         code: code.map(str::to_string),
-        detail: crate::sensitive_data::scrub_everything(&detail.into()),
+        detail: detail.into(),
         data: Value::Null,
     }
 }
@@ -131,67 +197,95 @@ impl Report {
     pub(crate) fn failed(&self) -> bool {
         self.status != Status::Pass
     }
+}
 
-    fn render_human(&self) -> String {
-        let mut lines = vec![format!(
-            "CommandAgent operator check: {} (judged as a non-interactive --prompt run; no provider call, nothing written)",
-            self.status.label()
-        )];
-        for check in &self.checks {
-            let code = check
-                .code
-                .as_deref()
-                .map(|code| format!(" [{code}]"))
+/// The report as it is printed: the run's scrub over every key and value, once.
+fn scrubbed(report: &Report, workspace: &std::path::Path) -> anyhow::Result<Value> {
+    let mut value = serde_json::to_value(report)?;
+    if let Some(context) = crate::sensitive_data::active_for(Some(workspace)) {
+        context.scrub_value_lenient(&mut value);
+    }
+    scrub_strings(&mut value);
+    Ok(value)
+}
+
+/// The staged configuration catalog as well, over every string the lenient scrub left.
+fn scrub_strings(value: &mut Value) {
+    match value {
+        Value::String(text) => *text = crate::sensitive_data::scrub_everything(text),
+        Value::Array(items) => items.iter_mut().for_each(scrub_strings),
+        Value::Object(map) => map.values_mut().for_each(scrub_strings),
+        Value::Null | Value::Bool(_) | Value::Number(_) => {}
+    }
+}
+
+fn text(value: &Value) -> &str {
+    value.as_str().unwrap_or("")
+}
+
+/// The human form, from the scrubbed report.
+fn render_human(report: &Value) -> String {
+    let mut lines = vec![format!(
+        "CommandAgent operator check: {} (judged as a non-interactive --prompt run; no provider call, nothing left behind)",
+        text(&report["status"])
+    )];
+    for check in report["checks"].as_array().into_iter().flatten() {
+        let code = check["code"]
+            .as_str()
+            .map(|code| format!(" [{code}]"))
+            .unwrap_or_default();
+        lines.push(format!(
+            "{:<12} {}{code}: {}",
+            text(&check["status"]),
+            text(&check["id"]),
+            text(&check["detail"])
+        ));
+    }
+    let pins = report["pins"].as_array().cloned().unwrap_or_default();
+    if !pins.is_empty() {
+        lines.push("Pins (shown only; nothing is written):".to_string());
+        for pin in &pins {
+            let path = pin["path"]
+                .as_str()
+                .map(|path| format!(" {path}"))
+                .unwrap_or_default();
+            let declared = pin["declared"].as_str().unwrap_or("-");
+            let calculated = pin["calculated"]
+                .as_str()
+                .map(str::to_string)
+                .or_else(|| {
+                    pin["unavailable"]
+                        .as_str()
+                        .map(|why| format!("unavailable: {why}"))
+                })
                 .unwrap_or_default();
             lines.push(format!(
-                "{:<12} {}{code}: {}",
-                check.status.label(),
-                check.id,
-                check.detail
+                "  {} {}{path}: declared {declared}, calculated {calculated}",
+                text(&pin["tool_id"]),
+                text(&pin["pin"])
             ));
         }
-        if !self.pins.is_empty() {
-            lines.push("Pins (shown only; nothing is written):".to_string());
-            for pin in &self.pins {
-                let path = pin
-                    .path
-                    .as_ref()
-                    .map(|path| format!(" {}", path.display()))
-                    .unwrap_or_default();
-                let declared = pin.declared.as_deref().unwrap_or("-");
-                let calculated = pin
-                    .calculated
-                    .clone()
-                    .or_else(|| {
-                        pin.unavailable
-                            .as_ref()
-                            .map(|why| format!("unavailable: {why}"))
-                    })
-                    .unwrap_or_default();
-                lines.push(format!(
-                    "  {} {}{path}: declared {declared}, calculated {calculated}",
-                    pin.tool_id, pin.pin
-                ));
-            }
-        }
-        lines.push("Not checked by design:".to_string());
-        lines.extend(
-            NOT_CHECKED_BY_DESIGN
-                .iter()
-                .map(|item| format!("  - {item}")),
-        );
-        lines.join("\n")
     }
+    lines.push("Not checked by design:".to_string());
+    lines.extend(
+        report["not_checked_by_design"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|item| format!("  - {}", text(item))),
+    );
+    lines.join("\n")
 }
 
 /// The CLI entry. A configuration the run would refuse to resolve is the run's exit-2 refusal.
 pub(crate) fn run_cli(cli: Cli, provider_options: ProviderCliOptions) -> anyhow::Result<()> {
     let json = cli.json;
-    let report = diagnose(cli, provider_options)?;
+    let (report, workspace) = diagnose(cli, provider_options)?;
+    let value = scrubbed(&report, &workspace)?;
     if json {
-        println!("{}", serde_json::to_string_pretty(&report)?);
+        println!("{}", serde_json::to_string_pretty(&value)?);
     } else {
-        println!("{}", report.render_human());
+        println!("{}", render_human(&value));
     }
     if report.failed() {
         anyhow::bail!("operator check found failed checks");
@@ -199,29 +293,44 @@ pub(crate) fn run_cli(cli: Cli, provider_options: ProviderCliOptions) -> anyhow:
     Ok(())
 }
 
-fn diagnose(cli: Cli, provider_options: ProviderCliOptions) -> anyhow::Result<Report> {
+/// The configuration a non-interactive `--prompt` run resolves: the action is set before the
+/// resolution, so every default that follows the action (the stream among them) is that run's.
+/// The goal is empty, so nothing is inferred from its text.
+pub(crate) fn resolve(
+    mut cli: Cli,
+    provider_options: ProviderCliOptions,
+) -> anyhow::Result<Config> {
+    cli.prompt = Some(String::new());
+    Config::from_cli_with_provider_options(cli, provider_options)
+}
+
+fn diagnose(
+    cli: Cli,
+    provider_options: ProviderCliOptions,
+) -> anyhow::Result<(Report, std::path::PathBuf)> {
     let sandbox_mode = cli.sandbox;
+    let request_pattern = cli.request_pattern;
     let pack_cli = cli.clone();
-    let mut config = Config::from_cli_with_provider_options(cli, provider_options)
-        .map_err(crate::cli_argument_error)?;
-    // Without an action flag the configuration is a REPL's. The check judges the entry of a
-    // non-interactive run, which uses the write sandbox and opens its wallet.
-    config.action = Action::Prompt(String::new());
+    let config = resolve(cli, provider_options).map_err(crate::cli_argument_error)?;
+    let pattern =
+        crate::minimal_loop::request_pattern::settings(request_pattern, &config.workspace_root)
+            .map_err(crate::cli_argument_error)?;
+    let secret_scope = crate::config::install_run_secret_scope(&config);
     let mut checks = vec![controls(sandbox_mode, &config)];
 
     let resolved_pack = crate::cli_pack::resolve(&pack_cli, &config);
     checks.push(match &resolved_pack {
-        Ok(None) => check("pack", Status::NotDeclared, None, "no pack selected"),
+        Ok(None) => check(CheckId::Pack, Status::NotDeclared, None, "no pack selected"),
         Ok(Some(pack)) => check(
-            "pack",
+            CheckId::Pack,
             Status::Pass,
             None,
             format!("pack `{}` {} resolved", pack.id, pack.version),
         ),
         Err(error) => check(
-            "pack",
+            CheckId::Pack,
             Status::Fail,
-            Some("pack_refused"),
+            Some(OwnCode::PackRefused.as_str()),
             format!("{error:#}"),
         ),
     });
@@ -230,13 +339,13 @@ fn diagnose(cli: Cli, provider_options: ProviderCliOptions) -> anyhow::Result<Re
         probe_area::watching(|| pre_run::admitted_before_cli_run(&config, &resolved_pack));
     checks.push(match &admitted {
         Ok(None) => check(
-            "profile_tools",
+            CheckId::ProfileTools,
             Status::NotDeclared,
             None,
             "the profile and pack declare no tools",
         ),
         Ok(Some(set)) => check(
-            "profile_tools",
+            CheckId::ProfileTools,
             Status::Pass,
             None,
             format!(
@@ -245,7 +354,7 @@ fn diagnose(cli: Cli, provider_options: ProviderCliOptions) -> anyhow::Result<Re
             ),
         ),
         Err(refusal) => check(
-            "profile_tools",
+            CheckId::ProfileTools,
             Status::Fail,
             Some(refusal.kind.as_str()),
             refusal.reason.clone(),
@@ -264,9 +373,39 @@ fn diagnose(cli: Cli, provider_options: ProviderCliOptions) -> anyhow::Result<Re
     checks.push(artifact_contract_check(&config, &resolved_pack));
     checks.push(stages_check(&config, admitted.as_ref().ok(), &sandbox));
     checks.extend(run_budget_checks(&config, &sandbox));
+    checks.push(
+        match crate::minimal_loop::request_pattern::refuse_unmetered(pattern) {
+            Ok(()) => check(
+                CheckId::RequestPattern,
+                Status::Pass,
+                None,
+                "the request-pattern setting is one this run may use",
+            ),
+            Err(refusal) => check(
+                CheckId::RequestPattern,
+                Status::Fail,
+                Some(&format!("{refusal:?}")),
+                refusal.to_string(),
+            ),
+        },
+    );
+    checks.push(match &secret_scope {
+        Ok(_) => check(
+            CheckId::SecretScope,
+            Status::Pass,
+            None,
+            "the run's secret scope can be built",
+        ),
+        Err(error) => check(
+            CheckId::SecretScope,
+            Status::Fail,
+            Some(OwnCode::SecretScopeRefused.as_str()),
+            format!("{error:#}"),
+        ),
+    });
 
     let pins = pins(&config, &resolved_pack);
-    Ok(Report::of(checks, pins))
+    Ok((Report::of(checks, pins), config.workspace_root.clone()))
 }
 
 /// The refusals a run makes before and beside its configuration, whatever is declared.
@@ -276,13 +415,13 @@ fn controls(sandbox_mode: os_sandbox::SandboxMode, config: &Config) -> Check {
         .and_then(|()| entry::refuse_a_control_the_start_takes());
     match refused {
         Ok(()) => check(
-            "run_budget.controls",
+            CheckId::Controls,
             Status::Pass,
             None,
             "the sandbox mode and the key's variable leave the run budget's controls alone",
         ),
         Err(refusal) => check(
-            "run_budget.controls",
+            CheckId::Controls,
             Status::Fail,
             Some(&format!("{refusal:?}")),
             refusal.to_string(),
@@ -295,14 +434,14 @@ pub(crate) fn probe_cleanup_check(cleanup: &ProbeCleanup) -> Check {
     let area = std::env::temp_dir();
     let mut found = if cleanup.made == 0 {
         check(
-            "isolation.probe_cleanup",
+            CheckId::ProbeCleanup,
             Status::NotChecked,
             None,
             "no isolation probe made a temporary area",
         )
     } else if cleanup.clean() {
         check(
-            "isolation.probe_cleanup",
+            CheckId::ProbeCleanup,
             Status::Pass,
             None,
             format!(
@@ -312,9 +451,9 @@ pub(crate) fn probe_cleanup_check(cleanup: &ProbeCleanup) -> Check {
         )
     } else {
         check(
-            "isolation.probe_cleanup",
+            CheckId::ProbeCleanup,
             Status::Fail,
-            Some("probe_area_left"),
+            Some(OwnCode::ProbeAreaLeft.as_str()),
             format!(
                 "{} of {} probe area(s) could not be removed",
                 cleanup.left.len(),
@@ -333,12 +472,12 @@ pub(crate) fn probe_cleanup_check(cleanup: &ProbeCleanup) -> Check {
 fn sandbox_check(sandbox: &SandboxDiagnosis) -> Check {
     let status = &sandbox.status;
     let mut found = check(
-        "os_sandbox",
+        CheckId::OsSandbox,
         Status::Pass,
         Some(if status.applied {
-            "applied"
+            OwnCode::Applied.as_str()
         } else {
-            "not_applied"
+            OwnCode::NotApplied.as_str()
         }),
         format!(
             "mode {}, backend {}{}",
@@ -361,7 +500,7 @@ fn artifact_contract_check(
 ) -> Check {
     let Ok(pack) = resolved_pack else {
         return check(
-            "artifact_contract",
+            CheckId::ArtifactContract,
             Status::NotChecked,
             None,
             "the pack was not resolved",
@@ -378,15 +517,15 @@ fn artifact_contract_check(
         });
     match judged {
         Ok(()) => check(
-            "artifact_contract",
+            CheckId::ArtifactContract,
             Status::Pass,
             None,
             "no artifact contract adapter is declared, or every declared one is admitted",
         ),
         Err(reason) => check(
-            "artifact_contract",
+            CheckId::ArtifactContract,
             Status::Fail,
-            Some("artifact_contract_refused"),
+            Some(OwnCode::ArtifactContractRefused.as_str()),
             reason,
         ),
     }
@@ -399,7 +538,7 @@ fn stages_check(
 ) -> Check {
     let Some(admitted) = admitted else {
         return check(
-            "structured_stages",
+            CheckId::StructuredStages,
             Status::NotChecked,
             None,
             "the profile tools were not admitted",
@@ -407,7 +546,7 @@ fn stages_check(
     };
     let Some(admitted) = admitted else {
         return check(
-            "structured_stages",
+            CheckId::StructuredStages,
             Status::NotDeclared,
             None,
             "no stage set is declared",
@@ -415,19 +554,19 @@ fn stages_check(
     };
     match admitted.judge_stage_run(config, StageRunFacts::of_diagnosis(config, sandbox)) {
         Ok(None) => check(
-            "structured_stages",
+            CheckId::StructuredStages,
             Status::NotDeclared,
             None,
             "no stage set is declared",
         ),
         Ok(Some(stages)) => check(
-            "structured_stages",
+            CheckId::StructuredStages,
             Status::Pass,
             None,
             format!("{stages} stage(s) admitted for this run; no stage ledger was opened"),
         ),
         Err(refusal) => check(
-            "structured_stages",
+            CheckId::StructuredStages,
             Status::Fail,
             Some(refusal.kind.as_str()),
             refusal.reason,
@@ -435,74 +574,82 @@ fn stages_check(
     }
 }
 
+/// What the ledger check found, including that it was not reached.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LedgerFound<'a> {
+    Found(&'a WalletCheck),
+    Refused(&'a str),
+    NotReached,
+}
+
 fn run_budget_checks(config: &Config, sandbox: &SandboxDiagnosis) -> Vec<Check> {
     if !entry::selected() {
-        let mut checks = vec![check(
-            "run_budget.declaration",
-            Status::NotDeclared,
-            None,
-            "no run budget is selected",
-        )];
+        let mut checks = vec![
+            check(
+                CheckId::Declaration,
+                Status::NotDeclared,
+                None,
+                "no run budget is selected",
+            ),
+            ledger_check(LedgerFound::NotReached),
+        ];
         checks.extend(route_checks(config, None, Status::NotDeclared));
         return checks;
     }
     let found = entry::check_without_opening(true, config, CommandWrites::diagnosed(sandbox));
-    let not_checked = || check("run_budget.ledger", Status::NotChecked, None, "");
-    match found {
-        Ok(None) => {
-            let mut checks = vec![check(
-                "run_budget.declaration",
+    let (declaration, ledger, basis, otherwise) = match &found {
+        Ok(None) => (
+            check(
+                CheckId::Declaration,
                 Status::NotDeclared,
                 None,
                 "this entry opens no wallet",
-            )];
-            checks.extend(route_checks(config, None, Status::NotDeclared));
-            checks
-        }
-        Ok(Some(wallet)) => {
-            let mut checks = vec![
-                check(
-                    "run_budget.declaration",
-                    Status::Pass,
-                    None,
-                    format!(
-                        "`{}` decoded, accounting basis {}",
-                        wallet.budget_id,
-                        basis_word(wallet.basis)
-                    ),
+            ),
+            ledger_check(LedgerFound::NotReached),
+            None,
+            Status::NotDeclared,
+        ),
+        Ok(Some(wallet)) => (
+            check(
+                CheckId::Declaration,
+                Status::Pass,
+                None,
+                format!(
+                    "`{}` decoded, accounting basis {}",
+                    wallet.budget_id,
+                    basis_word(wallet.basis)
                 ),
-                ledger_check(Ok(&wallet)),
-            ];
-            checks.extend(route_checks(config, Some(wallet.basis), Status::Pass));
-            checks
-        }
-        Err(entry::EntryRefusal::Wallet(refusal)) => {
-            let mut checks = vec![
-                check(
-                    "run_budget.declaration",
-                    Status::Pass,
-                    None,
-                    "decoded; the wallet's place or record was refused",
-                ),
-                ledger_check(Err(&format!("{:?}", entry::EntryRefusal::Wallet(refusal)))),
-            ];
-            checks.extend(route_checks(config, None, Status::NotChecked));
-            checks
-        }
-        Err(refusal) => {
-            let mut checks = vec![
-                check(
-                    "run_budget.declaration",
-                    Status::Fail,
-                    Some(&format!("{refusal:?}")),
-                    refusal.to_string(),
-                ),
-                not_checked(),
-            ];
-            checks.extend(route_checks(config, None, Status::NotChecked));
-            checks
-        }
-    }
+            ),
+            ledger_check(LedgerFound::Found(wallet)),
+            Some(wallet.basis),
+            Status::Pass,
+        ),
+        Err(refusal @ entry::EntryRefusal::Wallet(_)) => (
+            check(
+                CheckId::Declaration,
+                Status::Pass,
+                None,
+                "decoded; the wallet's place or record was refused",
+            ),
+            ledger_check(LedgerFound::Refused(&format!("{refusal:?}"))),
+            None,
+            Status::NotChecked,
+        ),
+        Err(refusal) => (
+            check(
+                CheckId::Declaration,
+                Status::Fail,
+                Some(&format!("{refusal:?}")),
+                refusal.to_string(),
+            ),
+            ledger_check(LedgerFound::NotReached),
+            None,
+            Status::NotChecked,
+        ),
+    };
+    let mut checks = vec![declaration, ledger];
+    checks.extend(route_checks(config, basis, otherwise));
+    checks
 }
 
 const fn basis_word(basis: AccountingBasis) -> &'static str {
@@ -512,48 +659,57 @@ const fn basis_word(basis: AccountingBasis) -> &'static str {
     }
 }
 
-/// The ledger's check always says that its read took no lock.
-fn ledger_check(found: Result<&WalletCheck, &str>) -> Check {
+/// The one builder of the ledger check: whatever it found, or that it was not reached, it says
+/// that a read of the ledger takes no lock.
+pub(crate) fn ledger_check(found: LedgerFound<'_>) -> Check {
     const UNLOCKED: &str = "read without the wallet's lock";
     let (mut found, entry) = match found {
-        Err(code) => (
+        LedgerFound::NotReached => (
             check(
-                "run_budget.ledger",
+                CheckId::Ledger,
+                Status::NotChecked,
+                None,
+                format!("not reached; a ledger is always {UNLOCKED}"),
+            ),
+            None,
+        ),
+        LedgerFound::Refused(code) => (
+            check(
+                CheckId::Ledger,
                 Status::Fail,
                 Some(code),
                 format!("{UNLOCKED}; the run's open refuses this wallet"),
             ),
             None,
         ),
-        Ok(wallet) => {
-            let entry = Some(wallet.entry);
+        LedgerFound::Found(wallet) => {
             let found = match wallet.ledger {
                 UnlockedLedger::Absent => check(
-                    "run_budget.ledger",
+                    CheckId::Ledger,
                     Status::Pass,
-                    Some("absent"),
+                    Some(OwnCode::Absent.as_str()),
                     format!(
                         "{UNLOCKED}; no ledger is there yet, and a fresh run's open would make it"
                     ),
                 ),
                 UnlockedLedger::Continues => check(
-                    "run_budget.ledger",
+                    CheckId::Ledger,
                     Status::Pass,
-                    Some("continues"),
+                    Some(OwnCode::Continues.as_str()),
                     format!(
                         "{UNLOCKED}; the ledger there continues under this declaration, workspace, and profile"
                     ),
                 ),
                 UnlockedLedger::ChangedWhileRead => check(
-                    "run_budget.ledger",
+                    CheckId::Ledger,
                     Status::Unverified,
-                    Some("changed_while_read"),
+                    Some(OwnCode::ChangedWhileRead.as_str()),
                     format!(
                         "{UNLOCKED}; the file changed between two reads, so it is not vouched for"
                     ),
                 ),
             };
-            (found, entry)
+            (found, Some(wallet.entry))
         }
     };
     found.data = json!({
@@ -566,32 +722,42 @@ fn ledger_check(found: Result<&WalletCheck, &str>) -> Check {
     found
 }
 
-/// The roles a run builds clients for: the executor always, the planner for a planned run.
+/// A `--prompt` run builds the executor's client only, so only its route counts. The planner's is
+/// shown as not part of the judged run.
 fn route_checks(config: &Config, basis: Option<AccountingBasis>, otherwise: Status) -> Vec<Check> {
-    [
-        ("run_budget.route.executor", ProviderRole::Executor),
-        ("run_budget.route.planner", ProviderRole::Planner),
-    ]
-    .into_iter()
-    .map(|(id, role)| {
-        if basis.is_none() {
-            let detail = match otherwise {
-                Status::NotDeclared => "no run budget is selected",
-                _ => "the declaration was not admitted",
-            };
-            return check(id, otherwise, None, detail);
-        }
-        match crate::structured_budget::admission::admit_route_on(config, role, basis) {
-            Ok(()) => check(id, Status::Pass, None, "the wallet can count this route"),
+    let executor = if basis.is_none() {
+        let detail = match otherwise {
+            Status::NotDeclared => "no run budget is selected",
+            _ => "the declaration was not admitted",
+        };
+        check(CheckId::RouteExecutor, otherwise, None, detail)
+    } else {
+        match crate::structured_budget::admission::admit_route_on(
+            config,
+            ProviderRole::Executor,
+            basis,
+        ) {
+            Ok(()) => check(
+                CheckId::RouteExecutor,
+                Status::Pass,
+                None,
+                "the wallet can count this route",
+            ),
             Err(refusal) => check(
-                id,
+                CheckId::RouteExecutor,
                 Status::Fail,
                 Some(&format!("{refusal:?}")),
                 refusal.to_string(),
             ),
         }
-    })
-    .collect()
+    };
+    let planner = check(
+        CheckId::RoutePlanner,
+        Status::NotChecked,
+        None,
+        "not judged: a --prompt run builds no planner client",
+    );
+    vec![executor, planner]
 }
 
 fn pins(
@@ -608,13 +774,11 @@ fn pins(
                 Ok(pins) => pins,
                 Err(refusal) => vec![ShownPin {
                     tool_id: tool.clone(),
-                    pin: "descriptor_sha256",
+                    pin: PinKind::DescriptorSha256,
                     path: None,
                     declared: None,
                     calculated: None,
-                    unavailable: Some(crate::sensitive_data::scrub_everything(
-                        &refusal.to_string(),
-                    )),
+                    unavailable: Some(refusal.to_string()),
                 }],
             },
         )
@@ -622,81 +786,5 @@ fn pins(
 }
 
 #[cfg(test)]
-mod tests {
-    use std::path::PathBuf;
-
-    use super::{ProbeCleanup, Report, Status, check, probe_cleanup_check};
-
-    /// PM condition 4: a probe whose temporary area is still there after its removal fails the
-    /// check, and so the whole report, whatever the probe itself answered. The isolation module's
-    /// own test drives a real probe through a removal that fails; this is what the check makes of it.
-    #[test]
-    fn a_probe_area_left_behind_fails_the_check_and_the_report() {
-        let left = ProbeCleanup {
-            made: 2,
-            left: vec![PathBuf::from("probe-area")],
-        };
-        let found = probe_cleanup_check(&left);
-        assert_eq!(found.status, Status::Fail);
-        assert_eq!(found.code.as_deref(), Some("probe_area_left"));
-        assert_eq!(found.data["made"], 2);
-        let report = Report::of(vec![found], Vec::new());
-        assert!(report.failed());
-
-        let clean = probe_cleanup_check(&ProbeCleanup {
-            made: 1,
-            left: Vec::new(),
-        });
-        assert_eq!(clean.status, Status::Pass);
-        assert!(!Report::of(vec![clean], Vec::new()).failed());
-        let none = probe_cleanup_check(&ProbeCleanup::default());
-        assert_eq!(none.status, Status::NotChecked);
-    }
-
-    /// A stage set is judged by what the sandbox probe answered, never by a caller's word: the
-    /// same facts a session reads, with the boundary from the diagnosis.
-    #[test]
-    fn the_stage_facts_take_the_boundary_from_the_diagnosis() {
-        use crate::planner::structured_stages::contract::StageRunFacts;
-        use crate::tools::os_sandbox::{
-            SandboxAvailability, SandboxMode, SandboxPolicy, diagnosis_for_test,
-        };
-        let temp = tempfile::tempdir().unwrap();
-        let config = crate::tools::profile_tools::effects::config_for_test(temp.path());
-        let policy = || SandboxPolicy::new(temp.path(), &temp.path().join("tmp"));
-        for (mode, availability, enforced) in [
-            (SandboxMode::Auto, SandboxAvailability::Available, true),
-            (SandboxMode::Required, SandboxAvailability::Available, true),
-            (SandboxMode::Off, SandboxAvailability::Available, false),
-            (
-                SandboxMode::Auto,
-                SandboxAvailability::Unavailable("nested".to_string()),
-                false,
-            ),
-        ] {
-            let diagnosis = diagnosis_for_test(mode, policy(), availability);
-            assert_eq!(diagnosis.status.applied, enforced);
-            assert_eq!(diagnosis.applied_policy().is_some(), enforced);
-            assert_eq!(
-                StageRunFacts::of_diagnosis(&config, &diagnosis),
-                StageRunFacts::for_test(enforced, false),
-                "{mode:?}"
-            );
-        }
-    }
-
-    /// An unverified ledger is not a pass.
-    #[test]
-    fn only_pass_and_the_undeclared_or_unreached_pass_the_report() {
-        for (status, failed) in [
-            (Status::Pass, false),
-            (Status::NotDeclared, false),
-            (Status::NotChecked, false),
-            (Status::Fail, true),
-            (Status::Unverified, true),
-        ] {
-            let report = Report::of(vec![check("x", status, None, "")], Vec::new());
-            assert_eq!(report.failed(), failed, "{status:?}");
-        }
-    }
-}
+#[path = "operator_check_tests.rs"]
+mod tests;

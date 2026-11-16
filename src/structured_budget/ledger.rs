@@ -418,6 +418,8 @@ enum Seam {
     BeforeLock,
     /// A new version is in the temporary, about to take the ledger's name.
     BeforeRename,
+    /// A check without the lock read the file once, and is about to read it again (Issue #1013).
+    BetweenUnlockedReads,
 }
 
 #[cfg(test)]
@@ -991,6 +993,7 @@ fn judge_unlocked(
     let Some(first) = read_ledger_in(&held)? else {
         return Ok(UnlockedLedger::Absent);
     };
+    at_seam(Seam::BetweenUnlockedReads, directory.path());
     if read_ledger_in(&held)?.as_deref() != Some(first.as_slice()) {
         return Ok(UnlockedLedger::ChangedWhileRead);
     }
@@ -4077,6 +4080,36 @@ mod tests {
     fn hook_seams(hook: impl FnMut(Seam, &Path) + 'static) -> SeamHook {
         SEAM_HOOK.with(|slot| *slot.borrow_mut() = Some(Box::new(hook)));
         SeamHook
+    }
+
+    /// Issue #1013: a check reads the ledger twice without the lock. A file that another process
+    /// changes between the reads is not vouched for, and one that holds still continues.
+    #[test]
+    fn an_unlocked_read_that_changes_between_its_reads_is_not_vouched_for() {
+        let world = World::new();
+        drop(world.open(LedgerEntry::Fresh).unwrap());
+        let file = world.wallet_dir().join(super::LEDGER_FILE);
+        let judge = || {
+            super::judge_unlocked_v1(
+                &world.policy,
+                &world.workspace,
+                Some("profile-a"),
+                &world.writes(&world.workspace),
+            )
+        };
+        let before = fs::read(&file).unwrap();
+        assert_eq!(judge(), Ok(super::UnlockedLedger::Continues));
+        assert_eq!(fs::read(&file).unwrap(), before);
+        let changed = file.clone();
+        let hook = once_at(Seam::BetweenUnlockedReads, None, move || {
+            let mut bytes = fs::read(&changed).unwrap();
+            bytes.push(b'x');
+            fs::write(&changed, bytes).unwrap();
+        });
+        assert_eq!(judge(), Ok(super::UnlockedLedger::ChangedWhileRead));
+        drop(hook);
+        // The same change, read whole on both reads, is the record's own refusal: never a pass.
+        assert_eq!(judge(), Err(LedgerRefusal::Corrupt));
     }
 
     /// A change made once, at the first `seam` whose path is `at`, or at the first `seam` at all.

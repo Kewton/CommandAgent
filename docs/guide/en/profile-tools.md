@@ -378,37 +378,53 @@ but it does not raise `static`.
 
 `commandagent --operator-check` asks the run's own admission whether it accepts
 what the operator root declares for this configuration, without a provider call
-and without writing anything. Pass the flags you would pass to the run
+and leaving nothing behind. Pass the flags you would pass to the run
 (`--profile`, `--extension-root`, `--pack`, `--provider`, `--api`, `--sandbox`,
-`--allow`, and so on) with the same environment (`COMMANDAGENT_ADAPTER_CONFIG_ROOT`,
-`COMMANDAGENT_RUN_BUDGET`). The check is judged as a non-interactive `--prompt`
-run. Add `--json` for the `commandagent.operator-check/v1` report.
+`--allow`, `--request-pattern`, and so on) with the same environment
+(`COMMANDAGENT_ADAPTER_CONFIG_ROOT`, `COMMANDAGENT_RUN_BUDGET`). The
+configuration is resolved, and judged, as a non-interactive `--prompt` run's,
+with an empty goal: pass `--profile` rather than relying on inference from a
+goal. Add `--json` for the `commandagent.operator-check/v1` report.
 
 ```bash
 commandagent --operator-check --json --profile my-profile --extension-root ./ext \
   --provider openai --api responses --model my-model
 ```
 
+Nothing is made, opened for writing, or locked: no state directory, sandbox
+temporary, wallet directory, lock file, ledger, or events file. Two things touch
+the machine. When a proposal tool is declared, the isolation probe makes a
+temporary area under the system temporary directory (`TMPDIR`), holds a loopback
+socket, and starts a sandboxed child; the check removes the area and fails if it
+is still there. An interrupt during the probe can leave that empty area behind,
+as the run's own probe can. The OS sandbox is probed by starting the backend
+once, as a run's start does.
+
 Each check has an `id`, a `status` (`pass`, `fail`, `unverified`,
 `not_declared`, or `not_checked`), a `code`, and a `detail`. The `code` is the
 run's own word for the same refusal: a profile tool's kind (`invalid_pin`,
 `unavailable`, ...), the stage contract's `stage_contract_refused`, or a run
-budget refusal such as `PolicyV2(UnsupportedServiceTier)`, `Wallet(Corrupt)`, or
-`RouteNotCountable`. The command exits `0` when every check passes, `1` when one
-fails or is `unverified`, and `2` when the configuration itself is refused.
+budget refusal such as `PolicyV2(UnsupportedServiceTier)`, `Wallet(Corrupt)`,
+`RouteNotCountable`, or `Unmetered(RequestPattern)`. The command exits `0` when
+every check passes, `1` when one fails or is `unverified`, and `2` when the
+configuration itself is refused, as the run would refuse it. The whole report
+goes through the run's secret scrub before it is printed, in both forms.
 
 | Check | What it runs |
 | --- | --- |
 | `run_budget.controls` | The sandbox mode and the key's variable against the run budget's controls |
 | `pack` | The pack selection, resolved as the run resolves it |
 | `profile_tools` | Every descriptor: decode, pins, dependencies, schema adoption, the schema and proposal preflight, and the isolation probe a proposal tool needs |
-| `isolation.probe_cleanup` | That the isolation probe's temporary area, made in the system temporary directory (`TMPDIR`), was removed |
+| `isolation.probe_cleanup` | That the isolation probe's temporary area was removed |
 | `os_sandbox` | The OS sandbox the run would install, probed but not installed |
 | `artifact_contract` | The artifact contract adapters the profile or pack declares |
 | `structured_stages` | The stage contract, with the sandbox as probed |
 | `run_budget.declaration` | The declaration, read and decoded as the run reads it |
-| `run_budget.ledger` | The way to the wallet's directory, and a ledger already there, held to the declaration. It is read **without the wallet's lock**, and the report always says so; a record that changes between two reads is `unverified`, never a pass |
-| `run_budget.route.executor`, `run_budget.route.planner` | Whether the wallet can count the route of each role |
+| `run_budget.ledger` | The way to the wallet's directory, and a ledger already there, held to the declaration. It is read **without the wallet's lock**, and every form of this check says so, the one not reached included; a record that changes between two reads is `unverified`, never a pass |
+| `run_budget.route.executor` | Whether the wallet can count the executor's route |
+| `run_budget.route.planner` | Always `not_checked`: a `--prompt` run builds no planner client, so its route does not decide the result |
+| `request_pattern` | The request-pattern setting: under a wallet, `jev` routing is refused as `Unmetered(RequestPattern)` |
+| `secret_scope` | That the run's secret scope can be built from its credentials |
 
 The report also lists `pins`: for each selected tool, `schema_sha256`, each
 dependency, the executable, each pinned directory, `runtime_sha256`, and the
@@ -419,9 +435,12 @@ descriptor yourself after you have checked what they pin.
 
 A pass means that the current declarations, configuration, and probes are
 accepted now. It does not check, and the report lists under
-`not_checked_by_design`: provider connectivity and authentication; the model,
-tier, and usage the provider returns; the real request body, its token bound,
-and the reservation; late responses and latches; creating the sandbox temporary,
-the wallet's directory and lock, and saving the ledger at the real start;
-whether another process holds the wallet's lock; and pins changed after the
+`not_checked_by_design`: provider connectivity and authentication, including
+whether the provider key is set; the model, tier, and usage the provider
+returns; the real request body, its token bound, and the reservation; late
+responses and latches; creating the sandbox temporary, the wallet's directory
+and lock, and saving the ledger at the real start; whether another process holds
+the wallet's lock or the workspace lock; the existing state of the stage ledger;
+a session to resume; the schema-tool preflight against the built client's own
+wire (the check uses the configured executor's wire); and pins changed after the
 check (a run compares them again before each process).

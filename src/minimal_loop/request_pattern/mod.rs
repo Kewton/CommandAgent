@@ -370,6 +370,20 @@ pub fn run_direct_prompt_with(
     )
 }
 
+/// jev is a send no run budget counts. Under one, a run set to route is refused whatever else it
+/// says, and never falls back to running unrouted. A direct prompt and `--operator-check` ask
+/// this same question of the same settings.
+pub(crate) fn refuse_unmetered(
+    settings: RequestPatternSettings,
+) -> Result<(), crate::structured_budget::entry::EntryRefusal> {
+    if settings.mode == RequestPatternMode::Jev {
+        crate::structured_budget::entry::refuse(
+            crate::structured_budget::entry::Unmetered::RequestPattern,
+        )?;
+    }
+    Ok(())
+}
+
 /// Runs the direct prompt. When routing applies, the decision is made once,
 /// recorded as `request_pattern_resolved`, and its guidance (if adopted) goes
 /// into the run options, followed by the checked `common` guidance; with
@@ -388,13 +402,7 @@ pub fn run_direct_prompt_with_common(
     classifier: Option<&dyn PatternClassifier>,
     common: Option<&str>,
 ) -> anyhow::Result<RunSessionOutcome> {
-    // jev is a send no run budget counts. Under one, a run set to route is refused whatever else
-    // it says, and never falls back to running unrouted.
-    if settings.mode == RequestPatternMode::Jev {
-        crate::structured_budget::entry::refuse(
-            crate::structured_budget::entry::Unmetered::RequestPattern,
-        )?;
-    }
+    refuse_unmetered(settings)?;
     crate::tools::profile_tools::refuse_for_client(config, &*client)?;
     let mut options = RunSessionOptions::default();
     let routed = routes(settings, config);

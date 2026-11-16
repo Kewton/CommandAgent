@@ -369,15 +369,54 @@ fn read_registered(
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(crate) struct ShownPin {
     pub(crate) tool_id: String,
-    /// `schema_sha256`, `dependency`, `executable`, `dependency_directory`, `link_directory`,
-    /// `runtime_sha256`, or `descriptor_sha256`.
-    pub(crate) pin: &'static str,
+    pub(crate) pin: PinKind,
     pub(crate) path: Option<PathBuf>,
     /// `None` for a value no descriptor declares: `runtime_sha256` and `descriptor_sha256`.
     pub(crate) declared: Option<String>,
     /// `None` when it cannot be calculated, with the reason in `unavailable`.
     pub(crate) calculated: Option<String>,
     pub(crate) unavailable: Option<String>,
+}
+
+/// Which pin a [`ShownPin`] is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum PinKind {
+    DescriptorSha256,
+    SchemaSha256,
+    Dependency,
+    Executable,
+    DependencyDirectory,
+    LinkDirectory,
+    RuntimeSha256,
+}
+
+impl PinKind {
+    /// Every kind, each named once in a `match` so a new one is not left out.
+    #[cfg(test)]
+    pub(crate) fn all() -> [Self; 7] {
+        let all = [
+            Self::DescriptorSha256,
+            Self::SchemaSha256,
+            Self::Dependency,
+            Self::Executable,
+            Self::DependencyDirectory,
+            Self::LinkDirectory,
+            Self::RuntimeSha256,
+        ];
+        for kind in all {
+            match kind {
+                Self::DescriptorSha256
+                | Self::SchemaSha256
+                | Self::Dependency
+                | Self::Executable
+                | Self::DependencyDirectory
+                | Self::LinkDirectory
+                | Self::RuntimeSha256 => {}
+            }
+        }
+        all
+    }
 }
 
 /// Every pin of `tool_id`'s descriptor, declared beside calculated, read the way [`load`] reads it
@@ -406,9 +445,14 @@ pub(crate) fn shown_pins(
         };
     let file = |path: &Path| read_dependency(path).map(|(bytes, _)| sha256_hex(&bytes));
     let mut pins = vec![
-        shown("descriptor_sha256", None, None, Ok(sha256_hex(&bytes))),
         shown(
-            "schema_sha256",
+            PinKind::DescriptorSha256,
+            None,
+            None,
+            Ok(sha256_hex(&bytes)),
+        ),
+        shown(
+            PinKind::SchemaSha256,
             None,
             Some(&descriptor.schema_sha256),
             declared_pin(&descriptor, tool_id).map_err(|refusal| refusal.reason),
@@ -416,7 +460,7 @@ pub(crate) fn shown_pins(
     ];
     for dependency in &descriptor.dependencies {
         pins.push(shown(
-            "dependency",
+            PinKind::Dependency,
             Some(&dependency.path),
             Some(&dependency.sha256),
             file(&dependency.path),
@@ -424,14 +468,17 @@ pub(crate) fn shown_pins(
     }
     if let Some(process) = &descriptor.process {
         pins.push(shown(
-            "executable",
+            PinKind::Executable,
             Some(&process.executable.path),
             Some(&process.executable.sha256),
             file(&process.executable.path),
         ));
         for (pin, directories) in [
-            ("dependency_directory", &process.dependency_directories),
-            ("link_directory", &process.link_directories),
+            (
+                PinKind::DependencyDirectory,
+                &process.dependency_directories,
+            ),
+            (PinKind::LinkDirectory, &process.link_directories),
         ] {
             for directory in directories {
                 pins.push(shown(
@@ -443,7 +490,7 @@ pub(crate) fn shown_pins(
             }
         }
         pins.push(shown(
-            "runtime_sha256",
+            PinKind::RuntimeSha256,
             None,
             None,
             Ok(process.runtime_sha256()),

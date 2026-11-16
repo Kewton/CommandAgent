@@ -351,35 +351,49 @@ session には、欄も節も出ません。
 ## run なしで operator root を確かめる
 
 `commandagent --operator-check` は、この設定で operator root の宣言を run の受理が受け付けるかを、
-run 自身の判定で確かめます。provider は呼ばず、何も書きません。run に渡すのと同じフラグ
-（`--profile`、`--extension-root`、`--pack`、`--provider`、`--api`、`--sandbox`、`--allow` など）と、
-同じ環境変数（`COMMANDAGENT_ADAPTER_CONFIG_ROOT`、`COMMANDAGENT_RUN_BUDGET`）を渡してください。
-判定は非対話の `--prompt` run として行います。`--json` を付けると
-`commandagent.operator-check/v1` の report を出します。
+run 自身の判定で確かめます。provider は呼ばず、何も残しません。run に渡すのと同じフラグ
+（`--profile`、`--extension-root`、`--pack`、`--provider`、`--api`、`--sandbox`、`--allow`、
+`--request-pattern` など）と、同じ環境変数（`COMMANDAGENT_ADAPTER_CONFIG_ROOT`、
+`COMMANDAGENT_RUN_BUDGET`）を渡してください。設定は、空のゴールの非対話の `--prompt` run として
+解決し、そのように判定します。ゴールからの推定に頼らず `--profile` を渡してください。
+`--json` を付けると `commandagent.operator-check/v1` の report を出します。
 
 ```bash
 commandagent --operator-check --json --profile my-profile --extension-root ./ext \
   --provider openai --api responses --model my-model
 ```
 
+何も作らず、書くために開かず、lock も取りません。state ディレクトリ、sandbox の一時ディレクトリ、
+wallet のディレクトリ、lock ファイル、ledger、events のファイルは、どれもできません。機械に触れる
+ことは 2 つです。proposal tool が宣言されていれば、隔離の probe がシステムの一時ディレクトリ
+（`TMPDIR`）の下に一時領域を作り、loopback の socket を持ち、sandbox の中で子プロセスを起動します。
+check はその一時領域を消し、残っていれば fail にします。probe の最中に中断すると、run 自身の probe と
+同じく、空の一時領域が残ることがあります。OS sandbox は、run の開始と同じく backend を一度起動して
+確かめます。
+
 各検査は `id`、`status`（`pass`、`fail`、`unverified`、`not_declared`、`not_checked`）、
 `code`、`detail` を持ちます。`code` は同じ拒否に run が使う語そのものです。profile tool の kind
 （`invalid_pin`、`unavailable` など）、段の契約の `stage_contract_refused`、run budget の拒否
-（`PolicyV2(UnsupportedServiceTier)`、`Wallet(Corrupt)`、`RouteNotCountable` など）です。
-すべて通れば exit `0`、1 つでも `fail` か `unverified` なら `1`、設定そのものが拒否されれば `2` です。
+（`PolicyV2(UnsupportedServiceTier)`、`Wallet(Corrupt)`、`RouteNotCountable`、
+`Unmetered(RequestPattern)` など）です。すべて通れば exit `0`、1 つでも `fail` か `unverified` なら
+`1`、設定そのものが拒否されれば run と同じく `2` です。report は、どちらの形でも、出す前に全体を
+run の secret の scrub に通します。
 
 | 検査 | 走らせるもの |
 | --- | --- |
 | `run_budget.controls` | sandbox のモードとキーの変数を、run budget の制御と照らす |
 | `pack` | pack の選択を、run と同じく解決する |
 | `profile_tools` | 各 descriptor の decode・pin・依存・schema の採用・schema と proposal の preflight・proposal tool に要る隔離の probe |
-| `isolation.probe_cleanup` | 隔離の probe がシステムの一時ディレクトリ（`TMPDIR`）に作った一時領域が消えたこと |
+| `isolation.probe_cleanup` | 隔離の probe の一時領域が消えたこと |
 | `os_sandbox` | run が入れる OS sandbox を、入れずに probe する |
 | `artifact_contract` | profile または pack が宣言する artifact contract の adapter |
 | `structured_stages` | 段の契約。sandbox は probe の結果で判定する |
 | `run_budget.declaration` | 宣言を、run と同じく読み decode する |
-| `run_budget.ledger` | wallet のディレクトリへの道と、既にある ledger を宣言に照らす。ledger は **wallet の lock を取らずに** 読み、report は必ずそう書きます。2 回の読みの間に変わった記録は `unverified` で、pass にはしません |
-| `run_budget.route.executor`、`run_budget.route.planner` | 各 role の経路を wallet が数えられるか |
+| `run_budget.ledger` | wallet のディレクトリへの道と、既にある ledger を宣言に照らす。ledger は **wallet の lock を取らずに** 読み、届かなかった場合も含め、この検査はいつもそう書きます。2 回の読みの間に変わった記録は `unverified` で、pass にはしません |
+| `run_budget.route.executor` | executor の経路を wallet が数えられるか |
+| `run_budget.route.planner` | いつも `not_checked`。`--prompt` の run は planner の client を作らないので、合否に入れません |
+| `request_pattern` | request pattern の設定。wallet の下では `jev` の routing を `Unmetered(RequestPattern)` で拒否します |
+| `secret_scope` | run の secret の scope を、その credential から作れること |
 
 report には `pins` も出ます。選ばれた tool ごとに、`schema_sha256`、各依存、実行体、pin した各
 ディレクトリ、`runtime_sha256`、descriptor 自身の digest を、`declared`（宣言値）と `calculated`
@@ -387,7 +401,9 @@ report には `pins` も出ます。選ばれた tool ごとに、`schema_sha256
 これらの値はどこにも書きません。pin の対象を確かめてから、descriptor に自分で書き写してください。
 
 pass は「いまの宣言・設定・probe が受理される」という意味です。次のことは確かめず、report の
-`not_checked_by_design` にも並べます。provider への接続と認証。provider が実際に返す model・tier・
-usage。実際の request body、token の上限と reservation。遅れた応答と latch。本番の開始での sandbox の
-一時ディレクトリ・wallet のディレクトリと lock の作成、ledger の保存。別のプロセスが wallet の lock を
-持っているか。確かめた後の pin の変更（run は各プロセスの前にもう一度比べます）。
+`not_checked_by_design` にも並べます。provider への接続と認証（キーがあるかを含む）。provider が実際に
+返す model・tier・usage。実際の request body、token の上限と reservation。遅れた応答と latch。本番の
+開始での sandbox の一時ディレクトリ・wallet のディレクトリと lock の作成、ledger の保存。別のプロセスが
+wallet の lock や workspace の lock を持っているか。段の ledger の既存の状態。再開する session。作った
+client 自身の wire に対する schema tool の preflight（check は設定された executor の wire を使います）。
+確かめた後の pin の変更（run は各プロセスの前にもう一度比べます）。

@@ -84,8 +84,10 @@ impl Drop for Listener {
     }
 }
 
-/// One entry of a tree: its type, its bytes' digest (a file) or target (a link), mode, and mtime.
-type Tree = BTreeMap<PathBuf, (char, String, u32, i64, i64)>;
+/// One entry of a tree: its type, its bytes' digest (a file) or target (a link), mode, inode,
+/// mtime, and ctime.
+type Tree = BTreeMap<PathBuf, Entry>;
+type Entry = (char, String, u32, u64, (i64, i64), (i64, i64));
 
 fn tree(root: &Path) -> Tree {
     let mut entries = Tree::new();
@@ -98,13 +100,7 @@ fn tree(root: &Path) -> Tree {
     entries
 }
 
-/// A tree without its root's own entry.
-fn below(mut tree: Tree) -> Tree {
-    tree.remove(Path::new(""));
-    tree
-}
-
-fn entry(path: &Path, metadata: &std::fs::Metadata) -> (char, String, u32, i64, i64) {
+fn entry(path: &Path, metadata: &std::fs::Metadata) -> Entry {
     let kind = metadata.file_type();
     let (letter, content) = if kind.is_symlink() {
         (
@@ -123,8 +119,9 @@ fn entry(path: &Path, metadata: &std::fs::Metadata) -> (char, String, u32, i64, 
         letter,
         content,
         metadata.mode(),
-        metadata.mtime(),
-        metadata.mtime_nsec(),
+        metadata.ino(),
+        (metadata.mtime(), metadata.mtime_nsec()),
+        (metadata.ctime(), metadata.ctime_nsec()),
     )
 }
 
@@ -335,22 +332,81 @@ impl World {
         .unwrap();
     }
 
+    /// A v1 declaration for the generic compatible Chat route, with placeholder prices.
+    fn declare_v1(&self) {
+        let policy = json!({
+            "protocol": "run-budget.policy/v1",
+            "budget_id": WALLET,
+            "limits": {
+                "cost_usd": "1",
+                "physical_sends": 1,
+                "logical_global": 1,
+                "logical_per_stage": 1,
+                "tokens": 1_000_000,
+                "wall_seconds": 100,
+                "final_repair_attempts": 1,
+                "final_repair_seconds": 100
+            },
+            "tariff": {
+                "revision": "synthetic-1013",
+                "input_per_million": "1",
+                "cached_input_per_million": "1",
+                "cache_write_per_million": "1",
+                "output_per_million": "1",
+                "request_fee": "0"
+            },
+            "route": {
+                "api": "chat_completions",
+                "model": "m-1",
+                "upstream_only": ["u"],
+                "allow_fallbacks": false,
+                "effort": "low",
+                "reasoning_in_output": true
+            },
+            "max_output_tokens": 500,
+            "max_input_tokens": 2_000_000,
+            "input_overhead": 4,
+            "ledger_dir": self.path("ledgers")
+        });
+        std::fs::write(
+            self.path(&format!("operator/run-budgets/{WALLET}.json")),
+            policy.to_string(),
+        )
+        .unwrap();
+    }
+
     fn ledger(&self) -> PathBuf {
         self.path(&format!("ledgers/{WALLET}/ledger.json"))
     }
 
-    fn watched(&self) -> Vec<PathBuf> {
-        [
-            "operator",
-            "workspace",
-            "state",
-            "ledgers",
-            "home",
-            "events.jsonl",
-        ]
-        .iter()
-        .map(|relative| self.path(relative))
-        .collect()
+    /// The whole world: the operator root, the workspace (the child's cwd), the state directory,
+    /// the ledgers, the fake `HOME`, the tools and the extension root, and every place an events
+    /// file could appear. Only `TMPDIR`'s own entry is left out: the probe makes and removes its
+    /// area there, which moves that directory's times and nothing below it.
+    fn world_tree(&self) -> Tree {
+        let mut all = tree(&self.base);
+        all.remove(Path::new("tmp"));
+        all
+    }
+
+    /// One process, holding the whole world to what it was and the listener to no connection.
+    fn invoke(&self, mut command: Command) -> Output {
+        let before = self.world_tree();
+        let connections = self.listener.count();
+        let output = command.output().unwrap();
+        let after = self.world_tree();
+        let changed: Vec<_> = before
+            .keys()
+            .chain(after.keys())
+            .filter(|path| before.get(*path) != after.get(*path))
+            .collect();
+        assert!(changed.is_empty(), "the check changed {changed:?}");
+        assert_eq!(
+            self.listener.count(),
+            connections,
+            "the check connected to a provider"
+        );
+        output
     }
 
     fn command(&self, wallet: bool, arguments: &[&str]) -> Command {
@@ -360,24 +416,41 @@ impl World {
     }
 
     fn configure(&self, command: &mut Command, wallet: bool, arguments: &[&str]) {
+        self.configure_with(command, wallet, arguments, false);
+    }
+
+    /// With `defaults`, no `--state-dir` and no events variable: the state directory under the
+    /// fake `HOME` and the events under the workspace, as an operator's plain call has them.
+    fn configure_with(
+        &self,
+        command: &mut Command,
+        wallet: bool,
+        arguments: &[&str],
+        defaults: bool,
+    ) {
         let url = &self.listener.url;
         command
             .env_clear()
+            .current_dir(self.path("workspace"))
             .env("HOME", self.path("home"))
             .env("TMPDIR", self.path("tmp"))
             .env("PATH", "/usr/bin:/bin")
             .env("LC_ALL", "C")
             .env("LANG", "C")
             .env("COMMANDAGENT_ADAPTER_CONFIG_ROOT", self.path("operator"))
-            .env("COMMANDAGENT_EVAL_EVENTS", self.path("events.jsonl"))
             .env("HTTPS_PROXY", url)
             .env("HTTP_PROXY", url)
             .env("ALL_PROXY", url)
             .env("NO_PROXY", "")
             .arg("--cwd")
-            .arg(self.path("workspace"))
-            .arg("--state-dir")
-            .arg(self.path("state"))
+            .arg(self.path("workspace"));
+        if !defaults {
+            command
+                .env("COMMANDAGENT_EVAL_EVENTS", self.path("events.jsonl"))
+                .arg("--state-dir")
+                .arg(self.path("state"));
+        }
+        command
             .arg("--extension-root")
             .arg(self.path("extension"))
             .args(["--ollama-host", url, "--lm-studio-host", url])
@@ -396,27 +469,8 @@ impl World {
         self.check_with(command)
     }
 
-    fn check_with(&self, mut command: Command) -> (Option<i32>, Value) {
-        let before: Vec<Tree> = self.watched().iter().map(|root| tree(root)).collect();
-        let temporary = below(tree(&self.path("tmp")));
-        let connections = self.listener.count();
-        let output = command.output().unwrap();
-        let after: Vec<Tree> = self.watched().iter().map(|root| tree(root)).collect();
-        for ((root, before), after) in self.watched().iter().zip(&before).zip(&after) {
-            assert_eq!(before, after, "the check changed {}", root.display());
-        }
-        // The probe makes its area in `TMPDIR` and removes it, which moves only that directory's
-        // own mtime: everything below it is as it was.
-        assert_eq!(
-            temporary,
-            below(tree(&self.path("tmp"))),
-            "the probe left its area"
-        );
-        assert_eq!(
-            self.listener.count(),
-            connections,
-            "the check connected to a provider"
-        );
+    fn check_with(&self, command: Command) -> (Option<i32>, Value) {
+        let output = self.invoke(command);
         let report: Value = serde_json::from_slice(&output.stdout).unwrap_or_else(|error| {
             panic!(
                 "{error}: {}{}",
@@ -525,7 +579,9 @@ fn an_accepted_operator_root_passes_with_no_provider_call_and_nothing_written() 
         ("run_budget.declaration", "pass"),
         ("run_budget.ledger", "pass"),
         ("run_budget.route.executor", "pass"),
-        ("run_budget.route.planner", "pass"),
+        ("run_budget.route.planner", "not_checked"),
+        ("request_pattern", "pass"),
+        ("secret_scope", "pass"),
     ] {
         assert_eq!(check_of(&report, id)["status"], status, "{id}: {report:#}");
     }
@@ -623,7 +679,7 @@ fn every_refusal_before_the_run_has_the_runs_own_code() {
         .iter()
         .filter(|check| check["status"] == "fail")
         .collect();
-    assert_eq!(failed.len(), 2, "{report:#}");
+    assert_eq!(failed.len(), 1, "{report:#}");
     assert_eq!(failed[0]["id"], "run_budget.route.executor");
     let (_, error) = world.run(true, &chat);
     assert_eq!(failed[0]["code"].as_str().unwrap(), run_code(&error));
@@ -834,16 +890,13 @@ fn a_descriptor_written_with_the_shown_pins_is_admitted_by_the_run() {
 }
 
 /// The human form says the same, without JSON, and a configuration the run refuses to resolve is
-/// the run's exit 2.
+/// the run's exit 2. Both go through the same whole-world comparison.
 #[test]
 fn the_human_form_and_a_refused_configuration() {
     let world = World::new();
     let mut command = world.command(false, &lm_studio());
     command.arg("--operator-check");
-    let before: Vec<Tree> = world.watched().iter().map(|root| tree(root)).collect();
-    let output = command.output().unwrap();
-    let after: Vec<Tree> = world.watched().iter().map(|root| tree(root)).collect();
-    assert_eq!(before, after);
+    let output = world.invoke(command);
     assert_eq!(output.status.code(), Some(0));
     let text = String::from_utf8(output.stdout).unwrap();
     assert!(
@@ -854,7 +907,7 @@ fn the_human_form_and_a_refused_configuration() {
 
     let mut command = world.command(false, &["--preset", "no-such-preset"]);
     command.args(["--operator-check", "--json"]);
-    let output = command.output().unwrap();
+    let output = world.invoke(command);
     assert_eq!(output.status.code(), Some(2), "{}", last_error(&output));
     assert!(output.stdout.is_empty());
     let mut tail = String::new();
@@ -862,4 +915,203 @@ fn the_human_form_and_a_refused_configuration() {
         .read_to_string(&mut tail)
         .unwrap();
     assert!(tail.starts_with("error:"), "{tail}");
+}
+
+/// claude-4 S2: an operator's plain call, with the state directory and the events at their
+/// defaults (under the fake `HOME` and the workspace), and a ledger directory two levels from
+/// being made. Nothing anywhere in the world is made.
+#[test]
+fn defaults_and_a_ledger_directory_not_made_yet_leave_nothing_behind() {
+    let world = World::new();
+    world.declare_v2(|policy| policy["ledger_dir"] = json!(world.path("ledgers/one/two")));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_commandagent"));
+    world.configure_with(&mut command, true, &responses(), true);
+    command.args(["--operator-check", "--json"]);
+    let (code, report) = world.check_with(command);
+    assert_eq!(code, Some(0), "{report:#}");
+    assert_eq!(check_of(&report, "run_budget.ledger")["code"], "absent");
+    assert!(!world.path("ledgers/one").exists());
+    assert!(!world.path("home/.commandagent").exists());
+}
+
+/// claude-4 S2: another process holds the wallet's lock while the check runs. The check takes no
+/// lock, so it neither waits nor writes, and the lock file stays as it was.
+#[test]
+fn a_wallet_lock_held_elsewhere_is_neither_waited_for_nor_touched() {
+    use std::os::fd::AsRawFd as _;
+    let world = World::new();
+    world.declare_v2(|_| {});
+    let (code, error) = world.run(true, &responses());
+    assert_eq!(code, Some(1), "{error}");
+    let lock = std::fs::OpenOptions::new()
+        .read(true)
+        .open(world.path(&format!("ledgers/{WALLET}/lock")))
+        .unwrap();
+    // SAFETY: `lock` is an open descriptor this test owns, and flock only uses it.
+    let held = unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+    assert_eq!(held, 0);
+    let started = std::time::Instant::now();
+    let (code, report) = world.check(true, &responses());
+    assert!(started.elapsed() < Duration::from_secs(30));
+    assert_eq!(code, Some(0), "{report:#}");
+    assert_eq!(check_of(&report, "run_budget.ledger")["code"], "continues");
+    // The run, by contrast, is refused while the lock is held.
+    let (_, error) = world.run(true, &responses());
+    assert_eq!(run_code(&error), "Wallet(Held)");
+    drop(lock);
+}
+
+/// M1: a value registered as a secret in the run's scope is printed nowhere: not in a declared
+/// pin, a pinned path, or the temporary parent, in either form. The report keeps its shape.
+#[test]
+fn a_registered_secret_is_scrubbed_from_the_whole_report() {
+    const SECRET: &str = "dummy-credential-1013-value";
+    let world = World::new();
+    let hidden = world.path(&format!("tools/{SECRET}"));
+    std::fs::create_dir_all(&hidden).unwrap();
+    world.write_tool(UPPER, "out/upper.json", &[FIXED_INPUT], |d| {
+        d["schema_sha256"] = json!(SECRET);
+        d["process"]["dependency_directories"][0]["path"] = json!(hidden);
+    });
+    let temporary = world.path(&format!("tmp/{SECRET}"));
+    std::fs::create_dir_all(&temporary).unwrap();
+    let arguments = [&lm_studio()[..], &["--profile", TOOL_PROFILE][..]].concat();
+    for json in [true, false] {
+        let mut command = world.command(false, &arguments);
+        command
+            .env("LM_STUDIO_API_TOKEN", SECRET)
+            .env("TMPDIR", &temporary)
+            .arg("--operator-check");
+        if json {
+            command.arg("--json");
+        }
+        let output = world.invoke(command);
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(!stdout.contains(SECRET), "{stdout}");
+        assert!(!stderr.contains(SECRET), "{stderr}");
+        assert_eq!(output.status.code(), Some(1), "{stdout}{stderr}");
+        if json {
+            let report: Value = serde_json::from_str(&stdout).unwrap();
+            assert_eq!(report["schema_version"], "commandagent.operator-check/v1");
+            assert_eq!(check_of(&report, "profile_tools")["code"], "invalid_pin");
+            let schema = report["pins"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|pin| pin["pin"] == "schema_sha256")
+                .unwrap();
+            assert!(schema["declared"].as_str().unwrap().contains("redacted"));
+            assert!(
+                check_of(&report, "isolation.probe_cleanup")["data"]
+                    .get("temporary_parent")
+                    .is_some()
+            );
+        } else {
+            assert!(stdout.contains("profile_tools [invalid_pin]"), "{stdout}");
+        }
+    }
+}
+
+/// M3: a `--prompt` run builds the executor's client only, so a planner on a route the wallet
+/// cannot count is not a failure: the check passes, and the real run gets past client admission
+/// to the missing key.
+#[test]
+fn a_planner_route_a_prompt_run_never_builds_does_not_fail_the_check() {
+    let world = World::new();
+    world.declare_v2(|_| {});
+    let arguments = [
+        &responses()[..],
+        &["--planner-provider", "ollama", "--planner-model", "p-1"][..],
+    ]
+    .concat();
+    let (code, report) = world.check(true, &arguments);
+    assert_eq!(code, Some(0), "{report:#}");
+    assert_eq!(
+        check_of(&report, "run_budget.route.executor")["status"],
+        "pass"
+    );
+    assert_eq!(
+        check_of(&report, "run_budget.route.planner")["status"],
+        "not_checked"
+    );
+    let (_, error) = world.run(true, &arguments);
+    assert!(error.contains("OPENAI_API_KEY"), "{error}");
+    assert!(!error.contains("RouteNotCountable"), "{error}");
+    assert_eq!(world.listener.count(), 0);
+}
+
+/// M4: under a wallet, `--request-pattern jev` is refused with the run's own word, by the same
+/// function, with nothing sent. The route is the generic compatible one, which needs no key.
+#[test]
+fn request_pattern_routing_under_a_wallet_has_the_runs_own_code() {
+    let world = World::new();
+    world.declare_v1();
+    let base_url = format!("{}/v1", world.listener.url);
+    let arguments = [
+        "--provider",
+        "openai-compatible",
+        "--base-url",
+        &base_url,
+        "--api",
+        "chat-completions",
+        "--model",
+        "m-1",
+        "--request-pattern",
+        "jev",
+    ];
+    let (code, report) = world.check(true, &arguments);
+    assert_eq!(code, Some(1), "{report:#}");
+    let (id, check) = failed_code(&report);
+    assert_eq!(
+        (id.as_str(), check.as_str()),
+        ("request_pattern", "Unmetered(RequestPattern)")
+    );
+    let (_, error) = world.run(true, &arguments);
+    assert_eq!(check, run_code(&error), "{error}");
+    assert_eq!(world.listener.count(), 0);
+    // Without the routing, the same wallet passes.
+    let (code, report) = world.check(true, &arguments[..8]);
+    assert_eq!(code, Some(0), "{report:#}");
+}
+
+/// Out of scope noted in review: `--sandbox required` where the backend cannot start (an outer
+/// sandbox that refuses to start `sandbox-exec` again, a real environment and not a seam). Under a
+/// wallet both refuse with `NoSandboxPolicy`; without one the run starts and so the check passes,
+/// showing the sandbox as not applied.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_required_sandbox_without_a_backend_has_the_runs_own_answer() {
+    let world = World::new();
+    world.declare_v2(|_| {});
+    let nested = |wallet: bool, arguments: &[&str], extra: &[&str]| {
+        let mut command = Command::new("/usr/bin/sandbox-exec");
+        command
+            .args([
+                "-p",
+                "(version 1)(allow default)(deny process-exec (literal \"/usr/bin/sandbox-exec\"))",
+            ])
+            .arg(env!("CARGO_BIN_EXE_commandagent"));
+        world.configure(&mut command, wallet, arguments);
+        command.args(["--sandbox", "required"]).args(extra);
+        command
+    };
+    let (code, report) =
+        world.check_with(nested(true, &responses(), &["--operator-check", "--json"]));
+    assert_eq!(code, Some(1));
+    assert_eq!(check_of(&report, "os_sandbox")["code"], "not_applied");
+    let (id, check) = failed_code(&report);
+    assert_eq!(
+        (id.as_str(), check.as_str()),
+        ("run_budget.declaration", "NoSandboxPolicy")
+    );
+    let output = nested(true, &responses(), &["--prompt", "say hi"])
+        .output()
+        .unwrap();
+    assert_eq!(check, run_code(&last_error(&output)));
+
+    let (code, report) =
+        world.check_with(nested(false, &lm_studio(), &["--operator-check", "--json"]));
+    assert_eq!(code, Some(0), "{report:#}");
+    assert_eq!(check_of(&report, "os_sandbox")["code"], "not_applied");
 }

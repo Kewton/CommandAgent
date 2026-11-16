@@ -118,8 +118,8 @@ pub(super) mod test_hook {
         static CLEANUP_FAULT: Cell<bool> = const { Cell::new(false) };
     }
 
-    /// A watched probe's removal of its temporary area fails on this thread, and the area is
-    /// left where it was for the test to see and remove.
+    /// A watched probe's removal of its temporary area fails on this thread, through the real
+    /// removal, and the area is left where it was for the test to see and remove.
     pub(in super::super) struct FaultyCleanup;
 
     impl Drop for FaultyCleanup {
@@ -133,6 +133,9 @@ pub(super) mod test_hook {
         FaultyCleanup
     }
 
+    /// The file a faulted area holds, so that its removal fails for real.
+    pub(in super::super) const STUCK: &str = "stuck";
+
     pub(super) fn is_cleanup_fault() -> bool {
         CLEANUP_FAULT.with(Cell::get)
     }
@@ -142,7 +145,8 @@ pub(super) mod test_hook {
 /// as it always did. A caller that watches owns the removal: it is done here, then the path is
 /// looked at again, and an area still there is counted, so a check never reports a probe that
 /// left something behind as clean. The area is made by `tempfile` in the system temporary
-/// directory (`std::env::temp_dir()`, which follows `TMPDIR`).
+/// directory (`std::env::temp_dir()`, which follows `TMPDIR`). An interrupt while a probe runs
+/// can leave its empty area there, watched or not, as it always could.
 pub(crate) mod probe_area {
     use std::cell::RefCell;
     use std::path::PathBuf;
@@ -203,12 +207,14 @@ pub(crate) mod probe_area {
         });
     }
 
-    /// The area's own removal, its result kept. Under the test fault it is kept on disk instead.
+    /// The area's own removal, its result kept. Under the test fault the area holds a file and
+    /// cannot be written, so the real removal fails and the area stays.
     fn remove(area: tempfile::TempDir) -> bool {
         #[cfg(test)]
         if super::test_hook::is_cleanup_fault() {
-            let _ = area.keep();
-            return false;
+            use std::os::unix::fs::PermissionsExt as _;
+            let _ = std::fs::write(area.path().join(super::test_hook::STUCK), b"");
+            let _ = std::fs::set_permissions(area.path(), std::fs::Permissions::from_mode(0o500));
         }
         area.close().is_ok()
     }
@@ -797,7 +803,11 @@ mod tests {
                 left.starts_with(std::fs::canonicalize(std::env::temp_dir()).unwrap())
                     || left.starts_with(std::env::temp_dir())
             );
-            // The probe's write was refused, so the area it left is empty.
+            // The real `close()` failed on the file the fault put there; the probe's own write
+            // was refused, so that file is all the area holds.
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(left, std::fs::Permissions::from_mode(0o700)).unwrap();
+            std::fs::remove_file(left.join(super::test_hook::STUCK)).unwrap();
             std::fs::remove_dir(left).unwrap();
         }
     }

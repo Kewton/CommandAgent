@@ -434,7 +434,7 @@ pub struct Cli {
             "summary_json", "goal"
         ],
         help_heading = "Actions (use one)",
-        help = "Check, without a provider call and without writing anything, whether the run's admission accepts the operator root's declarations (profile tools, structured stages, run budget) for this configuration, and show their pins. Exit 0 when every check passes, 1 when one fails."
+        help = "Check, without a provider call and leaving nothing behind, whether a non-interactive --prompt run's admission accepts the operator root's declarations (profile tools, structured stages, run budget) for this configuration, and show their pins. The isolation probe makes and removes a temporary area under the system temporary directory, holds a loopback socket, and starts a sandboxed child. Exit 0 when every check passes, 1 when one fails."
     )]
     pub operator_check: bool,
     #[arg(
