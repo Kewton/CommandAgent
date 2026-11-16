@@ -328,5 +328,29 @@ amount was reported, for example
 A **Responses run reports no billed amount**, so under a v2 wallet the three
 fields are `null`, `false`, and `0`. This is not "free": it means the provider
 sent no amount. The money the wallet counted (usage times your tariff) is a
-different number, kept in the ledger, and the summary does not show it. Providers
+different number, shown in the `run_budget` object described next. Providers
 that report no amount, such as Ollama, give the same three values.
+
+### The wallet and the stages in the summary
+
+At its end, a run that selected a run budget records the wallet's state once, as
+the `run_budget_summary` event. A run that declared structured stages records
+them the same way, as `structured_stages_summary`. `--summary-json` reads these
+events and adds two objects. Each object is left out when the run did not declare
+that feature. The summary reads only the run's own events and never a ledger, so
+a run recorded before this feature has neither object.
+
+| Object | Field | Meaning |
+| --- | --- | --- |
+| `run_budget` | `record` | `observed`, or `unavailable` when the wallet could not be read in time (for example, a send still held its lock when `SIGINT` came). An `unavailable` record has no amount, never `0` |
+| `run_budget` | `accounting_basis` | `provider_billed` (v1) or `usage_tariff` (v2) |
+| `run_budget` | `limit_usd`, `spent_usd`, `held_usd` | The cost limit, what the wallet spent, and what it still holds, as decimal strings. v1 spends each settled send's consumed amount; v2 spends each send's tariff charge |
+| `run_budget` | `declared_tariff_charge_usd_total` | v2 only: your declared tariff applied to the verified usage, summed. It is **not a provider bill**. Under v2 it equals `spent_usd` |
+| `run_budget` | `sends`, `unknown`, `latch` | Send counts by state, each unknown send with its cause, and the latch with its cause, in the ledger's own words |
+| `run_budget` | `stop` | `null`, or the wallet's own refusal in this command: `kind` `limit` with the declaration's `limit` name (such as `cost_usd`), or `refused`. A stop is never inferred from the amounts |
+| `structured_stages` | `complete`, `ledger_intact` | The answer of the one stage verdict at the end of the run. A later summary does not judge the files again |
+| `structured_stages` | `stages` | Per target: `phase`, `sealed`, `attempts` (`used`, `limit`), `artifact` (`path`, `committed_sha256`), and `failed_checks` when an attempt's checks failed in this run |
+
+`summary.md` gains a short section for each object that is present, after the
+billed line. `assurance` stays where it was: a sealed stage set is reported here,
+but it does not raise `static`.

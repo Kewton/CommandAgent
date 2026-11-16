@@ -307,5 +307,27 @@ v2 のファイルは、OpenAI 直接の Responses の run 用です。provider 
 
 **Responses の run は請求額を報告しません。** そのため v2 の wallet の下では、3 つの欄は `null`・
 `false`・`0` になります。これは「無料」ではなく、provider が額を送らなかったという意味です。wallet が
-数えた額（使用量に単価表を掛けたもの）は別の数で、ledger に残り、summary には出ません。Ollama のように
+数えた額（使用量に単価表を掛けたもの）は別の数で、次に説明する `run_budget` に出ます。Ollama のように
 額を報告しない provider でも、3 つの値は同じになります。
+
+### summary に出る wallet と段
+
+run budget を選んだ run は、終わるときに wallet の状態を 1 回だけ `run_budget_summary` の event に
+記録します。structured stages を宣言した run も、同じように `structured_stages_summary` に記録します。
+`--summary-json` はこれらの event を読み、2 つの object を足します。宣言の無い機能の object は出ません。
+summary は run 自身の event だけを読み、ledger は読みません。そのため、この機能より前に記録された run
+には、どちらの object もありません。
+
+| object | 欄 | 意味 |
+| --- | --- | --- |
+| `run_budget` | `record` | `observed`。wallet を時間内に読めなかったとき（たとえば `SIGINT` の時に送信がまだ lock を持っていた）は `unavailable`。`unavailable` の記録に額は無く、`0` も入りません |
+| `run_budget` | `accounting_basis` | `provider_billed`（v1）または `usage_tariff`（v2） |
+| `run_budget` | `limit_usd`・`spent_usd`・`held_usd` | 費用の上限・使った額・まだ押さえている額。10 進の文字列です。v1 は確定した送信ごとの消費額、v2 は送信ごとの単価表による額を使った額として数えます |
+| `run_budget` | `declared_tariff_charge_usd_total` | v2 だけ。あなたが宣言した単価表を検証済みの使用量に当てた額の合計で、**provider の請求ではありません**。v2 では `spent_usd` と同じ値です |
+| `run_budget` | `sends`・`unknown`・`latch` | 状態ごとの送信の数、unknown の送信とその理由、latch とその理由。語は ledger のものです |
+| `run_budget` | `stop` | `null`、またはこの command で wallet が実際に拒否したこと。上限による拒否は `kind` が `limit` で、宣言の上限の名前（`cost_usd` など）が `limit` に入ります。それ以外は `refused` です。額から推し量った停止は出ません |
+| `structured_stages` | `complete`・`ledger_intact` | run の終わりの、ただ 1 つの段の判定の答え。後で summary を作っても、ファイルを判定し直しません |
+| `structured_stages` | `stages` | target ごとの `phase`・`sealed`・`attempts`（`used`・`limit`）・`artifact`（`path`・`committed_sha256`）。この run で検査が落ちた試行があれば `failed_checks` |
+
+`summary.md` には、ある object ごとに短い節が、請求額の行の後に足されます。`assurance` は変わりません。
+段がすべて sealed でも、ここに出るだけで `static` は上がりません。

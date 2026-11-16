@@ -39,6 +39,9 @@ The schema identifier is `commandagent.headless-summary/v1`. Existing scalar
 keys are always present; unavailable measurements are JSON `null`. The
 additive `provider_usage_by_role` object is empty when the event stream has no
 provider turns. The additive `pack` object is omitted when no pack was selected.
+The additive `run_budget` and `structured_stages` objects are omitted when the
+run declared neither; the summary reads them only from the run's own events and
+never from a ledger, so a run recorded before they existed has neither.
 
 | Field | Source and meaning |
 | --- | --- |
@@ -66,6 +69,8 @@ provider turns. The additive `pack` object is omitted when no pack was selected.
 | `verify_commands` | Verification command strings projected from run evidence. Each executed plan verify step records an execution observation with its declared and effective command; a command that was only declared and never executed stays not-recorded and is never reported as passed. |
 | `exit_code` | Projected process exit code (`0`, `1`, or `130`) for a known terminal status; `null` when unavailable. |
 | `pack` | Selected pack `id`, exact `version`, verified exact-byte `hash`, and winning `source` (`extension_root` or `repository`). Omitted when no pack is active. |
+| `run_budget` | The run budget (wallet) as the run recorded it at its end, in the `run_budget_summary` event. Omitted when no run budget was selected. `record` is `observed` or `unavailable`; `accounting_basis` is `provider_billed` (v1) or `usage_tariff` (v2). An observed record adds `budget_id`, `policy_sha256`, `workspace_sha256`, the decimal strings `limit_usd`, `spent_usd`, and `held_usd`, `sends` (counts of `settled`, `reserved`, `started`, `unknown`), `unknown` (each unknown send's `physical` number and `cause` in the ledger's words), `latch` (`null` or its `cause` and `physical`), and `stop` (`null` or the wallet's own refusal: `kind` `limit` with the declaration's `limit` name, or `refused`, and the `refusal` words). A v2 record adds `declared_tariff_charge_usd_total`: your declared tariff applied to the verified usage, summed; it is not a provider bill, and under v2 it equals `spent_usd`. An `unavailable` record (the wallet could not be read in time, for example on `SIGINT`) has no amount at all, never `0`. |
+| `structured_stages` | The declared stages as the run recorded them at its end, in the `structured_stages_summary` event. Omitted when no stages were declared. `record` is `observed` or `unavailable`. An observed record has `complete` and `ledger_intact` from the one stage verdict, `contract_sha256`, `run_nonce` (`null` when no stage call opened the stage record), and `stages`: per target its `stage`, `target`, `phase`, `sealed`, `attempts` (`used` and `limit`), `artifact` (`path` and the adopted `committed_sha256`, or `null`), and `failed_checks` when an attempt's checks failed in this run (`attempt`, `code`, the required `checks` with their `status`, `missing` required IDs, and the count of `unrequested` results). `assurance` is not raised by any of this. |
 
 Builder Plane and similar callers should gate on both `verdict` and `assurance`,
 then use `artifacts_dir`, `acceptance_sheet_path`, and `events_path` as the
