@@ -1,5 +1,5 @@
 # The preset the rehearsal runs with. The base URL is given on the command line
-# (--base-url), because the fake model picks a free port each time.
+# (--base-url), so the fake model's port can change between runs.
 #
 # `openrouter_provider` is CommandAgent's own key for the provider routing table
 # a request carries. A v1 run budget counts a send only when the body names the

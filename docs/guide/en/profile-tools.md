@@ -162,14 +162,14 @@ Stages need `profile-tool.declaration/v2`:
 schema_version = "profile-tool.declaration/v2"
 builtin_tools = ["Read"]
 tools = [
-  { id = "items-parse", effect = "propose-artifacts" },
-  { id = "items-check", effect = "propose-artifacts" },
+  { id = "example-parse", effect = "propose-artifacts" },
+  { id = "example-check", effect = "propose-artifacts" },
 ]
 
 [profile_tools.stages]
 stages = [
-  { id = "parse", targets = [{ id = "main", tool_id = "items-parse" }] },
-  { id = "check", targets = [{ id = "main", tool_id = "items-check" }] },
+  { id = "parse", targets = [{ id = "main", tool_id = "example-parse" }] },
+  { id = "check", targets = [{ id = "main", tool_id = "example-check" }] },
 ]
 ```
 
@@ -288,10 +288,12 @@ as `secret_value_in_output`, and nothing of the output is kept.
 | Result | 64 KiB of stdout and stderr together, or the descriptor's narrower `max_result_bytes` |
 | Diagnostics | At most 8, code at most 64 bytes, message at most 512 bytes |
 
-A shell script under this policy can use builtins only: command substitution
-and pipes fork, a here-string writes a temporary file, and an external program
-cannot be executed. The executable and every dependency directory must be owned
-by you or root, with no group or other write.
+On macOS, `/bin/bash` works as the pinned executable. `/bin/sh`,
+`/usr/bin/python3`, and `/usr/bin/perl` are launchers that exec another file,
+which this policy refuses, so the process fails. A shell script can use
+builtins only; [What Bash may do in the sandbox](operator-root-tutorial.md#what-bash-may-do-in-the-sandbox)
+lists them. The executable and every dependency directory must be owned by you
+or root, with no group or other write.
 
 ## Run Budget
 

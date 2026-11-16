@@ -152,14 +152,14 @@ kind の全一覧、schema の部分集合、上限は、開発者向けの文�
 schema_version = "profile-tool.declaration/v2"
 builtin_tools = ["Read"]
 tools = [
-  { id = "items-parse", effect = "propose-artifacts" },
-  { id = "items-check", effect = "propose-artifacts" },
+  { id = "example-parse", effect = "propose-artifacts" },
+  { id = "example-check", effect = "propose-artifacts" },
 ]
 
 [profile_tools.stages]
 stages = [
-  { id = "parse", targets = [{ id = "main", tool_id = "items-parse" }] },
-  { id = "check", targets = [{ id = "main", tool_id = "items-check" }] },
+  { id = "parse", targets = [{ id = "main", tool_id = "example-parse" }] },
+  { id = "check", targets = [{ id = "main", tool_id = "example-check" }] },
 ]
 ```
 
@@ -250,7 +250,7 @@ process の標準入力に要求を 1 行書き、標準出力から結果の文
 受け入れられるのは、次をすべて満たすときだけです:
 
 - process が 0 で終わり、要求をすべて受け取り、何も残していない。
-- 未知の欄・欠けた欄・重複した欄が無く、束縛の欄がそれぞれ要求と等しい。
+- 未知の欄・欠けた欄・重複した欄が無く、要求と同じ値を返す欄（`request_id` など）がそれぞれ要求と等しい。
 - 検査が 1 つ以上あり、ID が重複せず、それぞれ `passed` である。
 - 宣言した出力がちょうど 1 回、正規形の base64 で、バイトと等しい `sha256` とともにある。
 
@@ -272,9 +272,12 @@ run の秘密の値が出力のどこかに見つかると、その呼び出し�
 | 結果 | stdout と stderr を合わせて 64 KiB、または descriptor のより狭い `max_result_bytes` |
 | diagnostics | 最大 8 件。code は 64 バイト、message は 512 バイトまで |
 
-この方針の下の shell script は組み込み機能しか使えません。コマンド置換とパイプは fork し、
-here-string は一時ファイルを書き、外部プログラムは実行できないからです。実行体と各依存
-ディレクトリは、あなたか root が持ち主で、group と other の書き込み権が無いことが必要です。
+macOS で pin した実行体として動くのは `/bin/bash` です。`/bin/sh`・`/usr/bin/python3`・
+`/usr/bin/perl` は別のファイルを exec する中継の実行体で、この方針がその exec を拒否する
+ので process は失敗します。shell script は組み込み機能しか使えません。使えるものは
+[sandbox の中で bash ができること](operator-root-tutorial.md#sandbox-の中で-bash-ができること)
+に並べています。実行体と各依存ディレクトリは、あなたか root が持ち主で、group と other の
+書き込み権が無いことが必要です。
 
 ## run budget
 

@@ -11,9 +11,11 @@
 //! refused before the start, with no connection to the fake). An isolation probe that is
 //! `unavailable` fails these tests; nothing here is skipped or ignored.
 //!
-//! Every binary runs with an empty environment, a fake `HOME`, its own `TMPDIR`, and
-//! `PATH=/usr/bin:/bin`. No model, key, or external provider is used: the only provider is
-//! `examples/operator-root/rehearse/fake_model.py` on 127.0.0.1.
+//! Every binary runs as the guide's `ca` wrapper runs it: an empty environment, `HOME` and
+//! `TMPDIR` at the `home/` and `tmp/` that `setup.sh` makes, the three `COMMANDAGENT_*` variables,
+//! and `PATH=/usr/bin:/bin`. A test holds the guide's wrapper to the same list. No model, key, or
+//! external provider is used: the only provider is `examples/operator-root/rehearse/fake_model.py`
+//! on 127.0.0.1.
 
 #![cfg(unix)]
 
@@ -30,6 +32,21 @@ const PROFILE: &str = "two-stage-example";
 const WALLET: &str = "example-wallet";
 const TOOLS: [&str; 2] = ["example-parse", "example-check"];
 const UNUSED_URL: &str = "http://127.0.0.1:9/v1";
+
+/// The environment the guide's `ca` wrapper gives `commandagent` (besides the caller's `PATH`),
+/// with `$ROOT` for the laid-out root. The tests run the binary with exactly these.
+const RUN_ENV: [(&str, &str); 5] = [
+    ("HOME", "$ROOT/home"),
+    ("TMPDIR", "$ROOT/tmp"),
+    ("COMMANDAGENT_ADAPTER_CONFIG_ROOT", "$ROOT/operator"),
+    ("COMMANDAGENT_RUN_BUDGET", WALLET),
+    ("COMMANDAGENT_COMPATIBLE_REASONING_EFFORT", "low"),
+];
+
+fn tutorial(language: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join(format!("docs/guide/{language}/operator-root-tutorial.md"))
+}
 
 fn sample() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/operator-root")
@@ -67,21 +84,16 @@ fn said(output: &Output) -> String {
 }
 
 /// An operator's machine in a temporary directory: the sample laid out by its own `setup.sh`,
-/// a fake `HOME`, and a `TMPDIR` for the isolation probe.
+/// with the empty `home/` and `tmp/` it makes for the run's `HOME` and `TMPDIR`.
 struct Operator {
     _temp: tempfile::TempDir,
-    base: PathBuf,
     root: PathBuf,
 }
 
 impl Operator {
     fn new() -> Self {
         let temp = tempfile::tempdir().unwrap();
-        let base = std::fs::canonicalize(temp.path()).unwrap();
-        for directory in ["home", "tmp"] {
-            std::fs::create_dir_all(base.join(directory)).unwrap();
-        }
-        let root = base.join("example");
+        let root = std::fs::canonicalize(temp.path()).unwrap().join("example");
         let output = Command::new("/bin/bash")
             .arg(sample().join("setup.sh"))
             .arg(&root)
@@ -92,29 +104,33 @@ impl Operator {
         assert!(output.status.success(), "setup.sh: {}", said(&output));
         let printed = String::from_utf8_lossy(&output.stdout);
         assert!(printed.contains("--operator-check --json"), "{printed}");
-        Self {
-            _temp: temp,
-            base,
-            root,
+        for directory in ["home", "tmp"] {
+            let made = root.join(directory);
+            assert_eq!(
+                std::fs::read_dir(&made).map(|entries| entries.count()).ok(),
+                Some(0),
+                "setup.sh makes an empty {made:?}"
+            );
         }
+        Self { _temp: temp, root }
     }
 
     fn path(&self, relative: &str) -> PathBuf {
         self.root.join(relative)
     }
 
-    /// The command the guide gives, against `url`.
+    /// The command the guide gives, through its `ca` wrapper, against `url`.
     fn command(&self, url: &str) -> Command {
         let mut command = Command::new(env!("CARGO_BIN_EXE_commandagent"));
         command
             .env_clear()
             .current_dir(self.path("workspace"))
-            .env("HOME", self.base.join("home"))
-            .env("TMPDIR", self.base.join("tmp"))
-            .env("PATH", "/usr/bin:/bin")
-            .env("COMMANDAGENT_ADAPTER_CONFIG_ROOT", self.path("operator"))
-            .env("COMMANDAGENT_RUN_BUDGET", WALLET)
-            .env("COMMANDAGENT_COMPATIBLE_REASONING_EFFORT", "low")
+            .env("PATH", "/usr/bin:/bin");
+        let root = self.root.to_str().unwrap();
+        for (name, value) in RUN_ENV {
+            command.env(name, value.replace("$ROOT", root));
+        }
+        command
             .arg("--cwd")
             .arg(self.path("workspace"))
             .arg("--extension-root")
@@ -149,6 +165,38 @@ fn check_of<'a>(report: &'a Value, id: &str) -> &'a Value {
 
 fn template(tool: &str) -> String {
     std::fs::read_to_string(sample().join(format!("operator/profile-tools/{tool}.json"))).unwrap()
+}
+
+/// The guide runs every command through `ca`, which gives `commandagent` the caller's `PATH` and
+/// exactly `RUN_ENV`, so a user's own `~/.commandagent/config.toml` and stray `COMMANDAGENT_*`
+/// variables stay out of the rehearsal, as they stay out of these tests. Both languages show the
+/// same wrapper, and every command in the guide goes through it.
+#[test]
+fn the_tutorial_runs_commandagent_the_way_these_tests_do() {
+    let mut wrapper = String::from("ca() {\n  env -i PATH=\"$PATH\" \\\n");
+    for (name, value) in RUN_ENV {
+        wrapper.push_str(&format!("    {name}=\"{value}\" \\\n"));
+    }
+    wrapper.push_str("    commandagent \"$@\"\n}\n");
+    for language in ["en", "ja"] {
+        let text = std::fs::read_to_string(tutorial(language)).unwrap();
+        assert!(
+            text.contains(&wrapper),
+            "{language}: the tutorial's wrapper differs from\n{wrapper}"
+        );
+        let mut in_bash = false;
+        for line in text.lines() {
+            match line.trim_start() {
+                "```bash" => in_bash = true,
+                "```" => in_bash = false,
+                "commandagent \"$@\"" => {}
+                command if in_bash && command.starts_with("commandagent") => {
+                    panic!("{language}: `{command}` runs commandagent without `ca`")
+                }
+                _ => {}
+            }
+        }
+    }
 }
 
 /// The descriptors decode as the host's own type, ship a real schema pin, pin `/bin/bash` and the
@@ -534,6 +582,24 @@ const DENIED: &[&str] = &[
     r"qwen",
     r"deepseek",
     r"gmail",
+    r"fable",
+    r"opus",
+    r"sonnet",
+    r"haiku",
+    r"gemini",
+    r"mistral",
+    r"llama",
+    r"ollama",
+    r"kimi",
+    r"minimax",
+    r"grok",
+    r"groq",
+    r"fireworks",
+    r"together\.ai",
+    r"togetherai",
+    r"deepinfra",
+    r"novita",
+    r"cerebras",
     r"sk-[A-Za-z0-9]",
 ];
 
@@ -550,30 +616,61 @@ fn walk(directory: &Path, files: &mut Vec<PathBuf>) {
     }
 }
 
-/// Acceptance 2: nothing in the sample or the tutorial names a user, a machine, or a real
-/// upstream. `openrouter_provider` is CommandAgent's own configuration key and stays allowed.
+/// The sections this example added to the reference page, from `start` up to `end`. The rest of
+/// the page belongs to other features and may name a real endpoint.
+fn reference_sections(language: &str, start: &str, end: &str) -> String {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join(format!("docs/guide/{language}/profile-tools.md"));
+    let text = std::fs::read_to_string(&path).unwrap();
+    let from = text
+        .find(start)
+        .unwrap_or_else(|| panic!("{path:?} has no `{start}`"));
+    let to = text[from..]
+        .find(end)
+        .unwrap_or_else(|| panic!("{path:?} has no `{end}` after `{start}`"));
+    let sections = text[from..from + to].to_string();
+    assert!(sections.contains("profile-tool.result/v1"), "{sections}");
+    sections
+}
+
+/// Acceptance 2: nothing in the sample, the tutorial, or the reference sections it added names a
+/// user, a machine, or a real model, vendor, or upstream. `openrouter_provider` is CommandAgent's
+/// own configuration key and stays allowed.
 #[test]
 fn the_sample_and_the_tutorial_name_no_user_and_no_machine() {
     let mut files = Vec::new();
     walk(&sample(), &mut files);
+    assert!(files.len() >= 13, "{files:?}");
+    let mut texts: Vec<(String, String)> = files
+        .iter()
+        .map(|file| {
+            let text =
+                std::fs::read_to_string(file).unwrap_or_else(|error| panic!("{file:?}: {error}"));
+            (format!("{file:?}"), text)
+        })
+        .collect();
     for language in ["en", "ja"] {
-        files.push(
-            Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join(format!("docs/guide/{language}/operator-root-tutorial.md")),
-        );
+        let path = tutorial(language);
+        texts.push((format!("{path:?}"), std::fs::read_to_string(&path).unwrap()));
     }
-    assert!(files.len() >= 15, "{files:?}");
+    for (language, start, end) in [
+        ("en", "## Structured Stages", "## Run Budget"),
+        ("ja", "## structured stages", "## run budget"),
+    ] {
+        texts.push((
+            format!("{language}/profile-tools.md `{start}` to `{end}`"),
+            reference_sections(language, start, end),
+        ));
+    }
     let words = regex::Regex::new(&format!(r"(?i)\b(?:{})", DENIED.join("|"))).unwrap();
-    for file in &files {
-        let text =
-            std::fs::read_to_string(file).unwrap_or_else(|error| panic!("{file:?}: {error}"));
-        if let Some(found) = words.find(&text) {
-            panic!("{file:?} names `{}`", found.as_str());
+    for (name, text) in &texts {
+        if let Some(found) = words.find(text) {
+            panic!("{name} names `{}`", found.as_str());
         }
         for path in DENIED_PATHS {
             assert!(
                 !text.contains(path),
-                "{file:?} holds the absolute path {path}"
+                "{name} holds the absolute path {path}"
             );
         }
     }
@@ -671,10 +768,7 @@ mod macos {
     #[test]
     fn the_example_passes_the_check_and_seals_both_stages_under_its_wallet() {
         let operator = Operator::new();
-        let fake = Fake::start(
-            &operator.path("rehearse"),
-            operator.base.join("requests.jsonl"),
-        );
+        let fake = Fake::start(&operator.path("rehearse"), operator.path("requests.jsonl"));
         operator.pinned(&fake);
 
         let output = operator.rehearse(&fake.url);
@@ -731,6 +825,31 @@ mod macos {
                 json!({"only": ["example-upstream"], "allow_fallbacks": false})
             );
         }
+
+        // The guide's way to rehearse again: stop the fake and run step 6 from its start, in the
+        // same directory. The run exits 0 again and the wallet keeps counting.
+        drop(fake);
+        let again = Fake::start(
+            &operator.path("rehearse"),
+            operator.path("requests-again.jsonl"),
+        );
+        let output = operator.rehearse(&again.url);
+        let said_again = super::said(&output);
+        assert_eq!(output.status.code(), Some(0), "{said_again}");
+        assert_eq!(
+            std::fs::read(operator.path("workspace/out/report.json")).unwrap(),
+            REPORT,
+            "{said_again}"
+        );
+        let second = self::summary(&output);
+        assert_eq!(second["structured_stages"]["complete"], true, "{second:#}");
+        let budget = &second["run_budget"];
+        assert_eq!(budget["stop"], Value::Null, "{second:#}");
+        assert_eq!(
+            budget["sends"]["settled"],
+            bodies.len() + again.bodies().len(),
+            "{second:#}"
+        );
     }
 
     /// Acceptance 1, refusal: one byte appended to a pinned script. The check fails as
@@ -739,10 +858,7 @@ mod macos {
     #[test]
     fn a_changed_pinned_script_is_refused_before_the_start_with_no_connection() {
         let operator = Operator::new();
-        let fake = Fake::start(
-            &operator.path("rehearse"),
-            operator.base.join("requests.jsonl"),
-        );
+        let fake = Fake::start(&operator.path("rehearse"), operator.path("requests.jsonl"));
         operator.pinned(&fake);
 
         let script = operator.path("tools/check.sh");

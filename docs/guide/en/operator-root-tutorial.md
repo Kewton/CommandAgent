@@ -19,7 +19,7 @@ not repeat its tables; it shows them working together.
 | --- | --- |
 | macOS | A pinned process runs only under the macOS Seatbelt sandbox, after its probe passes. Elsewhere the tool is refused as `unavailable` before the run starts |
 | `commandagent` on your `PATH` | Every command below runs it |
-| `/bin/bash` | The only executable the sample's tools pin. The tools use bash builtins only |
+| `/bin/bash` | The only executable that works as a pinned process on macOS today. `/bin/sh`, `/usr/bin/python3`, and `/usr/bin/perl` are launchers that exec another file, which the sandbox refuses. The tools use bash builtins only |
 | `python3` | Only for the rehearsal's fake model, `rehearse/fake_model.py` (standard library only). The tools never use it |
 
 What the sample does with its toy data:
@@ -41,9 +41,13 @@ bash examples/operator-root/setup.sh "$HOME/two-stage-example"
 ROOT=$(cd "$HOME/two-stage-example" && pwd -P)
 ```
 
+The directory's path may hold only letters, digits, `/`, `.`, `_`, and `-`; any
+other character is refused.
+
 `setup.sh` copies five directories, writes the canonical path wherever a
-template says `@ROOT@`, and removes group and other write permission, because the
-host refuses a pinned tool directory that someone else can write.
+template says `@ROOT@`, makes the empty directories below, and removes group and
+other write permission, because the host refuses a pinned tool directory that
+someone else can write.
 
 | Path under `$ROOT` | Holds | Who owns it |
 | --- | --- | --- |
@@ -54,6 +58,7 @@ host refuses a pinned tool directory that someone else can write.
 | `workspace/` | The workspace: `input/items.txt` and `.commandagent/config.toml` with the preset | The user of the run |
 | `rehearse/fake_model.py`, `replies.json` | The fake model and its script | Only for the rehearsal |
 | `ledgers/` | The run budget's ledger, made by the first run | The host |
+| `home/`, `tmp/` | An empty `HOME` and `TMPDIR` for `commandagent` (step 5) | Only for the rehearsal |
 
 The operator root (`$ROOT/operator`) and the tools are outside the workspace, as
 they must be: a model, a profile, or a workspace file cannot change them.
@@ -176,20 +181,44 @@ sample's tools use bash builtins only:
 That is why `tools/lib.sh` computes base64 and SHA-256 in bash arithmetic. Copy
 it as it is; the repository tests it against a reference implementation.
 
+`lib.sh` makes two assumptions to stay small:
+
+- It reads only the first input of the request. A stage that reads two inputs
+  needs its own `read_request`.
+- It writes check IDs and diagnostics into the result's JSON as they are, without
+  escaping. Keep them to letters, digits, spaces, and `._-`; a `"` or `\` breaks
+  the result, and the run ends with `result_rejected: … result_malformed`.
+
 ## 5. Check the Root and Copy the Pins
 
-Set the environment once, then ask the host whether a run would admit what you
-declared. The check makes no provider call and writes nothing.
+Define the environment once, then ask the host whether a run would admit what
+you declared. The check makes no provider call and writes nothing.
 
 ```bash
-export COMMANDAGENT_ADAPTER_CONFIG_ROOT="$ROOT/operator"
-export COMMANDAGENT_RUN_BUDGET=example-wallet
-export COMMANDAGENT_COMPATIBLE_REASONING_EFFORT=low
+ca() {
+  env -i PATH="$PATH" \
+    HOME="$ROOT/home" \
+    TMPDIR="$ROOT/tmp" \
+    COMMANDAGENT_ADAPTER_CONFIG_ROOT="$ROOT/operator" \
+    COMMANDAGENT_RUN_BUDGET="example-wallet" \
+    COMMANDAGENT_COMPATIBLE_REASONING_EFFORT="low" \
+    commandagent "$@"
+}
 FLAGS=(--cwd "$ROOT/workspace" --extension-root "$ROOT/extension"
   --profile two-stage-example --preset example
   --base-url http://127.0.0.1:8765/v1 --allow read,write)
-commandagent --operator-check --json "${FLAGS[@]}"
+ca --operator-check --json "${FLAGS[@]}"
 ```
+
+- `ca` runs `commandagent` with these variables only and with `HOME` at the
+  empty `$ROOT/home`. Your own `~/.commandagent/config.toml` and any other
+  `COMMANDAGENT_*` variable in your shell do not apply, so the rehearsal behaves
+  as it does in the repository's test, which runs the same way.
+- `--allow read,write` is the run's tool ceiling. `read` lets the model use
+  `Read`. `write` is the authority a `propose-artifacts` tool needs for the host
+  to write the bytes it adopts; without it the run is refused before it starts
+  with `profile_tool_refused: effect_read_only`. The model still has only `Read`,
+  because the profile lists no other built-in tool.
 
 The first check exits `1`: `profile_tools` fails as `invalid_pin`, because the
 pins are zeros. The report lists every pin as `declared` beside `calculated`:
@@ -223,7 +252,7 @@ python3 -I "$ROOT/rehearse/fake_model.py" --replies "$ROOT/rehearse/replies.json
 Then run the prompt with the same environment and flags:
 
 ```bash
-commandagent "${FLAGS[@]}" --summary-json --prompt "Produce out/report.json."
+ca "${FLAGS[@]}" --summary-json --prompt "Produce out/report.json."
 cat "$ROOT/workspace/out/report.json"
 ```
 
@@ -232,7 +261,14 @@ The run exits `0` and `out/report.json` holds `{"items":3,"total":15}`.
 - The script calls `ExampleParse`, then `ExampleCheck` with the revision the host
   named, then answers in text. `{revision}` in `replies.json` is filled from the
   host's last answer, and a `stale` answer is repeated with the revision it names.
+- After a `resubmit` the fake does not repeat the call; it moves on in the
+  script. To rehearse a failed check, write the same call into `replies.json`
+  once more.
 - `requests.jsonl` holds every connection and request the fake received.
+- To rehearse again in the same directory, stop the fake (Ctrl-C) and run this
+  step again from the start: the run exits `0` again. A fake that is still
+  running has used up its script and answers only text, so a second run against
+  it ends `1` with `stage_incomplete`.
 
 Why the preset carries `openrouter_provider`: a v1 run budget counts only the
 generic OpenAI-compatible Chat Completions route, the one route where the
@@ -271,8 +307,8 @@ Append one byte to a pinned script and check again:
 
 ```bash
 printf '\n' >> "$ROOT/tools/check.sh"
-commandagent --operator-check --json "${FLAGS[@]}"
-commandagent "${FLAGS[@]}" --prompt "Produce out/report.json."
+ca --operator-check --json "${FLAGS[@]}"
+ca "${FLAGS[@]}" --prompt "Produce out/report.json."
 ```
 
 The check exits `1` with `profile_tools` failing as `invalid_pin`. The run exits
@@ -285,17 +321,21 @@ directory pin as in step 5.
 1. Copy the sample with `setup.sh` into a new directory, and rename the profile
    directory and its `[metadata] id`.
 2. In the manifest, give your tools and stages their IDs, and set
-   `[artifacts] required` to your final file.
-3. For each tool, write a descriptor: its `tool_id` and `name`, the
-   `schema.inputs` it reads (stage 2 reads stage 1's output), one `outputs`
-   entry, `argv` naming your script, and a `stage` floor whose
-   `required_checks` are the check IDs your script reports. Recompute
+   `[artifacts] required`, the `files` of `[[checks.final]]`, and the phase
+   prompt under `[plan]` to your final file. Rewrite the
+   `[guidance.variants.contract]` message with your tools' `name`s.
+3. For each tool, write a descriptor named `<tool_id>.json`: its `tool_id` and
+   `name`, the `schema.inputs` it reads (stage 2 reads stage 1's output), one
+   `outputs` entry, `argv` naming your script, and a `stage` floor whose
+   `required_checks` are the check IDs your script reports. The `name` is what
+   the model calls; use it in the guidance and in `replies.json`. Recompute
    `schema_sha256` whenever you change `schema`: it is the SHA-256 of the
    compact JSON of `schema` with keys sorted, and `--operator-check` shows the
    `calculated` value.
 4. Write each script with `lib.sh`: read the request, decode the input, decide
    your checks, and call `emit_result` with the output's text.
-5. Point `replies.json` at your tool names, then run steps 5 and 6.
+5. Point `replies.json` at your tool names, change `--profile` in `FLAGS` to
+   your profile ID, then run steps 5 and 6.
 
 Keep the limits of this version in mind: macOS only, one output per tool, and
 for a fake rehearsal a v1 run budget only (a v2 wallet counts only direct
