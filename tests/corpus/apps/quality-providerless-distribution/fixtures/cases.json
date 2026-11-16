@@ -50,7 +50,7 @@
     {
       "id": "BB-DOCS-001",
       "area": "docs",
-      "purpose": "--help has exactly the 68 application flags claimed by the reference",
+      "purpose": "--help has exactly the 69 application flags claimed by the reference",
       "source": "docs/guide/ja/cli-reference.md#呼び出し方",
       "setup": [],
       "command": "\"$BIN\" --help </dev/null | grep -oE '^ +(-[a-zA-Z], )?--[a-z0-9-]+' | grep -oE -- '--[a-z0-9-]+' | grep -vxE -- '--help|--version' | sort -u | wc -l | tr -d ' ' | sed 's/^/COUNT=/'",
@@ -58,7 +58,7 @@
       "expected": {
         "exit_code": 0,
         "stdout_contains": [
-          "COUNT=68"
+          "COUNT=69"
         ],
         "stderr_contains": [],
         "must_not_contain": [
@@ -67,7 +67,7 @@
         "files_exist": [],
         "files_absent": []
       },
-      "note": "Old expectation: COUNT=67. Fixed: #918 added --request-pattern, so --help has 68 application flags; docs/guide/ja/cli-reference.md:25 and docs/guide/en/cli-reference.md:26 claim 68 flags, pinned by tests/doc_drift.rs public_cli_flags_match_bilingual_references_and_advertised_counts."
+      "note": "Old expectation: COUNT=68. Fixed: #1013 added --operator-check, so --help has 69 application flags; docs/guide/ja/cli-reference.md:25 and docs/guide/en/cli-reference.md:26 claim 69 flags, pinned by tests/doc_drift.rs public_cli_flags_match_bilingual_references_and_advertised_counts."
     },
     {
       "id": "BB-DOCS-002",
@@ -123,7 +123,7 @@
       "purpose": "Reference action-selector list matches the help Actions group",
       "source": "docs/guide/ja/cli-reference.md#呼び出し方",
       "setup": [],
-      "command": "\"$BIN\" --help </dev/null | awk '/^Actions \\(use one\\):/{f=1;next} /^[A-Z]/{f=0} f' | grep -oE '^ +--[a-z0-9-]+' | tr -d ' ' | sort > a.txt; for f in --workflow --prompt --plan-steps --plan-run --run-plan --ultra-plan --ultra-plan-run --run-ultra-plan --validate-plan --setup-interaction-probe --runs --ux-demo --model-probe --doctor --extensions --packs --pack-verify --pack-pin --completions --generate-man --init-config --validate-manifest --init-profile; do echo $f; done | sort > b.txt; diff a.txt b.txt && echo ACTIONS_MATCH",
+      "command": "\"$BIN\" --help </dev/null | awk '/^Actions \\(use one\\):/{f=1;next} /^[A-Z]/{f=0} f' | grep -oE '^ +--[a-z0-9-]+' | tr -d ' ' | sort > a.txt; for f in --workflow --prompt --plan-steps --plan-run --run-plan --ultra-plan --ultra-plan-run --run-ultra-plan --validate-plan --setup-interaction-probe --runs --ux-demo --model-probe --doctor --operator-check --extensions --packs --pack-verify --pack-pin --completions --generate-man --init-config --validate-manifest --init-profile; do echo $f; done | sort > b.txt; diff a.txt b.txt && echo ACTIONS_MATCH",
       "timeout_sec": 60,
       "expected": {
         "exit_code": 0,
@@ -137,7 +137,7 @@
         "files_exist": [],
         "files_absent": []
       },
-      "note": "Old expectation: an action list without --workflow (audit finding DD-10). Fixed: --workflow is in the Actions (use one) group (src/cli.rs) and in cli-reference.md:13, pinned by tests/doc_drift.rs actions_help_group_matches_pinned_table_and_bilingual_references; the list now has 23 selectors. PM ruling 2026-10-19."
+      "note": "Old expectation: an action list without --workflow (audit finding DD-10). Fixed: --workflow is in the Actions (use one) group (src/cli.rs) and in cli-reference.md:13, pinned by tests/doc_drift.rs actions_help_group_matches_pinned_table_and_bilingual_references; the list had 23 selectors (PM ruling 2026-10-19). Old expectation: 23 selectors. Fixed: #1013 added --operator-check to the Actions (use one) group, pinned by the same tests/doc_drift.rs test at 24; the list now has 24 selectors."
     },
     {
       "id": "BB-DOCS-005",

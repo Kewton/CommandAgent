@@ -1262,6 +1262,7 @@ const ACTION_FLAGS: &[&str] = &[
     "--ux-demo",
     "--model-probe",
     "--doctor",
+    "--operator-check",
     "--extensions",
     "--packs",
     "--pack-verify",
@@ -1334,7 +1335,7 @@ fn actions_help_group_matches_pinned_table_and_bilingual_references() {
         ACTION_FLAGS.len(),
         "ACTION_FLAGS has duplicates"
     );
-    assert_eq!(table.len(), 23, "the Actions group is pinned at 23 flags");
+    assert_eq!(table.len(), 24, "the Actions group is pinned at 24 flags");
 
     let command = commandagent::provider_cli::command();
     let clap_actions = command

@@ -53,7 +53,7 @@ fn countable_route(config: &Config, role: ProviderRole) -> bool {
 }
 
 /// The basis of the run's wallet, if it holds one.
-fn basis(config: &Config) -> Option<AccountingBasis> {
+pub(crate) fn run_basis(config: &Config) -> Option<AccountingBasis> {
     config
         .field_sources
         .run_budget
@@ -61,12 +61,23 @@ fn basis(config: &Config) -> Option<AccountingBasis> {
         .map(|handle| handle.accounting_basis())
 }
 
-/// Called before any client of a role is built. A v1 wallet counts the generic Chat route as
-/// before. A `usage_tariff` wallet counts no route here: its one route, direct Responses, is
-/// admitted only by [`admit_responses_client`], which the factory calls for a client that carries
-/// the wallet's hook on each of its sends.
+/// [`admit_client_on`] with the run's own wallet. The factory reaches it through
+/// [`admit_route_on`]; tests ask it directly.
+#[cfg(test)]
 pub(crate) fn admit_client(config: &Config, role: ProviderRole) -> Result<(), AdmissionRefusal> {
-    let basis = basis(config);
+    admit_client_on(config, role, run_basis(config))
+}
+
+/// Called before any client of a role is built, for a wallet of `basis` or none. A v1 wallet counts
+/// the generic Chat route as before. A `usage_tariff` wallet counts no route here: its one route,
+/// direct Responses, is admitted only by [`admit_responses_client_on`], which the factory asks for
+/// a client that carries the wallet's hook on each of its sends. A run passes its own wallet's
+/// basis; a check passes the basis of the declaration it decoded, and opens no wallet (#1013).
+pub(crate) fn admit_client_on(
+    config: &Config,
+    role: ProviderRole,
+    basis: Option<AccountingBasis>,
+) -> Result<(), AdmissionRefusal> {
     decide(
         // The one reading of the selection: present, whatever its value, is selected.
         super::entry::selected(),
@@ -92,18 +103,43 @@ pub(crate) fn direct_responses_route(config: &Config, role: ProviderRole) -> boo
             .is_some_and(|compatible| compatible.applies_to(role))
 }
 
-/// The decision for a client whose every send reserves on a `usage_tariff` wallet: only the
-/// direct Responses route, and only under that basis. With no wallet it is [`admit_client`]'s.
+/// [`admit_responses_client_on`] with the run's own wallet, for tests, as [`admit_client`].
+#[cfg(test)]
 pub(crate) fn admit_responses_client(
     config: &Config,
     role: ProviderRole,
 ) -> Result<(), AdmissionRefusal> {
-    let basis = basis(config);
+    admit_responses_client_on(config, role, run_basis(config))
+}
+
+/// The decision for a client whose every send reserves on a `usage_tariff` wallet: only the
+/// direct Responses route, and only under that basis. With no wallet it is
+/// [`admit_client_on`]'s.
+pub(crate) fn admit_responses_client_on(
+    config: &Config,
+    role: ProviderRole,
+    basis: Option<AccountingBasis>,
+) -> Result<(), AdmissionRefusal> {
     decide(
         super::entry::selected(),
         basis.is_some(),
         basis == Some(AccountingBasis::UsageTariff) && direct_responses_route(config, role),
     )
+}
+
+/// The admission the client factory asks for a role, by the basis of the wallet: a `usage_tariff`
+/// wallet's clients go through [`admit_responses_client_on`], every other one through
+/// [`admit_client_on`]. The factory and a check both choose here.
+pub(crate) fn admit_route_on(
+    config: &Config,
+    role: ProviderRole,
+    basis: Option<AccountingBasis>,
+) -> Result<(), AdmissionRefusal> {
+    if basis == Some(AccountingBasis::UsageTariff) {
+        admit_responses_client_on(config, role, basis)
+    } else {
+        admit_client_on(config, role, basis)
+    }
 }
 
 #[cfg(test)]

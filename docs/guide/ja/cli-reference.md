@@ -13,7 +13,7 @@
 アクション選択フラグは `--workflow`、`--prompt`、`--plan-steps`、`--plan-run`、`--run-plan`、
 `--ultra-plan`、`--ultra-plan-run`、`--run-ultra-plan`、
 `--validate-plan`、`--setup-interaction-probe`、`--runs`、`--ux-demo`、`--model-probe`、
-`--doctor`、`--extensions` です。
+`--doctor`、`--operator-check`、`--extensions` です。
 オフライン pack アクションの `--packs`、`--pack-verify`、`--pack-pin`、生成アクションの
 `--completions` と `--generate-man`、設定アクションの `--init-config`、委譲された manifest
 アクションの `--validate-manifest` と `--init-profile` も、help の
@@ -22,7 +22,7 @@
 [排他関係と組み合わせ](#排他関係と組み合わせ)を参照してください。
 
 Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリケーション固有の
-68 フラグには含めません。非表示の `--completion-contract-json <PATH>` は内部連携用であり、
+69 フラグには含めません。非表示の `--completion-contract-json <PATH>` は内部連携用であり、
 公開ユーザーフラグではありません。
 
 ## フラグ一覧
@@ -69,7 +69,8 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 | `--ux-demo` | なし | オフ | オフラインのプレゼンテーション UX デモを実行します。 | [排他関係と組み合わせ](#排他関係と組み合わせ) |
 | `--model-probe` | なし | オフ | 限定的なモデル動作プローブ一式を実行します。 | [モデルプローブ](model-probe.md) |
 | `--doctor` | なし | オフ | 設定ファイル、プロバイダ readiness、interaction probe、ローカル環境を診断します。設定されたプロバイダによっては、そのホストへ到達確認を行います（例: OpenAI の /v1/models または Responses、Ollama、LM Studio）。API キーがない確認は試行しません。 | [スラッシュ `/doctor`](slash-commands.md#コマンド一覧) |
-| `--json` | なし | オフ | `--doctor`、`--extensions`、または `--runs` の出力を安定した機械可読 JSON として表示します。 | [スラッシュ `/doctor`](slash-commands.md#コマンド一覧) |
+| `--operator-check` | なし | オフ | provider を呼ばず、何も残さずに、この設定で非対話の `--prompt` run の受理が operator root の宣言（profile tools・structured stages・run budget）を受け付けるかを確かめ、pin の値を表示します。隔離の probe は、システムの一時ディレクトリの下に一時領域を作って消し、loopback の socket を持ち、sandbox の中で子プロセスを起動します。すべての検査が通れば exit 0、1 つでも通らなければ 1 です。 | [operator root を run なしで確かめる](profile-tools.md#run-なしで-operator-root-を確かめる) |
+| `--json` | なし | オフ | `--doctor`、`--extensions`、`--runs`、または `--operator-check` の出力を安定した機械可読 JSON として表示します。 | [スラッシュ `/doctor`](slash-commands.md#コマンド一覧) |
 | `--completions` | `<SHELL>`: `bash`、`elvish`、`fish`、`powershell`、`zsh` | なし | 現在の Clap 定義から補完スクリプトを生成し、stdout に出力します。 | [シェル補完と man ページ](#シェル補完と-man-ページ) |
 | `--generate-man` | なし | オフ | 現在の Clap 定義から `commandagent(1)` man ページを生成し、stdout に出力します。 | [シェル補完と man ページ](#シェル補完と-man-ページ) |
 | `--init-config` | なし | オフ | 既存ファイルを上書きせず、雛形から `.commandagent/config.toml` を作成します。 | [設定雛形](#設定雛形) |
@@ -173,8 +174,8 @@ context budget、timeout、profile、footer、stream などは `Config::from_cli
   広域列挙では秘密本文を出さずにポリシー除外を知らせます。詳細は
   [セキュリティモデル](../../../SECURITY.md) を参照してください。
 - Clap は構文解析中に一部の組み合わせを拒否します。`--workflow` は `--intent` と排他で、
-  `--origin` には `--workflow` が必要です。`--doctor`／`--extensions`／`--runs` の JSON
-  グループと pack 直接アクショングループは、それぞれ 1 つだけ受け付けます。例えば
+  `--origin` には `--workflow` が必要です。`--doctor`／`--extensions`／`--runs`／`--operator-check` の
+  JSON グループと pack 直接アクショングループは、それぞれ 1 つだけ受け付けます。例えば
   `--doctor --runs` は Clap レベルの排他です。
 - 構文解析後、解決済み設定はアクション選択フラグを 1 つだけ受け付け、違反すると
   `only one action selector can be used at a time` で失敗します。例えば `--prompt x --ux-demo`
@@ -192,7 +193,11 @@ context budget、timeout、profile、footer、stream などは `Config::from_cli
   `--extension-root` を使えますが、verify と pin は対象 directory を直接取ります。
 - `--extensions` は read-only で `--extension-root` を受け付けます。省略時は
   トップレベルの `extension_root` 設定を解決します。`--json` は `--doctor`、
-  `--extensions`、`--runs` に適用され、これらの対象なしで使うと拒否されます。
+  `--extensions`、`--runs`、`--operator-check` に適用され、これらの対象なしで使うと拒否されます。
+- `--operator-check` は run と同じように設定を解決し、非対話の `--prompt` run として判定します。
+  provider は呼ばず、何も残しません。すべての検査が通れば exit `0`、1 つでも通らないか確かめ
+  きれなければ `1`、設定そのものが拒否されれば run と同じく `2` です。ほかのすべての action、
+  末尾のゴール、`--summary-json` と排他です。
 - `--plan-steps`、`--plan-run`、`--ultra-plan`、`--ultra-plan-run` には末尾のゴールが必要です。
 - `--validate-plan` は offline かつ read-only の action で、実行 action および生成物 action の
   すべてと排他です。step plan、UltraPlan、recovery UltraPlan YAML を受け付けます。詳細は

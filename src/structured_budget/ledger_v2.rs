@@ -30,8 +30,9 @@ use super::identity::{
     SendPurpose, SubmissionSource,
 };
 use super::ledger::{
-    CommandWrites, HeldStore, LedgerEntry, LedgerFailure, LedgerRefusal, Store, canonical_profile,
-    decode_body, encode_body, hold_store_at, pinned_profile_agrees, schema_of,
+    CommandWrites, HeldStore, LedgerEntry, LedgerFailure, LedgerRefusal, Store, UnlockedLedger,
+    canonical_profile, decode_body, encode_body, hold_store_at, judge_unlocked_at,
+    pinned_profile_agrees, schema_of,
 };
 use super::policy_v2::{
     ACCOUNTING_BASIS_USAGE_TARIFF, CacheWriteMode, InputBound, RunBudgetPolicyV2,
@@ -766,6 +767,25 @@ fn continue_wallet(
         return Err(LedgerRefusal::Corrupt);
     }
     Ok(wallet)
+}
+
+/// What an open of `policy`'s wallet would find there, read without its lock (Issue #1013).
+pub(crate) fn judge_unlocked(
+    policy: &RunBudgetPolicyV2,
+    workspace: &Path,
+    explicit_profile: Option<&str>,
+    writes: &CommandWrites,
+) -> Result<UnlockedLedger, LedgerRefusal> {
+    judge_unlocked_at(
+        &policy.ledger_dir,
+        &policy.budget_id,
+        workspace,
+        explicit_profile,
+        writes,
+        &|bytes, workspace_sha256, profile| {
+            continue_wallet(bytes, policy, workspace_sha256, profile).map(drop)
+        },
+    )
 }
 
 impl BudgetLedgerV2 {

@@ -113,6 +113,114 @@ pub(super) mod test_hook {
     pub(super) fn is_unconfined() -> bool {
         UNCONFINED.with(Cell::get)
     }
+
+    thread_local! {
+        static CLEANUP_FAULT: Cell<bool> = const { Cell::new(false) };
+    }
+
+    /// A watched probe's removal of its temporary area fails on this thread, through the real
+    /// removal, and the area is left where it was for the test to see and remove.
+    #[cfg(target_os = "macos")]
+    pub(in super::super) struct FaultyCleanup;
+
+    #[cfg(target_os = "macos")]
+    impl Drop for FaultyCleanup {
+        fn drop(&mut self) {
+            CLEANUP_FAULT.with(|flag| flag.set(false));
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(in super::super) fn cleanup_fault() -> FaultyCleanup {
+        CLEANUP_FAULT.with(|flag| flag.set(true));
+        FaultyCleanup
+    }
+
+    /// The file a faulted area holds, so that its removal fails for real.
+    pub(in super::super) const STUCK: &str = "stuck";
+
+    pub(super) fn is_cleanup_fault() -> bool {
+        CLEANUP_FAULT.with(Cell::get)
+    }
+}
+
+/// Who removes the probe's temporary area (Issue #1013). A run leaves it to the area's own drop,
+/// as it always did. A caller that watches owns the removal: it is done here, then the path is
+/// looked at again, and an area still there is counted, so a check never reports a probe that
+/// left something behind as clean. The area is made by `tempfile` in the system temporary
+/// directory (`std::env::temp_dir()`, which follows `TMPDIR`). An interrupt while a probe runs
+/// can leave its empty area there, watched or not, as it always could.
+pub(crate) mod probe_area {
+    use std::cell::RefCell;
+    use std::path::PathBuf;
+
+    /// What the probes run under one watch did with their areas.
+    #[derive(Debug, Clone, Default, PartialEq, Eq)]
+    pub(crate) struct ProbeCleanup {
+        /// Areas made, one per probe that got as far as making one.
+        pub(crate) made: usize,
+        /// Areas still there after their removal, by path.
+        pub(crate) left: Vec<PathBuf>,
+    }
+
+    impl ProbeCleanup {
+        pub(crate) fn clean(&self) -> bool {
+            self.left.is_empty()
+        }
+    }
+
+    thread_local! {
+        static WATCH: RefCell<Option<ProbeCleanup>> = const { RefCell::new(None) };
+    }
+
+    /// Runs `run` with every probe on this thread under watch, and returns what they left.
+    pub(crate) fn watching<R>(run: impl FnOnce() -> R) -> (R, ProbeCleanup) {
+        struct Restore(Option<ProbeCleanup>);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                WATCH.with(|watch| *watch.borrow_mut() = self.0.take());
+            }
+        }
+        let restore = Restore(WATCH.with(|watch| watch.replace(Some(ProbeCleanup::default()))));
+        let result = run();
+        let seen = WATCH
+            .with(|watch| watch.borrow_mut().take())
+            .unwrap_or_default();
+        drop(restore);
+        (result, seen)
+    }
+
+    /// Ends one probe's area. Unwatched, it is dropped as before.
+    pub(super) fn release(area: tempfile::TempDir) {
+        let watched = WATCH.with(|watch| watch.borrow().is_some());
+        if !watched {
+            drop(area);
+            return;
+        }
+        let path = area.path().to_path_buf();
+        let removed = remove(area);
+        let gone = removed && std::fs::symlink_metadata(&path).is_err();
+        WATCH.with(|watch| {
+            if let Some(seen) = watch.borrow_mut().as_mut() {
+                seen.made += 1;
+                if !gone {
+                    seen.left.push(path);
+                }
+            }
+        });
+    }
+
+    /// The area's own removal, its result kept. Under the test fault the area holds a file and
+    /// cannot be written, so the real removal fails and the area stays.
+    fn remove(area: tempfile::TempDir) -> bool {
+        #[cfg(test)]
+        if super::test_hook::is_cleanup_fault() {
+            use std::os::unix::fs::PermissionsExt as _;
+            let _ = std::fs::write(area.path().join(super::test_hook::STUCK), b"");
+            let _ = std::fs::set_permissions(area.path(), std::fs::Permissions::from_mode(0o500));
+        }
+        area.close().is_ok()
+    }
 }
 
 fn unavailable(reason: impl Into<String>) -> ProfileToolRefusal {
@@ -461,8 +569,15 @@ pub(super) fn probe_strict() -> Result<(), ProfileToolRefusal> {
 
 fn run_probe() -> Result<(), String> {
     let directory = tempfile::tempdir().map_err(|_| "has no temporary directory".to_string())?;
-    let directory_path = std::fs::canonicalize(directory.path())
-        .map_err(|_| "has no temporary directory".to_string())?;
+    let result = probe_in(directory.path());
+    probe_area::release(directory);
+    result
+}
+
+/// The probe in an area its caller made and removes.
+fn probe_in(area: &Path) -> Result<(), String> {
+    let directory_path =
+        std::fs::canonicalize(area).map_err(|_| "has no temporary directory".to_string())?;
     let target = directory_path.join("probe-write");
     let listener = std::net::TcpListener::bind("127.0.0.1:0")
         .and_then(|listener| {
@@ -662,6 +777,42 @@ mod tests {
     #[test]
     fn on_macos_the_real_probe_passes() {
         probe_strict().unwrap();
+    }
+
+    /// Issue #1013: under watch, the probe's area is removed and looked at again. Unwatched, the
+    /// probe is as before and nothing is counted.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_watched_probe_removes_its_area_and_says_so() {
+        let ((), seen) = super::probe_area::watching(|| probe_strict().unwrap());
+        assert_eq!(seen.made, 1);
+        assert!(seen.clean(), "{seen:?}");
+    }
+
+    /// Issue #1013: a removal that fails is counted with the area's path, and the probe's own
+    /// verdict is not changed by it.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_watched_probe_whose_removal_fails_reports_what_it_left() {
+        let fault = super::test_hook::cleanup_fault();
+        let (verdict, seen) = super::probe_area::watching(probe_strict);
+        drop(fault);
+        assert!(verdict.is_ok());
+        assert_eq!(seen.made, 1);
+        assert!(!seen.clean());
+        for left in &seen.left {
+            assert!(left.exists(), "{}", left.display());
+            assert!(
+                left.starts_with(std::fs::canonicalize(std::env::temp_dir()).unwrap())
+                    || left.starts_with(std::env::temp_dir())
+            );
+            // The real `close()` failed on the file the fault put there; the probe's own write
+            // was refused, so that file is all the area holds.
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(left, std::fs::Permissions::from_mode(0o700)).unwrap();
+            std::fs::remove_file(left.join(super::test_hook::STUCK)).unwrap();
+            std::fs::remove_dir(left).unwrap();
+        }
     }
 
     /// A descriptor the caller left open, without close-on-exec, at a number this returns. The

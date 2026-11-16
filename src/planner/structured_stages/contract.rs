@@ -108,8 +108,22 @@ pub(crate) struct StageRunFacts {
 impl StageRunFacts {
     /// What this process holds now. This is the only way a production caller gets a value.
     pub(crate) fn of_session(config: &crate::config::Config) -> Self {
+        Self::with_sandbox(config, crate::tools::os_sandbox::is_applied())
+    }
+
+    /// What a run of `config` would hold, with the sandbox as a diagnosis found it: the same
+    /// facts, read the same way, where nothing is installed (Issue #1013). The boundary is the
+    /// probe's answer and never a caller's word.
+    pub(crate) fn of_diagnosis(
+        config: &crate::config::Config,
+        sandbox: &crate::tools::os_sandbox::SandboxDiagnosis,
+    ) -> Self {
+        Self::with_sandbox(config, sandbox.status.applied)
+    }
+
+    fn with_sandbox(config: &crate::config::Config, os_sandbox_enforced: bool) -> Self {
         Self {
-            os_sandbox_enforced: crate::tools::os_sandbox::is_applied(),
+            os_sandbox_enforced,
             workflow_child: crate::planner::external_reproducer::is_workflow_node(config),
             recovers_by_itself: config.recovery_plan_auto_runs > 0,
         }
