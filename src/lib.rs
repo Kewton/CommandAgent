@@ -609,6 +609,9 @@ fn emit_direct_command_stop_with_status(
     let failure_kind = terminal_status.failure_kind();
     let stop_reason = direct_stop_reason_for_result(result, terminal_status);
     let event_projection = direct_event_projection_for_status(&completion, terminal_status);
+    // Issue #1015: the wallet and the stages as they stand now, before the stop and the summary
+    // that read them. Both the normal end and the SIGINT finalizer come through here.
+    headless_summary::emit_end_of_run(config);
     let time_profile = time_profile::aggregate_event_path(config.eval_events_path.as_deref());
     let time_profile_event = time_profile.to_event_json();
 
@@ -1951,6 +1954,161 @@ mod tests {
             "the SIGINT finalizer must remove the run temp directory"
         );
         crate::tools::os_sandbox::reset_for_test();
+    }
+
+    /// Issue #1015: the SIGINT finalizer meets a wallet whose ledger lock a send still holds. Its
+    /// bounded wait runs out, and the record it writes is `unavailable`, with no amount and no 0,
+    /// in the event, in the interrupted `--summary-json`, and in `summary.md`.
+    #[test]
+    fn sigint_finalizer_records_a_held_wallet_as_unavailable() {
+        let status = run_ignored_self_test(
+            "tests::sigint_finalizer_records_a_held_wallet_as_unavailable_child",
+            &[],
+        );
+        assert!(status.success(), "{status}");
+    }
+
+    #[test]
+    #[ignore]
+    fn sigint_finalizer_records_a_held_wallet_as_unavailable_child() {
+        use std::sync::{Barrier, mpsc};
+
+        let wallet = crate::structured_budget::test_support::TestWallet::open(|_| {});
+        wallet.send(50, None).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join(".anvil/runs/test-run/events.jsonl");
+        let mut cfg = config(dir.path().to_path_buf());
+        cfg.eval_events_path = Some(events.clone());
+        cfg.field_sources.run_budget = Some(wallet.handle.clone());
+        let source = headless_summary::Source::from_config(&cfg, None);
+
+        let handle = wallet.handle.clone();
+        let held = Arc::new(Barrier::new(2));
+        let (release, released) = mpsc::channel::<()>();
+        let holder = {
+            let held = held.clone();
+            std::thread::spawn(move || {
+                handle.with_ledger_locked(|| {
+                    held.wait();
+                    released.recv().unwrap();
+                });
+            })
+        };
+        held.wait();
+        let mut output = Vec::new();
+        let started = std::time::Instant::now();
+        finalize_interrupted_direct_command(&cfg, "--prompt", Some(&source), &mut output).unwrap();
+        // N2: the record is unavailable because the wait ran out, not for another reason.
+        assert!(
+            started.elapsed() >= crate::structured_budget::summary::END_OF_RUN_WAIT,
+            "{:?}",
+            started.elapsed()
+        );
+        release.send(()).unwrap();
+        holder.join().unwrap();
+
+        let records = |path: &std::path::Path| {
+            std::fs::read_to_string(path)
+                .unwrap()
+                .lines()
+                .map(|line| serde_json::from_str::<Value>(line).unwrap())
+                .filter(|event| event["event"] == "run_budget_summary")
+                .collect::<Vec<_>>()
+        };
+        let recorded = records(&events);
+        assert_eq!(recorded.len(), 1, "{recorded:?}");
+        let record = &recorded[0];
+        assert_eq!(record["record"], "unavailable");
+        assert_eq!(record["accounting_basis"], "provider_billed");
+        // The wallet refused nothing in this command, so the typed refusal it keeps is null.
+        assert!(record["stop"].is_null(), "{record}");
+        for key in [
+            "limit_usd",
+            "spent_usd",
+            "held_usd",
+            "declared_tariff_charge_usd_total",
+            "sends",
+            "unknown",
+            "latch",
+        ] {
+            assert!(record.get(key).is_none(), "{key}: {record}");
+        }
+
+        let printed = String::from_utf8(output).unwrap();
+        let summary: Value = serde_json::from_str(printed.trim_end()).unwrap();
+        assert_eq!(summary["status"], "interrupted");
+        assert_eq!(summary["exit_code"], 130);
+        assert_eq!(
+            summary["run_budget"],
+            json!({"record": "unavailable", "accounting_basis": "provider_billed", "stop": null})
+        );
+        assert!(
+            !summary["run_budget"].to_string().contains('0'),
+            "{summary}"
+        );
+
+        let markdown =
+            std::fs::read_to_string(events.parent().unwrap().join("summary.md")).unwrap();
+        assert!(
+            markdown.contains("Run budget (provider_billed): record unavailable"),
+            "{markdown}"
+        );
+        assert!(
+            !markdown.contains("Run budget (provider_billed, "),
+            "{markdown}"
+        );
+
+        // The control: with the lock released, the same call on another stream is observed.
+        let control = dir.path().join(".anvil/runs/control-run/events.jsonl");
+        cfg.eval_events_path = Some(control.clone());
+        let source = headless_summary::Source::from_config(&cfg, None);
+        let mut output = Vec::new();
+        finalize_interrupted_direct_command(&cfg, "--prompt", Some(&source), &mut output).unwrap();
+        let recorded = records(&control);
+        assert_eq!(recorded.len(), 1, "{recorded:?}");
+        assert_eq!(recorded[0]["record"], "observed");
+        assert_eq!(recorded[0]["sends"]["settled"], 1);
+        let summary: Value =
+            serde_json::from_str(String::from_utf8(output).unwrap().trim_end()).unwrap();
+        assert_eq!(summary["run_budget"]["record"], "observed");
+    }
+
+    /// Codex-3 S (PM: direct commands only): a REPL session records neither object. Its events,
+    /// `summary.md`, and summary are as before #1015, with no key, no section, and no zero, even
+    /// with a wallet selected.
+    #[test]
+    fn a_repl_session_records_no_wallet_or_stage_state() {
+        let wallet = crate::structured_budget::test_support::TestWallet::open(|_| {});
+        wallet.send(50, None).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join(".anvil/runs/test-run/events.jsonl");
+        let mut cfg = config(dir.path().to_path_buf());
+        cfg.eval_events_path = Some(events.clone());
+        cfg.field_sources.run_budget = Some(wallet.handle.clone());
+        assert!(matches!(cfg.action, Action::Repl));
+        assert!(DirectCommandCompletionGuard::start(&cfg).is_none());
+
+        emit_run_start(&cfg);
+        emit_run_stop(&cfg, &Ok(()));
+
+        let text = std::fs::read_to_string(&events).unwrap();
+        for name in [
+            "run_budget_summary",
+            "structured_stages_summary",
+            "structured_stage_checks",
+        ] {
+            assert!(!text.contains(name), "{name}: {text}");
+        }
+        let markdown =
+            std::fs::read_to_string(events.parent().unwrap().join("summary.md")).unwrap();
+        assert!(!markdown.contains("Run budget"), "{markdown}");
+        assert!(!markdown.contains("Structured stages"), "{markdown}");
+        let summary: Value = serde_json::from_str(&headless_summary::render(
+            &headless_summary::Source::from_config(&cfg, None),
+        ))
+        .unwrap();
+        assert!(summary.get("run_budget").is_none(), "{summary}");
+        assert!(summary.get("structured_stages").is_none(), "{summary}");
     }
 
     #[test]

@@ -3705,6 +3705,61 @@ printf '%s' "{{\"protocol\":\"profile-tool.result/v1\",\"request_id\":\"$rid\",\
                 .collect()
         }
 
+        /// Issue #1015 records what a failed attempt's checks returned as one more event,
+        /// `structured_stage_checks`, which the base did not have. This takes each one out of
+        /// every path's event names, after checking it sits where the failure is decided:
+        /// between that call's `profile_tool_effect_call` and its `profile_tool_effect_rejected`.
+        /// It returns how many each path had, for the caller to hold to the failed checks.
+        fn take_check_records(document: &mut Value) -> Vec<usize> {
+            document["paths"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .map(|path| {
+                    let events = path["observation"]["events"].as_array_mut().unwrap();
+                    let mut found = 0;
+                    let mut index = 0;
+                    while index < events.len() {
+                        if events[index] == "structured_stage_checks" {
+                            assert_eq!(events[index - 1], "profile_tool_effect_call", "{index}");
+                            assert_eq!(
+                                events[index + 1],
+                                "profile_tool_effect_rejected",
+                                "{index}"
+                            );
+                            events.remove(index);
+                            found += 1;
+                        } else {
+                            index += 1;
+                        }
+                    }
+                    found
+                })
+                .collect()
+        }
+
+        /// How many answers of each path are a failed check's `resubmit`.
+        fn failed_check_answers(document: &Value) -> Vec<usize> {
+            document["paths"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|path| {
+                    path["observation"]["answers"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .filter(|answer| {
+                            answer["status"] == "resubmit"
+                                && answer["code"]
+                                    .as_str()
+                                    .is_some_and(|code| code.starts_with("check_"))
+                        })
+                        .count()
+                })
+                .collect()
+        }
+
         /// The same two paths, recorded on the base, stop where they stopped there: the same
         /// stage, refusal, error, requests, processes, ledger counts, events, calls, and every
         /// answer once its top-level `attempts` is taken out. The base's answers had none.
@@ -3721,6 +3776,10 @@ printf '%s' "{{\"protocol\":\"profile-tool.result/v1\",\"request_id\":\"$rid\",\
 
             let mut now = golden();
             let attempts = take_attempts(&mut now);
+            // One check record per failed check, and none anywhere else (Issue #1015).
+            let checks = take_check_records(&mut now);
+            assert_eq!(checks, failed_check_answers(&now));
+            assert!(checks.iter().all(|count| *count > 0), "{checks:?}");
             assert_eq!(now, recorded);
 
             // What the answers now say on top is G4's count, against the path's floor.
@@ -3931,10 +3990,15 @@ printf '%s' "{{\"protocol\":\"profile-tool.result/v1\",\"request_id\":\"$rid\",\
                 take_attempts(&mut recorded);
                 let mut responses = replay_on(Api::Responses);
                 let responses_attempts = take_attempts(&mut responses);
+                let responses_checks = super::take_check_records(&mut responses);
+                assert_eq!(responses_checks, super::failed_check_answers(&responses));
                 assert_eq!(responses, recorded);
                 let mut chat = replay_on(Api::Chat);
                 let chat_attempts = take_attempts(&mut chat);
+                let chat_checks = super::take_check_records(&mut chat);
+                assert_eq!(chat_checks, super::failed_check_answers(&chat));
                 assert_eq!(chat, recorded);
+                assert_eq!(responses_checks, chat_checks);
                 assert_eq!(responses_attempts, chat_attempts);
             }
 

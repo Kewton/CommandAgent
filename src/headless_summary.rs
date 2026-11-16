@@ -10,6 +10,9 @@ use crate::providers::compatible_effort::CompatibleEffortSetting;
 use crate::structured_budget::reservation::Money;
 
 pub(crate) use crate::eval_events::terminal_report::TerminalStatus;
+pub(crate) use declarations::{emit_end_of_run, markdown_sections as declaration_sections};
+
+mod declarations;
 
 const SCHEMA_VERSION: &str = "commandagent.headless-summary/v1";
 
@@ -148,6 +151,12 @@ struct HeadlessSummary {
     model_metadata: Option<ModelMetadata>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pack: Option<crate::cli_pack::ResolvedPack>,
+    /// Issue #1015: the wallet at the end of the run, only for a run that selected one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    run_budget: Option<crate::structured_budget::summary::RunBudgetSummary>,
+    /// Issue #1015: the declared stages at the end of the run, only for a run that declared them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    structured_stages: Option<crate::planner::structured_stages::summary::StagesSummary>,
 }
 
 pub(crate) fn render(source: &Source) -> String {
@@ -260,6 +269,8 @@ fn project(source: &Source) -> HeadlessSummary {
         exit_code: report.exit_code,
         model_metadata: source.model_metadata.clone(),
         pack: source.pack.clone(),
+        run_budget: declarations::run_budget(&events),
+        structured_stages: declarations::structured_stages(&events),
     }
 }
 
@@ -307,7 +318,7 @@ pub(crate) fn billed_cost_total(events: &[Value]) -> BilledCostTotal {
         (None, Some(false))
     } else {
         (
-            sum.map(money_decimal_text),
+            sum.map(Money::decimal_text),
             Some(sum.is_some() && reported_calls == provider_calls),
         )
     };
@@ -333,18 +344,6 @@ pub(crate) fn billed_cost_summary_line(events: &[Value]) -> Option<String> {
         "Provider billed cost: ${total} ({}/{} calls reported){incomplete}",
         billed.reported_calls, billed.provider_calls
     ))
-}
-
-/// A count of 10^-18 dollars as decimal text without trailing zeros.
-fn money_decimal_text(amount: Money) -> String {
-    const UNIT: u128 = 1_000_000_000_000_000_000;
-    let units = amount.units();
-    let (whole, fraction) = (units / UNIT, units % UNIT);
-    if fraction == 0 {
-        return whole.to_string();
-    }
-    let fraction = format!("{fraction:018}");
-    format!("{whole}.{}", fraction.trim_end_matches('0'))
 }
 
 fn latest_terminal(events: &[Value]) -> Option<&Value> {
@@ -415,6 +414,9 @@ fn number(value: &Value, key: &str) -> Option<f64> {
 fn display_path(path: impl AsRef<Path>) -> String {
     path.as_ref().display().to_string()
 }
+
+#[cfg(test)]
+mod golden_tests;
 
 #[cfg(test)]
 mod tests {
@@ -627,9 +629,9 @@ mod tests {
     #[test]
     fn money_decimal_text_has_no_trailing_zeros_or_float() {
         let text = |amount: &str| {
-            money_decimal_text(
-                Money::from_billed(&BilledCostUsd::from_json_token(amount).unwrap()).unwrap(),
-            )
+            Money::from_billed(&BilledCostUsd::from_json_token(amount).unwrap())
+                .unwrap()
+                .decimal_text()
         };
         assert_eq!(text("0"), "0");
         assert_eq!(text("0.50"), "0.5");

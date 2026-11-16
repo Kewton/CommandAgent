@@ -546,20 +546,24 @@ pub fn render_summary_sections(events: &[Value]) -> Option<String> {
     // A billed amount is shown even on a run whose measured time is 0 ms (durations under a
     // millisecond are truncated); with no billed amount the output is as before.
     let billed_line = crate::headless_summary::billed_cost_summary_line(events);
-    (profile.total_ms() > 0 || billed_line.is_some()).then(|| {
-        let mut usage = profile.provider_usage_by_role_markdown();
-        if let Some(line) = billed_line {
-            usage.push_str("\n\n");
-            usage.push_str(&line);
-        }
-        format!(
-            "{}\n\n{}\n\n{}\n\n{}",
-            profile.summary_line(),
-            usage,
-            profile.phase_table_markdown(),
-            profile.generation_profile_markdown()
-        )
-    })
+    // Issue #1015: the run budget and the structured stages, after the billed line, only for a
+    // run that declared them; with neither declared the output is as before.
+    let declarations = crate::headless_summary::declaration_sections(events);
+    if profile.total_ms() == 0 && billed_line.is_none() {
+        return declarations;
+    }
+    let mut usage = profile.provider_usage_by_role_markdown();
+    for section in billed_line.into_iter().chain(declarations) {
+        usage.push_str("\n\n");
+        usage.push_str(&section);
+    }
+    Some(format!(
+        "{}\n\n{}\n\n{}\n\n{}",
+        profile.summary_line(),
+        usage,
+        profile.phase_table_markdown(),
+        profile.generation_profile_markdown()
+    ))
 }
 
 pub fn format_duration(ms: u64) -> String {

@@ -6,7 +6,7 @@ required_capabilities = []
 required_evidence = []
 required_obligations = []
 deferred_verify_requirements = []
-evidence_hint_tokens = ["summary-json", "full", "failed", "static", "billed"]
+evidence_hint_tokens = ["summary-json", "full", "failed", "static", "billed", "wallet", "stages"]
 
 [route_closure]
 include = []
@@ -56,4 +56,38 @@ fixtures/billed-incomplete/events.jsonl = [
 fixtures/billed-none/events.jsonl = [
   "\"event\":\"provider_turn_duration\"",
   "\"status\":\"completed\""
+]
+fixtures/wallet-v1/events.jsonl = [
+  "\"event\":\"run_budget_summary\"",
+  "\"accounting_basis\":\"provider_billed\"",
+  "\"spent_usd\":\"0.0009\""
+]
+fixtures/wallet-v2/events.jsonl = [
+  "\"event\":\"run_budget_summary\"",
+  "\"accounting_basis\":\"usage_tariff\"",
+  "\"declared_tariff_charge_usd_total\":\"0.002475\""
+]
+fixtures/wallet-v2-unknown/events.jsonl = [
+  "\"unknown\":[{\"physical\":2,\"cause\":{\"kind\":\"transport\",\"reason\":\"timeout\"}}]",
+  "\"latch\":{\"cause\":\"unknown_billing\",\"physical\":2}"
+]
+fixtures/wallet-v2-cap/events.jsonl = [
+  "\"stop\":{\"kind\":\"limit\",\"limit\":\"cost_usd\",\"refusal\":\"Wallet(Budget(CostExceeded))\"}"
+]
+fixtures/wallet-unavailable/events.jsonl = [
+  "{\"event\":\"run_budget_summary\",\"record\":\"unavailable\",\"accounting_basis\":\"usage_tariff\",\"schema_version\":\"1\"}"
+]
+fixtures/stages-sealed/events.jsonl = [
+  "\"event\":\"structured_stages_summary\"",
+  "\"complete\":true"
+]
+fixtures/stages-unsealed/events.jsonl = [
+  "\"event\":\"structured_stage_checks\"",
+  "\"complete\":false"
+]
+fixtures/stages-attempt-limit/events.jsonl = [
+  "\"attempts\":{\"used\":2,\"limit\":2}"
+]
+fixtures/no-declaration/events.jsonl = [
+  "\"event\":\"tui_command_stop\""
 ]

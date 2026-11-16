@@ -1,0 +1,5 @@
+{"event":"run_start","workspace_root":"/tmp/cm0/wallet-unavailable","provider":"openai","model":"wallet-model","schema_version":"1"}
+{"event":"provider_turn_duration","caller_scope":"executor","duration_ms":2000,"prompt_eval_count":100,"eval_count":30,"schema_version":"1"}
+{"event":"run_budget_summary","record":"unavailable","accounting_basis":"usage_tariff","schema_version":"1"}
+{"event":"tui_command_stop","ok":false,"status":"interrupted","assurance_level":"failed","release_gate_status":"not_applicable","stop_reason":"interrupted by user","next_action":"resume_or_rerun_command","failure_kind":"direct_cli_command_interrupted","time_profile_total_ms":2000,"schema_version":"1"}
+{"event":"run_stop","ok":false,"status":"interrupted","assurance_level":"failed","release_gate_status":"not_applicable","stop_reason":"interrupted by user","next_action":"resume_or_rerun_command","schema_version":"1"}

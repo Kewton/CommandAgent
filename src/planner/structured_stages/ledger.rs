@@ -542,6 +542,23 @@ impl StageLedger {
         }
     }
 
+    /// What [`Self::verdict`] answers now, and the state it answers on, for a summary at the end
+    /// of a run (Issue #1015). It is the same judgment on a copy: a ledger that cannot be vouched
+    /// for answers `verdict_without_ledger`, any other runs the one verdict body. Nothing is
+    /// written and no refusal is kept, so a target the copy lowers stays as it is here and on
+    /// disk, for the next `verdict` to lower in its own time.
+    pub(super) fn observed_verdict(
+        &self,
+        current_bytes: &dyn BytesSource,
+    ) -> (StageVerdict, StageMachine) {
+        if self.failed.is_some() || self.store.verify_unchanged().is_err() {
+            return (self.machine.verdict_without_ledger(), self.machine.clone());
+        }
+        let mut judged = self.machine.clone();
+        let verdict = judged.judge(current_bytes);
+        (verdict, judged)
+    }
+
     /// What a later budget attaches a cost to. It reads and changes nothing.
     pub(crate) fn attempt_identity(&self, key: &TargetKey) -> Option<AttemptIdentity> {
         self.machine.attempt_identity(key)
@@ -849,6 +866,20 @@ impl LedgerRegistry {
         let ledger = Arc::new(Mutex::new(open_new(directory, request)?));
         held.insert(key, ledger.clone());
         Ok(ledger)
+    }
+
+    /// The ledger this process already holds for a workspace and profile, opening none and
+    /// touching no file (Issue #1015). `Err` when the table's lock is not free before `deadline`.
+    pub(crate) fn held_within(
+        &self,
+        workspace: &Path,
+        profile: &str,
+        deadline: std::time::Instant,
+    ) -> Result<Option<HeldLedger>, LedgerRefusal> {
+        let workspace = fs::canonicalize(workspace).map_err(unavailable)?;
+        let held = crate::structured_budget::summary::lock_within(&self.held, deadline)
+            .ok_or(LedgerRefusal::Unavailable)?;
+        Ok(held.get(&(workspace, profile.to_string())).cloned())
     }
 }
 
@@ -2794,5 +2825,178 @@ mod tests {
         assert!(!directory.starts_with(&world.workspace));
         assert!(Path::new(&world.file()).exists());
         drop(held);
+    }
+
+    /// Issue #1015, acceptance 3: the end-of-run record answers what `verdict` answers, in the
+    /// sealed, unsealed, and attempt-limit cases, and writes nothing while it does.
+    mod summary_1015 {
+        use super::super::super::state::{
+            AttemptFailure, CheckFailureKind, ExhaustedLimit, StageVerdict,
+        };
+        use super::super::super::summary::of_verdict;
+        use super::*;
+
+        /// The record and the ledger's own verdict on the same bytes. The record is taken first;
+        /// the ledger file must not move under it.
+        fn record_then_verdict(
+            world: &World,
+            ledger: &mut StageLedger,
+            bytes: &FakeBytes,
+        ) -> (StageVerdict, StageMachine, StageVerdict) {
+            let before = fs::read(world.file()).unwrap();
+            let (observed, machine) = ledger.observed_verdict(bytes);
+            assert_eq!(fs::read(world.file()).unwrap(), before, "the record wrote");
+            let verdict = ledger.verdict(bytes);
+            (observed, machine, verdict)
+        }
+
+        fn fail_check(ledger: &mut StageLedger, target: &TargetKey, bytes: &FakeBytes, turn: u64) {
+            let ticket = start(ledger, target, bytes, turn, &format!("f{turn}"));
+            ledger
+                .record_failure(&ticket, AttemptFailure::Check(CheckFailureKind::Failed))
+                .unwrap();
+        }
+
+        #[test]
+        fn a_sealed_set_is_recorded_as_the_verdict_gives_it() {
+            let mut world = world();
+            let held = both_sealed(&mut world);
+            let mut ledger = held.lock().unwrap();
+            let (observed, machine, verdict) =
+                record_then_verdict(&world, &mut ledger, &world.bytes);
+            assert_eq!(observed, verdict);
+            assert!(observed.complete());
+            let record = of_verdict(&observed, &machine, String::new());
+            assert!(record.complete && record.ledger_intact);
+            for (entry, content) in record
+                .stages
+                .iter()
+                .zip([&b"alpha v1"[..], &b"beta v1"[..]])
+            {
+                assert!(entry.sealed);
+                assert_eq!(entry.phase, Phase::Sealed);
+                assert_eq!(
+                    entry.artifact.committed_sha256.as_deref(),
+                    Some(sha_of(content).as_str())
+                );
+                assert_eq!(entry.attempts.used, 1);
+            }
+            assert_eq!(record.stages[0].artifact.path, "out/alpha.json");
+        }
+
+        #[test]
+        fn an_unsealed_target_is_recorded_as_the_verdict_gives_it() {
+            let world = world();
+            let held = world.process(LedgerEntry::Fresh).unwrap();
+            let mut ledger = held.lock().unwrap();
+            let mut bytes = world.bytes.clone();
+            seal(&mut ledger, &alpha(), b"alpha v1", &mut bytes, 1, "a");
+            fail_check(&mut ledger, &beta(), &bytes, 2);
+            let (observed, machine, verdict) = record_then_verdict(&world, &mut ledger, &bytes);
+            assert_eq!(observed, verdict);
+            assert!(!observed.complete());
+            let record = of_verdict(&observed, &machine, String::new());
+            assert!(!record.complete);
+            assert!(record.stages[0].sealed);
+            assert!(!record.stages[1].sealed);
+            assert_eq!(record.stages[1].artifact.committed_sha256, None);
+            assert_eq!(record.stages[1].attempts.used, 1);
+        }
+
+        #[test]
+        fn a_target_out_of_attempts_is_recorded_as_the_verdict_gives_it() {
+            let world = world();
+            let held = world.process(LedgerEntry::Fresh).unwrap();
+            let mut ledger = held.lock().unwrap();
+            let limit = ledger.attempt_counts(&alpha()).unwrap().target.limit;
+            for turn in 0..u64::from(limit) {
+                fail_check(&mut ledger, &alpha(), &world.bytes, turn + 1);
+            }
+            let contract = ledger.contract().clone();
+            let revision = ledger.revision_of(&alpha()).unwrap();
+            let output = world.bytes.observe("out/alpha.json");
+            let request = request_for(
+                &contract,
+                &alpha(),
+                &revision,
+                &world.bytes,
+                99,
+                NOW,
+                "last",
+                &output,
+            );
+            assert_eq!(
+                ledger.begin(&alpha(), request).unwrap(),
+                BeginDecision::AttemptsExhausted(ExhaustedLimit::Target)
+            );
+            let (observed, machine, verdict) =
+                record_then_verdict(&world, &mut ledger, &world.bytes);
+            assert_eq!(observed, verdict);
+            assert!(!observed.complete());
+            let record = of_verdict(&observed, &machine, String::new());
+            assert_eq!(record.stages[0].attempts.used, limit);
+            assert_eq!(record.stages[0].attempts.limit, limit);
+            assert!(!record.stages[0].sealed);
+        }
+
+        /// Bytes that moved lower a sealed target in the record as in the verdict, but only the
+        /// verdict writes that down: the record leaves the ledger and its file as they were.
+        #[test]
+        fn a_lowering_is_recorded_without_being_written() {
+            let mut world = world();
+            let held = both_sealed(&mut world);
+            let mut ledger = held.lock().unwrap();
+            let edited = world.bytes.with("out/alpha.json", b"edited");
+            let before = fs::read(world.file()).unwrap();
+            let kept = ledger.machine.clone();
+            let (observed, machine) = ledger.observed_verdict(&edited);
+            assert_eq!(fs::read(world.file()).unwrap(), before);
+            assert_eq!(ledger.machine, kept, "the record changed the held state");
+            assert_eq!(observed.invalidated(), [alpha(), beta()]);
+            assert_eq!(machine.snapshot().targets[0].phase, Phase::Unverified);
+            assert_eq!(world.saved().targets[0].phase, Phase::Sealed);
+            assert_eq!(observed, ledger.verdict(&edited));
+            assert_eq!(world.saved().targets[0].phase, Phase::Unverified);
+        }
+
+        /// Over a real workspace, the record changes no artifact and no ledger byte, even where
+        /// it reads that a sealed artifact moved.
+        #[test]
+        fn the_record_changes_no_artifact_and_no_ledger_byte() {
+            use super::super::super::summary::tree_state as tree;
+            let mut world = world();
+            let held = both_sealed(&mut world);
+            let ledger = held.lock().unwrap();
+            fs::create_dir_all(world.workspace.join("out")).unwrap();
+            fs::create_dir_all(world.workspace.join("fixed")).unwrap();
+            fs::write(world.workspace.join("fixed/source.json"), b"fixed source").unwrap();
+            fs::write(world.workspace.join("out/alpha.json"), b"edited by hand").unwrap();
+            fs::write(world.workspace.join("out/beta.json"), b"beta v1").unwrap();
+            let workspace_before = tree(&world.workspace);
+            let state_before = tree(&world.state_dir);
+            let (observed, _) = ledger.observed_verdict(&WorkspaceBytes::new(&world.workspace));
+            assert!(!observed.complete());
+            assert_eq!(observed.invalidated(), [alpha(), beta()]);
+            assert_eq!(tree(&world.workspace), workspace_before);
+            assert_eq!(tree(&world.state_dir), state_before);
+        }
+
+        /// A file that is not what the process wrote gives the answer without a ledger, as the
+        /// verdict would, and the record keeps no refusal of its own.
+        #[test]
+        fn a_changed_file_is_recorded_as_without_a_ledger_and_nothing_is_kept() {
+            let mut world = world();
+            let held = both_sealed(&mut world);
+            let ledger = held.lock().unwrap();
+            let original = fs::read(world.file()).unwrap();
+            fs::write(world.file(), b"{}").unwrap();
+            let (observed, _) = ledger.observed_verdict(&world.bytes);
+            assert_eq!(observed, ledger.machine.verdict_without_ledger());
+            assert!(!observed.ledger_intact());
+            fs::write(world.file(), &original).unwrap();
+            assert!(ledger.failed.is_none());
+            let (observed, _) = ledger.observed_verdict(&world.bytes);
+            assert!(observed.ledger_intact() && observed.complete());
+        }
     }
 }
