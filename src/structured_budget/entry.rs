@@ -208,30 +208,14 @@ fn open_noting(
     config: &mut Config,
     touch: &mut dyn FnMut(&'static str),
 ) -> Result<(), EntryRefusal> {
-    if !selected() {
+    let Some((policy, writes)) =
+        declared_for_run(uses_write_sandbox, config, CommandWrites::applied, touch)?
+    else {
         return Ok(());
-    }
-    if !uses_write_sandbox
-        || matches!(config.action, Action::Workflow(..))
-        || config.field_sources.run_budget.is_some()
-    {
-        return Ok(());
-    }
-    // Empty, or not text: refused here, never taken for off.
-    let id = std::env::var(RUN_BUDGET_ENV)
-        .ok()
-        .filter(|id| valid_budget_id(id))
-        .ok_or(EntryRefusal::InvalidBudgetId)?;
-    refuse_a_key_commands_inherit(config)?;
-    let writes = CommandWrites::applied().ok_or(EntryRefusal::NoSandboxPolicy)?;
-    let policy = read_policy(&id, &writes, touch)?;
+    };
     touch("clock");
     let clock = Arc::new(SystemBudgetClock::new());
-    let entry = if config.resume.is_some() && !config.fresh_session {
-        LedgerEntry::Resume
-    } else {
-        LedgerEntry::Fresh
-    };
+    let entry = entry_of(config);
     touch("ledger");
     let explicit_profile = config.profile_explicit.then_some(config.profile.as_str());
     let handle = match policy {
@@ -256,6 +240,108 @@ fn open_noting(
     config.field_sources.run_budget = Some(Arc::new(handle));
     Ok(())
 }
+
+/// Everything [`open_for_run`] judges before its clock and its wallet, in its order: whether a
+/// wallet is selected and this entry opens one, the ID, the key's variable, the places commands of
+/// the run can write (`writes`, asked only once those passed), and the declaration read from where
+/// they cannot. `Ok(None)` opens none.
+fn declared_for_run(
+    uses_write_sandbox: bool,
+    config: &Config,
+    writes: impl FnOnce() -> Option<CommandWrites>,
+    touch: &mut dyn FnMut(&'static str),
+) -> Result<Option<(Declared, CommandWrites)>, EntryRefusal> {
+    if !selected() {
+        return Ok(None);
+    }
+    if !uses_write_sandbox
+        || matches!(config.action, Action::Workflow(..))
+        || config.field_sources.run_budget.is_some()
+    {
+        return Ok(None);
+    }
+    // Empty, or not text: refused here, never taken for off.
+    let id = std::env::var(RUN_BUDGET_ENV)
+        .ok()
+        .filter(|id| valid_budget_id(id))
+        .ok_or(EntryRefusal::InvalidBudgetId)?;
+    refuse_a_key_commands_inherit(config)?;
+    let writes = writes().ok_or(EntryRefusal::NoSandboxPolicy)?;
+    let policy = read_policy(&id, &writes, touch)?;
+    Ok(Some((policy, writes)))
+}
+
+/// The entry a run asks its wallet for.
+fn entry_of(config: &Config) -> LedgerEntry {
+    if config.resume.is_some() && !config.fresh_session {
+        LedgerEntry::Resume
+    } else {
+        LedgerEntry::Fresh
+    }
+}
+
+/// What [`open_for_run`] would decide, with nothing opened, made, locked, or saved (Issue #1013).
+/// `writes` is where commands of the run would write, from a diagnosis of the sandbox the run
+/// would install. Every judgement is the run's own: the same selection, ID, key, place, and
+/// decode, then the same way to the wallet's directory, and the ledger already there, if any, held
+/// to the declaration by the same continuation. That ledger is read without the lock, which only
+/// an open takes, so [`UnlockedLedger`] says so.
+pub(crate) fn check_without_opening(
+    uses_write_sandbox: bool,
+    config: &Config,
+    writes: Option<CommandWrites>,
+) -> Result<Option<WalletCheck>, EntryRefusal> {
+    let Some((policy, writes)) =
+        declared_for_run(uses_write_sandbox, config, || writes, &mut |_| {})?
+    else {
+        return Ok(None);
+    };
+    let entry = entry_of(config);
+    let explicit_profile = config.profile_explicit.then_some(config.profile.as_str());
+    let (budget_id, basis, ledger) = match &policy {
+        Declared::V1(policy) => (
+            policy.budget_id.clone(),
+            super::responses::AccountingBasis::ProviderBilled,
+            super::ledger::judge_unlocked_v1(
+                policy,
+                &config.workspace_root,
+                explicit_profile,
+                &writes,
+            ),
+        ),
+        Declared::V2(policy) => (
+            policy.budget_id.clone(),
+            super::responses::AccountingBasis::UsageTariff,
+            super::ledger_v2::judge_unlocked(
+                policy,
+                &config.workspace_root,
+                explicit_profile,
+                &writes,
+            ),
+        ),
+    };
+    let ledger = ledger.map_err(EntryRefusal::Wallet)?;
+    if entry == LedgerEntry::Resume && ledger == UnlockedLedger::Absent {
+        return Err(EntryRefusal::Wallet(LedgerRefusal::Missing));
+    }
+    Ok(Some(WalletCheck {
+        budget_id,
+        basis,
+        entry,
+        ledger,
+    }))
+}
+
+/// A wallet as [`check_without_opening`] found it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct WalletCheck {
+    pub(crate) budget_id: String,
+    pub(crate) basis: super::responses::AccountingBasis,
+    pub(crate) entry: LedgerEntry,
+    pub(crate) ledger: UnlockedLedger,
+}
+
+pub(crate) use super::ledger::UnlockedLedger;
 
 /// A declaration of either protocol. Which one is read off its `protocol`; any file that does not
 /// name v2 is decoded as v1, exactly as before v2 existed.

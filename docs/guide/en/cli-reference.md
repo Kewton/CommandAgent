@@ -13,7 +13,7 @@ Use one of the action-selector flags for a direct command, or omit all of them
 for the TUI. The action selectors are `--workflow`, `--prompt`, `--plan-steps`,
 `--plan-run`, `--run-plan`, `--ultra-plan`, `--ultra-plan-run`,
 `--run-ultra-plan`, `--validate-plan`, `--setup-interaction-probe`, `--runs`,
-`--ux-demo`, `--model-probe`, `--doctor`, and `--extensions`. The offline pack
+`--ux-demo`, `--model-probe`, `--doctor`, `--operator-check`, and `--extensions`. The offline pack
 actions `--packs`, `--pack-verify`, and `--pack-pin`, generated-artifact actions
 `--completions` and `--generate-man`, config action `--init-config`, and
 delegated manifest actions `--validate-manifest` and `--init-profile` are
@@ -23,7 +23,7 @@ before parsing finishes or in the resolved configuration after parsing; see
 [Conflicts and combinations](#conflicts-and-combinations).
 
 Clap also generates `-h`/`--help` and `-V`/`--version`. They are not part of the
-68 application flags below. The hidden `--completion-contract-json <PATH>` is an
+69 application flags below. The hidden `--completion-contract-json <PATH>` is an
 internal integration surface and is intentionally not a public user flag.
 
 ## Flag reference
@@ -70,7 +70,8 @@ internal integration surface and is intentionally not a public user flag.
 | `--ux-demo` | none | off | Run the offline presentation UX demo. | [Action exclusivity](#conflicts-and-combinations) |
 | `--model-probe` | none | off | Run the bounded model behavior probe battery. | [Model probe](model-probe.md) |
 | `--doctor` | none | off | Diagnose configuration files, provider readiness, interaction probes, and the local environment. Depending on the configured provider, reachability checks connect to that host (for example OpenAI /v1/models or Responses, Ollama, or LM Studio); a check is skipped when its API key is absent. | [Slash `/doctor`](slash-commands.md#command-reference) |
-| `--json` | none | off | Render --doctor, --extensions, or --runs output as stable machine-readable JSON. | [Slash `/doctor`](slash-commands.md#command-reference) |
+| `--operator-check` | none | off | Check, without a provider call and without writing anything, whether the run's admission accepts the operator root's declarations (profile tools, structured stages, run budget) for this configuration, and show their pins. Exit 0 when every check passes, 1 when one fails. | [Check an operator root](profile-tools.md#check-an-operator-root-without-a-run) |
+| `--json` | none | off | Render --doctor, --extensions, --runs, or --operator-check output as stable machine-readable JSON. | [Slash `/doctor`](slash-commands.md#command-reference) |
 | `--completions` | `<SHELL>`: `bash`, `elvish`, `fish`, `powershell`, `zsh` | none | Generate a completion script from the current Clap definition and write it to stdout. | [Shell completions and man page](#shell-completions-and-man-page) |
 | `--generate-man` | none | off | Generate the `commandagent(1)` man page from the current Clap definition and write it to stdout. | [Shell completions and man page](#shell-completions-and-man-page) |
 | `--init-config` | none | off | Create `.commandagent/config.toml` from a starter template without overwriting an existing file. | [Config template](#config-template) |
@@ -232,7 +233,7 @@ See [Configuration](configuration.md) for the exact per-field layers.
   `--yes` is the backward-compatible all-tools alias.
 - Clap rejects some combinations while parsing: `--workflow` conflicts with
   `--intent`; `--origin` requires `--workflow`; the `--doctor`/`--extensions`/
-  `--runs` JSON group and the pack direct-action group accept only one member
+  `--runs`/`--operator-check` JSON group and the pack direct-action group accept only one member
   each. For example, `--doctor --runs` is a Clap-level conflict.
 - After parsing, the resolved configuration accepts exactly one action selector
   and fails with `only one action selector can be used at a time`. For example,
@@ -254,8 +255,13 @@ See [Configuration](configuration.md) for the exact per-field layers.
   their target directory directly.
 - `--extensions` is read-only and accepts `--extension-root`; when omitted,
   it resolves the top-level `extension_root` setting. `--json` applies to
-  `--doctor`, `--extensions`, and `--runs`; using `--json` without one of those
-  targets is rejected.
+  `--doctor`, `--extensions`, `--runs`, and `--operator-check`; using `--json`
+  without one of those targets is rejected.
+- `--operator-check` resolves the configuration as a run does and judges it as a
+  non-interactive `--prompt` run, with no provider call and nothing written. It
+  exits `0` when every check passes, `1` when one fails or cannot be vouched
+  for, and `2` when the configuration itself is refused, as a run would be. It
+  conflicts with every other action, a trailing goal, and `--summary-json`.
 - `--plan-steps`, `--plan-run`, `--ultra-plan`, and `--ultra-plan-run` require a
   trailing goal.
 - `--validate-plan` is an offline, read-only action and conflicts with every

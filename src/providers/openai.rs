@@ -77,7 +77,7 @@ impl OpenAiClient {
 
     /// The direct client of `role` for a run that holds a `usage_tariff` wallet: it posts only to
     /// the built-in OpenAI endpoint, and each of its sends goes through that wallet. The factory
-    /// builds it only after `admission::admit_responses_client` admitted the role.
+    /// builds it only after `admission::admit_route_on` admitted the role.
     pub(crate) fn from_env_under_run_budget(
         config: &Config,
         role: ProviderRole,

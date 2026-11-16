@@ -161,7 +161,7 @@ impl From<SavedRefusal> for LedgerRefusal {
 
 /// The path with what does not exist yet still on it, its existing part resolved. A tail that
 /// is not plain names is refused: it could lead anywhere once created.
-fn resolved_with_missing_tail(path: &Path) -> Result<PathBuf, LedgerRefusal> {
+pub(crate) fn resolved_with_missing_tail(path: &Path) -> Result<PathBuf, LedgerRefusal> {
     let mut tail = Vec::new();
     let mut current = path;
     loop {

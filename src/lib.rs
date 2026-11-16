@@ -34,6 +34,7 @@ pub mod mode;
 pub mod model_probe;
 mod node_failure;
 mod openai_model;
+mod operator_check;
 mod pack_actions;
 pub mod planner;
 pub mod preflight;
@@ -133,6 +134,9 @@ pub fn run_with_provider_options(
     }
     if cli.doctor {
         return doctor::run_cli_with_provider_options(cli, provider_options);
+    }
+    if cli.operator_check {
+        return operator_check::run_cli(cli, provider_options);
     }
     let pack_cli = cli.clone();
     let summary_json = cli.summary_json;

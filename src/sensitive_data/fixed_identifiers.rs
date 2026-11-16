@@ -109,6 +109,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "commandagent.gui-contract/v1",
     "commandagent.gui-working-directory/v1",
     "commandagent.headless-summary/v1",
+    "commandagent.operator-check/v1",
     "commandagent.pack.assist/v0",
     "commandagent.pack.eval/v0",
     "commandagent.pass/v1",

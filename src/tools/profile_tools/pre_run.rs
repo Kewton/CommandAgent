@@ -14,23 +14,53 @@ pub(crate) fn refuse_before_cli_run(
     config: &Config,
     resolved_pack: &anyhow::Result<Option<ResolvedPack>>,
 ) -> Result<(), ProfileToolRefusal> {
-    let pack = match resolved_pack {
+    admitted_before_cli_run(config, resolved_pack).map(drop)
+}
+
+/// [`refuse_before_cli_run`], keeping the set it admitted, for a check that reports on it
+/// (Issue #1013). The same admission and the same preflight, in the same order.
+pub(crate) fn admitted_before_cli_run(
+    config: &Config,
+    resolved_pack: &anyhow::Result<Option<ResolvedPack>>,
+) -> Result<Option<AdmittedProfileTools>, ProfileToolRefusal> {
+    let admitted = admit_with(
+        &config.workspace_root,
+        &config.profile,
+        None,
+        cli_pack_source(resolved_pack),
+    )?;
+    preflight(admitted.as_ref(), config)?;
+    Ok(admitted)
+}
+
+/// The tool IDs the CLI's admission would select, read the way it reads them, for showing their
+/// pins. `Ok(None)` is off.
+pub(crate) fn selected_before_cli_run(
+    config: &Config,
+    resolved_pack: &anyhow::Result<Option<ResolvedPack>>,
+) -> Result<Option<Vec<String>>, ProfileToolRefusal> {
+    Ok(
+        super::selection::selected(&config.profile, cli_pack_source(resolved_pack))?
+            .map(|selected| selected.tools.into_keys().collect()),
+    )
+}
+
+fn cli_pack_source(resolved_pack: &anyhow::Result<Option<ResolvedPack>>) -> PackSource {
+    match resolved_pack {
         Ok(Some(pack)) => PackSource::Selected {
             selection: pack.selection(),
             declared: pack.declared.clone(),
         },
         Ok(None) => PackSource::InheritedBeforeGates,
         Err(_) => PackSource::None,
-    };
-    let admitted = admit_with(&config.workspace_root, &config.profile, None, pack)?;
-    preflight(admitted, config)
+    }
 }
 
 /// A workflow child runs under the sandbox and the pack selection its outer run
 /// installed, already reconciled with the child's workspace.
 pub(crate) fn refuse_before_workflow_node(config: &Config) -> Result<(), ProfileToolRefusal> {
     let admitted = super::admit_selected(&config.workspace_root, &config.profile, None)?;
-    preflight(admitted, config)
+    preflight(admitted.as_ref(), config)
 }
 
 /// A REPL's free text, before its route is proposed. The route classifier is a provider
@@ -79,7 +109,7 @@ fn refusal_before_gate_one(
 }
 
 fn preflight(
-    admitted: Option<AdmittedProfileTools>,
+    admitted: Option<&AdmittedProfileTools>,
     config: &Config,
 ) -> Result<(), ProfileToolRefusal> {
     match admitted {

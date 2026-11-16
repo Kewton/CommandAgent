@@ -272,6 +272,23 @@ pub(super) fn load(
     tool_id: &str,
     workspace: &Path,
 ) -> Result<LoadedDescriptor, ProfileToolRefusal> {
+    let (descriptor, bytes, registry) = read_registered(tool_id, workspace)?;
+    validate(&descriptor, tool_id)?;
+    let dependency_directories = verify_dependencies(&descriptor, workspace)?;
+    Ok(LoadedDescriptor {
+        descriptor,
+        sha256: sha256_hex(&bytes),
+        registry,
+        dependency_directories,
+    })
+}
+
+/// The registered descriptor of `tool_id`, found, read, and decoded as [`load`] does, before it is
+/// validated: its bytes and the registry it was read from come with it.
+fn read_registered(
+    tool_id: &str,
+    workspace: &Path,
+) -> Result<(Descriptor, Vec<u8>, RegistryBinding), ProfileToolRefusal> {
     let root = config_root_from_environment().ok_or_else(|| {
         refusal(
             RefusalKind::RegistryUnavailable,
@@ -343,14 +360,96 @@ pub(super) fn load(
     if descriptor.schema.is_some() {
         descriptor.schema = strict_schema(&bytes, tool_id)?;
     }
-    validate(&descriptor, tool_id)?;
-    let dependency_directories = verify_dependencies(&descriptor, workspace)?;
-    Ok(LoadedDescriptor {
-        descriptor,
-        sha256: sha256_hex(&bytes),
-        registry,
-        dependency_directories,
-    })
+    Ok((descriptor, bytes, registry))
+}
+
+/// One pin of a registered descriptor: what it declares, and what CommandAgent calculates now by
+/// the computation admission compares it with (Issue #1013). Display only: whether admission
+/// passes stays its own comparison, and nothing here writes a value anywhere.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub(crate) struct ShownPin {
+    pub(crate) tool_id: String,
+    /// `schema_sha256`, `dependency`, `executable`, `dependency_directory`, `link_directory`,
+    /// `runtime_sha256`, or `descriptor_sha256`.
+    pub(crate) pin: &'static str,
+    pub(crate) path: Option<PathBuf>,
+    /// `None` for a value no descriptor declares: `runtime_sha256` and `descriptor_sha256`.
+    pub(crate) declared: Option<String>,
+    /// `None` when it cannot be calculated, with the reason in `unavailable`.
+    pub(crate) calculated: Option<String>,
+    pub(crate) unavailable: Option<String>,
+}
+
+/// Every pin of `tool_id`'s descriptor, declared beside calculated, read the way [`load`] reads it
+/// and calculated by the functions admission compares with: [`declared_pin`], [`read_dependency`],
+/// [`directory_pin`], and [`ProcessDeclaration::runtime_sha256`]. A mismatch is shown, not judged;
+/// a descriptor that cannot be found or decoded is that refusal.
+pub(crate) fn shown_pins(
+    tool_id: &str,
+    workspace: &Path,
+) -> Result<Vec<ShownPin>, ProfileToolRefusal> {
+    let (descriptor, bytes, _) = read_registered(tool_id, workspace)?;
+    let shown =
+        |pin, path: Option<&Path>, declared: Option<&str>, calculated: Result<String, String>| {
+            let (calculated, unavailable) = match calculated {
+                Ok(value) => (Some(value), None),
+                Err(reason) => (None, Some(reason)),
+            };
+            ShownPin {
+                tool_id: tool_id.to_string(),
+                pin,
+                path: path.map(Path::to_path_buf),
+                declared: declared.map(str::to_string),
+                calculated,
+                unavailable,
+            }
+        };
+    let file = |path: &Path| read_dependency(path).map(|(bytes, _)| sha256_hex(&bytes));
+    let mut pins = vec![
+        shown("descriptor_sha256", None, None, Ok(sha256_hex(&bytes))),
+        shown(
+            "schema_sha256",
+            None,
+            Some(&descriptor.schema_sha256),
+            declared_pin(&descriptor, tool_id).map_err(|refusal| refusal.reason),
+        ),
+    ];
+    for dependency in &descriptor.dependencies {
+        pins.push(shown(
+            "dependency",
+            Some(&dependency.path),
+            Some(&dependency.sha256),
+            file(&dependency.path),
+        ));
+    }
+    if let Some(process) = &descriptor.process {
+        pins.push(shown(
+            "executable",
+            Some(&process.executable.path),
+            Some(&process.executable.sha256),
+            file(&process.executable.path),
+        ));
+        for (pin, directories) in [
+            ("dependency_directory", &process.dependency_directories),
+            ("link_directory", &process.link_directories),
+        ] {
+            for directory in directories {
+                pins.push(shown(
+                    pin,
+                    Some(&directory.path),
+                    Some(&directory.sha256),
+                    directory_pin(&directory.path),
+                ));
+            }
+        }
+        pins.push(shown(
+            "runtime_sha256",
+            None,
+            None,
+            Ok(process.runtime_sha256()),
+        ));
+    }
+    Ok(pins)
 }
 
 /// `schema` as the strict decode reads it. `serde_json` would keep the last of a repeated

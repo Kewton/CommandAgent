@@ -527,15 +527,87 @@ fn install_impl(
             SandboxAvailability::Unavailable(format!("run temp directory is unavailable: {err}"));
         return store(mode, None, availability, None);
     }
-    let policy = SandboxPolicy::new(workspace_root, &run_tmp_dir)
+    let policy = run_policy(workspace_root, &run_tmp_dir, offline, dev_server_ports);
+    store(
+        mode,
+        Some(policy),
+        availability_of(mode),
+        Some(run_tmp_root),
+    )
+}
+
+/// The policy a run's install builds over its temporary directory.
+fn run_policy(
+    workspace_root: &Path,
+    run_tmp_dir: &Path,
+    offline: bool,
+    dev_server_ports: Vec<u16>,
+) -> SandboxPolicy {
+    SandboxPolicy::new(workspace_root, run_tmp_dir)
         .with_offline(offline)
-        .with_dev_server_ports(dev_server_ports);
-    let availability = if mode.uses_backend() {
+        .with_dev_server_ports(dev_server_ports)
+}
+
+/// What an install of `mode` stores as the backend's availability: the probe, or off.
+fn availability_of(mode: SandboxMode) -> SandboxAvailability {
+    if mode.uses_backend() {
         probe()
     } else {
         SandboxAvailability::Unavailable(DISABLED_REASON.to_string())
-    };
-    store(mode, Some(policy), availability, Some(run_tmp_root))
+    }
+}
+
+/// What an install would hold, judged by the same policy, probe, and rule, with nothing made
+/// and nothing stored: no `<state_dir>/sandbox/run-*` directory exists for it, and the
+/// process-wide state is not read or changed (Issue #1013).
+#[derive(Debug, Clone)]
+pub(crate) struct SandboxDiagnosis {
+    pub(crate) status: SandboxStatus,
+    /// The policy commands would be held to, only when the backend would apply it, as
+    /// [`applied_policy`] answers for an installed one.
+    applied: Option<SandboxPolicy>,
+}
+
+impl SandboxDiagnosis {
+    pub(crate) fn applied_policy(&self) -> Option<&SandboxPolicy> {
+        self.applied.as_ref()
+    }
+}
+
+/// [`install_with`] without its effects: the run temporary it names is not created, so an
+/// install that would fail to create it is not seen here.
+pub(crate) fn diagnose(
+    mode: SandboxMode,
+    workspace_root: &Path,
+    state_dir: &Path,
+    offline: bool,
+    dev_server_ports: Vec<u16>,
+) -> SandboxDiagnosis {
+    let run_tmp_dir = state_dir
+        .join("sandbox")
+        .join(format!("run-{}", uuid::Uuid::now_v7()));
+    let policy = run_policy(workspace_root, &run_tmp_dir, offline, dev_server_ports);
+    diagnosis_of(mode, policy, availability_of(mode))
+}
+
+fn diagnosis_of(
+    mode: SandboxMode,
+    policy: SandboxPolicy,
+    availability: SandboxAvailability,
+) -> SandboxDiagnosis {
+    let status = status_of(mode, Some(&policy), &availability);
+    let applied = backend_applied(mode, &availability).then_some(policy);
+    SandboxDiagnosis { status, applied }
+}
+
+/// A diagnosis over an explicit availability, for a test that cannot rely on the host's backend.
+#[cfg(test)]
+pub(crate) fn diagnosis_for_test(
+    mode: SandboxMode,
+    policy: SandboxPolicy,
+    availability: SandboxAvailability,
+) -> SandboxDiagnosis {
+    diagnosis_of(mode, policy, availability)
 }
 
 /// Install an explicit policy and availability. Used by tests to simulate an
@@ -635,14 +707,7 @@ fn store(
     availability: SandboxAvailability,
     run_tmp_root: Option<PathBuf>,
 ) -> SandboxStatus {
-    let read = read_isolation(policy.as_ref());
-    let offline = policy.as_ref().is_some_and(|policy| policy.offline);
-    let status = SandboxStatus::from_parts(
-        mode,
-        &availability,
-        backend_note(&read, offline, policy.as_ref()),
-        read.effective,
-    );
+    let status = status_of(mode, policy.as_ref(), &availability);
     let mut installed = INSTALLED.lock().expect("sandbox state");
     *installed = Some(Installed {
         policy,
@@ -651,6 +716,22 @@ fn store(
         run_tmp_root,
     });
     status
+}
+
+/// The status an install records for a mode, a policy, and an availability.
+fn status_of(
+    mode: SandboxMode,
+    policy: Option<&SandboxPolicy>,
+    availability: &SandboxAvailability,
+) -> SandboxStatus {
+    let read = read_isolation(policy);
+    let offline = policy.is_some_and(|policy| policy.offline);
+    SandboxStatus::from_parts(
+        mode,
+        availability,
+        backend_note(&read, offline, policy),
+        read.effective,
+    )
 }
 
 /// The events file a downgrade is reported to. The run's path is chosen by the

@@ -240,11 +240,22 @@ impl AdmittedProfileTools {
         &self,
         config: &crate::config::Config,
     ) -> Result<(), ProfileToolRefusal> {
+        self.judge_stage_run(config, StageRunFacts::of_session(config))
+            .map(|_| ())
+    }
+
+    /// The stage set's judgement for a run with these facts: `Ok(None)` without a stage, else the
+    /// number of stages admitted. It keeps nothing and opens no ledger.
+    pub(crate) fn judge_stage_run(
+        &self,
+        config: &crate::config::Config,
+        facts: StageRunFacts,
+    ) -> Result<Option<usize>, ProfileToolRefusal> {
         match &self.stages {
             Some(stages) => stages
-                .judge_run(StageRunFacts::of_session(config), &config.state_dir)
-                .map(|_| ()),
-            None => Ok(()),
+                .judge_run(facts, &config.state_dir)
+                .map(|contract| Some(contract.stages().len())),
+            None => Ok(None),
         }
     }
 

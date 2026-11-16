@@ -241,6 +241,12 @@ mod command_writes {
             os_sandbox::applied_policy().map(Self)
         }
 
+        /// The policy a diagnosis says the sandbox would apply, or nothing when it would apply
+        /// none: the same answer [`Self::applied`] gives an installed one (Issue #1013).
+        pub(crate) fn diagnosed(diagnosis: &os_sandbox::SandboxDiagnosis) -> Option<Self> {
+            diagnosis.applied_policy().cloned().map(Self)
+        }
+
         /// A policy a test holds, with no sandbox of the process read.
         #[cfg(test)]
         pub(crate) fn of(policy: SandboxPolicy) -> Self {
@@ -265,13 +271,33 @@ impl WriteBounds {
     /// What is not known is not a bound: no policy, a policy of another workspace, or a temporary
     /// that is not there each refuse the wallet before anything is made.
     fn of(writes: Option<&CommandWrites>, workspace: &Path) -> Result<Self, LedgerRefusal> {
+        Self::with_temporary(writes, workspace, |path| {
+            fs::canonicalize(path).map_err(|_| LedgerRefusal::SandboxPolicyUnknown)
+        })
+    }
+
+    /// The bounds of a run that has not started (Issue #1013): its temporary is not made yet, so
+    /// it is where its existing part really leads, with the names yet to be made on it, as G4
+    /// resolves a state directory not made yet. Everything else is [`Self::of`].
+    fn planned(writes: &CommandWrites, workspace: &Path) -> Result<Self, LedgerRefusal> {
+        Self::with_temporary(Some(writes), workspace, |path| {
+            crate::planner::structured_stages::ledger::resolved_with_missing_tail(path)
+                .map_err(|_| LedgerRefusal::SandboxPolicyUnknown)
+        })
+    }
+
+    fn with_temporary(
+        writes: Option<&CommandWrites>,
+        workspace: &Path,
+        temporary: impl FnOnce(&Path) -> Result<PathBuf, LedgerRefusal>,
+    ) -> Result<Self, LedgerRefusal> {
         let workspace = fs::canonicalize(workspace).map_err(unavailable)?;
         let policy = writes.ok_or(LedgerRefusal::SandboxPolicyUnknown)?.policy();
         let unknown = |_| LedgerRefusal::SandboxPolicyUnknown;
         if fs::canonicalize(&policy.workspace_root).map_err(unknown)? != workspace {
             return Err(LedgerRefusal::SandboxPolicyUnknown);
         }
-        let mut roots = vec![fs::canonicalize(&policy.run_tmp_dir).map_err(unknown)?];
+        let mut roots = vec![temporary(&policy.run_tmp_dir)?];
         let caches = &policy.caches;
         let caches = [
             &caches.cargo_registry,
@@ -608,31 +634,7 @@ impl Store {
     /// damage. `O_NONBLOCK` is for a FIFO in its place: the open returns, and the file-type check
     /// refuses it.
     fn read_file(&self) -> Result<Option<Vec<u8>>, LedgerRefusal> {
-        let opened = storage::open_file_at(
-            &self.held,
-            LEDGER_FILE,
-            libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK,
-            0,
-        );
-        let file = match opened {
-            Ok(file) => file,
-            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
-            Err(error) if error.raw_os_error() == Some(libc::ELOOP) => {
-                return Err(LedgerRefusal::Corrupt);
-            }
-            Err(error) => return Err(unavailable(error)),
-        };
-        if !file.metadata().map_err(unavailable)?.is_file() || !has_one_name(&file)? {
-            return Err(LedgerRefusal::Corrupt);
-        }
-        let mut bytes = Vec::new();
-        file.take(MAX_LEDGER_BYTES + 1)
-            .read_to_end(&mut bytes)
-            .map_err(unavailable)?;
-        if !fits_a_ledger(bytes.len() as u64) {
-            return Err(LedgerRefusal::Corrupt);
-        }
-        Ok(Some(bytes))
+        read_ledger_in(&self.held)
     }
 
     /// Temporary, fsync, rename, fsync of the directory: on return it survives a crash, and a
@@ -697,6 +699,37 @@ impl Store {
             Some(_) => Err(LedgerRefusal::Diverged),
         }
     }
+}
+
+/// The ledger file in a held directory. `None` only when nothing is there. A symlink, or something
+/// too large to be a ledger, is damage. `O_NONBLOCK` is for a FIFO in its place: the open returns,
+/// and the file-type check refuses it.
+fn read_ledger_in(held: &File) -> Result<Option<Vec<u8>>, LedgerRefusal> {
+    let opened = storage::open_file_at(
+        held,
+        LEDGER_FILE,
+        libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK,
+        0,
+    );
+    let file = match opened {
+        Ok(file) => file,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(error) if error.raw_os_error() == Some(libc::ELOOP) => {
+            return Err(LedgerRefusal::Corrupt);
+        }
+        Err(error) => return Err(unavailable(error)),
+    };
+    if !file.metadata().map_err(unavailable)?.is_file() || !has_one_name(&file)? {
+        return Err(LedgerRefusal::Corrupt);
+    }
+    let mut bytes = Vec::new();
+    file.take(MAX_LEDGER_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(unavailable)?;
+    if !fits_a_ledger(bytes.len() as u64) {
+        return Err(LedgerRefusal::Corrupt);
+    }
+    Ok(Some(bytes))
 }
 
 /// The check G4 made for its own ledger, of one place: where it really leads.
@@ -892,11 +925,7 @@ fn hold_store(
 ) -> Result<HeldStore, LedgerRefusal> {
     let bounds = WriteBounds::of(command_writes, workspace)?;
     let way = judge_the_way(&directory, workspace, &bounds)?;
-    let workspace = fs::canonicalize(workspace).map_err(unavailable)?;
-    let workspace_sha256 = sha256_hex(workspace.as_os_str().as_bytes());
-    let explicit_profile = explicit_profile
-        .map(canonical_explicit_profile)
-        .transpose()?;
+    let (workspace_sha256, explicit_profile) = run_identity(workspace, explicit_profile)?;
     at_seam(Seam::AfterWalk, directory.path());
     let store = Store::open_on(directory, way)?;
     let found = store.read_file()?;
@@ -906,6 +935,103 @@ fn hold_store(
         explicit_profile,
         found,
     })
+}
+
+/// The run's identity a wallet is held to: the digest of the canonical workspace path, and the
+/// canonical name of an explicit profile.
+fn run_identity(
+    workspace: &Path,
+    explicit_profile: Option<&str>,
+) -> Result<(String, Option<String>), LedgerRefusal> {
+    let workspace = fs::canonicalize(workspace).map_err(unavailable)?;
+    let workspace_sha256 = sha256_hex(workspace.as_os_str().as_bytes());
+    let explicit_profile = explicit_profile
+        .map(canonical_explicit_profile)
+        .transpose()?;
+    Ok((workspace_sha256, explicit_profile))
+}
+
+/// What a check found at a wallet's path, read without the wallet's lock (Issue #1013). Only an
+/// open takes the lock, and an open makes what is missing, so a check never takes it: what it
+/// reads may be in the middle of another process's change. A record whose two reads differ is
+/// therefore not vouched for, and one the continuation refuses is that refusal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum UnlockedLedger {
+    /// Nothing at the wallet's path: a fresh entry's open would make the wallet there.
+    Absent,
+    /// A record the run's own continuation accepts, the same bytes on both reads.
+    Continues,
+    /// The two reads differ: something changed the file between them.
+    ChangedWhileRead,
+}
+
+/// A version's continuation of the record on disk: its bytes, the workspace digest, and the
+/// canonical explicit profile.
+pub(super) type Continuation<'a> =
+    &'a dyn Fn(&[u8], &str, Option<&str>) -> Result<(), LedgerRefusal>;
+
+/// [`hold_store`]'s judgement and [`BudgetLedger::open`]'s continuation with nothing made, opened
+/// for writing, or locked: the same bounds (the run's temporary as it will lead), the same walk,
+/// the same identity, then the file, if the walk reached the wallet's own directory.
+fn judge_unlocked(
+    directory: WalletDirectory,
+    workspace: &Path,
+    explicit_profile: Option<&str>,
+    writes: &CommandWrites,
+    continues: Continuation<'_>,
+) -> Result<UnlockedLedger, LedgerRefusal> {
+    let bounds = WriteBounds::planned(writes, workspace)?;
+    let way = judge_the_way(&directory, workspace, &bounds)?;
+    let (workspace_sha256, explicit_profile) = run_identity(workspace, explicit_profile)?;
+    if !way.to_make.is_empty() {
+        return Ok(UnlockedLedger::Absent);
+    }
+    let (reached, _) = way.chain.last().ok_or(LedgerRefusal::Unavailable)?;
+    let held = storage::open_itself(reached).map_err(unavailable)?;
+    let Some(first) = read_ledger_in(&held)? else {
+        return Ok(UnlockedLedger::Absent);
+    };
+    if read_ledger_in(&held)?.as_deref() != Some(first.as_slice()) {
+        return Ok(UnlockedLedger::ChangedWhileRead);
+    }
+    continues(&first, &workspace_sha256, explicit_profile.as_deref())?;
+    Ok(UnlockedLedger::Continues)
+}
+
+/// [`judge_unlocked`] for a `provider_billed` wallet.
+pub(crate) fn judge_unlocked_v1(
+    policy: &RunBudgetPolicy,
+    workspace: &Path,
+    explicit_profile: Option<&str>,
+    writes: &CommandWrites,
+) -> Result<UnlockedLedger, LedgerRefusal> {
+    judge_unlocked(
+        WalletDirectory::of(policy),
+        workspace,
+        explicit_profile,
+        writes,
+        &|bytes, workspace_sha256, profile| {
+            continue_wallet(bytes, policy, workspace_sha256, profile).map(drop)
+        },
+    )
+}
+
+/// [`judge_unlocked`] at `<ledger_dir>/<budget_id>`, for a wallet of the `usage_tariff` basis.
+pub(super) fn judge_unlocked_at(
+    ledger_dir: &Path,
+    budget_id: &str,
+    workspace: &Path,
+    explicit_profile: Option<&str>,
+    writes: &CommandWrites,
+    continues: Continuation<'_>,
+) -> Result<UnlockedLedger, LedgerRefusal> {
+    judge_unlocked(
+        WalletDirectory::at(ledger_dir, budget_id),
+        workspace,
+        explicit_profile,
+        writes,
+        continues,
+    )
 }
 
 /// [`hold_store`] at `<ledger_dir>/<budget_id>`, for a wallet of the `usage_tariff` basis.
