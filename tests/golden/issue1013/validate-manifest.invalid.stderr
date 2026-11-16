@@ -1,0 +1,1 @@
+error: external manifest <ROOT>/extension/profiles/broken/manifest.toml:3:1: TOML parse error: invalid table header duplicate key `metadata` in document root
