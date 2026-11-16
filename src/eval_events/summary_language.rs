@@ -1,5 +1,28 @@
 use std::borrow::Cow;
 
+#[cfg(test)]
+thread_local! {
+    /// The language a test chose for this thread, in place of the process locale.
+    static TEST_LANGUAGE: std::cell::Cell<Option<SummaryLanguage>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// Runs `run` with `language` as what [`SummaryLanguage::from_process_locale`] answers on this
+/// thread, whatever the host's `LC_ALL`, `LC_MESSAGES`, and `LANG` say. Test-only: it changes no
+/// process environment, so tests running in parallel are not affected, and it puts back what was
+/// there before, even if `run` panics.
+#[cfg(test)]
+pub(crate) fn with_language_for_test<R>(language: SummaryLanguage, run: impl FnOnce() -> R) -> R {
+    struct Restore(Option<SummaryLanguage>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            TEST_LANGUAGE.with(|current| current.set(self.0));
+        }
+    }
+    let _restore = Restore(TEST_LANGUAGE.with(|current| current.replace(Some(language))));
+    run()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum SummaryLanguage {
     #[default]
@@ -20,6 +43,10 @@ impl SummaryLanguage {
     }
 
     pub(crate) fn from_process_locale() -> Self {
+        #[cfg(test)]
+        if let Some(language) = TEST_LANGUAGE.with(std::cell::Cell::get) {
+            return language;
+        }
         ["LC_ALL", "LC_MESSAGES", "LANG"]
             .into_iter()
             .find_map(|name| {
