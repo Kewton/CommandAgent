@@ -2,7 +2,8 @@
 """Record the kernel capabilities the Linux strict isolation backend (#982) needs.
 
 The script prints one line per item and measures each capability with the real
-syscall, as a non-root user, in a forked child:
+syscall, as a non-root user, in a fresh single-threaded child process (this
+script run again with ``--child``):
 
 - the runner image, the kernel release and the active LSM list;
 - the Landlock ABI, and a Landlock domain that really refuses a read;
@@ -17,9 +18,10 @@ Item states: ``ok`` (present), ``missing`` (measured and refused, with the
 errno), ``blocked`` (not reached because an earlier step is missing),
 ``recorded`` (a value only), ``n/a-in-container`` (``--context container``
 only, for a file a container cannot see) and ``error`` (could not be
-measured). ``error`` always fails the run. With ``--phase prepared``,
-``missing`` and ``blocked`` fail it too. A timeout is an ``error``, never a
-pass, and nothing is skipped.
+measured). ``error`` always fails the run. ``--phase initial`` records
+``missing`` and ``blocked`` items and says so in its summary
+(``result=recorded``); ``--phase prepared`` fails on them too. A timeout is an
+``error``, never a pass, and nothing is skipped.
 
 ``--context github-runner`` is what CI runs. ``--context container`` exists
 only to check this script inside a local container, where securityfs is not
@@ -33,11 +35,9 @@ import errno
 import fcntl
 import json
 import os
-import select
-import signal
+import subprocess
 import sys
 import tempfile
-import time
 
 # Syscall numbers and the seccomp audit architecture, per architecture. The
 # asm-generic numbers (Landlock, close_range) happen to agree on both; they are
@@ -136,53 +136,47 @@ def outcome(status, detail):
     return {"status": status, "detail": detail}
 
 
-def in_child(function):
-    """Run ``function`` in a forked child and return the dict it produced.
+def in_child(name, *args):
+    """Run the measurement ``name`` in a fresh, single-threaded child process
+    (this script again, with ``--child``) and return the dict it printed.
 
-    A child that ends without a result (a signal, a seccomp kill) or that runs
-    past the deadline is an ``error``: nothing about the capability was shown.
+    A child that ends without a result (a signal, a seccomp kill), exits
+    non-zero, or runs past the deadline is an ``error``: nothing about the
+    capability was shown. On the deadline ``subprocess.run`` kills and reaps
+    the child it started.
     """
-    sys.stdout.flush()
-    sys.stderr.flush()
-    read_end, write_end = os.pipe()
-    pid = os.fork()
-    if pid == 0:
-        os.close(read_end)
-        try:
-            result = function()
-        except BaseException as exc:  # reported as an error item, never swallowed
-            result = {"error": "%s: %s" % (type(exc).__name__, exc)}
-        try:
-            os.write(write_end, json.dumps(result).encode())
-        finally:
-            os._exit(0)
-    os.close(write_end)
-    deadline = time.monotonic() + CHILD_TIMEOUT_SECONDS
-    chunks = []
-    timed_out = False
-    while True:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            timed_out = True
-            break
-        ready, _, _ = select.select([read_end], [], [], remaining)
-        if not ready:
-            continue
-        data = os.read(read_end, 65536)
-        if not data:
-            break
-        chunks.append(data)
-    os.close(read_end)
-    if timed_out:
-        os.kill(pid, signal.SIGKILL)
-    _, status = os.waitpid(pid, 0)
-    if timed_out:
+    command = [sys.executable, "-I", "-B", os.path.abspath(__file__), "--child", name, *args]
+    try:
+        done = subprocess.run(command, capture_output=True, timeout=CHILD_TIMEOUT_SECONDS, check=False)
+    except subprocess.TimeoutExpired:
         return {"error": "the child ran past %ss (a timeout is not evidence)" % CHILD_TIMEOUT_SECONDS}
-    if os.WIFSIGNALED(status):
-        return {"error": "the child ended by signal %d" % os.WTERMSIG(status)}
-    if not chunks:
-        return {"error": "the child gave no result (wait status %d)" % status}
-    return json.loads(b"".join(chunks))
+    stderr = done.stderr.decode(errors="replace").strip()[-300:]
+    if done.returncode < 0:
+        return {"error": "the child ended by signal %d %s" % (-done.returncode, stderr)}
+    if done.returncode != 0 or not done.stdout.strip():
+        return {"error": "the child gave no result (exit %d) %s" % (done.returncode, stderr)}
+    try:
+        return json.loads(done.stdout)
+    except ValueError:
+        return {"error": "the child printed no JSON result %s" % stderr}
+
+
+def child_main(name, args):
+    """The ``--child`` entry point: one measurement, its dict printed as JSON."""
+    arch = ARCHES.get(os.uname().machine)
+    factories = {
+        "landlock_enforce": lambda: landlock_enforce_child(arch, args[0]),
+        "namespaces": lambda: namespace_child(arch, args[0]),
+        "seccomp": lambda: seccomp_child(arch),
+        "close_range": lambda: close_range_child(arch),
+    }
+    try:
+        result = factories[name]()()
+    except Exception as exc:  # reported as an error item, never swallowed
+        result = {"error": "%s: %s" % (type(exc).__name__, exc)}
+    sys.stdout.write(json.dumps(result))
+    sys.stdout.flush()
+    return 0
 
 
 def child_result(result, *names):
@@ -299,7 +293,7 @@ def landlock_enforce_child(arch, path):
 
 
 def item_landlock_enforce(_context, arch):
-    return child_result(in_child(landlock_enforce_child(arch, "/etc/os-release")), "landlock_enforce")[0]
+    return child_result(in_child("landlock_enforce", "/etc/os-release"), "landlock_enforce")[0]
 
 
 NAMESPACE_ITEMS = ("namespaces", "id_map", "tmpfs_mount", "pivot_root")
@@ -374,7 +368,7 @@ def namespace_child(arch, new_root):
 def measure_namespaces(arch):
     new_root = tempfile.mkdtemp(prefix="ca-strict-probe-")
     try:
-        return child_result(in_child(namespace_child(arch, new_root)), *NAMESPACE_ITEMS)
+        return child_result(in_child("namespaces", new_root), *NAMESPACE_ITEMS)
     finally:
         os.rmdir(new_root)
 
@@ -411,7 +405,7 @@ def seccomp_child(arch):
 
 
 def item_seccomp(_context, arch):
-    return child_result(in_child(seccomp_child(arch)), "seccomp")[0]
+    return child_result(in_child("seccomp"), "seccomp")[0]
 
 
 def close_range_child(arch):
@@ -436,10 +430,12 @@ def close_range_child(arch):
 
 
 def item_close_range(_context, arch):
-    return child_result(in_child(close_range_child(arch)), "close_range")[0]
+    return child_result(in_child("close_range"), "close_range")[0]
 
 
 def main(argv):
+    if argv[:1] == ["--child"]:
+        return child_main(argv[1], argv[2:])
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--phase", required=True, choices=("initial", "prepared"))
     parser.add_argument("--context", required=True, choices=("github-runner", "container"))
@@ -467,14 +463,27 @@ def main(argv):
         rows.append(("seccomp", item_seccomp(args.context, arch)))
         rows.append(("close_range", item_close_range(args.context, arch)))
 
-    failing = {"error"} if args.phase == "initial" else {"error", "missing", "blocked"}
-    failures = []
+    errors, missing = [], []
     for name, result in rows:
         print("%s %s: %s: %s" % (args.phase, name, result["status"], result["detail"]))
-        if result["status"] in failing:
-            failures.append(name)
-    verdict = "fail" if failures else "pass"
-    print("summary: phase=%s result=%s failures=%s" % (args.phase, verdict, ",".join(failures) or "none"))
+        if result["status"] == "error":
+            errors.append(name)
+        elif result["status"] in ("missing", "blocked"):
+            missing.append(name)
+    if args.phase == "initial":
+        # The initial phase records what the runner offers before the preparation:
+        # a missing capability is recorded, never a pass and never a failure.
+        # Only an item that could not be measured fails it.
+        print(
+            "summary: phase=initial result=%s missing=%s errors=%s (record only; missing is not a failure here)"
+            % ("fail" if errors else "recorded", ",".join(missing) or "none", ",".join(errors) or "none")
+        )
+        return 1 if errors else 0
+    failures = errors + missing
+    print(
+        "summary: phase=prepared result=%s failures=%s"
+        % ("fail" if failures else "pass", ",".join(failures) or "none")
+    )
     return 1 if failures else 0
 
 
