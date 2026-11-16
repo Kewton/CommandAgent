@@ -25,7 +25,7 @@ const ROOT_MARKDOWN_DOCS: &[&str] = &[
     "README.md",
     "SECURITY.md",
 ];
-const MARKDOWN_DOC_DIRECTORIES: &[&str] = &["docs", "packs"];
+const MARKDOWN_DOC_DIRECTORIES: &[&str] = &["docs", "examples", "packs"];
 const READER_DOCS: &[&str] = &[
     "docs/user/getting-started-cli.md",
     "docs/user/getting-started-gui.md",
