@@ -1,0 +1,41 @@
+# A profile with two structured stages. Stage `parse` turns input/items.txt
+# into work/items.json; stage `check` reads that file and proposes the one
+# final artifact, out/report.json. Each stage is one operator-pinned process;
+# the descriptors live under <operator root>/profile-tools/.
+
+[metadata]
+id = "two-stage-example"
+display_name = "Two-stage example"
+schema_version = "v2"
+task_family = "generic"
+
+[plan]
+intent = "create"
+phases = [
+  { id = "implementation", prompt = "Produce out/report.json for {goal}." },
+]
+
+[artifacts]
+required = ["out/report.json"]
+
+[guidance.variants.contract]
+triggers = [{ condition = "always" }]
+messages = { instruction = "Call ExampleParse, then ExampleCheck with the revision the host names. Do not write files yourself." }
+
+[[checks.final]]
+id = "scaffold_files_present"
+params = { files = ["out/report.json"] }
+
+[profile_tools]
+schema_version = "profile-tool.declaration/v2"
+builtin_tools = ["Read"]
+tools = [
+  { id = "example-parse", effect = "propose-artifacts" },
+  { id = "example-check", effect = "propose-artifacts" },
+]
+
+[profile_tools.stages]
+stages = [
+  { id = "parse", targets = [{ id = "main", tool_id = "example-parse" }] },
+  { id = "check", targets = [{ id = "main", tool_id = "example-check" }] },
+]

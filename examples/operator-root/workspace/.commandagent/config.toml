@@ -1,0 +1,14 @@
+# The preset the rehearsal runs with. The base URL is given on the command line
+# (--base-url), so the fake model's port can change between runs.
+#
+# `openrouter_provider` is CommandAgent's own key for the provider routing table
+# a request carries. A v1 run budget counts a send only when the body names the
+# route the wallet declares, so the table here must match the wallet's
+# `upstream_only` and `allow_fallbacks`. The value is fictitious.
+
+[preset.example]
+provider = "openai-compatible"
+model = "example-model"
+api = "chat_completions"
+tool_protocol = "native"
+openrouter_provider = { only = ["example-upstream"], allow_fallbacks = false }

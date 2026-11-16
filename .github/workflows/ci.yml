@@ -123,6 +123,27 @@ jobs:
           # UNVERIFIED or if the verdict file is missing or empty.
           bash scripts/check-probe-verdicts.sh
 
+  operator-root-example-macos:
+    name: Operator-root example (macOS)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Operator-root example and operator check on macOS
+        run: |
+          # The pinned process runs only under the macOS Seatbelt sandbox, so the
+          # success and refusal paths of examples/operator-root and the macOS-only
+          # operator-check tests run here. If the isolation probe is unavailable on
+          # this runner the tests fail; nothing is skipped, ignored, or cfg'd out.
+          cargo test --locked --test example_operator_root
+          cargo test --locked --test operator_check
+
   gui-dashboard:
     name: GUI Dashboard
     needs: changes

@@ -136,6 +136,149 @@ run は終わります。この拒否は、provider 呼び出しが既に行わ�
 
 kind の全一覧、schema の部分集合、上限は、開発者向けの文書 `docs/dev/profile-tools.md` にあります。
 
+## structured stages
+
+プロファイルの manifest と eval pack は、`propose-artifacts` の tool を段（stage）として
+並べられます。段が完了するのは、今の入力について host がバイトを採用し、あなたが求める
+検査がすべて通ったときだけです。モデルや tool が何を言っても、それでは決まりません。
+動く見本を順にたどるには [2 段の拡張を作る](operator-root-tutorial.md) を見てください。
+
+### 段を宣言する
+
+段には `profile-tool.declaration/v2` が要ります:
+
+```toml
+[profile_tools]
+schema_version = "profile-tool.declaration/v2"
+builtin_tools = ["Read"]
+tools = [
+  { id = "example-parse", effect = "propose-artifacts" },
+  { id = "example-check", effect = "propose-artifacts" },
+]
+
+[profile_tools.stages]
+stages = [
+  { id = "parse", targets = [{ id = "main", tool_id = "example-parse" }] },
+  { id = "check", targets = [{ id = "main", tool_id = "example-check" }] },
+]
+```
+
+- 段の間の辺は schema から決まります。`schema.inputs` が別の tool の出力を名指しする tool は、
+  その tool の段に依存します。段は `depends_on` を並べることもできます。
+- 段は `required_checks` を足せます。`[profile_tools.stages.limits]` の上限は狭めることしか
+  できません。
+- eval pack は同じ欄を YAML の `profile_tools.stages` の下に持ちます。
+
+段の tool の descriptor には、あなたの下限を書きます。無ければ、その tool は admission で
+`stage_contract_refused` として拒否されます:
+
+```json
+"stage": {
+  "required_checks": ["lines"],
+  "attempts_per_target": 3,
+  "attempts_per_run": 8,
+  "deadline_seconds": 600
+}
+```
+
+tool の schema は、必須の文字列の引数 `expected_revision` を取らなければなりません。
+host はこれを process への問い合わせから外します。
+
+### モデルに伝わること
+
+段の tool への呼び出しには、モデルが読むデータで答えます。どの答えも `attempts`
+（対象と run のそれぞれについて、使った回数と許される回数）を持ちます。
+
+| `status` | 意味 | モデルが次にすること |
+| --- | --- | --- |
+| `sealed` | バイトが採用され、必須の検査がすべて通った。`stage.downstream[].revision` が、下の各段が今期待する revision を名指しする | その revision で次の段を呼ぶ |
+| `resubmit` | 検査が通らなかった（`code: check_failed`）。process の diagnostics つき。sealed のものはそのまま | 同じ tool をもう一度呼ぶ |
+| `stale` | revision が古い、または同じ返事の別の呼び出しが commit した。`revision` が今のもの | `revision` でもう一度呼ぶ |
+| `not_ready` | 上の段が sealed でない | 先にその段を sealed にする |
+| `unknown_revision` | この run の revision ではない。`initial` は一度も変わっていない対象を指す | host が名指しした revision を使う |
+| `no_change` | すでに sealed のバイトに同じ呼び出し | 先へ進む |
+| `input_not_current` | 入力が、上の段が採用したものと違う | 上の段が sealed になってからもう一度呼ぶ |
+
+次のときは、代わりに run が終わります: 期限を過ぎた、対象または run の回数を使い切った、
+固定の入力が変わった、process が 0 以外で終わった、検査を 1 つも報告しなかった。
+
+### run の終わり方
+
+- 段が sealed でないまま終わろうとする `--prompt` の run は最大 8 回差し戻され、それでも
+  終わるなら `stage_incomplete` で終わります。exit 0 は、宣言したすべての段が sealed で
+  あることを意味します。
+- 記録は `--state-dir` の下、ワークスペースの外に、ワークスペースとプロファイルの組ごとに
+  1 つ置かれます。新しい process は回数と期限を数え直します。`--resume` は続きから数え、
+  `--fresh-session` は最初からやり直します。
+- 段の集合には OS の sandbox が要ります。`--sandbox off` は `stage_contract_refused` で
+  拒否されます。`--recovery-plan-auto-runs` が 0 より大きいときも同じです。
+- `--summary-json` は、下で説明する `structured_stages` の object で結果を報告します。
+
+## process の封筒
+
+`pinned_process` の tool は、2 つの封筒（envelope）で host とやり取りします。host は
+process の標準入力に要求を 1 行書き、標準出力から結果の文書を 1 つ読みます。
+
+### 要求
+
+`profile-tool.request/v1` は compact な JSON 1 行です:
+
+| 欄 | 入っているもの |
+| --- | --- |
+| `request_id` | この呼び出しのための新しい ID |
+| `tool_id`、`tool_version` | descriptor の `tool_id` と `version` |
+| `descriptor_sha256`、`runtime_sha256` | descriptor と、その process の宣言の digest |
+| `input_revision`、`schema_sha256` | 採用された入力の revision と schema の pin |
+| `arguments` | 検証済みの引数。`expected_revision` は含まない |
+| `inputs` | 採用された入力ごとの `path`、`sha256`、`bytes_base64` |
+| `outputs` | 1 つの出力の `id` |
+
+入力は host が採用したバイトで、パスから読み直したものではありません。
+
+### 結果
+
+`profile-tool.result/v1` は JSON の文書 1 つです:
+
+```json
+{"protocol": "profile-tool.result/v1", "request_id": "...", "tool_id": "...",
+ "runtime_sha256": "...", "input_revision": "...", "schema_sha256": "...",
+ "checks": [{"id": "lines", "status": "passed"}],
+ "outputs": [{"id": "items", "sha256": "...", "bytes_base64": "..."}],
+ "diagnostics": [{"code": "bad_line", "message": "line 2 is not name,quantity"}]}
+```
+
+受け入れられるのは、次をすべて満たすときだけです:
+
+- process が 0 で終わり、要求をすべて受け取り、何も残していない。
+- 未知の欄・欠けた欄・重複した欄が無く、要求と同じ値を返す欄（`request_id` など）がそれぞれ要求と等しい。
+- 検査が 1 つ以上あり、ID が重複せず、それぞれ `passed` である。
+- 宣言した出力がちょうど 1 回、正規形の base64 で、バイトと等しい `sha256` とともにある。
+
+通らなかった検査は exit 0 で返します。段の中では `resubmit` としてモデルに返ります。
+run の秘密の値が出力のどこかに見つかると、その呼び出しは `secret_value_in_output` で終わり、
+出力は何も残りません。
+
+### sandbox
+
+| 上限 | 値 |
+| --- | --- |
+| 方針 | `deny default` の Seatbelt。macOS だけで、probe が通った後 |
+| process | fork できない。exec できるのは pin した実行体だけ |
+| 読み取り | 実行体、各依存ディレクトリ、システムのライブラリ、いくつかの device ファイル |
+| 書き込み | `/dev/null` だけ |
+| ネットワーク | 無し。loopback と unix socket も含む |
+| 環境変数 | 宣言した key ちょうど（最大 16）。loader や shell がコードや検索パスとして読む key は拒否 |
+| 時間 | 起動から 30 秒、または descriptor のより狭い `timeout_ms` |
+| 結果 | stdout と stderr を合わせて 64 KiB、または descriptor のより狭い `max_result_bytes` |
+| diagnostics | 最大 8 件。code は 64 バイト、message は 512 バイトまで |
+
+macOS で pin した実行体として動くのは `/bin/bash` です。`/bin/sh`・`/usr/bin/python3`・
+`/usr/bin/perl` は別のファイルを exec する中継の実行体で、この方針がその exec を拒否する
+ので process は失敗します。shell script は組み込み機能しか使えません。使えるものは
+[sandbox の中で bash ができること](operator-root-tutorial.md#sandbox-の中で-bash-ができること)
+に並べています。実行体と各依存ディレクトリは、あなたか root が持ち主で、group と other の
+書き込み権が無いことが必要です。
+
 ## run budget
 
 run budget は、1 回の run の provider 呼び出しに対する上限の財布（wallet）です。送信のたびに、

@@ -1,0 +1,9 @@
+{
+  "model": "example-model",
+  "cost_per_reply": "0.0001",
+  "replies": [
+    {"tool": "ExampleParse", "arguments": {"expected_revision": "{revision}"}},
+    {"tool": "ExampleCheck", "arguments": {"expected_revision": "{revision}"}},
+    {"text": "Both stages are sealed: out/report.json is written."}
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "protocol": "profile-tool.descriptor/v1",
+  "tool_id": "example-parse",
+  "name": "ExampleParse",
+  "version": "1.0.0",
+  "description": "Stage parse: read input/items.txt (lines name,quantity) and propose work/items.json.",
+  "effect": "propose-artifacts",
+  "parameters": [],
+  "schema": {
+    "protocol": "profile-tool.schema/v1",
+    "root": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["expected_revision"],
+      "properties": {"expected_revision": {"type": "string"}}
+    },
+    "inputs": ["input/items.txt"]
+  },
+  "schema_sha256": "327633069b980fcaf47ef906089dbd192a7ac79924ef5c99559b537bdd4892a9",
+  "runtime": {"kind": "pinned_process", "id": "example-bash-tools"},
+  "process": {
+    "protocol": "profile-tool.process/v1",
+    "executable": {
+      "path": "/bin/bash",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "dependency_directories": [
+      {
+        "path": "@ROOT@/tools",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "argv": ["@ROOT@/tools/parse.sh"],
+    "cwd": "@ROOT@/tools",
+    "env": {"LC_ALL": "C"},
+    "limits": {"timeout_ms": 20000, "max_result_bytes": 65536},
+    "outputs": [{"id": "items", "path": "work/items.json"}]
+  },
+  "limits": {"max_input_bytes": 16384, "max_output_bytes": 16384},
+  "stage": {
+    "required_checks": ["lines"],
+    "attempts_per_target": 3,
+    "attempts_per_run": 8,
+    "deadline_seconds": 600
+  }
+}
