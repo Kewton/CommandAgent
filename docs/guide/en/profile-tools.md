@@ -424,7 +424,7 @@ goes through the run's secret scrub before it is printed, in both forms.
 | `run_budget.route.executor` | Whether the wallet can count the executor's route |
 | `run_budget.route.planner` | Always `not_checked`: a `--prompt` run builds no planner client, so its route does not decide the result |
 | `request_pattern` | The request-pattern setting: under a wallet, `jev` routing is refused as `Unmetered(RequestPattern)` |
-| `secret_scope` | That the run's secret scope can be built from its credentials |
+| `secret_scope` | That the run's secret scope can be built from its credentials. A credential that collides with a reserved word, or a `.env` that cannot be read, is a configuration refusal (exit 2), not a failure of this check: resolving the configuration reads the same sources first. This check only reads them again after that |
 
 The report also lists `pins`: for each selected tool, `schema_sha256`, each
 dependency, the executable, each pinned directory, `runtime_sha256`, and the

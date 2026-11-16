@@ -393,7 +393,7 @@ run の secret の scrub に通します。
 | `run_budget.route.executor` | executor の経路を wallet が数えられるか |
 | `run_budget.route.planner` | いつも `not_checked`。`--prompt` の run は planner の client を作らないので、合否に入れません |
 | `request_pattern` | request pattern の設定。wallet の下では `jev` の routing を `Unmetered(RequestPattern)` で拒否します |
-| `secret_scope` | run の secret の scope を、その credential から作れること |
+| `secret_scope` | run の secret の scope を、その credential から作れること。credential が予約語と衝突する場合や読めない `.env` は、この検査の fail ではなく設定の拒否（exit 2）になります。設定の解決が先に同じ source を読むためです。この検査は、その後で同じ source を読み直すだけです |
 
 report には `pins` も出ます。選ばれた tool ごとに、`schema_sha256`、各依存、実行体、pin した各
 ディレクトリ、`runtime_sha256`、descriptor 自身の digest を、`declared`（宣言値）と `calculated`
