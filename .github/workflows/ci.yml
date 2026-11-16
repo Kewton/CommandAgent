@@ -144,6 +144,48 @@ jobs:
           cargo test --locked --test example_operator_root
           cargo test --locked --test operator_check
 
+  linux-strict-capability:
+    name: Linux strict isolation capability record (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    # Records what the runner's kernel offers the Linux strict isolation backend (#982):
+    # image, kernel, LSM list, Landlock ABI, the two userns sysctls, user/mount/net/IPC
+    # namespaces with a tmpfs mount and pivot_root inside, a seccomp filter and its errno,
+    # and close_range CLOEXEC. Each item is measured with the real syscall as the runner's
+    # non-root user and printed on one line. An item that cannot be measured is a failure,
+    # never a skip. This job builds nothing and depends on no other job.
+    continue-on-error: ${{ !matrix.required }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Required: an unmeasurable item, or a capability still missing after the
+          # preparation step, fails the job and the workflow.
+          - os: ubuntu-24.04
+            required: true
+          # Record only (continue-on-error): ubuntu-22.04 is not the runner the backend's
+          # tests will use, and ubuntu-latest is moving to 26.04, so its image is not
+          # fixed. Their results are read from the log and do not fail the workflow.
+          - os: ubuntu-22.04
+            required: false
+          - os: ubuntu-latest
+            required: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record capabilities at the runner's initial values
+        # A capability missing here is recorded; an item that cannot be measured fails.
+        continue-on-error: ${{ !matrix.required }}
+        run: python3 -I -B scripts/ci/linux_strict_capability_probe.py --context github-runner --phase initial
+      - name: Allow unprivileged user namespaces (the declared preparation)
+        continue-on-error: ${{ !matrix.required }}
+        run: |
+          # ubuntu-24.04 restricts unprivileged user namespaces through AppArmor. The
+          # runner is a VM discarded after the job, so this applies to this job only.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          sysctl -n kernel.apparmor_restrict_unprivileged_userns
+      - name: Record capabilities after the preparation
+        # Here a missing capability fails too: the backend needs every item.
+        run: python3 -I -B scripts/ci/linux_strict_capability_probe.py --context github-runner --phase prepared
+
   gui-dashboard:
     name: GUI Dashboard
     needs: changes
