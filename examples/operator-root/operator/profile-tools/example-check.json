@@ -1,0 +1,46 @@
+{
+  "protocol": "profile-tool.descriptor/v1",
+  "tool_id": "example-check",
+  "name": "ExampleCheck",
+  "version": "1.0.0",
+  "description": "Stage check: read work/items.json, check names and quantities, and propose out/report.json.",
+  "effect": "propose-artifacts",
+  "parameters": [],
+  "schema": {
+    "protocol": "profile-tool.schema/v1",
+    "root": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["expected_revision"],
+      "properties": {"expected_revision": {"type": "string"}}
+    },
+    "inputs": ["work/items.json"]
+  },
+  "schema_sha256": "be076d88dd8f38fcadb74b6c9acf74b58074da850f89eee28fbe00e0652da23b",
+  "runtime": {"kind": "pinned_process", "id": "example-bash-tools"},
+  "process": {
+    "protocol": "profile-tool.process/v1",
+    "executable": {
+      "path": "/bin/bash",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "dependency_directories": [
+      {
+        "path": "@ROOT@/tools",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "argv": ["@ROOT@/tools/check.sh"],
+    "cwd": "@ROOT@/tools",
+    "env": {"LC_ALL": "C"},
+    "limits": {"timeout_ms": 20000, "max_result_bytes": 65536},
+    "outputs": [{"id": "report", "path": "out/report.json"}]
+  },
+  "limits": {"max_input_bytes": 16384, "max_output_bytes": 16384},
+  "stage": {
+    "required_checks": ["unique_names", "quantities"],
+    "attempts_per_target": 3,
+    "attempts_per_run": 8,
+    "deadline_seconds": 600
+  }
+}
