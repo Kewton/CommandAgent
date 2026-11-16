@@ -36,7 +36,7 @@ use super::identity::{
 use super::ledger::{BudgetLedger, LedgerFailure, LedgerOpen, LedgerRefusal};
 use super::ledger_v2::{BudgetLedgerV2, LedgerOpenV2, WalletStateV2};
 use super::policy::RunBudgetPolicy;
-use super::reservation::{AttemptState, BudgetRefusal, ReserveRequest, WalletState};
+use super::reservation::{AttemptState, BudgetRefusal, Money, ReserveRequest, WalletState};
 use super::responses::{
     AccountingBasis, ResponsesReserveRequest, ResponsesSettle, unknown_reason_of,
 };
@@ -107,6 +107,13 @@ enum Wallet {
     },
     /// v2 `usage_tariff`: direct Responses, charged by the fixed tariff on validated usage.
     Responses { ledger: Mutex<BudgetLedgerV2> },
+}
+
+/// A wallet's records as a summary reads them (Issue #1015), with the cost limit of its declaration.
+#[derive(Debug, Clone)]
+pub(super) enum ObservedWallet {
+    Chat { wallet: WalletState, limit: Money },
+    Responses { wallet: WalletStateV2, limit: Money },
 }
 
 /// What a wallet of the other basis says to a send it cannot count.
@@ -410,6 +417,39 @@ impl RunBudgetHandle {
     /// The `usage_tariff` wallet's records, as they are on disk.
     pub(crate) fn responses_wallet(&self) -> Result<WalletStateV2, SendRefusal> {
         Ok(self.responses_ledger()?.wallet().clone())
+    }
+
+    /// The wallet's records and its cost limit for a summary at the end of a run (Issue #1015),
+    /// waiting at most `wait` for the lock. `None` when the lock is not free in time, was
+    /// poisoned, or the file is no longer what this handle last wrote: then nothing is known.
+    pub(super) fn observed_within(&self, wait: Duration) -> Option<ObservedWallet> {
+        match &self.wallet {
+            Wallet::Chat { ledger, policy } => {
+                let ledger = super::summary::lock_within(ledger, wait)?;
+                let wallet = ledger.observed().ok()?.clone();
+                Some(ObservedWallet::Chat {
+                    wallet,
+                    limit: policy.limits.cost,
+                })
+            }
+            Wallet::Responses { ledger } => {
+                let ledger = super::summary::lock_within(ledger, wait)?;
+                let limit = ledger.policy().limits.cost;
+                let wallet = ledger.observed().ok()?.clone();
+                Some(ObservedWallet::Responses { wallet, limit })
+            }
+        }
+    }
+
+    /// Holds this wallet's ledger lock while `hold` runs, as a send under way does, for a test
+    /// of what a summary meets when the lock is not free.
+    #[cfg(test)]
+    pub(crate) fn with_ledger_locked<R>(&self, hold: impl FnOnce() -> R) -> R {
+        let _held = match &self.wallet {
+            Wallet::Chat { ledger, .. } => (Some(ledger.lock().unwrap()), None),
+            Wallet::Responses { ledger } => (None, Some(ledger.lock().unwrap())),
+        };
+        hold()
     }
 
     pub(crate) fn success_gate(&self) -> Result<(), SendRefusal> {

@@ -1059,6 +1059,17 @@ impl BudgetLedger {
         &self.wallet
     }
 
+    /// The wallet as this handle holds it, only while the file is still what the handle last
+    /// wrote: the check [`Self::verified`] makes, for a summary at the end of a run (Issue #1015).
+    /// It reads and changes nothing, so a refusal found here is not kept.
+    pub(crate) fn observed(&self) -> Result<&WalletState, LedgerRefusal> {
+        if let Some(refusal) = self.failed {
+            return Err(refusal);
+        }
+        self.store.verify_unchanged()?;
+        Ok(&self.wallet)
+    }
+
     /// A refusal of the file is for good: there is no way back to a state this handle cannot
     /// vouch for.
     fn verified(&mut self) -> Result<(), LedgerRefusal> {

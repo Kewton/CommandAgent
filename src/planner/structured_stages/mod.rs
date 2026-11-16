@@ -696,6 +696,7 @@ pub(crate) mod receipt;
 pub(crate) mod resume;
 pub(crate) mod schema_refusals;
 pub(crate) mod state;
+pub(crate) mod summary;
 
 #[cfg(test)]
 mod no_progress_limit_tests {

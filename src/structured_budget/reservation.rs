@@ -112,6 +112,18 @@ impl Money {
         self.0.checked_add(other.0).map(Self)
     }
 
+    /// The amount in dollars as decimal text without trailing zeros, never through a float. The
+    /// one rendering of an amount for a summary (Issues #1003 and #1015).
+    pub(crate) fn decimal_text(self) -> String {
+        const UNIT: u128 = 1_000_000_000_000_000_000;
+        let (whole, fraction) = (self.0 / UNIT, self.0 % UNIT);
+        if fraction == 0 {
+            return whole.to_string();
+        }
+        let fraction = format!("{fraction:018}");
+        format!("{whole}.{}", fraction.trim_end_matches('0'))
+    }
+
     pub(super) fn from_units(units: u128) -> Self {
         Self(units)
     }

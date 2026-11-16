@@ -33,6 +33,7 @@ pub(crate) mod session;
 pub(crate) mod settlement;
 mod storage;
 pub(crate) mod submission;
+pub(crate) mod summary;
 pub(crate) mod transport;
 pub(crate) mod usage_tariff;
 

@@ -829,6 +829,16 @@ impl BudgetLedgerV2 {
         &self.wallet
     }
 
+    /// As v1's [`super::ledger::BudgetLedger::observed`]: the wallet, only while the file is what
+    /// this handle last wrote, reading and changing nothing (Issue #1015).
+    pub(crate) fn observed(&self) -> Result<&WalletStateV2, LedgerRefusal> {
+        if let Some(refusal) = self.failed {
+            return Err(refusal);
+        }
+        self.store.verify_unchanged()?;
+        Ok(&self.wallet)
+    }
+
     /// As v1: one this open made has no run before it to go on with.
     pub(crate) fn refuse_resume(&mut self) -> Result<(), LedgerRefusal> {
         if self.made_here {

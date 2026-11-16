@@ -45,6 +45,7 @@ use crate::planner::structured_stages::state::{
     CommitDecision, CommitObservation, ExhaustedLimit, FailureDecision, InvalidatedTarget,
     LocalDecision, ObservedBytes, TerminalFailure, judge_checks,
 };
+use crate::planner::structured_stages::summary as stage_summary;
 use crate::planner::structured_stages::{
     StageCallFacts, StageMember, StageNote, StageRun, ledger_refused,
 };
@@ -982,6 +983,16 @@ impl ProposalTool {
             if let FailureDecision::Refused(refused) = recorded {
                 return Err(stage_ended(&format!("refused {refused:?}")));
             }
+            // What the checks returned, which the machine does not keep (Issue #1015).
+            eval_events::emit(
+                call.context.eval_events_path.as_deref(),
+                stage_summary::failed_checks_event(
+                    ticket,
+                    &target.required_checks,
+                    &result.checks,
+                    check_failure_code(kind),
+                ),
+            );
             return Ok(self.answer_failed_check(
                 call.context,
                 kind,
@@ -3539,6 +3550,49 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                 assert_eq!(answer["code"], code, "{checks}");
                 assert_eq!(bench.saved(UPPER_OUTPUT), None, "{checks}");
             }
+        }
+
+        /// Issue #1015: where a failed check is decided, what the checks returned is recorded, the
+        /// required IDs by name and any other only counted. The answer is as before.
+        #[test]
+        fn a_failed_check_records_what_the_required_checks_returned() {
+            let bench = stage_bench();
+            bench.mark(
+                &format!("checks-{UPPER}"),
+                r#"[{"id":"shape","status":"failed"},{"id":"not-declared","status":"passed"}]"#,
+            );
+            let events = bench.workspace.parent().unwrap().join("events.jsonl");
+            let mut context = bench.context();
+            context.eval_events_path = Some(events.clone());
+            let arguments = json!({"mode": "fast", EXPECTED_REVISION_ARGUMENT: "initial"});
+            let answer: Value = serde_json::from_str(
+                &bench
+                    .upper
+                    .execute(&arguments, &context, &|| false)
+                    .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(answer["code"], "check_failed", "{answer}");
+            let text = std::fs::read_to_string(&events).unwrap();
+            let recorded = text
+                .lines()
+                .map(|line| serde_json::from_str::<Value>(line).unwrap())
+                .filter(|event| event["event"] == "structured_stage_checks")
+                .collect::<Vec<_>>();
+            assert_eq!(recorded.len(), 1, "{text}");
+            let key = upper_key();
+            assert_eq!(recorded[0]["stage"], key.stage);
+            assert_eq!(recorded[0]["target"], key.target);
+            assert_eq!(recorded[0]["attempt"], 1);
+            assert_eq!(recorded[0]["code"], "check_failed");
+            assert_eq!(
+                recorded[0]["checks"],
+                json!([{"id": "shape", "status": "failed"}])
+            );
+            assert_eq!(recorded[0]["missing"], json!([]));
+            assert_eq!(recorded[0]["unrequested"], 1);
+            assert!(!text.contains("not-declared"), "{text}");
+            assert_eq!(bench.status(&upper_key()).0, Phase::Proposed);
         }
 
         #[test]

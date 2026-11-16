@@ -55,6 +55,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "above_maximum",
     "absent",
     "accounted_by",
+    "accounting_basis",
     "accounting_record",
     "adapter",
     "adapter_diagnostics",
@@ -81,6 +82,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "browser_probe",
     "budget_closing",
     "budget_exhausted",
+    "budget_id",
     "build_pass",
     "call_index",
     "captured",
@@ -125,7 +127,9 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "context_truncation_suspected",
     "contract_attribute_repair_guidance",
     "contract_observation_incomplete",
+    "contract_sha256",
     "declarative_command_check_result",
+    "declared_tariff_charge_usd_total",
     "degraded",
     "dependency_build_lifecycle",
     "dependency_denial_guidance",
@@ -160,6 +164,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "extracted",
     "fail",
     "failed",
+    "failed_checks",
     "fallback",
     "fallback_decision",
     "final_acceptance_cycle_complete",
@@ -190,6 +195,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "gui_trial_stop_completed",
     "gui_trial_stop_requested",
     "h05_collision",
+    "held_usd",
     "hidden_path_feedback",
     "hook_snapshot_feedback",
     "hook_snapshot_restored",
@@ -223,7 +229,9 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "iterations_used",
     "last_bash_after_last_write_succeeded",
     "last_successful_write_iteration",
+    "ledger_intact",
     "legacy_detail",
+    "limit_usd",
     "local_pack",
     "loop_stop",
     "lossy_number",
@@ -286,6 +294,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "planner_raw_output_shape",
     "planner_verify_command_normalized",
     "policy_rejected_bash",
+    "policy_sha256",
     "preclosure_verifier_replacements_validated",
     "preset_step_converted",
     "preset_ultra_plan_used",
@@ -310,6 +319,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "prompt_version",
     "propose-artifacts",
     "protected_path_mutation_rejected",
+    "provider_billed",
     "provider_billed_cost_calls",
     "provider_billed_cost_complete",
     "provider_billed_cost_usd",
@@ -394,11 +404,14 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "route_proposed",
     "route_unbound_recovery",
     "row_status",
+    "run_budget",
     "run_budget_refused",
     "run_budget_selected",
+    "run_budget_summary",
     "run_completed",
     "run_failed",
     "run_interrupted",
+    "run_nonce",
     "run_start",
     "run_stop",
     "running",
@@ -420,6 +433,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "source",
     "speculative_phase_plan_not_started",
     "speculative_phase_plan_provider_call",
+    "spent_usd",
     "stage_contract_refused",
     "stage_incomplete",
     "stage_ledger_refused",
@@ -436,9 +450,12 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "step_verify_repair",
     "string_too_long",
     "string_too_short",
+    "structured_stage_checks",
     "structured_stage_incomplete",
     "structured_stage_refused",
     "structured_stage_unmet",
+    "structured_stages",
+    "structured_stages_summary",
     "success",
     "successful_bash_after_prompt",
     "successful_bash_since_latest_edit",
@@ -496,12 +513,14 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "unknown_key",
     "unknown_tool_id",
     "unparseable",
+    "unrequested",
     "unresolved",
     "unresolved_bash_failures",
     "unresolved_failure",
     "unresolved_write_failures",
     "unsettled",
     "unsuccessful_bash_after_prompt",
+    "usage_tariff",
     "user_update",
     "valid_block",
     "verify_canonicalized",
@@ -525,6 +544,7 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "workflow_started",
     "workspace_cd_stripped",
     "workspace_descriptor",
+    "workspace_sha256",
     "write_failure_after_last_write",
     "write_required_off_target_write_allowed",
     "wrong_type",
@@ -1439,5 +1459,113 @@ mod output_limit_feedback_field_tests {
             assert_eq!(value["attempt"], 1);
             assert_eq!(value["provider_reasoning_tokens"], 96);
         }
+    }
+}
+
+/// Issue #1015: the three end-of-run events, the two summary keys, their field names, and the
+/// two accounting-basis words are fixed identifiers, so a credential equal to one of them or to
+/// a fragment of one is refused at registration and the scrub never rewrites the schema.
+#[cfg(test)]
+mod run_end_summary_field_tests {
+    use serde_json::json;
+
+    use super::{FIXED_IDENTIFIERS, collides_with_fixed_identifier, is_fixed_identifier};
+    use crate::sensitive_data::{
+        MIN_GENERIC_SECRET_LEN, RegistrationRefusal, ReservedKind, SecretCatalog,
+    };
+
+    const WORDS: [&str; 22] = [
+        "accounting_basis",
+        "budget_id",
+        "contract_sha256",
+        "declared_tariff_charge_usd_total",
+        "failed_checks",
+        "held_usd",
+        "ledger_intact",
+        "limit_usd",
+        "policy_sha256",
+        "provider_billed",
+        "run_budget",
+        "run_budget_summary",
+        "run_nonce",
+        "spent_usd",
+        "structured_stage_checks",
+        "structured_stages",
+        "structured_stages_summary",
+        "unrequested",
+        "usage_tariff",
+        "workspace_sha256",
+        "observed",
+        "unavailable",
+    ];
+
+    #[test]
+    fn each_word_is_reserved_once_in_name_order() {
+        for word in WORDS {
+            assert!(is_fixed_identifier(word), "{word}");
+            assert_eq!(
+                FIXED_IDENTIFIERS
+                    .iter()
+                    .filter(|fixed| **fixed == word)
+                    .count(),
+                1,
+                "{word}"
+            );
+            let at = FIXED_IDENTIFIERS
+                .iter()
+                .position(|fixed| *fixed == word)
+                .unwrap();
+            assert!(FIXED_IDENTIFIERS[at - 1] < word, "{word}");
+            assert!(word < FIXED_IDENTIFIERS[at + 1], "{word}");
+        }
+    }
+
+    #[test]
+    fn a_credential_equal_to_a_word_or_a_fragment_of_it_is_refused_unnamed() {
+        let fragments = ["tariff_charge_us", "red_stages_summ", "budget_summar"];
+        for value in WORDS.into_iter().chain(fragments) {
+            assert!(collides_with_fixed_identifier(value), "{value}");
+            if value.len() < MIN_GENERIC_SECRET_LEN {
+                continue;
+            }
+            let mut catalog = SecretCatalog::new();
+            let error = catalog
+                .register_credential("COMPAT_API_KEY", value)
+                .unwrap_err();
+            assert_eq!(
+                error,
+                RegistrationRefusal::Reserved {
+                    name: "COMPAT_API_KEY".to_string(),
+                    kind: ReservedKind::FixedIdentifier,
+                }
+            );
+            assert!(catalog.is_empty());
+            for text in [error.to_string(), format!("{error:?}")] {
+                assert!(!text.contains(value), "the refusal names the value");
+            }
+        }
+    }
+
+    #[test]
+    fn a_normal_credential_leaves_the_event_words_unchanged() {
+        let credential = "fake-credential-1015-not-a-real-key";
+        let mut catalog = SecretCatalog::new();
+        catalog
+            .register_credential("COMPAT_API_KEY", credential)
+            .unwrap();
+        let mut value = json!({
+            "event": "run_budget_summary",
+            "record": "observed",
+            "accounting_basis": "usage_tariff",
+            "budget_id": format!("wallet {credential}"),
+            "spent_usd": "0.000419",
+            "declared_tariff_charge_usd_total": "0.000419",
+        });
+        catalog.scrub_value_lenient(&mut value);
+        assert!(!value.to_string().contains(credential), "{value}");
+        assert_eq!(value["event"], "run_budget_summary");
+        assert_eq!(value["record"], "observed");
+        assert_eq!(value["accounting_basis"], "usage_tariff");
+        assert_eq!(value["declared_tariff_charge_usd_total"], "0.000419");
     }
 }
