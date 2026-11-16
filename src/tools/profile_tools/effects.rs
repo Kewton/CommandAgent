@@ -1356,7 +1356,7 @@ fn commit_failure_observation(before: &ObservedBytes, now: &ObservedBytes) -> Co
     }
 }
 
-const fn check_failure_code(kind: CheckFailureKind) -> &'static str {
+pub(crate) const fn check_failure_code(kind: CheckFailureKind) -> &'static str {
     match kind {
         CheckFailureKind::Failed => "check_failed",
         CheckFailureKind::NotRun => "check_not_run",
@@ -7329,6 +7329,78 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                 result.unwrap();
                 assert_eq!(requests.len(), 3);
                 assert!(world.root.join(LOWER_OUTPUT).is_file());
+            }
+
+            /// Issue #1015 (claude-4 S2): the end-of-run record through the real path: the bound
+            /// `StageRun`, `held_within`'s lookup of the ledger the session opened, the copy's
+            /// verdict. It gives the sealed set's values, and leaves the workspace and the state
+            /// directory exactly as they were. With the ledger's lock held past the deadline, it
+            /// gives `unavailable` and nothing else.
+            #[test]
+            fn the_end_of_run_record_reads_the_held_ledger_and_writes_nothing() {
+                use std::time::{Duration, Instant};
+
+                use crate::planner::structured_stages::ledger::process_ledgers;
+                use crate::planner::structured_stages::summary::{snapshot, tree_state};
+                use crate::structured_budget::summary::{END_OF_RUN_WAIT, SummaryRecord};
+
+                let Some(world) =
+                    one_process("the_end_of_run_record_reads_the_held_ledger_and_writes_nothing")
+                else {
+                    return;
+                };
+                let _live = world.enter();
+                let (_, result) = world.prompt(seals_both());
+                result.unwrap();
+                let config = world.config("http://127.0.0.1:9");
+                let trees = || (tree_state(&world.root), tree_state(&config.state_dir));
+                let before = trees();
+                let record = snapshot(&config, Instant::now() + END_OF_RUN_WAIT)
+                    .expect("the stages are declared");
+                assert_eq!(trees(), before, "the record wrote");
+
+                let value = serde_json::to_value(&record).unwrap();
+                assert_eq!(value["record"], "observed", "{value}");
+                assert_eq!(value["complete"], true, "{value}");
+                assert_eq!(value["ledger_intact"], true, "{value}");
+                assert!(
+                    value["run_nonce"]
+                        .as_str()
+                        .is_some_and(|nonce| !nonce.is_empty())
+                );
+                for (index, (stage, output)) in [("upper", UPPER_OUTPUT), ("lower", LOWER_OUTPUT)]
+                    .into_iter()
+                    .enumerate()
+                {
+                    let entry = &value["stages"][index];
+                    assert_eq!(entry["stage"], stage, "{value}");
+                    assert_eq!(entry["target"], "main", "{value}");
+                    assert_eq!(entry["phase"], "sealed", "{value}");
+                    assert_eq!(entry["sealed"], true, "{value}");
+                    assert_eq!(entry["attempts"], json!({"used": 1, "limit": 8}), "{value}");
+                    assert_eq!(entry["artifact"]["path"], output, "{value}");
+                    assert_eq!(
+                        entry["artifact"]["committed_sha256"],
+                        sha256(&std::fs::read(world.root.join(output)).unwrap()),
+                        "{value}"
+                    );
+                }
+
+                let held = process_ledgers()
+                    .held_within(
+                        &config.workspace_root,
+                        &config.profile,
+                        Instant::now() + END_OF_RUN_WAIT,
+                    )
+                    .unwrap()
+                    .expect("the session opened the ledger");
+                let guard = held.lock().unwrap();
+                let record = snapshot(&config, Instant::now() + Duration::from_millis(100))
+                    .expect("the stages are declared");
+                drop(guard);
+                assert_eq!(record.record, SummaryRecord::Unavailable);
+                assert_eq!(record.observed, None);
+                assert_eq!(trees(), before, "the record wrote");
             }
 
             /// The hold sends the claim back, and the funnel refuses what the hold could not mend.

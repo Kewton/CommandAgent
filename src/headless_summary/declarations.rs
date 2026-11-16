@@ -5,6 +5,18 @@
 //! summary and `summary.md` read those events from the run's own stream and nothing else: no
 //! ledger is read here, and no value is judged again. A run that declared neither has neither
 //! event, so its summary has neither key and its `summary.md` no section.
+//!
+//! Only the current run counts. An events file can hold several runs when
+//! `COMMANDAGENT_EVAL_EVENTS` is reused, and every run begins with one `run_start`, so the three
+//! lookups read only the events from the last `run_start` on (the whole stream when it has none,
+//! as a stream written without the run lifecycle does). A run that recorded no snapshot of its
+//! own gets no key and no section, whatever an earlier run in the same file recorded. This needs
+//! no new field: `run_start` is how every reader already tells a run's beginning.
+//!
+//! These are recorded only by the end of a direct command (`--prompt`, `--plan-run`, and the
+//! others); a REPL session records neither.
+
+use std::time::Instant;
 
 use serde_json::Value;
 
@@ -14,17 +26,28 @@ use crate::planner::structured_stages::summary::{
 };
 use crate::structured_budget::summary::{self as budget, ObservedBudget, RunBudgetSummary};
 
-/// Records the wallet and the stages of a run that declared them, once, at its end. The waits are
-/// bounded, so an interrupted run whose send still holds a lock records `unavailable` and goes on.
+/// Records the wallet and the stages of a run that declared them, once, at its end. One deadline,
+/// [`budget::END_OF_RUN_WAIT`] from now, bounds every lock both snapshots wait for, so an
+/// interrupted run whose send still holds a lock records `unavailable` and goes on.
 pub(crate) fn emit_end_of_run(config: &Config) {
+    let deadline = Instant::now() + budget::END_OF_RUN_WAIT;
     let events = config.eval_events_path.as_deref();
     if let Some(handle) = config.field_sources.run_budget.as_ref() {
-        let summary = budget::snapshot(handle, budget::END_OF_RUN_WAIT);
+        let summary = budget::snapshot(handle, deadline);
         crate::eval_events::emit(events, budget::event(&summary));
     }
-    if let Some(summary) = stages::snapshot(config, budget::END_OF_RUN_WAIT) {
+    if let Some(summary) = stages::snapshot(config, deadline) {
         crate::eval_events::emit(events, stages::event(&summary));
     }
+}
+
+/// The events of the current run: from the last `run_start` on.
+pub(super) fn current_run(events: &[Value]) -> &[Value] {
+    let start = events
+        .iter()
+        .rposition(|event| event.get("event").and_then(Value::as_str) == Some("run_start"))
+        .unwrap_or(0);
+    &events[start..]
 }
 
 fn latest<'a>(events: &'a [Value], name: &str) -> Option<&'a Value> {
@@ -34,22 +57,20 @@ fn latest<'a>(events: &'a [Value], name: &str) -> Option<&'a Value> {
         .find(|event| event.get("event").and_then(Value::as_str) == Some(name))
 }
 
-/// The latest `run_budget_summary` of the run.
+/// The latest `run_budget_summary` of the current run.
 pub(super) fn run_budget(events: &[Value]) -> Option<RunBudgetSummary> {
-    serde_json::from_value(latest(events, budget::EVENT)?.clone()).ok()
+    latest(current_run(events), budget::EVENT).map(RunBudgetSummary::read_back)
 }
 
-/// The latest `structured_stages_summary` of the run, each target with the checks of its latest
-/// failed attempt in the same run.
+/// The latest `structured_stages_summary` of the current run, each target with the checks of its
+/// latest failed attempt in the same run.
 pub(super) fn structured_stages(events: &[Value]) -> Option<StagesSummary> {
-    let mut summary: StagesSummary =
-        serde_json::from_value(latest(events, stages::EVENT)?.clone()).ok()?;
+    let events = current_run(events);
+    let mut summary = StagesSummary::read_back(latest(events, stages::EVENT)?);
     if let Some(observed) = summary.observed.as_mut() {
         let run_nonce = observed.run_nonce.clone();
         for entry in &mut observed.stages {
-            entry.failed_checks = run_nonce
-                .as_deref()
-                .and_then(|nonce| failed_checks(events, nonce, &entry.stage, &entry.target));
+            entry.failed_checks = failed_checks(events, &run_nonce, &entry.stage, &entry.target);
         }
     }
     Some(summary)
@@ -85,10 +106,19 @@ pub(crate) fn markdown_sections(events: &[Value]) -> Option<String> {
 }
 
 fn basis_word(summary: &RunBudgetSummary) -> String {
-    serde_json::to_value(summary.accounting_basis)
-        .ok()
+    summary
+        .accounting_basis
+        .and_then(|basis| serde_json::to_value(basis).ok())
         .and_then(|value| value.as_str().map(str::to_string))
-        .unwrap_or_default()
+        .unwrap_or_else(|| "unknown basis".to_string())
+}
+
+fn stop_line(summary: &RunBudgetSummary) -> Option<String> {
+    let stop = summary.stop.as_ref()?;
+    Some(match &stop.limit {
+        Some(limit) => format!("Run budget stop: limit {limit}"),
+        None => format!("Run budget stop: refused ({})", stop.refusal),
+    })
 }
 
 fn cause_text(cause: &Value) -> String {
@@ -105,10 +135,14 @@ fn cause_text(cause: &Value) -> String {
 
 fn budget_section(summary: &RunBudgetSummary) -> String {
     let basis = basis_word(summary);
-    let Some(observed) = &summary.observed else {
-        return format!("Run budget ({basis}): record unavailable, no amount recorded");
+    let mut lines = match &summary.observed {
+        Some(observed) => observed_budget_lines(&basis, observed),
+        None => vec![format!(
+            "Run budget ({basis}): record unavailable, no amount recorded"
+        )],
     };
-    observed_budget_lines(&basis, observed).join("\n")
+    lines.extend(stop_line(summary));
+    lines.join("\n")
 }
 
 fn observed_budget_lines(basis: &str, observed: &ObservedBudget) -> Vec<String> {
@@ -138,12 +172,6 @@ fn observed_budget_lines(basis: &str, observed: &ObservedBudget) -> Vec<String> 
     if let Some(latch) = &observed.latch {
         let cause = serde_json::to_value(latch.cause).unwrap_or(Value::Null);
         lines.push(format!("Run budget latch: {}", cause_text(&cause)));
-    }
-    if let Some(stop) = &observed.stop {
-        lines.push(match &stop.limit {
-            Some(limit) => format!("Run budget stop: limit {limit}"),
-            None => format!("Run budget stop: refused ({})", stop.refusal),
-        });
     }
     lines
 }

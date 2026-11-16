@@ -869,15 +869,15 @@ impl LedgerRegistry {
     }
 
     /// The ledger this process already holds for a workspace and profile, opening none and
-    /// touching no file (Issue #1015). `Err` when the table's lock is not free within `wait`.
+    /// touching no file (Issue #1015). `Err` when the table's lock is not free before `deadline`.
     pub(crate) fn held_within(
         &self,
         workspace: &Path,
         profile: &str,
-        wait: std::time::Duration,
+        deadline: std::time::Instant,
     ) -> Result<Option<HeldLedger>, LedgerRefusal> {
         let workspace = fs::canonicalize(workspace).map_err(unavailable)?;
-        let held = crate::structured_budget::summary::lock_within(&self.held, wait)
+        let held = crate::structured_budget::summary::lock_within(&self.held, deadline)
             .ok_or(LedgerRefusal::Unavailable)?;
         Ok(held.get(&(workspace, profile.to_string())).cloned())
     }
@@ -2866,7 +2866,7 @@ mod tests {
                 record_then_verdict(&world, &mut ledger, &world.bytes);
             assert_eq!(observed, verdict);
             assert!(observed.complete());
-            let record = of_verdict(&observed, &machine, None);
+            let record = of_verdict(&observed, &machine, String::new());
             assert!(record.complete && record.ledger_intact);
             for (entry, content) in record
                 .stages
@@ -2895,7 +2895,7 @@ mod tests {
             let (observed, machine, verdict) = record_then_verdict(&world, &mut ledger, &bytes);
             assert_eq!(observed, verdict);
             assert!(!observed.complete());
-            let record = of_verdict(&observed, &machine, None);
+            let record = of_verdict(&observed, &machine, String::new());
             assert!(!record.complete);
             assert!(record.stages[0].sealed);
             assert!(!record.stages[1].sealed);
@@ -2933,7 +2933,7 @@ mod tests {
                 record_then_verdict(&world, &mut ledger, &world.bytes);
             assert_eq!(observed, verdict);
             assert!(!observed.complete());
-            let record = of_verdict(&observed, &machine, None);
+            let record = of_verdict(&observed, &machine, String::new());
             assert_eq!(record.stages[0].attempts.used, limit);
             assert_eq!(record.stages[0].attempts.limit, limit);
             assert!(!record.stages[0].sealed);
@@ -2963,21 +2963,7 @@ mod tests {
         /// it reads that a sealed artifact moved.
         #[test]
         fn the_record_changes_no_artifact_and_no_ledger_byte() {
-            fn tree(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
-                let mut found = BTreeMap::new();
-                let mut stack = vec![root.to_path_buf()];
-                while let Some(directory) = stack.pop() {
-                    for entry in fs::read_dir(&directory).unwrap() {
-                        let path = entry.unwrap().path();
-                        if path.is_dir() {
-                            stack.push(path);
-                        } else {
-                            found.insert(path.clone(), fs::read(&path).unwrap());
-                        }
-                    }
-                }
-                found
-            }
+            use super::super::super::summary::tree_state as tree;
             let mut world = world();
             let held = both_sealed(&mut world);
             let ledger = held.lock().unwrap();

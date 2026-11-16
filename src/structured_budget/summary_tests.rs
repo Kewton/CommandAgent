@@ -1,7 +1,7 @@
 //! Issue #1015: the wallet's end-of-run record, by the wallet's own reducers.
 
 use std::sync::{Arc, Barrier, mpsc};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
@@ -78,7 +78,7 @@ fn the_v2_tariff_total_matches_a_hand_computed_sum_and_the_wallet_reducer() {
             .push(settled_v2(physical as u64 + 1, counts, charged));
     }
     let limit = policy.limits.cost;
-    let observed = of_v2(&wallet, limit, None).unwrap();
+    let observed = of_v2(&wallet, limit).unwrap();
     assert_eq!(
         observed.declared_tariff_charge_usd_total.as_deref(),
         Some("1.202487")
@@ -90,11 +90,15 @@ fn the_v2_tariff_total_matches_a_hand_computed_sum_and_the_wallet_reducer() {
     assert_eq!(observed.sends.settled, 3);
     assert!(observed.unknown.is_empty());
     assert_eq!(observed.latch, None);
-    assert_eq!(observed.stop, None);
 }
 
 fn observed_json(summary: &RunBudgetSummary) -> Value {
     serde_json::to_value(summary).unwrap()
+}
+
+/// One end-of-run deadline from now.
+fn soon() -> Instant {
+    Instant::now() + END_OF_RUN_WAIT
 }
 
 #[test]
@@ -102,9 +106,12 @@ fn a_v1_wallet_reports_its_reducers_and_no_tariff_total() {
     let wallet = TestWallet::open(|_| {});
     wallet.send(50, None).unwrap();
     wallet.send(50, None).unwrap();
-    let summary = snapshot(&wallet.handle, END_OF_RUN_WAIT);
+    let summary = snapshot(&wallet.handle, soon());
     assert_eq!(summary.record, SummaryRecord::Observed);
-    assert_eq!(summary.accounting_basis, AccountingBasis::ProviderBilled);
+    assert_eq!(
+        summary.accounting_basis,
+        Some(AccountingBasis::ProviderBilled)
+    );
     let state = wallet.handle.wallet().unwrap();
     let observed = summary.observed.clone().unwrap();
     assert_eq!(observed.spent_usd, state.spent().unwrap().decimal_text());
@@ -113,7 +120,7 @@ fn a_v1_wallet_reports_its_reducers_and_no_tariff_total() {
     assert_eq!(observed.budget_id, state.budget_id);
     assert_eq!(observed.policy_sha256, state.policy_sha256);
     assert_eq!(observed.sends.settled, 2);
-    assert_eq!(observed.stop, None);
+    assert_eq!(summary.stop, None);
     let value = observed_json(&summary);
     assert_eq!(value["record"], "observed");
     assert_eq!(value["accounting_basis"], "provider_billed");
@@ -135,7 +142,7 @@ fn an_unknown_send_is_reported_with_its_cause_and_the_latch() {
         None,
         r#"{"usage":{"prompt_tokens":10,"completion_tokens":5}}"#,
     );
-    let summary = snapshot(&wallet.handle, END_OF_RUN_WAIT);
+    let summary = snapshot(&wallet.handle, soon());
     let value = observed_json(&summary);
     assert_eq!(value["sends"]["unknown"], 1);
     assert_eq!(
@@ -152,8 +159,8 @@ fn an_unknown_send_is_reported_with_its_cause_and_the_latch() {
 #[test]
 fn a_cap_refusal_is_the_stop_and_nothing_else_is() {
     let wallet = TestWallet::open(|value| value["limits"]["cost_usd"] = json!("0.001"));
-    let before = snapshot(&wallet.handle, END_OF_RUN_WAIT);
-    assert_eq!(before.observed.unwrap().stop, None);
+    let before = snapshot(&wallet.handle, soon());
+    assert_eq!(before.stop, None);
     let mut refused = None;
     for _ in 0..50 {
         if let Err(refusal) = wallet.send(50, None) {
@@ -162,7 +169,7 @@ fn a_cap_refusal_is_the_stop_and_nothing_else_is() {
         }
     }
     assert!(refused.is_some(), "the cap never refused a send");
-    let value = observed_json(&snapshot(&wallet.handle, END_OF_RUN_WAIT));
+    let value = observed_json(&snapshot(&wallet.handle, soon()));
     assert_eq!(value["stop"]["kind"], "limit");
     assert_eq!(value["stop"]["limit"], "cost_usd");
     assert_eq!(value["stop"]["refusal"], "Wallet(Budget(CostExceeded))");
@@ -187,7 +194,7 @@ fn a_held_lock_gives_an_unavailable_record_with_no_amount() {
         })
     };
     held.wait();
-    let summary = snapshot(&wallet.handle, Duration::from_millis(50));
+    let summary = snapshot(&wallet.handle, Instant::now() + Duration::from_millis(50));
     release.send(()).unwrap();
     holder.join().unwrap();
     assert_eq!(summary.record, SummaryRecord::Unavailable);
@@ -195,11 +202,11 @@ fn a_held_lock_gives_an_unavailable_record_with_no_amount() {
     let value = observed_json(&summary);
     assert_eq!(
         value,
-        json!({"record": "unavailable", "accounting_basis": "provider_billed"})
+        json!({"record": "unavailable", "accounting_basis": "provider_billed", "stop": null})
     );
     // Taken again with the lock free, the same wallet is observed.
     assert_eq!(
-        snapshot(&wallet.handle, END_OF_RUN_WAIT).record,
+        snapshot(&wallet.handle, soon()).record,
         SummaryRecord::Observed
     );
 }
@@ -218,12 +225,12 @@ fn a_changed_ledger_file_gives_an_unavailable_record() {
     let original = std::fs::read(&file).unwrap();
     std::fs::write(&file, b"{}").unwrap();
     assert_eq!(
-        snapshot(&wallet.handle, END_OF_RUN_WAIT).record,
+        snapshot(&wallet.handle, soon()).record,
         SummaryRecord::Unavailable
     );
     std::fs::write(&file, &original).unwrap();
     assert_eq!(
-        snapshot(&wallet.handle, END_OF_RUN_WAIT).record,
+        snapshot(&wallet.handle, soon()).record,
         SummaryRecord::Observed
     );
     assert!(wallet.handle.success_gate().is_ok());
@@ -297,7 +304,7 @@ fn a_v2_handle_reports_the_tariff_charge_of_its_settled_send() {
         }
     });
     settle_body(&mut Some(send), &reply.to_string()).unwrap();
-    let summary = snapshot(&handle, END_OF_RUN_WAIT);
+    let summary = snapshot(&handle, soon());
     let value = observed_json(&summary);
     assert_eq!(value["record"], "observed");
     assert_eq!(value["accounting_basis"], "usage_tariff");
@@ -327,4 +334,74 @@ fn an_unavailable_event_reads_back_without_amounts() {
     let back: RunBudgetSummary = serde_json::from_value(value).unwrap();
     assert_eq!(back.record, SummaryRecord::Unavailable);
     assert_eq!(back.observed, None);
+}
+
+/// N3: the typed cap refusal is the handle's, behind no ledger lock, so an `unavailable` record
+/// still says the wallet refused a send, and nothing else.
+#[test]
+fn an_unavailable_record_keeps_the_typed_refusal() {
+    let wallet = TestWallet::open(|value| value["limits"]["cost_usd"] = json!("0.001"));
+    while wallet.send(50, None).is_ok() {}
+    let handle = Arc::clone(&wallet.handle);
+    let held = Arc::new(Barrier::new(2));
+    let (release, released) = mpsc::channel::<()>();
+    let holder = {
+        let held = Arc::clone(&held);
+        std::thread::spawn(move || {
+            handle.with_ledger_locked(|| {
+                held.wait();
+                released.recv().unwrap();
+            });
+        })
+    };
+    held.wait();
+    let summary = snapshot(&wallet.handle, Instant::now() + Duration::from_millis(50));
+    release.send(()).unwrap();
+    holder.join().unwrap();
+    assert_eq!(
+        observed_json(&summary),
+        json!({
+            "record": "unavailable",
+            "accounting_basis": "provider_billed",
+            "stop": {"kind": "limit", "limit": "cost_usd", "refusal": "Wallet(Budget(CostExceeded))"},
+        })
+    );
+}
+
+/// M2.3, N4: a record is read back by what it says and what decodes. `observed` with a body that
+/// no longer decodes is `unavailable`; `unavailable` never carries amounts; an event that does not
+/// decode at all is `unavailable` with nothing else.
+#[test]
+fn a_record_is_read_back_as_unavailable_when_its_body_does_not_decode() {
+    let wallet = TestWallet::open(|_| {});
+    wallet.send(50, None).unwrap();
+    let recorded = event(&snapshot(&wallet.handle, soon()));
+    assert_eq!(
+        RunBudgetSummary::read_back(&recorded).record,
+        SummaryRecord::Observed
+    );
+
+    // What the scrub leaves of a key or a word that was registered as a secret.
+    let mut scrubbed = recorded.clone();
+    let sends = scrubbed["sends"].as_object_mut().unwrap();
+    let count = sends.remove("reserved").unwrap();
+    sends.insert("<redacted>".to_string(), count);
+    let back = RunBudgetSummary::read_back(&scrubbed);
+    assert_eq!(back.record, SummaryRecord::Unavailable);
+    assert_eq!(back.observed, None);
+    assert_eq!(back.accounting_basis, Some(AccountingBasis::ProviderBilled));
+
+    let mut unavailable_with_amounts = recorded.clone();
+    unavailable_with_amounts["record"] = json!("unavailable");
+    let back = RunBudgetSummary::read_back(&unavailable_with_amounts);
+    assert_eq!(back.observed, None);
+    assert!(!observed_json(&back).to_string().contains("spent_usd"));
+
+    let mut no_record = recorded;
+    no_record["record"] = json!("<redacted>");
+    let back = RunBudgetSummary::read_back(&no_record);
+    assert_eq!(
+        observed_json(&back),
+        json!({"record": "unavailable", "stop": null})
+    );
 }

@@ -420,12 +420,12 @@ impl RunBudgetHandle {
     }
 
     /// The wallet's records and its cost limit for a summary at the end of a run (Issue #1015),
-    /// waiting at most `wait` for the lock. `None` when the lock is not free in time, was
-    /// poisoned, or the file is no longer what this handle last wrote: then nothing is known.
-    pub(super) fn observed_within(&self, wait: Duration) -> Option<ObservedWallet> {
+    /// waiting for the lock no later than `deadline`. `None` when the lock is not free in time,
+    /// was poisoned, or the file is no longer what this handle last wrote: then nothing is known.
+    pub(super) fn observed_within(&self, deadline: std::time::Instant) -> Option<ObservedWallet> {
         match &self.wallet {
             Wallet::Chat { ledger, policy } => {
-                let ledger = super::summary::lock_within(ledger, wait)?;
+                let ledger = super::summary::lock_within(ledger, deadline)?;
                 let wallet = ledger.observed().ok()?.clone();
                 Some(ObservedWallet::Chat {
                     wallet,
@@ -433,7 +433,7 @@ impl RunBudgetHandle {
                 })
             }
             Wallet::Responses { ledger } => {
-                let ledger = super::summary::lock_within(ledger, wait)?;
+                let ledger = super::summary::lock_within(ledger, deadline)?;
                 let limit = ledger.policy().limits.cost;
                 let wallet = ledger.observed().ok()?.clone();
                 Some(ObservedWallet::Responses { wallet, limit })

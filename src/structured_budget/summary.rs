@@ -26,13 +26,13 @@ use super::transport::{ObservedWallet, RunBudgetHandle, SendRefusal};
 /// The event the end of a run records.
 pub(crate) const EVENT: &str = "run_budget_summary";
 
-/// How long the end of a run waits for a lock a send may hold, in the normal path and on SIGINT.
+/// The whole time the end of a run waits for the locks a send or a stage call may hold, in the
+/// normal path and on SIGINT: one deadline shared by the wallet and the stages, not one per lock.
 pub(crate) const END_OF_RUN_WAIT: Duration = Duration::from_secs(1);
 
-/// The lock, if it is free within `wait`. A poisoned lock is no lock: what it guards may be half
-/// changed, and a summary does not vouch for it.
-pub(crate) fn lock_within<T>(mutex: &Mutex<T>, wait: Duration) -> Option<MutexGuard<'_, T>> {
-    let deadline = Instant::now() + wait;
+/// The lock, if it is free before `deadline`. A poisoned lock is no lock: what it guards may be
+/// half changed, and a summary does not vouch for it.
+pub(crate) fn lock_within<T>(mutex: &Mutex<T>, deadline: Instant) -> Option<MutexGuard<'_, T>> {
     loop {
         match mutex.try_lock() {
             Ok(guard) => return Some(guard),
@@ -48,8 +48,10 @@ pub(crate) fn lock_within<T>(mutex: &Mutex<T>, wait: Duration) -> Option<MutexGu
 #[serde(rename_all = "snake_case")]
 pub(crate) enum SummaryRecord {
     Observed,
-    /// Nothing could be read in time (for example, the lock was held when SIGINT came). There is
-    /// no amount, and no zero in its place.
+    /// Nothing is known of the amounts: the lock was not free before the deadline (a send held
+    /// it when SIGINT came), it was poisoned, the ledger file is not what the handle wrote, a sum
+    /// overflowed, or (in the summary) the recorded body could not be read back. There is no
+    /// amount, and no zero in its place.
     Unavailable,
 }
 
@@ -57,10 +59,40 @@ pub(crate) enum SummaryRecord {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct RunBudgetSummary {
     pub(crate) record: SummaryRecord,
-    pub(crate) accounting_basis: AccountingBasis,
+    /// Always recorded; `None` only for a recorded event the summary could not read back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) accounting_basis: Option<AccountingBasis>,
+    /// The handle's typed refusal, read without the ledger lock, so it is kept in an
+    /// `unavailable` record too. `null` when the wallet refused nothing in this command.
+    #[serde(default)]
+    pub(crate) stop: Option<StopSummary>,
     /// Present only when `record` is `observed`.
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
     pub(crate) observed: Option<ObservedBudget>,
+}
+
+impl RunBudgetSummary {
+    /// What the summary reads back from a recorded event. A record that says `unavailable` keeps
+    /// no amount, and one that says `observed` but whose body does not decode (a word the scrub
+    /// rewrote, an edited file) is reported as `unavailable`, in the JSON and in `summary.md`
+    /// alike. An event that does not decode at all is `unavailable` with nothing else.
+    pub(crate) fn read_back(event: &Value) -> Self {
+        match serde_json::from_value::<Self>(event.clone()) {
+            Ok(mut summary) => {
+                if summary.record == SummaryRecord::Unavailable || summary.observed.is_none() {
+                    summary.record = SummaryRecord::Unavailable;
+                    summary.observed = None;
+                }
+                summary
+            }
+            Err(_) => Self {
+                record: SummaryRecord::Unavailable,
+                accounting_basis: None,
+                stop: None,
+                observed: None,
+            },
+        }
+    }
 }
 
 /// What an observed record holds. Amounts are decimal text in dollars, never a float.
@@ -80,7 +112,6 @@ pub(crate) struct ObservedBudget {
     pub(crate) sends: SendCounts,
     pub(crate) unknown: Vec<UnknownSend>,
     pub(crate) latch: Option<LatchSummary>,
-    pub(crate) stop: Option<StopSummary>,
 }
 
 /// The wallet's sends by state. A send released before it left is not one.
@@ -162,11 +193,7 @@ fn latch_of(latch: Option<&super::reservation::Latch>) -> Option<LatchSummary> {
 }
 
 /// A v1 wallet, by its own reducers. `None` when a sum overflows: there is then no amount to show.
-pub(super) fn of_v1(
-    wallet: &WalletState,
-    limit: Money,
-    stop: Option<StopSummary>,
-) -> Option<ObservedBudget> {
+pub(super) fn of_v1(wallet: &WalletState, limit: Money) -> Option<ObservedBudget> {
     let mut sends = SendCounts::default();
     let mut unknown = Vec::new();
     for attempt in &wallet.attempts {
@@ -189,17 +216,12 @@ pub(super) fn of_v1(
         sends,
         unknown,
         latch: latch_of(wallet.latch()),
-        stop,
     })
 }
 
 /// A v2 wallet, by its own reducers. Its spending is the sum of the tariff's charges, so the
 /// declared tariff charge is that same sum, under its own name.
-pub(super) fn of_v2(
-    wallet: &WalletStateV2,
-    limit: Money,
-    stop: Option<StopSummary>,
-) -> Option<ObservedBudget> {
+pub(super) fn of_v2(wallet: &WalletStateV2, limit: Money) -> Option<ObservedBudget> {
     let mut sends = SendCounts::default();
     let mut unknown = Vec::new();
     for attempt in &wallet.attempts {
@@ -223,19 +245,20 @@ pub(super) fn of_v2(
         sends,
         unknown,
         latch: latch_of(wallet.latch()),
-        stop,
     })
 }
 
-/// The wallet of `handle` now, waiting at most `wait` for its lock. It reads and changes nothing.
-pub(crate) fn snapshot(handle: &RunBudgetHandle, wait: Duration) -> RunBudgetSummary {
+/// The wallet of `handle` now, waiting for its ledger lock no later than `deadline`. It reads and
+/// changes nothing. The typed refusal is the handle's own, behind no ledger lock, so it is kept
+/// whatever the ledger answers.
+pub(crate) fn snapshot(handle: &RunBudgetHandle, deadline: Instant) -> RunBudgetSummary {
     let accounting_basis = handle.accounting_basis();
     let stop = handle.refused_in_command().map(stop_of);
     let observed = handle
-        .observed_within(wait)
+        .observed_within(deadline)
         .and_then(|observed| match observed {
-            ObservedWallet::Chat { wallet, limit } => of_v1(&wallet, limit, stop),
-            ObservedWallet::Responses { wallet, limit } => of_v2(&wallet, limit, stop),
+            ObservedWallet::Chat { wallet, limit } => of_v1(&wallet, limit),
+            ObservedWallet::Responses { wallet, limit } => of_v2(&wallet, limit),
         });
     RunBudgetSummary {
         record: if observed.is_some() {
@@ -243,9 +266,29 @@ pub(crate) fn snapshot(handle: &RunBudgetHandle, wait: Duration) -> RunBudgetSum
         } else {
             SummaryRecord::Unavailable
         },
-        accounting_basis,
+        accounting_basis: Some(accounting_basis),
+        stop,
         observed,
     }
+}
+
+/// Every word the declaration names a limit by, for a test that holds them reserved.
+#[cfg(test)]
+pub(crate) fn limit_names() -> Vec<&'static str> {
+    [
+        BudgetRefusal::CostExceeded,
+        BudgetRefusal::TokensExceeded,
+        BudgetRefusal::PhysicalExceeded,
+        BudgetRefusal::LogicalGlobalExceeded,
+        BudgetRefusal::LogicalStageExceeded,
+        BudgetRefusal::WallExceeded,
+        BudgetRefusal::FinalRepairAttemptsExceeded,
+        BudgetRefusal::FinalRepairWallExceeded,
+    ]
+    .into_iter()
+    .filter_map(limit_name)
+    .chain(["limit", "refused"])
+    .collect()
 }
 
 /// The event of a snapshot.

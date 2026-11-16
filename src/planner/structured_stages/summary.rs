@@ -7,13 +7,15 @@
 //! The record is the one judgment there is, [`super::ledger::StageLedger::verdict`]'s body, run on
 //! a copy of the ledger this process holds ([`super::ledger::StageLedger::observed_verdict`]). It
 //! opens no ledger, writes no file, keeps no refusal, and reads the workspace only to compare
-//! bytes. Without a held ledger, the answer is `verdict_without_ledger`'s.
+//! bytes. A record of a ledger that cannot be vouched for is `verdict_without_ledger`'s, as the
+//! verdict's. When this process never opened the ledger (the run ended before its first stage
+//! call or gate), nothing of the stages was read, and the record is `unavailable`.
 //!
 //! What failed in an attempt's checks is recorded where that failure is decided, as the
 //! `structured_stage_checks` event: the state machine keeps only the failure's kind.
 
 use std::collections::BTreeSet;
-use std::time::Duration;
+use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -39,14 +41,29 @@ pub(crate) struct StagesSummary {
     pub(crate) observed: Option<ObservedStages>,
 }
 
+impl StagesSummary {
+    /// What the summary reads back from a recorded event, held to its `record` as
+    /// [`crate::structured_budget::summary::RunBudgetSummary::read_back`] is: an `observed` record
+    /// whose body does not decode, or an event that does not decode at all, is `unavailable`.
+    pub(crate) fn read_back(event: &Value) -> Self {
+        match serde_json::from_value::<Self>(event.clone()) {
+            Ok(summary)
+                if summary.record == SummaryRecord::Observed && summary.observed.is_some() =>
+            {
+                summary
+            }
+            _ => summary_of(None),
+        }
+    }
+}
+
 /// The verdict's answers, as `StageVerdict` gives them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct ObservedStages {
     pub(crate) complete: bool,
     pub(crate) ledger_intact: bool,
     pub(crate) contract_sha256: String,
-    /// `None` when this process holds no ledger for the stages.
-    pub(crate) run_nonce: Option<String>,
+    pub(crate) run_nonce: String,
     pub(crate) stages: Vec<StageEntry>,
 }
 
@@ -142,7 +159,7 @@ pub(crate) fn failed_checks_event(
 pub(super) fn of_verdict(
     verdict: &StageVerdict,
     machine: &StageMachine,
-    run_nonce: Option<String>,
+    run_nonce: String,
 ) -> ObservedStages {
     let contract = machine.contract();
     let stages = verdict
@@ -182,26 +199,19 @@ pub(super) fn of_verdict(
     }
 }
 
-/// The ledger held for `run`, judged on a copy. `None`: nothing could be read in time.
-fn observe(run: &StageRun, wait: Duration) -> Option<ObservedStages> {
-    let session = lock_within(&run.session, wait)?.clone()?;
+/// The ledger held for `run`, judged on a copy. `None`: nothing was read, because a lock was not
+/// free before `deadline`, no session is bound, or this process never opened the ledger.
+fn observe(run: &StageRun, deadline: Instant) -> Option<ObservedStages> {
+    lock_within(&run.session, deadline)?.as_ref()?;
+    // A ledger no call or gate of this process opened: nothing of it was read.
     let held = run
         .ledgers
-        .held_within(&run.workspace, &run.profile, wait)
-        .ok()?;
-    let Some(held) = held else {
-        // No call opened the ledger in this process: the answer without a ledger.
-        let machine = StageMachine::new(session.contract, String::new(), String::new(), 0);
-        return Some(of_verdict(
-            &machine.verdict_without_ledger(),
-            &machine,
-            None,
-        ));
-    };
-    let ledger = lock_within(&held, wait)?;
+        .held_within(&run.workspace, &run.profile, deadline)
+        .ok()??;
+    let ledger = lock_within(&held, deadline)?;
     let (verdict, machine) = ledger.observed_verdict(&ledger::WorkspaceBytes::new(&run.workspace));
     let run_nonce = machine.snapshot().run_nonce.clone();
-    Some(of_verdict(&verdict, &machine, Some(run_nonce)))
+    Some(of_verdict(&verdict, &machine, run_nonce))
 }
 
 fn summary_of(observed: Option<ObservedStages>) -> StagesSummary {
@@ -217,14 +227,14 @@ fn summary_of(observed: Option<ObservedStages>) -> StagesSummary {
 
 /// The run's declared stages now, or `None` for a run that declared none. A run with no
 /// declaration returns at the first line, reading nothing, as the final gate does.
-pub(crate) fn snapshot(config: &Config, wait: Duration) -> Option<StagesSummary> {
+pub(crate) fn snapshot(config: &Config, deadline: Instant) -> Option<StagesSummary> {
     let pack = selection::selection_that_may_hold_stages(&config.profile)?;
     let bound = bound_key(&config.workspace_root, &config.profile, pack).and_then(|key| {
-        // A table held past the wait tells nothing, as no entry would.
-        lock_within(&BOUND_RUNS, wait).and_then(|runs| runs.get(&key).cloned())
+        // A table held past the deadline tells nothing, as no entry would.
+        lock_within(&BOUND_RUNS, deadline).and_then(|runs| runs.get(&key).cloned())
     });
     match bound {
-        Some(BoundAdmission::Stages(run)) => Some(summary_of(observe(&run, wait))),
+        Some(BoundAdmission::Stages(run)) => Some(summary_of(observe(&run, deadline))),
         Some(BoundAdmission::NoStages) => None,
         // Declared, with no session of this process bound to them that can be read: nothing
         // is known of their state.
@@ -241,6 +251,45 @@ pub(crate) fn event(summary: &StagesSummary) -> Value {
         object.insert("event".to_string(), Value::String(EVENT.to_string()));
     }
     value
+}
+
+/// One entry of a directory tree as a test that nothing was written compares it: its kind, its
+/// permission bits, its modification time, and a file's bytes.
+#[cfg(test)]
+pub(crate) type TreeEntry = (bool, u32, std::time::SystemTime, Option<Vec<u8>>);
+
+/// Every entry under `root`, directories (empty ones too) and files, by path, with no link
+/// followed. Equal trees before and after a call mean the call created, removed, renamed,
+/// rewrote, or touched nothing there.
+#[cfg(test)]
+pub(crate) fn tree_state(
+    root: &std::path::Path,
+) -> std::collections::BTreeMap<std::path::PathBuf, TreeEntry> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut found = std::collections::BTreeMap::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(path) = stack.pop() {
+        let metadata = std::fs::symlink_metadata(&path).unwrap();
+        let is_dir = metadata.is_dir();
+        let bytes = if is_dir {
+            for entry in std::fs::read_dir(&path).unwrap() {
+                stack.push(entry.unwrap().path());
+            }
+            None
+        } else {
+            std::fs::read(&path).ok()
+        };
+        found.insert(
+            path,
+            (
+                is_dir,
+                metadata.permissions().mode(),
+                metadata.modified().unwrap(),
+                bytes,
+            ),
+        );
+    }
+    found
 }
 
 #[cfg(test)]
