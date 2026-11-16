@@ -145,6 +145,154 @@ after provider calls have already been made.
 The full list of kinds, the schema subset, and the limits are in the developer
 document `docs/dev/profile-tools.md`.
 
+## Structured Stages
+
+A profile manifest or an eval pack can order its `propose-artifacts` tools as
+stages. A stage is complete only when, for its current inputs, the host adopted
+the bytes and every check you require passed. What a model or a tool says never
+decides this. For a walkthrough over a working sample, see
+[Build a Two-Stage Extension](operator-root-tutorial.md).
+
+### Declare stages
+
+Stages need `profile-tool.declaration/v2`:
+
+```toml
+[profile_tools]
+schema_version = "profile-tool.declaration/v2"
+builtin_tools = ["Read"]
+tools = [
+  { id = "items-parse", effect = "propose-artifacts" },
+  { id = "items-check", effect = "propose-artifacts" },
+]
+
+[profile_tools.stages]
+stages = [
+  { id = "parse", targets = [{ id = "main", tool_id = "items-parse" }] },
+  { id = "check", targets = [{ id = "main", tool_id = "items-check" }] },
+]
+```
+
+- An edge between stages comes from the schemas: a tool whose `schema.inputs`
+  names another tool's output depends on that tool's stage. A stage can also list
+  `depends_on`.
+- A stage can add `required_checks`. Limits under
+  `[profile_tools.stages.limits]` can only narrow.
+- An eval pack carries the same fields in YAML under `profile_tools.stages`.
+
+Each stage tool's descriptor carries your floor. Without it the tool is refused
+at admission as `stage_contract_refused`:
+
+```json
+"stage": {
+  "required_checks": ["lines"],
+  "attempts_per_target": 3,
+  "attempts_per_run": 8,
+  "deadline_seconds": 600
+}
+```
+
+The tool's schema must take a required string argument, `expected_revision`.
+The host keeps it out of what the process is asked.
+
+### What the model is told
+
+Each call to a stage tool is answered with data the model reads. Every answer
+carries `attempts`, the counts used and allowed for the target and for the run.
+
+| `status` | Meaning | What the model does next |
+| --- | --- | --- |
+| `sealed` | The bytes were adopted and every required check passed. `stage.downstream[].revision` names the revision each stage below now expects | Calls the next stage with that revision |
+| `resubmit` | A check failed (`code: check_failed`), with the process's diagnostics. What was sealed stays sealed | Calls the same tool again |
+| `stale` | The revision is older, or another call in the reply committed. `revision` is the current one | Calls again with `revision` |
+| `not_ready` | A stage above is not sealed | Seals that stage first |
+| `unknown_revision` | The revision is not one of this run. `initial` names a target that never changed | Uses a revision the host named |
+| `no_change` | The same call on bytes already sealed | Moves on |
+| `input_not_current` | An input is not what the stage above adopted | Calls again once the stage above is sealed |
+
+These end the run instead: the deadline passed, a target's or the run's
+attempts are spent, a fixed input changed, the process exited non-zero, or it
+reported no check at all.
+
+### How a run ends
+
+- A `--prompt` run that wants to end with a stage not sealed is sent back, at
+  most 8 times, and otherwise ends as `stage_incomplete`. Exit 0 means every
+  declared stage is sealed.
+- The record lives below `--state-dir`, outside the workspace, one per workspace
+  and profile. A new process starts the counts and the deadline over;
+  `--resume` continues them and `--fresh-session` starts over.
+- A stage set needs the OS sandbox: `--sandbox off` is refused as
+  `stage_contract_refused`. So is `--recovery-plan-auto-runs` above 0.
+- `--summary-json` reports the outcome in the `structured_stages` object
+  described below.
+
+## The Process Envelopes
+
+A `pinned_process` tool talks to the host through two envelopes. The host
+writes one request line to the process's standard input and reads one result
+document from its standard output.
+
+### The request
+
+`profile-tool.request/v1` is one line of compact JSON:
+
+| Field | Holds |
+| --- | --- |
+| `request_id` | A new ID for this call |
+| `tool_id`, `tool_version` | The descriptor's `tool_id` and `version` |
+| `descriptor_sha256`, `runtime_sha256` | The digests of the descriptor and of its process declaration |
+| `input_revision`, `schema_sha256` | The revision of the adopted inputs and the schema's pin |
+| `arguments` | The validated arguments, without `expected_revision` |
+| `inputs` | Each adopted input as `path`, `sha256`, and `bytes_base64` |
+| `outputs` | The one output's `id` |
+
+The inputs are the bytes the host adopted, never read again from a path.
+
+### The result
+
+`profile-tool.result/v1` is one JSON document:
+
+```json
+{"protocol": "profile-tool.result/v1", "request_id": "...", "tool_id": "...",
+ "runtime_sha256": "...", "input_revision": "...", "schema_sha256": "...",
+ "checks": [{"id": "lines", "status": "passed"}],
+ "outputs": [{"id": "items", "sha256": "...", "bytes_base64": "..."}],
+ "diagnostics": [{"code": "bad_line", "message": "line 2 is not name,quantity"}]}
+```
+
+It is accepted only if:
+
+- the process exited 0, took the whole request, and left nothing behind;
+- no field is unknown, missing, or repeated, and each binding field equals the
+  request's;
+- there is at least one check, with distinct IDs, each `passed`;
+- there is exactly the declared output, once, in canonical base64, with a
+  `sha256` equal to the bytes.
+
+A failed check comes back with exit 0; in a stage it is returned to the model as
+`resubmit`. A secret value of the run found anywhere in the output ends the call
+as `secret_value_in_output`, and nothing of the output is kept.
+
+### The sandbox
+
+| Limit | Value |
+| --- | --- |
+| Policy | `deny default` Seatbelt, macOS only, after the probe passes |
+| Processes | No fork. Exec of the pinned executable only |
+| Reads | The executable, each dependency directory, system libraries, and a few device files |
+| Writes | `/dev/null` only |
+| Network | None, loopback and unix sockets included |
+| Environment | Exactly the declared keys (at most 16). Keys a loader or shell reads as code or a search path are refused |
+| Time | 30 s from spawn, or the descriptor's narrower `timeout_ms` |
+| Result | 64 KiB of stdout and stderr together, or the descriptor's narrower `max_result_bytes` |
+| Diagnostics | At most 8, code at most 64 bytes, message at most 512 bytes |
+
+A shell script under this policy can use builtins only: command substitution
+and pipes fork, a here-string writes a temporary file, and an external program
+cannot be executed. The executable and every dependency directory must be owned
+by you or root, with no group or other write.
+
 ## Run Budget
 
 A run budget is a wallet of limits for the provider calls of one run. Before

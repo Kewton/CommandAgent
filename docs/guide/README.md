@@ -38,6 +38,9 @@ Recommended route / 推奨順路:
 - [Operator root, profile tools, and run budget](en/profile-tools.md) — the
   operator-owned files outside the workspace, tool descriptors, and run budget
   declarations (v1 and v2), plus the billed-cost fields of the summary
+- [Build a two-stage extension](en/operator-root-tutorial.md) — a walkthrough
+  over the operator-root sample: two structured stages, pinned processes, a run
+  budget, `--operator-check`, and a rehearsal against a fake model
 - [Troubleshooting](en/troubleshooting.md) — common startup, provider, and TUI
   problems
 - [Model behavior probe](en/model-probe.md) — the bounded role-specific
@@ -66,6 +69,8 @@ walkthrough. Read the [security model](../../SECURITY.md) before enabling
 - [プロバイダ](ja/providers.md) — Ollama、LM Studio、OpenAI、Gemini のセットアップ
 - [operator root・profile tools・run budget](ja/profile-tools.md) — ワークスペースの外に置く
   operator のファイル、tool の descriptor、run budget の宣言（v1 と v2）、summary の請求額の欄
+- [2 段の拡張を作る](ja/operator-root-tutorial.md) — operator root の見本を順にたどる:
+  2 つの structured stage、pin した process、run budget、`--operator-check`、偽のモデルでの予行演習
 - [トラブルシューティング](ja/troubleshooting.md) — 起動時、プロバイダ、TUI の一般的な問題
 - [モデル動作プローブ](ja/model-probe.md) — 役割別のプロバイダ／モデルを限定的に測定する手順
 
