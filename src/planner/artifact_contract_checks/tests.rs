@@ -1495,10 +1495,213 @@ fn make_fifo(path: &Path) {
     assert_eq!(status, 0, "mkfifo failed");
 }
 
+/// Perl shared by the escaped-descendant fixture and its controls.
+///
+/// `publish` writes a notice under a temporary name in the same directory,
+/// closes it, and only then renames it into place, so the published name never
+/// shows an empty or partial value. Given a hold gate, it stops after the open
+/// and the first byte, marks `<gate>.reached`, and waits until the gate
+/// exists: the state a reader must never accept. `alarm` bounds every fixture process even if no cleanup reaches it.
+#[cfg(unix)]
+const NOTICE_PERL: &str = r#"use strict; use POSIX ();
+alarm 60;
+sub await_gate { my ($gate) = @_; until (-e $gate) { select(undef, undef, undef, 0.02) } }
+sub publish {
+    my ($path, $value, $hold) = @_;
+    my $tmp = "$path.tmp";
+    open(my $f, ">", $tmp) or die "open: $!";
+    my $cut = defined $hold ? 1 : length $value;
+    syswrite($f, substr($value, 0, $cut)) == $cut or die "write: $!";
+    if (defined $hold) {
+        open(my $r, ">", "$hold.reached") or die "open: $!";
+        close($r) or die "close: $!";
+        await_gate($hold);
+    }
+    my $rest = substr($value, $cut);
+    syswrite($f, $rest) == length $rest or die "write: $!";
+    close($f) or die "close: $!";
+    rename($tmp, $path) or die "rename: $!";
+}
+"#;
+
+/// The escaped descendant: it leaves the adapter's group, publishes its pid,
+/// and holds stdin unread until the test releases it after the host returned.
+/// It then reads to a real end-of-file (a read error is not one), publishes
+/// the byte count, and stays parked so the cleanup stops a live group it owns.
+#[cfg(unix)]
+const DESCENDANT_PERL: &str = r#"POSIX::setsid() > 0 or die "setsid: $!";
+publish($ARGV[0], $$);
+await_gate($ARGV[2]);
+my ($n, $r) = (0);
+while ($r = sysread(STDIN, my $b, 65536)) { $n += $r }
+defined $r or die "read: $!";
+publish($ARGV[1], $n);
+sleep;
+"#;
+
+/// Waits for a notice to be published, at most `watchdog`, then reads it as a
+/// decimal count. Existence means publication only because the writer renames
+/// a closed file into place; the content is still checked, never defaulted.
+#[cfg(unix)]
+fn read_notice(path: &Path, watchdog: Duration) -> Result<u64, String> {
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
+    let deadline = Instant::now() + watchdog;
+    loop {
+        match fs::read_to_string(path) {
+            Ok(text) => return parse_notice(&text).map_err(|error| format!("{name}: {error}")),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(format!("{name} cannot be read: {error}")),
+        }
+        if Instant::now() >= deadline {
+            return Err(format!("{name} was not published within {watchdog:?}"));
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// A notice is one or more ASCII digits and nothing else.
+#[cfg(unix)]
+fn parse_notice(text: &str) -> Result<u64, String> {
+    if text.is_empty() || !text.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(format!("malformed notice {text:?}"));
+    }
+    text.parse()
+        .map_err(|error| format!("malformed notice {text:?}: {error}"))
+}
+
+/// Whether `pid` is alive and leads its own process group, apart from the
+/// test's group: the shape the escaped descendant's `setsid` gives it.
+#[cfg(unix)]
+fn leads_own_group(pid: u64) -> bool {
+    let Ok(pid) = libc::pid_t::try_from(pid) else {
+        return false;
+    };
+    // SAFETY: getpgid and getpgrp only query process-group ids.
+    pid > 1 && unsafe { libc::getpgid(pid) } == pid && unsafe { libc::getpgrp() } != pid
+}
+
+/// A notice is accepted only once it is published, and only when it is a
+/// complete count: a missing, empty, or malformed notice is an explicit
+/// failure within a finite time, never a zero.
+#[cfg(unix)]
+#[test]
+fn a_notice_is_accepted_only_when_published_and_well_formed() {
+    let dir = tempfile::tempdir().unwrap();
+    let notice = dir.path().join("count");
+
+    let started = Instant::now();
+    let missing = read_notice(&notice, Duration::from_millis(200)).unwrap_err();
+    assert!(missing.contains("was not published"), "{missing}");
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "the watchdog is finite"
+    );
+
+    for malformed in [
+        "",
+        "\n",
+        " 12",
+        "12\n",
+        "-1",
+        "1x",
+        "+4",
+        "99999999999999999999999",
+    ] {
+        fs::write(&notice, malformed).unwrap();
+        let error = read_notice(&notice, Duration::ZERO).unwrap_err();
+        assert!(error.contains("malformed notice"), "{malformed:?}: {error}");
+    }
+
+    fs::write(&notice, "4096").unwrap();
+    assert_eq!(read_notice(&notice, Duration::ZERO), Ok(4096));
+    fs::write(&notice, "0").unwrap();
+    assert_eq!(read_notice(&notice, Duration::ZERO), Ok(0));
+}
+
+/// Control for the notice writer the descendant uses: stopped after its open
+/// and a partial write, before publication, the reader takes neither the empty
+/// nor the partial value; it reads the complete count only after publication.
+#[cfg(unix)]
+#[test]
+fn a_notice_held_between_open_and_publication_is_never_read() {
+    let perl = Path::new("/usr/bin/perl");
+    assert!(perl.is_file(), "/usr/bin/perl is required for this test");
+    let dir = tempfile::tempdir().unwrap();
+    let notice = dir.path().join("count");
+    let pending = dir.path().join("count.tmp");
+    let hold = dir.path().join("hold");
+    let program = format!("{NOTICE_PERL}publish($ARGV[0], 65536, $ARGV[1]);\n");
+    let launch = super::process::Launch {
+        executable: perl.to_path_buf(),
+        args: vec![
+            "-e".into(),
+            program.into(),
+            notice.clone().into(),
+            hold.clone().into(),
+        ],
+        cwd: dir.path().to_path_buf(),
+        tool_root: dir.path().to_path_buf(),
+        stdin: Vec::new(),
+        timeout: Duration::from_secs(10),
+        max_stream_bytes: 24_000,
+    };
+    // On every exit, including a failed assertion, the writer is released and
+    // its bounded run is awaited before the directory goes away.
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let mut writer = HeldWriter {
+        hold: hold.clone(),
+        run: Some(receiver),
+    };
+    std::thread::spawn(move || {
+        let _ = sender.send(super::process::run(&launch, || false));
+    });
+
+    // The writer has opened its file, written the first digit, and waits.
+    let reached = dir.path().join("hold.reached");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !reached.exists() {
+        assert!(
+            Instant::now() < deadline,
+            "the writer did not reach its hold within 10 s"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let held = read_notice(&notice, Duration::from_millis(300))
+        .expect_err("a held notice is neither empty nor partial to the reader");
+    assert!(held.contains("was not published"), "{held}");
+    assert_eq!(
+        fs::read_to_string(&pending).unwrap(),
+        "6",
+        "the writer holds an opened, partly written temporary file"
+    );
+
+    fs::write(&hold, b"").unwrap();
+    assert_eq!(read_notice(&notice, Duration::from_secs(10)), Ok(65536));
+    assert!(
+        !pending.exists(),
+        "the temporary name was renamed into place"
+    );
+    let observation = writer
+        .run
+        .take()
+        .unwrap()
+        .recv_timeout(Duration::from_secs(15))
+        .expect("the writer's bounded run returned")
+        .unwrap();
+    assert_eq!(
+        observation.ended,
+        super::process::Ended::Exited(Some(0)),
+        "{observation:?}"
+    );
+}
+
 /// R3: a descendant that leaves the process group and keeps stdin open
-/// without reading it cannot hold the host. The run returns within its bound,
-/// reports the request as incomplete, and the host has closed its stdin end:
-/// the descendant later reads to end-of-file.
+/// without reading it cannot hold the host. The order is fixed by signals, not
+/// by sleeps: the descendant publishes its pid, the leader exits, the host
+/// returns while the descendant still holds stdin unread, and only then does
+/// the test release it. The run returns within its bound, reports the request
+/// as incomplete, and the host has closed its stdin end: the released
+/// descendant reads to end-of-file having received less than the request.
 #[cfg(unix)]
 #[test]
 fn a_descendant_holding_stdin_cannot_hold_the_host() {
@@ -1507,8 +1710,10 @@ fn a_descendant_holding_stdin_cannot_hold_the_host() {
     let observe = tempfile::tempdir().unwrap();
     let pid_file = observe.path().join("escaped.pid");
     let eof_file = observe.path().join("escaped.eof");
-    let script = r#"/usr/bin/perl -e 'use POSIX; POSIX::setsid(); open(my $p, ">", $ARGV[0]); print $p $$; close $p; sleep 2; my $n = 0; while (my $r = sysread(STDIN, my $b, 65536)) { $n += $r } open(my $m, ">", $ARGV[1]); print $m $n; close $m;' "$1" "$2" <&0 >/dev/null 2>&1 &
-while [ ! -s "$1" ]; do /bin/sleep 0.05; done
+    let release = observe.path().join("escaped.release");
+    let program = format!("{NOTICE_PERL}{DESCENDANT_PERL}");
+    let script = r#"/usr/bin/perl -e "$1" "$2" "$3" "$4" <&0 >/dev/null 2>&1 &
+while [ ! -e "$2" ]; do /bin/sleep 0.05; done
 exit 0
 "#;
     let payload = vec![b'x'; 1 << 20];
@@ -1518,8 +1723,10 @@ exit 0
             "-c".into(),
             script.into(),
             "adapter".into(),
+            program.into(),
             pid_file.clone().into(),
             eof_file.clone().into(),
+            release.clone().into(),
         ],
         cwd: observe.path().to_path_buf(),
         tool_root: observe.path().to_path_buf(),
@@ -1528,7 +1735,8 @@ exit 0
         max_stream_bytes: 24_000,
     };
     // Stops the escaped descendant's own process group (its setsid made its
-    // pid the group id) on every exit, including a failed assertion.
+    // pid the group id) on every exit, including a failed assertion or a
+    // watchdog failure.
     let _cleanup = EscapedGroup(pid_file.clone());
     let (sender, receiver) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
@@ -1536,19 +1744,33 @@ exit 0
     });
     let observation = receiver
         .recv_timeout(Duration::from_secs(10))
-        .expect("the host returned within 10 s")
+        .expect("the host returned within 10 s without waiting for the descendant")
         .unwrap();
+    assert_eq!(
+        observation.ended,
+        super::process::Ended::Exited(Some(0)),
+        "{observation:?}"
+    );
     assert!(!observation.stdin_complete, "{observation:?}");
     assert!(observation.reaped, "{observation:?}");
 
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while !eof_file.exists() && Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    let read = fs::read_to_string(&eof_file)
-        .expect("the escaped descendant reached end-of-file, so the host closed stdin");
-    let read: usize = read.trim().parse().unwrap();
-    assert!(read < payload.len(), "{read}");
+    // The descendant published its pid before the leader exited and is still
+    // in its own group, holding stdin unread: it has not been released.
+    let pid = read_notice(&pid_file, Duration::ZERO)
+        .expect("the descendant published its pid before the leader exited");
+    assert!(
+        leads_own_group(pid),
+        "the escaped descendant {pid} is alive in its own group"
+    );
+    assert!(
+        !eof_file.exists(),
+        "the descendant cannot reach end-of-file before its release"
+    );
+
+    fs::write(&release, b"").unwrap();
+    let read = read_notice(&eof_file, Duration::from_secs(10))
+        .expect("the released descendant reached end-of-file, so the host closed stdin");
+    assert!(read < payload.len() as u64, "{read}");
 }
 
 /// B1 (direct path refusal): after the run an input replaced by a symlink to
@@ -1576,17 +1798,43 @@ fn identical_bytes_behind_a_symlink_or_linked_directory_are_refused() {
     }
 }
 
+/// The escaped descendant's group, stopped on drop. Only a pid read from a
+/// complete notice that still leads its own group is signalled.
 #[cfg(unix)]
 struct EscapedGroup(PathBuf);
 
 #[cfg(unix)]
 impl Drop for EscapedGroup {
     fn drop(&mut self) {
-        if let Some(pid) = fs::read_to_string(&self.0)
-            .ok()
-            .and_then(|pid| pid.trim().parse::<u32>().ok())
+        let Ok(pid) = read_notice(&self.0, Duration::ZERO) else {
+            return;
+        };
+        if let Ok(pid) = u32::try_from(pid)
+            && leads_own_group(u64::from(pid))
         {
             let _ = crate::bounded_process::terminate_process_group_by_pid(pid);
+        }
+    }
+}
+
+#[cfg(unix)]
+type WriterRun = std::sync::mpsc::Receiver<std::io::Result<super::process::Observation>>;
+
+/// A held fixture writer. On drop it creates the hold gate, so the writer
+/// finishes, and waits for its bounded run, which stops the writer's group at
+/// its own timeout if the release is not seen.
+#[cfg(unix)]
+struct HeldWriter {
+    hold: PathBuf,
+    run: Option<WriterRun>,
+}
+
+#[cfg(unix)]
+impl Drop for HeldWriter {
+    fn drop(&mut self) {
+        let _ = fs::write(&self.hold, b"");
+        if let Some(run) = self.run.take() {
+            let _ = run.recv_timeout(Duration::from_secs(15));
         }
     }
 }
