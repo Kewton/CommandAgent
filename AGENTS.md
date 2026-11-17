@@ -146,6 +146,18 @@ Authority in this chain:
   do not launch repeated wait commands that can briefly disagree during agent
   startup or completion transitions.
 
+## Memory and handoff
+
+- CommandMate `mem` is on for `develop`. Work state, the next step, questions
+  for the user, the user's decisions (their destination is the Issue), and
+  pitfalls go to `mem` through the `cmate-handoff` skill. Do not copy what the
+  next session can re-read from files, git, Issues, PRs or CI.
+- When `cmate-delegate` waits for a reply, send with
+  `--reply-to self --note "<what you wait for>"`; that note alone owns the
+  waiting item.
+- An agent never approves or promotes a decision; the user does that on the
+  CommandMate screen (Repositories → mem).
+
 ## Verification
 
 Run the narrowest relevant check first, then broaden in proportion to risk.
