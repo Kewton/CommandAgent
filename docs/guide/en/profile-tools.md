@@ -305,9 +305,10 @@ unprivileged user namespaces: on an Ubuntu that restricts them through AppArmor
 tool is `unavailable`. A kernel below Landlock ABI 6 (ubuntu-22.04) and Docker's
 default seccomp profile are `unavailable` too. Inside there is no `/proc`, no
 temporary directory, no `/etc/passwd`, and no name resolution, so a runtime that
-needs them (some JVMs, Node's `process.memoryUsage()`) fails. A library the
-executable names from anywhere but a system library directory or a dependency
-directory refuses the start. Setting one thread's affinity or priority by its
+needs them (some JVMs, Node's `process.memoryUsage()`) fails. A library or an
+ELF interpreter the executable names that really lies anywhere but a system
+library directory or a dependency directory (its links followed), or that is
+not an ELF file, refuses the start. Setting one thread's affinity or priority by its
 thread id is refused; the same call on the whole process works. The parent's
 process id stays visible. A script pinned as
 the executable is refused: pin its interpreter and pass the script as an

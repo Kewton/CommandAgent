@@ -617,8 +617,12 @@ and the child runs one fixed sequence of plain system calls before the exec:
    `/dev/null`, `/dev/urandom`, and `/dev/random`. An interpreter or a library is bound only when its
    real path, every link resolved, lies under a system library directory (`/lib/<triple>`,
    `/usr/lib/<triple>`, `/lib64`, `/usr/lib64`, `/lib`, `/usr/lib`) or a pinned dependency directory;
-   one anywhere else, or one that is not a 64-bit little-endian ELF object, refuses the launch, as a
-   library that is not found does. The ELF reader checks every size, offset, and address against the
+   one anywhere else, or one that is not a 64-bit little-endian ELF object (the interpreter
+   included), refuses the launch before the start (`unavailable`), as a library that is not found
+   does. The grant and the bind go to that checked real file; the name the loader asks for (through
+   `/lib/ld-linux-aarch64.so.1`, or `$ORIGIN/../lib`, for example) is made again inside as links
+   and directories only, and only when walking it the way the kernel does, `..` taken from the real
+   directory reached, leads to that same file. The ELF reader checks every size, offset, and address against the
    file before it reads, and refuses a malformed object instead of reading past it. A symlink on the
    way to any of them is made again inside. The root itself is read-only; the child moves into it with
    `pivot_root`, detaches the old root, and only then enters the working directory (std's

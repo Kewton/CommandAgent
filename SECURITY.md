@@ -302,7 +302,8 @@ candidate on stdout; only the host writes, after checking the candidate. Details
 - macOS: a `deny default` Seatbelt policy through `sandbox-exec`.
 - Linux (x86_64 and aarch64): new user, mount, network, IPC, and UTS namespaces; an empty
   read-only root holding only the pinned executable, its ELF interpreter and libraries (each
-  only when its real path lies in a system library directory or a pinned directory), the
+  an ELF object, bound at its real path, and only when that path lies in a system library
+  directory or a pinned directory), the
   pinned directories, and three devices, with no `/proc`; Landlock (ABI 6 or later) allowing
   only reads of what is pinned, an exec of the executable and its interpreter, and a write to
   `/dev/null`, and scoped so that no signal and no abstract unix socket leaves the tool's

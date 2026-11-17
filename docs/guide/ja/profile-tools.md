@@ -287,8 +287,8 @@ Linux でも、pin した実行体として `/bin/bash` が動きます。backen
 tool は `unavailable` です。Landlock ABI 6 未満の kernel（ubuntu-22.04）と Docker の既定の seccomp
 profile も `unavailable` です。中には `/proc`・一時ディレクトリ・`/etc/passwd`・名前解決が無いので、
 それを要る runtime（一部の JVM、Node の `process.memoryUsage()` など）は失敗します。実行体が
-システムのライブラリのディレクトリと依存ディレクトリ以外のライブラリを名前に挙げると、起動は拒否
-されます。thread id を指定して 1 つの thread の affinity や優先度を変える呼び出しは拒否されます
+名前を挙げるライブラリや ELF interpreter の実体（symlink をたどった先）がシステムのライブラリの
+ディレクトリと依存ディレクトリの外にあるとき、または ELF ファイルでないとき、起動は拒否されます。thread id を指定して 1 つの thread の affinity や優先度を変える呼び出しは拒否されます
 （process 全体への同じ呼び出しは効きます）。親の process id は見えます。script を
 実行体として pin すると拒否されます。その interpreter を pin し、script を引数で渡してください。
 FUSE のようなファイルシステム（Docker Desktop の共有フォルダなど）にある実行体は起動時に拒否されます。
