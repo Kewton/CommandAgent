@@ -21,7 +21,7 @@ mod tests {
     use std::os::linux::net::SocketAddrExt as _;
     use std::os::unix::net::SocketAddr as UnixAddress;
     use std::os::unix::process::CommandExt as _;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::time::Duration;
 
     use super::super::super::super::process::{self, Ended, Observation, RunLimits};
@@ -1136,6 +1136,28 @@ mod tests {
             .collect()
     }
 
+    /// A copy of the program at `source`, made at `target` by a `cp` of its own (Issue #1025).
+    ///
+    /// The copy is written outside this process, so no descriptor open for writing on it ever
+    /// lives here. With `std::fs::copy`, another test thread that forks while that descriptor is
+    /// open hands it to a child that keeps it until its own exec, and an exec of the copy in that
+    /// window fails with `ETXTBSY`. The `cp` has ended before this returns, and nothing else
+    /// writes the copy afterwards.
+    fn copy_a_program_elsewhere(source: &Path, target: &Path) {
+        let copied = std::process::Command::new("/bin/cp")
+            .args(["--preserve=mode", "--"])
+            .arg(source)
+            .arg(target)
+            .env_clear()
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap();
+        assert!(copied.status.success(), "{copied:?}");
+        let metadata = std::fs::symlink_metadata(target).unwrap();
+        assert!(metadata.is_file(), "{metadata:?}");
+        assert_eq!(metadata.len(), std::fs::metadata(source).unwrap().len());
+    }
+
     /// Everything a raw child is pointed at, with the witnesses that count what reaches them.
     struct Scene {
         stage: Stage,
@@ -1193,7 +1215,7 @@ mod tests {
                 std::fs::write(path, text).unwrap();
             }
             let unpinned = stage.bound.join("unpinned");
-            std::fs::copy(std::fs::canonicalize("/bin/true").unwrap(), &unpinned).unwrap();
+            copy_a_program_elsewhere(&std::fs::canonicalize("/bin/true").unwrap(), &unpinned);
             let port = |address: std::io::Result<std::net::SocketAddr>| {
                 address.unwrap().port().to_string()
             };
