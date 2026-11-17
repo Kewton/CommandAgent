@@ -10,6 +10,12 @@
 //! The process writes nothing and reaches nothing: its input arrives on stdin and its
 //! candidate leaves on stdout. Locations travel as `-D` parameters and never in the policy
 //! text, as in the existing wrapper.
+//!
+//! Linux (Issue #982) is routed to its own leaf, `isolation/linux.rs`: the same final
+//! `Command`, with a private root, Landlock, and a seccomp filter added between fork and exec.
+
+#[cfg(target_os = "linux")]
+mod linux;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
@@ -503,12 +509,20 @@ fn descriptor_calls() -> DescriptorCalls {
 
 /// The environment is cleared on this very `Command`: the declared keys are all the child
 /// gets, and the host adds none. The new process group lets the whole group be stopped.
-fn final_command(program: &OsStr, prefix: &[OsString], launch: &StrictLaunch<'_>) -> StrictCommand {
+/// `host_cwd` is false on Linux, which enters the directory inside its private root after the
+/// pivot: std's `current_dir` runs before `pre_exec`, on the host's tree.
+fn final_command(
+    program: &OsStr,
+    prefix: &[OsString],
+    launch: &StrictLaunch<'_>,
+    host_cwd: bool,
+) -> StrictCommand {
     let mut command = Command::new(program);
+    command.args(prefix).args(launch.argv);
+    if host_cwd {
+        command.current_dir(launch.cwd);
+    }
     command
-        .args(prefix)
-        .args(launch.argv)
-        .current_dir(launch.cwd)
         .env_clear()
         .envs(launch.env)
         .stdin(Stdio::piped())
@@ -534,7 +548,15 @@ pub(super) fn strict_command(
 ) -> Result<StrictCommand, ProfileToolRefusal> {
     #[cfg(test)]
     if test_hook::is_unconfined() {
-        return Ok(final_command(launch.executable.as_os_str(), &[], launch));
+        return Ok(final_command(
+            launch.executable.as_os_str(),
+            &[],
+            launch,
+            true,
+        ));
+    }
+    if cfg!(target_os = "linux") {
+        return linux_command(launch);
     }
     if !cfg!(target_os = "macos") {
         return Err(no_backend());
@@ -543,7 +565,35 @@ pub(super) fn strict_command(
         OsStr::new(SANDBOX_EXEC),
         &sandbox_arguments(launch),
         launch,
+        true,
     ))
+}
+
+/// The same final command, with the Linux sequence added, or unavailable before the start.
+#[cfg(target_os = "linux")]
+fn linux_command(launch: &StrictLaunch<'_>) -> Result<StrictCommand, ProfileToolRefusal> {
+    let mut strict = final_command(launch.executable.as_os_str(), &[], launch, false);
+    linux::confine(&mut strict.command, launch).map_err(|reason| {
+        unavailable(format!(
+            "the strict isolation cannot be prepared on Linux: {reason}"
+        ))
+    })?;
+    Ok(strict)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn linux_command(_launch: &StrictLaunch<'_>) -> Result<StrictCommand, ProfileToolRefusal> {
+    Err(no_backend())
+}
+
+#[cfg(target_os = "linux")]
+fn linux_probe() -> Result<(), String> {
+    linux::probe()
+}
+
+#[cfg(not(target_os = "linux"))]
+fn linux_probe() -> Result<(), String> {
+    Err("has no Linux backend here".to_string())
 }
 
 fn no_backend() -> ProfileToolRefusal {
@@ -555,16 +605,22 @@ fn no_backend() -> ProfileToolRefusal {
 
 /// Before the first provider call: this policy really starts a child, a round trip works,
 /// and the operating system refuses a write and each connection. Any other answer is
-/// unavailable. A nested sandbox ends here too, because `sandbox-exec` cannot start.
+/// unavailable. A nested sandbox ends here too, because `sandbox-exec` cannot start. On Linux
+/// the leaf's probe runs the whole sequence the same way.
 pub(super) fn probe_strict() -> Result<(), ProfileToolRefusal> {
     #[cfg(test)]
     if test_hook::is_unconfined() {
         return Ok(());
     }
-    if !cfg!(target_os = "macos") {
-        return Err(no_backend());
-    }
-    run_probe().map_err(|reason| unavailable(format!("the strict isolation probe {reason}")))
+    let probe = if cfg!(target_os = "linux") {
+        linux_probe
+    } else {
+        if !cfg!(target_os = "macos") {
+            return Err(no_backend());
+        }
+        run_probe
+    };
+    probe().map_err(|reason| unavailable(format!("the strict isolation probe {reason}")))
 }
 
 fn run_probe() -> Result<(), String> {
@@ -610,6 +666,7 @@ fn probe_in(area: &Path) -> Result<(), String> {
         OsStr::new(SANDBOX_EXEC),
         &sandbox_arguments(&launch),
         &launch,
+        true,
     );
     let observation = process::run(
         command,
@@ -673,7 +730,9 @@ mod tests {
     use std::collections::BTreeMap;
     use std::path::Path;
 
-    use super::{StrictLaunch, judge_probe, metadata_paths, probe_strict, strict_profile};
+    #[cfg(not(target_os = "linux"))]
+    use super::probe_strict;
+    use super::{StrictLaunch, judge_probe, metadata_paths, strict_profile};
 
     fn launch<'a>(env: &'a BTreeMap<String, String>, argv: &'a [String]) -> StrictLaunch<'a> {
         StrictLaunch {
@@ -756,7 +815,8 @@ mod tests {
         assert!(judge_probe(b"n\n", b"", "n", false, false).is_err());
     }
 
-    #[cfg(not(target_os = "macos"))]
+    /// Linux has its own backend: its tests are in `isolation/linux/kernel_tests.rs`.
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     #[test]
     fn off_macos_the_probe_and_the_launch_are_unavailable() {
         let refusal = probe_strict().unwrap_err();
