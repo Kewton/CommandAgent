@@ -45,7 +45,9 @@
     {"id": "an executable in a directory its group can write", "refusal": "unavailable"}
   ],
   "unsupported": [
-    {"id": "linux, windows, and any other OS", "refusal": "unavailable"},
+    {"id": "windows and any other OS", "refusal": "unavailable"},
+    {"id": "linux without a capability the backend needs", "refusal": "unavailable"},
+    {"id": "linux under an outer seccomp filter", "refusal": "unavailable"},
     {"id": "macos under an outer sandbox", "refusal": "unavailable"}
   ],
   "off": [
@@ -57,6 +59,7 @@
   ],
   "os_table": {
     "macos": "the real policy: success, and the OS refuses each attempt",
+    "linux": "a private root, Landlock, and seccomp: success, and the kernel refuses each attempt; without a capability, unavailable before the start",
     "other": "unavailable before the start"
   }
 }

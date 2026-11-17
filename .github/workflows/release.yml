@@ -20,7 +20,19 @@ jobs:
       - name: Record Node test runtime
         run: node --version
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test --locked
+      - name: Allow user namespaces for the Linux strict isolation tests
+        run: |
+          # The same preparation as the CI guardrails job: ubuntu-24.04 restricts unprivileged
+          # user namespaces through AppArmor, and the strict isolation (#982) needs them. The
+          # runner is a VM discarded after the job.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          sysctl -n kernel.apparmor_restrict_unprivileged_userns
+      - name: Test the release source
+        env:
+          # With the restriction lifted the backend must work; its tests fail when it does not
+          # and when this is unset. Tests read this, never production.
+          COMMANDAGENT_TEST_LINUX_STRICT: available
+        run: cargo test --locked
 
   build:
     name: Build ${{ matrix.target }}

@@ -25,6 +25,22 @@ use std::time::Duration;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+#[cfg(target_os = "linux")]
+#[path = "support/outer_seccomp.rs"]
+mod outer_seccomp;
+
+/// The binary under a real refusal of the Linux probe's first step (Issue #982).
+#[cfg(target_os = "linux")]
+fn outer_filter(program: &str) -> Command {
+    outer_seccomp::command(program)
+}
+
+/// No backend here: the plain binary already answers `unavailable`.
+#[cfg(not(target_os = "linux"))]
+fn outer_filter(program: &str) -> Command {
+    Command::new(program)
+}
+
 const STAGE_PROFILE: &str = "check-stages";
 const TOOL_PROFILE: &str = "check-one-tool";
 const UPPER: &str = "check-upper-tool";
@@ -616,7 +632,7 @@ fn an_accepted_operator_root_passes_with_no_provider_call_and_nothing_written() 
 #[test]
 fn every_refusal_before_the_run_has_the_runs_own_code() {
     // Profile tools, each a broken pin or descriptor. A proposal tool needs the strict isolation,
-    // which exists only on macOS; elsewhere both sides answer `unavailable` first.
+    // which exists on macOS and Linux; where it is unavailable both sides answer that the same way.
     let cases: [(&str, Change); 4] = [
         ("schema pin", |d| d["schema_sha256"] = json!("0".repeat(64))),
         ("executable pin", |d| {
@@ -771,7 +787,8 @@ fn a_stage_set_without_an_os_boundary_has_the_runs_own_code() {
 
 /// Acceptance 2: where the strict isolation is unavailable, both answer `unavailable`. On macOS
 /// the binary runs inside a sandbox of its own, where `sandbox-exec` cannot start again, which is
-/// the environment and not a seam; elsewhere there is no backend.
+/// the environment and not a seam. On Linux (Issue #982) it runs under an outer seccomp filter
+/// that refuses `unshare`, a real refusal in the kernel. Elsewhere there is no backend.
 #[test]
 fn where_the_strict_isolation_is_unavailable_both_say_unavailable() {
     let world = World::new();
@@ -785,7 +802,7 @@ fn where_the_strict_isolation_is_unavailable_both_say_unavailable() {
                 .arg(env!("CARGO_BIN_EXE_commandagent"));
             command
         } else {
-            Command::new(env!("CARGO_BIN_EXE_commandagent"))
+            outer_filter(env!("CARGO_BIN_EXE_commandagent"))
         };
         world.configure(&mut command, false, &arguments);
         command.args(extra);

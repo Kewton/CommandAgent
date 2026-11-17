@@ -56,6 +56,7 @@ python3 scripts/validate_codex_skills.py --tracked-only
 ruff check --isolated --select E4,E7,E9,F,I --ignore E402 \
   scripts/codex_orchestrate.py \
   scripts/validate_codex_skills.py \
+  scripts/ci/linux_strict_capability_probe.py \
   tests/test_codex_orchestrate.py \
   tests/cli_cases/harness.py \
   tests/test_providerless_cli.py \

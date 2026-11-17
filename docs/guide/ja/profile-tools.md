@@ -109,8 +109,9 @@ tools = [
 ### コマンドラインのプログラムで動くもの
 
 - `propose-artifacts` の effect を持つ `pinned_process` の tool は、`commandagent` の binary で
-  動きます。macOS の Seatbelt sandbox が probe に通ることが必要で、それ以外の環境では run の開始前に
-  `unavailable` として拒否されます。
+  動きます。probe に通る sandbox が必要です。macOS では Seatbelt、Linux（x86_64 と aarch64）では
+  私有の root と Landlock と seccomp の filter です。それ以外の環境や probe が通らないときは、run の
+  開始前に `unavailable` として拒否されます。
 - runtime が `in_process` の tool には、CommandAgent を組み込むプログラムが登録する runtime が
   必要です。binary は何も登録しないので、その ID は `unavailable` として拒否されます。
 - tool の結果だけで、必須の成果物や段が満たされることはありません。受入の gate はこれまでどおり
@@ -262,9 +263,10 @@ run の秘密の値が出力のどこかに見つかると、その呼び出し�
 
 | 上限 | 値 |
 | --- | --- |
-| 方針 | `deny default` の Seatbelt。macOS だけで、probe が通った後 |
-| process | fork できない。exec できるのは pin した実行体だけ |
-| 読み取り | 実行体、各依存ディレクトリ、システムのライブラリ、いくつかの device ファイル |
+| 方針 | macOS は `deny default` の Seatbelt。Linux（x86_64、aarch64）は新しい namespace、読み取り専用の私有の root、Landlock ABI 6 以上、seccomp の filter。どちらも probe が通った後だけ |
+| process | fork できない。exec できるのは pin した実行体だけ（Linux ではその ELF interpreter も） |
+| 他の process | 他の process へ signal を送れない。Linux ではファイルの owner（`F_SETOWN`）経由の signal も送れず、他の process の優先度・資源の上限・CPU・スケジューリング・group・session・capability の読み書きもできない。これらの呼び出しは tool 自身にだけ効く |
+| 読み取り | 実行体、各依存ディレクトリ、システムのライブラリ、いくつかの device ファイル。Linux では実行体が名前を挙げるライブラリのうち、システムのライブラリのディレクトリか依存ディレクトリにあるものだけがあり、ホストのそれ以外のもの（`/proc` を含む）は無い |
 | 書き込み | `/dev/null` だけ |
 | ネットワーク | 無し。loopback と unix socket も含む |
 | 環境変数 | 宣言した key ちょうど（最大 16）。loader や shell がコードや検索パスとして読む key は拒否 |
@@ -278,6 +280,19 @@ macOS で pin した実行体として動くのは `/bin/bash` です。`/bin/sh
 [sandbox の中で bash ができること](operator-root-tutorial.md#sandbox-の中で-bash-ができること)
 に並べています。実行体と各依存ディレクトリは、あなたか root が持ち主で、group と other の
 書き込み権が無いことが必要です。
+
+Linux でも、pin した実行体として `/bin/bash` が動きます。backend には特権の無い user namespace が
+必要です。AppArmor でそれを制限している Ubuntu（ubuntu-24.04 は既定で制限します）では、operator が
+先に `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0` を実行します。そうでなければ
+tool は `unavailable` です。Landlock ABI 6 未満の kernel（ubuntu-22.04）と Docker の既定の seccomp
+profile も `unavailable` です。中には `/proc`・一時ディレクトリ・`/etc/passwd`・名前解決が無いので、
+それを要る runtime（一部の JVM、Node の `process.memoryUsage()` など）は失敗します。実行体が
+名前を挙げるライブラリや ELF interpreter の実体（symlink をたどった先）がシステムのライブラリの
+ディレクトリと依存ディレクトリの外にあるとき、または ELF ファイルでないとき、起動は拒否されます。thread id を指定して 1 つの thread の affinity や優先度を変える呼び出しは拒否されます
+（process 全体への同じ呼び出しは効きます）。親の process id は見えます。script を
+実行体として pin すると拒否されます。その interpreter を pin し、script を引数で渡してください。
+FUSE のようなファイルシステム（Docker Desktop の共有フォルダなど）にある実行体は起動時に拒否されます。
+先にコンテナ自身のファイルシステムへ copy してください。
 
 ## run budget
 

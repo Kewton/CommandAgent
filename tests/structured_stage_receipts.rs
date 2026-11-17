@@ -1453,12 +1453,31 @@ mod off_control {
     }
 }
 
+/// On Linux the test-only `COMMANDAGENT_TEST_LINUX_STRICT` says whether the strict backend must
+/// work there (Issue #982); unset, this fails. With `available`, the same stage set is admitted
+/// instead, through the real probe.
 #[cfg(not(target_os = "macos"))]
 #[test]
 fn where_the_strict_isolation_does_not_exist_a_stage_tool_is_unavailable() {
     let _guard = lock();
     let env = Env::new();
     env.write_walk_tools(Some(floor()));
+    if cfg!(target_os = "linux") {
+        let expected = std::env::var("COMMANDAGENT_TEST_LINUX_STRICT");
+        match expected.as_deref() {
+            Ok("available") => {
+                let admitted = admit_selected(&env.root, WALK_PROFILE, None)
+                    .map(|admitted| admitted.is_some())
+                    .map_err(|refusal| refusal.to_string());
+                assert_eq!(admitted, Ok(true));
+                return;
+            }
+            Ok("unavailable") => {}
+            other => panic!(
+                "set COMMANDAGENT_TEST_LINUX_STRICT=available or =unavailable (it is {other:?})"
+            ),
+        }
+    }
     let error = env.admission_error(WALK_PROFILE);
     assert!(
         error.starts_with("profile_tool_refused: unavailable:"),

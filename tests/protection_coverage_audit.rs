@@ -61,6 +61,10 @@ const PROTECTION_RULES: &[ProtectionRule] = &[
             "src/tools/profile_tools/commit.rs",
             "src/tools/profile_tools/effects.rs",
             "src/tools/registry.rs",
+            // The Linux leaf (Issue #982): the launch sequence, its seccomp filter, its root.
+            "src/tools/profile_tools/isolation/linux.rs",
+            "src/tools/profile_tools/isolation/linux/filter.rs",
+            "src/tools/profile_tools/isolation/linux/root.rs",
         ],
         audit: audit_profile_tool_effect_boundary,
     },
@@ -896,6 +900,66 @@ fn profile_tool_effect_boundary_rejects_each_weakened_variant() {
             "is_cancelled() || is_force_cancelled()",
             "is_cancelled()",
         ),
+        (
+            "keeps the host's network on Linux",
+            6,
+            "| libc::CLONE_NEWNET",
+            "",
+        ),
+        (
+            "skips Landlock on Linux",
+            6,
+            "libc::SYS_landlock_restrict_self",
+            "libc::SYS_getpid",
+        ),
+        (
+            "installs no filter on Linux",
+            6,
+            "libc::SECCOMP_SET_MODE_FILTER",
+            "libc::SECCOMP_GET_ACTION_AVAIL",
+        ),
+        (
+            "goes on past a Landlock below its floor",
+            6,
+            "CompatLevel::HardRequirement",
+            "CompatLevel::BestEffort",
+        ),
+        (
+            "lets a signal leave the Landlock domain",
+            6,
+            ".scope(Scope::from_all(LANDLOCK_FLOOR))",
+            "",
+        ),
+        (
+            "lets a file's owner be another process",
+            7,
+            "fcntl: Some(72), Some(25), OwnerItself;",
+            "",
+        ),
+        (
+            "runs another architecture",
+            7,
+            "statement(RETURN, KILL_PROCESS)",
+            "statement(RETURN, ALLOW)",
+        ),
+        (
+            "opens sockets on Linux",
+            7,
+            "socket: Some(41), Some(198), Refuse;",
+            "",
+        ),
+        (
+            "binds writable on Linux",
+            8,
+            "libc::MS_REMOUNT | libc::MS_BIND | libc::MS_RDONLY | locked_flags(&real)?",
+            "libc::MS_REMOUNT | libc::MS_BIND | locked_flags(&real)?",
+        ),
+        (
+            "borrows the old wrapper on Linux",
+            6,
+            "mod filter;",
+            "mod filter;\nuse crate::tools::os_sandbox::wrap_command;",
+        ),
     ] {
         let mut mutated = AuditCorpus {
             files: real.files.clone(),
@@ -1569,7 +1633,21 @@ fn production_text(text: &str) -> &str {
         .map_or(text, |position| &text[..position])
 }
 
-const PROFILE_TOOL_EFFECT_REQUIRED: [(usize, &str); 44] = [
+const PROFILE_TOOL_EFFECT_REQUIRED: [(usize, &str); 55] = [
+    (6, "| libc::CLONE_NEWNET"),
+    (6, ".scope(Scope::from_all(LANDLOCK_FLOOR))"),
+    (7, "fcntl: Some(72), Some(25), OwnerItself;"),
+    (6, "libc::PR_SET_NO_NEW_PRIVS"),
+    (6, "libc::SYS_landlock_restrict_self"),
+    (6, "libc::SYS_pivot_root"),
+    (6, "libc::SECCOMP_SET_MODE_FILTER"),
+    (6, "command.pre_exec(move || confinement.enter());"),
+    (6, "CompatLevel::HardRequirement"),
+    (7, "socket: Some(41), Some(198), Refuse;"),
+    (
+        8,
+        "libc::MS_REMOUNT | libc::MS_BIND | libc::MS_RDONLY | locked_flags(&real)?",
+    ),
     (
         0,
         "command.pre_exec(move || mark_inherited_descriptors_close_on_exec(calls));",
@@ -1726,6 +1804,23 @@ fn audit_profile_tool_effect_boundary(corpus: &AuditCorpus, rule: &ProtectionRul
     let effects = production_text(corpus.file(rule.allowlist[4]));
     if effects.contains("\"Read\"") || effects.contains("access\": \"read_only") {
         violations.push(format!("{} treats the effect as a read", rule.allowlist[4]));
+    }
+    // The Linux leaf (Issue #982): its own launch, never the old wrapper, and a filter that kills
+    // a foreign architecture and the x32 ABI before it reads a number.
+    for path in &rule.allowlist[6..9] {
+        let text = production_text(corpus.file(path));
+        for forbidden in ["os_sandbox::", "wrap_command", "spawn_child("] {
+            if text.contains(forbidden) {
+                violations.push(format!("{path} uses `{forbidden}`"));
+            }
+        }
+    }
+    let filter = production_text(corpus.file(rule.allowlist[7]));
+    if filter.matches("statement(RETURN, KILL_PROCESS)").count() != 2 {
+        violations.push(format!(
+            "{} must kill another architecture and the x32 ABI",
+            rule.allowlist[7]
+        ));
     }
     violations
 }
