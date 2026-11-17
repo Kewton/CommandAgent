@@ -414,7 +414,7 @@ Each row names what an operator sees and what to do.
 ### What the host cannot see
 
 - **After the judgment (S18).** A background process of the same uid can change bytes after a
-  judgment. Only macOS has real isolation. Case and Unicode aliases of a path are not judged as the
+  judgment. The strict isolation (macOS, and Linux since #982) confines the tool, not other processes of that uid. Case and Unicode aliases of a path are not judged as the
   same path.
 - **What a seal means (D8).** A seal says the stage's obligations were met. It is not final
   acceptance's Full and not a release pass, and nothing turns it into one: assurance reads nothing
@@ -440,6 +440,8 @@ Each row names what an operator sees and what to do.
   `speculative_phase_plan_started` and `speculative_phase_plan_adopted`. The two keep their order
   between themselves, and each line is compared whole. The requests are kept in two lists, by whether
   a request offers a tool, each in its order. The order across the two lists is not compared.
-- **Evidence.** The process runs only on macOS, so **a stage's success end to end is exercised only
-  locally on macOS. A green CI is no evidence of a stage's success.** Linux runs the same sessions
-  in its unit tests with an unconfined launch only a test build has.
+- **Evidence.** The stage tests that run the real process (`with_the_strict_isolation::*` in
+  `tests/structured_stage_receipts.rs`) are compiled on macOS only, so **a stage's success end to end
+  is exercised only locally on macOS. A green CI is no evidence of a stage's success.** Linux runs the
+  same sessions in its unit tests with an unconfined launch only a test build has, and, since #982,
+  admits a stage set through the real Linux probe.

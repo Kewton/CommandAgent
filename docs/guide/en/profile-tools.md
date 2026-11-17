@@ -114,8 +114,10 @@ bytes before it adopts them.
 ### What the command-line program can run
 
 - A `pinned_process` tool with the `propose-artifacts` effect runs through the
-  `commandagent` binary. It needs a macOS Seatbelt sandbox that passes its
-  probe; elsewhere the tool is refused as `unavailable` before the run starts.
+  `commandagent` binary. It needs a sandbox that passes its probe: macOS
+  Seatbelt, or on Linux (x86_64 and aarch64) a private root with Landlock and a
+  seccomp filter. Elsewhere, or where the probe fails, the tool is refused as
+  `unavailable` before the run starts.
 - A tool whose runtime is `in_process` needs a runtime that a program embedding
   CommandAgent registers. The binary registers none, so such an ID is refused as
   `unavailable`.
@@ -278,9 +280,9 @@ as `secret_value_in_output`, and nothing of the output is kept.
 
 | Limit | Value |
 | --- | --- |
-| Policy | `deny default` Seatbelt, macOS only, after the probe passes |
-| Processes | No fork. Exec of the pinned executable only |
-| Reads | The executable, each dependency directory, system libraries, and a few device files |
+| Policy | macOS: `deny default` Seatbelt. Linux (x86_64, aarch64): new namespaces, a read-only private root, Landlock ABI 5 or later, and a seccomp filter. Either only after the probe passes |
+| Processes | No fork. Exec of the pinned executable only (on Linux, also its ELF interpreter) |
+| Reads | The executable, each dependency directory, system libraries, and a few device files. On Linux only the libraries the executable names are there, and nothing else of the host, `/proc` included |
 | Writes | `/dev/null` only |
 | Network | None, loopback and unix sockets included |
 | Environment | Exactly the declared keys (at most 16). Keys a loader or shell reads as code or a search path are refused |
@@ -294,6 +296,19 @@ which this policy refuses, so the process fails. A shell script can use
 builtins only; [What Bash may do in the sandbox](operator-root-tutorial.md#what-bash-may-do-in-the-sandbox)
 lists them. The executable and every dependency directory must be owned by you
 or root, with no group or other write.
+
+On Linux, `/bin/bash` works as the pinned executable too. The backend needs
+unprivileged user namespaces: on an Ubuntu that restricts them through AppArmor
+(ubuntu-24.04 does by default), the operator runs
+`sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0` first, or the
+tool is `unavailable`. A kernel below Landlock ABI 5 (ubuntu-22.04) and Docker's
+default seccomp profile are `unavailable` too. Inside there is no `/proc`, no
+temporary directory, no `/etc/passwd`, and no name resolution, so a runtime that
+needs them (some JVMs, Node's `process.memoryUsage()`) fails. A script pinned as
+the executable is refused: pin its interpreter and pass the script as an
+argument. A pinned executable on a FUSE-like file system, such as Docker
+Desktop's shared folder, is refused at its start; copy it to the container's own
+file system first.
 
 ## Run Budget
 
