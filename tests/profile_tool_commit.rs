@@ -6,7 +6,10 @@
 //! `/bin/bash` with a fixed argv, written and pinned by the test: it takes no shell text
 //! from a model. Under the strict policy it cannot fork, so it uses builtins only. No model,
 //! key, external provider, or Jev call is used. On macOS a failed strict probe fails these
-//! tests; it is never a skip. On any other OS the same entries expect `unavailable`.
+//! tests; it is never a skip. On Linux (Issue #982) the test-only variable
+//! `COMMANDAGENT_TEST_LINUX_STRICT` says what the host must answer: `available` runs the same
+//! strict tests as macOS, where a failed probe fails them, and `unavailable` requires every
+//! entry to refuse; unset, the tests fail. On any other OS the entries expect `unavailable`.
 //!
 //! The scenarios are listed in `tests/corpus/apps/profile-tool-commit/`. The off control
 //! compares with `fixtures/off-golden.json`, recorded from base 85bcca4e before this
@@ -69,22 +72,28 @@ const COMMIT_PACK: &str = "commit-pack";
 const CONFIG_TOOL_ID: &str = "config-submit";
 const INDEX_TOOL_ID: &str = "index-submit";
 const CONFIG_TOOL: &str = "SubmitConfig";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 const INDEX_TOOL: &str = "SubmitIndex";
 const OUTPUT: &str = "config/settings.json";
 const INDEX_OUTPUT: &str = "config/index.json";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 const VALID: &str = r#"{"mode":"fast"}"#;
 const CANDIDATE_FAST: &[u8] = b"{\n  \"mode\": \"fast\"\n}\n";
 const CANDIDATE_SAFE: &[u8] = b"{\n  \"mode\": \"safe\"\n}\n";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 const OLD_BYTES: &[u8] = b"the bytes before this run\n";
+/// Test-only: what a Linux host must answer (Issue #982). Production never reads it.
+const LINUX_EXPECTATION: &str = "COMMANDAGENT_TEST_LINUX_STRICT";
 const DUMMY_SECRET: &str = "fake-dummy-credential-974-not-a-real-key";
 const FLAT_PROFILE: &str = "commit-off-flat";
 const FLAT_TOOL: &str = "off-flat-read";
 const FLAT_RUNTIME: &str = "off-flat-runtime";
 const FLAT_PARAMETERS: &str = r#"[{"name":"path","kind":"workspace_path","required":true,"description":"Workspace-relative file."}]"#;
 const RESERVED_WORDS_PROMPT: &str = "Check fake-dummy-credential-974-not-a-real-key next to propose-artifacts pinned_process profile-tool.process/v1 profile-tool.request/v1 profile-tool.result/v1 profile-tool.commit-receipt/v1 effect_read_only effect_limit_exceeded effect_output_refused effect_path_refused effect_env_refused process_failed result_rejected commit_failed profile_tool_effect_call profile_tool_effect_rejected profile_tool_commit committed_sha256 result_sha256 runtime_sha256.";
+
+#[cfg(target_os = "linux")]
+#[path = "support/outer_seccomp.rs"]
+mod outer_seccomp;
 
 static LOCK: Mutex<()> = Mutex::new(());
 
@@ -645,15 +654,35 @@ fn off_starts_nothing_and_reads_no_registry() {
 // The operator: a pinned shell, a fixed script, and a descriptor.
 // ---------------------------------------------------------------------------
 
-/// One executable that exists on each OS. It starts only on macOS; elsewhere the pins are
-/// still real, so a refusal there is the isolation's and not a bad pin.
+/// One executable that exists on each OS. It starts on macOS and on a Linux with the strict
+/// backend; elsewhere the pins are still real, so a refusal there is the isolation's and not a
+/// bad pin.
 fn pinned_shell() -> PathBuf {
-    let path = if cfg!(target_os = "macos") {
+    let path = if cfg!(any(target_os = "macos", target_os = "linux")) {
         "/bin/bash"
     } else {
         "/bin/sh"
     };
     std::fs::canonicalize(path).unwrap()
+}
+
+/// Whether the strict backend must work here: always on macOS, never on an OS without one, and
+/// on Linux what `COMMANDAGENT_TEST_LINUX_STRICT` says. Unset there, the test fails.
+fn strict_available() -> bool {
+    if cfg!(target_os = "macos") {
+        return true;
+    }
+    if !cfg!(target_os = "linux") {
+        return false;
+    }
+    match std::env::var(LINUX_EXPECTATION).as_deref() {
+        Ok("available") => true,
+        Ok("unavailable") => false,
+        other => panic!(
+            "set {LINUX_EXPECTATION}=available or {LINUX_EXPECTATION}=unavailable to run these \
+             tests on Linux (it is {other:?}); see docs/dev/profile-tools.md"
+        ),
+    }
 }
 
 /// What an operator's serializer would print. Written here on its own: the host's decoder
@@ -770,7 +799,7 @@ fn config_schema() -> Value {
     })
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn index_schema() -> Value {
     json!({
         "protocol": "profile-tool.schema/v1",
@@ -899,13 +928,13 @@ impl Env {
         std::fs::read(self.root.join(OUTPUT)).ok()
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     fn with_old_bytes(&self) {
         std::fs::create_dir_all(self.root.join("config")).unwrap();
         std::fs::write(self.root.join(OUTPUT), OLD_BYTES).unwrap();
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     fn assert_nothing_new_saved(&self, label: &str) {
         assert_eq!(self.saved().as_deref(), Some(OLD_BYTES), "{label}");
         let leftovers = std::fs::read_dir(self.root.join("config"))
@@ -921,7 +950,7 @@ impl Env {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn run_with(config: &Config, replies: Vec<String>) -> (Vec<String>, Result<Vec<String>, String>) {
     let http = FakeHttp::start(replies);
     let mut config = config.clone();
@@ -941,7 +970,7 @@ fn run_with(config: &Config, replies: Vec<String>) -> (Vec<String>, Result<Vec<S
     (requests, result)
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn call(raw: &str) -> Vec<String> {
     vec![tool_reply(&[(CONFIG_TOOL, raw)]), text_reply("done")]
 }
@@ -989,7 +1018,7 @@ fn ultra_plan(profile: &str) -> UltraPlan {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn step_plan_reply() -> String {
     json!({
         "goal": PLAN_GOAL,
@@ -1676,7 +1705,7 @@ fn staying_fake() -> Fake {
 
 /// The kind this OS must report for this row.
 fn expected_kind(refusal: &StartRefusal) -> &'static str {
-    if refusal.after_probe && !cfg!(target_os = "macos") {
+    if refusal.after_probe && !strict_available() {
         "unavailable"
     } else {
         refusal.kind
@@ -2005,7 +2034,7 @@ const OWN_PROCESS_ENV: &str = "COMMANDAGENT_TEST_974_OWN_PROCESS";
 fn test_child(test: &str) -> std::process::Command {
     let mut command = std::process::Command::new(std::env::current_exe().unwrap());
     command.args(["--exact", test, "--nocapture"]).env_clear();
-    for name in ["PATH", "TMPDIR", "RUST_BACKTRACE"] {
+    for name in ["PATH", "TMPDIR", "RUST_BACKTRACE", LINUX_EXPECTATION] {
         if let Some(value) = std::env::var_os(name) {
             command.env(name, value);
         }
@@ -2259,7 +2288,7 @@ mod repl {
             }),
         ];
         // Where no backend exists, the descriptor with nothing wrong is what stops here.
-        if !cfg!(target_os = "macos") {
+        if !super::strict_available() {
             rows.push(("unavailable", |_| {}));
         }
         for (kind, change) in rows {
@@ -2319,20 +2348,39 @@ mod repl {
 }
 
 // ---------------------------------------------------------------------------
-// Off macOS: every entry is unavailable, with nothing started.
+// Where the strict backend is unavailable: every entry is unavailable, with nothing started.
 // ---------------------------------------------------------------------------
 
 #[cfg(not(target_os = "macos"))]
-mod not_macos {
+mod unavailable {
     use super::{
         Action, AtomicUsize, CONFIG_PROFILE, CountingClassifier, CountingEndpoint, Env, Fake,
-        OTHER_ENTRIES, Ordering, REGISTRY_ENV, SESSION_ENTRIES, binary_refused, client_from_config,
-        lock, run_entry, set_env, write_plans,
+        OTHER_ENTRIES, Ordering, REGISTRY_ENV, SESSION_ENTRIES, admit_selected, binary_refused,
+        client_from_config, lock, run_entry, set_env, strict_available, write_plans,
     };
+
+    /// Whether these rows are this host's. A Linux host expected to have the backend runs the
+    /// `strict` block instead, and here its real admission must pass. The caller holds `LOCK`.
+    fn expected_here() -> bool {
+        if !strict_available() {
+            return true;
+        }
+        let env = Env::new();
+        env.write_tool(&Fake::default());
+        let admitted = admit_selected(&env.root, CONFIG_PROFILE, None)
+            .map(|admitted| admitted.is_some())
+            .map_err(|refusal| refusal.reason);
+        set_env(REGISTRY_ENV, None);
+        assert_eq!(admitted, Ok(true), "the strict backend was expected here");
+        false
+    }
 
     #[test]
     fn every_entry_expects_unavailable_with_no_provider_or_process() {
         let _guard = lock();
+        if !expected_here() {
+            return;
+        }
         let mut failures = Vec::new();
         for entry in SESSION_ENTRIES.iter().chain(OTHER_ENTRIES) {
             let env = Env::new();
@@ -2375,6 +2423,9 @@ mod not_macos {
     #[test]
     fn the_binary_expects_unavailable() {
         let _guard = lock();
+        if !expected_here() {
+            return;
+        }
         let env = Env::new();
         env.write_tool(&Fake::default());
         let run = binary_refused(
@@ -2401,11 +2452,14 @@ mod not_macos {
 }
 
 // ---------------------------------------------------------------------------
-// On macOS: the real policy. A failed probe fails these; nothing here skips.
+// On macOS, and on Linux expected to have the backend (Issue #982): the real policy. A failed
+// probe fails these; nothing here skips. On Linux expected to be `unavailable`, each test checks
+// that the real admission is refused `unavailable` and ends there, except the two that make the
+// probe really fail, which run on both.
 // ---------------------------------------------------------------------------
 
-#[cfg(target_os = "macos")]
-mod macos {
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod strict {
     use super::{
         Action, AtomicUsize, CANDIDATE_FAST, CANDIDATE_SAFE, COMMIT_PACK, CONFIG_PROFILE,
         CONFIG_TOOL, CONFIG_TOOL_ID, CountingClassifier, CountingEndpoint, Env, Fake, FakeHttp,
@@ -2413,9 +2467,9 @@ mod macos {
         Ordering, PACK_HOST, PLAN_GOAL, REGISTRY_ENV, Responder, SESSION_ENTRIES, SessionSnapshot,
         VALID, Value, admit_selected, base_config, binary_command, binary_refused, call,
         client_from_config, config_schema, generate_step_plan, index_schema, json, lock,
-        pack_selection_env, render_ultra_plan, run_entry, run_session_with_outcome_with_ui,
-        run_with, set_env, sha256, step_plan, step_plan_reply, test_child, text_reply, tool_reply,
-        ultra_plan, write_plans,
+        pack_selection_env, pinned_shell, render_ultra_plan, run_entry,
+        run_session_with_outcome_with_ui, run_with, set_env, sha256, step_plan, step_plan_reply,
+        strict_available, test_child, text_reply, tool_reply, ultra_plan, write_plans,
     };
     use commandagent::mode::ExecutionMode;
     use commandagent::tools::registry::ToolContext;
@@ -2425,6 +2479,34 @@ mod macos {
     use std::path::Path;
     use std::sync::Arc;
     use std::time::{Duration, Instant};
+
+    /// Whether the strict tests run here. Where the backend must be unavailable, the real
+    /// admission of a descriptor with nothing wrong is refused `unavailable` by the probe, which
+    /// is checked here, and the test ends there. The caller holds `LOCK`.
+    fn strict_ready() -> bool {
+        if strict_available() {
+            return true;
+        }
+        let env = Env::new();
+        env.write_tool(&Fake::default());
+        let refused = admit_selected(&env.root, CONFIG_PROFILE, None)
+            .map(|admitted| admitted.is_some())
+            .err();
+        set_env(REGISTRY_ENV, None);
+        let refused = refused.expect("the admission passed where the backend must be unavailable");
+        assert_eq!(refused.kind.as_str(), "unavailable", "{}", refused.reason);
+        assert!(
+            refused.reason.contains("strict isolation probe"),
+            "{}",
+            refused.reason
+        );
+        false
+    }
+
+    /// Whether this process-list line is the pinned shell running `script`.
+    fn runs_script(line: &str, script: &str) -> bool {
+        line.starts_with(pinned_shell().to_str().unwrap()) && line.contains(script)
+    }
 
     fn receipt_from_events(env: &Env) -> Value {
         let line = env
@@ -2455,6 +2537,9 @@ mod macos {
     #[test]
     fn a_config_object_and_a_document_index_commit_through_the_same_mechanism() {
         let _guard = lock();
+        if !strict_ready() {
+            return;
+        }
         let env = Env::new();
         env.with_old_bytes();
         env.write_tool(&Fake::default());
@@ -2537,6 +2622,9 @@ mod macos {
     #[test]
     fn every_session_entry_reaches_the_commit() {
         let _guard = lock();
+        if !strict_ready() {
+            return;
+        }
         let mut failures = Vec::new();
         for entry in SESSION_ENTRIES {
             let env = Env::new();
@@ -2578,6 +2666,9 @@ mod macos {
     #[test]
     fn an_inspect_step_is_refused_before_its_provider_call() {
         let _guard = lock();
+        if !strict_ready() {
+            return;
+        }
         let env = Env::new();
         env.write_tool(&Fake::default());
         let http = FakeHttp::start(Vec::new());
@@ -2598,6 +2689,9 @@ mod macos {
     #[test]
     fn a_planner_only_call_under_a_planning_action_is_refused() {
         let _guard = lock();
+        if !strict_ready() {
+            return;
+        }
         let env = Env::new();
         env.write_tool(&Fake::default());
         let endpoint = CountingEndpoint::start();
@@ -2623,6 +2717,9 @@ mod macos {
     #[test]
     fn every_bad_result_saves_nothing_and_ends_the_run_without_a_retry() {
         let _guard = lock();
+        if !strict_ready() {
+            return;
+        }
         let outputs = |id: &str, digest: &str, encoded: &str| {
             format!(
                 r#"[{{\"id\":\"{id}\",\"sha256\":\"{digest}\",\"bytes_base64\":\"{encoded}\"}}]"#
@@ -2731,6 +2828,9 @@ mod macos {
     #[test]
     fn exit_0_with_nothing_and_a_nonzero_exit_with_a_valid_result_are_refused() {
         let _guard = lock();
+        if !strict_ready() {
+            return;
+        }
         for (label, kind, tail) in [
             ("a nonzero exit", "exit_nonzero", "exit 3"),
             ("a signal", "signaled", "kill -9 $$"),
@@ -2759,6 +2859,9 @@ mod macos {
     #[test]
     fn a_broken_or_repeated_argument_starts_nothing_and_saves_nothing() {
         let _guard = lock();
+        if !strict_ready() {
+            return;
+        }
         for (raw, code) in [
             (r#"{"mode":"fast","mode":"safe"}"#, "duplicate_key"),
             (r#"{"mode":"fast""#, "malformed_json"),
@@ -2786,6 +2889,9 @@ mod macos {
     #[test]
     fn the_argument_and_schema_limits_hold_at_their_edges() {
         let _guard = lock();
+        if !strict_ready() {
+            return;
+        }
         for (raw, passes, label) in [
             (pad_raw(64 * 1024), true, "64 KiB"),
             (pad_raw(64 * 1024 + 1), false, "64 KiB and 1"),
@@ -2936,6 +3042,9 @@ mod macos {
     #[test]
     fn a_result_over_its_narrowed_limit_is_stopped_and_saves_nothing() {
         let _guard = lock();
+        if !strict_ready() {
+            return;
+        }
         for (label, tail) in [
             ("stdout", "while :; do printf 'xxxxxxxxxxxxxxxx'; done"),
             ("stderr", "while :; do printf 'xxxxxxxxxxxxxxxx' >&2; done"),
@@ -2960,6 +3069,9 @@ mod macos {
     #[test]
     fn a_stuck_process_is_stopped_at_its_clock_and_saves_nothing() {
         let _guard = lock();
+        if !strict_ready() {
+            return;
+        }
         let spin = "while :; do :; done";
         let env = Env::new();
         env.with_old_bytes();
@@ -2977,6 +3089,9 @@ mod macos {
     #[test]
     fn a_process_that_never_reads_a_large_request_does_not_hold_the_host() {
         let _guard = lock();
+        if !strict_ready() {
+            return;
+        }
         let env = Env::new();
         env.with_old_bytes();
         std::fs::create_dir_all(env.root.join("inputs")).unwrap();
@@ -3022,6 +3137,9 @@ mod macos {
     #[test]
     fn a_process_that_tries_to_fork_gets_no_descendant_and_no_commit() {
         let _guard = lock();
+        if !strict_ready() {
+            return;
+        }
         for (label, head) in [
             ("a same-group child", "( while :; do :; done ) &"),
             ("a subshell", "( : )"),
@@ -3066,8 +3184,50 @@ mod macos {
         command: String,
     }
 
+    /// The whole process list from `/proc`, or why it could not be read. A process that ends
+    /// while the list is read is left out, as `ps` leaves it out.
+    #[cfg(target_os = "linux")]
+    fn process_rows() -> Result<Vec<ProcessRow>, String> {
+        let mut rows = Vec::new();
+        let listing = std::fs::read_dir("/proc").map_err(|error| format!("/proc: {error}"))?;
+        for entry in listing.flatten() {
+            let Ok(pid) = entry.file_name().to_string_lossy().parse::<i32>() else {
+                continue;
+            };
+            let Ok(stat) = std::fs::read_to_string(entry.path().join("stat")) else {
+                continue;
+            };
+            let mut fields = stat
+                .rsplit_once(") ")
+                .map(|(_, rest)| rest.split_whitespace())
+                .ok_or_else(|| format!("not a stat line: {stat}"))?;
+            let state = fields.next().unwrap_or_default().to_string();
+            let parent = fields
+                .next()
+                .and_then(|field| field.parse().ok())
+                .ok_or_else(|| format!("not a stat line: {stat}"))?;
+            let command = std::fs::read(entry.path().join("cmdline"))
+                .map(|bytes| String::from_utf8_lossy(&bytes).replace('\0', " "))
+                .unwrap_or_default();
+            rows.push(ProcessRow {
+                pid,
+                parent,
+                alive: state != "Z",
+                command: command.trim_end().to_string(),
+            });
+        }
+        if !rows
+            .iter()
+            .any(|row| row.pid == std::process::id().cast_signed())
+        {
+            return Err("the list did not hold this process".to_string());
+        }
+        Ok(rows)
+    }
+
     /// The whole process list, or why it could not be read. An answer that does not list this
     /// process says nothing, so it is no proof that another process is gone.
+    #[cfg(target_os = "macos")]
     fn process_rows() -> Result<Vec<ProcessRow>, String> {
         let listing = std::process::Command::new("/bin/ps")
             .args(["-axo", "pid=,ppid=,stat=,command="])
@@ -3239,6 +3399,9 @@ mod macos {
     #[test]
     fn the_launch_watch_sees_a_tool_that_really_starts() {
         let _guard = lock();
+        if !strict_ready() {
+            return;
+        }
         let env = Env::new();
         env.write_changed(&super::staying_fake(), &|descriptor| {
             descriptor["process"]["limits"]["timeout_ms"] = json!(30_000);
@@ -3272,11 +3435,13 @@ mod macos {
         assert!(seen_in_time && seen > 0, "{stderr}");
     }
 
+    #[cfg(target_os = "macos")]
     const PARENT_READER_SECRET: &str = "fake-parent-reader-secret-974-not-a-real-key";
 
     /// A compiled program, not a platform binary, that reads a process's exec-time area and says
     /// what it found. With an argument it reads itself, and otherwise its parent. It never prints
     /// what it read: only whether the area holds the name of the host and the dummy.
+    #[cfg(target_os = "macos")]
     fn compile_area_reader(directory: &Path) -> std::path::PathBuf {
         let source = directory.join("area_reader.c");
         let binary = directory.join("area_reader");
@@ -3328,11 +3493,107 @@ int main(int argc, char **argv) {{
         binary
     }
 
+    /// Reads the arguments and the environment of the process named by its first argument, or
+    /// of its parent, with builtins only, and says whether each opened and named the host.
+    #[cfg(target_os = "linux")]
+    const AREA_READER: &str = r#"target=${1:-$PPID}
+for part in cmdline environ; do
+  host=0
+  if { : < "/proc/$target/$part"; }; then
+    while IFS= read -r -d '' field; do [[ $field == *commandagent* ]] && host=1; done < "/proc/$target/$part"
+    printf '%s answer=opened host=%s\n' "$part" "$host" >&2
+  else
+    printf '%s answer=refused host=%s\n' "$part" "$host" >&2
+  fi
+done"#;
+
+    /// Linux (Issue #982, Q1): no `/proc` inside. The reader, run outside on a dummy process,
+    /// finds the dummy's arguments and environment; as the real binary's child under the policy,
+    /// its parent's arguments and environment are not there at all.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_tool_under_the_policy_cannot_read_the_hosts_arguments_or_environment() {
+        let _guard = lock();
+        if !strict_ready() {
+            return;
+        }
+        let mut dummy = std::process::Command::new("/bin/bash")
+            .args(["-c", "IFS= read -r _", "commandagent-982-dummy-argument"])
+            .env_clear()
+            .env("DUMMY_982", "commandagent-982-dummy-value")
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let witness = std::process::Command::new("/bin/bash")
+            .args(["-c", AREA_READER, "reader", &dummy.id().to_string()])
+            .env_clear()
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap();
+        dummy.kill().unwrap();
+        dummy.wait().unwrap();
+        let said = String::from_utf8_lossy(&witness.stderr);
+        assert!(said.contains("cmdline answer=opened host=1"), "{said}");
+        assert!(said.contains("environ answer=opened host=1"), "{said}");
+        let env = Env::new();
+        env.with_old_bytes();
+        env.write_tool(&fake_with(|f| {
+            f.head = AREA_READER.to_string();
+            f.tail = "exit 3".to_string();
+        }));
+        let http = FakeHttp::with_responder(Vec::new(), entry_responder(None));
+        let home = tempfile::tempdir().unwrap();
+        let events = env.evidence.join("binary-events.jsonl");
+        let output = binary_command(&env.root, &env.registry, home.path())
+            .args([
+                "--provider",
+                "lm-studio",
+                "--lm-studio-host",
+                &http.url,
+                "--yes",
+            ])
+            .args([
+                "--profile",
+                CONFIG_PROFILE,
+                "--prompt",
+                "Submit the object.",
+            ])
+            .env("COMMANDAGENT_EVAL_EVENTS", &events)
+            .output()
+            .unwrap();
+        http.finish();
+        let shown = std::fs::read_to_string(&events).unwrap_or_default();
+        let line = shown
+            .lines()
+            .find(|line| line.contains("profile_tool_effect_rejected"))
+            .unwrap_or_else(|| {
+                panic!(
+                    "no rejection: {}\n{shown}",
+                    String::from_utf8_lossy(&output.stderr)
+                )
+            });
+        let event: Value = serde_json::from_str(line).unwrap();
+        let tail = event["stderr_tail"].as_str().unwrap();
+        assert!(tail.contains("cmdline answer=refused host=0"), "{tail}");
+        assert!(tail.contains("environ answer=refused host=0"), "{tail}");
+        assert_eq!(
+            tail.matches("No such file or directory").count(),
+            2,
+            "{tail}"
+        );
+        env.assert_nothing_new_saved("the area reader");
+        set_env(REGISTRY_ENV, None);
+    }
+
     /// Under the real policy, as the real binary's child, with the dummy in the environment the
     /// binary was started with: the area of its parent is readable, and the dummy is not in it.
+    #[cfg(target_os = "macos")]
     #[test]
     fn a_tool_under_the_policy_does_not_find_the_credential_in_the_hosts_area() {
         let _guard = lock();
+        if !strict_ready() {
+            return;
+        }
         let env = Env::new();
         env.with_old_bytes();
         let reader = compile_area_reader(&env.tools);
@@ -3402,6 +3663,9 @@ int main(int argc, char **argv) {{
     #[test]
     fn a_secret_in_a_tools_output_stops_the_run_and_goes_nowhere() {
         let _guard = lock();
+        if !strict_ready() {
+            return;
+        }
         let secret = super::DUMMY_ENV_SECRET;
         let encoded = super::encode_base64(format!("a{secret}").as_bytes());
         let in_diagnostics = format!(r#"[{{\"code\":\"note\",\"message\":\"said {secret}\"}}]"#);
@@ -3455,6 +3719,9 @@ int main(int argc, char **argv) {{
     #[test]
     fn what_a_failed_process_said_stays_on_the_event_as_scrubbed_data() {
         let _guard = lock();
+        if !strict_ready() {
+            return;
+        }
         let cases: Vec<(&str, Fake, u64)> = vec![
             (
                 "a nonzero exit",
@@ -3518,6 +3785,9 @@ int main(int argc, char **argv) {{
     #[test]
     fn what_a_successful_process_said_does_not_reach_the_model() {
         let _guard = lock();
+        if !strict_ready() {
+            return;
+        }
         let env = Env::new();
         env.write_tool(&fake_with(|f| f.diagnostics = NOISE.to_string()));
         let config = env.config("http://unused");
@@ -3540,6 +3810,9 @@ int main(int argc, char **argv) {{
     #[test]
     fn a_dependency_rewritten_during_the_process_stops_the_commit() {
         let _guard = lock();
+        if !strict_ready() {
+            return;
+        }
         let env = Env::new();
         env.with_old_bytes();
         env.write_tool(&fake_with(|f| {
@@ -3551,7 +3824,7 @@ int main(int argc, char **argv) {{
             let started = Instant::now();
             while !super::running_command_lines()
                 .iter()
-                .any(|line| line.starts_with("/bin/bash") && line.contains(&script))
+                .any(|line| runs_script(line, &script))
             {
                 assert!(started.elapsed() < Duration::from_secs(30));
                 std::thread::sleep(Duration::from_millis(5));
@@ -3572,6 +3845,9 @@ int main(int argc, char **argv) {{
     #[test]
     fn words_in_a_protected_path_do_not_turn_the_stop_into_feedback() {
         let _guard = lock();
+        if !strict_ready() {
+            return;
+        }
         let env = Env::new();
         env.with_old_bytes();
         env.write_tool(&fake_with(|f| {
@@ -3600,7 +3876,7 @@ int main(int argc, char **argv) {{
             let started = Instant::now();
             while !super::running_command_lines()
                 .iter()
-                .any(|line| line.starts_with("/bin/bash") && line.contains(&script))
+                .any(|line| runs_script(line, &script))
             {
                 if started.elapsed() > Duration::from_secs(10) {
                     return false;
@@ -3661,6 +3937,9 @@ int main(int argc, char **argv) {{
     #[test]
     fn a_cancel_during_the_process_stops_it_and_saves_nothing() {
         let _guard = lock();
+        if !strict_ready() {
+            return;
+        }
         let env = Env::new();
         env.with_old_bytes();
         env.write_tool(&fake_with(|f| f.head = "while :; do :; done".to_string()));
@@ -3671,15 +3950,9 @@ int main(int argc, char **argv) {{
             &env,
             Box::new(move || {
                 std::thread::sleep(Duration::from_millis(5));
-                let listing = std::process::Command::new("/bin/ps")
-                    .args(["-axo", "command"])
-                    .output()
-                    .unwrap();
-                String::from_utf8_lossy(&listing.stdout)
-                    .lines()
-                    .any(|line| {
-                        line.starts_with("/bin/bash") && line.contains(script.to_str().unwrap())
-                    })
+                super::running_command_lines()
+                    .iter()
+                    .any(|line| runs_script(line, script.to_str().unwrap()))
             }),
         );
         assert!(result.is_err(), "{result:?}");
@@ -3698,6 +3971,9 @@ int main(int argc, char **argv) {{
     #[test]
     fn a_cancel_after_the_commit_keeps_the_commit_and_its_receipt() {
         let _guard = lock();
+        if !strict_ready() {
+            return;
+        }
         let env = Env::new();
         env.with_old_bytes();
         env.write_tool(&Fake::default());
@@ -3730,6 +4006,9 @@ int main(int argc, char **argv) {{
     #[test]
     fn the_public_registry_cannot_go_around_the_guard() {
         let _guard = lock();
+        if !strict_ready() {
+            return;
+        }
         let env = Env::new();
         env.write_tool(&Fake::default());
         let admitted = admit_selected(&env.root, CONFIG_PROFILE, None)
@@ -3803,6 +4082,9 @@ int main(int argc, char **argv) {{
     #[test]
     fn the_public_registry_delivers_a_cancel_and_keeps_a_commit_it_already_made() {
         let _guard = lock();
+        if !strict_ready() {
+            return;
+        }
         let env = Env::new();
         env.with_old_bytes();
         env.write_tool(&fake_with(|f| f.head = "while :; do :; done".to_string()));
@@ -3856,6 +4138,9 @@ int main(int argc, char **argv) {{
     #[test]
     fn the_process_cannot_write_read_or_connect_and_only_the_host_commits() {
         let _guard = lock();
+        if !strict_ready() {
+            return;
+        }
         let env = Env::new();
         env.with_old_bytes();
         std::fs::create_dir_all(env.root.join("inputs")).unwrap();
@@ -3948,6 +4233,9 @@ attempt '{{ : > /dev/tcp/192.0.2.1/80; }}'
     #[test]
     fn a_changed_env_value_after_admission_is_a_pin_mismatch() {
         let _guard = lock();
+        if !strict_ready() {
+            return;
+        }
         let env = Env::new();
         env.write_tool(&Fake::default());
         let admitted = admit_selected(&env.root, CONFIG_PROFILE, None)
@@ -4023,6 +4311,9 @@ attempt '{{ : > /dev/tcp/192.0.2.1/80; }}'
     #[test]
     fn a_path_swapped_after_the_start_is_refused_by_the_commit() {
         let _guard = lock();
+        if !strict_ready() {
+            return;
+        }
         raced("a symlink leaf", "effect_path_refused", |root, outside| {
             std::os::unix::fs::symlink(outside.join("target"), root.join(OUTPUT)).unwrap();
         });
@@ -4059,6 +4350,9 @@ attempt '{{ : > /dev/tcp/192.0.2.1/80; }}'
     #[test]
     fn the_binary_commits_on_prompt_run_plan_and_each_pack_selection() {
         let _guard = lock();
+        if !strict_ready() {
+            return;
+        }
         let pack = format!("{COMMIT_PACK}@1.0.0");
         let inherited = pack_selection_env();
         let prompt = vec!["--prompt", "Submit the object."];
@@ -4126,6 +4420,9 @@ attempt '{{ : > /dev/tcp/192.0.2.1/80; }}'
     #[test]
     fn the_binary_refuses_an_explicit_read_only_policy_before_any_call() {
         let _guard = lock();
+        if !strict_ready() {
+            return;
+        }
         let env = Env::new();
         env.write_tool(&Fake::default());
         let run = binary_refused(
@@ -4146,14 +4443,27 @@ attempt '{{ : > /dev/tcp/192.0.2.1/80; }}'
         set_env(REGISTRY_ENV, None);
     }
 
+    #[cfg(target_os = "macos")]
     const OUTER_SANDBOX: &str = "(version 1)(allow default)";
     const UNDER_OUTER_ENV: &str = "COMMANDAGENT_TEST_974_UNDER_OUTER_SANDBOX";
 
     /// A real failure of the strict probe, with nothing in production to ask for it: a
     /// second `sandbox-exec` cannot start under a first one.
+    #[cfg(target_os = "macos")]
     fn under_outer_sandbox(arguments: &[&std::ffi::OsStr]) -> std::process::Command {
         let mut command = std::process::Command::new("/usr/bin/sandbox-exec");
         command.args(["-p", OUTER_SANDBOX]).args(arguments);
+        command
+    }
+
+    /// The same on Linux (Issue #982): an outer seccomp filter that refuses `unshare`, so the
+    /// probe's first step really fails in the kernel. This runs whatever the host is expected
+    /// to answer.
+    #[cfg(target_os = "linux")]
+    fn under_outer_sandbox(arguments: &[&std::ffi::OsStr]) -> std::process::Command {
+        let (program, rest) = arguments.split_first().unwrap();
+        let mut command = super::outer_seccomp::command(program);
+        command.args(rest);
         command
     }
 
@@ -4196,7 +4506,7 @@ attempt '{{ : > /dev/tcp/192.0.2.1/80; }}'
     /// The same, for every library entry, in a child of this test binary.
     #[test]
     fn every_library_entry_is_unavailable_when_the_strict_probe_really_fails() {
-        let name = "macos::every_library_entry_is_unavailable_when_the_strict_probe_really_fails";
+        let name = "strict::every_library_entry_is_unavailable_when_the_strict_probe_really_fails";
         if std::env::var_os(UNDER_OUTER_ENV).is_none() {
             let home = tempfile::tempdir().unwrap();
             let child = test_child(name);
