@@ -1218,6 +1218,8 @@ impl ProposalTool {
         .map_err(|error| {
             if isolation::is_descriptor_refusal(&error) {
                 unavailable_descriptors(&self.tool_id)
+            } else if let Some(refused) = isolation::launch_refused(&self.tool_id, &error) {
+                refused
             } else {
                 refusal(
                     RefusalKind::ProcessFailed,

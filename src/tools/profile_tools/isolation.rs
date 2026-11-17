@@ -440,8 +440,8 @@ const REAL_DESCRIPTOR_CALLS: DescriptorCalls = DescriptorCalls {
     },
 };
 
-/// The kernel marks every number from 3 up, or the launch stops. No launch reaches this in
-/// production: only a unit test runs a process here.
+/// The kernel marks every number from 3 up, or the launch stops. Every Linux launch runs this
+/// first, before the steps of the strict sequence.
 #[cfg(target_os = "linux")]
 fn mark_inherited_descriptors_close_on_exec(calls: DescriptorCalls) -> std::io::Result<()> {
     if (calls.mark_all)() {
@@ -594,6 +594,25 @@ fn linux_probe() -> Result<(), String> {
 #[cfg(not(target_os = "linux"))]
 fn linux_probe() -> Result<(), String> {
     Err("has no Linux backend here".to_string())
+}
+
+/// A Linux launch stopped at a step of its sequence, before its exec, is unavailable, as a
+/// missing capability is, with the step and its errno: nothing of the tool ran.
+#[cfg(target_os = "linux")]
+pub(super) fn launch_refused(tool_id: &str, error: &std::io::Error) -> Option<ProfileToolRefusal> {
+    let (step, errno) = linux::refused_step(error)?;
+    Some(unavailable(format!(
+        "tool `{tool_id}` was not started: the strict isolation {}",
+        linux::describe_refusal(step, errno)
+    )))
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(super) fn launch_refused(
+    _tool_id: &str,
+    _error: &std::io::Error,
+) -> Option<ProfileToolRefusal> {
+    None
 }
 
 fn no_backend() -> ProfileToolRefusal {

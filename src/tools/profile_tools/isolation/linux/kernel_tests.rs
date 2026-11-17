@@ -26,11 +26,12 @@ mod tests {
 
     use super::super::super::super::process::{self, Ended, Observation, RunLimits};
     use super::super::super::{
-        StrictLaunch, final_command, probe_area, probe_strict, strict_command, test_hook,
+        StrictLaunch, final_command, launch_refused, probe_area, probe_strict, strict_command,
+        test_hook,
     };
     use super::super::{
-        ProbeSeen, STEPS, Step, confine, describe_refusal, judge_probe, probe, refused_step,
-        step_error,
+        ProbeSeen, STEPS, Step, confine, describe_refusal, judge_probe, probe, refused_step, root,
+        ruleset, step_error, write_once,
     };
 
     thread_local! {
@@ -324,6 +325,68 @@ mod tests {
                 refused_step(&error).unwrap_or_else(|| panic!("{step:?}: {error}"));
             if available() {
                 assert_eq!((refused, errno), (step, libc::EPERM));
+            }
+        }
+    }
+
+    /// S3 of the fix round: a step that stops a real launch, after the probe has passed, makes the
+    /// call `unavailable` (so its record says nothing ran), with the step and the errno in the
+    /// reason, as `effects.rs` maps it. With no step planted, the same launch runs.
+    #[test]
+    fn a_launch_stopped_at_a_step_is_unavailable_with_the_step_and_its_errno() {
+        let stage = stage();
+        let argv = ["-c".to_string(), "exit 0".to_string()];
+        let env = BTreeMap::new();
+        let shell = shell();
+        let launch = StrictLaunch {
+            executable: &shell,
+            argv: &argv,
+            cwd: &stage.bound,
+            env: &env,
+            read_directories: vec![stage.bound.as_path()],
+            link_directories: Vec::new(),
+        };
+        for step in [Step::Bind, Step::PivotRoot, Step::Landlock, Step::Seccomp] {
+            let _planted = plant(step);
+            let command = match strict_command(&launch) {
+                Ok(command) => command,
+                Err(refusal) => {
+                    assert!(!available(), "{refusal:?}");
+                    assert_eq!(refusal.kind.as_str(), "unavailable");
+                    continue;
+                }
+            };
+            let error = process::run(command, b"", LIMITS, &|| false).unwrap_err();
+            let refusal = launch_refused("unit-tool", &error)
+                .unwrap_or_else(|| panic!("{step:?}: no refused step in {error}"));
+            assert_eq!(refusal.kind.as_str(), "unavailable", "{refusal:?}");
+            assert!(
+                refusal.reason.contains("tool `unit-tool` was not started"),
+                "{refusal:?}"
+            );
+            if available() {
+                assert!(
+                    refusal.reason.contains(&format!("`{}`", step.name()))
+                        && refusal.reason.contains("Operation not permitted"),
+                    "{step:?}: {refusal:?}"
+                );
+            }
+        }
+        assert!(
+            launch_refused(
+                "unit-tool",
+                &std::io::Error::from_raw_os_error(libc::ENOENT)
+            )
+            .is_none(),
+            "an exec error is not a refused step"
+        );
+        if let Ok(command) = strict_command(&launch) {
+            match process::run(command, b"", LIMITS, &|| false) {
+                Ok(observation) => {
+                    assert!(available(), "{observation:?}");
+                    assert_eq!(observation.ended, Ended::Exited(Some(0)));
+                }
+                Err(error) => assert!(!available(), "{error}"),
             }
         }
     }
@@ -758,6 +821,279 @@ mod tests {
         say("after-exec-create", &said(i64::from(created)));
     }
 
+    const SIGIO_SIGNAL: i32 = libc::SIGKILL;
+    const F_SETOWN_EX: libc::c_int = 15;
+    const F_SETSIG: libc::c_int = 10;
+    const F_OWNER_PID: libc::c_int = 1;
+    const IOPRIO_WHO_PROCESS: libc::c_long = 1;
+    const IOPRIO_WHO_PGRP: libc::c_long = 2;
+    const IOPRIO_WHO_USER: libc::c_long = 3;
+    /// The idle class, data 0.
+    const IOPRIO_IDLE: libc::c_long = 3 << 13;
+    const NICE_LOWEST: libc::c_long = 19;
+    const VICTIM_OPEN_FILES: u64 = 32;
+    /// A uid, a process group, and a pid that nothing has.
+    const NOBODY: libc::c_long = 0x7fff_fffe;
+
+    /// `F_SETOWN` of a pipe's reading end to `target`, then `F_SETSIG` with SIGKILL, `O_ASYNC`, and
+    /// one byte written: the kernel sends the signal to the owner, with no `kill` call. The answer
+    /// of the owner's setting, and of the write.
+    fn signal_by_owner(target: i32) -> (String, String) {
+        let mut pipe = [-1; 2];
+        // SAFETY: `pipe` is writable for two descriptors.
+        let made = unsafe { libc::pipe2(pipe.as_mut_ptr(), libc::O_CLOEXEC | libc::O_NONBLOCK) };
+        if made != 0 {
+            let failed = said(i64::from(made));
+            return (failed.clone(), failed);
+        }
+        let [read_end, write_end] = pipe;
+        // SAFETY: each call takes a descriptor this process has just opened and plain numbers.
+        let owner = unsafe { libc::fcntl(read_end, libc::F_SETOWN, target) };
+        let owner = said(i64::from(owner));
+        // SAFETY: as above.
+        unsafe {
+            libc::fcntl(read_end, F_SETSIG, SIGIO_SIGNAL);
+            let flags = libc::fcntl(read_end, libc::F_GETFL);
+            libc::fcntl(read_end, libc::F_SETFL, flags | libc::O_ASYNC);
+        }
+        // SAFETY: one byte from a literal, to a descriptor this process holds.
+        let written = unsafe { libc::write(write_end, b"x".as_ptr().cast(), 1) };
+        let written = said(i64::try_from(written).unwrap_or(-1));
+        // SAFETY: both descriptors are this process's own.
+        unsafe {
+            libc::close(read_end);
+            libc::close(write_end);
+        }
+        (owner, written)
+    }
+
+    /// The raw answers of one call on another process: `ok`, or the errno.
+    fn call(answers: &mut Vec<(String, String)>, name: &str, answer: i64) {
+        // The errno first, before anything else can change it.
+        let shown = said(answer);
+        answers.push((name.to_string(), shown));
+    }
+
+    /// M1, M2, S1, and N2 of the fix round: what the tool can do to another process of the same
+    /// uid, `VICTIM` for its attributes and `TARGET` for a signal, and to its own parent, and the
+    /// same calls on itself, which must keep working.
+    fn raw_others() {
+        let victim = libc::c_long::from(number("VICTIM"));
+        let target = number("TARGET");
+        let host_group = libc::c_long::from(number("HOST_GROUP"));
+        // SAFETY: `getpid` and `getppid` have no preconditions.
+        let (own, parent) = unsafe { (libc::getpid(), libc::getppid()) };
+        let own = libc::c_long::from(own);
+        let zero: libc::c_long = 0;
+        let prio_process = libc::c_long::from(libc::PRIO_PROCESS as i32);
+        let prio_pgrp = libc::c_long::from(libc::PRIO_PGRP as i32);
+        let prio_user = libc::c_long::from(libc::PRIO_USER as i32);
+        let none = std::ptr::null_mut::<libc::c_void>();
+        let set_size = std::mem::size_of::<libc::cpu_set_t>();
+        // SAFETY: an all-zero `cpu_set_t`, `rlimit`, and `sched_param` are valid values.
+        let (mut mine, mut seen, mut one, mut limit, mut param) = unsafe {
+            (
+                std::mem::zeroed::<libc::cpu_set_t>(),
+                std::mem::zeroed::<libc::cpu_set_t>(),
+                std::mem::zeroed::<libc::cpu_set_t>(),
+                std::mem::zeroed::<libc::rlimit>(),
+                std::mem::zeroed::<libc::sched_param>(),
+            )
+        };
+        let lowered = libc::rlimit {
+            rlim_cur: VICTIM_OPEN_FILES,
+            rlim_max: VICTIM_OPEN_FILES,
+        };
+        let mut answers = Vec::new();
+        // SAFETY: every call below takes plain numbers, or a pointer to one of the values above,
+        // which are writable or readable for the size given and outlive the call. Each answer is
+        // read right after its own call.
+        unsafe {
+            let first = libc::syscall(libc::SYS_sched_getaffinity, zero, set_size, &raw mut mine);
+            call(&mut answers, "own-getaffinity-0", first);
+            let cpu = (0..libc::CPU_SETSIZE as usize)
+                .find(|cpu| libc::CPU_ISSET(*cpu, &mine))
+                .unwrap_or(0);
+            libc::CPU_SET(cpu, &mut one);
+            // Reads of another process (S1).
+            call(
+                &mut answers,
+                "getpgid-victim",
+                libc::syscall(libc::SYS_getpgid, victim),
+            );
+            call(
+                &mut answers,
+                "getsid-victim",
+                libc::syscall(libc::SYS_getsid, victim),
+            );
+            let priority = libc::syscall(libc::SYS_getpriority, prio_process, victim);
+            call(&mut answers, "getpriority-victim", priority);
+            let io = libc::syscall(libc::SYS_ioprio_get, IOPRIO_WHO_PROCESS, victim);
+            call(&mut answers, "ioprio_get-victim", io);
+            let affinity =
+                libc::syscall(libc::SYS_sched_getaffinity, victim, set_size, &raw mut seen);
+            call(&mut answers, "getaffinity-victim", affinity);
+            let scheduler = libc::syscall(libc::SYS_sched_getscheduler, victim);
+            call(&mut answers, "getscheduler-victim", scheduler);
+            let parameter = libc::syscall(libc::SYS_sched_getparam, victim, &raw mut param);
+            call(&mut answers, "getparam-victim", parameter);
+            let read_limit = libc::syscall(
+                libc::SYS_prlimit64,
+                victim,
+                libc::c_long::from(libc::RLIMIT_NOFILE as i32),
+                none,
+                &raw mut limit,
+            );
+            call(&mut answers, "prlimit-read-victim", read_limit);
+            let mut header = [0x2008_0522u32, u32::try_from(victim).unwrap_or(0)];
+            let mut data = [0u32; 6];
+            let capabilities =
+                libc::syscall(libc::SYS_capget, header.as_mut_ptr(), data.as_mut_ptr());
+            call(&mut answers, "capget-victim", capabilities);
+            call(&mut answers, "getppid", libc::syscall(libc::SYS_getppid));
+            // SYSLOG_ACTION_SIZE_BUFFER: no buffer is read.
+            let log = libc::syscall(libc::SYS_syslog, libc::c_long::from(10u8), none, zero);
+            call(&mut answers, "syslog-size", log);
+            // Changes to another process (M2).
+            let nice = libc::syscall(libc::SYS_setpriority, prio_process, victim, NICE_LOWEST);
+            call(&mut answers, "setpriority-victim", nice);
+            let set_limit = libc::syscall(
+                libc::SYS_prlimit64,
+                victim,
+                libc::c_long::from(libc::RLIMIT_NOFILE as i32),
+                &raw const lowered,
+                none,
+            );
+            call(&mut answers, "prlimit-set-victim", set_limit);
+            let pinned = libc::syscall(
+                libc::SYS_sched_setaffinity,
+                victim,
+                set_size,
+                &raw const one,
+            );
+            call(&mut answers, "setaffinity-victim", pinned);
+            let idle = libc::sched_param { sched_priority: 0 };
+            let scheduled = libc::syscall(
+                libc::SYS_sched_setscheduler,
+                victim,
+                libc::c_long::from(libc::SCHED_IDLE),
+                &raw const idle,
+            );
+            call(&mut answers, "setscheduler-victim", scheduled);
+            let io_set = libc::syscall(
+                libc::SYS_ioprio_set,
+                IOPRIO_WHO_PROCESS,
+                victim,
+                IOPRIO_IDLE,
+            );
+            call(&mut answers, "ioprio_set-victim", io_set);
+            // A group or a user, which no pid check can bound: nothing has these ids, so outside
+            // the kernel answers ESRCH.
+            let user = libc::syscall(libc::SYS_setpriority, prio_user, NOBODY, NICE_LOWEST);
+            call(&mut answers, "setpriority-user", user);
+            let group = libc::syscall(libc::SYS_setpriority, prio_pgrp, NOBODY, NICE_LOWEST);
+            call(&mut answers, "setpriority-group", group);
+            let io_user = libc::syscall(libc::SYS_ioprio_set, IOPRIO_WHO_USER, NOBODY, IOPRIO_IDLE);
+            call(&mut answers, "ioprio_set-user", io_user);
+            let io_group =
+                libc::syscall(libc::SYS_ioprio_set, IOPRIO_WHO_PGRP, NOBODY, IOPRIO_IDLE);
+            call(&mut answers, "ioprio_set-group", io_group);
+            // N2: the host's process group.
+            let joined = libc::syscall(libc::SYS_setpgid, zero, host_group);
+            call(&mut answers, "setpgid-host-group", joined);
+            // The same calls on itself, by 0 and by its own pid.
+            call(
+                &mut answers,
+                "own-getpgid-0",
+                libc::syscall(libc::SYS_getpgid, zero),
+            );
+            call(
+                &mut answers,
+                "own-getpgid-pid",
+                libc::syscall(libc::SYS_getpgid, own),
+            );
+            call(
+                &mut answers,
+                "own-getsid-0",
+                libc::syscall(libc::SYS_getsid, zero),
+            );
+            let own_priority = libc::syscall(libc::SYS_getpriority, prio_process, zero);
+            call(&mut answers, "own-getpriority-0", own_priority);
+            let by_pid = libc::syscall(libc::SYS_getpriority, prio_process, own);
+            call(&mut answers, "own-getpriority-pid", by_pid);
+            // The raw call answers 20 minus the nice value; setting it again changes nothing.
+            let same = libc::syscall(libc::SYS_setpriority, prio_process, own, 20 - own_priority);
+            call(&mut answers, "own-setpriority-pid", same);
+            let own_limit = libc::syscall(
+                libc::SYS_prlimit64,
+                zero,
+                libc::c_long::from(libc::RLIMIT_NOFILE as i32),
+                none,
+                &raw mut limit,
+            );
+            call(&mut answers, "own-prlimit-0", own_limit);
+            let own_limit = libc::syscall(
+                libc::SYS_prlimit64,
+                own,
+                libc::c_long::from(libc::RLIMIT_NOFILE as i32),
+                none,
+                &raw mut limit,
+            );
+            call(&mut answers, "own-prlimit-pid", own_limit);
+            let again = libc::syscall(libc::SYS_sched_setaffinity, own, set_size, &raw const mine);
+            call(&mut answers, "own-setaffinity-pid", again);
+            let own_io = libc::syscall(libc::SYS_ioprio_get, IOPRIO_WHO_PROCESS, zero);
+            call(&mut answers, "own-ioprio_get-0", own_io);
+            let own_scheduler = libc::syscall(libc::SYS_sched_getscheduler, own);
+            call(&mut answers, "own-getscheduler-pid", own_scheduler);
+            let own_group = libc::syscall(libc::SYS_setpgid, zero, zero);
+            call(&mut answers, "own-setpgid-0-0", own_group);
+            // `fcntl`: an owner of itself or of nobody, a plain command, and `F_SETOWN_EX`.
+            let mut pipe = [-1; 2];
+            libc::pipe2(pipe.as_mut_ptr(), libc::O_CLOEXEC);
+            let own_owner = libc::fcntl(pipe[0], libc::F_SETOWN, own as libc::c_int);
+            call(&mut answers, "own-setown-pid", i64::from(own_owner));
+            let no_owner = libc::fcntl(pipe[0], libc::F_SETOWN, 0);
+            call(&mut answers, "own-setown-0", i64::from(no_owner));
+            call(
+                &mut answers,
+                "own-getfl",
+                i64::from(libc::fcntl(pipe[0], libc::F_GETFL)),
+            );
+            let extended = [F_OWNER_PID, own as libc::c_int];
+            let by_extended = libc::syscall(
+                libc::SYS_fcntl,
+                libc::c_long::from(pipe[0]),
+                libc::c_long::from(F_SETOWN_EX),
+                extended.as_ptr(),
+            );
+            call(&mut answers, "setown-ex-itself", by_extended);
+            libc::close(pipe[0]);
+            libc::close(pipe[1]);
+        }
+        for (name, answer) in answers {
+            say(&name, &answer);
+        }
+        // M1, last: a signal by owner to the target, then to the parent.
+        let (owner, written) = signal_by_owner(target);
+        say("setown-target", &owner);
+        say("setown-target-write", &written);
+        let (owner, written) = signal_by_owner(parent);
+        say("setown-parent", &owner);
+        say("setown-parent-write", &written);
+    }
+
+    /// The signal by owner alone, to `TARGET`, and `kill` to it, for the Landlock-only launch.
+    fn raw_sigio() {
+        let target = number("TARGET");
+        // SAFETY: signal 0 only asks whether `target` could be signalled.
+        let killed = unsafe { libc::syscall(libc::SYS_kill, libc::c_long::from(target), 0) };
+        say("kill-target", &said(killed));
+        let (owner, written) = signal_by_owner(target);
+        say("setown-target", &owner);
+        say("setown-target-write", &written);
+    }
+
     /// The tool. It runs only when started as one, and then only what its mode names.
     #[test]
     fn raw_child() {
@@ -774,6 +1110,8 @@ mod tests {
             "environment" => raw_environment(),
             "exec" => raw_exec(),
             "after-exec" => raw_after_exec(),
+            "others" => raw_others(),
+            "sigio" => raw_sigio(),
             other => panic!("no mode {other}"),
         }
     }
@@ -944,6 +1282,61 @@ mod tests {
             answers(&output.stdout)
         }
 
+        /// The positive control with a disposable parent: bash starts the child and waits, so
+        /// what the child does to its parent lands on that bash, not on this test. The answers,
+        /// and how the bash ended.
+        fn outside_below_a_parent(&self) -> (BTreeMap<String, String>, std::process::ExitStatus) {
+            let output = std::process::Command::new("/bin/bash")
+                .args(["-c", "\"$@\"; exit 0", "bash"])
+                .arg(&self.executable)
+                .args(child_arguments())
+                .env_clear()
+                .envs(&self.env)
+                .current_dir(&self.stage.bound)
+                .stdin(std::process::Stdio::null())
+                .output()
+                .unwrap();
+            (answers(&output.stdout), output.status)
+        }
+
+        /// The positive control for raw and packet sockets (codex S1): the same child, outside
+        /// the sandbox, in a user and a network namespace of its own made for this test, where it
+        /// is root and holds `CAP_NET_RAW` over that network only. A namespace that cannot be
+        /// made fails the test.
+        fn outside_in_a_network_namespace(&self) -> BTreeMap<String, String> {
+            // SAFETY: `getuid` and `getgid` have no preconditions.
+            let (uid, gid) = unsafe { (libc::getuid(), libc::getgid()) };
+            let uid_line = format!("0 {uid} 1\n").into_bytes();
+            let gid_line = format!("0 {gid} 1\n").into_bytes();
+            let mut command = std::process::Command::new(&self.executable);
+            command
+                .args(child_arguments())
+                .env_clear()
+                .envs(&self.env)
+                .current_dir(&self.stage.bound)
+                .stdin(std::process::Stdio::null());
+            // SAFETY: between fork and exec only `unshare` and the open, write, and close of
+            // `write_once`, on buffers made before the fork; nothing allocates or locks.
+            unsafe {
+                command.pre_exec(move || {
+                    let made = libc::unshare(libc::CLONE_NEWUSER | libc::CLONE_NEWNET) == 0
+                        && write_once(c"/proc/self/setgroups", b"deny")
+                        && write_once(c"/proc/self/uid_map", &uid_line)
+                        && write_once(c"/proc/self/gid_map", &gid_line);
+                    if made {
+                        Ok(())
+                    } else {
+                        Err(std::io::Error::last_os_error())
+                    }
+                });
+            }
+            let output = command
+                .output()
+                .unwrap_or_else(|error| panic!("no network namespace for the control: {error}"));
+            assert!(output.status.success(), "{output:?}");
+            answers(&output.stdout)
+        }
+
         /// The same child under the strict launch, or `None` after checking that it was refused
         /// before its exec where the host is expected to lack the capability.
         fn inside(&self) -> Option<BTreeMap<String, String>> {
@@ -1053,6 +1446,16 @@ mod tests {
             assert_eq!(answer(&inside, name), "EPERM", "{name}: {inside:?}");
         }
         assert_eq!(scene.reached(), 0, "a witness was reached from inside");
+        // Raw and packet sockets need `CAP_NET_RAW`, which this test may lack on the host's own
+        // network: their control runs in a namespace made for it, and must create both.
+        let in_namespace = scene.outside_in_a_network_namespace();
+        for name in ["socket-raw", "socket-packet"] {
+            assert_eq!(
+                answer(&in_namespace, name),
+                "ok",
+                "{name}: {in_namespace:?}"
+            );
+        }
     }
 
     /// Invariants 1 and 2: no write lands anywhere, a host file outside the root is not there
@@ -1140,6 +1543,320 @@ mod tests {
         ] {
             assert_eq!(answer(&inside, name), expected, "{name}: {inside:?}");
         }
+    }
+
+    /// Another process of the same uid, waiting on its input until this test ends it.
+    struct Victim(std::process::Child);
+
+    impl Victim {
+        fn new() -> Self {
+            let child = std::process::Command::new("/bin/bash")
+                .args(["-c", "IFS= read -r _"])
+                .env_clear()
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::null())
+                .spawn()
+                .unwrap();
+            Self(child)
+        }
+
+        fn pid(&self) -> i32 {
+            i32::try_from(self.0.id()).unwrap()
+        }
+
+        /// How it ended, if it ends within `within`.
+        fn ended(&mut self, within: Duration) -> Option<std::process::ExitStatus> {
+            let until = std::time::Instant::now() + within;
+            loop {
+                if let Some(status) = self.0.try_wait().unwrap() {
+                    return Some(status);
+                }
+                if std::time::Instant::now() >= until {
+                    return None;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        }
+    }
+
+    impl Drop for Victim {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+
+    /// What can be seen of a process from outside: its raw priority (20 minus its nice value),
+    /// its open-file limit, how many CPUs it may run on, its scheduling policy, and its I/O
+    /// priority.
+    #[derive(Debug, PartialEq, Eq)]
+    struct Seen {
+        priority: i64,
+        open_files: u64,
+        cpus: i32,
+        scheduler: i64,
+        io: i64,
+    }
+
+    fn seen_from_outside(pid: i32) -> Seen {
+        let pid = libc::c_long::from(pid);
+        // SAFETY: an all-zero `cpu_set_t` and `rlimit` are valid values.
+        let (mut set, mut limit) = unsafe {
+            (
+                std::mem::zeroed::<libc::cpu_set_t>(),
+                std::mem::zeroed::<libc::rlimit>(),
+            )
+        };
+        let size = std::mem::size_of::<libc::cpu_set_t>();
+        // SAFETY: each call takes plain numbers or a pointer to a value above, writable for the
+        // size given.
+        unsafe {
+            let affinity = libc::syscall(libc::SYS_sched_getaffinity, pid, size, &raw mut set);
+            assert!(affinity >= 0, "{}", std::io::Error::last_os_error());
+            let read = libc::syscall(
+                libc::SYS_prlimit64,
+                pid,
+                libc::c_long::from(libc::RLIMIT_NOFILE as i32),
+                std::ptr::null::<libc::rlimit>(),
+                &raw mut limit,
+            );
+            assert_eq!(read, 0, "{}", std::io::Error::last_os_error());
+            Seen {
+                priority: libc::syscall(
+                    libc::SYS_getpriority,
+                    libc::c_long::from(libc::PRIO_PROCESS as i32),
+                    pid,
+                ),
+                open_files: limit.rlim_cur,
+                cpus: libc::CPU_COUNT(&set),
+                scheduler: libc::syscall(libc::SYS_sched_getscheduler, pid),
+                io: libc::syscall(libc::SYS_ioprio_get, IOPRIO_WHO_PROCESS, pid),
+            }
+        }
+    }
+
+    /// M1, M2, S1, N2, and N3 of the fix round, against another process of the same uid and the
+    /// tool's own parent. Outside, the child lowers a victim's priority, open-file limit, CPUs,
+    /// scheduling, and I/O priority, reads its group, session, priority, and capabilities, kills a
+    /// second victim and its own parent with `F_SETOWN`, `F_SETSIG`, and `O_ASYNC`, and joins the
+    /// host's group. Inside, each of these is `EPERM`, the victims are unchanged and alive, and
+    /// the same calls on the tool itself, by 0 and by its own pid, still work.
+    #[test]
+    fn another_process_is_out_of_reach_by_owner_priority_limit_affinity_or_pid() {
+        let host_group = {
+            // SAFETY: `getpgrp` has no preconditions.
+            unsafe { libc::getpgrp() }
+        };
+        let others = |attributes: &Victim, target: &Victim| {
+            Scene::new("others")
+                .with("VICTIM", attributes.pid().to_string())
+                .with("TARGET", target.pid().to_string())
+                .with("HOST_GROUP", host_group.to_string())
+        };
+        let changes = [
+            "setpriority-victim",
+            "prlimit-set-victim",
+            "setaffinity-victim",
+            "setscheduler-victim",
+            "ioprio_set-victim",
+        ];
+        let reads = [
+            "getpgid-victim",
+            "getsid-victim",
+            "getpriority-victim",
+            "ioprio_get-victim",
+            "getaffinity-victim",
+            "getscheduler-victim",
+            "getparam-victim",
+            "prlimit-read-victim",
+            "capget-victim",
+        ];
+        let own = [
+            "own-getaffinity-0",
+            "own-getpgid-0",
+            "own-getpgid-pid",
+            "own-getsid-0",
+            "own-getpriority-0",
+            "own-getpriority-pid",
+            "own-setpriority-pid",
+            "own-prlimit-0",
+            "own-prlimit-pid",
+            "own-setaffinity-pid",
+            "own-ioprio_get-0",
+            "own-getscheduler-pid",
+            "own-setpgid-0-0",
+            "own-setown-pid",
+            "own-setown-0",
+            "own-getfl",
+            "getppid",
+        ];
+        let by_id = [
+            "setpriority-user",
+            "setpriority-group",
+            "ioprio_set-user",
+            "ioprio_set-group",
+        ];
+        // Outside: every change lands, and both signals by owner kill.
+        let (mut attributes, mut target) = (Victim::new(), Victim::new());
+        let before = seen_from_outside(attributes.pid());
+        assert!(
+            before.cpus >= 2,
+            "the affinity control needs two CPUs: {before:?}"
+        );
+        let (outside, parent) = others(&attributes, &target).outside_below_a_parent();
+        for name in changes.iter().chain(&reads).chain(&own) {
+            assert_eq!(answer(&outside, name), "ok", "{name}: {outside:?}");
+        }
+        for name in [
+            "setpgid-host-group",
+            "setown-ex-itself",
+            "setown-target",
+            "setown-parent",
+        ] {
+            assert_eq!(answer(&outside, name), "ok", "{name}: {outside:?}");
+        }
+        for name in by_id {
+            assert_eq!(answer(&outside, name), "ESRCH", "{name}: {outside:?}");
+        }
+        let after = seen_from_outside(attributes.pid());
+        assert_eq!(
+            after,
+            Seen {
+                priority: 20 - NICE_LOWEST,
+                open_files: VICTIM_OPEN_FILES,
+                cpus: 1,
+                scheduler: i64::from(libc::SCHED_IDLE),
+                io: IOPRIO_IDLE,
+            },
+            "the outside run changes the victim"
+        );
+        use std::os::unix::process::ExitStatusExt as _;
+        let killed = target.ended(Duration::from_secs(5));
+        assert_eq!(
+            killed.and_then(|status| status.signal()),
+            Some(SIGIO_SIGNAL)
+        );
+        assert_eq!(parent.signal(), Some(SIGIO_SIGNAL), "{parent:?}");
+        assert!(attributes.ended(Duration::ZERO).is_none());
+
+        // Inside: each is refused, and nothing outside changes.
+        let (mut attributes, mut target) = (Victim::new(), Victim::new());
+        let scene = others(&attributes, &target);
+        let before = seen_from_outside(attributes.pid());
+        let Some(inside) = scene.inside() else {
+            return;
+        };
+        for name in changes.iter().chain(&reads).chain(&by_id) {
+            assert_eq!(answer(&inside, name), "EPERM", "{name}: {inside:?}");
+        }
+        for name in [
+            "setpgid-host-group",
+            "setown-ex-itself",
+            "setown-target",
+            "setown-parent",
+        ] {
+            assert_eq!(answer(&inside, name), "EPERM", "{name}: {inside:?}");
+        }
+        for name in own {
+            assert_eq!(answer(&inside, name), "ok", "{name}: {inside:?}");
+        }
+        assert_eq!(seen_from_outside(attributes.pid()), before);
+        assert!(
+            target.ended(Duration::from_millis(500)).is_none(),
+            "the target died"
+        );
+        assert!(attributes.ended(Duration::ZERO).is_none());
+        // N3: the kernel's log is refused whatever the host's `dmesg_restrict` says, so there is
+        // no control outside; the filter's own test pins the row.
+        assert_eq!(answer(&inside, "syslog-size"), "EPERM", "{inside:?}");
+    }
+
+    /// M1's second layer: Landlock alone, with no seccomp filter, already keeps a signal inside
+    /// the tool's domain, by `kill` or by the owner of a file. The child sets the owner (no
+    /// filter refuses it here), and the victim lives; outside, the same child kills it.
+    #[test]
+    fn landlock_alone_keeps_a_signal_inside_its_domain() {
+        let executable = std::fs::canonicalize(std::env::current_exe().unwrap()).unwrap();
+        let environment = |target: &Victim| {
+            BTreeMap::from([
+                (RAW_CHILD.to_string(), "1".to_string()),
+                (RAW_MODE.to_string(), "sigio".to_string()),
+                ("TARGET".to_string(), target.pid().to_string()),
+            ])
+        };
+        let mut target = Victim::new();
+        let outside = std::process::Command::new(&executable)
+            .args(child_arguments())
+            .env_clear()
+            .envs(environment(&target))
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap();
+        let outside = answers(&outside.stdout);
+        assert_eq!(answer(&outside, "kill-target"), "ok", "{outside:?}");
+        assert_eq!(answer(&outside, "setown-target"), "ok", "{outside:?}");
+        use std::os::unix::process::ExitStatusExt as _;
+        let killed = target.ended(Duration::from_secs(5));
+        assert_eq!(
+            killed.and_then(|status| status.signal()),
+            Some(SIGIO_SIGNAL)
+        );
+
+        let mut target = Victim::new();
+        let staging = tempfile::tempdir().unwrap();
+        let planned = root::plan(
+            &root::Wanted {
+                executable: &executable,
+                read: &[],
+                visible: &[],
+            },
+            staging.path(),
+        )
+        .unwrap();
+        let ruleset = match ruleset(&planned.grants) {
+            Ok(ruleset) => ruleset,
+            Err(reason) => {
+                assert!(!available(), "{reason}");
+                return;
+            }
+        };
+        let mut command = std::process::Command::new(&executable);
+        command
+            .args(child_arguments())
+            .env_clear()
+            .envs(environment(&target))
+            .stdin(std::process::Stdio::null());
+        // SAFETY: between fork and exec only `prctl` and `landlock_restrict_self`, on a
+        // descriptor made before the fork; nothing allocates or locks.
+        unsafe {
+            command.pre_exec(move || {
+                let (on, unused): (libc::c_ulong, libc::c_ulong) = (1, 0);
+                let restricted = libc::prctl(libc::PR_SET_NO_NEW_PRIVS, on, unused, unused, unused)
+                    == 0
+                    && libc::syscall(libc::SYS_landlock_restrict_self, ruleset.as_raw_fd(), 0u32)
+                        == 0;
+                if restricted {
+                    Ok(())
+                } else {
+                    Err(std::io::Error::last_os_error())
+                }
+            });
+        }
+        let output = match command.output() {
+            Ok(output) => output,
+            Err(error) => {
+                assert!(!available(), "{error}");
+                return;
+            }
+        };
+        let inside = answers(&output.stdout);
+        assert_eq!(answer(&inside, "kill-target"), "EPERM", "{inside:?}");
+        assert_eq!(answer(&inside, "setown-target"), "ok", "{inside:?}");
+        assert_eq!(answer(&inside, "setown-target-write"), "ok", "{inside:?}");
+        assert!(
+            target.ended(Duration::from_millis(500)).is_none(),
+            "the signal left the Landlock domain"
+        );
     }
 
     /// Invariant 5: an exec of a program that is there but not pinned is refused by Landlock, one

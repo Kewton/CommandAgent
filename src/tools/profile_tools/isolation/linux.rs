@@ -9,7 +9,8 @@
 //!    read-only, `pivot_root` into it, the old root detached, and the working directory
 //!    entered there (std's `current_dir` would run before this, on the host's tree);
 //! 3. `PR_SET_NO_NEW_PRIVS`, then Landlock: read where the root allows it, run only the pinned
-//!    executable and its ELF interpreter, write only `/dev/null`;
+//!    executable and its ELF interpreter, write only `/dev/null`, and send no signal and reach
+//!    no abstract unix socket outside the tool's own domain;
 //! 4. last, the seccomp filter of [`filter`].
 //!
 //! No `/proc` is mounted, so another process's arguments and environment are not there to
@@ -35,16 +36,18 @@ use std::process::Command;
 
 use landlock::{
     ABI, Access as _, AccessFs, CompatLevel, Compatible as _, PathBeneath, PathFd, Ruleset,
-    RulesetAttr as _, RulesetCreatedAttr as _,
+    RulesetAttr as _, RulesetCreatedAttr as _, Scope,
 };
 
 use super::super::process::{self, Ended, RunLimits};
 use super::{PROBE_MAX_BYTES, PROBE_TIMEOUT, StrictLaunch, final_command, probe_area};
 use root::{Grant, Op};
 
-/// The Landlock floor: ABI 5 is the first that also handles `ioctl` on devices. A kernel below
-/// it is unavailable (ubuntu-22.04's 6.8 has ABI 4).
-const LANDLOCK_FLOOR: ABI = ABI::V5;
+/// The Landlock floor: ABI 5 is the first that also handles `ioctl` on devices, and ABI 6 the
+/// first that scopes signals, so that no signal leaves the tool's domain by `kill` or by the
+/// owner of a file (`F_SETOWN` with `O_ASYNC`). A kernel below it is unavailable
+/// (ubuntu-22.04's 6.8 has ABI 4).
+const LANDLOCK_FLOOR: ABI = ABI::V6;
 /// The uid and gid the tool has inside. Not 0: an exec drops every capability there.
 const INNER_ID: u32 = 1000;
 const HOST_NAME: &[u8] = b"commandagent-tool";
@@ -188,6 +191,8 @@ fn ruleset(grants: &BTreeMap<PathBuf, Grant>) -> Result<OwnedFd, String> {
     let mut ruleset = Ruleset::default()
         .set_compatibility(CompatLevel::HardRequirement)
         .handle_access(AccessFs::from_all(LANDLOCK_FLOOR))
+        .map_err(|error| landlock(&error))?
+        .scope(Scope::from_all(LANDLOCK_FLOOR))
         .map_err(|error| landlock(&error))?
         .create()
         .map_err(|error| landlock(&error))?;

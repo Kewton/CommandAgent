@@ -2,9 +2,13 @@
 //! with nothing beyond the `libc` crate, for x86_64 and aarch64.
 //!
 //! The architecture is read first. Any other ABI, i386 or x32 on x86_64 and AArch32 on aarch64,
-//! is killed before a number is read. The listed calls are refused with an errno and every other
-//! call is allowed: the private root and Landlock already bound what a call can reach, and this
-//! closes what they cannot, the network, new processes, other processes, and the mount tree.
+//! is killed before a number is read. The listed calls are refused with an errno, or judged by
+//! their arguments, and every other call up to the highest number the table names is allowed:
+//! the private root and Landlock already bound what a call can reach, and this closes what they
+//! cannot, the network, new processes, other processes, and the mount tree. A call that names a
+//! process by its pid reaches only the tool itself: 0 or its own pid. A number above the table's
+//! highest is newer than this table and answers `ENOSYS`, so the C library falls back to an
+//! older call that is judged here. The table stays a list of refusals, not of permissions.
 //!
 //! Each number in the tables is compared with the `libc` crate at compile time for the
 //! architecture being built, and the tests run the generated program through an interpreter of
@@ -21,6 +25,17 @@ pub(super) enum Action {
     ThreadOnly,
     /// A signal call whose first argument is the tool's own process.
     SelfOnly,
+    /// A call whose first argument is a pid: 0 or the tool's own pid only.
+    PidFirst,
+    /// `setpriority` and `getpriority`: `PRIO_PROCESS` and 0 or the tool's own pid only.
+    PriorityOfItself,
+    /// `ioprio_set` and `ioprio_get`: `IOPRIO_WHO_PROCESS` and 0 or the tool's own pid only.
+    IoPriorityOfItself,
+    /// `fcntl`: `F_SETOWN` only to 0 or the tool's own pid, `F_SETOWN_EX` refused (its owner is
+    /// behind a pointer), every other command allowed.
+    OwnerItself,
+    /// `setpgid(0, 0)` only: the tool may lead its own group and join no other.
+    OwnGroupOnly,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -137,6 +152,34 @@ tables! {
     name_to_handle_at: Some(303), Some(264), Refuse;
     fanotify_init: Some(300), Some(262), Refuse;
     fanotify_mark: Some(301), Some(263), Refuse;
+    // Other processes by their pid: the kernel judges these by uid alone, and the tool keeps the
+    // host's uid, so only 0 or the tool's own pid is let through. Another thread of the tool,
+    // named by its tid, is refused too.
+    prlimit64: Some(302), Some(261), PidFirst;
+    sched_setaffinity: Some(203), Some(122), PidFirst;
+    sched_getaffinity: Some(204), Some(123), PidFirst;
+    sched_setscheduler: Some(144), Some(119), PidFirst;
+    sched_getscheduler: Some(145), Some(120), PidFirst;
+    sched_setparam: Some(142), Some(118), PidFirst;
+    sched_getparam: Some(143), Some(121), PidFirst;
+    sched_setattr: Some(314), Some(274), PidFirst;
+    sched_getattr: Some(315), Some(275), PidFirst;
+    sched_rr_get_interval: Some(148), Some(127), PidFirst;
+    getpgid: Some(121), Some(155), PidFirst;
+    getsid: Some(124), Some(156), PidFirst;
+    get_robust_list: Some(274), Some(100), PidFirst;
+    migrate_pages: Some(256), Some(238), PidFirst;
+    move_pages: Some(279), Some(239), PidFirst;
+    setpriority: Some(141), Some(140), PriorityOfItself;
+    getpriority: Some(140), Some(141), PriorityOfItself;
+    ioprio_set: Some(251), Some(30), IoPriorityOfItself;
+    ioprio_get: Some(252), Some(31), IoPriorityOfItself;
+    // `F_SETOWN` with `O_ASYNC` and `F_SETSIG` would send any signal without `kill`.
+    fcntl: Some(72), Some(25), OwnerItself;
+    setpgid: Some(109), Some(154), OwnGroupOnly;
+    // Its pid is behind a pointer, which the filter cannot read.
+    capget: Some(125), Some(90), Refuse;
+    syslog: Some(103), Some(116), Refuse;
 }
 
 pub(super) const X86_64: Arch = Arch {
@@ -231,7 +274,19 @@ macro_rules! agrees_on_both {
             perf_event_open => SYS_perf_event_open, keyctl => SYS_keyctl, add_key => SYS_add_key,
             request_key => SYS_request_key, open_by_handle_at => SYS_open_by_handle_at,
             name_to_handle_at => SYS_name_to_handle_at, fanotify_init => SYS_fanotify_init,
-            fanotify_mark => SYS_fanotify_mark,
+            fanotify_mark => SYS_fanotify_mark, prlimit64 => SYS_prlimit64,
+            sched_setaffinity => SYS_sched_setaffinity,
+            sched_getaffinity => SYS_sched_getaffinity,
+            sched_setscheduler => SYS_sched_setscheduler,
+            sched_getscheduler => SYS_sched_getscheduler,
+            sched_setparam => SYS_sched_setparam, sched_getparam => SYS_sched_getparam,
+            sched_setattr => SYS_sched_setattr, sched_getattr => SYS_sched_getattr,
+            sched_rr_get_interval => SYS_sched_rr_get_interval, getpgid => SYS_getpgid,
+            getsid => SYS_getsid, get_robust_list => SYS_get_robust_list,
+            migrate_pages => SYS_migrate_pages, move_pages => SYS_move_pages,
+            setpriority => SYS_setpriority, getpriority => SYS_getpriority,
+            ioprio_set => SYS_ioprio_set, ioprio_get => SYS_ioprio_get, fcntl => SYS_fcntl,
+            setpgid => SYS_setpgid, capget => SYS_capget, syslog => SYS_syslog,
         );
     };
 }
@@ -253,6 +308,16 @@ const RETURN: u16 = (libc::BPF_RET | libc::BPF_K) as u16;
 const NUMBER_AT: u32 = 0;
 const ARCH_AT: u32 = 4;
 const FIRST_ARGUMENT_LOW_AT: u32 = 16;
+/// The low half of argument `index`: each argument is 8 bytes. The kernel reads a pid, a
+/// `which`, and an `fcntl` command or owner as an `int`, so the low half is the whole of it.
+const fn argument_low_at(index: u32) -> u32 {
+    FIRST_ARGUMENT_LOW_AT + 8 * index
+}
+const PRIO_PROCESS: u32 = 0;
+const IOPRIO_WHO_PROCESS: u32 = 1;
+const F_SETOWN: u32 = 8;
+const F_SETOWN_EX: u32 = 15;
+const _: () = assert!(F_SETOWN as libc::c_int == libc::F_SETOWN);
 pub(super) const KILL_PROCESS: u32 = libc::SECCOMP_RET_KILL_PROCESS;
 pub(super) const ALLOW: u32 = libc::SECCOMP_RET_ALLOW;
 pub(super) const ERRNO: u32 = libc::SECCOMP_RET_ERRNO;
@@ -323,12 +388,101 @@ pub(super) fn build(arch: &Arch) -> Program {
                 program.push(statement(RETURN, ALLOW));
                 program.push(statement(RETURN, refuse));
             }
+            Action::PidFirst => {
+                let mut body = Block::default();
+                body.load(0);
+                body.zero_or_itself(refuse);
+                body.guard(&mut program, &mut pid_slots, number);
+            }
+            Action::PriorityOfItself | Action::IoPriorityOfItself => {
+                let which = if entry.action == Action::PriorityOfItself {
+                    PRIO_PROCESS
+                } else {
+                    IOPRIO_WHO_PROCESS
+                };
+                let mut body = Block::default();
+                body.load(0);
+                // Another `which` goes to the refusal, past the load, the two checks of the pid.
+                body.push(jump(JUMP_EQUAL, which, 0, 3));
+                body.load(1);
+                body.zero_or_itself(refuse);
+                body.guard(&mut program, &mut pid_slots, number);
+            }
+            Action::OwnerItself => {
+                let mut body = Block::default();
+                body.load(1);
+                // `F_SETOWN_EX` goes to the refusal; any command but `F_SETOWN` to the allow.
+                body.push(jump(JUMP_EQUAL, F_SETOWN_EX, 4, 0));
+                body.push(jump(JUMP_EQUAL, F_SETOWN, 0, 4));
+                body.load(2);
+                body.zero_or_itself(refuse);
+                body.guard(&mut program, &mut pid_slots, number);
+            }
+            Action::OwnGroupOnly => {
+                let mut body = Block::default();
+                body.load(0);
+                body.push(jump(JUMP_EQUAL, 0, 0, 2));
+                body.load(1);
+                body.push(jump(JUMP_EQUAL, 0, 1, 0));
+                body.push(statement(RETURN, refuse));
+                body.push(statement(RETURN, ALLOW));
+                body.guard(&mut program, &mut pid_slots, number);
+            }
         }
     }
+    // Above the highest number the table names: a call newer than this table.
+    program.push(jump(JUMP_AT_LEAST, ceiling(arch) + 1, 0, 1));
+    program.push(statement(RETURN, ERRNO | libc::ENOSYS as u32));
     program.push(statement(RETURN, ALLOW));
     Program {
         instructions: program,
         pid_slots,
+    }
+}
+
+/// The highest number the table of `arch` names.
+pub(super) fn ceiling(arch: &Arch) -> u32 {
+    arch.entries
+        .iter()
+        .filter_map(|entry| entry.number)
+        .max()
+        .unwrap_or(0)
+}
+
+/// The body of a block judged by its arguments. Every body returns on each of its paths, so the
+/// next block never starts with an argument loaded.
+#[derive(Default)]
+struct Block {
+    instructions: Vec<libc::sock_filter>,
+    pid_slots: Vec<usize>,
+}
+
+impl Block {
+    fn push(&mut self, instruction: libc::sock_filter) {
+        self.instructions.push(instruction);
+    }
+
+    fn load(&mut self, argument: u32) {
+        self.push(statement(LOAD_WORD, argument_low_at(argument)));
+    }
+
+    /// The loaded value is 0 or the tool's own pid, or the call is refused.
+    fn zero_or_itself(&mut self, refuse: u32) {
+        self.push(jump(JUMP_EQUAL, 0, 2, 0));
+        self.pid_slots.push(self.instructions.len());
+        self.push(jump(JUMP_EQUAL, PID_PLACEHOLDER, 1, 0));
+        self.push(statement(RETURN, refuse));
+        self.push(statement(RETURN, ALLOW));
+    }
+
+    /// The body, entered only for `number`. Every body here is under ten instructions, so the
+    /// skip fits a jump.
+    fn guard(self, program: &mut Vec<libc::sock_filter>, pid_slots: &mut Vec<usize>, number: u32) {
+        let skip = u8::try_from(self.instructions.len()).unwrap_or(u8::MAX);
+        program.push(jump(JUMP_EQUAL, number, 0, skip));
+        let start = program.len();
+        pid_slots.extend(self.pid_slots.iter().map(|slot| start + slot));
+        program.extend(self.instructions);
     }
 }
 
@@ -347,17 +501,21 @@ mod tests {
     const EPERM: u32 = ERRNO | 1;
     const ENOSYS: u32 = ERRNO | 38;
 
-    /// One classic BPF program run over a `struct seccomp_data`, little endian.
+    /// One classic BPF program run over a `struct seccomp_data`, little endian, with the first
+    /// arguments given and the rest 0.
     fn run(
         program: &[libc::sock_filter],
         number: u32,
         arch: u32,
-        first: u64,
+        arguments: &[u64],
     ) -> Result<u32, String> {
         let mut data = [0u8; 64];
         data[0..4].copy_from_slice(&number.to_le_bytes());
         data[4..8].copy_from_slice(&arch.to_le_bytes());
-        data[16..24].copy_from_slice(&first.to_le_bytes());
+        for (index, argument) in arguments.iter().enumerate().take(6) {
+            let at = 16 + 8 * index;
+            data[at..at + 8].copy_from_slice(&argument.to_le_bytes());
+        }
         let mut accumulator = 0u32;
         let mut at = 0usize;
         for _ in 0..program.len() + 1 {
@@ -456,7 +614,47 @@ mod tests {
         ("name_to_handle_at", Some(303), Some(264)),
         ("fanotify_init", Some(300), Some(262)),
         ("fanotify_mark", Some(301), Some(263)),
+        ("capget", Some(125), Some(90)),
+        ("syslog", Some(103), Some(116)),
     ];
+    /// The calls whose first argument is a pid (`include/uapi/asm-generic/unistd.h` and
+    /// `syscall_64.tbl` again): only 0 or the tool's own pid passes.
+    const PID_FIRST: &[(&str, u32, u32)] = &[
+        ("prlimit64", 302, 261),
+        ("sched_setaffinity", 203, 122),
+        ("sched_getaffinity", 204, 123),
+        ("sched_setscheduler", 144, 119),
+        ("sched_getscheduler", 145, 120),
+        ("sched_setparam", 142, 118),
+        ("sched_getparam", 143, 121),
+        ("sched_setattr", 314, 274),
+        ("sched_getattr", 315, 275),
+        ("sched_rr_get_interval", 148, 127),
+        ("getpgid", 121, 155),
+        ("getsid", 124, 156),
+        ("get_robust_list", 274, 100),
+        ("migrate_pages", 256, 238),
+        ("move_pages", 279, 239),
+    ];
+    /// (name, x86_64, aarch64, the one `which` allowed): `PRIO_PROCESS` is 0 and
+    /// `IOPRIO_WHO_PROCESS` is 1; the group and the user follow each.
+    const WHICH_FIRST: &[(&str, u32, u32, u64)] = &[
+        ("setpriority", 141, 140, 0),
+        ("getpriority", 140, 141, 0),
+        ("ioprio_set", 251, 30, 1),
+        ("ioprio_get", 252, 31, 1),
+    ];
+    const FCNTL: (u32, u32) = (72, 25);
+    const SETPGID: (u32, u32) = (109, 154);
+    /// Calls no row names, below the ceiling: still allowed. The filter refuses what it lists;
+    /// it is not a list of what a runtime may call (S2 of the fix round, recorded, not changed).
+    const UNLISTED: &[(&str, u32, u32)] = &[
+        ("getpid", 39, 172),
+        ("statmount", 457, 457),
+        ("listmount", 458, 458),
+    ];
+    /// The highest number the table names, `open_tree_attr`, on both architectures.
+    const CEILING: u32 = 467;
     /// The calls judged by their first argument: clone, then the four signal calls.
     const CLONE: (u32, u32) = (56, 220);
     const CLONE3: (u32, u32) = (435, 435);
@@ -505,12 +703,17 @@ mod tests {
 
     /// Everything wrong with `program` for `arch`, judged against the tables of this module.
     fn faults(program: &[libc::sock_filter], arch: &Arch) -> Vec<String> {
-        let mut found = Vec::new();
-        let mut expect = |label: String, number: u32, audit: u32, first: u64, want: u32| match run(
-            program, number, audit, first,
+        let found = std::cell::RefCell::new(Vec::new());
+        let judge = |label: String, number: u32, audit: u32, arguments: &[u64], want: u32| match run(
+            program, number, audit, arguments,
         ) {
             Ok(got) if got == want => {}
-            got => found.push(format!("{}: {label}: {got:?}, not {want:#x}", arch.name)),
+            got => found
+                .borrow_mut()
+                .push(format!("{}: {label}: {got:?}, not {want:#x}", arch.name)),
+        };
+        let expect = |label: String, number: u32, audit: u32, first: u64, want: u32| {
+            judge(label, number, audit, &[first], want);
         };
         for (name, x86_64, aarch64) in REFUSED {
             if let Some(number) = pick(arch, (*x86_64, *aarch64)) {
@@ -521,6 +724,129 @@ mod tests {
             if let Some(number) = pick(arch, (*x86_64, *aarch64)) {
                 expect(name.to_string(), number, arch.audit_arch, 0, ALLOW);
             }
+        }
+        for (name, x86_64, aarch64) in UNLISTED {
+            let number = pick(arch, (Some(*x86_64), Some(*aarch64))).unwrap();
+            expect(
+                format!("unlisted {name}"),
+                number,
+                arch.audit_arch,
+                0,
+                ALLOW,
+            );
+        }
+        let mut above = vec![CEILING + 1, CEILING + 2, 999, X32_SYSCALL_BIT - 1];
+        if arch.audit_arch == AUDIT_ARCH_AARCH64 {
+            above.push(u32::MAX);
+        }
+        for number in above {
+            expect(
+                format!("call {number}, above the ceiling"),
+                number,
+                arch.audit_arch,
+                0,
+                ENOSYS,
+            );
+        }
+        let pid = u64::from(PID);
+        let other_pids = [1, pid + 1, u64::MAX, (-i64::from(PID)) as u64];
+        for (name, x86_64, aarch64) in PID_FIRST {
+            let number = pick(arch, (Some(*x86_64), Some(*aarch64))).unwrap();
+            for own in [0, pid] {
+                expect(
+                    format!("{name} of {own}"),
+                    number,
+                    arch.audit_arch,
+                    own,
+                    ALLOW,
+                );
+            }
+            for other in other_pids {
+                expect(
+                    format!("{name} of {other}"),
+                    number,
+                    arch.audit_arch,
+                    other,
+                    EPERM,
+                );
+            }
+        }
+        for (name, x86_64, aarch64, which) in WHICH_FIRST {
+            let number = pick(arch, (Some(*x86_64), Some(*aarch64))).unwrap();
+            for own in [0, pid] {
+                judge(
+                    format!("{name} of process {own}"),
+                    number,
+                    arch.audit_arch,
+                    &[*which, own],
+                    ALLOW,
+                );
+            }
+            for other in other_pids {
+                judge(
+                    format!("{name} of process {other}"),
+                    number,
+                    arch.audit_arch,
+                    &[*which, other],
+                    EPERM,
+                );
+            }
+            for (label, group_or_user) in [("group", *which + 1), ("user", *which + 2)] {
+                for who in [0, pid] {
+                    judge(
+                        format!("{name} of {label} {who}"),
+                        number,
+                        arch.audit_arch,
+                        &[group_or_user, who],
+                        EPERM,
+                    );
+                }
+            }
+        }
+        let fcntl = pick(arch, (Some(FCNTL.0), Some(FCNTL.1))).unwrap();
+        let (f_getfl, f_setfl, f_getown, f_setown, f_setsig, f_setown_ex, f_getown_ex) =
+            (3, 4, 9, 8, 10, 15, 16);
+        for (label, command, argument, want) in [
+            ("F_GETFL", f_getfl, 0, ALLOW),
+            ("F_SETFL O_ASYNC", f_setfl, 0o20000, ALLOW),
+            ("F_GETOWN", f_getown, 0, ALLOW),
+            ("F_SETSIG SIGKILL", f_setsig, 9, ALLOW),
+            ("F_GETOWN_EX", f_getown_ex, 0x7fff_0000, ALLOW),
+            ("F_SETOWN to nobody", f_setown, 0, ALLOW),
+            ("F_SETOWN to itself", f_setown, pid, ALLOW),
+            ("F_SETOWN to pid 1", f_setown, 1, EPERM),
+            ("F_SETOWN to another", f_setown, pid + 1, EPERM),
+            (
+                "F_SETOWN to its group",
+                f_setown,
+                (-i64::from(PID)) as u64,
+                EPERM,
+            ),
+            ("F_SETOWN_EX", f_setown_ex, 0x7fff_0000, EPERM),
+        ] {
+            judge(
+                format!("fcntl {label}"),
+                fcntl,
+                arch.audit_arch,
+                &[3, command, argument],
+                want,
+            );
+        }
+        let setpgid = pick(arch, (Some(SETPGID.0), Some(SETPGID.1))).unwrap();
+        for (pid_argument, group, want) in [
+            (0, 0, ALLOW),
+            (0, 1, EPERM),
+            (0, pid + 1, EPERM),
+            (pid, pid, EPERM),
+            (1, 0, EPERM),
+        ] {
+            judge(
+                format!("setpgid({pid_argument}, {group})"),
+                setpgid,
+                arch.audit_arch,
+                &[pid_argument, group],
+                want,
+            );
         }
         let clone = pick(arch, (Some(CLONE.0), Some(CLONE.1))).unwrap();
         for (label, flags, want) in [
@@ -588,7 +914,14 @@ mod tests {
                 );
             }
         }
-        found
+        found.into_inner()
+    }
+
+    #[test]
+    fn the_ceiling_is_the_highest_number_named() {
+        for arch in [&X86_64, &AARCH64] {
+            assert_eq!(super::ceiling(arch), CEILING, "{}", arch.name);
+        }
     }
 
     #[test]
@@ -621,6 +954,27 @@ mod tests {
                     .or_else(|| {
                         (entry.name == "clone3")
                             .then(|| pick(arch, (Some(CLONE3.0), Some(CLONE3.1))))
+                    })
+                    .or_else(|| {
+                        PID_FIRST
+                            .iter()
+                            .find(|(name, _, _)| *name == entry.name)
+                            .map(|(_, x86_64, aarch64)| pick(arch, (Some(*x86_64), Some(*aarch64))))
+                    })
+                    .or_else(|| {
+                        WHICH_FIRST
+                            .iter()
+                            .find(|(name, _, _, _)| *name == entry.name)
+                            .map(|(_, x86_64, aarch64, _)| {
+                                pick(arch, (Some(*x86_64), Some(*aarch64)))
+                            })
+                    })
+                    .or_else(|| {
+                        (entry.name == "fcntl").then(|| pick(arch, (Some(FCNTL.0), Some(FCNTL.1))))
+                    })
+                    .or_else(|| {
+                        (entry.name == "setpgid")
+                            .then(|| pick(arch, (Some(SETPGID.0), Some(SETPGID.1))))
                     });
                 assert_eq!(typed, Some(entry.number), "{} {}", arch.name, entry.name);
             }
@@ -635,7 +989,7 @@ mod tests {
     #[test]
     fn a_deliberately_wrong_program_is_caught() {
         type Damage = fn(&mut Vec<libc::sock_filter>);
-        let damages: [(&str, Damage); 6] = [
+        let damages: [(&str, Damage); 13] = [
             ("no architecture check", |program| {
                 program[1].jf = 1;
             }),
@@ -674,6 +1028,53 @@ mod tests {
                     })
                     .unwrap();
                 program.drain(at..at + 2);
+            }),
+            ("no ceiling", |program| {
+                let at = program
+                    .iter()
+                    .position(|instruction| instruction.k == CEILING + 1)
+                    .unwrap();
+                program.drain(at..at + 2);
+            }),
+            ("every unlisted call refused", |program| {
+                program.last_mut().unwrap().k = ERRNO | 1;
+            }),
+            ("a pid check that passes any pid", |program| {
+                let at = program
+                    .iter()
+                    .position(|instruction| {
+                        instruction.k == PID && instruction.jt == 1 && instruction.jf == 0
+                    })
+                    .unwrap();
+                program[at].jf = 1;
+            }),
+            ("a priority of any group or user", |program| {
+                for instruction in program.iter_mut().filter(|instruction| instruction.jf == 3) {
+                    instruction.jf = 0;
+                }
+            }),
+            ("an owner anyone may be", |program| {
+                let at = program
+                    .iter()
+                    .position(|instruction| instruction.k == 8 && instruction.jf == 4)
+                    .unwrap();
+                program[at].jt = 4;
+            }),
+            ("F_SETOWN_EX let through", |program| {
+                let at = program
+                    .iter()
+                    .position(|instruction| instruction.k == 15 && instruction.jt == 4)
+                    .unwrap();
+                program[at].jt = 0;
+            }),
+            ("a group anyone's", |program| {
+                let at = program
+                    .iter()
+                    .position(|instruction| {
+                        instruction.k == 0 && instruction.jt == 1 && instruction.jf == 0
+                    })
+                    .unwrap();
+                program[at].jf = 1;
             }),
         ];
         for arch in [&X86_64, &AARCH64] {

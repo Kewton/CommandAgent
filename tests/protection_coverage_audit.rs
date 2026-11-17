@@ -925,6 +925,18 @@ fn profile_tool_effect_boundary_rejects_each_weakened_variant() {
             "CompatLevel::BestEffort",
         ),
         (
+            "lets a signal leave the Landlock domain",
+            6,
+            ".scope(Scope::from_all(LANDLOCK_FLOOR))",
+            "",
+        ),
+        (
+            "lets a file's owner be another process",
+            7,
+            "fcntl: Some(72), Some(25), OwnerItself;",
+            "",
+        ),
+        (
             "runs another architecture",
             7,
             "statement(RETURN, KILL_PROCESS)",
@@ -1621,8 +1633,10 @@ fn production_text(text: &str) -> &str {
         .map_or(text, |position| &text[..position])
 }
 
-const PROFILE_TOOL_EFFECT_REQUIRED: [(usize, &str); 53] = [
+const PROFILE_TOOL_EFFECT_REQUIRED: [(usize, &str); 55] = [
     (6, "| libc::CLONE_NEWNET"),
+    (6, ".scope(Scope::from_all(LANDLOCK_FLOOR))"),
+    (7, "fcntl: Some(72), Some(25), OwnerItself;"),
     (6, "libc::PR_SET_NO_NEW_PRIVS"),
     (6, "libc::SYS_landlock_restrict_self"),
     (6, "libc::SYS_pivot_root"),
