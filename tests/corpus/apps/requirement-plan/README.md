@@ -56,7 +56,16 @@ public minimal loop with a mock `ChatClient`, and compares the keys the row's
   reaches the tool parser.
 - `once-max-length-plan-turn`: the output-length guard counts a planning turn
   that hit the output limit, so `max_length_no_tool_call_repeated` stops at the
-  same reply as with the plan off.
+  same reply as with the plan off. The two runs are compared on meaning:
+  the first stop line with only its `total_duration_ms` value masked, the
+  `loop_stop` reason, count, and limit, and the provider request count must
+  all be equal, and the planned `greeting.txt` is written in neither. The
+  duration is the wall-clock time each run measured, so it differs between
+  independent runs and is not compared across them. It still has to be a
+  number, and the same number in the stop line and in
+  `max_length_no_tool_call_duration_ms`. The guard's own sum and its reset after
+  a successful Write/Edit are checked with fixed durations in the issue #440
+  unit tests.
 - `once-last-provider-failure`, `once-last-normalization-failure`,
   `once-last-fatal-tool`, `once-last-cancel`: a failure or cancellation in the
   last iteration is released as `run_failed` or `run_interrupted`; only the

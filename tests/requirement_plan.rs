@@ -1438,31 +1438,153 @@ fn later_duplicate_and_nested_note_regions_never_reach_the_tool_parser() {
     }
 }
 
+const MAX_LENGTH_REASON: &str = "max_length_no_tool_call_repeated";
+
+/// What an output-length stop must share with its plan-off control: the
+/// first stop line with only the measured `total_duration_ms` value masked,
+/// the `loop_stop` reason, count and limit, and the provider request count.
+/// Two independent runs need not measure the same milliseconds (#967), so
+/// the measured value is returned apart and never compared across runs.
+#[derive(Debug, PartialEq)]
+struct MaxLengthStop {
+    line: String,
+    reason: Value,
+    count: Value,
+    limit: Value,
+    requests: usize,
+}
+
+impl MaxLengthStop {
+    /// `None` unless the first line ends with exactly one
+    /// `total_duration_ms=<digits>)`. Only those digits are masked; every
+    /// other number on the line stays compared as written.
+    fn new(error: &str, loop_stop: &Value, requests: usize) -> Option<(Self, u64)> {
+        let first = error.lines().next()?;
+        if first.matches("total_duration_ms=").count() != 1 {
+            return None;
+        }
+        let captures = regex::Regex::new(r"^(.*, total_duration_ms=)([0-9]+)\)$")
+            .unwrap()
+            .captures(first)?;
+        let duration_ms = captures[2].parse().ok()?;
+        let stop = Self {
+            line: format!("{}<MS>)", &captures[1]),
+            reason: loop_stop["reason"].clone(),
+            count: loop_stop["max_length_no_tool_call_count"].clone(),
+            limit: loop_stop["max_length_no_tool_call_limit"].clone(),
+            requests,
+        };
+        Some((stop, duration_ms))
+    }
+
+    fn of(trace: &Trace) -> Self {
+        let stops: Vec<&Value> = trace
+            .events
+            .iter()
+            .filter(|event| event["event"] == "loop_stop")
+            .collect();
+        assert_eq!(stops.len(), 1, "{}: {stops:?}", trace.id);
+        let error = trace.result.as_ref().unwrap_err();
+        let (stop, duration_ms) = Self::new(error, stops[0], trace.requests.len())
+            .unwrap_or_else(|| panic!("{}: no measured duration in {error}", trace.id));
+        // The measured time stays in both product surfaces, as the same value.
+        assert_eq!(
+            stops[0]["max_length_no_tool_call_duration_ms"].as_u64(),
+            Some(duration_ms),
+            "{}",
+            trace.id
+        );
+        stop
+    }
+}
+
 #[test]
 fn the_output_length_guard_still_counts_a_planning_turn() {
     let row = scenario("once-max-length-plan-turn");
     let trace = run_fixture_row("once-max-length-plan-turn");
     assert_eq!(trace.plan_events()[1]["plan_only_turn"], true);
     let error = trace.result.as_ref().unwrap_err();
-    assert!(
-        error.contains("max_length_no_tool_call_repeated"),
-        "{error}"
-    );
+    assert!(error.contains(MAX_LENGTH_REASON), "{error}");
+    // The planning turn is one of the two counted replies: the stop comes at
+    // the default limit, before the scripted Write.
+    let stop = MaxLengthStop::of(&trace);
+    assert_eq!(stop.reason, MAX_LENGTH_REASON);
+    assert_eq!(stop.count, 2);
+    assert_eq!(stop.limit, 2);
     // The same threshold as the same script with the plan off.
     let off = row.with_setting(None).run();
-    let first_line = |trace: &Trace| {
-        trace
-            .result
-            .as_ref()
-            .unwrap_err()
-            .lines()
-            .next()
-            .unwrap()
-            .to_string()
-    };
-    assert_eq!(first_line(&trace), first_line(&off));
-    assert_eq!(trace.requests.len(), off.requests.len());
+    assert_eq!(stop, MaxLengthStop::of(&off));
     assert!(!trace.file_exists("greeting.txt"));
+    assert!(!off.file_exists("greeting.txt"));
+}
+
+#[test]
+fn the_max_length_control_sets_aside_only_the_measured_duration() {
+    let line = |reason: &str, count: u64, limit: u64, ms: &str| {
+        format!(
+            "{reason}: {count} output-limit responses without tool calls since the last successful Write/Edit (limit={limit}, total_duration_ms={ms})\nrecovery prompt saved: x"
+        )
+    };
+    let event = |reason: &str, count: u64, limit: u64| {
+        json!({
+            "event": "loop_stop",
+            "reason": reason,
+            "max_length_no_tool_call_count": count,
+            "max_length_no_tool_call_limit": limit,
+        })
+    };
+    let stop = |line: String, event: Value, requests: usize| {
+        MaxLengthStop::new(&line, &event, requests).unwrap()
+    };
+    let r = MAX_LENGTH_REASON;
+    let (base, base_ms) = stop(line(r, 2, 2, "0"), event(r, 2, 2), 2);
+    assert_eq!(base_ms, 0);
+    // A duration of any value and width passes, and is read back exactly.
+    for ms in [1, 2, 9, 10, 12_345, u64::MAX] {
+        let (other, other_ms) = stop(line(r, 2, 2, &ms.to_string()), event(r, 2, 2), 2);
+        assert_eq!(base, other, "{ms}");
+        assert_eq!(other_ms, ms);
+    }
+    // Any other difference fails, on the line or on the event alone.
+    let other = "other_reason";
+    for (label, different) in [
+        (
+            "reason",
+            stop(line(other, 2, 2, "0"), event(other, 2, 2), 2),
+        ),
+        (
+            "line reason",
+            stop(line(other, 2, 2, "0"), event(r, 2, 2), 2),
+        ),
+        (
+            "event reason",
+            stop(line(r, 2, 2, "0"), event(other, 2, 2), 2),
+        ),
+        ("count", stop(line(r, 3, 2, "0"), event(r, 3, 2), 2)),
+        ("line count", stop(line(r, 3, 2, "0"), event(r, 2, 2), 2)),
+        ("event count", stop(line(r, 2, 2, "0"), event(r, 3, 2), 2)),
+        ("limit", stop(line(r, 2, 3, "0"), event(r, 2, 3), 2)),
+        ("line limit", stop(line(r, 2, 3, "0"), event(r, 2, 2), 2)),
+        ("event limit", stop(line(r, 2, 2, "0"), event(r, 2, 3), 2)),
+        ("requests", stop(line(r, 2, 2, "0"), event(r, 2, 2), 3)),
+    ] {
+        assert_ne!(base, different.0, "{label}");
+    }
+    // A line without exactly one numeric duration at its end is not a stop.
+    for broken in [
+        "max_length_no_tool_call_repeated: 2 (limit=2)".to_string(),
+        line(r, 2, 2, ""),
+        line(r, 2, 2, "-1"),
+        line(r, 2, 2, "1.5"),
+        line(r, 2, 2, "18446744073709551616"),
+        line(r, 2, 2, "0, total_duration_ms=0"),
+        line(r, 2, 2, "0) and more"),
+    ] {
+        assert!(
+            MaxLengthStop::new(&broken, &event(r, 2, 2), 2).is_none(),
+            "{broken}"
+        );
+    }
 }
 
 #[test]
