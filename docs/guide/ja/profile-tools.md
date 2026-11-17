@@ -263,9 +263,10 @@ run の秘密の値が出力のどこかに見つかると、その呼び出し�
 
 | 上限 | 値 |
 | --- | --- |
-| 方針 | macOS は `deny default` の Seatbelt。Linux（x86_64、aarch64）は新しい namespace、読み取り専用の私有の root、Landlock ABI 5 以上、seccomp の filter。どちらも probe が通った後だけ |
+| 方針 | macOS は `deny default` の Seatbelt。Linux（x86_64、aarch64）は新しい namespace、読み取り専用の私有の root、Landlock ABI 6 以上、seccomp の filter。どちらも probe が通った後だけ |
 | process | fork できない。exec できるのは pin した実行体だけ（Linux ではその ELF interpreter も） |
-| 読み取り | 実行体、各依存ディレクトリ、システムのライブラリ、いくつかの device ファイル。Linux では実行体が名前を挙げるライブラリだけがあり、ホストのそれ以外のもの（`/proc` を含む）は無い |
+| 他の process | 他の process へ signal を送れない。Linux ではファイルの owner（`F_SETOWN`）経由の signal も送れず、他の process の優先度・資源の上限・CPU・スケジューリング・group・session・capability の読み書きもできない。これらの呼び出しは tool 自身にだけ効く |
+| 読み取り | 実行体、各依存ディレクトリ、システムのライブラリ、いくつかの device ファイル。Linux では実行体が名前を挙げるライブラリのうち、システムのライブラリのディレクトリか依存ディレクトリにあるものだけがあり、ホストのそれ以外のもの（`/proc` を含む）は無い |
 | 書き込み | `/dev/null` だけ |
 | ネットワーク | 無し。loopback と unix socket も含む |
 | 環境変数 | 宣言した key ちょうど（最大 16）。loader や shell がコードや検索パスとして読む key は拒否 |
@@ -283,9 +284,12 @@ macOS で pin した実行体として動くのは `/bin/bash` です。`/bin/sh
 Linux でも、pin した実行体として `/bin/bash` が動きます。backend には特権の無い user namespace が
 必要です。AppArmor でそれを制限している Ubuntu（ubuntu-24.04 は既定で制限します）では、operator が
 先に `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0` を実行します。そうでなければ
-tool は `unavailable` です。Landlock ABI 5 未満の kernel（ubuntu-22.04）と Docker の既定の seccomp
+tool は `unavailable` です。Landlock ABI 6 未満の kernel（ubuntu-22.04）と Docker の既定の seccomp
 profile も `unavailable` です。中には `/proc`・一時ディレクトリ・`/etc/passwd`・名前解決が無いので、
-それを要る runtime（一部の JVM、Node の `process.memoryUsage()` など）は失敗します。script を
+それを要る runtime（一部の JVM、Node の `process.memoryUsage()` など）は失敗します。実行体が
+システムのライブラリのディレクトリと依存ディレクトリ以外のライブラリを名前に挙げると、起動は拒否
+されます。thread id を指定して 1 つの thread の affinity や優先度を変える呼び出しは拒否されます
+（process 全体への同じ呼び出しは効きます）。親の process id は見えます。script を
 実行体として pin すると拒否されます。その interpreter を pin し、script を引数で渡してください。
 FUSE のようなファイルシステム（Docker Desktop の共有フォルダなど）にある実行体は起動時に拒否されます。
 先にコンテナ自身のファイルシステムへ copy してください。

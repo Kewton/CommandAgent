@@ -171,7 +171,7 @@ jobs:
             required: true
             prepared: available
           # Record only (continue-on-error). ubuntu-22.04's kernel has Landlock ABI 4, below
-          # the backend's floor of ABI 5, so the backend must be unavailable there.
+          # the backend's floor of ABI 6, so the backend must be unavailable there.
           # ubuntu-latest is moving to 26.04, so its image is not fixed. Their results are
           # read from the one-line summary at the end and do not fail the workflow.
           - os: ubuntu-22.04

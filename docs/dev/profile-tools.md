@@ -613,30 +613,48 @@ and the child runs one fixed sequence of plain system calls before the exec:
    are mapped to 1000 inside, so an exec drops every capability. The host name is a fixed one.
 2. An empty `tmpfs` root holding, each read-only at its own host path: the pinned executable, its ELF
    interpreter and the libraries it needs (read from the executable's `PT_INTERP`, `DT_NEEDED`, and
-   `DT_RUNPATH`, with no `ld.so.cache`), each dependency directory, each link directory, `/dev/null`,
-   `/dev/urandom`, and `/dev/random`. A symlink on the way to any of them is made again inside. The
-   root itself is read-only; the child moves into it with `pivot_root`, detaches the old root, and only
-   then enters the working directory (std's `current_dir` would run before this, on the host's tree).
-   **No `/proc` is mounted.**
-3. `PR_SET_NO_NEW_PRIVS`, then Landlock with every file-system right of ABI 5 handled: read and list
+   `DT_RPATH`/`DT_RUNPATH`, with no `ld.so.cache`), each dependency directory, each link directory,
+   `/dev/null`, `/dev/urandom`, and `/dev/random`. An interpreter or a library is bound only when its
+   real path, every link resolved, lies under a system library directory (`/lib/<triple>`,
+   `/usr/lib/<triple>`, `/lib64`, `/usr/lib64`, `/lib`, `/usr/lib`) or a pinned dependency directory;
+   one anywhere else, or one that is not a 64-bit little-endian ELF object, refuses the launch, as a
+   library that is not found does. The ELF reader checks every size, offset, and address against the
+   file before it reads, and refuses a malformed object instead of reading past it. A symlink on the
+   way to any of them is made again inside. The root itself is read-only; the child moves into it with
+   `pivot_root`, detaches the old root, and only then enters the working directory (std's
+   `current_dir` would run before this, on the host's tree). **No `/proc` is mounted.**
+3. `PR_SET_NO_NEW_PRIVS`, then Landlock with every file-system right of ABI 6 handled: read and list
    the dependency directories, read the libraries and devices, run only the executable and its ELF
    interpreter, write only `/dev/null`. A link directory is there with no rule, so its metadata shows and
-   its files are refused (`EACCES`).
+   its files are refused (`EACCES`). The ruleset is also scoped (`Signal` and `AbstractUnixSocket`): no
+   signal leaves the tool's Landlock domain, whether sent by `kill` or by the kernel to the owner of a
+   file (`F_SETOWN` with `O_ASYNC`), and no abstract unix socket outside it can be reached.
 4. Last, a seccomp filter. It reads the architecture first and kills any other ABI (i386 and x32 on
    x86_64, AArch32 on aarch64). It refuses with `EPERM` every socket call (`socket`, `socketpair`,
    `connect`, `bind`, `listen`, `accept*`, `send*`, `recv*`, `shutdown`, `io_uring_*`), `fork`,
    `vfork`, and `clone` unless it makes a thread in no new namespace (`clone3` gets `ENOSYS`, so the C
    library falls back to `clone`), `execveat`, `memfd_*`, every call on another process (`ptrace`,
    `process_vm_*`, `pidfd_*`, `kcmp`, `process_madvise`, `process_mrelease`, `tkill`), the signal calls
-   unless they name the tool itself, and every namespace, mount, key, BPF, `userfaultfd`,
-   `perf_event_open`, file-handle, and `fanotify` call.
+   unless they name the tool itself, `capget` and `syslog`, and every namespace, mount, key, BPF,
+   `userfaultfd`, `perf_event_open`, file-handle, and `fanotify` call. A call that names a process by its
+   pid passes only for 0 or the tool's own pid: `prlimit64`, `sched_{set,get}{affinity,scheduler,param,attr}`,
+   `sched_rr_get_interval`, `getpgid`, `getsid`, `get_robust_list`, `migrate_pages`, and `move_pages`;
+   `setpriority`, `getpriority`, `ioprio_set`, and `ioprio_get` also only for a single process
+   (`PRIO_PROCESS`, `IOPRIO_WHO_PROCESS`), never a group or a user. `fcntl(F_SETOWN)` may name only 0 or
+   the tool itself and `F_SETOWN_EX` is refused (its owner is behind a pointer); every other `fcntl`
+   command passes. `setpgid` passes only as `setpgid(0, 0)`. A call numbered above the highest number
+   the table names (`open_tree_attr`, 467, on both architectures) is newer than the table and answers
+   `ENOSYS`, so the C library falls back to an older call that is judged here. Any other call up to
+   that number is allowed: the filter is a list of refusals, not of what a runtime may call.
 
 The child allocates nothing, takes no lock, and formats nothing between fork and exec: each step is one
 `libc` call on paths, buffers, a Landlock ruleset descriptor, and a BPF program the parent made. A step
 that fails stops the launch before the exec and names itself in the refusal (`was refused at
-\`uid_map\``, for example). There is no PID namespace: the tool stays the host's direct child with its
-host pid, so the bounded run (timeout, cancel, output limit, reap, and the descendant scan through the
-host's `/proc`) is the one macOS uses.
+\`uid_map\``, for example). That holds for the probe and for a real launch after the probe passed: a
+launch stopped at a step is `unavailable` with the step and its errno, and its record says nothing
+ran. There is no PID namespace: the tool stays the host's direct child with its host pid, so the
+bounded run (timeout, cancel, output limit, reap, and the descendant scan through the host's `/proc`)
+is the one macOS uses.
 
 What each requirement rests on, as the kernel answers it:
 
@@ -648,12 +666,21 @@ What each requirement rests on, as the kernel answers it:
 | Any socket: TCP or UDP, IPv4 or IPv6, loopback or not, a Unix socket by path or abstract name, raw, packet, netlink | `EPERM` from `socket()` itself |
 | A fork, `vfork`, `posix_spawn`, or a process started any other way | `EPERM`; a thread still starts |
 | An exec of anything but the pinned executable | `EACCES` (there but not pinned) or `ENOENT` (not there); an exec of the pinned one stays inside |
-| A signal to another process, the process group, or pid 1 | `EPERM` |
+| A signal to another process, the process group, or pid 1, by `kill`, `tgkill`, or `sigqueue` | `EPERM` (the filter; Landlock's signal scope refuses it too) |
+| A signal by the owner of a file: `fcntl(F_SETOWN)` of another pid or a group, `F_SETOWN_EX` | `EPERM`; with no filter, Landlock's signal scope still keeps the signal from leaving |
+| Another process's priority, I/O priority, resource limits, CPU affinity, or scheduling, set or read by its pid; a process group's or a user's priority | `EPERM`; the same calls on the tool itself (0 or its own pid) work |
+| Another process's group or session (`getpgid`, `getsid`), its capabilities (`capget`, refused even for the tool itself), joining another group (`setpgid`), the kernel's log (`syslog`) | `EPERM` |
 | An inherited descriptor | `EBADF` |
 | Another process's arguments or environment | `ENOENT`: no `/proc` |
 
+The tests for these use another process of the same uid as the victim and the tool's own parent, and
+check each outside first: there the same calls kill the victim and the parent, and change the
+victim's nice value, open-file limit, CPUs, scheduling, and I/O priority. Raw and packet sockets need
+`CAP_NET_RAW`, which the test may lack on the host's network, so their control runs outside the
+sandbox in a user and network namespace made for it, and must create both.
+
 **What it needs.** Linux on x86_64 or aarch64; unprivileged user namespaces in which the process may
-mount a `tmpfs`, bind-mount, and `pivot_root`; Landlock ABI 5 or later; seccomp filters with
+mount a `tmpfs`, bind-mount, and `pivot_root`; Landlock ABI 6 or later; seccomp filters with
 `PR_SET_NO_NEW_PRIVS`; and `close_range`. The probe measures all of them together and trusts no version
 number. Where one is missing, the probe answers `unavailable` with the step that failed: on an Ubuntu
 whose AppArmor restricts unprivileged user namespaces (`kernel.apparmor_restrict_unprivileged_userns=1`,
@@ -692,8 +719,15 @@ executable there is refused at its exec with `EACCES`.
 - **File systems Landlock does not match.** On a FUSE or similar file system, such as Docker Desktop's
   shared mount, a pinned executable is refused at its exec with `EACCES`, even with every rule in place.
   It fails closed.
-- **Still visible.** The values of `sysinfo` (uptime, load, free memory) and the metadata of the pinned
-  paths themselves.
+- **A thread named by its tid.** A pid-taking call on another thread of the tool itself, by its tid,
+  is refused (`EPERM`) like any other pid: a runtime that sets one thread's affinity or priority
+  (`pthread_setaffinity_np`, for example) fails there. The calls on the whole process, by 0 or its
+  pid, work.
+- **Calls newer than the table.** A system call numbered above 467 answers `ENOSYS` until the table
+  names it.
+- **Still visible.** The values of `sysinfo` (uptime, load, free memory), the metadata of the pinned
+  paths themselves, and the parent's pid (`getppid`). No other process's attributes are readable
+  through the calls above.
 
 ### The envelopes
 

@@ -99,15 +99,16 @@ unset. Production never reads it.
 | `strict::every_library_entry_is_unavailable_when_the_strict_probe_really_fails` | Yes, outer `sandbox-exec` | Yes, outer seccomp | Yes, outer seccomp | No |
 | Unit: `tools::profile_tools::{protocol,process,commit,effects}::tests` | Yes | Yes, with an unconfined launch only a test build can ask for | Yes, the same | Yes, the same |
 | Unit: `tools::profile_tools::isolation::tests::on_macos_the_real_probe_passes` and `real_isolation::*` (the `errno` of each attempt) | Yes | No | No | No |
-| Unit: `tools::profile_tools::isolation::linux::kernel_tests::tests::*` (the probe, each step refused, and the `errno` of each attempt against a positive control outside) | No | Yes | Each launch refused before its exec, with the step named | No |
-| Unit: `tools::profile_tools::isolation::linux::{filter,root}::tests::*` (the BPF program of each architecture against a table typed apart, a deliberately wrong program, the root's contents) | No | Yes | Yes | No |
+| Unit: `tools::profile_tools::isolation::linux::kernel_tests::tests::*` (the probe, each step refused, a launch stopped at a step `unavailable`, and the `errno` of each attempt against a positive control outside: another process of the same uid and the tool's parent as victims, and Landlock's signal scope alone) | No | Yes | Each launch refused before its exec, with the step named | No |
+| Unit: the raw and packet socket control in `every_network_path_is_refused_at_its_socket_and_reaches_no_witness` | No | Yes: outside the sandbox, in a user and network namespace made for the test, both must be created; a namespace that cannot be made fails the test | Not run: the inside run is refused before its exec, so there is no refusal to control | No |
+| Unit: `tools::profile_tools::isolation::linux::{filter,root}::tests::*` (the BPF program of each architecture against a table typed apart, a deliberately wrong program, the ceiling, the root's contents, a dependency outside the pins refused, a malformed ELF refused without a panic) | No | Yes | Yes | No |
 | Unit: `tools::profile_tools::isolation::tests::off_macos_the_probe_and_the_launch_are_unavailable` | No | No | No | Yes |
 
 `unavailable` is measured by a real failure of the probe: on macOS an outer `sandbox-exec`,
 where a second one cannot start; on Linux an outer seccomp filter that refuses `unshare`, the
 runner's AppArmor restriction (`kernel.apparmor_restrict_unprivileged_userns=1`, where the
 `setgroups` write is refused), Docker's default seccomp profile (`unshare` refused), or a
-Landlock ABI below 5 (ubuntu-22.04).
+Landlock ABI below 6 (ubuntu-22.04).
 
 ## Known limits
 

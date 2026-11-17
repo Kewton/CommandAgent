@@ -280,9 +280,10 @@ as `secret_value_in_output`, and nothing of the output is kept.
 
 | Limit | Value |
 | --- | --- |
-| Policy | macOS: `deny default` Seatbelt. Linux (x86_64, aarch64): new namespaces, a read-only private root, Landlock ABI 5 or later, and a seccomp filter. Either only after the probe passes |
+| Policy | macOS: `deny default` Seatbelt. Linux (x86_64, aarch64): new namespaces, a read-only private root, Landlock ABI 6 or later, and a seccomp filter. Either only after the probe passes |
 | Processes | No fork. Exec of the pinned executable only (on Linux, also its ELF interpreter) |
-| Reads | The executable, each dependency directory, system libraries, and a few device files. On Linux only the libraries the executable names are there, and nothing else of the host, `/proc` included |
+| Other processes | No signal to another process. On Linux also no signal by a file's owner (`F_SETOWN`), and no reading or changing another process's priority, limits, CPUs, scheduling, group, session, or capabilities: such a call works only on the tool itself |
+| Reads | The executable, each dependency directory, system libraries, and a few device files. On Linux only the libraries the executable names are there, and only from a system library directory or a dependency directory; nothing else of the host is there, `/proc` included |
 | Writes | `/dev/null` only |
 | Network | None, loopback and unix sockets included |
 | Environment | Exactly the declared keys (at most 16). Keys a loader or shell reads as code or a search path are refused |
@@ -301,10 +302,14 @@ On Linux, `/bin/bash` works as the pinned executable too. The backend needs
 unprivileged user namespaces: on an Ubuntu that restricts them through AppArmor
 (ubuntu-24.04 does by default), the operator runs
 `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0` first, or the
-tool is `unavailable`. A kernel below Landlock ABI 5 (ubuntu-22.04) and Docker's
+tool is `unavailable`. A kernel below Landlock ABI 6 (ubuntu-22.04) and Docker's
 default seccomp profile are `unavailable` too. Inside there is no `/proc`, no
 temporary directory, no `/etc/passwd`, and no name resolution, so a runtime that
-needs them (some JVMs, Node's `process.memoryUsage()`) fails. A script pinned as
+needs them (some JVMs, Node's `process.memoryUsage()`) fails. A library the
+executable names from anywhere but a system library directory or a dependency
+directory refuses the start. Setting one thread's affinity or priority by its
+thread id is refused; the same call on the whole process works. The parent's
+process id stays visible. A script pinned as
 the executable is refused: pin its interpreter and pass the script as an
 argument. A pinned executable on a FUSE-like file system, such as Docker
 Desktop's shared folder, is refused at its start; copy it to the container's own
