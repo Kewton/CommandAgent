@@ -622,7 +622,9 @@ and the child runs one fixed sequence of plain system calls before the exec:
    does. The grant and the bind go to that checked real file; the name the loader asks for (through
    `/lib/ld-linux-aarch64.so.1`, or `$ORIGIN/../lib`, for example) is made again inside as links
    and directories only, and only when walking it the way the kernel does, `..` taken from the real
-   directory reached, leads to that same file. The ELF reader checks every size, offset, and address against the
+   directory reached, leads to that same file. A library reached under two names is searched
+   under each, since `$ORIGIN` comes from the name, so every leaf either name needs is there. The
+   ELF reader checks every size, offset, and address against the
    file before it reads, and refuses a malformed object instead of reading past it. A symlink on the
    way to any of them is made again inside. The root itself is read-only; the child moves into it with
    `pivot_root`, detaches the old root, and only then enters the working directory (std's

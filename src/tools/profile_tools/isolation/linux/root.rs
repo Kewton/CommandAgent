@@ -269,6 +269,11 @@ impl Mirror {
 
 /// The root for `wanted`, built under `root`, the empty directory the child mounts it on.
 pub(super) fn plan(wanted: &Wanted<'_>, root: &Path) -> Result<Plan, String> {
+    plan_within(wanted, root, &allowed_roots(wanted.read))
+}
+
+/// The same, with the directories an interpreter or a library may really lie in given.
+fn plan_within(wanted: &Wanted<'_>, root: &Path, roots: &[PathBuf]) -> Result<Plan, String> {
     let mut mirror = Mirror {
         root: root.to_path_buf(),
         ops: Vec::new(),
@@ -277,7 +282,7 @@ pub(super) fn plan(wanted: &Wanted<'_>, root: &Path) -> Result<Plan, String> {
         grants: BTreeMap::new(),
     };
     mirror.add(wanted.executable, Grant::Run)?;
-    let loaded = closure(wanted.executable, &allowed_roots(wanted.read))?;
+    let loaded = closure(wanted.executable, roots)?;
     // The grant and the bind go to the real file that was checked; the name the loader asks
     // for is made again inside only when it leads to that same file.
     for (found, grant) in loaded
@@ -573,15 +578,21 @@ fn admitted(path: &Path, roots: &[PathBuf], by: &Path, what: &str) -> Result<Pat
 /// lies outside `roots` once its links are resolved, or that is not an ELF object this can read,
 /// and an interpreter that is not one, is a refusal here, not a grant and not a tool that fails
 /// inside. Every object is read at its real file, the one that is granted.
+///
+/// An object is searched once per name it is reached by, not once per real file: `$ORIGIN`
+/// comes from the name, so the same file reached under two names can need two different
+/// leaves, and every one is collected, whatever the loader would map first. The objects are
+/// taken in the order they are named (`DT_NEEDED` order, breadth first, as the loader maps
+/// them). More than `MAX_OBJECTS` names in all is a refusal.
 pub(super) fn closure(executable: &Path, roots: &[PathBuf]) -> Result<Loaded, String> {
     let mut loaded = Loaded::default();
-    let mut pending = vec![Found {
+    let mut pending = std::collections::VecDeque::from([Found {
         name: executable.to_path_buf(),
         real: executable.to_path_buf(),
-    }];
+    }]);
     let mut seen = BTreeSet::new();
-    while let Some(Found { name: path, real }) = pending.pop() {
-        if !seen.insert(real.clone()) {
+    while let Some(Found { name: path, real }) = pending.pop_front() {
+        if !seen.insert((path.clone(), real.clone())) {
             continue;
         }
         if seen.len() > MAX_OBJECTS {
@@ -650,7 +661,7 @@ pub(super) fn closure(executable: &Path, roots: &[PathBuf]) -> Result<Loaded, St
                 real: checked,
             };
             loaded.libraries.insert(found.clone());
-            pending.push(found);
+            pending.push_back(found);
         }
     }
     Ok(loaded)
@@ -1145,6 +1156,97 @@ mod tests {
             "{loaded:?}"
         );
         assert_eq!(planned.grants.get(&pinned), Some(&Grant::Read));
+    }
+
+    /// Fix round 3 (codex R2-01): `a/libwrap.so` and `b/libwrap.so` are two names of the same
+    /// `common/libwrap.so`, whose `RUNPATH` is `$ORIGIN/private`, so each name needs its own
+    /// `private/libleaf.so`. The tool names `a`, then `b`. Both leaves are found, granted, and
+    /// bound, and both names are made again inside. The allowed root is a directory of this
+    /// test standing in for a system one; the real system directories are not touched.
+    #[test]
+    fn one_file_reached_under_two_names_searches_each_names_dependencies() {
+        let temp = tempfile::tempdir().unwrap();
+        let base = std::fs::canonicalize(temp.path()).unwrap();
+        let system = base.join("system");
+        for directory in ["common", "a/private", "b/private"] {
+            std::fs::create_dir_all(system.join(directory)).unwrap();
+        }
+        write(
+            &system.join("common/libwrap.so"),
+            &made(None, &["libleaf.so"], Some("$ORIGIN/private")).bytes,
+        );
+        for name in ["a", "b"] {
+            std::os::unix::fs::symlink(
+                "../common/libwrap.so",
+                system.join(name).join("libwrap.so"),
+            )
+            .unwrap();
+            write(
+                &system.join(name).join("private/libleaf.so"),
+                &made(None, &[], None).bytes,
+            );
+        }
+        let tool_directory = base.join("tool");
+        std::fs::create_dir(&tool_directory).unwrap();
+        let (a, b) = (system.join("a/libwrap.so"), system.join("b/libwrap.so"));
+        let tool = write(
+            &tool_directory.join("tool"),
+            &made(None, &[a.to_str().unwrap(), b.to_str().unwrap()], None).bytes,
+        );
+        let roots = vec![system.clone()];
+        let leaves = [
+            system.join("a/private/libleaf.so"),
+            system.join("b/private/libleaf.so"),
+        ];
+
+        let loaded = closure(&tool, &roots).unwrap();
+        for leaf in &leaves {
+            assert!(
+                loaded.libraries.iter().any(|library| library.real == *leaf),
+                "{} was not searched: {loaded:?}",
+                leaf.display()
+            );
+        }
+        let common = system.join("common/libwrap.so");
+        for name in [&a, &b] {
+            assert!(
+                loaded
+                    .libraries
+                    .iter()
+                    .any(|library| library.name == *name && library.real == common),
+                "{loaded:?}"
+            );
+        }
+
+        let staging = base.join("staging");
+        std::fs::create_dir(&staging).unwrap();
+        let planned = super::plan_within(
+            &Wanted {
+                executable: &tool,
+                read: &[],
+                visible: &[],
+            },
+            &staging,
+            &roots,
+        )
+        .unwrap();
+        let bound = bound_sources(&planned);
+        for leaf in leaves.iter().chain([&common]) {
+            assert_eq!(planned.grants.get(leaf), Some(&Grant::Read), "{leaf:?}");
+            assert!(bound.contains(leaf), "{leaf:?} is not bound: {bound:?}");
+        }
+        for name in [&a, &b] {
+            let link = staging.join(name.strip_prefix("/").unwrap());
+            assert!(
+                planned.ops.iter().any(|op| matches!(
+                    op,
+                    Op::Link { path, .. } if path.to_bytes() == link.as_os_str().as_bytes()
+                )),
+                "no link for {}: {:?}",
+                name.display(),
+                planned.ops
+            );
+        }
     }
 
     /// Codex M2: a cut, a huge value, or an overflow anywhere in an object is a refusal, never a
