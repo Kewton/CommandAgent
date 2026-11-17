@@ -77,6 +77,11 @@ CommandMate `mem` is on for `develop`; follow the `cmate-handoff` skill.
   `commandmatedev mem check --suggest --quiet`.
 - The PM keeps the ledger too; mem items point to it or to Issues with
   `--evidence` instead of copying it.
+- Claude Code auto memory is off (`.claude/settings.json`). Lessons,
+  pitfalls, procedures and standing user decisions for the team live in
+  [`docs/dev/team-operations.md`](docs/dev/team-operations.md); read it before
+  briefing or dispatching. It records later decisions than this file (for
+  example, workers are currently Claude Code sessions).
 
 ## Any other Claude Code session
 
