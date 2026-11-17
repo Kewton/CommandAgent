@@ -4645,6 +4645,12 @@ fn the_corpus_names_what_this_binary_runs() {
         json!("the real policy: success, and the OS refuses each attempt")
     );
     assert_eq!(
+        cases["os_table"]["linux"],
+        json!(
+            "a private root, Landlock, and seccomp: success, and the kernel refuses each attempt; without a capability, unavailable before the start"
+        )
+    );
+    assert_eq!(
         cases["os_table"]["other"],
         json!("unavailable before the start")
     );
