@@ -4,9 +4,11 @@
 //! pinned executable, its ELF interpreter and the libraries it needs, each pinned directory,
 //! and `/dev/null`, `/dev/urandom`, and `/dev/random`. A symbolic link on the way to any of
 //! them is made again inside, so the loader and the tool find each at the path they ask for.
-//! An interpreter or library the executable names is bound only when its real path, every link
-//! resolved, lies under a system library directory or a pinned directory; anything else, and a
-//! dependency that is not a 64-bit ELF object this can read, refuses the launch.
+//! An interpreter or library the executable names is bound at its real path, every link
+//! resolved, and only when that path lies under a system library directory or a pinned
+//! directory; anything else, and an interpreter or library that is not a 64-bit ELF object this
+//! can read, refuses the launch. The name the loader opens is made again inside only when the
+//! kernel's walk of it leads to that same real file.
 //! Nothing else of the host is there: no home, no workspace, no temporary directory, no `/etc`,
 //! and no `/proc`. Landlock then says what may be read, run, or written among what is there.
 
@@ -78,21 +80,6 @@ pub(super) fn cstring(path: &Path) -> Result<CString, String> {
         .map_err(|_| format!("`{}` holds a NUL", path.display()))
 }
 
-/// `.` and `..` taken away by their names, as the kernel would on the way down.
-fn normal(path: &Path) -> PathBuf {
-    let mut out = PathBuf::from("/");
-    for component in path.components() {
-        match component {
-            Component::Normal(name) => out.push(name),
-            Component::ParentDir => {
-                out.pop();
-            }
-            Component::RootDir | Component::CurDir | Component::Prefix(_) => {}
-        }
-    }
-    out
-}
-
 /// The flags of the mount holding `path` that a read-only remount inside a user namespace must
 /// keep. Access-time flags are left out, so the kernel keeps the mount's own.
 fn locked_flags(path: &Path) -> Result<libc::c_ulong, String> {
@@ -120,6 +107,14 @@ fn locked_flags(path: &Path) -> Result<libc::c_ulong, String> {
     Ok(flags)
 }
 
+/// Where one walk down a path stopped.
+enum Walked {
+    /// At a link: the path it leads to, with the rest of the walk after it.
+    Link(PathBuf),
+    /// At the real path, with no link left on the way.
+    Reached(PathBuf),
+}
+
 struct Mirror {
     root: PathBuf,
     ops: Vec<Op>,
@@ -145,13 +140,40 @@ impl Mirror {
         Ok(())
     }
 
-    /// Each link on the way to `path` is made again, and the real path it leads to is bound.
+    /// Each link on the way to `path` is made again, and the real path it leads to is bound
+    /// with `grant`.
     fn add(&mut self, path: &Path, grant: Grant) -> Result<(), String> {
-        let mut path = normal(path);
+        let real = self.walk(path)?;
+        let entry = self.grants.entry(real).or_insert(grant);
+        *entry = (*entry).max(grant);
+        Ok(())
+    }
+
+    /// The name the loader opens, made again inside with each link on its way, when it leads
+    /// to `real`, the file that was checked and is bound: a name that leads anywhere else
+    /// refuses the launch. The name itself gets no grant.
+    fn name(&mut self, name: &Path, real: &Path) -> Result<(), String> {
+        let reached = self.walk(name)?;
+        if reached != real {
+            return Err(format!(
+                "`{}` leads to `{}` here, not to the checked `{}`",
+                name.display(),
+                reached.display(),
+                real.display()
+            ));
+        }
+        Ok(())
+    }
+
+    /// The real path `path` leads to, as the kernel walks it: each link met is made again
+    /// inside and followed, and `..` goes up from the real directory reached so far, never
+    /// from the name as written.
+    fn walk(&mut self, path: &Path) -> Result<PathBuf, String> {
+        let mut path = path.to_path_buf();
         for _ in 0..MAX_LINKS {
-            match self.step(&path, grant)? {
-                Some(next) => path = normal(&next),
-                None => return Ok(()),
+            match self.step(&path)? {
+                Walked::Link(next) => path = next,
+                Walked::Reached(real) => return Ok(real),
             }
         }
         Err(format!(
@@ -160,11 +182,23 @@ impl Mirror {
         ))
     }
 
-    /// One walk down `path`: the first link met, as the path it leads to, or the path bound.
-    fn step(&mut self, path: &Path, grant: Grant) -> Result<Option<PathBuf>, String> {
-        let names = path.components().skip(1).collect::<Vec<_>>();
+    /// One walk down `path` from `/`: the first link met, as the path it leads to followed by
+    /// the rest of `path`, or the real path reached when there is no link.
+    fn step(&mut self, path: &Path) -> Result<Walked, String> {
+        let components = path.components().collect::<Vec<_>>();
         let mut at = PathBuf::from("/");
-        for (index, name) in names.iter().enumerate() {
+        for (index, component) in components.iter().enumerate() {
+            let name = match component {
+                Component::Normal(name) => name,
+                Component::ParentDir => {
+                    // The directory left is real (every link before it was followed), and
+                    // the loader walks through it inside too.
+                    self.directory(&at)?;
+                    at.pop();
+                    continue;
+                }
+                Component::RootDir | Component::CurDir | Component::Prefix(_) => continue,
+            };
             let next = at.join(name);
             let metadata = std::fs::symlink_metadata(&next)
                 .map_err(|error| format!("`{}` cannot be read: {error}", next.display()))?;
@@ -184,14 +218,12 @@ impl Mirror {
                 } else {
                     at.join(target)
                 };
-                resolved.extend(names.iter().skip(index + 1));
-                return Ok(Some(resolved));
+                resolved.extend(&components[index + 1..]);
+                return Ok(Walked::Link(resolved));
             }
             at = next;
         }
-        let entry = self.grants.entry(at).or_insert(grant);
-        *entry = (*entry).max(grant);
-        Ok(None)
+        Ok(Walked::Reached(at))
     }
 
     /// The binds, each made once: a path under a bound directory is there already, and keeps
@@ -246,11 +278,16 @@ pub(super) fn plan(wanted: &Wanted<'_>, root: &Path) -> Result<Plan, String> {
     };
     mirror.add(wanted.executable, Grant::Run)?;
     let loaded = closure(wanted.executable, &allowed_roots(wanted.read))?;
-    for interpreter in &loaded.interpreters {
-        mirror.add(interpreter, Grant::Run)?;
-    }
-    for library in &loaded.libraries {
-        mirror.add(library, Grant::Read)?;
+    // The grant and the bind go to the real file that was checked; the name the loader asks
+    // for is made again inside only when it leads to that same file.
+    for (found, grant) in loaded
+        .interpreters
+        .iter()
+        .map(|found| (found, Grant::Run))
+        .chain(loaded.libraries.iter().map(|found| (found, Grant::Read)))
+    {
+        mirror.add(&found.real, grant)?;
+        mirror.name(&found.name, &found.real)?;
     }
     for directory in wanted.read {
         mirror.add(directory, Grant::Read)?;
@@ -287,10 +324,17 @@ const MAX_ENTRIES: usize = 4096;
 const MAX_NAME: usize = 4096;
 const MAX_OBJECTS: usize = 512;
 
+/// One interpreter or library: the name the loader opens, and the real file it was checked as.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) struct Found {
+    pub(super) name: PathBuf,
+    pub(super) real: PathBuf,
+}
+
 #[derive(Debug, Default)]
 pub(super) struct Loaded {
-    pub(super) interpreters: BTreeSet<PathBuf>,
-    pub(super) libraries: BTreeSet<PathBuf>,
+    pub(super) interpreters: BTreeSet<Found>,
+    pub(super) libraries: BTreeSet<Found>,
 }
 
 /// What one ELF object names.
@@ -501,8 +545,9 @@ pub(super) fn allowed_roots(pinned: &[&Path]) -> Vec<PathBuf> {
         .collect()
 }
 
-/// `path`, which `by` names as `what`, when its real path is a file under one of `roots`.
-fn admitted(path: &Path, roots: &[PathBuf], by: &Path, what: &str) -> Result<(), String> {
+/// The real file `path` leads to, every link resolved, when it is a file under one of `roots`.
+/// `by` names it as `what`. This real file is what is read, granted, and bound afterwards.
+fn admitted(path: &Path, roots: &[PathBuf], by: &Path, what: &str) -> Result<PathBuf, String> {
     let refused = |why: String| {
         format!(
             "`{}` needs `{what}` at `{}`, {why}",
@@ -520,25 +565,29 @@ fn admitted(path: &Path, roots: &[PathBuf], by: &Path, what: &str) -> Result<(),
             real.display()
         )));
     }
-    Ok(())
+    Ok(real)
 }
 
-/// The interpreter of `executable` and every library it needs, transitively, as the paths the
-/// loader opens. A library that cannot be found, that lies outside `roots` once its links are
-/// resolved, or that is not an ELF object this can read, is a refusal here, not a grant and not a
-/// tool that fails inside.
+/// The interpreter of `executable` and every library it needs, transitively, each as the name
+/// the loader opens and the real file it was checked as. A library that cannot be found, that
+/// lies outside `roots` once its links are resolved, or that is not an ELF object this can read,
+/// and an interpreter that is not one, is a refusal here, not a grant and not a tool that fails
+/// inside. Every object is read at its real file, the one that is granted.
 pub(super) fn closure(executable: &Path, roots: &[PathBuf]) -> Result<Loaded, String> {
     let mut loaded = Loaded::default();
-    let mut pending = vec![executable.to_path_buf()];
+    let mut pending = vec![Found {
+        name: executable.to_path_buf(),
+        real: executable.to_path_buf(),
+    }];
     let mut seen = BTreeSet::new();
-    while let Some(path) = pending.pop() {
-        if !seen.insert(path.clone()) {
+    while let Some(Found { name: path, real }) = pending.pop() {
+        if !seen.insert(real.clone()) {
             continue;
         }
         if seen.len() > MAX_OBJECTS {
             return Err(format!("`{}` needs too many objects", executable.display()));
         }
-        let Some(object) = object(&path)? else {
+        let Some(object) = object(&real)? else {
             if path == executable {
                 continue;
             }
@@ -549,8 +598,18 @@ pub(super) fn closure(executable: &Path, roots: &[PathBuf]) -> Result<Loaded, St
             ));
         };
         if let Some(interpreter) = object.interpreter {
-            admitted(&interpreter, roots, &path, "its interpreter")?;
-            loaded.interpreters.insert(interpreter);
+            let checked = admitted(&interpreter, roots, &path, "its interpreter")?;
+            if self::object(&checked)?.is_none() {
+                return Err(format!(
+                    "`{}` names `{}` as its interpreter, which is not an ELF object",
+                    path.display(),
+                    interpreter.display()
+                ));
+            }
+            loaded.interpreters.insert(Found {
+                name: interpreter,
+                real: checked,
+            });
         }
         let origin = path
             .parent()
@@ -585,7 +644,11 @@ pub(super) fn closure(executable: &Path, roots: &[PathBuf]) -> Result<Loaded, St
                     path.display()
                 ));
             };
-            admitted(&found, roots, &path, &name)?;
+            let checked = admitted(&found, roots, &path, &name)?;
+            let found = Found {
+                name: found,
+                real: checked,
+            };
             loaded.libraries.insert(found.clone());
             pending.push(found);
         }
@@ -616,6 +679,7 @@ mod tests {
         assert_eq!(loaded.interpreters.len(), 1, "{loaded:?}");
         assert!(
             loaded.libraries.iter().any(|library| library
+                .name
                 .file_name()
                 .unwrap()
                 .to_string_lossy()
@@ -734,7 +798,7 @@ mod tests {
     fn system_interpreter() -> String {
         let loaded = closure(&shell(), &system()).unwrap();
         let interpreter = loaded.interpreters.iter().next().unwrap();
-        interpreter.display().to_string()
+        interpreter.name.display().to_string()
     }
 
     /// A pinned directory and a directory outside every pin, each with an ELF library of its own.
@@ -779,11 +843,13 @@ mod tests {
         assert!(
             loaded
                 .libraries
-                .contains(&places.pinned.join("libdummy.so")),
+                .iter()
+                .any(|library| library.real == places.pinned.join("libdummy.so")),
             "{loaded:?}"
         );
         assert!(
             loaded.libraries.iter().any(|library| library
+                .name
                 .file_name()
                 .is_some_and(|name| name.to_string_lossy().starts_with("libc.so"))),
             "{loaded:?}"
@@ -874,7 +940,211 @@ mod tests {
             .bytes,
         );
         let loaded = closure(&tool, &pinned_roots).unwrap();
-        assert!(loaded.libraries.contains(&outside_library), "{loaded:?}");
+        assert!(
+            loaded
+                .libraries
+                .iter()
+                .any(|library| library.real == outside_library),
+            "{loaded:?}"
+        );
+    }
+
+    fn mirror_at(root: &Path) -> super::Mirror {
+        super::Mirror {
+            root: root.to_path_buf(),
+            ops: Vec::new(),
+            directories: std::collections::BTreeSet::new(),
+            links: std::collections::BTreeSet::new(),
+            grants: std::collections::BTreeMap::new(),
+        }
+    }
+
+    fn plan_for(tool: &Path, pinned: &Path, staging: &Path) -> Result<super::Plan, String> {
+        std::fs::create_dir(staging).unwrap();
+        let read = [pinned];
+        plan(
+            &Wanted {
+                executable: tool,
+                read: &read,
+                visible: &[],
+            },
+            staging,
+        )
+    }
+
+    fn bound_sources(planned: &super::Plan) -> Vec<PathBuf> {
+        planned
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                Op::Bind { source, .. } => Some(PathBuf::from(std::ffi::OsStr::from_bytes(
+                    source.to_bytes(),
+                ))),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Fix round 2 (a): a link `P/s` to `A/sub` followed by `..`. The kernel, and the check,
+    /// resolve `P/s/../libdummy.so` to `A/libdummy.so`; removing `..` by its name would give
+    /// `P/libdummy.so`. The grant and the bind go to the checked `A/libdummy.so`, and nothing
+    /// to `P/libdummy.so`. The other way round, where the real file lies outside, it is refused
+    /// with no plan. And a name that leads to another file than the one checked is refused.
+    #[test]
+    fn a_link_and_dot_dot_grant_only_the_checked_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let base = std::fs::canonicalize(temp.path()).unwrap();
+        let (outside, pinned) = (base.join("P"), base.join("A"));
+        for directory in [&outside, &pinned, &pinned.join("sub"), &outside.join("sub")] {
+            std::fs::create_dir(directory).unwrap();
+        }
+        for directory in [&outside, &pinned] {
+            write(&directory.join("libdummy.so"), &made(None, &[], None).bytes);
+        }
+        std::os::unix::fs::symlink(pinned.join("sub"), outside.join("s")).unwrap();
+        std::os::unix::fs::symlink(outside.join("sub"), pinned.join("s")).unwrap();
+        let interpreter = system_interpreter();
+        let roots = allowed_roots(&[pinned.as_path()]);
+
+        // Through the outside link into the pinned directory: the checked file is granted.
+        let name = outside.join("s/../libdummy.so");
+        let tool = write(
+            &pinned.join("tool-in"),
+            &made(Some(&interpreter), &[name.to_str().unwrap()], None).bytes,
+        );
+        let loaded = closure(&tool, &roots).unwrap();
+        let found = loaded
+            .libraries
+            .iter()
+            .find(|library| library.name == name)
+            .unwrap_or_else(|| panic!("{loaded:?}"));
+        assert_eq!(found.real, pinned.join("libdummy.so"));
+        let planned = plan_for(&tool, &pinned, &base.join("staging-in")).unwrap();
+        assert_eq!(planned.grants.get(&outside.join("libdummy.so")), None);
+        assert!(
+            !bound_sources(&planned).contains(&outside.join("libdummy.so")),
+            "{:?}",
+            planned.ops
+        );
+        assert!(
+            planned
+                .grants
+                .keys()
+                .all(|path| !path.starts_with(&outside)),
+            "{:?}",
+            planned.grants
+        );
+
+        // Through the pinned link out to the other directory: the real file is outside.
+        let name = pinned.join("s/../libdummy.so");
+        let tool = write(
+            &pinned.join("tool-out"),
+            &made(Some(&interpreter), &[name.to_str().unwrap()], None).bytes,
+        );
+        let refused = closure(&tool, &roots).unwrap_err();
+        assert!(
+            refused.contains("outside the system's library directories"),
+            "{refused}"
+        );
+        assert!(plan_for(&tool, &pinned, &base.join("staging-out")).is_err());
+
+        // A name made again inside must lead to the file that was checked.
+        let mut mirror = mirror_at(&base.join("staging-name"));
+        let refused = mirror
+            .name(
+                &outside.join("s/../libdummy.so"),
+                &outside.join("libdummy.so"),
+            )
+            .unwrap_err();
+        assert!(refused.contains("not to the checked"), "{refused}");
+        assert!(mirror.grants.is_empty());
+        mirror
+            .name(
+                &outside.join("s/../libdummy.so"),
+                &pinned.join("libdummy.so"),
+            )
+            .unwrap();
+        assert!(mirror.grants.is_empty(), "a name gets no grant");
+    }
+
+    /// Fix round 2 (b): an interpreter inside a pinned directory that is not an ELF object, or is
+    /// a broken one, is refused before any grant.
+    #[test]
+    fn an_interpreter_that_is_not_a_sound_elf_object_is_refused() {
+        let temp = tempfile::tempdir().unwrap();
+        let pinned = std::fs::canonicalize(temp.path()).unwrap().join("A");
+        std::fs::create_dir(&pinned).unwrap();
+        let text = write(&pinned.join("ld-text.so"), b"#!/bin/sh\nexit 0\n");
+        let mut cut = b"\x7fELF\x02\x01\x01".to_vec();
+        cut.resize(40, 0);
+        let broken = write(&pinned.join("ld-broken.so"), &cut);
+        let roots = allowed_roots(&[pinned.as_path()]);
+        for (index, interpreter) in [text, broken].iter().enumerate() {
+            let tool = write(
+                &pinned.join(format!("tool-{index}")),
+                &made(Some(interpreter.to_str().unwrap()), &[], None).bytes,
+            );
+            let refused = closure(&tool, &roots).unwrap_err();
+            assert!(
+                refused.contains("not an ELF object") || refused.contains("a cut header"),
+                "{refused}"
+            );
+            let staging = pinned.parent().unwrap().join(format!("staging-{index}"));
+            assert!(plan_for(&tool, &pinned, &staging).is_err());
+        }
+    }
+
+    /// Fix round 2 (c): the usual forms still pass. The system's interpreter, named through its
+    /// usual link (`/lib/ld-linux-aarch64.so.1` or `/lib64/ld-linux-x86-64.so.2`), is granted
+    /// at its real file and its name is made again inside; a library found through
+    /// `$ORIGIN/../lib` in a pinned directory is granted at its real file.
+    #[test]
+    fn the_usual_linked_and_dot_dot_forms_still_pass() {
+        let shell = shell();
+        let loaded = closure(&shell, &system()).unwrap();
+        let interpreter = loaded.interpreters.iter().next().unwrap();
+        assert_eq!(
+            interpreter.real,
+            std::fs::canonicalize(&interpreter.name).unwrap()
+        );
+        let temp = tempfile::tempdir().unwrap();
+        let base = std::fs::canonicalize(temp.path()).unwrap();
+        let pinned = base.join("tool");
+        for directory in [pinned.join("bin"), pinned.join("lib")] {
+            std::fs::create_dir_all(directory).unwrap();
+        }
+        write(
+            &pinned.join("lib/libdummy.so"),
+            &made(None, &[], None).bytes,
+        );
+        let tool = write(
+            &pinned.join("bin/tool"),
+            &made(
+                Some(&interpreter.name.display().to_string()),
+                &["libdummy.so", "libc.so.6"],
+                Some("$ORIGIN/../lib"),
+            )
+            .bytes,
+        );
+        let planned = plan_for(&tool, &pinned, &base.join("staging")).unwrap();
+        assert_eq!(planned.grants.get(&interpreter.real), Some(&Grant::Run));
+        if interpreter.name != interpreter.real {
+            assert_eq!(planned.grants.get(&interpreter.name), None);
+            assert!(
+                planned.ops.iter().any(|op| matches!(op, Op::Link { .. })),
+                "{:?}",
+                planned.ops
+            );
+        }
+        let loaded = closure(&tool, &allowed_roots(&[pinned.as_path()])).unwrap();
+        assert!(
+            loaded.libraries.iter().any(|library| {
+                library.name == pinned.join("bin/../lib/libdummy.so")
+                    && library.real == pinned.join("lib/libdummy.so")
+            }),
+            "{loaded:?}"
+        );
+        assert_eq!(planned.grants.get(&pinned), Some(&Grant::Read));
     }
 
     /// Codex M2: a cut, a huge value, or an overflow anywhere in an object is a refusal, never a
