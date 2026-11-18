@@ -5149,6 +5149,7 @@ export default function Page(){
 
     #[test]
     fn verify_step_with_bash_then_final_text_is_allowed() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         let mut fake = Fake::new(vec![
             Ok(AssistantReply {
@@ -5176,6 +5177,7 @@ export default function Page(){
 
     #[test]
     fn verify_step_with_bash_only_can_delegate_to_runner() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         let mut fake = Fake::new(vec![Ok(AssistantReply {
             content: String::new(),
@@ -5201,6 +5203,7 @@ export default function Page(){
 
     #[test]
     fn verify_step_bash_semantic_pipe_is_policy_error_not_evidence() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("package.json"), r#"{"scripts":{}}"#).unwrap();
         let events_path = dir.path().join(".anvil/runs/test/events.jsonl");
@@ -5279,6 +5282,7 @@ export default function Page(){
 
     #[test]
     fn verify_step_runtime_splits_shell_control_bash_segments() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("src/app")).unwrap();
         std::fs::write(
@@ -5372,6 +5376,7 @@ export default function Page(){
 
     #[test]
     fn verify_step_runtime_substitutes_install_segment_before_verify_segment() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("package.json"),
@@ -5427,6 +5432,7 @@ export default function Page(){
 
     #[test]
     fn verify_step_runtime_splits_multiline_bash_segments() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("src")).unwrap();
         std::fs::write(dir.path().join("package.json"), "{}").unwrap();
@@ -5539,6 +5545,7 @@ export default function Page(){
 
     #[test]
     fn verify_step_runtime_preserves_and_short_circuit() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         let mut fake = Fake::new(vec![Ok(AssistantReply {
             content: String::new(),
@@ -5577,6 +5584,7 @@ export default function Page(){
 
     #[test]
     fn verify_step_runtime_strips_output_truncation_pipe_before_execute() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         let events_path = dir.path().join(".anvil/runs/test/events.jsonl");
         let mut cfg = config(dir.path().to_path_buf());
@@ -5657,6 +5665,7 @@ export default function Page(){
 
     #[test]
     fn verify_step_runtime_rejects_custom_status_echo_before_safe_retry() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("src/app")).unwrap();
         std::fs::write(
@@ -5772,6 +5781,7 @@ export default function Page(){
 
     #[test]
     fn setup_step_bash_shell_control_is_runtime_setup_not_verifier_evidence() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         let events_path = dir.path().join(".anvil/runs/test/events.jsonl");
         let mut cfg = config(dir.path().to_path_buf());

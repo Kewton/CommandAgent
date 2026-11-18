@@ -364,6 +364,7 @@ mod moved {
 
     #[test]
     fn artifact_stagnation_feedback_then_write_succeeds() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         let contract = dir.path().join("contract.json");
         std::fs::write(
@@ -590,6 +591,7 @@ mod moved {
 
     #[test]
     fn ingest_successful_pipeline_execution_without_diff_completes_step() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         // uat-test0726-ingest-elev-001/list_cloud_002 events 138-161:
         // `python3 pipeline/main.py` exited successfully, produced no new diff, and was
         // repeated until the runtime emitted model_stagnation:no_progress_recorded.
@@ -647,6 +649,7 @@ mod moved {
 
     #[test]
     fn repeated_successful_command_still_exhausts_as_no_progress() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         let events = dir.path().join("events.jsonl");
         let mut cfg = config(dir.path().to_path_buf());
@@ -697,6 +700,7 @@ mod moved {
 
     #[test]
     fn direct_prompt_write_then_confirming_reads_completes_unverified() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("README.md"), "# Example\n").unwrap();
         let events = dir.path().join("events.jsonl");
@@ -833,6 +837,7 @@ mod moved {
 
     #[test]
     fn verify_failure_requires_edit_after_repeated_no_change() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         let contract = dir.path().join("contract.json");
         let events = dir.path().join("events.jsonl");

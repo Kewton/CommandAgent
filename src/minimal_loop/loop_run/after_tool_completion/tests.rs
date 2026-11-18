@@ -355,6 +355,7 @@ fn config(root: &Path) -> Config {
 
 #[test]
 fn plan_implement_step_still_ends_after_a_successful_bash_on_existing_paths() {
+    let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("dates.py"), "broken\n").unwrap();
     let mut client = Scripted::new(vec![
