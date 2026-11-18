@@ -12,7 +12,7 @@ use crate::mode::ExecutionMode;
 use super::args_recovery::recover_tool_arguments;
 use super::path_guard::{
     WorkspacePathNormalizationKind, normalize_absolute_workspace_glob, normalize_workspace_path,
-    resolve_existing, resolve_for_create,
+    resolve_existing_checked, resolve_for_create,
 };
 use super::repeated_read::{COMPACT_HEAD_LINES, ReadDecision, RepeatedReadCache};
 use super::workspace_policy::{WorkspacePolicy, ensure_tool_path_allowed};
@@ -343,7 +343,7 @@ impl ToolRegistry {
             "Read" => {
                 let raw = required_string(arguments, "path")?;
                 let failure = super::read_missing::ReadFailureContext::capture(context, raw);
-                let path = resolve_policy_checked_path(
+                let (path, checked_root) = resolve_policy_checked_target(
                     context,
                     "Read",
                     raw,
@@ -371,8 +371,9 @@ impl ToolRegistry {
                         Ok(unchanged.response)
                     }
                     ReadDecision::Full(pending) => {
-                        let output = crate::tools::read::run(
+                        let output = crate::tools::read::run_checked(
                             &context.root,
+                            checked_root.as_deref(),
                             &path,
                             start_line,
                             end_line,
@@ -467,6 +468,16 @@ fn resolve_policy_checked_path(
     raw: &str,
     resolution: PathResolution<'_>,
 ) -> anyhow::Result<PathBuf> {
+    resolve_policy_checked_target(context, tool, raw, resolution).map(|(path, _)| path)
+}
+
+/// The checked path, and for a Read the canonical root its check used.
+fn resolve_policy_checked_target(
+    context: &ToolContext,
+    tool: &str,
+    raw: &str,
+    resolution: PathResolution<'_>,
+) -> anyhow::Result<(PathBuf, Option<PathBuf>)> {
     let mut normalized = normalize_path_arg(context, tool, raw)?;
     if matches!(resolution, PathResolution::Read(_))
         && !context.root.join(&normalized).exists()
@@ -489,17 +500,18 @@ fn resolve_policy_checked_path(
         &normalized,
         context.workspace_policy,
     )?;
-    let path = match resolution {
+    let (path, checked_root) = match resolution {
         PathResolution::Read(failure) => {
             #[cfg(test)]
             super::read_missing::test_hook::after_path_selection(context, &normalized);
-            resolve_existing(&context.root, &normalized)
-                .map_err(|error| failure.classify_lookup(error, &normalized))?
+            let checked = resolve_existing_checked(&context.root, &normalized)
+                .map_err(|error| failure.classify_lookup(error, &normalized))?;
+            (checked.path, Some(checked.root))
         }
-        PathResolution::Create => resolve_for_create(&context.root, &normalized)?,
+        PathResolution::Create => (resolve_for_create(&context.root, &normalized)?, None),
     };
     ensure_tool_path_allowed(&context.root, &path, context.workspace_policy)?;
-    Ok(path)
+    Ok((path, checked_root))
 }
 
 fn normalize_path_arg(context: &ToolContext, tool: &str, raw: &str) -> anyhow::Result<String> {

@@ -172,6 +172,20 @@ pub fn normalize_absolute_workspace_glob(root: &Path, raw: &str) -> anyhow::Resu
 }
 
 pub fn resolve_existing(root: &Path, raw: &str) -> anyhow::Result<PathBuf> {
+    resolve_existing_checked(root, raw).map(|checked| checked.path)
+}
+
+/// An existing target together with the canonical root its containment check
+/// used (Issue #966), so a display can be made from the same pair instead of
+/// resolving the root again.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CheckedTarget {
+    pub root: PathBuf,
+    pub path: PathBuf,
+}
+
+/// [`resolve_existing`], returning the checked canonical root with the target.
+pub fn resolve_existing_checked(root: &Path, raw: &str) -> anyhow::Result<CheckedTarget> {
     validate_workspace_relative(raw)?;
     let root = root
         .canonicalize()
@@ -182,7 +196,10 @@ pub fn resolve_existing(root: &Path, raw: &str) -> anyhow::Result<PathBuf> {
         .canonicalize()
         .with_context(|| missing_path_message(&root, raw))?;
     ensure_inside(&root, &canonical)?;
-    Ok(canonical)
+    Ok(CheckedTarget {
+        root,
+        path: canonical,
+    })
 }
 
 pub fn resolve_for_create(root: &Path, raw: &str) -> anyhow::Result<PathBuf> {
@@ -912,6 +929,45 @@ mod tests {
         assert!(normalize_absolute_workspace_glob(&root, &format!("{r}/../x/*.txt")).is_err());
         assert!(normalize_absolute_workspace_glob(&root, "C:\\*.txt").is_err());
         assert!(normalize_absolute_workspace_glob(&root, "a\0*.txt").is_err());
+    }
+
+    #[test]
+    fn resolve_existing_checked_returns_the_root_its_check_used() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        std::fs::write(root.join("a.txt"), "ok").unwrap();
+
+        let checked = resolve_existing_checked(&root, "a.txt").unwrap();
+        assert_eq!(checked.root, root);
+        assert_eq!(checked.path, resolve_existing(&root, "a.txt").unwrap());
+        for raw in ["../x", "/etc/hosts", "missing.txt"] {
+            let checked = resolve_existing_checked(&root, raw).unwrap_err();
+            let plain = resolve_existing(&root, raw).unwrap_err();
+            assert_eq!(format!("{checked:#}"), format!("{plain:#}"), "{raw}");
+        }
+        let missing_root = root.join("missing-root");
+        assert!(
+            format!(
+                "{:#}",
+                resolve_existing_checked(&missing_root, "a.txt").unwrap_err()
+            )
+            .contains("workspace root is not accessible")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_existing_checked_reports_the_canonical_root_of_a_symlinked_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        std::fs::write(real.join("a.txt"), "ok").unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        let checked = resolve_existing_checked(&link, "a.txt").unwrap();
+        assert_eq!(checked.root, real.canonicalize().unwrap());
+        assert_eq!(checked.path, checked.root.join("a.txt"));
     }
 
     #[test]

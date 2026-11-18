@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{Value, json};
 
 use commandagent::mode::ExecutionMode;
+use commandagent::tools::path_guard::{resolve_existing, resolve_existing_checked};
 use commandagent::tools::read;
 use commandagent::tools::registry::{ToolContext, ToolRegistry, tool_error_kind};
 use commandagent::tools::workspace_policy::WorkspacePolicy;
@@ -274,6 +275,93 @@ fn unreadable_directory_is_still_refused_under_a_symlinked_root() {
         assert_eq!(result, &results[0].1, "{name}");
     }
     ws.close();
+}
+
+/// B1 of the #966 review: the root alias is swapped after the containment check
+/// and before the heading is made. The checks and the swap are separate calls,
+/// so the order is fixed without sleeping or racing a thread.
+#[test]
+fn heading_keeps_the_checked_root_when_the_root_alias_moves_after_the_check() {
+    let dir = tempfile::tempdir().unwrap();
+    let parent = dir.path().canonicalize().unwrap().join("parent 親");
+    let real = parent.join("ws");
+    std::fs::create_dir_all(&real).unwrap();
+    std::fs::write(real.join("file.txt"), "body\n").unwrap();
+    let alias = dir.path().join("alias");
+    std::os::unix::fs::symlink(&real, &alias).unwrap();
+
+    let checked = resolve_existing_checked(&alias, "file.txt").unwrap();
+    let leaf_target = resolve_existing(&alias, "file.txt").unwrap();
+    assert_eq!(checked.root, real.canonicalize().unwrap());
+    assert_eq!(leaf_target, checked.path);
+
+    // The seam: the alias now names the parent of the checked root.
+    std::fs::remove_file(&alias).unwrap();
+    std::os::unix::fs::symlink(&parent, &alias).unwrap();
+
+    let policy = WorkspacePolicy::NormalTask;
+    let paired = read::run_checked(
+        &alias,
+        Some(&checked.root),
+        &checked.path,
+        None,
+        None,
+        policy,
+    )
+    .unwrap();
+    assert_eq!(paired, "file.txt\nbody");
+
+    // Without the checked root the leaf does not resolve the alias again: it
+    // keeps the old absolute heading instead of relabeling the target as
+    // `ws/file.txt` under the moved alias.
+    let leaf = read::run(&alias, &leaf_target, None, None, policy).unwrap();
+    let heading = leaf.lines().next().unwrap_or("");
+    let absolute = leaf_target.to_string_lossy();
+    assert!(
+        heading == "file.txt" || heading == absolute,
+        "heading names the target under the moved alias: {heading}"
+    );
+    assert_ne!(heading, "ws/file.txt");
+}
+
+/// N1 of the #966 review: a root that cannot be resolved at all is refused by
+/// the public entry in either spelling, with the existing error.
+#[test]
+fn unresolvable_root_is_refused_in_either_spelling() {
+    let dir = tempfile::tempdir().unwrap();
+    let gate = dir.path().join("gate");
+    let real = gate.join("ws");
+    std::fs::create_dir_all(&real).unwrap();
+    std::fs::write(real.join("f.txt"), "hidden\n").unwrap();
+    let alias = dir.path().join("alias");
+    std::os::unix::fs::symlink(&real, &alias).unwrap();
+    let restore = RestorePermissions::lock(&gate);
+
+    let probe = std::fs::read_dir(&real);
+    let results = [real.as_path(), alias.as_path()].map(|root| {
+        ToolRegistry::default()
+            .execute("Read", &json!({ "path": "f.txt" }), &context(root, None))
+            .map_err(|error| (tool_error_kind(&error), format!("{error:#}")))
+    });
+    drop(restore);
+
+    assert_eq!(
+        probe.as_ref().err().map(|e| e.kind()),
+        Some(std::io::ErrorKind::PermissionDenied),
+        "this test must exercise actual EACCES; run under an unprivileged account"
+    );
+    for result in &results {
+        let (kind, message) = result
+            .as_ref()
+            .expect_err("an unresolvable root is refused");
+        assert_eq!(*kind, results[0].as_ref().unwrap_err().0);
+        assert!(
+            message.contains("workspace root is not accessible"),
+            "{message}"
+        );
+        assert!(!message.contains("hidden"), "{message}");
+    }
+    dir.close().unwrap();
 }
 
 /// Makes a directory unreadable and gives it back its own permissions on drop,
