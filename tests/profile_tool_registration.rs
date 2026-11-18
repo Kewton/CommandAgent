@@ -455,12 +455,42 @@ fn extension() -> &'static Extension {
 
 fn select_pack(id: &str) -> PathBuf {
     let directory = extension().root.join(format!("packs/{id}/1.0.0"));
-    let loaded = commandagent::planner::pack::load_directory(&directory).unwrap();
+    select_directory(&directory, id);
+    directory
+}
+
+fn select_directory(directory: &Path, id: &str) {
+    let loaded = commandagent::planner::pack::load_directory(directory).unwrap();
     set_env(PACK_ENVS[0], Some(directory.to_str().unwrap()));
     set_env(PACK_ENVS[1], Some(id));
     set_env(PACK_ENVS[2], Some("1.0.0"));
     set_env(PACK_ENVS[3], Some(&loaded.hash));
-    directory
+}
+
+/// A copy of one shared pack that only its test sees (Issue #995): a test that
+/// changes a pack's bytes changes this copy, and the shared pack, which tests in
+/// other threads and the binary read meanwhile, keeps its bytes.
+fn private_pack(id: &str) -> (tempfile::TempDir, PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    let directory = std::fs::canonicalize(dir.path())
+        .unwrap()
+        .join(format!("packs/{id}/1.0.0"));
+    copy_tree(
+        &extension().root.join(format!("packs/{id}/1.0.0")),
+        &directory,
+    );
+    (dir, directory)
+}
+
+/// A copy of the shared extension root's profiles and packs that only its test
+/// sees, for a test that adds a pack of its own (Issue #995).
+fn private_extension_root() -> (tempfile::TempDir, PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(dir.path()).unwrap();
+    for part in ["profiles", "packs"] {
+        copy_tree(&extension().root.join(part), &root.join(part));
+    }
+    (dir, root)
 }
 
 // ---------------------------------------------------------------------------
@@ -839,6 +869,20 @@ fn profile_and_pack_keep_only_the_builtins_both_kept_and_cannot_repeat_a_tool() 
 #[test]
 fn a_declaring_pack_selection_must_verify_and_be_unambiguous() {
     let _guard = lock();
+    a_selection_must_verify(|| {});
+}
+
+/// Issue #995: while the test above has a pin rewritten, what the binary reads of
+/// the shared pack stays the same, so a test reading it meanwhile keeps its answer.
+#[test]
+fn the_shared_pack_reads_the_same_while_a_selection_pin_is_rewritten() {
+    let _guard = lock();
+    a_selection_must_verify(assert_a_selected_or_inherited_declaring_pack_is_refused);
+}
+
+/// `while_the_pin_is_rewritten` runs after the rewritten pin is refused and before
+/// its bytes are put back.
+fn a_selection_must_verify(while_the_pin_is_rewritten: impl FnOnce()) {
     clear_selection();
     extension();
     let operator = Operator::new();
@@ -851,8 +895,10 @@ fn a_declaring_pack_selection_must_verify_and_be_unambiguous() {
         assert_eq!(client.calls(), 0);
     };
 
-    // The same checks the pack runtime makes: hash, identity, and pin.
-    let directory = select_pack(TOOL_PACK);
+    // The same checks the pack runtime makes: hash, identity, and pin. The pin is
+    // rewritten below, so the selection is a copy of the pack of this test's own.
+    let (_copy, directory) = private_pack(TOOL_PACK);
+    select_directory(&directory, TOOL_PACK);
     set_env(PACK_ENVS[3], Some("sha256:wrong"));
     refused("identity/hash mismatch");
     let directory_hash = commandagent::planner::pack::load_directory(&directory)
@@ -866,6 +912,7 @@ fn a_declaring_pack_selection_must_verify_and_be_unambiguous() {
     let original = std::fs::read(&pin).unwrap();
     std::fs::write(&pin, "sha256:other\n").unwrap();
     refused("does not match pack.sha256");
+    while_the_pin_is_rewritten();
     std::fs::write(&pin, original).unwrap();
     clear_selection();
 }
@@ -2268,13 +2315,30 @@ fn cli_run(
     arguments: &[&str],
     environment: &[(&str, &str)],
 ) -> CliRun {
+    cli_run_at(
+        &extension().root,
+        workspace,
+        registry,
+        arguments,
+        environment,
+    )
+}
+
+/// `cli_run` with an extension root other than the shared one.
+fn cli_run_at(
+    extension_root: &Path,
+    workspace: &Path,
+    registry: &Path,
+    arguments: &[&str],
+    environment: &[(&str, &str)],
+) -> CliRun {
     let provider = CountingEndpoint::start();
     let jev = CountingEndpoint::start();
     let home = tempfile::tempdir().unwrap();
     let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_commandagent"));
     command
         .arg("--extension-root")
-        .arg(&extension().root)
+        .arg(extension_root)
         .args(["--ollama-host", &provider.url, "--model", "m"])
         .args(["--request-pattern", "jev", "--chat-retries", "0"])
         .args(arguments)
@@ -2366,6 +2430,11 @@ fn a_registry_inside_the_workspace_is_refused_by_the_binary_too() {
 
 #[test]
 fn a_selected_or_inherited_declaring_pack_is_refused_by_the_binary() {
+    assert_a_selected_or_inherited_declaring_pack_is_refused();
+}
+
+/// The shared tool pack, selected or inherited, through the binary.
+fn assert_a_selected_or_inherited_declaring_pack_is_refused() {
     let operator = Operator::new();
     let (_dir, root) = workspace();
     let selected = cli_run(
@@ -3049,7 +3118,10 @@ fn an_inherited_off_pack_is_read_by_admission_and_no_byte_changes() {
 #[test]
 fn a_declaring_pack_with_a_symlinked_pin_is_refused_before_any_call() {
     let id = "tool-symlink-pin-pack";
-    let root = &extension().root;
+    // The pack is added to a copy of the extension root of this test's own: the
+    // shared root, which other tests read meanwhile, keeps its packs (Issue #995).
+    let (_root_dir, root) = private_extension_root();
+    let root = &root;
     write_pack(
         root,
         id,
@@ -3062,7 +3134,8 @@ fn a_declaring_pack_with_a_symlinked_pin_is_refused_before_any_call() {
     let operator = Operator::new();
     let (_dir, workspace_root) = workspace();
     let selector = format!("{id}@1.0.0");
-    let run = cli_run(
+    let run = cli_run_at(
+        root,
         &workspace_root,
         &operator.root,
         &[
