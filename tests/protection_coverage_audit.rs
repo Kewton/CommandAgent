@@ -344,7 +344,7 @@ fn protection_coverage_table_rejects_unregistered_mock_sites() {
         ),
         (
             "src/tools/registry.rs",
-            r#"fn default_tool_specs() { spec("Read", "", json!({"type":"object","properties":{"path":{"type":"string"}},"required":["path"]})); spec("Write", "", json!({"type":"object","properties":{"path":{"type":"string"}},"required":["path"]})); } fn execute() { let _ = resolve_existing(&context.root, raw); }"#,
+            r#"fn default_tool_specs() { spec("Read", "", json!({"type":"object","properties":{"path":{"type":"string"}},"required":["path"]})); spec("Write", "", json!({"type":"object","properties":{"path":{"type":"string"}},"required":["path"]})); } fn execute() { let _ = resolve_existing(&context.root, raw); let _ = resolve_existing_checked(&context.root, raw); }"#,
         ),
         (
             "src/config.rs",
@@ -386,6 +386,10 @@ fn protection_coverage_table_rejects_unregistered_mock_sites() {
         violations.contains("src/bin/gui_server/sessions.rs")
             && violations.contains("direct child-process invocation"),
         "old GUI process location did not trip the moved delegate guard: {violations}"
+    );
+    assert!(
+        violations.contains("bypasses policy helper: resolve_existing_checked(&context.root"),
+        "a checked resolver outside the policy helper passed: {violations}"
     );
 }
 
@@ -1928,6 +1932,7 @@ fn audit_workspace_policy_tool_paths(corpus: &AuditCorpus, _: &ProtectionRule) -
     let registry_without_helper = registry.replace(&helper, "");
     for raw_resolver in [
         "resolve_existing(&context.root",
+        "resolve_existing_checked(&context.root",
         "resolve_for_create(&context.root",
         "resolve_optional_existing(&context.root",
     ] {
