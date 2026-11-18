@@ -967,6 +967,7 @@ mod tests {
 
     #[test]
     fn classifies_contract_attribute_missing_before_missing_entrypoint() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("src/app")).unwrap();
         std::fs::write(dir.path().join("src/app/page.tsx"), "<main />").unwrap();

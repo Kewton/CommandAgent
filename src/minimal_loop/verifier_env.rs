@@ -468,6 +468,7 @@ mod tests {
 
     #[test]
     fn verify_timeout_kills_process_group_and_reports_timeout() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         let outcome = run_structured_for_verify_with_timeout(
             "sleep 5",

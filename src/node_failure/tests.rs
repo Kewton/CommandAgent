@@ -18,6 +18,7 @@ pub(crate) fn failure_report(root: &Path, attribute: &str) -> VerificationReport
 
 #[test]
 fn issue480_both_executors_preserve_bounded_redacted_cause() {
+    let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
     let root = tempfile::tempdir().unwrap();
     let command = "node -e 'throw new Error(\"failure sk-example-secret api_key=example \"+String.fromCharCode(47,85,115,101,114,115,47,101,120,97,109,112,108,101,47,112,114,105,118,97,116,101))'";
     let normalized: crate::planner::verify::NormalizedVerifyCommand =
@@ -95,6 +96,7 @@ fn issue480_command_literals_without_execution_evidence_stay_generic() {
 
 #[test]
 fn issue480_bash_private_output_redaction_cannot_create_attribute_authority() {
+    let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
     let root = tempfile::tempdir().unwrap();
     let encoded = ".commandagent/private"
         .bytes()

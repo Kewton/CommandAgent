@@ -308,6 +308,7 @@ mod tests {
 
     #[test]
     fn detects_state_attribute_failure_and_renders_guidance_with_hook_excerpts() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("src/app")).unwrap();
         std::fs::write(
@@ -356,6 +357,7 @@ mod tests {
 
     #[test]
     fn detects_action_attribute_failure() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("src/app")).unwrap();
         std::fs::write(dir.path().join("src/app/page.tsx"), "<main />").unwrap();
@@ -415,6 +417,7 @@ mod tests {
 
     #[test]
     fn repair_target_paths_prepend_contract_source() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("src/app")).unwrap();
         std::fs::write(dir.path().join("src/app/page.tsx"), "<main />").unwrap();

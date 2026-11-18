@@ -1662,6 +1662,7 @@ mod tests {
 
     #[test]
     fn direct_cli_error_finalizes_before_run_stop() {
+        let _state = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         let state_dir = dir.path().join("state");
         let cli = Cli::parse_from([

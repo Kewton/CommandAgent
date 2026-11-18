@@ -848,6 +848,7 @@ mod tests {
 
     #[test]
     fn repair_prompt_includes_contract_attribute_guidance() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("src/app")).unwrap();
         std::fs::write(

@@ -234,6 +234,7 @@ fn issue480_single_node_print_requires_observed_closed_predicate_failure() {
 
 #[test]
 fn issue480_display_excerpt_is_distinct_and_redacted_location_loss_is_generic() {
+    let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
     let root = tempfile::tempdir().unwrap();
     write(root.path(), "src/app/page.tsx", "<main />");
     let command = command();
