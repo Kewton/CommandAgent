@@ -70,8 +70,68 @@ pub(crate) fn setup() -> (tempfile::TempDir, Config) {
     setup_with(|_| {})
 }
 
+/// The first words of every failure of [`require_node_checker`] (Issue #968).
+pub(crate) const NODE_PRECONDITION: &str =
+    "PRECONDITION MISSING: the Issue #465 registered checker `node checks/target.js` cannot run";
+
+/// Issue #968: this fixture's registered checker is `node checks/target.js`, and the
+/// obligation is discharged only when that checker really runs and passes. Without a
+/// runnable `node` a positive case fails on a confirmation that never ran, and a negative
+/// case stays unresolved for that reason instead of the defect. So the setup first proves
+/// that `node` runs the way the verifier starts it and otherwise fails, naming the missing
+/// precondition. It never skips a case and never stands in for the checker: every case still
+/// runs the real checker.
+///
+/// It separates the two causes seen on Linux: `node` absent from the verifier's PATH, and
+/// `node` on that PATH but refused by the verifier's shell or OS sandbox.
+pub(crate) fn require_node_checker(root: &Path) {
+    let mut direct = crate::minimal_loop::verifier_env::normalized_command_at_root("node", root);
+    direct
+        .arg("--version")
+        .current_dir(root)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    match crate::bounded_process::run_with_timeout(&mut direct, std::time::Duration::from_secs(60))
+    {
+        Ok(output) if output.success() => {}
+        Ok(output) => panic!(
+            "{NODE_PRECONDITION}: `node --version` on the verifier PATH ended {:?} with {:?}: {}",
+            output.kind,
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => panic!(
+            "{NODE_PRECONDITION}: `node` is not on the verifier PATH ({} entries searched)",
+            std::env::var_os("PATH").map_or(0, |path| std::env::split_paths(&path).count())
+        ),
+        Err(error) => panic!(
+            "{NODE_PRECONDITION}: `node` is on the verifier PATH but cannot start ({:?}): {error}",
+            error.kind()
+        ),
+    }
+    let sandboxed = crate::minimal_loop::verifier_env::run_structured_for_verify_with_timeout(
+        "node --version",
+        root,
+        true,
+        std::time::Duration::from_secs(60),
+    )
+    .unwrap_or_else(|error| {
+        panic!("{NODE_PRECONDITION}: the verifier could not start `node --version`: {error:#}")
+    });
+    assert!(
+        sandboxed.is_success(),
+        "{NODE_PRECONDITION}: `node --version` runs directly but not through the verifier's \
+         shell and sandbox ({:?}): {} {}",
+        sandboxed.kind,
+        sandboxed.summary,
+        sandboxed.stderr.trim()
+    );
+}
+
 fn setup_with(customize: impl FnOnce(&Config)) -> (tempfile::TempDir, Config) {
     let root = tempfile::tempdir().unwrap();
+    require_node_checker(root.path());
     for path in [
         API,
         STORE,
@@ -423,4 +483,65 @@ fn issue465_runner_cannot_complete_before_real_target_repair() {
             .any(|e| e["reason"] == "recovery_repair_unresolved")
     );
     assert!(log.iter().any(|e| e["status"] == "resolved"));
+}
+
+/// Issue #968: the #465 positive cases, run in a child of this test binary whose PATH holds
+/// no `node`, fail as a missing precondition: they neither pass nor skip. The child runs one
+/// named case, so a name that matches no case is a failure here as well.
+#[test]
+fn issue465_positive_cases_fail_as_a_missing_precondition_without_node() {
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let without_node = std::env::join_paths(
+        std::env::split_paths(&path)
+            .filter(|entry| !entry.join("node").exists() && !entry.join("node.exe").exists()),
+    )
+    .unwrap();
+    assert!(
+        std::env::split_paths(&without_node).all(|entry| !entry.join("node").exists()),
+        "the child PATH must hold no node"
+    );
+    let executable = std::env::current_exe().unwrap();
+    for test in [
+        "minimal_loop::loop_run::implementation_completion::repair_artifact_completion::tests::\
+         a_recovery_obligation_keeps_the_issue465_decision",
+        "planner::recovery_repair_obligation::tests::issue465_stale_pass_and_preservation_bypasses_fail",
+        "planner::recovery_repair_obligation::tests::\
+         issue465_non_repairs_cannot_discharge_and_feedback_allows_real_repair",
+    ] {
+        let mut child = std::process::Command::new(&executable);
+        child
+            .args(["--exact", test])
+            .env("PATH", &without_node)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        let output = crate::bounded_process::run_with_timeout(
+            &mut child,
+            std::time::Duration::from_secs(300),
+        )
+        .unwrap();
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            output.kind,
+            crate::bounded_process::BoundedProcessOutcomeKind::Exited,
+            "{test}:\n{text}"
+        );
+        assert!(!output.success(), "{test} passed without node:\n{text}");
+        assert!(
+            text.contains("running 1 test"),
+            "{test} ran no test:\n{text}"
+        );
+        assert!(
+            text.contains(&format!("test {test} ... FAILED")),
+            "{test} did not fail:\n{text}"
+        );
+        assert!(
+            text.contains(NODE_PRECONDITION) && text.contains("is not on the verifier PATH"),
+            "{test} failed for another reason than the missing node:\n{text}"
+        );
+    }
 }
