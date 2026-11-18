@@ -243,14 +243,16 @@ pub fn run(mut config: Config) -> anyhow::Result<()> {
                     continue;
                 }
             };
-            let directive = match boundary_shell.begin_directive(raw, &target_run_id, next_round) {
+            let directive = match begin_directive_for(
+                &mut boundary_shell,
+                active_identity.as_ref(),
+                raw,
+                &target_run_id,
+                next_round,
+            ) {
                 Ok(directive) => directive,
-                Err(error) => {
-                    render_and_remember(
-                        &renderer,
-                        &mut last_result,
-                        format!("Directive refused: {error}"),
-                    )?;
+                Err(refused) => {
+                    render_and_remember(&renderer, &mut last_result, refused)?;
                     ui.reset_interrupt();
                     continue;
                 }
@@ -294,22 +296,15 @@ Confirm with `/confirm-directive {}` before continuation dispatch.",
                 ui.reset_interrupt();
                 continue;
             };
-            let directive = match confirm_directive_for(
-                &mut boundary_shell,
-                &config,
-                &identity,
-                directive_hash,
-            ) {
-                Ok(directive) => directive,
-                Err(refusal) => {
-                    if let Some(identity) = refusal.returned_to {
-                        active_identity = identity.map(|identity| *identity);
+            let directive =
+                match confirm_directive_for(&mut boundary_shell, &identity, directive_hash) {
+                    Ok(directive) => directive,
+                    Err(refused) => {
+                        render_and_remember(&renderer, &mut last_result, refused)?;
+                        ui.reset_interrupt();
+                        continue;
                     }
-                    render_and_remember(&renderer, &mut last_result, refusal.shown)?;
-                    ui.reset_interrupt();
-                    continue;
-                }
-            };
+                };
             let Some(events_path) = config.eval_events_path.as_deref() else {
                 render_and_remember(
                     &renderer,
@@ -672,56 +667,41 @@ fn boundary_shell_for(config: &Config) -> crate::tui::boundary_shell::BoundarySh
     )
 }
 
-/// A `/confirm-directive` the REPL refused.
-struct DirectiveRefusal {
-    /// What the REPL shows.
-    shown: String,
-    /// Set when the refusal also took the shell back from the directive proposal: the
-    /// identity of the terminal run it returned to, if one was restored.
-    returned_to:
-        Option<Option<Box<crate::tui::boundary_shell::confirmation::ConfirmationIdentity>>>,
+/// `/directive`: proposes a directive for the run of `identity` at Gate 3 or Gate 4, or
+/// returns the refusal the REPL shows.
+fn begin_directive_for<'a>(
+    boundary_shell: &'a mut crate::tui::boundary_shell::BoundaryShell,
+    identity: Option<&crate::tui::boundary_shell::confirmation::ConfirmationIdentity>,
+    raw: &str,
+    target_run_id: &str,
+    round: u32,
+) -> Result<&'a crate::tui::boundary_shell::directive::PersistedDirective, String> {
+    // A run of another pack can never be continued while this pack is held, so the
+    // directive is refused before a proposal, its artifact, or its session round exists,
+    // and the shell stays at its gate.
+    if let Some(refused) = identity.and_then(|identity| refused_for_held_pack(&identity.pack)) {
+        return Err(format!("Directive refused: {refused}"));
+    }
+    boundary_shell
+        .begin_directive(raw, target_run_id, round)
+        .map_err(|error| format!("Directive refused: {error}"))
 }
 
 /// `/confirm-directive`: persists the directive awaiting confirmation for the run of
-/// `identity`, or returns the refusal the REPL shows.
+/// `identity`, or returns the refusal the REPL shows. `/directive` already refuses a run
+/// of a pack other than the held one; this check is the last guard and changes no state.
 fn confirm_directive_for(
     boundary_shell: &mut crate::tui::boundary_shell::BoundaryShell,
-    config: &Config,
     identity: &crate::tui::boundary_shell::confirmation::ConfirmationIdentity,
     directive_hash: &str,
-) -> Result<crate::tui::boundary_shell::directive::PersistedDirective, DirectiveRefusal> {
+) -> Result<crate::tui::boundary_shell::directive::PersistedDirective, String> {
     if let Some(refused) = refused_for_held_pack(&identity.pack) {
-        let mut shown = format!("Directive confirmation refused: {refused}");
-        // The proposal can never be confirmed while this pack is held, so it is withdrawn:
-        // the shell restores the terminal of the latest confirmed run, as the REPL does when
-        // it starts, and Gate 3 or Gate 4 is open again.
-        *boundary_shell = boundary_shell_for(config);
-        let returned_to = match boundary_shell.restore_latest_terminal() {
-            Ok(restored) => {
-                shown.push_str(
-                    "\n\nThe directive proposal was withdrawn, and the confirmed run is back at its Gate 3 or Gate 4.",
-                );
-                restored.map(Box::new)
-            }
-            Err(error) => {
-                shown.push_str(&format!(
-                    "\n\nThe directive proposal was withdrawn, and the confirmed run's terminal could not be restored ({error:#}); start a new Gate 1 request."
-                ));
-                None
-            }
-        };
-        return Err(DirectiveRefusal {
-            shown,
-            returned_to: Some(returned_to),
-        });
+        return Err(format!("Directive confirmation refused: {refused}"));
     }
     boundary_shell
         .confirm_directive(directive_hash)
         .map(|confirmed| confirmed.directive().clone())
-        .map_err(|error| DirectiveRefusal {
-            shown: format!("Directive confirmation refused: {error}"),
-            returned_to: None,
-        })
+        .map_err(|error| format!("Directive confirmation refused: {error}"))
 }
 
 fn validate_saved_session_resume(state_dir: &Path, resume: &str) -> anyhow::Result<()> {
@@ -2076,9 +2056,7 @@ mod tests {
                         assert!(!events.contains("\"event\":\"route_confirmed\""), "{events}");
 
                         let shown =
-                            confirm_directive_for(&mut shell, &config, &other, &"0".repeat(64))
-                                .unwrap_err()
-                                .shown;
+                            confirm_directive_for(&mut shell, &other, &"0".repeat(64)).unwrap_err();
                         assert!(shown.starts_with("Directive confirmation refused: "), "{shown}");
                         assert!(shown.contains("--pack cli-assist@1.1.0"), "{shown}");
                         assert!(shown.contains("`cli-assist@1.0.0`"), "{shown}");
@@ -2091,99 +2069,254 @@ mod tests {
         );
     }
 
+    /// The failed run of a confirmed card for `pack`, taken to its Gate 4 in `shell`, as a
+    /// restored or finished run is: the identity it ran.
+    fn fail_at_gate_four(
+        shell: &mut crate::tui::boundary_shell::BoundaryShell,
+        config: &Config,
+        pack: PackSelection,
+    ) -> crate::tui::boundary_shell::confirmation::ConfirmationIdentity {
+        let card = shell
+            .begin_gate_one(
+                python_cli_proposal(),
+                "Python CLI filter",
+                &config.workspace_root,
+                pins(),
+                pack,
+            )
+            .unwrap()
+            .card_hash()
+            .unwrap();
+        let ran = shell.confirm(&card).unwrap().identity().clone();
+        finish_failed(shell, config);
+        ran
+    }
+
+    /// Ends the dispatched run in `shell` as failed, at its Gate 4.
+    fn finish_failed(shell: &mut crate::tui::boundary_shell::BoundaryShell, config: &Config) {
+        shell.dispatch(|_| Ok("failed".to_string())).unwrap();
+        crate::eval_events::emit(
+            config.eval_events_path.as_deref(),
+            serde_json::json!({
+                "event": "tui_command_stop",
+                "profile": "python-cli",
+                "status": "failed",
+                "ok": false,
+                "stop_reason": "failed",
+            }),
+        );
+        shell
+            .present_terminal(
+                "# sheet\n\n## 5. Stop reason\nfailed".to_string(),
+                false,
+                Some("failed".to_string()),
+            )
+            .unwrap();
+    }
+
+    /// A REPL configuration whose state directory and event stream are its own.
+    fn held_pack_session(
+        root: &std::path::Path,
+    ) -> (
+        Config,
+        crate::tui::boundary_shell::confirmation::ConfirmationIdentity,
+    ) {
+        let events = root.join("run-1036").join("events.jsonl");
+        std::fs::create_dir_all(events.parent().unwrap()).unwrap();
+        let (mut config, identity) = confirmed_python_cli_pack(&events);
+        config.state_dir = root.join("state");
+        (config, identity)
+    }
+
+    fn count_entries(directory: &std::path::Path) -> usize {
+        std::fs::read_dir(directory).map_or(0, |entries| entries.count())
+    }
+
     /// Issue #1036 D2: a REPL holding `cli-assist@1.1.0` restores a failed run of
-    /// `cli-assist@1.0.0` and proposes a directive for it. `/confirm-directive` is refused,
-    /// with its reason, and nothing is confirmed; the proposal is withdrawn, so the shell is
-    /// back at that run's Gate 4, where `/pack cli-assist@1.1.0` makes a pack-change card.
+    /// `cli-assist@1.0.0`. `/directive` for that run is refused, with its reason, before a
+    /// proposal, its artifact, or its session round exists, and the shell stays at Gate 4,
+    /// where `/pack cli-assist@1.1.0` makes a pack-change card.
     #[test]
-    fn a_refused_directive_leaves_gate_four_open_for_the_held_pack() {
+    fn a_directive_for_another_pack_run_is_refused_before_it_is_proposed() {
         crate::cli_pack::tests::own_process::run(
-            "tui::repl::tests::a_refused_directive_leaves_gate_four_open_for_the_held_pack",
+            "tui::repl::tests::a_directive_for_another_pack_run_is_refused_before_it_is_proposed",
             || {
                 within_held_pack_deadline(|| {
                     let root = tempfile::tempdir().unwrap();
-                    let events = root.path().join("events.jsonl");
-                    let (mut config, identity) = confirmed_python_cli_pack(&events);
-                    config.state_dir = root.path().join("state");
+                    let (config, identity) = held_pack_session(root.path());
                     let other = other_python_cli_pack(&identity);
                     with_confirmed_pack(&config, &identity, || {
-                        // The failed confirmed run of cli-assist@1.0.0, at its Gate 4.
                         let mut shell = boundary_shell_for(&config);
-                        let card = shell
-                            .begin_gate_one(
-                                python_cli_proposal(),
-                                "Python CLI filter",
-                                &config.workspace_root,
-                                pins(),
-                                other.pack.clone(),
-                            )
-                            .unwrap()
-                            .card_hash()
-                            .unwrap();
-                        let ran = shell.confirm(&card).unwrap().identity().clone();
-                        shell.dispatch(|_| Ok("failed".to_string())).unwrap();
-                        crate::eval_events::emit(
-                            Some(&events),
-                            serde_json::json!({
-                                "event": "tui_command_stop",
-                                "profile": "python-cli",
-                                "status": "failed",
-                                "ok": false,
-                                "stop_reason": "failed",
-                            }),
-                        );
-                        shell
-                            .present_terminal(
-                                "# sheet\n\n## 5. Stop reason\nfailed".to_string(),
-                                false,
-                                Some("failed".to_string()),
-                            )
-                            .unwrap();
-                        let directive = shell
-                            .begin_directive("retry the filter", "run-1036", 1)
-                            .unwrap()
-                            .hash()
-                            .to_string();
-                        assert!(matches!(
-                            shell.state(),
-                            crate::tui::boundary_shell::BoundaryState::AwaitingDirectiveConfirmation { .. }
-                        ));
+                        let ran = fail_at_gate_four(&mut shell, &config, other.pack.clone());
+                        let target = boundary_run_id(config.eval_events_path.as_deref()).unwrap();
+                        let round = shell.next_directive_round(&target).unwrap();
+                        let artifacts = config.state_dir.join("boundary-directives");
+                        let sessions = config.state_dir.join("boundary-sessions");
+                        let before = (count_entries(&artifacts), count_entries(&sessions));
 
-                        let refusal =
-                            confirm_directive_for(&mut shell, &config, &ran, &directive)
+                        let refused =
+                            begin_directive_for(&mut shell, Some(&ran), "retry", &target, round)
+                                .map(|directive| directive.hash().to_string())
                                 .unwrap_err();
-                        let shown = &refusal.shown;
-                        assert!(shown.starts_with("Directive confirmation refused: "), "{shown}");
-                        assert!(shown.contains("--pack cli-assist@1.1.0"), "{shown}");
-                        assert!(shown.contains("`cli-assist@1.0.0`"), "{shown}");
-                        assert!(shown.contains("without `--pack`"), "{shown}");
-                        let recorded = std::fs::read_to_string(&events).unwrap();
-                        assert!(
-                            !recorded.contains("\"event\":\"human_directive_confirmed\""),
-                            "{recorded}"
+                        assert!(refused.starts_with("Directive refused: "), "{refused}");
+                        assert!(refused.contains("--pack cli-assist@1.1.0"), "{refused}");
+                        assert!(refused.contains("`cli-assist@1.0.0`"), "{refused}");
+                        assert!(refused.contains("without `--pack`"), "{refused}");
+                        assert_eq!(
+                            (count_entries(&artifacts), count_entries(&sessions)),
+                            before,
+                            "the refused directive left an artifact or a session round"
                         );
+                        assert_eq!(shell.next_directive_round(&target).unwrap(), round);
                         assert!(
                             matches!(
                                 shell.state(),
                                 crate::tui::boundary_shell::BoundaryState::FailureReady(_)
                             ),
-                            "the refused directive proposal still holds the shell: {:?}",
+                            "{:?}",
                             shell.state()
                         );
-                        let active = refusal
-                            .returned_to
-                            .expect("the refusal did not say where the shell returned")
-                            .expect("no terminal run was restored");
-                        assert_eq!(*active, ran);
-
                         let changed =
-                            begin_gate_four_pack_change(&mut shell, &active, "cli-assist@1.1.0")
+                            begin_gate_four_pack_change(&mut shell, &ran, "cli-assist@1.1.0")
                                 .unwrap();
                         assert!(matches!(
                             &changed.pack,
                             PackSelection::Pinned { id, version, .. }
                                 if id == "cli-assist" && version == "1.1.0"
                         ));
+                        Ok(())
+                    })
+                    .unwrap();
+                });
+            },
+        );
+    }
+
+    /// Issue #1036 D2-1: while the `/pack cli-assist@1.1.0` card awaits confirmation, a
+    /// `/confirm-directive` with a stale hash for the restored `cli-assist@1.0.0` run is
+    /// refused and changes nothing, and `/confirm` of the card still goes through.
+    #[test]
+    fn an_unrelated_directive_confirmation_keeps_the_pack_change_card() {
+        crate::cli_pack::tests::own_process::run(
+            "tui::repl::tests::an_unrelated_directive_confirmation_keeps_the_pack_change_card",
+            || {
+                within_held_pack_deadline(|| {
+                    let root = tempfile::tempdir().unwrap();
+                    let (config, identity) = held_pack_session(root.path());
+                    let other = other_python_cli_pack(&identity);
+                    with_confirmed_pack(&config, &identity, || {
+                        let mut shell = boundary_shell_for(&config);
+                        let ran = fail_at_gate_four(&mut shell, &config, other.pack.clone());
+                        let card =
+                            begin_gate_four_pack_change(&mut shell, &ran, "cli-assist@1.1.0")
+                                .unwrap()
+                                .card_hash()
+                                .unwrap();
+                        let awaiting = format!("{:?}", shell.state());
+
+                        let refused = confirm_directive_for(
+                            &mut shell,
+                            &ran,
+                            &format!("sha256:{}", "0".repeat(64)),
+                        )
+                        .unwrap_err();
+                        assert!(
+                            refused.starts_with("Directive confirmation refused: "),
+                            "{refused}"
+                        );
+                        assert!(refused.contains("`cli-assist@1.0.0`"), "{refused}");
+                        assert_eq!(format!("{:?}", shell.state()), awaiting);
+                        let confirmed = confirm_gate_one(&mut shell, &card).unwrap();
+                        assert!(matches!(
+                            &confirmed.pack,
+                            PackSelection::Pinned { id, version, .. }
+                                if id == "cli-assist" && version == "1.1.0"
+                        ));
+                        Ok(())
+                    })
+                    .unwrap();
+                });
+            },
+        );
+    }
+
+    /// Issue #1036 D2-3: a directive refused for the held pack is not history. After the
+    /// REPL goes on to a run of the held pack and proposes a directive for it, the history a
+    /// later round of that lineage is given holds that directive and not the refused one.
+    #[test]
+    fn a_refused_directive_never_reaches_a_later_round_history() {
+        crate::cli_pack::tests::own_process::run(
+            "tui::repl::tests::a_refused_directive_never_reaches_a_later_round_history",
+            || {
+                within_held_pack_deadline(|| {
+                    let root = tempfile::tempdir().unwrap();
+                    let (config, identity) = held_pack_session(root.path());
+                    let other = other_python_cli_pack(&identity);
+                    with_confirmed_pack(&config, &identity, || {
+                        let mut shell = boundary_shell_for(&config);
+                        let ran = fail_at_gate_four(&mut shell, &config, other.pack.clone());
+                        let target = boundary_run_id(config.eval_events_path.as_deref()).unwrap();
+                        let round = shell.next_directive_round(&target).unwrap();
+                        let _ = begin_directive_for(
+                            &mut shell,
+                            Some(&ran),
+                            "REFUSED use the 1.0.0 rules",
+                            &target,
+                            round,
+                        )
+                        .map(|directive| directive.hash().to_string());
+
+                        // The REPL goes on: a run of the held pack, failed at its Gate 4.
+                        let mut shell = boundary_shell_for(&config);
+                        let ran = fail_at_gate_four(&mut shell, &config, other.pack.clone());
+                        let card =
+                            begin_gate_four_pack_change(&mut shell, &ran, "cli-assist@1.1.0")
+                                .unwrap()
+                                .card_hash()
+                                .unwrap();
+                        let held_run = confirm_gate_one(&mut shell, &card).unwrap();
+                        finish_failed(&mut shell, &config);
+                        let round = shell.next_directive_round(&target).unwrap();
+                        begin_directive_for(
+                            &mut shell,
+                            Some(&held_run),
+                            "LEGIT keep the held rules",
+                            &target,
+                            round,
+                        )
+                        .unwrap();
+
+                        // What the next round of the lineage is given.
+                        let sessions = config.state_dir.join("boundary-sessions");
+                        let events = config.eval_events_path.clone().unwrap();
+                        let recorded =
+                            crate::tui::boundary_shell::directive_session::load_for_target(
+                                &sessions, &target,
+                            )
+                            .unwrap();
+                        for prior in &recorded.session().rounds {
+                            crate::tui::boundary_shell::directive_session::record_latest_result(
+                                &sessions,
+                                &target,
+                                prior.round,
+                                &events,
+                            )
+                            .unwrap();
+                        }
+                        let session =
+                            crate::tui::boundary_shell::directive_session::load_for_target(
+                                &sessions, &target,
+                            )
+                            .unwrap();
+                        let next = session.session().rounds.len() as u32 + 1;
+                        let history = crate::tui::boundary_shell::directive_session::render_history(
+                            session.session(),
+                            next,
+                            crate::tui::boundary_shell::directive_session::MAX_HISTORY_RENDERED_BYTES,
+                        )
+                        .unwrap();
+                        assert!(history.contains("LEGIT keep the held rules"), "{history}");
+                        assert!(!history.contains("REFUSED"), "{history}");
                         Ok(())
                     })
                     .unwrap();
