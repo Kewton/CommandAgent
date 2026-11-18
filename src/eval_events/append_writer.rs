@@ -1011,23 +1011,25 @@ mod tests {
         let mut child = std::process::Command::new(std::env::current_exe().unwrap())
             .args(["--exact", test, "--nocapture"])
             .env(RAN, &ran)
+            .stdout(std::process::Stdio::piped())
             .spawn()
             .unwrap();
-        let pid = child.id().to_string();
-        let waiter = spawn_with_result(move || child.wait().map_err(|err| err.to_string()));
-        let status = match waiter.1.recv_timeout(limit) {
-            Ok(status) => {
-                waiter.0.join().unwrap();
-                status.unwrap()
-            }
-            Err(_) => {
-                let _ = std::process::Command::new("kill")
-                    .args(["-KILL", &pid])
-                    .status();
-                let _ = collect(waiter, test_seam::HANG_GUARD, "the killed child");
-                panic!("{test} did not finish within {limit:?} in its own process; it was killed")
-            }
-        };
+        // The child's stdout ends when the child does; its text passes through.
+        let mut stdout = child.stdout.take().unwrap();
+        let ended = spawn_with_result(move || {
+            let mut text = String::new();
+            let read = stdout.read_to_string(&mut text);
+            print!("{text}");
+            read.map(|_| ())
+        });
+        if ended.1.recv_timeout(limit).is_err() {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = collect(ended, test_seam::HANG_GUARD, "the killed child's output");
+            panic!("{test} did not finish within {limit:?} in its own process; it was killed")
+        }
+        ended.0.join().unwrap();
+        let status = child.wait().unwrap();
         assert!(
             status.success(),
             "{test} failed in its own process: {status}"
