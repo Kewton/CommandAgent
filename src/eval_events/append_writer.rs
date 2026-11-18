@@ -7,12 +7,13 @@
 //! bytes into the file, whatever spelling of the path it opened. Partial writes
 //! and `Interrupted` are retried to the end of the record; any other error is
 //! returned to the caller, which reports it. Writers in other processes, and
-//! paths that are not regular files (a FIFO, a device), are outside this
-//! guarantee (see `docs/dev/maintainability-architecture.md`).
+//! paths that are not regular files (a FIFO, a device, written with the calls
+//! of fc903248 and no lock), are outside this guarantee (see
+//! `docs/dev/maintainability-architecture.md`).
 //!
 //! Nothing called under the lock emits, redacts, publishes, or touches the
 //! provider-turn spool registry, so a flush can never re-enter the lock.
-use std::fs::OpenOptions;
+use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -25,7 +26,7 @@ static WRITE_LOCK: Mutex<()> = Mutex::new(());
 
 /// Append `event` as one line, creating the parent directory first.
 pub(crate) fn append_event(path: &Path, event: &Value) -> anyhow::Result<()> {
-    append_event_with_tail(path, event, &mut io::empty())
+    append_event_and(path, event, None)
 }
 
 /// Append `event` as one line and then `tail` (whole lines) under one lock, so
@@ -35,6 +36,10 @@ pub(crate) fn append_event_with_tail(
     event: &Value,
     tail: &mut dyn Read,
 ) -> anyhow::Result<()> {
+    append_event_and(path, event, Some(tail))
+}
+
+fn append_event_and(path: &Path, event: &Value, tail: Option<&mut dyn Read>) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -47,26 +52,55 @@ pub(crate) fn append_event_with_tail(
 /// Append a line its caller already built, ending in `\n`. The parent
 /// directory must exist.
 pub(crate) fn append_line(path: &Path, line: &[u8]) -> io::Result<()> {
-    append_locked(path, line, &mut io::empty())
+    append_locked(path, line, None)
 }
 
-fn append_locked(path: &Path, record: &[u8], tail: &mut dyn Read) -> io::Result<()> {
+fn append_locked(path: &Path, record: &[u8], tail: Option<&mut dyn Read>) -> io::Result<()> {
     // Opened before the lock: opening a FIFO with no reader waits, and must
-    // not hold up writers of other files. Only a regular file takes the lock;
-    // a FIFO or device is written as at fc903248, outside the line guarantee.
+    // not hold up writers of other files. A handle that cannot be classified
+    // counts as a regular file.
     let file = open_append(path)?;
-    let _guard = file
-        .metadata()
-        .map_or(true, |meta| meta.is_file())
-        .then(lock);
+    if !file.metadata().map_or(true, |meta| meta.is_file()) {
+        return append_as_before(file, path, record, tail);
+    }
+    let _guard = lock();
     #[cfg(test)]
     let file = test_seam::PauseAt::for_this_thread(file);
-    write_record(file, record, tail)
+    write_record(file, record, tail.unwrap_or(&mut io::empty()))
+}
+
+/// A FIFO or device, written with fc903248's calls and no lock: the body and
+/// its LF as `writeln!` wrote them, then a provider turn's tail through a
+/// second append open, which reaches a FIFO reader that came after the first.
+fn append_as_before(
+    mut file: File,
+    path: &Path,
+    record: &[u8],
+    tail: Option<&mut dyn Read>,
+) -> io::Result<()> {
+    match record.strip_suffix(b"\n") {
+        Some(body) => {
+            file.write_all(body)?;
+            file.write_all(b"\n")?;
+        }
+        None => file.write_all(record)?,
+    }
+    let Some(tail) = tail else {
+        return Ok(());
+    };
+    drop(file);
+    #[cfg(test)]
+    test_seam::before_tail();
+    #[cfg(test)]
+    test_seam::before_open();
+    let mut file = OpenOptions::new().append(true).open(path)?;
+    io::copy(tail, &mut file)?;
+    Ok(())
 }
 
 /// The open itself. Tests are told here, at the open and not before it, so
 /// whatever the caller holds when it opens is already held when they hear.
-fn open_append(path: &Path) -> io::Result<std::fs::File> {
+fn open_append(path: &Path) -> io::Result<File> {
     #[cfg(test)]
     test_seam::before_open();
     OpenOptions::new().create(true).append(true).open(path)
@@ -721,68 +755,177 @@ mod tests {
         check_turn(&events, "turn", TAIL).unwrap();
     }
 
-    /// Lets a writer stuck opening a FIFO go on: opening the read end without
-    /// blocking completes its open. Dropped on every exit, so a failing
-    /// assertion never leaves that writer waiting.
+    /// Runs `work` on its own thread; its result comes back on the receiver.
     #[cfg(unix)]
-    struct FifoReader(PathBuf);
+    fn spawn_with_result<T: Send + 'static>(
+        work: impl FnOnce() -> T + Send + 'static,
+    ) -> (std::thread::JoinHandle<()>, std::sync::mpsc::Receiver<T>) {
+        let (tx, rx) = channel();
+        let handle = std::thread::spawn(move || {
+            let _ = tx.send(work());
+        });
+        (handle, rx)
+    }
 
+    /// The result of a thread from `spawn_with_result`, which is then joined.
+    /// A thread still running after `limit` fails the test by name instead of
+    /// being left behind unnoticed.
     #[cfg(unix)]
-    impl Drop for FifoReader {
-        fn drop(&mut self) {
-            use std::os::unix::fs::OpenOptionsExt;
-            let _ = OpenOptions::new()
-                .read(true)
-                .custom_flags(libc::O_NONBLOCK)
-                .open(&self.0);
+    fn collect<T>(
+        (handle, rx): (std::thread::JoinHandle<()>, std::sync::mpsc::Receiver<T>),
+        limit: std::time::Duration,
+        what: &str,
+    ) -> T {
+        match rx.recv_timeout(limit) {
+            Ok(result) => {
+                handle.join().unwrap();
+                result
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                handle.join().unwrap();
+                panic!("{what} ended without a result")
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                panic!("{what} did not finish within {limit:?}; its thread is still running")
+            }
         }
     }
 
+    #[cfg(unix)]
+    fn mkfifo(path: &Path) {
+        let made = std::process::Command::new("mkfifo")
+            .arg(path)
+            .status()
+            .unwrap();
+        assert!(made.success());
+    }
+
+    /// Reads a FIFO from a blocking open (which waits for a writer) to its end.
+    #[cfg(unix)]
+    fn read_fifo(path: PathBuf) -> Result<Vec<u8>, String> {
+        let mut bytes = Vec::new();
+        File::open(path)
+            .and_then(|mut reader| reader.read_to_end(&mut bytes))
+            .map(|_| bytes)
+            .map_err(|err| err.to_string())
+    }
+
     /// A writer waiting to open a FIFO with no reader holds no lock, so a
-    /// writer of an unrelated regular file finishes meanwhile.
+    /// writer of an unrelated regular file finishes meanwhile. Every thread is
+    /// collected before any result is asserted.
     #[cfg(unix)]
     #[test]
     fn a_fifo_waiting_for_a_reader_does_not_hold_up_other_files() {
         let dir = tempfile::tempdir().unwrap();
         let fifo = dir.path().join("events.fifo");
         let path = dir.path().join("events.jsonl");
-        let made = std::process::Command::new("mkfifo")
-            .arg(&fifo)
-            .status()
-            .unwrap();
-        assert!(made.success());
+        mkfifo(&fifo);
         let (opening_tx, opening_rx) = channel();
         let fifo_path = fifo.clone();
-        let fifo_writer = std::thread::spawn(move || {
+        let fifo_writer = spawn_with_result(move || {
             let _probe = test_seam::OpenProbe::enter(opening_tx);
-            append_event(&fifo_path, &fixture("fifo"))
+            append_event(&fifo_path, &fixture("fifo")).map_err(|err| err.to_string())
         });
-        let release = FifoReader(fifo.clone());
         // Heard at the open itself: a lock taken before the open is held by
         // now, whatever the order of the two threads.
         let locks_before_open = opening_rx
             .recv_timeout(test_seam::HANG_GUARD)
             .expect("the FIFO writer reaches its open");
-        let (done_tx, done_rx) = channel();
-        let file_writer = std::thread::spawn(move || {
-            append_event(&path, &fixture("file")).unwrap();
-            let _ = done_tx.send(read(&path));
+        let (file_handle, file_rx) = spawn_with_result(move || {
+            append_event(&path, &fixture("file"))
+                .map(|()| read(&path))
+                .map_err(|err| err.to_string())
         });
-        let written = done_rx
-            .recv_timeout(std::time::Duration::from_secs(30))
-            .expect("the regular file's append is not held up by the FIFO");
-        check_exact(&written, &[fixture("file")]).unwrap();
+        let file_in_time = file_rx.recv_timeout(std::time::Duration::from_secs(30));
+        // The reader is the peer the FIFO writer's open waits for; it stays
+        // open until that writer is done.
+        let reader = spawn_with_result({
+            let fifo = fifo.clone();
+            move || read_fifo(fifo)
+        });
+        let fifo_result = collect(fifo_writer, test_seam::HANG_GUARD, "the FIFO writer");
+        let fifo_bytes = collect(reader, test_seam::HANG_GUARD, "the FIFO reader");
+        let written = match file_in_time {
+            Ok(written) => {
+                file_handle.join().unwrap();
+                written
+            }
+            Err(_) => {
+                let late = collect(
+                    (file_handle, file_rx),
+                    test_seam::HANG_GUARD,
+                    "the file writer",
+                );
+                panic!(
+                    "the regular file's append waited for the FIFO's reader (then: {:?})",
+                    late.map(|bytes| bytes.len())
+                )
+            }
+        };
+        check_exact(&written.unwrap(), &[fixture("file")]).unwrap();
         assert_eq!(
             locks_before_open, 0,
             "the FIFO writer opens holding no lock"
         );
-        let mut reader = std::fs::File::open(&fifo).unwrap();
-        fifo_writer.join().unwrap().unwrap();
-        file_writer.join().unwrap();
-        drop(release);
-        let mut bytes = Vec::new();
-        reader.read_to_end(&mut bytes).unwrap();
-        assert_eq!(bytes, record_of(&fixture("fifo")));
+        fifo_result.unwrap();
+        assert_eq!(fifo_bytes.unwrap(), record_of(&fixture("fifo")));
+    }
+
+    /// fc903248 gave a provider turn's tail an append open of its own, so a
+    /// FIFO reader that comes after the reader of the event line still gets
+    /// the tail. Non-regular files keep that second open.
+    #[cfg(unix)]
+    #[test]
+    fn a_fifo_reader_after_the_event_line_still_gets_the_tail() {
+        use std::io::BufRead;
+        let dir = tempfile::tempdir().unwrap();
+        let fifo = dir.path().join("events.fifo");
+        mkfifo(&fifo);
+        let (plan, mut control) = test_seam::plan_before_tail();
+        let (opening_tx, opening_rx) = channel();
+        let done_tx = opening_tx.clone();
+        let turn_path = fifo.clone();
+        let turn = spawn_with_result(move || {
+            let mut scope = spool_turn(&turn_path, "turn", 3);
+            let _probe = test_seam::OpenProbe::enter(opening_tx);
+            let _pause = PauseScope::enter(plan);
+            let result = scope.finish().map_err(|err| format!("{err:#}"));
+            let _ = done_tx.send(usize::MAX);
+            result
+        });
+        opening_rx
+            .recv_timeout(test_seam::HANG_GUARD)
+            .expect("the turn opens the FIFO for its event line");
+        let mut first = std::io::BufReader::new(File::open(&fifo).unwrap());
+        let mut line = Vec::new();
+        first.read_until(b'\n', &mut line).unwrap();
+        control.wait_paused();
+        // Reader 1 leaves after the event line, before the tail is written.
+        drop(first);
+        control.resume();
+        let next = opening_rx
+            .recv_timeout(test_seam::HANG_GUARD)
+            .expect("the turn opens again or ends");
+        // Reader 2 comes only for a second open; a writer that kept its first
+        // handle has already ended.
+        let second = (next != usize::MAX).then(|| {
+            let fifo = fifo.clone();
+            spawn_with_result(move || read_fifo(fifo))
+        });
+        let finished = collect(turn, test_seam::HANG_GUARD, "the provider turn");
+        let tail = second.map(|reader| collect(reader, test_seam::HANG_GUARD, "reader 2"));
+        assert_eq!(
+            strict_lines(&line).map(|events| ids(&events)),
+            Ok(vec!["turn".to_string()])
+        );
+        finished.unwrap();
+        let mut expected = Vec::new();
+        for index in 0..3 {
+            let mut event = tail_event("turn", index);
+            event["schema_version"] = json!("1");
+            expected.extend(record_of(&event));
+        }
+        assert_eq!(tail.expect("reader 2 came").unwrap(), expected);
     }
 
     fn record_of(event: &Value) -> Vec<u8> {
