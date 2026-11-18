@@ -1222,6 +1222,7 @@ fn sandbox_temp_dir_guidance(applied: bool, stdout: &str, stderr: &str) -> Optio
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tools::os_sandbox::SandboxTestState;
     use std::sync::atomic::{AtomicBool, Ordering};
 
     #[test]
@@ -1259,6 +1260,7 @@ mod tests {
 
     #[test]
     fn run_returns_nonzero_output_for_agent_feedback() {
+        let _sandbox = SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         let output = run("false", dir.path(), false).unwrap();
         assert!(output.contains("status: exit status"));
@@ -1266,8 +1268,14 @@ mod tests {
 
     #[test]
     fn run_checked_rejects_nonzero_for_verify() {
+        let _sandbox = SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
-        assert!(run_checked("false", dir.path(), false).is_err());
+        let message = run_checked("false", dir.path(), false)
+            .expect_err("a nonzero exit must fail verify")
+            .to_string();
+        assert!(message.starts_with("command failed: "), "{message}");
+        assert!(message.contains("outcome: CommandFailed"), "{message}");
+        assert!(message.contains("status: exit status: 1"), "{message}");
     }
 
     #[test]
@@ -1313,6 +1321,7 @@ mod tests {
 
     #[test]
     fn bash_timeout_returns_structured_outcome() {
+        let _sandbox = SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         let outcome = run_structured(
             "sleep 2",
@@ -1327,6 +1336,7 @@ mod tests {
 
     #[test]
     fn bash_timeout_returns_tool_error_kind() {
+        let _sandbox = SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         let err = run_with_timeout("sleep 2", dir.path(), false, Duration::from_millis(50))
             .expect_err("timeout should return a tool error");
@@ -1340,6 +1350,7 @@ mod tests {
 
     #[test]
     fn bash_run_timeout_error_omits_the_command_without_a_scope() {
+        let _sandbox = SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         let command = format!("sleep 5 # {C}");
         let error = run_with_timeout(&command, dir.path(), true, Duration::from_millis(300))
@@ -1356,6 +1367,7 @@ mod tests {
 
     #[test]
     fn bash_run_timeout_error_omits_the_command_with_a_scope() {
+        let _sandbox = SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         let mut catalog = crate::sensitive_data::SecretCatalog::new();
         catalog.register_credential("FAKE_KEY", R).unwrap();
@@ -1375,6 +1387,7 @@ mod tests {
 
     #[test]
     fn bash_run_checked_timeout_error_omits_the_command() {
+        let _sandbox = SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         let command = format!("sleep 5 # {C}");
         let error =
@@ -1388,6 +1401,7 @@ mod tests {
 
     #[test]
     fn bash_cancel_returns_structured_outcome() {
+        let _sandbox = SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         let cancelled = AtomicBool::new(true);
         let outcome = run_structured("sleep 2", dir.path(), false, DEFAULT_TIMEOUT, || {
@@ -1399,6 +1413,7 @@ mod tests {
 
     #[test]
     fn bash_large_stdout_is_truncated() {
+        let _sandbox = SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         let outcome = run_structured(
             "yes x | head -c 30000",
@@ -1436,6 +1451,7 @@ mod tests {
 
     #[test]
     fn bash_test_output_extracts_failure_summary() {
+        let _sandbox = SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         let outcome = run_structured(
             "printf 'ok\\n'; printf 'Error: broken\\n' >&2; exit 1",
@@ -1511,6 +1527,7 @@ mod tests {
 
     #[test]
     fn bash_normalizes_unbounded_recursive_ls_before_execution() {
+        let _sandbox = SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("src/app")).unwrap();
         std::fs::create_dir_all(dir.path().join("node_modules/pkg")).unwrap();
@@ -1545,6 +1562,7 @@ mod tests {
 
     #[test]
     fn bash_redacts_engine_metadata_from_workspace_root_ls() {
+        let _sandbox = SandboxTestState::acquire();
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join(".commandagent/runs")).unwrap();
         std::fs::create_dir_all(dir.path().join(".anvil/plans")).unwrap();

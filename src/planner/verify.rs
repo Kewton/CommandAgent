@@ -2790,6 +2790,7 @@ mod tests {
     use super::*;
     use crate::minimal_loop::repair_target::{RepairTarget, classify_repair_target};
     use crate::planner::step_plan::PlanStep;
+    use crate::tools::os_sandbox::SandboxTestState;
     use std::path::Path;
 
     fn write_executable(path: &Path, contents: &str) {
@@ -2823,6 +2824,10 @@ mod tests {
         .unwrap();
     }
 
+    fn sandbox_guard_and_tempdir() -> (SandboxTestState, tempfile::TempDir) {
+        (SandboxTestState::acquire(), tempfile::tempdir().unwrap())
+    }
+
     fn write_page(root: &Path, source: &str) {
         std::fs::create_dir_all(root.join("src/app")).unwrap();
         std::fs::write(root.join("src/app/page.tsx"), source).unwrap();
@@ -2844,7 +2849,7 @@ mod tests {
 
     #[test]
     fn missing_path_before_evidence() {
-        let dir = tempfile::tempdir().unwrap();
+        let (_sandbox, dir) = sandbox_guard_and_tempdir();
         let step = PlanStep {
             id: "s".to_string(),
             kind: "work".to_string(),
@@ -3030,7 +3035,7 @@ mod tests {
 
     #[test]
     fn verify_command_hook_grep_still_fails_when_hook_absent() {
-        let dir = tempfile::tempdir().unwrap();
+        let (_sandbox, dir) = sandbox_guard_and_tempdir();
         write_page(
             dir.path(),
             r#"export default function Page(){return <main>Missing hook</main>}"#,
@@ -3534,7 +3539,7 @@ mod tests {
 
     #[test]
     fn verify_command_nonzero_fails() {
-        let dir = tempfile::tempdir().unwrap();
+        let (_sandbox, dir) = sandbox_guard_and_tempdir();
         let step = PlanStep {
             id: "s".to_string(),
             kind: "work".to_string(),
@@ -4259,7 +4264,7 @@ EOF\n\
 
     #[test]
     fn unrepairable_usage_error_is_verifier_command_false_negative() {
-        let dir = tempfile::tempdir().unwrap();
+        let (_sandbox, dir) = sandbox_guard_and_tempdir();
         std::fs::write(
             dir.path().join("usage_error.py"),
             "import sys\nsys.stderr.write('usage: fake\\ninvalid option\\n')\nsys.exit(2)\n",
@@ -4305,7 +4310,7 @@ EOF\n\
 
     #[test]
     fn verify_timeout_is_oracle_error_false_negative_not_implementation() {
-        let dir = tempfile::tempdir().unwrap();
+        let (_sandbox, dir) = sandbox_guard_and_tempdir();
         let events = dir.path().join("events.jsonl");
         let outcome = verifier_env::run_structured_for_verify_with_timeout(
             "sleep 5",
@@ -4393,7 +4398,7 @@ EOF\n\
 
     #[test]
     fn raw_cannot_find_module_without_authority_reports_setup_authority_required() {
-        let dir = tempfile::tempdir().unwrap();
+        let (_sandbox, dir) = sandbox_guard_and_tempdir();
         let failing = dir.path().join("missing-module.sh");
         write_executable(
             &failing,
@@ -4450,7 +4455,7 @@ EOF\n\
 
     #[test]
     fn verify_step_aggregates_missing_paths_and_command_failures() {
-        let dir = tempfile::tempdir().unwrap();
+        let (_sandbox, dir) = sandbox_guard_and_tempdir();
         let step = PlanStep {
             id: "s".to_string(),
             kind: "verify".to_string(),
@@ -4467,7 +4472,7 @@ EOF\n\
 
     #[test]
     fn verify_expected_result_fail_accepts_nonzero_command() {
-        let dir = tempfile::tempdir().unwrap();
+        let (_sandbox, dir) = sandbox_guard_and_tempdir();
         let step = PlanStep {
             id: "s".to_string(),
             kind: "verify".to_string(),
@@ -4481,7 +4486,7 @@ EOF\n\
 
     #[test]
     fn verify_expected_result_fail_accepts_python_traceback_and_records_event() {
-        let dir = tempfile::tempdir().unwrap();
+        let (_sandbox, dir) = sandbox_guard_and_tempdir();
         std::fs::write(dir.path().join("crash.py"), "raise KeyError('expected')\n").unwrap();
         let events = dir.path().join("events.jsonl");
         let step = PlanStep {
@@ -4510,7 +4515,7 @@ EOF\n\
 
     #[test]
     fn verify_expected_result_pass_rejects_nonzero_command() {
-        let dir = tempfile::tempdir().unwrap();
+        let (_sandbox, dir) = sandbox_guard_and_tempdir();
         let step = PlanStep {
             id: "s".to_string(),
             kind: "verify".to_string(),

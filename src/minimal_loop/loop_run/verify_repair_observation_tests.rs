@@ -331,6 +331,7 @@ fn symlink_target_pointing_outside_root_is_never_fingerprinted() {
 
 #[test]
 fn session_bash_batch_with_unchanged_target_continues_to_next_turn() {
+    let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
     let dir = seed_workspace();
     let mut fake = Fake::new(vec![
         tool_reply("Bash", json!({"command": "true"})),
@@ -356,6 +357,7 @@ fn session_bash_batch_with_unchanged_target_continues_to_next_turn() {
 
 #[test]
 fn session_bash_batch_without_known_targets_ends_as_before() {
+    let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
     let dir = seed_workspace();
     let mut fake = Fake::new(vec![
         tool_reply("Bash", json!({"command": "true"})),
@@ -493,6 +495,7 @@ fn verify_step_plan() -> StepPlan {
 
 #[test]
 fn verify_failure_repair_reads_then_writes_and_reverify_passes() {
+    let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("notes.md"), "page lives in src/app\n").unwrap();
     let events = dir.path().join("events.jsonl");

@@ -2032,6 +2032,7 @@ mod tests {
 
     #[test]
     fn bash_normalized_inspection_command_emits_eval_event() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let registry = ToolRegistry::default();
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("src/app")).unwrap();
@@ -2065,6 +2066,7 @@ mod tests {
 
     #[test]
     fn bash_allows_system_prefixes_and_workspace_absolute_paths() {
+        let _sandbox = crate::tools::os_sandbox::SandboxTestState::acquire();
         let registry = ToolRegistry::default();
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("package.json"), "{}").unwrap();
