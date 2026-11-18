@@ -30,10 +30,7 @@ pub fn run(mut config: Config) -> anyhow::Result<()> {
     let renderer = TerminalMarkdownRenderer::for_stdout();
     let mut execution = crate::providers::client_from_config(&config, false)?;
     let mut planner = crate::providers::client_from_config(&config, true)?;
-    let mut boundary_shell = crate::tui::boundary_shell::BoundaryShell::new(
-        config.state_dir.join("boundary-confirmations"),
-        config.eval_events_path.clone(),
-    );
+    let mut boundary_shell = boundary_shell_for(&config);
     let mut active_identity = boundary_shell.restore_latest_terminal()?;
     let mut directive_round = 0_u32;
     let mut editor = ReplEditor::new(&config)?;
@@ -297,15 +294,22 @@ Confirm with `/confirm-directive {}` before continuation dispatch.",
                 ui.reset_interrupt();
                 continue;
             };
-            let directive =
-                match confirm_directive_for(&mut boundary_shell, &identity, directive_hash) {
-                    Ok(directive) => directive,
-                    Err(refused) => {
-                        render_and_remember(&renderer, &mut last_result, refused)?;
-                        ui.reset_interrupt();
-                        continue;
+            let directive = match confirm_directive_for(
+                &mut boundary_shell,
+                &config,
+                &identity,
+                directive_hash,
+            ) {
+                Ok(directive) => directive,
+                Err(refusal) => {
+                    if let Some(identity) = refusal.returned_to {
+                        active_identity = identity.map(|identity| *identity);
                     }
-                };
+                    render_and_remember(&renderer, &mut last_result, refusal.shown)?;
+                    ui.reset_interrupt();
+                    continue;
+                }
+            };
             let Some(events_path) = config.eval_events_path.as_deref() else {
                 render_and_remember(
                     &renderer,
@@ -659,20 +663,65 @@ fn confirm_gate_one(
         .map_err(|error| format!("Confirmation refused: {error}"))
 }
 
+/// The boundary shell of the REPL's state directory and event stream, in its collecting
+/// state.
+fn boundary_shell_for(config: &Config) -> crate::tui::boundary_shell::BoundaryShell {
+    crate::tui::boundary_shell::BoundaryShell::new(
+        config.state_dir.join("boundary-confirmations"),
+        config.eval_events_path.clone(),
+    )
+}
+
+/// A `/confirm-directive` the REPL refused.
+struct DirectiveRefusal {
+    /// What the REPL shows.
+    shown: String,
+    /// Set when the refusal also took the shell back from the directive proposal: the
+    /// identity of the terminal run it returned to, if one was restored.
+    returned_to:
+        Option<Option<Box<crate::tui::boundary_shell::confirmation::ConfirmationIdentity>>>,
+}
+
 /// `/confirm-directive`: persists the directive awaiting confirmation for the run of
 /// `identity`, or returns the refusal the REPL shows.
 fn confirm_directive_for(
     boundary_shell: &mut crate::tui::boundary_shell::BoundaryShell,
+    config: &Config,
     identity: &crate::tui::boundary_shell::confirmation::ConfirmationIdentity,
     directive_hash: &str,
-) -> Result<crate::tui::boundary_shell::directive::PersistedDirective, String> {
+) -> Result<crate::tui::boundary_shell::directive::PersistedDirective, DirectiveRefusal> {
     if let Some(refused) = refused_for_held_pack(&identity.pack) {
-        return Err(format!("Directive confirmation refused: {refused}"));
+        let mut shown = format!("Directive confirmation refused: {refused}");
+        // The proposal can never be confirmed while this pack is held, so it is withdrawn:
+        // the shell restores the terminal of the latest confirmed run, as the REPL does when
+        // it starts, and Gate 3 or Gate 4 is open again.
+        *boundary_shell = boundary_shell_for(config);
+        let returned_to = match boundary_shell.restore_latest_terminal() {
+            Ok(restored) => {
+                shown.push_str(
+                    "\n\nThe directive proposal was withdrawn, and the confirmed run is back at its Gate 3 or Gate 4.",
+                );
+                restored.map(Box::new)
+            }
+            Err(error) => {
+                shown.push_str(&format!(
+                    "\n\nThe directive proposal was withdrawn, and the confirmed run's terminal could not be restored ({error:#}); start a new Gate 1 request."
+                ));
+                None
+            }
+        };
+        return Err(DirectiveRefusal {
+            shown,
+            returned_to: Some(returned_to),
+        });
     }
     boundary_shell
         .confirm_directive(directive_hash)
         .map(|confirmed| confirmed.directive().clone())
-        .map_err(|error| format!("Directive confirmation refused: {error}"))
+        .map_err(|error| DirectiveRefusal {
+            shown: format!("Directive confirmation refused: {error}"),
+            returned_to: None,
+        })
 }
 
 fn validate_saved_session_resume(state_dir: &Path, resume: &str) -> anyhow::Result<()> {
@@ -911,8 +960,9 @@ fn with_confirmed_pack<T>(
 }
 
 /// Why a pack selection is refused in a REPL that holds the `--pack` it was started with:
-/// the held pack, the selected one, and what to do. `hash` is the selected exact-byte hash
-/// when it is known. Restarting with the same selector in `--pack` would resolve the same
+/// the held pack, the selected one, and what to do. `hash` is the selected exact-byte hash,
+/// or `None` for a Gate 1 selector the admitted catalog does not list, which no restart
+/// makes selectable. Restarting with the same selector in `--pack` would resolve the same
 /// held bytes again, so only a restart without `--pack` is offered.
 fn held_pack_conflict(
     held: &crate::cli_pack::HeldPack,
@@ -921,10 +971,15 @@ fn held_pack_conflict(
     hash: Option<&str>,
 ) -> String {
     let selector = format!("{id}@{version}");
-    let selected = match hash {
-        Some(hash) => format!("`{selector}` ({hash})"),
-        None => format!("`{selector}`"),
+    let Some(hash) = hash else {
+        // Only Gate 1 names a pack without its hash: the admitted catalog has none for it.
+        return format!(
+            "this REPL was started with `--pack {}` ({}), which stays in place until the REPL exits, and `{selector}` is not an admitted pack, so Gate 1 cannot select it, in this REPL or after a restart.",
+            held.selector(),
+            held.hash,
+        );
     };
+    let selected = format!("`{selector}` ({hash})");
     let difference = if selector == held.selector() {
         "does not resolve to the same bytes"
     } else {
@@ -2020,8 +2075,10 @@ mod tests {
                             .unwrap_or_default();
                         assert!(!events.contains("\"event\":\"route_confirmed\""), "{events}");
 
-                        let shown = confirm_directive_for(&mut shell, &other, "0".repeat(64).as_str())
-                            .unwrap_err();
+                        let shown =
+                            confirm_directive_for(&mut shell, &config, &other, &"0".repeat(64))
+                                .unwrap_err()
+                                .shown;
                         assert!(shown.starts_with("Directive confirmation refused: "), "{shown}");
                         assert!(shown.contains("--pack cli-assist@1.1.0"), "{shown}");
                         assert!(shown.contains("`cli-assist@1.0.0`"), "{shown}");
@@ -2032,5 +2089,158 @@ mod tests {
                 });
             },
         );
+    }
+
+    /// Issue #1036 D2: a REPL holding `cli-assist@1.1.0` restores a failed run of
+    /// `cli-assist@1.0.0` and proposes a directive for it. `/confirm-directive` is refused,
+    /// with its reason, and nothing is confirmed; the proposal is withdrawn, so the shell is
+    /// back at that run's Gate 4, where `/pack cli-assist@1.1.0` makes a pack-change card.
+    #[test]
+    fn a_refused_directive_leaves_gate_four_open_for_the_held_pack() {
+        crate::cli_pack::tests::own_process::run(
+            "tui::repl::tests::a_refused_directive_leaves_gate_four_open_for_the_held_pack",
+            || {
+                within_held_pack_deadline(|| {
+                    let root = tempfile::tempdir().unwrap();
+                    let events = root.path().join("events.jsonl");
+                    let (mut config, identity) = confirmed_python_cli_pack(&events);
+                    config.state_dir = root.path().join("state");
+                    let other = other_python_cli_pack(&identity);
+                    with_confirmed_pack(&config, &identity, || {
+                        // The failed confirmed run of cli-assist@1.0.0, at its Gate 4.
+                        let mut shell = boundary_shell_for(&config);
+                        let card = shell
+                            .begin_gate_one(
+                                python_cli_proposal(),
+                                "Python CLI filter",
+                                &config.workspace_root,
+                                pins(),
+                                other.pack.clone(),
+                            )
+                            .unwrap()
+                            .card_hash()
+                            .unwrap();
+                        let ran = shell.confirm(&card).unwrap().identity().clone();
+                        shell.dispatch(|_| Ok("failed".to_string())).unwrap();
+                        crate::eval_events::emit(
+                            Some(&events),
+                            serde_json::json!({
+                                "event": "tui_command_stop",
+                                "profile": "python-cli",
+                                "status": "failed",
+                                "ok": false,
+                                "stop_reason": "failed",
+                            }),
+                        );
+                        shell
+                            .present_terminal(
+                                "# sheet\n\n## 5. Stop reason\nfailed".to_string(),
+                                false,
+                                Some("failed".to_string()),
+                            )
+                            .unwrap();
+                        let directive = shell
+                            .begin_directive("retry the filter", "run-1036", 1)
+                            .unwrap()
+                            .hash()
+                            .to_string();
+                        assert!(matches!(
+                            shell.state(),
+                            crate::tui::boundary_shell::BoundaryState::AwaitingDirectiveConfirmation { .. }
+                        ));
+
+                        let refusal =
+                            confirm_directive_for(&mut shell, &config, &ran, &directive)
+                                .unwrap_err();
+                        let shown = &refusal.shown;
+                        assert!(shown.starts_with("Directive confirmation refused: "), "{shown}");
+                        assert!(shown.contains("--pack cli-assist@1.1.0"), "{shown}");
+                        assert!(shown.contains("`cli-assist@1.0.0`"), "{shown}");
+                        assert!(shown.contains("without `--pack`"), "{shown}");
+                        let recorded = std::fs::read_to_string(&events).unwrap();
+                        assert!(
+                            !recorded.contains("\"event\":\"human_directive_confirmed\""),
+                            "{recorded}"
+                        );
+                        assert!(
+                            matches!(
+                                shell.state(),
+                                crate::tui::boundary_shell::BoundaryState::FailureReady(_)
+                            ),
+                            "the refused directive proposal still holds the shell: {:?}",
+                            shell.state()
+                        );
+                        let active = refusal
+                            .returned_to
+                            .expect("the refusal did not say where the shell returned")
+                            .expect("no terminal run was restored");
+                        assert_eq!(*active, ran);
+
+                        let changed =
+                            begin_gate_four_pack_change(&mut shell, &active, "cli-assist@1.1.0")
+                                .unwrap();
+                        assert!(matches!(
+                            &changed.pack,
+                            PackSelection::Pinned { id, version, .. }
+                                if id == "cli-assist" && version == "1.1.0"
+                        ));
+                        Ok(())
+                    })
+                    .unwrap();
+                });
+            },
+        );
+    }
+
+    /// Issue #1036 N1: Gate 1 resolves a `--pack` selector against the admitted catalog
+    /// before routing (`refused_gate_one_pack`), and that gives what `pack_catalog::select`
+    /// gives only while one id@version has one hash in the catalog. A row that breaks this
+    /// fails here: review that lookup before adding it.
+    #[test]
+    fn gate_one_pack_lookup_matches_select_only_while_each_id_at_version_has_one_hash() {
+        let mut hashes =
+            std::collections::BTreeMap::<String, std::collections::BTreeSet<&str>>::new();
+        for pack in crate::planner::pack::catalog::admitted_packs() {
+            hashes
+                .entry(format!("{}@{}", pack.id, pack.version))
+                .or_default()
+                .insert(pack.hash);
+        }
+        for (selector, found) in &hashes {
+            assert_eq!(
+                found.len(),
+                1,
+                "the admitted catalog gives `{selector}` {} hashes; Gate 1 resolves a held-pack selector before routing and no longer matches pack_catalog::select",
+                found.len()
+            );
+        }
+        for pack in crate::planner::pack::catalog::admitted_packs() {
+            let selector = format!("{}@{}", pack.id, pack.version);
+            let selected = crate::tui::boundary_shell::pack_catalog::select(
+                pack.profile,
+                pack.intent,
+                &selector,
+            )
+            .unwrap();
+            assert!(
+                matches!(&selected, PackSelection::Pinned { hash, .. } if hash == pack.hash),
+                "{selector}: {selected:?}"
+            );
+        }
+    }
+
+    /// Issue #1036 N1: a held pack the admitted catalog does not list cannot be selected at
+    /// Gate 1 in this REPL or after a restart, so the refusal does not offer a restart.
+    #[test]
+    fn a_held_selector_without_an_admitted_pack_is_not_offered_a_restart() {
+        let held = crate::cli_pack::HeldPack {
+            id: "local-assist".to_string(),
+            version: "1.0.0".to_string(),
+            hash: "sha256:local".to_string(),
+        };
+        let refused = held_pack_conflict(&held, "local-assist", "1.0.0", None);
+        assert!(refused.contains("--pack local-assist@1.0.0"), "{refused}");
+        assert!(refused.contains("is not an admitted pack"), "{refused}");
+        assert!(!refused.contains("Restart the REPL"), "{refused}");
     }
 }

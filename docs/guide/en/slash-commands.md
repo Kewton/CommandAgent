@@ -117,8 +117,14 @@ exits. In that REPL, a Gate 1 `--pack` or a Gate 4 `/pack` that names the same
 pack, with the same exact-byte hash, dispatches under it without installing it
 again. One that names a different pack, or the same `id@version` with other
 bytes, is refused with the reason before any provider is asked, and so is a
-confirmation of such a card. To use that pack, restart the REPL without
-`--pack`.
+confirmation of such a card or of a directive for its run; a refused directive
+proposal is withdrawn, and the run returns to its Gate 3 or Gate 4. To use that
+pack, restart the REPL without `--pack`.
+
+The REPL reads a pack chosen at Gate 1 or Gate 4 from `packs/<id>/<version>`
+in the workspace, not from `--extension-root`. A pack that `--pack` holds from
+an extension root must also be present there to be shown and selected in the
+REPL.
 
 ## Goal text and quoting
 
