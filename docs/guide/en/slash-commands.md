@@ -112,6 +112,12 @@ Use `/packs` to list choices. After a non-full run, an available `pack_change`
 action is performed with `/pack <id@version>`; this produces a new Gate 1 card
 and requires a new `/confirm <hash>` before dispatch.
 
+A REPL started with `--pack <id@version>` keeps that pack in place until it
+exits. In that REPL, a Gate 1 `--pack` or a Gate 4 `/pack` that names the same
+pack dispatches under it without installing it again. One that names a
+different pack is refused, with the reason, before any provider is asked;
+restart the REPL with that pack in `--pack`, or without `--pack`, to use it.
+
 ## Goal text and quoting
 
 The parser splits on spaces and tabs except inside double quotes, removes the

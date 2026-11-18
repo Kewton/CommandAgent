@@ -26,6 +26,39 @@ const PACK_ENV_KEYS: [&str; 4] = [
 ];
 static PACK_ENVIRONMENT_LOCK: Mutex<()> = Mutex::new(());
 
+thread_local! {
+    /// The pack the live `RuntimeEnvironmentGuard` of this thread installed. The lock is
+    /// not reentrant, so installing a second pack on this thread would never return
+    /// (Issue #1036); a caller asks here first.
+    static HELD_ON_THIS_THREAD: std::cell::RefCell<Option<HeldPack>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// The identity of the pack a guard on this thread holds in the process environment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct HeldPack {
+    pub(crate) id: String,
+    pub(crate) version: String,
+    pub(crate) hash: String,
+}
+
+impl HeldPack {
+    /// The pack held on this thread, if a guard here installed one.
+    pub(crate) fn on_this_thread() -> Option<Self> {
+        HELD_ON_THIS_THREAD.with(|held| held.borrow().clone())
+    }
+
+    /// `id@version`, as `--pack` takes it.
+    pub(crate) fn selector(&self) -> String {
+        format!("{}@{}", self.id, self.version)
+    }
+
+    /// Whether `id@version` with the exact-byte `hash` is this pack.
+    pub(crate) fn is(&self, id: &str, version: &str, hash: &str) -> bool {
+        self.id == id && self.version == version && self.hash == hash
+    }
+}
+
 #[derive(Debug, Error)]
 #[error("{message}")]
 pub(crate) struct PackCliError {
@@ -315,14 +348,23 @@ impl RuntimeEnvironmentGuard {
                 std::env::set_var(key, value);
             }
         }
-        Ok(Self {
+        let guard = Self {
             _declared: Some(install_declaration(
                 selection.selection(),
                 selection.declared.clone(),
             )),
             _lock: Some(lock),
             previous,
-        })
+        };
+        // Recorded once the guard exists, so its drop always clears it.
+        HELD_ON_THIS_THREAD.with(|held| {
+            *held.borrow_mut() = Some(HeldPack {
+                id: selection.id.clone(),
+                version: selection.version.clone(),
+                hash: selection.hash.clone(),
+            });
+        });
+        Ok(guard)
     }
 }
 
@@ -331,6 +373,7 @@ impl Drop for RuntimeEnvironmentGuard {
         if self._lock.is_none() {
             return;
         }
+        HELD_ON_THIS_THREAD.with(|held| held.borrow_mut().take());
         // SAFETY: this guard still owns the process-wide mutation lock.
         unsafe {
             for (key, previous) in PACK_ENV_KEYS.into_iter().zip(self.previous.iter()) {

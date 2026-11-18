@@ -103,6 +103,12 @@ Python CLI の絞り込みを作る --pack cli-assist@1.1.0
 `/pack <id@version>` で実行します。新しい Gate 1 カードが出て、新しい
 `/confirm <hash>` まで dispatch されません。
 
+`--pack <id@version>` を付けて起動した REPL は、終わるまでその pack を保ちます。
+その REPL で Gate 1 の `--pack` か Gate 4 の `/pack` が同じ pack を指すときは、
+導入し直さずにそのまま dispatch します。違う pack を指すときは、provider を
+呼ぶ前に理由つきで拒否します。その pack を使うには、`--pack` にその pack を
+指定するか、`--pack` を付けずに REPL を起動し直してください。
+
 ## ゴールのテキストと引用符
 
 パーサーはダブルクォート内を除いて空白とタブで分割し、ダブルクォートの区切り文字を削除して、

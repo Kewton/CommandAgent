@@ -516,6 +516,19 @@ Confirm with `/confirm-directive {}` before continuation dispatch.",
                     continue;
                 }
             };
+            if let Some(refused) = parsed_request
+                .pack
+                .as_deref()
+                .and_then(refused_against_held_pack)
+            {
+                render_and_remember(
+                    &renderer,
+                    &mut last_result,
+                    format!("Gate 1 request refused: {refused}"),
+                )?;
+                ui.reset_interrupt();
+                continue;
+            }
             let deterministic = crate::tui::boundary_shell::route::deterministic_route(
                 crate::tui::boundary_shell::route::RouteRequest {
                     request: &parsed_request.request,
@@ -791,6 +804,9 @@ fn begin_gate_four_pack_change<'a>(
     if selector.is_empty() {
         bail!("/pack requires <id@version>");
     }
+    if let Some(refused) = refused_against_held_pack(selector) {
+        bail!("{refused}");
+    }
     let pack = crate::tui::boundary_shell::pack_catalog::select(
         &identity.profile,
         &identity.intent,
@@ -824,15 +840,30 @@ fn with_confirmed_pack<T>(
             "confirmed pack changed before dispatch: expected `{hash}`, observed `{observed_hash}`"
         );
     }
-    let resolved = crate::cli_pack::ResolvedPack {
-        id: id.clone(),
-        version: version.clone(),
-        hash: hash.clone(),
-        source: crate::cli_pack::SelectionSource::Repository,
-        directory,
-        declared: None,
+    // A REPL started with `--pack` holds that pack for its whole life. Installing again
+    // would take the held lock a second time on this thread (Issue #1036), and replacing
+    // the held environment is not allowed: the same pack dispatches under it, and another
+    // pack is refused before the dispatch.
+    let _pack_environment = match crate::cli_pack::HeldPack::on_this_thread() {
+        Some(held) if held.is(id, version, hash) => None,
+        Some(held) => bail!(
+            "{}",
+            held_pack_conflict(&held, &format!("{id}@{version}"), Some(hash))
+        ),
+        None => {
+            let resolved = crate::cli_pack::ResolvedPack {
+                id: id.clone(),
+                version: version.clone(),
+                hash: hash.clone(),
+                source: crate::cli_pack::SelectionSource::Repository,
+                directory,
+                declared: None,
+            };
+            Some(crate::cli_pack::RuntimeEnvironmentGuard::install(Some(
+                &resolved,
+            ))?)
+        }
     };
-    let _pack_environment = crate::cli_pack::RuntimeEnvironmentGuard::install(Some(&resolved))?;
     crate::eval_events::emit(
         config.eval_events_path.as_deref(),
         serde_json::json!({
@@ -847,6 +878,31 @@ fn with_confirmed_pack<T>(
         }),
     );
     run()
+}
+
+/// Why a pack selection is refused in a REPL that holds the `--pack` it was started with.
+/// `hash` names the confirmed bytes when the selector alone does not tell the packs apart.
+fn held_pack_conflict(
+    held: &crate::cli_pack::HeldPack,
+    requested: &str,
+    hash: Option<&str>,
+) -> String {
+    let shown = match hash {
+        Some(hash) if requested == held.selector() => format!("{requested} ({hash})"),
+        _ => requested.to_string(),
+    };
+    format!(
+        "this REPL was started with `--pack {} ({})`, which stays in place until the REPL exits, and `{shown}` is a different pack. Restart the REPL with `--pack {requested}`, or without `--pack`, to use it.",
+        held.selector(),
+        held.hash,
+    )
+}
+
+/// The refusal of a pack selector that a REPL holding a `--pack` cannot dispatch, decided
+/// before Gate 1 or a Gate 4 pack change asks for anything.
+fn refused_against_held_pack(selector: &str) -> Option<String> {
+    let held = crate::cli_pack::HeldPack::on_this_thread()?;
+    (selector.trim() != held.selector()).then(|| held_pack_conflict(&held, selector.trim(), None))
 }
 
 fn boundary_run_id(events_path: Option<&std::path::Path>) -> anyhow::Result<String> {
@@ -1484,5 +1540,182 @@ mod tests {
         assert!(events.contains("\"event\":\"pack_injected\""), "{events}");
         assert!(events.contains("\"pack_id\":\"cli-assist\""), "{events}");
         assert!(events.contains("\"pack_version\":\"1.1.0\""), "{events}");
+    }
+
+    /// Longest a pack selection made in a REPL that already holds a pack may take to
+    /// dispatch or be refused. Taking the held, non-reentrant pack lock again on the same
+    /// thread never returns (Issue #1036), so the deadline turns that hang into a failure.
+    const HELD_PACK_DEADLINE: std::time::Duration = std::time::Duration::from_secs(60);
+
+    /// Runs `body` on a thread of its own and returns what it returned, or fails when it
+    /// has not returned within `HELD_PACK_DEADLINE`.
+    fn within_held_pack_deadline<T: Send + 'static>(
+        body: impl FnOnce() -> T + Send + 'static,
+    ) -> T {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let _ = sender.send(body());
+        });
+        match receiver.recv_timeout(HELD_PACK_DEADLINE) {
+            Ok(value) => {
+                worker.join().unwrap();
+                value
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => panic!(
+                "a pack selection under a held pack neither dispatched nor was refused within {HELD_PACK_DEADLINE:?}: the pack lock was taken twice on one thread"
+            ),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                std::panic::resume_unwind(worker.join().unwrap_err())
+            }
+        }
+    }
+
+    /// The confirmation of `cli-assist@1.0.0`, which is not the pack the outer scope holds.
+    fn other_python_cli_pack(
+        identity: &crate::tui::boundary_shell::confirmation::ConfirmationIdentity,
+    ) -> crate::tui::boundary_shell::confirmation::ConfirmationIdentity {
+        let mut other = identity.clone();
+        other.pack = crate::tui::boundary_shell::pack_catalog::select(
+            "python-cli",
+            "create",
+            "cli-assist@1.0.0",
+        )
+        .unwrap();
+        other
+    }
+
+    /// Issue #1036: a REPL started with `--pack` holds that pack for its whole life. A
+    /// confirmed selection of the same pack dispatches, within the deadline, under the held
+    /// environment instead of installing it again. The outer pack is held by the REPL's own
+    /// production install; the body writes the process environment, so it runs alone.
+    #[test]
+    fn a_held_pack_confirmed_again_dispatches_without_a_second_install() {
+        crate::cli_pack::tests::own_process::run(
+            "tui::repl::tests::a_held_pack_confirmed_again_dispatches_without_a_second_install",
+            || {
+                within_held_pack_deadline(|| {
+                    let root = tempfile::tempdir().unwrap();
+                    let (config, identity) =
+                        confirmed_python_cli_pack(&root.path().join("events.jsonl"));
+                    assert_eq!(pack_environment(), [None, None, None, None]);
+                    with_confirmed_pack(&config, &identity, || {
+                        let held = pack_environment();
+                        let dispatched = std::cell::Cell::new(false);
+                        with_confirmed_pack(&config, &identity, || {
+                            dispatched.set(true);
+                            assert_eq!(pack_environment(), held);
+                            Ok(())
+                        })
+                        .unwrap();
+                        assert!(dispatched.get(), "the same pack was not dispatched");
+                        assert_eq!(pack_environment(), held, "the held pack was not kept");
+                        assert_eq!(std::env::var("COMMANDAGENT_PACK_ID").unwrap(), "cli-assist");
+                        assert_eq!(std::env::var("COMMANDAGENT_PACK_VERSION").unwrap(), "1.1.0");
+                        Ok(())
+                    })
+                    .unwrap();
+                    assert_eq!(pack_environment(), [None, None, None, None]);
+                    let events = std::fs::read_to_string(config.eval_events_path.unwrap()).unwrap();
+                    assert_eq!(
+                        events.matches("\"event\":\"pack_injected\"").count(),
+                        2,
+                        "{events}"
+                    );
+                });
+            },
+        );
+    }
+
+    /// Issue #1036: under a held pack, a confirmed selection of another pack is refused,
+    /// with its reason, before the dispatch (the provider) runs, and the held environment
+    /// is not overwritten.
+    #[test]
+    fn a_different_pack_under_a_held_pack_is_refused_before_dispatch() {
+        crate::cli_pack::tests::own_process::run(
+            "tui::repl::tests::a_different_pack_under_a_held_pack_is_refused_before_dispatch",
+            || {
+                within_held_pack_deadline(|| {
+                    let root = tempfile::tempdir().unwrap();
+                    let (config, identity) =
+                        confirmed_python_cli_pack(&root.path().join("events.jsonl"));
+                    let other = other_python_cli_pack(&identity);
+                    with_confirmed_pack(&config, &identity, || {
+                        let held = pack_environment();
+                        let dispatched = std::cell::Cell::new(false);
+                        let error = with_confirmed_pack(&config, &other, || {
+                            dispatched.set(true);
+                            Ok(())
+                        })
+                        .unwrap_err();
+                        let error = format!("{error:#}");
+                        assert!(!dispatched.get(), "a different pack reached the dispatch");
+                        assert!(error.contains("--pack cli-assist@1.1.0"), "{error}");
+                        assert!(error.contains("cli-assist@1.0.0"), "{error}");
+                        assert!(error.contains("Restart the REPL"), "{error}");
+                        assert_eq!(pack_environment(), held, "the held pack was overwritten");
+                        Ok(())
+                    })
+                    .unwrap();
+                    let events = std::fs::read_to_string(config.eval_events_path.unwrap()).unwrap();
+                    assert_eq!(
+                        events.matches("\"event\":\"pack_injected\"").count(),
+                        1,
+                        "{events}"
+                    );
+                    assert!(!events.contains("\"pack_version\":\"1.0.0\""), "{events}");
+                });
+            },
+        );
+    }
+
+    /// Issue #1036: the Gate 1 request and the Gate 4 `/pack` change refuse another pack
+    /// before anything is asked of a provider, and accept the held one; without a held
+    /// pack, neither refuses (the REPL without `--pack` is unchanged).
+    #[test]
+    fn gate_one_and_gate_four_refuse_another_pack_under_a_held_pack() {
+        for selector in ["cli-assist@1.0.0", "cli-assist@1.1.0", "nextjs-acme@1.0.0"] {
+            assert_eq!(refused_against_held_pack(selector), None, "{selector}");
+        }
+        crate::cli_pack::tests::own_process::run(
+            "tui::repl::tests::gate_one_and_gate_four_refuse_another_pack_under_a_held_pack",
+            || {
+                within_held_pack_deadline(|| {
+                    let root = tempfile::tempdir().unwrap();
+                    let (config, identity) =
+                        confirmed_python_cli_pack(&root.path().join("events.jsonl"));
+                    let shell_root = tempfile::tempdir().unwrap();
+                    with_confirmed_pack(&config, &identity, || {
+                        assert_eq!(refused_against_held_pack("cli-assist@1.1.0"), None);
+                        assert_eq!(refused_against_held_pack(" cli-assist@1.1.0 "), None);
+                        let refused = refused_against_held_pack("cli-assist@1.0.0").unwrap();
+                        assert!(refused.contains("--pack cli-assist@1.1.0"), "{refused}");
+                        assert!(refused.contains("`cli-assist@1.0.0`"), "{refused}");
+                        assert!(refused.contains("Restart the REPL"), "{refused}");
+
+                        let (mut shell, failed) = failed_shell(shell_root.path());
+                        let error =
+                            begin_gate_four_pack_change(&mut shell, &failed, "cli-assist@1.0.0")
+                                .unwrap_err()
+                                .to_string();
+                        assert_eq!(error, refused);
+                        let events =
+                            std::fs::read_to_string(shell_root.path().join("events.jsonl"))
+                                .unwrap_or_default();
+                        assert!(!events.contains("\"action\":\"pack_change\""), "{events}");
+                        let changed =
+                            begin_gate_four_pack_change(&mut shell, &failed, "cli-assist@1.1.0")
+                                .unwrap();
+                        assert!(matches!(
+                            &changed.pack,
+                            PackSelection::Pinned { id, version, .. }
+                                if id == "cli-assist" && version == "1.1.0"
+                        ));
+                        Ok(())
+                    })
+                    .unwrap();
+                    assert_eq!(refused_against_held_pack("cli-assist@1.0.0"), None);
+                });
+            },
+        );
     }
 }
