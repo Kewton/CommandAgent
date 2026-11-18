@@ -6,8 +6,9 @@
 //! spooled tail, is being written, no other writer in this process can put
 //! bytes into the file, whatever spelling of the path it opened. Partial writes
 //! and `Interrupted` are retried to the end of the record; any other error is
-//! returned to the caller, which reports it. Writers in other processes are
-//! outside this guarantee (see `docs/dev/maintainability-architecture.md`).
+//! returned to the caller, which reports it. Writers in other processes, and
+//! paths that are not regular files (a FIFO, a device), are outside this
+//! guarantee (see `docs/dev/maintainability-architecture.md`).
 //!
 //! Nothing called under the lock emits, redacts, publishes, or touches the
 //! provider-turn spool registry, so a flush can never re-enter the lock.
@@ -50,8 +51,16 @@ pub(crate) fn append_line(path: &Path, line: &[u8]) -> io::Result<()> {
 }
 
 fn append_locked(path: &Path, record: &[u8], tail: &mut dyn Read) -> io::Result<()> {
-    let _guard = lock();
+    #[cfg(test)]
+    test_seam::before_open();
+    // Opened before the lock: opening a FIFO with no reader waits, and must
+    // not hold up writers of other files. Only a regular file takes the lock;
+    // a FIFO or device is written as at fc903248, outside the line guarantee.
     let file = OpenOptions::new().create(true).append(true).open(path)?;
+    let _guard = file
+        .metadata()
+        .map_or(true, |meta| meta.is_file())
+        .then(lock);
     #[cfg(test)]
     let file = test_seam::PauseAt::for_this_thread(file);
     write_record(file, record, tail)
@@ -150,6 +159,7 @@ pub(crate) mod test_seam {
         static PAUSE: RefCell<Option<Plan>> = const { RefCell::new(None) };
         static PROBE: RefCell<Option<Sender<Seen>>> = const { RefCell::new(None) };
         static LOCK_CALLS: Cell<usize> = const { Cell::new(0) };
+        static OPENING: RefCell<Option<Sender<()>>> = const { RefCell::new(None) };
     }
 
     /// The next record this thread writes stops at the plan's point.
@@ -199,6 +209,30 @@ pub(crate) mod test_seam {
             // A dropped `Control` also ends the wait.
             let _ = self.resume.recv();
         }
+    }
+
+    /// While entered, this thread reports each open it is about to make.
+    pub(crate) struct OpenProbe;
+
+    impl OpenProbe {
+        pub(crate) fn enter(sender: Sender<()>) -> Self {
+            OPENING.with_borrow_mut(|slot| *slot = Some(sender));
+            Self
+        }
+    }
+
+    impl Drop for OpenProbe {
+        fn drop(&mut self) {
+            OPENING.with_borrow_mut(|slot| *slot = None);
+        }
+    }
+
+    pub(super) fn before_open() {
+        OPENING.with_borrow(|probe| {
+            if let Some(sender) = probe {
+                let _ = sender.send(());
+            }
+        });
     }
 
     pub(super) fn before_tail() {
@@ -439,14 +473,24 @@ mod tests {
         }
 
         pub(super) fn flush(path: &Path, events: &[Value], plan: Plan) {
+            use std::io::Seek;
             append(open(path), &events[0]);
-            let mut tail = Vec::new();
-            for event in &events[1..] {
-                serde_json::to_writer(&mut tail, event).unwrap();
-                tail.push(b'\n');
-            }
+            // The spool and the copy as they were: a non-buffered reader, so
+            // `io::copy` writes in 8 KiB chunks.
+            let mut tail = tempfile::spooled_tempfile(64 * 1024);
+            tail.write_all(&tail_bytes(&events[1..])).unwrap();
+            tail.rewind().unwrap();
             let file = OpenOptions::new().append(true).open(path).unwrap();
-            io::copy(&mut tail.as_slice(), &mut PauseAt::new(file, Some(plan))).unwrap();
+            io::copy(&mut tail, &mut PauseAt::new(file, Some(plan))).unwrap();
+        }
+
+        pub(super) fn tail_bytes(events: &[Value]) -> Vec<u8> {
+            let mut tail = Vec::new();
+            for event in events {
+                serde_json::to_writer(&mut tail, event).unwrap();
+                writeln!(tail).unwrap();
+            }
+            tail
         }
     }
 
@@ -493,8 +537,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("events.jsonl");
         let (a_path, b_path) = (path.clone(), path.clone());
+        // Where `writeln!` itself splits: after the body's write, before the
+        // LF's own write. No write is shortened.
+        let body = serde_json::to_string(&fixture("a")).unwrap().len();
         let seen = interleave(
-            MID_RECORD,
+            Point {
+                newlines: 0,
+                bytes: body,
+            },
             move |plan| {
                 legacy::append(
                     PauseAt::new(legacy::open(&a_path), Some(plan)),
@@ -618,11 +668,18 @@ mod tests {
         let path = dir.path().join("events.jsonl");
         let (a_path, b_path) = (path.clone(), path.clone());
         let turn = turn_events("turn", TAIL);
+        // Where `io::copy` itself splits: at its 8 KiB chunk end, which falls
+        // inside a line. No write is shortened.
+        let tail = legacy::tail_bytes(&turn[1..]);
+        let chunk_end = &tail[..8 * 1024];
+        let line_start = chunk_end.iter().rposition(|byte| *byte == b'\n').unwrap() + 1;
+        assert!(line_start < chunk_end.len(), "the chunk ends inside a line");
+        let point = Point {
+            newlines: chunk_end.iter().filter(|byte| **byte == b'\n').count(),
+            bytes: chunk_end.len() - line_start,
+        };
         let seen = interleave(
-            Point {
-                newlines: 5,
-                bytes: 7,
-            },
+            point,
             move |plan| legacy::flush(&a_path, &turn, plan),
             move || legacy::append(legacy::open(&b_path), &fixture("b")),
         );
@@ -655,6 +712,70 @@ mod tests {
         expected.push(fixture("b"));
         let events = check_exact(&read(&path), &expected).unwrap();
         check_turn(&events, "turn", TAIL).unwrap();
+    }
+
+    /// Lets a writer stuck opening a FIFO go on: opening the read end without
+    /// blocking completes its open. Dropped on every exit, so a failing
+    /// assertion never leaves that writer waiting.
+    #[cfg(unix)]
+    struct FifoReader(PathBuf);
+
+    #[cfg(unix)]
+    impl Drop for FifoReader {
+        fn drop(&mut self) {
+            use std::os::unix::fs::OpenOptionsExt;
+            let _ = OpenOptions::new()
+                .read(true)
+                .custom_flags(libc::O_NONBLOCK)
+                .open(&self.0);
+        }
+    }
+
+    /// A writer waiting to open a FIFO with no reader holds no lock, so a
+    /// writer of an unrelated regular file finishes meanwhile.
+    #[cfg(unix)]
+    #[test]
+    fn a_fifo_waiting_for_a_reader_does_not_hold_up_other_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let fifo = dir.path().join("events.fifo");
+        let path = dir.path().join("events.jsonl");
+        let made = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap();
+        assert!(made.success());
+        let (opening_tx, opening_rx) = channel();
+        let fifo_path = fifo.clone();
+        let fifo_writer = std::thread::spawn(move || {
+            let _probe = test_seam::OpenProbe::enter(opening_tx);
+            append_event(&fifo_path, &fixture("fifo"))
+        });
+        let release = FifoReader(fifo.clone());
+        opening_rx
+            .recv_timeout(test_seam::HANG_GUARD)
+            .expect("the FIFO writer reaches its open");
+        let (done_tx, done_rx) = channel();
+        let file_writer = std::thread::spawn(move || {
+            append_event(&path, &fixture("file")).unwrap();
+            let _ = done_tx.send(read(&path));
+        });
+        let written = done_rx
+            .recv_timeout(std::time::Duration::from_secs(30))
+            .expect("the regular file's append is not held up by the FIFO");
+        check_exact(&written, &[fixture("file")]).unwrap();
+        let mut reader = std::fs::File::open(&fifo).unwrap();
+        fifo_writer.join().unwrap().unwrap();
+        file_writer.join().unwrap();
+        drop(release);
+        let mut bytes = Vec::new();
+        reader.read_to_end(&mut bytes).unwrap();
+        assert_eq!(bytes, record_of(&fixture("fifo")));
+    }
+
+    fn record_of(event: &Value) -> Vec<u8> {
+        let mut bytes = serde_json::to_vec(event).unwrap();
+        bytes.push(b'\n');
+        bytes
     }
 
     /// Normal emits, failsafe appends, and provider-turn flushes from threads
@@ -818,7 +939,8 @@ mod tests {
         let secret = "SYNTHETIC_ISSUE987_SECRET_value_42";
         let mut catalog = crate::sensitive_data::SecretCatalog::new();
         catalog.register(secret);
-        crate::sensitive_data::install_scope(catalog, None, Some(&path));
+        // This thread's scope only: nothing is left in the shared registry.
+        crate::sensitive_data::install_scope(catalog, None, None);
         let mut scope = ExecutionTelemetry::new(Some(&path));
         emit(
             Some(&path),

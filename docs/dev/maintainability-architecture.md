@@ -33,11 +33,11 @@ retaining schema version 1 unless a migration is explicitly authorized.
 
 ## Event file append atomicity
 
-Within one process, an events file holds one event per physical line: one
-JSON object followed by one LF, with no bytes of another writer inside it
-(Issue #987). Every in-process writer of an events file builds its record
-before it writes and then appends it through `eval_events/append_writer.rs`
-under one process-wide lock:
+Within one process, an events file that is a regular file holds one event per
+physical line: one JSON object followed by one LF, with no bytes of another
+writer inside it (Issue #987). Every in-process writer of an events file
+builds its record before it writes and then appends it through
+`eval_events/append_writer.rs` under one process-wide lock:
 
 - `emit` and `append_event_failsafe`, and through them the OS sandbox status
   events, provider worker threads, speculative phase workers, and the GUI
@@ -62,7 +62,10 @@ malformed line, and the terminal report and completion snapshot still skip it.
 Outside this guarantee: another process appending to the same file (the GUI
 server hands its events path to the child run through
 `COMMANDAGENT_EVAL_EVENTS`, and both write it), network filesystems, and
-durability across a crash. No cross-process file lock is taken.
+durability across a crash. No cross-process file lock is taken. An events
+path that is not a regular file (a FIFO, a device) is opened and written
+outside the lock, as at `fc903248`, so a FIFO waiting for its reader never
+holds up other writers; its lines get no guarantee.
 
 ## Browser probe asset
 
