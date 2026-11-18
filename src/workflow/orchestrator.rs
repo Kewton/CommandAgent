@@ -1083,7 +1083,8 @@ mod tests {
                     assert!(
                         error
                             .to_string()
-                            .contains("stop after reaching the UltraPlan phase seam")
+                            .contains("stop after reaching the UltraPlan phase seam"),
+                        "run_ultra_plan returned an error other than the phase seam stop: {error:#}"
                     );
                     Ok(())
                 })
