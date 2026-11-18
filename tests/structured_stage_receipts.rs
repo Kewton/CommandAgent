@@ -349,8 +349,9 @@ mod off_control {
     use std::collections::{BTreeMap, VecDeque};
     use std::io::{Read as _, Write as _};
     use std::path::{Path, PathBuf};
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex, OnceLock};
+    use std::time::{Duration, Instant};
 
     use commandagent::config::{
         Action, Config, ConfigFieldSources, NarrationMode, OllamaThink, OpenAiApi, PlanPreset,
@@ -361,12 +362,17 @@ mod off_control {
     use commandagent::planner::runner::{run_step_plan, run_ultra_plan};
     use commandagent::planner::step_plan::{PlanStep, StepPlan};
     use commandagent::planner::ultra_plan::{UltraPhase, UltraPlan};
-    use commandagent::providers::client_from_config;
+    use commandagent::providers::profile_tool_schema::ProfileToolSchemaWire;
+    use commandagent::providers::streaming::CancelToken;
+    use commandagent::providers::{
+        AssistantReply, ChatClient, ProviderResponseMetadata, ResponseTiming, client_from_config,
+    };
     use commandagent::sensitive_data::{SecretCatalog, install_scope};
-    use commandagent::state::SessionSnapshot;
+    use commandagent::state::{ConversationMessage, SessionSnapshot};
     use commandagent::tools::profile_tools::{
         ProfileToolReadExecutor, ReadToolOutput, register_read_executor,
     };
+    use commandagent::tools::registry::ToolSpec;
     use commandagent::tui::NOOP_UI;
     use serde_json::{Value, json};
 
@@ -912,6 +918,223 @@ mod off_control {
         },
     ];
 
+    /// Issue #1010: how long a later phase's plan may wait for its start. Past it the call fails
+    /// and so does the row; it never decides a pass.
+    const START_GATE_BOUND: Duration = Duration::from_secs(10);
+    const START_GATE_POLL: Duration = Duration::from_millis(1);
+
+    /// When the gate lets a later phase's plan go to the real client.
+    #[derive(Clone, Copy)]
+    enum Release {
+        /// As soon as the events file holds that phase's start.
+        AtStart,
+        /// Later on purpose: once the file also holds the main thread's line of this name for
+        /// the same phase.
+        AfterMainLine(&'static str),
+    }
+
+    /// What the gate did: the phases it let go, and the waits that ran out.
+    #[derive(Debug, Default, Clone, PartialEq)]
+    struct GateReport {
+        released: Vec<String>,
+        failed: Vec<String>,
+    }
+
+    /// Issue #1010: the product writes `speculative_phase_plan_started` after it spawns the thread
+    /// that plans the next phase (`pipeline.rs`), and nothing holds that thread back in between,
+    /// so the `provider_request` its client writes can land first. In this setup, a call that
+    /// plans a later phase reaches the real client only once the events file holds that phase's
+    /// start. Any other call, the first phase's plan among them, goes on at once. The gate tells
+    /// the calls apart by the phase prompt they carry, not by a thread, and writes no event: the
+    /// real client writes them all.
+    struct StartGate {
+        events: PathBuf,
+        /// The prompt and id of every phase after the first.
+        later_phases: Vec<(String, String)>,
+        release: Release,
+        bound: Duration,
+        waiting: AtomicUsize,
+        /// How many times a waiting call looked and found no start yet.
+        held: AtomicUsize,
+        report: Mutex<GateReport>,
+    }
+
+    impl StartGate {
+        fn new(events: PathBuf, plan: &UltraPlan, release: Release, bound: Duration) -> Arc<Self> {
+            Arc::new(Self {
+                events,
+                later_phases: plan
+                    .phases
+                    .iter()
+                    .skip(1)
+                    .map(|phase| (phase.prompt.clone(), phase.id.clone()))
+                    .collect(),
+                release,
+                bound,
+                waiting: AtomicUsize::new(0),
+                held: AtomicUsize::new(0),
+                report: Mutex::default(),
+            })
+        }
+
+        fn report(&self) -> GateReport {
+            self.report.lock().unwrap().clone()
+        }
+
+        fn later_phase_ids(&self) -> Vec<String> {
+            self.later_phases.iter().map(|(_, id)| id.clone()).collect()
+        }
+
+        /// One value after another, as `record_off_row` reads them; a value still being written
+        /// ends the read.
+        fn has_line(&self, event: &str, field: &str, phase: &str) -> bool {
+            let text = std::fs::read_to_string(&self.events).unwrap_or_default();
+            serde_json::Deserializer::from_str(&text)
+                .into_iter::<Value>()
+                .map_while(Result::ok)
+                .any(|value| value["event"] == event && value[field] == phase)
+        }
+
+        fn ready(&self, phase: &str) -> bool {
+            self.has_line(OTHER_THREAD_STARTS, "next_phase_id", phase)
+                && match self.release {
+                    Release::AtStart => true,
+                    Release::AfterMainLine(event) => self.has_line(event, "phase_id", phase),
+                }
+        }
+
+        /// `Ok` at once for a call that plans no later phase. Otherwise waits, up to the bound,
+        /// until that phase's start is written, and fails if it is not.
+        fn pass(&self, messages: &[ConversationMessage]) -> anyhow::Result<()> {
+            let Some((_, phase)) = self.later_phases.iter().find(|(prompt, _)| {
+                messages
+                    .iter()
+                    .any(|message| message.content.contains(prompt.as_str()))
+            }) else {
+                return Ok(());
+            };
+            self.waiting.fetch_add(1, Ordering::SeqCst);
+            let deadline = Instant::now() + self.bound;
+            let ready = loop {
+                if self.ready(phase) {
+                    break true;
+                }
+                self.held.fetch_add(1, Ordering::SeqCst);
+                if Instant::now() >= deadline {
+                    break false;
+                }
+                std::thread::sleep(START_GATE_POLL);
+            };
+            self.waiting.fetch_sub(1, Ordering::SeqCst);
+            let mut report = self.report.lock().unwrap();
+            if ready {
+                report.released.push(phase.clone());
+                return Ok(());
+            }
+            let failure = format!(
+                "no {OTHER_THREAD_STARTS} for phase {phase} within {:?}",
+                self.bound
+            );
+            report.failed.push(failure.clone());
+            anyhow::bail!(failure)
+        }
+    }
+
+    /// The real planner behind a `StartGate`. Everything but the wait is the real client's.
+    struct StartGated {
+        inner: Box<dyn ChatClient>,
+        gate: Arc<StartGate>,
+    }
+
+    impl ChatClient for StartGated {
+        fn label(&self) -> &str {
+            self.inner.label()
+        }
+
+        fn boxed_clone(&self) -> Box<dyn ChatClient> {
+            Box::new(Self {
+                inner: self.inner.boxed_clone(),
+                gate: Arc::clone(&self.gate),
+            })
+        }
+
+        fn supports_native_tools(&self, model: &str) -> bool {
+            self.inner.supports_native_tools(model)
+        }
+
+        fn allows_xml_fallback(&self) -> bool {
+            self.inner.allows_xml_fallback()
+        }
+
+        fn parses_xml_tool_calls_before_host(&self) -> bool {
+            self.inner.parses_xml_tool_calls_before_host()
+        }
+
+        fn supports_ollama_think(&self) -> bool {
+            self.inner.supports_ollama_think()
+        }
+
+        fn profile_tool_schema_wire(&self) -> ProfileToolSchemaWire {
+            self.inner.profile_tool_schema_wire()
+        }
+
+        fn take_response_timing(&mut self) -> Option<ResponseTiming> {
+            self.inner.take_response_timing()
+        }
+
+        fn take_response_metadata(&mut self) -> Option<ProviderResponseMetadata> {
+            self.inner.take_response_metadata()
+        }
+
+        fn set_cancel_token(&mut self, token: CancelToken) {
+            self.inner.set_cancel_token(token);
+        }
+
+        fn provider_turn_carried_result(&mut self) {
+            self.inner.provider_turn_carried_result();
+        }
+
+        fn supports_streaming(&self) -> bool {
+            self.inner.supports_streaming()
+        }
+
+        fn supports_streaming_for_model(&self, model: &str) -> bool {
+            self.inner.supports_streaming_for_model(model)
+        }
+
+        fn chat_stream(
+            &mut self,
+            model: &str,
+            messages: &[ConversationMessage],
+            tools: &[ToolSpec],
+            native_tools_enabled: bool,
+            on_chunk: &mut dyn FnMut(&str) -> anyhow::Result<()>,
+        ) -> anyhow::Result<AssistantReply> {
+            self.gate.pass(messages)?;
+            self.inner
+                .chat_stream(model, messages, tools, native_tools_enabled, on_chunk)
+        }
+
+        fn chat(
+            &mut self,
+            model: &str,
+            messages: &[ConversationMessage],
+            tools: &[ToolSpec],
+            native_tools_enabled: bool,
+        ) -> anyhow::Result<AssistantReply> {
+            self.gate.pass(messages)?;
+            self.inner
+                .chat(model, messages, tools, native_tools_enabled)
+        }
+    }
+
+    fn speculating_row() -> &'static OffRow {
+        OFF_ROWS
+            .iter()
+            .find(|row| matches!(row.entry, Entry::UltraSpeculating))
+            .unwrap()
+    }
+
     fn plan_of(row: &OffRow, intent: &str) -> UltraPlan {
         UltraPlan {
             goal: row.prompt.to_string(),
@@ -931,7 +1154,13 @@ mod off_control {
         }
     }
 
-    fn outcome_of(row: &OffRow, config: &Config, paths: &[(&Path, &str)], url: &str) -> Value {
+    fn outcome_of(
+        row: &OffRow,
+        config: &Config,
+        paths: &[(&Path, &str)],
+        url: &str,
+        gate: Option<&Arc<StartGate>>,
+    ) -> Value {
         let mut client = client_from_config(config, false).unwrap();
         let summary = |result: anyhow::Result<String>| match result {
             Ok(summary) => json!({"summary": normalize_text(paths, url, &summary)}),
@@ -976,6 +1205,12 @@ mod off_control {
                     _ => "create",
                 };
                 let mut planner = client_from_config(config, true).unwrap();
+                if let Some(gate) = gate {
+                    planner = Box::new(StartGated {
+                        inner: planner,
+                        gate: Arc::clone(gate),
+                    });
+                }
                 summary(run_ultra_plan(
                     planner.as_mut(),
                     client.as_mut(),
@@ -997,6 +1232,12 @@ mod off_control {
     }
 
     fn record_off_row(row: &OffRow) -> Value {
+        record_off_row_released(row, Release::AtStart)
+    }
+
+    /// `release` says when the row that speculates lets its next phase's plan go; no other row
+    /// has a gate.
+    fn record_off_row_released(row: &OffRow, release: Release) -> Value {
         let workspace = tempfile::tempdir().unwrap();
         let evidence = tempfile::tempdir().unwrap();
         let root = std::fs::canonicalize(workspace.path()).unwrap();
@@ -1025,7 +1266,29 @@ mod off_control {
             (root.as_path(), "<ROOT>"),
             (evidence.as_path(), "<EVIDENCE>"),
         ];
-        let outcome = outcome_of(row, &config, &paths, &url);
+        let gate = matches!(row.entry, Entry::UltraSpeculating).then(|| {
+            StartGate::new(
+                evidence.join("events.jsonl"),
+                &plan_of(row, "create"),
+                release,
+                START_GATE_BOUND,
+            )
+        });
+        let outcome = outcome_of(row, &config, &paths, &url, gate.as_ref());
+        // Issue #1010: the next phase's plan was asked for once, after its start, and no wait ran
+        // out. A gate that let nothing through, or failed, fails the row here.
+        if let Some(gate) = &gate {
+            assert_eq!(
+                gate.report(),
+                GateReport {
+                    released: gate.later_phase_ids(),
+                    failed: Vec::new(),
+                },
+                "{}: the start gate",
+                row.id
+            );
+            assert_eq!(gate.waiting.load(Ordering::SeqCst), 0, "{}", row.id);
+        }
         // T6: off makes no new sidecar, and nothing in the state directory is this feature's.
         assert!(
             !evidence.join("state/structured-stages").exists(),
@@ -1110,10 +1373,18 @@ mod off_control {
             position_of(old, OTHER_THREAD_ENDS)?,
         );
         if new[..new_start] != old[..old_start] {
-            return Err("the events before the other thread's start differ".to_string());
+            let index = parting(&new[..new_start], &old[..old_start]);
+            return Err(format!(
+                "the events before the other thread's start differ; {}",
+                first_difference((new, index), (old, index))
+            ));
         }
         if new[new_end..] != old[old_end..] {
-            return Err("the events from the adoption on differ".to_string());
+            let index = parting(&new[new_end..], &old[old_end..]);
+            return Err(format!(
+                "the events from the adoption on differ; {}",
+                first_difference((new, new_end + index), (old, old_end + index))
+            ));
         }
         let parts = |range: &[&str]| {
             let (mut movable, mut fixed): (Vec<String>, Vec<String>) = (Vec::new(), Vec::new());
@@ -1129,12 +1400,45 @@ mod off_control {
         let (new_movable, new_fixed) = parts(&new[new_start..new_end]);
         let (old_movable, old_fixed) = parts(&old[old_start..old_end]);
         if new_fixed != old_fixed {
-            return Err("the main thread's events between them differ or moved".to_string());
+            let index = parting(&new_fixed, &old_fixed);
+            return Err(format!(
+                "the main thread's events between them differ or moved; among them, {}",
+                first_difference((&new_fixed, index), (&old_fixed, index))
+            ));
         }
         if new_movable != old_movable {
-            return Err("the provider events between them are not the same lines".to_string());
+            let index = parting(&new_movable, &old_movable);
+            return Err(format!(
+                "the provider events between them are not the same lines; among them, {}",
+                first_difference((&new_movable, index), (&old_movable, index))
+            ));
         }
         Ok(())
+    }
+
+    /// Where two lists first part: the first index that differs, or the end of the shorter.
+    fn parting(new: &[impl AsRef<str>], old: &[impl AsRef<str>]) -> usize {
+        new.iter()
+            .zip(old)
+            .position(|(new, old)| new.as_ref() != old.as_ref())
+            .unwrap_or_else(|| new.len().min(old.len()))
+    }
+
+    /// Issue #1010: a failed comparison names the first event that differs, so the next run that
+    /// fails says which event moved.
+    fn first_difference(
+        (new, new_index): (&[impl AsRef<str>], usize),
+        (old, old_index): (&[impl AsRef<str>], usize),
+    ) -> String {
+        format!(
+            "first at new[{new_index}] {} / old[{old_index}] {}",
+            line_at(new, new_index),
+            line_at(old, old_index)
+        )
+    }
+
+    fn line_at(lines: &[impl AsRef<str>], index: usize) -> &str {
+        lines.get(index).map_or("<none>", AsRef::as_ref)
     }
 
     /// What the comparison above lets through, and what it does not.
@@ -1232,6 +1536,12 @@ mod off_control {
             after.as_str(),
         ];
         assert!(events_match(&early, &old).is_err(), "before the start");
+        // Issue #1010: the failure names the first line that differs, on both sides.
+        let early_error = events_match(&early, &old).unwrap_err();
+        assert!(
+            early_error.contains(&format!("first at new[1] {request} / old[1] {start}")),
+            "{early_error}"
+        );
         let late = [
             before.as_str(),
             start.as_str(),
@@ -1303,44 +1613,362 @@ mod off_control {
     fn off_wire_events_and_artifacts_match_the_base_recording_byte_for_byte() {
         let _guard = lock();
         register_off_extension();
-        let golden: Value = serde_json::from_str(OFF_GOLDEN).unwrap();
         for row in &OFF_ROWS {
-            let recorded = record_off_row(row);
-            let old = golden["rows"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|old| old["id"] == row.id)
-                .unwrap_or_else(|| panic!("no golden row {}", row.id));
-            for key in [
-                "outcome",
-                "requests",
-                "plan_requests",
-                "artifacts",
-                "unused_replies",
-            ] {
-                assert_eq!(recorded[key], old[key], "{}: {key}", row.id);
-            }
-            let (new, old) = (
-                recorded["events"].as_array().unwrap(),
-                old["events"].as_array().unwrap(),
-            );
-            if matches!(row.entry, Entry::UltraSpeculating) {
-                // Whether the order really moved this time, for a count over many runs.
-                eprintln!("off-order: {}", if new == old { "same" } else { "moved" });
-                assert_eq!(
-                    events_match(&lines_of(new), &lines_of(old)),
-                    Ok(()),
-                    "{}",
-                    row.id
-                );
-                continue;
-            }
-            for (index, (new, old)) in new.iter().zip(old).enumerate() {
-                assert_eq!(new, old, "{}: event {index}", row.id);
-            }
-            assert_eq!(new.len(), old.len(), "{}: event count", row.id);
+            assert_matches_golden(row, &record_off_row(row));
         }
+    }
+
+    fn golden_row(id: &str) -> Value {
+        let golden: Value = serde_json::from_str(OFF_GOLDEN).unwrap();
+        golden["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|old| old["id"] == id)
+            .cloned()
+            .unwrap_or_else(|| panic!("no golden row {id}"))
+    }
+
+    fn assert_matches_golden(row: &OffRow, recorded: &Value) {
+        let old = golden_row(row.id);
+        for key in [
+            "outcome",
+            "requests",
+            "plan_requests",
+            "artifacts",
+            "unused_replies",
+        ] {
+            assert_eq!(recorded[key], old[key], "{}: {key}", row.id);
+        }
+        let (new, old) = (
+            recorded["events"].as_array().unwrap(),
+            old["events"].as_array().unwrap(),
+        );
+        if matches!(row.entry, Entry::UltraSpeculating) {
+            // Whether the order really moved this time, for a count over many runs.
+            eprintln!("off-order: {}", if new == old { "same" } else { "moved" });
+            assert_eq!(
+                events_match(&lines_of(new), &lines_of(old)),
+                Ok(()),
+                "{}",
+                row.id
+            );
+            return;
+        }
+        for (index, (new, old)) in new.iter().zip(old).enumerate() {
+            assert_eq!(new, old, "{}: event {index}", row.id);
+        }
+        assert_eq!(new.len(), old.len(), "{}: event count", row.id);
+    }
+
+    /// The main thread's last line before it joins the next phase's plan, in the base recording.
+    const LATE_RELEASE_LINE: &str = "ultra_phase_context_attached";
+
+    fn owned_lines(events: &Value) -> Vec<String> {
+        events
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|line| line.as_str().unwrap().to_string())
+            .collect()
+    }
+
+    fn file_lines(events: &Path) -> Vec<String> {
+        serde_json::Deserializer::from_str(&std::fs::read_to_string(events).unwrap_or_default())
+            .into_iter::<Value>()
+            .map(|value| value.unwrap().to_string())
+            .collect()
+    }
+
+    /// Issue #1010, acceptance 2: the gate holds a later phase's plan until that phase's start is
+    /// written, fails when it is not, and holds nothing else.
+    #[test]
+    fn the_start_gate_holds_a_later_phases_plan_until_its_start_and_fails_without_it() {
+        let _guard = lock();
+        let evidence = tempfile::tempdir().unwrap();
+        let events = evidence.path().join("events.jsonl");
+        let row = speculating_row();
+        let plan = plan_of(row, "create");
+        let http = FakeHttp::start(Vec::new(), plans_of(row));
+        let config = base_config(evidence.path(), evidence.path(), row.profile, &http.url);
+        let bound = Duration::from_millis(200);
+        let gate = StartGate::new(events.clone(), &plan, Release::AtStart, bound);
+        let mut planner = StartGated {
+            inner: client_from_config(&config, true).unwrap(),
+            gate: Arc::clone(&gate),
+        };
+        let mut ask = |phase: usize| {
+            planner.chat(
+                "m",
+                &[ConversationMessage::user(plan.phases[phase].prompt.clone())],
+                &[],
+                false,
+            )
+        };
+        let start_of = |next: &str| {
+            commandagent::eval_events::emit(
+                Some(&events),
+                json!({
+                    "event": OTHER_THREAD_STARTS,
+                    "current_phase_id": "first",
+                    "next_phase_id": next,
+                    "reason": "verification_overlap",
+                }),
+            );
+        };
+
+        // Another phase's start is not this one's.
+        start_of("another");
+        let asked = Instant::now();
+        let error = ask(1).unwrap_err();
+        assert!(asked.elapsed() >= bound, "it waited the bound out");
+        assert!(
+            format!("{error:#}").contains("no speculative_phase_plan_started for phase second"),
+            "{error:#}"
+        );
+        assert_eq!(gate.report().failed.len(), 1);
+        assert!(gate.report().released.is_empty());
+
+        // The first phase's plan goes on at once.
+        assert!(ask(0).is_ok());
+
+        // Once its start is written, the same call goes through.
+        start_of("second");
+        assert!(ask(1).is_ok());
+        assert_eq!(gate.report().released, ["second"]);
+        assert_eq!(gate.report().failed.len(), 1);
+        assert_eq!(gate.waiting.load(Ordering::SeqCst), 0);
+
+        // The call that failed never reached the real client.
+        let heard = http.finish();
+        assert_eq!(heard.plan_requests.len(), 2);
+        assert!(heard.plan_requests[0].contains(&plan.phases[0].prompt));
+        assert!(heard.plan_requests[1].contains(&plan.phases[1].prompt));
+        let requests = file_lines(&events)
+            .iter()
+            .filter(|line| event_name(line) == "provider_request")
+            .count();
+        assert_eq!(requests, 2);
+    }
+
+    /// Issue #1010, acceptance 2: a release later than the start, within the bound, gives the
+    /// same comparison the same answer.
+    #[test]
+    fn a_later_release_within_the_bound_matches_the_same_recording() {
+        let _guard = lock();
+        register_off_extension();
+        let row = speculating_row();
+        let recorded = record_off_row_released(row, Release::AfterMainLine(LATE_RELEASE_LINE));
+        assert_matches_golden(row, &recorded);
+        // The release did come later: the next phase's request follows that line.
+        let events = lines_of(recorded["events"].as_array().unwrap());
+        let start = position_of(&events, OTHER_THREAD_STARTS).unwrap();
+        let line = events
+            .iter()
+            .position(|line| {
+                let value: Value = serde_json::from_str(line).unwrap();
+                value["event"] == LATE_RELEASE_LINE && value["phase_id"] == "second"
+            })
+            .unwrap();
+        let request = start
+            + events[start..]
+                .iter()
+                .position(|line| event_name(line) == "provider_request")
+                .unwrap();
+        assert!(
+            line < request,
+            "the request at {request}, the line at {line}"
+        );
+    }
+
+    /// The order of `pipeline.rs`, with the start written late on purpose: a clone of `planner`
+    /// asks for the next phase's plan on another thread, and the start is written only once that
+    /// thread's request is in the file or the gate has looked for the start and held that thread
+    /// back. Then the result of
+    /// `events_match` against the order the product promises: the start, that thread's lines in
+    /// their order, the adoption.
+    fn forced_early_request(gated: bool) -> Result<(), String> {
+        let evidence = tempfile::tempdir().unwrap();
+        let events = evidence.path().join("events.jsonl");
+        let row = speculating_row();
+        let plan = plan_of(row, "create");
+        let http = FakeHttp::start(
+            Vec::new(),
+            vec![step_plan_reply("Write the notes again", "step-second")],
+        );
+        let config = base_config(evidence.path(), evidence.path(), row.profile, &http.url);
+        let gate = StartGate::new(events.clone(), &plan, Release::AtStart, START_GATE_BOUND);
+        let real = client_from_config(&config, true).unwrap();
+        // Ungated, the planner this setup built before Issue #1010.
+        let planner: Box<dyn ChatClient> = if gated {
+            Box::new(StartGated {
+                inner: real,
+                gate: Arc::clone(&gate),
+            })
+        } else {
+            real
+        };
+        let mut worker = planner.boxed_clone();
+        let messages = vec![ConversationMessage::user(plan.phases[1].prompt.clone())];
+        let handle = std::thread::spawn(move || worker.chat("m", &messages, &[], false));
+        let deadline = Instant::now() + START_GATE_BOUND;
+        loop {
+            let requested = file_lines(&events)
+                .iter()
+                .any(|line| event_name(line) == "provider_request");
+            if requested || gate.held.load(Ordering::SeqCst) > 0 {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "neither a request nor a call held back at the gate"
+            );
+            std::thread::sleep(START_GATE_POLL);
+        }
+        let write = |event: &str| {
+            commandagent::eval_events::emit(
+                Some(&events),
+                json!({
+                    "event": event,
+                    "current_phase_id": plan.phases[0].id,
+                    "next_phase_id": plan.phases[1].id,
+                    "reason": "verification_overlap",
+                }),
+            );
+        };
+        write(OTHER_THREAD_STARTS);
+        let reply = handle.join().unwrap();
+        assert!(reply.is_ok(), "{reply:?}");
+        write(OTHER_THREAD_ENDS);
+        assert_eq!(http.finish().plan_requests.len(), 1);
+        assert_eq!(
+            gate.report().released,
+            if gated {
+                vec!["second".to_string()]
+            } else {
+                Vec::new()
+            }
+        );
+
+        let new = file_lines(&events);
+        let names = new.iter().map(|line| event_name(line)).collect::<Vec<_>>();
+        let mut sorted = names.clone();
+        sorted.sort();
+        assert_eq!(
+            sorted,
+            [
+                "provider_request",
+                "provider_response",
+                OTHER_THREAD_ENDS,
+                OTHER_THREAD_STARTS,
+            ],
+            "{names:?}"
+        );
+        let theirs = new
+            .iter()
+            .filter(|line| EVENTS_OF_THE_OTHER_THREAD.contains(&event_name(line).as_str()));
+        let start = new
+            .iter()
+            .find(|line| event_name(line) == OTHER_THREAD_STARTS);
+        let end = new
+            .iter()
+            .find(|line| event_name(line) == OTHER_THREAD_ENDS);
+        let promised = start
+            .into_iter()
+            .chain(theirs)
+            .chain(end)
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        events_match(
+            &new.iter().map(String::as_str).collect::<Vec<_>>(),
+            &promised,
+        )
+    }
+
+    /// Issue #1010, acceptance 3: the request of the next phase's plan written before its start
+    /// is the CI failure without the gate, and cannot happen with it.
+    #[test]
+    fn a_plan_request_forced_ahead_of_its_start_fails_ungated_and_waits_gated() {
+        let _guard = lock();
+        let error = forced_early_request(false).unwrap_err();
+        assert!(
+            error.starts_with("the events before the other thread's start differ"),
+            "{error}"
+        );
+        assert!(
+            error.contains("first at new[0] {\"") && error.contains("provider_request"),
+            "{error}"
+        );
+        assert_eq!(forced_early_request(true), Ok(()));
+    }
+
+    /// Issue #1010, acceptance 4: on a real recording through the gate, a provider event dropped,
+    /// changed, or moved, or a main thread's event changed, still fails the comparison.
+    #[test]
+    fn a_gated_recording_still_fails_with_an_event_dropped_changed_or_moved() {
+        let _guard = lock();
+        register_off_extension();
+        let row = speculating_row();
+        let new = owned_lines(&record_off_row(row)["events"]);
+        let golden = golden_row(row.id);
+        let old = lines_of(golden["events"].as_array().unwrap());
+        let check = |lines: &[String]| {
+            events_match(&lines.iter().map(String::as_str).collect::<Vec<_>>(), &old)
+        };
+        assert_eq!(check(&new), Ok(()));
+
+        let names = new.iter().map(|line| event_name(line)).collect::<Vec<_>>();
+        let position = |name: &str| names.iter().position(|each| each == name).unwrap();
+        let (start, end) = (position(OTHER_THREAD_STARTS), position(OTHER_THREAD_ENDS));
+        let theirs = (start..end)
+            .filter(|&index| EVENTS_OF_THE_OTHER_THREAD.contains(&names[index].as_str()))
+            .collect::<Vec<_>>();
+        assert_eq!(theirs.len(), 2, "{names:?}");
+        let (request, response) = (theirs[0], theirs[1]);
+        assert_eq!(names[request], "provider_request");
+        assert_eq!(names[response], "provider_response");
+        let with_field = |line: &str, field: &str| {
+            let mut value: Value = serde_json::from_str(line).unwrap();
+            value[field] = json!("changed");
+            value.to_string()
+        };
+
+        let mut dropped = new.clone();
+        dropped.remove(request);
+        assert!(check(&dropped).is_err(), "dropped");
+
+        let mut changed = new.clone();
+        changed[request] = with_field(&new[request], "model");
+        assert!(check(&changed).is_err(), "changed");
+
+        let mut swapped = new.clone();
+        swapped.swap(request, response);
+        assert!(check(&swapped).is_err(), "their own order");
+
+        let mut early = new.clone();
+        let line = early.remove(request);
+        early.insert(start, line);
+        let error = check(&early).unwrap_err();
+        assert!(
+            error.starts_with("the events before the other thread's start differ"),
+            "{error}"
+        );
+        assert!(
+            error.contains(&format!("new[{start}] {}", new[request])),
+            "{error}"
+        );
+
+        let mut late = new.clone();
+        let line = late.remove(response);
+        late.insert(end, line);
+        assert!(check(&late).is_err(), "after the adoption");
+
+        let main = (start + 1..end)
+            .find(|index| !theirs.contains(index))
+            .unwrap();
+        let mut main_changed = new.clone();
+        main_changed[main] = with_field(&new[main], "event_note");
+        assert!(check(&main_changed).is_err(), "a main thread's event");
     }
 
     #[test]
