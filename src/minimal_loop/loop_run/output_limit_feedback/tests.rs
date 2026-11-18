@@ -17,6 +17,7 @@ use crate::config::{
     Action, Config, ConfigFieldSources, NarrationMode, OllamaThink, OpenAiApi, PlanPreset,
     PromptLayout, Provider,
 };
+use crate::minimal_loop::budget_closing::{BudgetClosing, NOTICE as CLOSING_NOTICE};
 use crate::provider_call::{ProviderCallOutcome, ProviderCallScope, ProviderChatRequest};
 use crate::providers::streaming::CancelToken;
 use crate::providers::{
@@ -940,6 +941,147 @@ fn a_request_without_the_sentence_lets_a_late_worker_ask_the_client_as_before() 
             watched.1, 1,
             "{interrupt:?}: the late worker asked the client"
         );
+    }
+}
+
+// ---- one request that carries both the #957 notice and the sentence ---------
+
+fn closing_events(path: &Path) -> Vec<Value> {
+    events(path)
+        .into_iter()
+        .filter(|event| event["event"] == "budget_closing")
+        .collect()
+}
+
+/// A run's closing state and this leaf with the next request composed the
+/// way the loop composes it: the #957 notice, then the sentence.
+fn shared_request(root: &Path, path: &Path) -> (BudgetClosing, OutputLimitFeedback) {
+    let mut closing = BudgetClosing::enabled(Some(path), root);
+    let mut leaf = OutputLimitFeedback::new(Some(path));
+    leaf.observe_reply(&reply(Some(100), Vec::new()), LIMIT);
+    let feedback = closing.request_feedback(2, 6, None);
+    let feedback = leaf.compose(feedback).map(Cow::into_owned).unwrap();
+    assert_eq!(feedback, format!("{CLOSING_NOTICE}\n\n{NO_TOOL_SENTENCE}"));
+    closing.note_request(&[ConversationMessage::user(feedback)]);
+    (closing, leaf)
+}
+
+/// One provider call the way the loop makes it (`loop_run.rs`): the #957
+/// entry around this leaf's watch, then `settle`.
+fn shared_call(
+    closing: &mut BudgetClosing,
+    leaf: &mut OutputLimitFeedback,
+    client: &mut Probe,
+    root: &Path,
+    timeout_secs: u64,
+    is_cancelled: impl Fn() -> bool,
+) -> ProviderCallOutcome {
+    let config = call_config(root, timeout_secs);
+    let messages = [ConversationMessage::user("hello")];
+    let outcome = closing.chat_with_cancel_and_stream(
+        &mut leaf.watch(&mut *client),
+        leaf.guarded_dispatch(),
+        &config,
+        request(&messages),
+        is_cancelled,
+        &mut |_| Ok(()),
+    );
+    leaf.settle();
+    outcome
+}
+
+#[test]
+fn a_shared_request_held_past_the_notice_watch_is_neither_sent_nor_recorded() {
+    for interrupt in INTERRUPTS {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("events.jsonl");
+        let (mut closing, mut leaf) = shared_request(dir.path(), &path);
+        // The worker has passed the #957 watch (the outer one) and is held
+        // right before this leaf's watch decides; the call ends meanwhile.
+        let (mut client, _taken) = Probe::new(None);
+        let (gate, decided) = DispatchGate::new();
+        leaf.dispatch_gate = Some(Arc::clone(&gate));
+        let held = Arc::clone(&gate);
+        let outcome = match interrupt {
+            Interrupt::Cancel => shared_call(
+                &mut closing,
+                &mut leaf,
+                &mut client,
+                dir.path(),
+                30,
+                move || held.reached.load(Ordering::SeqCst),
+            ),
+            Interrupt::Timeout => {
+                shared_call(&mut closing, &mut leaf, &mut client, dir.path(), 1, || {
+                    false
+                })
+            }
+        };
+        leaf.dispatch_gate = None;
+        interrupted(&outcome, interrupt);
+        assert!(gate.reached.load(Ordering::SeqCst), "{interrupt:?}");
+        assert!(closing_events(&path).is_empty(), "{interrupt:?}: no notice");
+        assert!(feedback_events(&path).is_empty(), "{interrupt:?}");
+        // Released afterwards, the worker never asks the client.
+        gate.release();
+        assert!(!wait_decided(&decided), "{interrupt:?}: not sent");
+        assert_eq!(client.calls(), 0, "{interrupt:?}: the client never saw it");
+        assert!(closing_events(&path).is_empty(), "{interrupt:?}: no notice");
+        assert!(feedback_events(&path).is_empty(), "{interrupt:?}");
+        // The notice is not recorded, so its guard never applies and it is
+        // not composed again; the sentence goes into the next request.
+        assert_eq!(closing.request_feedback(1, 6, None), None, "{interrupt:?}");
+        assert_eq!(closing.before_normal_final(5, 1), None, "{interrupt:?}");
+        assert_eq!(
+            composed(&mut leaf, None),
+            Some(NO_TOOL_SENTENCE.into()),
+            "{interrupt:?}"
+        );
+    }
+}
+
+#[test]
+fn a_shared_request_that_reached_the_client_records_the_notice_and_the_sentence_once() {
+    for interrupt in [None, Some(Interrupt::Cancel), Some(Interrupt::Timeout)] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("events.jsonl");
+        let (mut closing, mut leaf) = shared_request(dir.path(), &path);
+        let (mut client, _taken) = Probe::new(None);
+        client.hold = interrupt.is_some();
+        let calls = Arc::clone(&client.calls);
+        let outcome = match interrupt {
+            None => shared_call(&mut closing, &mut leaf, &mut client, dir.path(), 30, || {
+                false
+            }),
+            Some(Interrupt::Cancel) => shared_call(
+                &mut closing,
+                &mut leaf,
+                &mut client,
+                dir.path(),
+                30,
+                move || *calls.lock().unwrap() > 0,
+            ),
+            Some(Interrupt::Timeout) => {
+                shared_call(&mut closing, &mut leaf, &mut client, dir.path(), 1, || {
+                    false
+                })
+            }
+        };
+        match interrupt {
+            None => assert!(outcome.result.is_ok()),
+            Some(interrupt) => {
+                interrupted(&outcome, interrupt);
+            }
+        }
+        assert_eq!(client.calls(), 1, "{interrupt:?}");
+        let notices: Vec<_> = closing_events(&path)
+            .iter()
+            .map(|event| event["phase"].clone())
+            .collect();
+        assert_eq!(notices, [json!("notice")], "{interrupt:?}");
+        assert_eq!(feedback_events(&path).len(), 1, "{interrupt:?}");
+        assert_eq!(composed(&mut leaf, None), None, "{interrupt:?}");
+        assert_eq!(closing.request_feedback(1, 6, None), None, "{interrupt:?}");
     }
 }
 

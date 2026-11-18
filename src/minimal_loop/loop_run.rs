@@ -748,6 +748,7 @@ fn run_session_planned(
             let mut guard = ui.before_model_call(&label);
             let mut outcome = budget_closing.chat_with_cancel_and_stream(
                 &mut output_limit.watch(&mut *client),
+                output_limit.guarded_dispatch(),
                 config,
                 provider_call::ProviderChatRequest {
                     scope: call_scope,

@@ -118,6 +118,7 @@ fn call_through(
     let messages = [ConversationMessage::user("hello")];
     closing.chat_with_cancel_and_stream(
         client,
+        None,
         &config,
         ProviderChatRequest {
             scope: ProviderCallScope::Executor,

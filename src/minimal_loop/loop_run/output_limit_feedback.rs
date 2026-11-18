@@ -37,12 +37,12 @@
 //! sends that request late; it returns the interruption error instead.
 //! Every other request behaves exactly as before, a late worker included.
 //!
-//! Known limit: this state is separate from the Issue #957 notice's. When
-//! one request of a `COMMANDAGENT_BUDGET_CLOSING=once` run carries both, and
-//! the call returns first while its late worker sits between the #957 watch
-//! and this one, the request is not sent but the #957 notice is recorded;
-//! this sentence is armed again for the next request. Closing that needs one
-//! shared state, outside this Issue.
+//! When one request of a `COMMANDAGENT_BUDGET_CLOSING=once` run also carries
+//! the Issue #957 notice, the two share this request's one dispatch state
+//! (Issue #965): this watch, nearest the client, takes the decision and the
+//! #957 entry reads the same answer. A call that returns while its worker
+//! sits between the #957 watch and this one sends nothing and records
+//! neither; this sentence is armed again for the next request.
 //!
 //! The event carries only counts and fixed words: `kind`, `attempt` (the
 //! requests of that kind actually sent), `num_predict`, `completion_tokens`,
@@ -58,6 +58,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use serde_json::json;
 
 use crate::eval_events;
+use crate::minimal_loop::budget_closing::{CLOSED_ERROR, RequestDispatch};
 use crate::providers::streaming::CancelToken;
 use crate::providers::{
     AssistantReply, ChatClient, ProviderResponseMetadata, ResponseTiming, ToolArgumentsParseError,
@@ -110,29 +111,11 @@ fn guidance(observation: &Observation) -> String {
     )
 }
 
-/// Whether the request that carries the sentence reached the client. It
-/// moves once, either `Pending → Dispatched` (the watch, right before it
-/// asks the client) or `Pending → Closed` ([`OutputLimitFeedback::settle`],
-/// once the provider call returned).
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-enum Dispatch {
-    #[default]
-    Pending,
-    Dispatched,
-    Closed,
-}
-
 /// What the client saw during one provider call.
 #[derive(Debug, Default)]
 struct CallState {
-    dispatch: Dispatch,
     reasoning_tokens: Option<u64>,
 }
-
-/// The error a watch returns instead of asking the client once the run has
-/// closed the request that carries the sentence; it is the provider call's
-/// own interruption text, the same one `budget_closing` returns.
-const CLOSED_ERROR: &str = "aborted_by_user: interrupted by user";
 
 type SharedCall = Arc<Mutex<CallState>>;
 
@@ -145,6 +128,11 @@ pub(super) struct OutputLimitFeedback {
     pending: Option<Observation>,
     staged: Option<Observation>,
     call: SharedCall,
+    /// Whether the call's request reached the client. It moves once, either
+    /// `Pending → Dispatched` (the watch, right before it asks the client)
+    /// or `Pending → Closed` ([`Self::settle`], once the provider call
+    /// returned).
+    dispatch: RequestDispatch,
     attempts: [u64; 2],
     #[cfg(test)]
     dispatch_gate: Option<Arc<tests::DispatchGate>>,
@@ -157,6 +145,7 @@ impl OutputLimitFeedback {
             pending: None,
             staged: None,
             call: SharedCall::default(),
+            dispatch: RequestDispatch::new(),
             attempts: [0; 2],
             #[cfg(test)]
             dispatch_gate: None,
@@ -224,13 +213,22 @@ impl OutputLimitFeedback {
     /// request that carries the sentence is guarded by the dispatch state.
     pub(super) fn watch<C>(&mut self, inner: C) -> OutputLimitWatch<C> {
         self.call = SharedCall::default();
+        self.dispatch = RequestDispatch::new();
         OutputLimitWatch {
             inner,
             call: Arc::clone(&self.call),
+            dispatch: self.dispatch.clone(),
             guarded: self.staged.is_some(),
             #[cfg(test)]
             gate: self.dispatch_gate.clone(),
         }
+    }
+
+    /// The dispatch state of the last watch's request when that request
+    /// carries the sentence. A guard around the watch (the Issue #957 entry)
+    /// shares it, so the request is decided once (Issue #965).
+    pub(super) fn guarded_dispatch(&self) -> Option<RequestDispatch> {
+        self.staged.is_some().then(|| self.dispatch.clone())
     }
 
     /// After the provider call returned. For the request that carries the
@@ -243,14 +241,9 @@ impl OutputLimitFeedback {
         let Some(observation) = self.staged.take() else {
             return;
         };
-        {
-            let mut call = lock(&self.call);
-            if call.dispatch == Dispatch::Pending {
-                call.dispatch = Dispatch::Closed;
-                drop(call);
-                self.pending = Some(observation);
-                return;
-            }
+        if !self.dispatch.close() {
+            self.pending = Some(observation);
+            return;
         }
         let attempt = &mut self.attempts[observation.kind.index()];
         *attempt += 1;
@@ -286,6 +279,7 @@ fn reached(completion_tokens: Option<u64>, num_predict: usize) -> Option<u64> {
 pub(super) struct OutputLimitWatch<C> {
     inner: C,
     call: SharedCall,
+    dispatch: RequestDispatch,
     guarded: bool,
     #[cfg(test)]
     gate: Option<Arc<tests::DispatchGate>>,
@@ -298,15 +292,10 @@ impl<C> OutputLimitWatch<C> {
         if let Some(gate) = &self.gate {
             gate.hold();
         }
-        let proceed = {
-            let mut call = lock(&self.call);
-            let proceed = !self.guarded || call.dispatch != Dispatch::Closed;
-            if proceed {
-                call.dispatch = Dispatch::Dispatched;
-                call.reasoning_tokens = None;
-            }
-            proceed
-        };
+        let proceed = !self.guarded || self.dispatch.dispatch();
+        if proceed {
+            lock(&self.call).reasoning_tokens = None;
+        }
         #[cfg(test)]
         if let Some(gate) = &self.gate {
             gate.decided(proceed);
@@ -328,6 +317,7 @@ where
         Box::new(OutputLimitWatch {
             inner: self.inner.boxed_clone(),
             call: Arc::clone(&self.call),
+            dispatch: self.dispatch.clone(),
             guarded: self.guarded,
             #[cfg(test)]
             gate: self.gate.clone(),
