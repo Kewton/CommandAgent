@@ -345,7 +345,7 @@ impl Drop for RuntimeEnvironmentGuard {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
 
     #[test]
@@ -377,27 +377,203 @@ mod tests {
         assert_eq!(source, SelectionSource::ExtensionRoot);
     }
 
-    const DECLARED_SELF_TEST_ENV: &str = "COMMANDAGENT_TEST_DECLARED_PACK_CHILD";
-
-    /// This installs process-wide variables, so it runs alone in its own process.
+    /// These install process-wide variables, so each runs alone in its own process.
     fn in_own_process(test: &str, body: fn()) {
-        if std::env::var_os(DECLARED_SELF_TEST_ENV).is_some() {
-            body();
-            return;
+        own_process::run(test, body);
+    }
+
+    /// Runs one test's body in a test process of its own, so that what the body sets in the
+    /// process environment (the pack selection above all) never reaches the tests that
+    /// share the parent's process. The parent itself changes nothing in its environment.
+    ///
+    /// The parent passes only when the child exits successfully *and* the body ran to its
+    /// end: a child that ran no test (a name that `--exact` does not match) is a failure.
+    pub(crate) mod own_process {
+        use std::io::{BufRead, BufReader, Write};
+        use std::process::{Child, Command, Stdio};
+
+        /// Set in the child: where it writes the test name once the body has returned.
+        const CHILD_ENV: &str = "COMMANDAGENT_TEST_OWN_PROCESS_RAN";
+        /// Set in a child whose parent waits on its hold.
+        const HOLD_ENV: &str = "COMMANDAGENT_TEST_OWN_PROCESS_HOLD";
+        const HOLDING: &str = "commandagent-own-process: holding";
+        const RELEASE: &str = "commandagent-own-process: release";
+
+        /// Whether this process is a child that `run` or `run_holding` started.
+        pub(crate) fn is_child() -> bool {
+            std::env::var_os(CHILD_ENV).is_some()
         }
-        let home = tempfile::tempdir().unwrap();
-        let status = std::process::Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", test, "--nocapture"])
-            .env(DECLARED_SELF_TEST_ENV, "1")
-            .env("HOME", home.path())
-            .env_remove("COMMANDAGENT_ADAPTER_CONFIG_ROOT")
-            .env_remove(PACK_DIRECTORY_ENV)
-            .env_remove(PACK_ID_ENV)
-            .env_remove(PACK_VERSION_ENV)
-            .env_remove(PACK_HASH_ENV)
-            .status()
-            .unwrap();
-        assert!(status.success(), "{status}");
+
+        /// In the parent, runs `test` alone in a child and fails with it; in the child,
+        /// runs `body`.
+        pub(crate) fn run(test: &str, body: fn()) {
+            if is_child() {
+                run_body(test, body);
+                return;
+            }
+            if let Err(error) = spawn(test, None) {
+                panic!("{error}");
+            }
+        }
+
+        /// As `run`, and the body calls `hold` exactly once: the parent runs `while_held`
+        /// while the child is stopped there, then lets it go on.
+        pub(crate) fn run_holding(test: &str, body: fn(), while_held: impl FnOnce()) {
+            if is_child() {
+                run_body(test, body);
+                return;
+            }
+            if let Err(error) = spawn(test, Some(Box::new(while_held))) {
+                panic!("{error}");
+            }
+        }
+
+        /// In a child that `run_holding` started, stops here until the parent has run its
+        /// check.
+        pub(crate) fn hold() {
+            assert!(
+                std::env::var_os(HOLD_ENV).is_some(),
+                "hold() runs only in a child that run_holding started"
+            );
+            let mut out = std::io::stdout().lock();
+            writeln!(out).unwrap();
+            writeln!(out, "{HOLDING}").unwrap();
+            out.flush().unwrap();
+            drop(out);
+            let mut line = String::new();
+            std::io::stdin().read_line(&mut line).unwrap();
+            assert_eq!(
+                line.trim_end(),
+                RELEASE,
+                "the parent did not release the hold"
+            );
+        }
+
+        fn run_body(test: &str, body: fn()) {
+            body();
+            let ran = std::env::var_os(CHILD_ENV).unwrap();
+            std::fs::write(ran, test).unwrap();
+        }
+
+        /// Kills a child the parent stops waiting for, so a failed check does not hang.
+        struct Running(Child);
+
+        impl Drop for Running {
+            fn drop(&mut self) {
+                if let Ok(None) = self.0.try_wait() {
+                    let _ = self.0.kill();
+                    let _ = self.0.wait();
+                }
+            }
+        }
+
+        pub(crate) fn spawn(
+            test: &str,
+            while_held: Option<Box<dyn FnOnce() + '_>>,
+        ) -> Result<(), String> {
+            let scratch = tempfile::tempdir().map_err(|error| error.to_string())?;
+            let ran = scratch.path().join("ran");
+            let home = scratch.path().join("home");
+            std::fs::create_dir(&home).map_err(|error| error.to_string())?;
+            let executable = std::env::current_exe().map_err(|error| error.to_string())?;
+            let mut command = Command::new(executable);
+            command
+                .args(["--exact", test, "--nocapture"])
+                .env(CHILD_ENV, &ran)
+                .env("HOME", &home)
+                .env_remove("COMMANDAGENT_ADAPTER_CONFIG_ROOT")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped());
+            for key in super::PACK_ENV_KEYS {
+                command.env_remove(key);
+            }
+            let expects_hold = while_held.is_some();
+            if expects_hold {
+                command.env(HOLD_ENV, "1");
+            }
+            let mut child = Running(
+                command
+                    .spawn()
+                    .map_err(|error| format!("{test}: cannot start its process: {error}"))?,
+            );
+            let stdout = child.0.stdout.take().unwrap();
+            let mut stdin = child.0.stdin.take();
+            let mut while_held = while_held;
+            let mut holds = 0;
+            for line in BufReader::new(stdout).lines() {
+                let line = line.map_err(|error| error.to_string())?;
+                if line != HOLDING {
+                    println!("{line}");
+                    continue;
+                }
+                holds += 1;
+                let Some(check) = while_held.take() else {
+                    return Err(format!(
+                        "{test}: the child held {holds} time(s); the parent checks once"
+                    ));
+                };
+                // A failing check unwinds from here, and `Running` stops the child.
+                check();
+                let input = stdin.as_mut().unwrap();
+                writeln!(input, "{RELEASE}").map_err(|error| error.to_string())?;
+                input.flush().map_err(|error| error.to_string())?;
+            }
+            drop(stdin);
+            let status = child.0.wait().map_err(|error| error.to_string())?;
+            if !status.success() {
+                return Err(format!("{test} failed in its own process: {status}"));
+            }
+            if expects_hold && holds != 1 {
+                return Err(format!(
+                    "{test}: the parent expected one hold in its process, observed {holds}"
+                ));
+            }
+            match std::fs::read_to_string(&ran) {
+                Ok(name) if name == test => Ok(()),
+                Ok(name) => Err(format!("{test}: its process ran `{name}` instead")),
+                Err(_) => Err(format!(
+                    "{test}: its process exited without running the test body"
+                )),
+            }
+        }
+    }
+
+    #[test]
+    fn an_own_process_child_that_runs_no_test_fails_the_parent() {
+        let error = own_process::spawn("cli_pack::tests::no_test_has_this_name", None).unwrap_err();
+        assert!(error.contains("without running the test body"), "{error}");
+    }
+
+    #[test]
+    fn an_own_process_child_that_fails_fails_the_parent() {
+        const TEST: &str = "cli_pack::tests::an_own_process_child_that_fails_fails_the_parent";
+        if own_process::is_child() {
+            panic!("this child fails on purpose");
+        }
+        let error = own_process::spawn(TEST, None).unwrap_err();
+        assert!(error.contains("failed in its own process"), "{error}");
+    }
+
+    #[test]
+    fn an_own_process_hold_runs_the_parent_check_while_the_child_waits() {
+        const TEST: &str =
+            "cli_pack::tests::an_own_process_hold_runs_the_parent_check_while_the_child_waits";
+        let checked = std::cell::Cell::new(false);
+        own_process::run_holding(
+            TEST,
+            || {
+                own_process::hold();
+            },
+            || checked.set(true),
+        );
+        assert!(own_process::is_child() || checked.get());
+        // A parent check that fails fails the parent, and the child is stopped.
+        if !own_process::is_child() {
+            let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                own_process::spawn(TEST, Some(Box::new(|| panic!("the parent check fails"))))
+            }));
+            assert!(failed.is_err());
+        }
     }
 
     fn copy_directory(from: &Path, to: &Path) {
