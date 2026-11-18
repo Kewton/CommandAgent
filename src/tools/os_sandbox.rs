@@ -1098,6 +1098,7 @@ fn resolve_cache_paths(home: &Path) -> CachePaths {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     /// Issue #658: the `--offline` dev-server allow list is the port the run
     /// will use — the goal's port, else the profile default — so a sandboxed
@@ -1424,6 +1425,175 @@ mod tests {
         assert!(over.clause.contains("not effective"), "{}", over.clause);
         assert!(!over.clause.contains(READ_ISOLATION_APPLIED));
         assert_ne!(within.clause, over.clause);
+    }
+
+    /// Issue #992: the upper bound of every wait in the writer/reader controls.
+    /// Reaching it fails the test instead of hanging it; it is never a sleep.
+    const ISSUE992_BOUND: std::time::Duration = std::time::Duration::from_secs(60);
+    const ISSUE992_WRITER_REASON: &str = "issue992 writer holds a foreign policy";
+
+    /// What the reader reported first while the writer still held the guard.
+    enum ReaderStep {
+        /// The shared lock was taken, so `SandboxTestState::acquire` blocks.
+        WaitingForGuard,
+        /// The lock was free while the writer held its guard (a broken lock).
+        GuardFree,
+        Observed(ReaderObservation),
+    }
+
+    /// What a reader running a real Bash command in its own workspace saw.
+    struct ReaderObservation {
+        installed_root: Option<PathBuf>,
+        outcome: crate::tools::bash::BashOutcome,
+        output: Option<String>,
+        writer_released: bool,
+    }
+
+    /// Issue #992: the test thread is a writer that holds the shared guard with
+    /// a `required` + unavailable policy for its own workspace, and a reader
+    /// thread runs `printf ok > output.txt` through the real Bash path in
+    /// another workspace. The order is fixed by channels, not by timing. With
+    /// `reader_takes_guard`, the reader takes `SandboxTestState::acquire()` as
+    /// the fixed lib tests do; without it, it is a reader as before Issue #992.
+    /// Returns the reader's first step (sent while the writer held the guard)
+    /// and its observation.
+    fn writer_holds_guard_while_reader_runs(
+        reader_takes_guard: bool,
+    ) -> (&'static str, ReaderObservation) {
+        let writer_ws = tempfile::tempdir().unwrap();
+        let reader_ws = tempfile::tempdir().unwrap();
+        let writer_root = writer_ws.path().to_path_buf();
+        let reader_root = reader_ws.path().to_path_buf();
+        let released = std::sync::Arc::new(AtomicBool::new(false));
+
+        let writer = SandboxTestState::acquire();
+        install_for_test(
+            SandboxMode::Required,
+            SandboxPolicy::new(&writer_root, &writer_root.join("tmp")),
+            SandboxAvailability::Unavailable(ISSUE992_WRITER_REASON.to_string()),
+        );
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let reader_released = std::sync::Arc::clone(&released);
+        let reader = std::thread::spawn(move || {
+            let _state = reader_takes_guard.then(|| {
+                let step = match SANDBOX_STATE_TEST_LOCK.try_lock() {
+                    Err(std::sync::TryLockError::WouldBlock) => ReaderStep::WaitingForGuard,
+                    _ => ReaderStep::GuardFree,
+                };
+                tx.send(step).unwrap();
+                SandboxTestState::acquire()
+            });
+            let installed_root = installed_workspace_root();
+            let outcome = crate::tools::bash::run_structured(
+                "printf ok > output.txt",
+                &reader_root,
+                false,
+                ISSUE992_BOUND,
+                || false,
+            )
+            .unwrap();
+            let output = std::fs::read_to_string(reader_root.join("output.txt")).ok();
+            let writer_released = reader_released.load(Ordering::SeqCst);
+            tx.send(ReaderStep::Observed(ReaderObservation {
+                installed_root,
+                outcome,
+                output,
+                writer_released,
+            }))
+            .unwrap();
+        });
+
+        let first = rx
+            .recv_timeout(ISSUE992_BOUND)
+            .expect("the reader neither waited for the guard nor ran");
+        // A reader's acquire must not reset the policy the writer still uses.
+        assert_eq!(installed_workspace_root(), Some(writer_root.clone()));
+        released.store(true, Ordering::SeqCst);
+        drop(writer);
+
+        let (first, observation) = match first {
+            ReaderStep::WaitingForGuard => match rx.recv_timeout(ISSUE992_BOUND) {
+                Ok(ReaderStep::Observed(observation)) => ("waiting_for_guard", observation),
+                _ => panic!("the reader did not run after the writer released the guard"),
+            },
+            ReaderStep::GuardFree => panic!("the shared lock was free while the writer held it"),
+            ReaderStep::Observed(observation) => ("observed", observation),
+        };
+        reader.join().expect("the reader thread");
+        drop((writer_ws, reader_ws));
+        (first, observation)
+    }
+
+    /// Issue #992: a reader that takes the shared guard does not reach wrap or
+    /// spawn while a writer holds a foreign policy, then runs unconfined by it.
+    #[test]
+    fn a_guarded_reader_waits_for_the_writer_and_never_takes_its_policy() {
+        let (first, observation) = writer_holds_guard_while_reader_runs(true);
+
+        assert_eq!(first, "waiting_for_guard");
+        assert!(observation.writer_released, "the reader ran before release");
+        assert_eq!(observation.installed_root, None);
+        assert_eq!(
+            observation.outcome.kind,
+            crate::tools::bash::BashOutcomeKind::Success,
+            "{}",
+            observation.outcome.summary
+        );
+        assert_eq!(observation.output.as_deref(), Some("ok"));
+    }
+
+    /// Issue #992 negative control: the same reader without the guard runs
+    /// while the writer holds it and takes the writer's policy, so the
+    /// isolation assertions of the guarded control above would fail.
+    #[test]
+    fn an_unguarded_reader_takes_the_writer_policy() {
+        let (first, observation) = writer_holds_guard_while_reader_runs(false);
+
+        assert_eq!(first, "observed");
+        assert!(!observation.writer_released);
+        assert!(observation.installed_root.is_some());
+        assert_eq!(
+            observation.outcome.kind,
+            crate::tools::bash::BashOutcomeKind::Blocked
+        );
+        assert_eq!(
+            observation.outcome.summary,
+            format!("{UNAVAILABLE_KIND}: {ISSUE992_WRITER_REASON}")
+        );
+        assert_eq!(observation.output, None, "the shell must not have run");
+    }
+
+    /// Issue #992: a test that unwinds while holding the guard leaves no policy,
+    /// events path or read-allow override for the next holder; the reset runs
+    /// in `Drop` under the shared lock. The state is read under that same lock
+    /// without the start reset of `acquire`, so only the `Drop` reset can clear it.
+    #[test]
+    fn unwinding_with_the_guard_leaves_no_state_for_the_next_test() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        let unwound = std::thread::spawn(move || {
+            let _state = SandboxTestState::acquire();
+            install_for_test(
+                SandboxMode::Required,
+                SandboxPolicy::new(&root, &root.join("tmp")),
+                SandboxAvailability::Available,
+            );
+            set_events_path(Some(root.join("events.jsonl")));
+            #[cfg(target_os = "linux")]
+            set_read_allow_limit_for_test(Some(1));
+            panic!("issue992 test unwound while holding the guard");
+        })
+        .join();
+        assert!(unwound.is_err());
+
+        let _lock = SANDBOX_STATE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        assert!(INSTALLED.lock().expect("sandbox state").is_none());
+        assert_eq!(*EVENTS_PATH.lock().expect("sandbox events path"), None);
+        #[cfg(target_os = "linux")]
+        assert_eq!(read_allow_limit(), landlock::MAX_READ_ALLOW_RULES);
     }
 
     /// Resets the Landlock wrap-failure hook on drop.
