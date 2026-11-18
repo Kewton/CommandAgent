@@ -7051,9 +7051,12 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                     };
                     let sealed = run("sealed");
                     assert_eq!(run("plain"), sealed, "the stages changed a level");
+                    // #985: a draft manifest profile reports its plan-complete level under
+                    // the admission cap, as final acceptance does.
                     assert_eq!(
-                        sealed.1, "full",
-                        "what a manifest profile reports: {sealed:?}"
+                        sealed,
+                        ("static".to_string(), "static".to_string()),
+                        "what a draft manifest profile reports: {sealed:?}"
                     );
                     return;
                 };

@@ -353,7 +353,10 @@ Expected trajectory:
 5. Full-assurance terminal: the promoted profile reaches
    `ultra_final_acceptance` / `ultra_plan_complete` with full assurance and
    behavioral verification, including browser readiness and interaction
-   evidence for web profiles.
+   evidence for web profiles. Only an admitted profile can: since #985 both
+   events cap a draft profile (an external manifest profile or an overlay) at
+   `static` with `profile_not_admitted`, so `full` on either event under a
+   draft profile is a defect, not a pass.
 
 Events runbook:
 
@@ -378,7 +381,7 @@ Closure checklist:
   `interaction_evidence_status` or `interaction_evidence_execution_status`.
   `not_applicable` is disqualifying for promoted interactive web runs.
 - Quote the earned-assurance line from `ultra_final_acceptance` or
-  `ultra_plan_complete`, including `assurance_level`,
+  `ultra_plan_complete` (both carry the admission cap), including `assurance_level`,
   `final_acceptance_status`, `release_gate_status`, and the gate-status fields
   used to earn it.
 

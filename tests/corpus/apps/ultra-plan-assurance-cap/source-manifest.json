@@ -1,0 +1,15 @@
+{
+  "issue": "#985",
+  "kind": "synthetic",
+  "owner": "src/planner/runner/phase/flow.rs passes the ultra_plan_complete level through profile_admission::cap_assurance",
+  "base_sha": "828502d2",
+  "recorded_source": null,
+  "derived_fixture": "Hand-authored draft profiles (a standalone manifest and an additive overlay on python-cli), the fake planner and executor replies that drive each run, and the event fields each run must record. Nothing is copied from a recorded run; no historical evidence or recording is changed.",
+  "consumer": "src/planner/runner/tests/ultra_plan_flow_tests.rs moved::ultra_plan_complete_caps_draft_profiles_in_the_corpus_cases",
+  "regenerate_digests": "shasum -a 256 cases.json extension-root/profiles/*/*.toml",
+  "fixture_sha256": {
+    "cases.json": "227bdfa07f38d81733a048d4b7239284961b3a0cdf4a5733cf20063499119c8c",
+    "extension-root/profiles/cap-standalone/manifest.toml": "f0ac264347bf45c29c65c1180670f1882436bbb3e85e9edbf21c12bb188e62b0",
+    "extension-root/profiles/python-cli/overlay.toml": "b0cc8f3ac67431e23dbb78b8e0afc5a07b6b6d4d68e4aa73f72f0aa96806e36a"
+  }
+}

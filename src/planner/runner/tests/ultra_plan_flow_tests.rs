@@ -5,6 +5,19 @@ mod issue442_preset_routing_tests;
 mod moved {
     use super::super::*;
 
+    /// One executor reply that writes `content` to `path` with the Write tool.
+    fn write_reply(path: &str, content: &str) -> AssistantReply {
+        AssistantReply {
+            content: String::new(),
+            tool_calls: vec![crate::state::ToolCall::new(
+                "Write",
+                serde_json::json!({"path": path, "content": content}),
+            )],
+            prompt_tokens: None,
+            completion_tokens: None,
+        }
+    }
+
     #[test]
     fn ultra_run_setup_authority_falls_back_for_later_verify_and_contract_steps() {
         let plan = StepPlan {
@@ -511,15 +524,7 @@ Phase task: Implement paddle movement, collisions, score, and canvas behavior";
     fn ultra_plan_generation_rejects_tool_calls() {
         let dir = tempfile::tempdir().unwrap();
         let mut planner = FakeClient::new(vec![
-            AssistantReply {
-                content: String::new(),
-                tool_calls: vec![crate::state::ToolCall::new(
-                    "Write",
-                    serde_json::json!({"path":"x","content":"x"}),
-                )],
-                prompt_tokens: None,
-                completion_tokens: None,
-            },
+            write_reply("x", "x"),
             AssistantReply::text(generated_ultra_plan_yaml("goal")),
         ]);
         let plan =
@@ -838,15 +843,7 @@ Profile runtime contract:\n- Preserve the workspace as a real Next.js app.\n\n{}
             AssistantReply::text(before),
             AssistantReply::text(repair),
         ]);
-        let mut execution = FakeClient::new(vec![AssistantReply {
-            content: String::new(),
-            tool_calls: vec![crate::state::ToolCall::new(
-                "Write",
-                serde_json::json!({"path":"fixed.marker","content":"fixed\n"}),
-            )],
-            prompt_tokens: None,
-            completion_tokens: None,
-        }]);
+        let mut execution = FakeClient::new(vec![write_reply("fixed.marker", "fixed\n")]);
 
         let result = run_ultra_plan(&mut planner, &mut execution, &plan, &cfg).unwrap();
 
@@ -1044,24 +1041,8 @@ if __name__ == "__main__":
     main()
 "#;
         let mut execution = FakeClient::new(vec![
-            AssistantReply {
-                content: String::new(),
-                tool_calls: vec![crate::state::ToolCall::new(
-                    "Write",
-                    serde_json::json!({"path":"pyproject.toml","content":pyproject}),
-                )],
-                prompt_tokens: None,
-                completion_tokens: None,
-            },
-            AssistantReply {
-                content: String::new(),
-                tool_calls: vec![crate::state::ToolCall::new(
-                    "Write",
-                    serde_json::json!({"path":"src/text_tool/main.py","content":main_py}),
-                )],
-                prompt_tokens: None,
-                completion_tokens: None,
-            },
+            write_reply("pyproject.toml", pyproject),
+            write_reply("src/text_tool/main.py", main_py),
         ]);
 
         let result = run_ultra_plan(&mut planner, &mut execution, &plan, &cfg).unwrap();
@@ -1116,24 +1097,8 @@ if __name__ == "__main__":
             )),
         ]);
         let mut execution = FakeClient::new(vec![
-            AssistantReply {
-                content: String::new(),
-                tool_calls: vec![crate::state::ToolCall::new(
-                    "Write",
-                    serde_json::json!({"path":"notes.txt","content":"scaffold notes"}),
-                )],
-                prompt_tokens: None,
-                completion_tokens: None,
-            },
-            AssistantReply {
-                content: String::new(),
-                tool_calls: vec![crate::state::ToolCall::new(
-                    "Write",
-                    serde_json::json!({"path":"memo.jsx","content":generic_interactive_source()}),
-                )],
-                prompt_tokens: None,
-                completion_tokens: None,
-            },
+            write_reply("notes.txt", "scaffold notes"),
+            write_reply("memo.jsx", generic_interactive_source()),
         ]);
 
         let result = run_ultra_plan(&mut planner, &mut execution, &plan, &cfg).unwrap();
@@ -1274,15 +1239,7 @@ if __name__ == "__main__":
                 prompt_tokens: None,
                 completion_tokens: None,
             },
-            AssistantReply {
-                content: String::new(),
-                tool_calls: vec![crate::state::ToolCall::new(
-                    "Write",
-                    serde_json::json!({"path":"phase-2.txt","content":"phase two\n"}),
-                )],
-                prompt_tokens: None,
-                completion_tokens: None,
-            },
+            write_reply("phase-2.txt", "phase two\n"),
         ]);
 
         let result = run_ultra_plan(&mut planner, &mut execution, &plan, &cfg).unwrap();
@@ -1314,15 +1271,7 @@ if __name__ == "__main__":
             "export default function Page(){ return <main><canvas>ready</canvas></main>; }";
         let complete_page = "export default function Page(){ const enemies = ['drone']; return <main>enemy challenge {enemies.length}</main>; }";
         let mut execution = FakeClient::new(vec![
-            AssistantReply {
-                content: String::new(),
-                tool_calls: vec![crate::state::ToolCall::new(
-                    "Write",
-                    serde_json::json!({"path":"src/app/page.tsx","content":static_page}),
-                )],
-                prompt_tokens: None,
-                completion_tokens: None,
-            },
+            write_reply("src/app/page.tsx", static_page),
             AssistantReply {
                 content: String::new(),
                 tool_calls: vec![crate::state::ToolCall::new(
@@ -1374,15 +1323,7 @@ if __name__ == "__main__":
             "export default function Page(){ return <main><canvas>ready</canvas></main>; }";
         let complete_page = "export default function Page(){ const enemies = ['drone']; return <main>enemy challenge {enemies.length}</main>; }";
         let mut execution = FakeClient::new(vec![
-            AssistantReply {
-                content: String::new(),
-                tool_calls: vec![crate::state::ToolCall::new(
-                    "Write",
-                    serde_json::json!({"path":"src/app/page.tsx","content":static_page}),
-                )],
-                prompt_tokens: None,
-                completion_tokens: None,
-            },
+            write_reply("src/app/page.tsx", static_page),
             AssistantReply::text("I inspected the page but made no edit."),
             AssistantReply {
                 content: String::new(),
@@ -1429,24 +1370,11 @@ if __name__ == "__main__":
         let static_page =
             "export default function Page(){ return <main><canvas>ready</canvas></main>; }";
         let mut execution = FakeClient::new(vec![
-            AssistantReply {
-                content: String::new(),
-                tool_calls: vec![crate::state::ToolCall::new(
-                    "Write",
-                    serde_json::json!({"path":"src/app/page.tsx","content":static_page}),
-                )],
-                prompt_tokens: None,
-                completion_tokens: None,
-            },
-            AssistantReply {
-                content: String::new(),
-                tool_calls: vec![crate::state::ToolCall::new(
-                    "Write",
-                    serde_json::json!({"path":"phase-two.txt","content":"verified final phase without adversary evidence"}),
-                )],
-                prompt_tokens: None,
-                completion_tokens: None,
-            },
+            write_reply("src/app/page.tsx", static_page),
+            write_reply(
+                "phase-two.txt",
+                "verified final phase without adversary evidence",
+            ),
             AssistantReply::text("final acceptance repair could not add evidence"),
         ]);
         let plan = challenge_ultra_plan();
@@ -1485,24 +1413,8 @@ if __name__ == "__main__":
         let static_page =
             "export default function Page(){ return <main><canvas>ready</canvas></main>; }";
         let mut execution_replies = vec![
-            AssistantReply {
-                content: String::new(),
-                tool_calls: vec![crate::state::ToolCall::new(
-                    "Write",
-                    serde_json::json!({"path":"src/app/page.tsx","content":static_page}),
-                )],
-                prompt_tokens: None,
-                completion_tokens: None,
-            },
-            AssistantReply {
-                content: String::new(),
-                tool_calls: vec![crate::state::ToolCall::new(
-                    "Write",
-                    serde_json::json!({"path":"phase-two.txt","content":"phase two"}),
-                )],
-                prompt_tokens: None,
-                completion_tokens: None,
-            },
+            write_reply("src/app/page.tsx", static_page),
+            write_reply("phase-two.txt", "phase two"),
         ];
         execution_replies.extend((0..40).map(|_| read_static_page_reply()));
         let mut execution = FakeClient::new(execution_replies);
@@ -1545,24 +1457,8 @@ if __name__ == "__main__":
         let static_page =
             "export default function Page(){ return <main><canvas>ready</canvas></main>; }";
         let mut execution = FakeClient::new(vec![
-            AssistantReply {
-                content: String::new(),
-                tool_calls: vec![crate::state::ToolCall::new(
-                    "Write",
-                    serde_json::json!({"path":"src/app/page.tsx","content":static_page}),
-                )],
-                prompt_tokens: None,
-                completion_tokens: None,
-            },
-            AssistantReply {
-                content: String::new(),
-                tool_calls: vec![crate::state::ToolCall::new(
-                    "Write",
-                    serde_json::json!({"path":"phase-two.txt","content":"phase two"}),
-                )],
-                prompt_tokens: None,
-                completion_tokens: None,
-            },
+            write_reply("src/app/page.tsx", static_page),
+            write_reply("phase-two.txt", "phase two"),
             read_static_page_reply(),
             AssistantReply {
                 content: String::new(),
@@ -2094,15 +1990,7 @@ if __name__ == "__main__":
             "Prior phase created package.json".to_string(),
         ));
         let mut fake = FakeClient::new(vec![
-            AssistantReply {
-                content: String::new(),
-                tool_calls: vec![crate::state::ToolCall::new(
-                    "Write",
-                    serde_json::json!({"path":"repair.txt","content":"fixed"}),
-                )],
-                prompt_tokens: None,
-                completion_tokens: None,
-            },
+            write_reply("repair.txt", "fixed"),
             AssistantReply::text("done"),
         ]);
         let outcome = run_profile_repair_with_ultra_session(
@@ -2194,15 +2082,7 @@ if __name__ == "__main__":
                 prompt_tokens: None,
                 completion_tokens: None,
             },
-            AssistantReply {
-                content: String::new(),
-                tool_calls: vec![crate::state::ToolCall::new(
-                    "Write",
-                    serde_json::json!({"path":"check_finish.py","content":"x = 2\n"}),
-                )],
-                prompt_tokens: None,
-                completion_tokens: None,
-            },
+            write_reply("check_finish.py", "x = 2\n"),
             AssistantReply {
                 content: String::new(),
                 tool_calls: vec![crate::state::ToolCall::new(
@@ -2330,15 +2210,7 @@ if __name__ == "__main__":
                 prompt_tokens: None,
                 completion_tokens: None,
             },
-            AssistantReply {
-                content: String::new(),
-                tool_calls: vec![crate::state::ToolCall::new(
-                    "Write",
-                    serde_json::json!({"path":"check_finish.py","content":"x = 2\n"}),
-                )],
-                prompt_tokens: None,
-                completion_tokens: None,
-            },
+            write_reply("check_finish.py", "x = 2\n"),
         ]);
         let plan = UltraPlan {
             goal: "Create an interactive browser game".to_string(),
@@ -2804,33 +2676,9 @@ if __name__ == "__main__":
         let static_page =
             "export default function Page(){ return <main><canvas>ready</canvas></main>; }";
         let mut execution = FakeClient::new(vec![
-            AssistantReply {
-                content: String::new(),
-                tool_calls: vec![crate::state::ToolCall::new(
-                    "Write",
-                    serde_json::json!({"path":"phase-two.txt","content":"phase one complete"}),
-                )],
-                prompt_tokens: None,
-                completion_tokens: None,
-            },
-            AssistantReply {
-                content: String::new(),
-                tool_calls: vec![crate::state::ToolCall::new(
-                    "Write",
-                    serde_json::json!({"path":"src/app/page.tsx","content":static_page}),
-                )],
-                prompt_tokens: None,
-                completion_tokens: None,
-            },
-            AssistantReply {
-                content: String::new(),
-                tool_calls: vec![crate::state::ToolCall::new(
-                    "Write",
-                    serde_json::json!({"path":"src/app/page.tsx","content":static_page}),
-                )],
-                prompt_tokens: None,
-                completion_tokens: None,
-            },
+            write_reply("phase-two.txt", "phase one complete"),
+            write_reply("src/app/page.tsx", static_page),
+            write_reply("src/app/page.tsx", static_page),
         ]);
 
         let err = run_ultra_plan(&mut planner, &mut execution, &plan, &cfg)
@@ -3030,15 +2878,7 @@ if __name__ == "__main__":
                 prompt_tokens: None,
                 completion_tokens: None,
             },
-            AssistantReply {
-                content: String::new(),
-                tool_calls: vec![crate::state::ToolCall::new(
-                    "Write",
-                    serde_json::json!({"path":"package.json","content":bad_package}),
-                )],
-                prompt_tokens: None,
-                completion_tokens: None,
-            },
+            write_reply("package.json", bad_package),
             AssistantReply {
                 content: String::new(),
                 tool_calls: vec![
@@ -3202,42 +3042,10 @@ if __name__ == "__main__":
                 completion_tokens: None,
             },
             AssistantReply::text("dependency verification complete"),
-            AssistantReply {
-                content: String::new(),
-                tool_calls: vec![crate::state::ToolCall::new(
-                    "Write",
-                    serde_json::json!({"path":"src/csv_stats/main.py","content":invalid_cli}),
-                )],
-                prompt_tokens: None,
-                completion_tokens: None,
-            },
-            AssistantReply {
-                content: String::new(),
-                tool_calls: vec![crate::state::ToolCall::new(
-                    "Write",
-                    serde_json::json!({"path":"src/csv_stats/main.py","content":valid_cli}),
-                )],
-                prompt_tokens: None,
-                completion_tokens: None,
-            },
-            AssistantReply {
-                content: String::new(),
-                tool_calls: vec![crate::state::ToolCall::new(
-                    "Write",
-                    serde_json::json!({"path":"src/csv_stats/main.py","content":valid_cli}),
-                )],
-                prompt_tokens: None,
-                completion_tokens: None,
-            },
-            AssistantReply {
-                content: String::new(),
-                tool_calls: vec![crate::state::ToolCall::new(
-                    "Write",
-                    serde_json::json!({"path":"src/csv_stats/main.py","content":valid_cli}),
-                )],
-                prompt_tokens: None,
-                completion_tokens: None,
-            },
+            write_reply("src/csv_stats/main.py", invalid_cli),
+            write_reply("src/csv_stats/main.py", valid_cli),
+            write_reply("src/csv_stats/main.py", valid_cli),
+            write_reply("src/csv_stats/main.py", valid_cli),
         ]);
         let plan = UltraPlan {
             goal: "Build a Python CLI that reads a CSV file path argument and prints sum, average, max, and min for numeric columns.".to_string(),
@@ -3523,15 +3331,7 @@ if __name__ == "__main__":
                 prompt_tokens: None,
                 completion_tokens: None,
             },
-            AssistantReply {
-                content: String::new(),
-                tool_calls: vec![crate::state::ToolCall::new(
-                    "Write",
-                    serde_json::json!({"path":"check_finish.py","content":"x = 1\n"}),
-                )],
-                prompt_tokens: None,
-                completion_tokens: None,
-            },
+            write_reply("check_finish.py", "x = 1\n"),
         ]);
         let plan = UltraPlan {
             goal: "3011 port app".to_string(),
@@ -3672,15 +3472,7 @@ if __name__ == "__main__":
         let step_json = generated_data_mutation_plan_json("mutate data");
         let mut planner = FakeClient::new(vec![AssistantReply::text(step_json)]);
         let mut execution = FakeClient::new(vec![
-            AssistantReply {
-                content: String::new(),
-                tool_calls: vec![crate::state::ToolCall::new(
-                    "Write",
-                    serde_json::json!({"path":"input/source.csv","content":"5678"}),
-                )],
-                prompt_tokens: None,
-                completion_tokens: None,
-            },
+            write_reply("input/source.csv", "5678"),
             AssistantReply::text("done"),
         ]);
         let plan = UltraPlan {
@@ -4320,5 +4112,57 @@ export default function Page() {
             &capabilities
         ));
         assert!(requires_canvas_surface("カンバスを描画する", &capabilities));
+    }
+
+    /// #985: `ultra_plan_complete` carries the admission cap final acceptance applies. The
+    /// cases are in the corpus; registering its extension root is process-wide, so they run
+    /// in a process of their own.
+    #[test]
+    fn ultra_plan_complete_caps_draft_profiles_in_the_corpus_cases() {
+        let test = "ultra_plan_complete_caps_draft_profiles_in_the_corpus_cases";
+        let module = module_path!().split_once("::").unwrap().1;
+        crate::cli_pack::tests::own_process::run(&format!("{module}::{test}"), || {
+            let corpus = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/corpus/apps/ultra-plan-assurance-cap");
+            crate::planner::extension_profiles::register(&corpus.join("extension-root")).unwrap();
+            let cases = std::fs::read_to_string(corpus.join("cases.json")).unwrap();
+            let cases: Value = serde_json::from_str(&cases).unwrap();
+            for case in cases["cases"].as_array().unwrap() {
+                let name = &case["name"];
+                let take = |key: &str| -> Vec<AssistantReply> {
+                    serde_json::from_value(case[key].clone()).unwrap()
+                };
+                let plan: UltraPlan = serde_json::from_value(case["plan"].clone()).unwrap();
+                let (planner, execution) = (take("planner"), take("execution"));
+                let id = ProfileId::parse(&plan.profile);
+                let runtime = ProfileRuntimeRegistry::resolve(&id);
+                let raw = runtime
+                    .assurance_for_completion(&id, &runtime.required_capabilities(&plan.goal));
+                let status = crate::planner::profile_admission::status(&plan.profile);
+                let before_cap = serde_json::json!([format!("{status:?}"), raw.0, raw.1]);
+                assert_eq!(before_cap, case["status_and_uncapped"], "{name}");
+                let dir = tempfile::tempdir().unwrap();
+                let events = dir.path().join("events.jsonl");
+                let mut cfg = config(dir.path().to_path_buf());
+                (cfg.profile, cfg.eval_events_path) = (plan.profile.clone(), Some(events.clone()));
+                let (mut planner, mut execution) =
+                    (FakeClient::new(planner), FakeClient::new(execution));
+                let result = run_ultra_plan(&mut planner, &mut execution, &plan, &cfg);
+                assert_eq!(result.is_ok(), case["passes"] == true, "{name}: {result:?}");
+                for (event, fields) in case["expect"].as_object().unwrap() {
+                    let observed = latest_event(&events, event);
+                    for (field, value) in fields.as_object().unwrap() {
+                        assert_eq!(&observed[field], value, "{name}: {event}.{field}");
+                    }
+                }
+                let recorded = std::fs::read_to_string(&events).unwrap();
+                for event in case["absent"].as_array().unwrap() {
+                    assert!(
+                        !recorded.contains(&format!("\"event\":{event}")),
+                        "{name}: {event}"
+                    );
+                }
+            }
+        });
     }
 }
