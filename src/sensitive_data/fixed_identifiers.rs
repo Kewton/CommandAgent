@@ -563,8 +563,11 @@ pub const FIXED_IDENTIFIERS: &[&str] = &[
     "side_effect_path_dropped",
     "skipped",
     "source",
+    "speculative_phase_plan_adopted",
+    "speculative_phase_plan_discarded",
     "speculative_phase_plan_not_started",
     "speculative_phase_plan_provider_call",
+    "speculative_phase_plan_started",
     "spent_usd",
     "stage_contract_refused",
     "stage_incomplete",
@@ -1711,5 +1714,128 @@ mod run_end_summary_field_tests {
         assert_eq!(value["record"], "observed");
         assert_eq!(value["accounting_basis"], "usage_tariff");
         assert_eq!(value["declared_tariff_charge_usd_total"], "0.000419");
+    }
+}
+
+/// Issue #970: the speculative phase plan events. `pipeline.rs` passes these
+/// names to a shared emitter as an argument, so the `"event": "…"` literal scan
+/// (c28) does not see them; they are listed here instead.
+#[cfg(test)]
+mod speculative_phase_plan_event_tests {
+    use serde_json::json;
+
+    use super::{FIXED_IDENTIFIERS, collides_with_fixed_identifier, is_fixed_identifier};
+    use crate::sensitive_data::{
+        MIN_GENERIC_SECRET_LEN, RegistrationRefusal, ReservedKind, SecretCatalog,
+    };
+
+    /// The three names this Issue reserves.
+    const ADDED: [&str; 3] = [
+        "speculative_phase_plan_adopted",
+        "speculative_phase_plan_discarded",
+        "speculative_phase_plan_started",
+    ];
+    /// The two names reserved before this Issue; they stay reserved once.
+    const EXISTING: [&str; 2] = [
+        "speculative_phase_plan_not_started",
+        "speculative_phase_plan_provider_call",
+    ];
+
+    #[test]
+    fn each_name_is_reserved_once_in_name_order() {
+        for name in ADDED.into_iter().chain(EXISTING) {
+            assert!(is_fixed_identifier(name), "{name}");
+            assert_eq!(
+                FIXED_IDENTIFIERS
+                    .iter()
+                    .filter(|fixed| **fixed == name)
+                    .count(),
+                1,
+                "{name}"
+            );
+            let at = FIXED_IDENTIFIERS
+                .iter()
+                .position(|fixed| *fixed == name)
+                .unwrap();
+            assert!(FIXED_IDENTIFIERS[at - 1] < name, "{name}");
+            assert!(name < FIXED_IDENTIFIERS[at + 1], "{name}");
+        }
+        let family = FIXED_IDENTIFIERS
+            .iter()
+            .copied()
+            .filter(|fixed| fixed.starts_with("speculative_phase_plan_"))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            family,
+            [
+                "speculative_phase_plan_adopted",
+                "speculative_phase_plan_discarded",
+                "speculative_phase_plan_not_started",
+                "speculative_phase_plan_provider_call",
+                "speculative_phase_plan_started",
+            ],
+            "the family is listed once each, in name order, and no prefix is reserved"
+        );
+    }
+
+    #[test]
+    fn a_credential_equal_to_a_name_or_a_fragment_of_it_is_refused_unnamed() {
+        for name in ADDED {
+            for len in MIN_GENERIC_SECRET_LEN..=name.len() {
+                for start in 0..=name.len() - len {
+                    let value = &name[start..start + len];
+                    assert!(collides_with_fixed_identifier(value), "{value}");
+                    let mut catalog = SecretCatalog::new();
+                    let error = catalog
+                        .register_credential("COMPAT_API_KEY", value)
+                        .unwrap_err();
+                    assert_eq!(
+                        error,
+                        RegistrationRefusal::Reserved {
+                            name: "COMPAT_API_KEY".to_string(),
+                            kind: ReservedKind::FixedIdentifier,
+                        },
+                        "{value}"
+                    );
+                    assert!(catalog.is_empty(), "{value}");
+                    for text in [error.to_string(), format!("{error:?}")] {
+                        assert!(!text.contains(value), "the refusal names the value");
+                    }
+                    let mut plain = SecretCatalog::new();
+                    plain.register_plain(value).unwrap();
+                    assert!(plain.is_empty(), "{value}");
+                }
+            }
+        }
+        // Fragments only the three names contain, refused only by this Issue.
+        for value in ["phase_plan_adopted", "plan_started", "plan_discarded"] {
+            assert!(collides_with_fixed_identifier(value), "{value}");
+        }
+    }
+
+    #[test]
+    fn a_long_ordinary_value_containing_a_name_keeps_the_collision_rule() {
+        for name in ADDED {
+            let value = format!("synthetic-970-{name}-0123456789");
+            assert!(!collides_with_fixed_identifier(&value), "{value}");
+            let mut catalog = SecretCatalog::new();
+            catalog
+                .register_credential("COMPAT_API_KEY", &value)
+                .unwrap();
+            assert!(catalog.contains(&value));
+            let mut event = json!({
+                "event": name,
+                "current_phase_id": format!("phase {value}"),
+                "next_phase_id": "phase-two",
+                "reason": "gate_passed",
+            });
+            catalog.scrub_value_lenient(&mut event);
+            assert!(!event.to_string().contains(&value), "{event}");
+            assert_eq!(event["event"], name);
+            assert_eq!(event["current_phase_id"], "phase <redacted>");
+            assert_eq!(event["next_phase_id"], "phase-two");
+            assert_eq!(event["reason"], "gate_passed");
+            assert_eq!(event.as_object().unwrap().len(), 4, "{event}");
+        }
     }
 }

@@ -1596,3 +1596,129 @@ fn billed_amount_overlapping_a_secret_is_left_out_of_the_record() {
     );
     assert!(!record.to_string().contains("0.012345"));
 }
+
+// Issue #970: the started, adopted and discarded events the shared emitter
+// writes keep their names and schema under the secret scrub, while a synthetic
+// secret in a phase ID or a reason is redacted.
+
+const SYNTHETIC_970: &str = "synthetic-credential-970-0123456789";
+const REASON_WITH_SECRET_970: &str = "superseded synthetic-credential-970-0123456789";
+
+fn emitted_phase_plan_events() -> (Vec<Value>, String, String) {
+    let dir = tempfile::tempdir().unwrap();
+    let config = test_config(dir.path());
+    let current = format!("phase-{SYNTHETIC_970}-current");
+    let next = format!("phase-{SYNTHETIC_970}-next");
+    let planner = ScriptedClient::new(vec![
+        ok("prefetched", "resp-970-adopted", Some(0)),
+        ok("prefetched", "resp-970-discarded", Some(0)),
+    ]);
+
+    let mut pipeline = PhasePlanPipeline::new();
+    pipeline.start(&planner, &config, &current, &next, PROMPT);
+    let adopted = pipeline
+        .take_planner(&PhasePlanKey::new(&next, PROMPT), &planner, &config)
+        .expect("the prefetched reply is adopted");
+    drop(adopted);
+
+    pipeline.start(&planner, &config, &current, &next, PROMPT);
+    wait_for_calls(&pipeline, 1, true);
+    let stale = PhasePlanKey::new(&next, "a prompt changed at the gate");
+    assert!(pipeline.take_planner(&stale, &planner, &config).is_none());
+    drop(pipeline);
+    assert_eq!(planner.calls(), 2, "one physical call per prefetch");
+
+    super::emit_pipeline_event(
+        &config,
+        "speculative_phase_plan_discarded",
+        CURRENT,
+        NEXT,
+        REASON_WITH_SECRET_970,
+    );
+
+    let events = event_lines(&config)
+        .iter()
+        .map(|line| parse(line))
+        .filter(|value| {
+            let name = event_name(value);
+            name.starts_with("speculative_phase_plan_") && name != PROVIDER_CALL_EVENT
+        })
+        .collect::<Vec<_>>();
+    let names = events.iter().map(event_name).collect::<Vec<_>>();
+    assert_eq!(
+        names,
+        [
+            "speculative_phase_plan_started",
+            "speculative_phase_plan_adopted",
+            "speculative_phase_plan_started",
+            "speculative_phase_plan_discarded",
+            "speculative_phase_plan_discarded",
+        ]
+    );
+    (events, current, next)
+}
+
+fn keys(value: &Value) -> Vec<String> {
+    value.as_object().unwrap().keys().cloned().collect()
+}
+
+#[test]
+fn phase_plan_events_keep_their_names_and_schema_while_free_values_are_scrubbed() {
+    let (events, current, next) = emitted_phase_plan_events();
+    let mut catalog = SecretCatalog::new();
+    catalog
+        .register_credential("SYNTHETIC_API_KEY", SYNTHETIC_970)
+        .expect("an ordinary credential registers");
+
+    for event in &events {
+        let mut scrubbed = event.clone();
+        catalog.scrub_value_lenient(&mut scrubbed);
+        assert!(
+            !scrubbed.to_string().contains(SYNTHETIC_970),
+            "the secret leaked: {scrubbed}"
+        );
+        assert_eq!(scrubbed["event"], event["event"], "{scrubbed}");
+        assert_eq!(keys(&scrubbed), keys(event), "{scrubbed}");
+        for (key, value) in event.as_object().unwrap() {
+            if !value.to_string().contains(SYNTHETIC_970) {
+                assert_eq!(&scrubbed[key], value, "{key} changed: {scrubbed}");
+            }
+        }
+    }
+    for event in &events[..4] {
+        assert_eq!(event["current_phase_id"], current.as_str());
+        assert_eq!(event["next_phase_id"], next.as_str());
+    }
+    let mut adopted = events[1].clone();
+    catalog.scrub_value_lenient(&mut adopted);
+    assert_eq!(adopted["current_phase_id"], "phase-<redacted>-current");
+    assert_eq!(adopted["next_phase_id"], "phase-<redacted>-next");
+    assert_eq!(adopted["reason"], "gate_passed");
+    let mut reason = events[4].clone();
+    catalog.scrub_value_lenient(&mut reason);
+    assert_eq!(reason["reason"], "superseded <redacted>");
+    assert_eq!(reason["current_phase_id"], CURRENT);
+}
+
+#[test]
+fn a_forced_fragment_of_a_phase_plan_event_name_never_rewrites_the_event() {
+    let (events, _, _) = emitted_phase_plan_events();
+    // Forced registration skips the refusal, so these reach the scrub; only the
+    // fixed identifiers keep the event values intact.
+    let mut catalog = SecretCatalog::new();
+    for value in [
+        "phase_plan_started",
+        "phase_plan_adopted",
+        "plan_discarded",
+        SYNTHETIC_970,
+    ] {
+        catalog.register(value);
+    }
+    for event in &events {
+        let mut scrubbed = event.clone();
+        catalog.scrub_value_lenient(&mut scrubbed);
+        assert_eq!(scrubbed["event"], event["event"], "{scrubbed}");
+        assert_eq!(keys(&scrubbed), keys(event), "{scrubbed}");
+        assert!(!scrubbed.to_string().contains(SYNTHETIC_970), "{scrubbed}");
+    }
+}
