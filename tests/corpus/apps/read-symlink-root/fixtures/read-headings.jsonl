@@ -1,0 +1,6 @@
+{"kind":"synthetic","route":"file","path":"dir 空白 データ/ノート.txt","heading":"dir 空白 データ/ノート.txt"}
+{"kind":"synthetic","route":"range","path":"dir 空白 データ/ノート.txt","start_line":2,"end_line":3,"heading":"dir 空白 データ/ノート.txt"}
+{"kind":"synthetic","route":"summary","path":"big file.txt","heading":"big file.txt"}
+{"kind":"synthetic","route":"directory","path":"dir 空白 データ","heading":"dir 空白 データ"}
+{"kind":"synthetic","route":"root_directory","path":".","heading":""}
+{"kind":"synthetic","route":"inner_symlink","path":"inner link.txt","heading":"dir 空白 データ/ノート.txt"}

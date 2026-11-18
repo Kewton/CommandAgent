@@ -2,6 +2,8 @@ use std::path::Path;
 
 use super::workspace_policy::{WorkspacePolicy, should_skip_path};
 
+mod display;
+
 const MAX_READ_BYTES: usize = 24_000;
 const MAX_READ_LINES: usize = 400;
 const SUMMARY_THRESHOLD_BYTES: usize = 6_000;
@@ -31,7 +33,7 @@ pub fn run(
     if start_line.is_none() && end_line.is_none() && content.len() > SUMMARY_THRESHOLD_BYTES {
         return Ok(format!(
             "{}\n{}",
-            crate::tools::path_guard::relative_display(root, path),
+            display::heading(root, path),
             summarize_large_file(&content)
         ));
     }
@@ -45,11 +47,7 @@ pub fn run(
         lines[start - 1..end].join("\n")
     };
     let selected = truncate_with_marker(&selected, MAX_READ_BYTES);
-    Ok(format!(
-        "{}\n{}",
-        crate::tools::path_guard::relative_display(root, path),
-        selected
-    ))
+    Ok(format!("{}\n{}", display::heading(root, path), selected))
 }
 
 fn list_directory(root: &Path, path: &Path, policy: WorkspacePolicy) -> anyhow::Result<String> {
@@ -75,7 +73,7 @@ fn list_directory(root: &Path, path: &Path, policy: WorkspacePolicy) -> anyhow::
     let listing = entries.join("\n");
     Ok(format!(
         "{}\n{}",
-        crate::tools::path_guard::relative_display(root, path),
+        display::heading(root, path),
         with_exclusion_notice(listing, excluded)
     ))
 }
