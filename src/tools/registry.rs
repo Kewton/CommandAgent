@@ -343,7 +343,7 @@ impl ToolRegistry {
             "Read" => {
                 let raw = required_string(arguments, "path")?;
                 let failure = super::read_missing::ReadFailureContext::capture(context, raw);
-                let (path, checked_root) = resolve_policy_checked_target(
+                let PolicyCheckedPath { path, checked_root } = resolve_policy_checked_path(
                     context,
                     "Read",
                     raw,
@@ -388,7 +388,8 @@ impl ToolRegistry {
             "Write" => {
                 let raw = required_string(arguments, "path")?;
                 let path =
-                    resolve_policy_checked_path(context, "Write", raw, PathResolution::Create)?;
+                    resolve_policy_checked_path(context, "Write", raw, PathResolution::Create)?
+                        .path;
                 let content = required_string(arguments, "content")?;
                 let output = crate::tools::write::run(&context.root, &path, content)?;
                 self.repeated_reads().note_successful_write(&path);
@@ -407,7 +408,8 @@ impl ToolRegistry {
                     "Edit",
                     &normalized,
                     PathResolution::Create,
-                )?;
+                )?
+                .path;
                 let old = required_string(arguments, "old_string")?;
                 let new = required_string(arguments, "new_string")?;
                 let replace_all = arguments
@@ -462,22 +464,19 @@ enum PathResolution<'a> {
     Create,
 }
 
+/// A policy-checked path, and for a Read the canonical root its containment
+/// check used (Issue #966), so the heading is made from the same pair.
+struct PolicyCheckedPath {
+    path: PathBuf,
+    checked_root: Option<PathBuf>,
+}
+
 fn resolve_policy_checked_path(
     context: &ToolContext,
     tool: &str,
     raw: &str,
     resolution: PathResolution<'_>,
-) -> anyhow::Result<PathBuf> {
-    resolve_policy_checked_target(context, tool, raw, resolution).map(|(path, _)| path)
-}
-
-/// The checked path, and for a Read the canonical root its check used.
-fn resolve_policy_checked_target(
-    context: &ToolContext,
-    tool: &str,
-    raw: &str,
-    resolution: PathResolution<'_>,
-) -> anyhow::Result<(PathBuf, Option<PathBuf>)> {
+) -> anyhow::Result<PolicyCheckedPath> {
     let mut normalized = normalize_path_arg(context, tool, raw)?;
     if matches!(resolution, PathResolution::Read(_))
         && !context.root.join(&normalized).exists()
@@ -511,7 +510,7 @@ fn resolve_policy_checked_target(
         PathResolution::Create => (resolve_for_create(&context.root, &normalized)?, None),
     };
     ensure_tool_path_allowed(&context.root, &path, context.workspace_policy)?;
-    Ok((path, checked_root))
+    Ok(PolicyCheckedPath { path, checked_root })
 }
 
 fn normalize_path_arg(context: &ToolContext, tool: &str, raw: &str) -> anyhow::Result<String> {
