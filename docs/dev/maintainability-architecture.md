@@ -65,8 +65,9 @@ server hands its events path to the child run through
 durability across a crash. No cross-process file lock is taken. An events
 path whose opened handle is not a regular file (a FIFO, a device) is written
 outside the lock with the calls of `fc903248`, a provider turn's tail through
-a second append open included, so a FIFO waiting for its reader never holds up
-other writers; its lines get no guarantee. This holds when the handle can be
+a second append open included (classified again: a regular file by then takes
+the lock), so a FIFO waiting for its reader never holds up other writers; its
+lines get no guarantee. This holds when the handle can be
 classified: a handle whose metadata cannot be read is treated as a regular
 file and written under the lock, so a stalled write to such a non-regular file
 can hold up other events files.

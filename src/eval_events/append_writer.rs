@@ -60,7 +60,7 @@ fn append_locked(path: &Path, record: &[u8], tail: Option<&mut dyn Read>) -> io:
     // not hold up writers of other files. A handle that cannot be classified
     // counts as a regular file.
     let file = open_append(path)?;
-    if !file.metadata().map_or(true, |meta| meta.is_file()) {
+    if !takes_lock(&file) {
         return append_as_before(file, path, record, tail);
     }
     let _guard = lock();
@@ -94,8 +94,16 @@ fn append_as_before(
     #[cfg(test)]
     test_seam::before_open();
     let mut file = OpenOptions::new().append(true).open(path)?;
+    // The path may name a regular file by now; its tail then takes the lock.
+    let _guard = takes_lock(&file).then(lock);
     io::copy(tail, &mut file)?;
     Ok(())
+}
+
+/// Whether writes through `file` take the lock: a regular file, or a handle
+/// that cannot be classified.
+fn takes_lock(file: &File) -> bool {
+    file.metadata().map_or(true, |meta| meta.is_file())
 }
 
 /// The open itself. Tests are told here, at the open and not before it, so
@@ -816,6 +824,14 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_fifo_waiting_for_a_reader_does_not_hold_up_other_files() {
+        in_own_process_within(
+            "eval_events::append_writer::tests::a_fifo_waiting_for_a_reader_does_not_hold_up_other_files",
+            fifo_waiting_for_a_reader,
+        );
+    }
+
+    #[cfg(unix)]
+    fn fifo_waiting_for_a_reader() {
         let dir = tempfile::tempdir().unwrap();
         let fifo = dir.path().join("events.fifo");
         let path = dir.path().join("events.jsonl");
@@ -877,6 +893,14 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_fifo_reader_after_the_event_line_still_gets_the_tail() {
+        in_own_process_within(
+            "eval_events::append_writer::tests::a_fifo_reader_after_the_event_line_still_gets_the_tail",
+            fifo_reader_after_the_event_line,
+        );
+    }
+
+    #[cfg(unix)]
+    fn fifo_reader_after_the_event_line() {
         use std::io::BufRead;
         let dir = tempfile::tempdir().unwrap();
         let fifo = dir.path().join("events.fifo");
@@ -926,6 +950,93 @@ mod tests {
             expected.extend(record_of(&event));
         }
         assert_eq!(tail.expect("reader 2 came").unwrap(), expected);
+    }
+
+    /// The tail's second open is classified on its own: when the path names a
+    /// regular file by then, the tail is copied under the lock.
+    #[cfg(unix)]
+    #[test]
+    fn a_tail_reopened_onto_a_regular_file_takes_the_lock() {
+        in_own_process_within(
+            "eval_events::append_writer::tests::a_tail_reopened_onto_a_regular_file_takes_the_lock",
+            tail_reopened_onto_a_regular_file,
+        );
+    }
+
+    #[cfg(unix)]
+    fn tail_reopened_onto_a_regular_file() {
+        use std::io::BufRead;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("events.fifo");
+        mkfifo(&path);
+        let (plan, mut control) = test_seam::plan_before_tail();
+        let turn_path = path.clone();
+        let turn = spawn_with_result(move || {
+            let mut scope = spool_turn(&turn_path, "turn", 3);
+            let _pause = PauseScope::enter(plan);
+            let before = test_seam::lock_calls();
+            let result = scope.finish().map_err(|err| format!("{err:#}"));
+            (result, test_seam::lock_calls() - before)
+        });
+        let mut first = std::io::BufReader::new(File::open(&path).unwrap());
+        first.read_until(b'\n', &mut Vec::new()).unwrap();
+        control.wait_paused();
+        drop(first);
+        // Between the two opens the path becomes a regular file.
+        std::fs::remove_file(&path).unwrap();
+        std::fs::write(&path, b"").unwrap();
+        control.resume();
+        let (finished, locks) = collect(turn, test_seam::HANG_GUARD, "the provider turn");
+        finished.unwrap();
+        assert_eq!(locks, 1, "the tail copied to a regular file takes the lock");
+        let events = strict_lines(&read(&path)).unwrap();
+        assert_eq!(ids(&events), ["turn-tail-0", "turn-tail-1", "turn-tail-2"]);
+    }
+
+    /// Runs `body` alone in a child test process (`test` is this test's full
+    /// name), so a FIFO peer that never comes cannot leave a thread waiting in
+    /// this process. A child still running after its limit is killed and the
+    /// test fails with that reason.
+    #[cfg(unix)]
+    fn in_own_process_within(test: &str, body: fn()) {
+        const RAN: &str = "COMMANDAGENT_TEST_ISSUE987_CHILD_RAN";
+        if let Some(ran) = std::env::var_os(RAN) {
+            body();
+            std::fs::write(ran, test).unwrap();
+            return;
+        }
+        let limit = std::time::Duration::from_secs(180);
+        let scratch = tempfile::tempdir().unwrap();
+        let ran = scratch.path().join("ran");
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", test, "--nocapture"])
+            .env(RAN, &ran)
+            .spawn()
+            .unwrap();
+        let pid = child.id().to_string();
+        let waiter = spawn_with_result(move || child.wait().map_err(|err| err.to_string()));
+        let status = match waiter.1.recv_timeout(limit) {
+            Ok(status) => {
+                waiter.0.join().unwrap();
+                status.unwrap()
+            }
+            Err(_) => {
+                let _ = std::process::Command::new("kill")
+                    .args(["-KILL", &pid])
+                    .status();
+                let _ = collect(waiter, test_seam::HANG_GUARD, "the killed child");
+                panic!("{test} did not finish within {limit:?} in its own process; it was killed")
+            }
+        };
+        assert!(
+            status.success(),
+            "{test} failed in its own process: {status}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&ran).unwrap(),
+            test,
+            "the child ran {test}"
+        );
     }
 
     fn record_of(event: &Value) -> Vec<u8> {
