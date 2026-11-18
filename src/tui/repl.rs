@@ -1329,9 +1329,24 @@ mod tests {
         assert!(events.contains("\"classifier_parse_reason\":\"gate_4_pack_change\""));
     }
 
-    #[test]
-    fn confirmed_repl_pack_is_installed_for_dispatch_and_recorded() {
-        let root = tempfile::tempdir().unwrap();
+    const PACK_ENV_KEYS: [&str; 4] = [
+        "COMMANDAGENT_PACK_DIRECTORY",
+        "COMMANDAGENT_PACK_ID",
+        "COMMANDAGENT_PACK_VERSION",
+        "COMMANDAGENT_PACK_HASH",
+    ];
+
+    fn pack_environment() -> [Option<std::ffi::OsString>; 4] {
+        PACK_ENV_KEYS.map(std::env::var_os)
+    }
+
+    /// The python-cli × create confirmation of this repository's `cli-assist@1.1.0`.
+    fn confirmed_python_cli_pack(
+        events: &std::path::Path,
+    ) -> (
+        Config,
+        crate::tui::boundary_shell::confirmation::ConfirmationIdentity,
+    ) {
         let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
         let mut config = Config::from_cli(crate::cli::Cli::parse_from([
             "commandagent",
@@ -1343,7 +1358,7 @@ mod tests {
             "create",
         ]))
         .unwrap();
-        config.eval_events_path = Some(root.path().join("events.jsonl"));
+        config.eval_events_path = Some(events.to_path_buf());
         let identity = crate::tui::boundary_shell::confirmation::ConfirmationIdentity::new(
             "Python CLI filter".to_string(),
             repository,
@@ -1363,14 +1378,108 @@ mod tests {
             .unwrap(),
         )
         .unwrap();
+        (config, identity)
+    }
+
+    /// What a Next.js × create run reads of the pack selection: its final acceptance
+    /// checks and its phase material.
+    fn nextjs_reader(root: &std::path::Path) -> anyhow::Result<Option<String>> {
+        let checks = crate::planner::pack::runtime::run_final_acceptance_checks_from_environment(
+            root, "nextjs", "create", None,
+        )?;
+        assert!(checks.is_none(), "a Next.js reader ran pack checks");
+        let prompt = crate::planner::pack::runtime::append_phase_material_from_environment(
+            "phase prompt".to_string(),
+            root,
+            "nextjs",
+            "create",
+            "phase-1",
+        )?;
+        Ok(Some(prompt))
+    }
+
+    /// The control for the shared-process hazard: in one process, a Next.js reader on
+    /// another thread, run while the REPL's confirmed python-cli pack is installed, takes
+    /// that selection and is refused. It changes the process environment, so it runs in a
+    /// process of its own.
+    #[test]
+    fn a_confirmed_pack_held_in_one_process_is_selected_by_a_nextjs_reader_there() {
+        crate::cli_pack::tests::own_process::run(
+            "tui::repl::tests::a_confirmed_pack_held_in_one_process_is_selected_by_a_nextjs_reader_there",
+            || {
+                let root = tempfile::tempdir().unwrap();
+                let reader_root = tempfile::tempdir().unwrap();
+                let (config, identity) =
+                    confirmed_python_cli_pack(&root.path().join("events.jsonl"));
+                assert_eq!(pack_environment(), [None, None, None, None]);
+                assert_eq!(
+                    nextjs_reader(reader_root.path()).unwrap().as_deref(),
+                    Some("phase prompt")
+                );
+                with_confirmed_pack(&config, &identity, || {
+                    // The writer holds the selection until this reader has returned.
+                    let read = std::thread::scope(|scope| {
+                        scope.spawn(|| nextjs_reader(reader_root.path())).join()
+                    })
+                    .unwrap();
+                    let error = format!("{:#}", read.unwrap_err());
+                    assert!(
+                        error.contains(
+                            "selected pack is for python-cli × create, not nextjs × create"
+                        ),
+                        "{error}"
+                    );
+                    Ok(())
+                })
+                .unwrap();
+                assert_eq!(pack_environment(), [None, None, None, None]);
+                assert_eq!(
+                    nextjs_reader(reader_root.path()).unwrap().as_deref(),
+                    Some("phase prompt")
+                );
+            },
+        );
+    }
+
+    /// The REPL installs its confirmed pack in the process environment, so its body runs in
+    /// a process of its own. While that process holds the pack, this process keeps its own
+    /// four keys, and its Next.js reader does not take the selection.
+    #[test]
+    fn confirmed_repl_pack_is_installed_for_dispatch_and_recorded() {
+        let before = pack_environment();
+        let reader_root = tempfile::tempdir().unwrap();
+        crate::cli_pack::tests::own_process::run_holding(
+            "tui::repl::tests::confirmed_repl_pack_is_installed_for_dispatch_and_recorded",
+            confirmed_repl_pack_is_installed_in_its_own_process,
+            || {
+                assert_eq!(pack_environment(), before);
+                assert_eq!(before, [None, None, None, None]);
+                assert_eq!(
+                    nextjs_reader(reader_root.path())
+                        .map_err(|error| format!("{error:#}"))
+                        .unwrap()
+                        .as_deref(),
+                    Some("phase prompt")
+                );
+            },
+        );
+        assert_eq!(pack_environment(), before);
+    }
+
+    fn confirmed_repl_pack_is_installed_in_its_own_process() {
+        let root = tempfile::tempdir().unwrap();
+        let (config, identity) = confirmed_python_cli_pack(&root.path().join("events.jsonl"));
+        let previous_environment = pack_environment();
         let previous = std::env::var_os("COMMANDAGENT_PACK_ID");
         with_confirmed_pack(&config, &identity, || {
             assert_eq!(std::env::var("COMMANDAGENT_PACK_ID").unwrap(), "cli-assist");
             assert_eq!(std::env::var("COMMANDAGENT_PACK_VERSION").unwrap(), "1.1.0");
+            crate::cli_pack::tests::own_process::hold();
             Ok(())
         })
         .unwrap();
         assert_eq!(std::env::var_os("COMMANDAGENT_PACK_ID"), previous);
+        assert_eq!(pack_environment(), previous_environment);
         let events = std::fs::read_to_string(config.eval_events_path.unwrap()).unwrap();
         assert!(events.contains("\"event\":\"pack_injected\""), "{events}");
         assert!(events.contains("\"pack_id\":\"cli-assist\""), "{events}");
