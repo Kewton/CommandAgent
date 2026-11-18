@@ -104,10 +104,11 @@ Python CLI の絞り込みを作る --pack cli-assist@1.1.0
 `/confirm <hash>` まで dispatch されません。
 
 `--pack <id@version>` を付けて起動した REPL は、終わるまでその pack を保ちます。
-その REPL で Gate 1 の `--pack` か Gate 4 の `/pack` が同じ pack を指すときは、
-導入し直さずにそのまま dispatch します。違う pack を指すときは、provider を
-呼ぶ前に理由つきで拒否します。その pack を使うには、`--pack` にその pack を
-指定するか、`--pack` を付けずに REPL を起動し直してください。
+その REPL で Gate 1 の `--pack` か Gate 4 の `/pack` が、exact-byte hash まで同じ
+pack を指すときは、導入し直さずにそのまま dispatch します。違う pack、または
+同じ `id@version` で bytes が違う pack を指すときは、provider を呼ぶ前に理由つきで
+拒否します。そのようなカードの確認も拒否します。その pack を使うには、`--pack` を
+付けずに REPL を起動し直してください。
 
 ## ゴールのテキストと引用符
 

@@ -297,18 +297,15 @@ Confirm with `/confirm-directive {}` before continuation dispatch.",
                 ui.reset_interrupt();
                 continue;
             };
-            let directive = match boundary_shell.confirm_directive(directive_hash) {
-                Ok(confirmed) => confirmed.directive().clone(),
-                Err(error) => {
-                    render_and_remember(
-                        &renderer,
-                        &mut last_result,
-                        format!("Directive confirmation refused: {error}"),
-                    )?;
-                    ui.reset_interrupt();
-                    continue;
-                }
-            };
+            let directive =
+                match confirm_directive_for(&mut boundary_shell, &identity, directive_hash) {
+                    Ok(directive) => directive,
+                    Err(refused) => {
+                        render_and_remember(&renderer, &mut last_result, refused)?;
+                        ui.reset_interrupt();
+                        continue;
+                    }
+                };
             let Some(events_path) = config.eval_events_path.as_deref() else {
                 render_and_remember(
                     &renderer,
@@ -414,14 +411,10 @@ Confirm with `/confirm-directive {}` before continuation dispatch.",
                     continue;
                 }
             };
-            let identity = match boundary_shell.confirm(&resolved_hash) {
-                Ok(confirmed) => confirmed.identity().clone(),
-                Err(error) => {
-                    render_and_remember(
-                        &renderer,
-                        &mut last_result,
-                        format!("Confirmation refused: {error}"),
-                    )?;
+            let identity = match confirm_gate_one(&mut boundary_shell, &resolved_hash) {
+                Ok(identity) => identity,
+                Err(refused) => {
+                    render_and_remember(&renderer, &mut last_result, refused)?;
                     ui.reset_interrupt();
                     continue;
                 }
@@ -516,41 +509,17 @@ Confirm with `/confirm-directive {}` before continuation dispatch.",
                     continue;
                 }
             };
-            if let Some(refused) = parsed_request
-                .pack
-                .as_deref()
-                .and_then(refused_against_held_pack)
-            {
-                render_and_remember(
-                    &renderer,
-                    &mut last_result,
-                    format!("Gate 1 request refused: {refused}"),
-                )?;
-                ui.reset_interrupt();
-                continue;
-            }
-            let deterministic = crate::tui::boundary_shell::route::deterministic_route(
-                crate::tui::boundary_shell::route::RouteRequest {
-                    request: &parsed_request.request,
-                    workspace: &config.workspace_root,
-                    explicit: crate::tui::boundary_shell::route::ExplicitRouteBinding {
-                        profile: config
-                            .profile_explicit
-                            .then(|| crate::planner::profile::ProfileId::parse(&config.profile)),
-                        intent: config.intent_override,
-                        family: None,
-                    },
-                },
-            );
-            let proposal = crate::tui::boundary_shell::ambiguity::propose_route(
-                deterministic,
-                &parsed_request.request,
-                config.provider_label(crate::config::ProviderRole::Planner),
-                &config.planner_model,
-                &mut *planner,
-                &config,
-                &|| ui.interrupted(),
-            );
+            let (proposal, pack) =
+                match route_gate_one(&config, &parsed_request, &mut *planner, &|| {
+                    ui.interrupted()
+                }) {
+                    Ok(routed) => routed,
+                    Err(refused) => {
+                        render_and_remember(&renderer, &mut last_result, refused)?;
+                        ui.reset_interrupt();
+                        continue;
+                    }
+                };
             let pins = crate::tui::boundary_shell::confirmation::ExecutionPins {
                 planner_provider: config
                     .provider_label(crate::config::ProviderRole::Planner)
@@ -562,36 +531,6 @@ Confirm with `/confirm-directive {}` before continuation dispatch.",
                 executor_model: config.model.clone(),
                 preset: "profile".to_string(),
                 think: None,
-            };
-            let pack = match (&proposal.selected, parsed_request.pack.as_deref()) {
-                (_, None) => crate::tui::boundary_shell::confirmation::PackSelection::None,
-                (Some(route), Some(selector)) => {
-                    match crate::tui::boundary_shell::pack_catalog::select(
-                        route.profile.as_str(),
-                        route.intent.as_str(),
-                        selector,
-                    ) {
-                        Ok(pack) => pack,
-                        Err(error) => {
-                            render_and_remember(
-                                &renderer,
-                                &mut last_result,
-                                format!("Gate 1 request refused: {error}"),
-                            )?;
-                            ui.reset_interrupt();
-                            continue;
-                        }
-                    }
-                }
-                (None, Some(_)) => {
-                    render_and_remember(
-                        &renderer,
-                        &mut last_result,
-                        "Gate 1 request refused: choose a typed route before selecting a pack.",
-                    )?;
-                    ui.reset_interrupt();
-                    continue;
-                }
             };
             let identity = match boundary_shell.begin_gate_one_with_recovery(
                 proposal,
@@ -640,6 +579,100 @@ Confirm with `/confirm-directive {}` before continuation dispatch.",
         let _ = editor.save_history(history_path);
     }
     Ok(())
+}
+
+/// Gate 1 up to its card: the routed proposal and the pack it freezes, or the refusal the
+/// REPL shows.
+fn route_gate_one(
+    config: &Config,
+    parsed_request: &crate::tui::slash::ParsedInlineRequest,
+    planner: &mut dyn crate::providers::ChatClient,
+    is_cancelled: &dyn Fn() -> bool,
+) -> Result<
+    (
+        crate::tui::boundary_shell::ambiguity::RouteProposal,
+        crate::tui::boundary_shell::confirmation::PackSelection,
+    ),
+    String,
+> {
+    if let Some(refused) = parsed_request
+        .pack
+        .as_deref()
+        .and_then(refused_gate_one_pack)
+    {
+        return Err(format!("Gate 1 request refused: {refused}"));
+    }
+    let deterministic = crate::tui::boundary_shell::route::deterministic_route(
+        crate::tui::boundary_shell::route::RouteRequest {
+            request: &parsed_request.request,
+            workspace: &config.workspace_root,
+            explicit: crate::tui::boundary_shell::route::ExplicitRouteBinding {
+                profile: config
+                    .profile_explicit
+                    .then(|| crate::planner::profile::ProfileId::parse(&config.profile)),
+                intent: config.intent_override,
+                family: None,
+            },
+        },
+    );
+    let proposal = crate::tui::boundary_shell::ambiguity::propose_route(
+        deterministic,
+        &parsed_request.request,
+        config.provider_label(crate::config::ProviderRole::Planner),
+        &config.planner_model,
+        planner,
+        config,
+        is_cancelled,
+    );
+    let pack = match (&proposal.selected, parsed_request.pack.as_deref()) {
+        (_, None) => crate::tui::boundary_shell::confirmation::PackSelection::None,
+        (Some(route), Some(selector)) => crate::tui::boundary_shell::pack_catalog::select(
+            route.profile.as_str(),
+            route.intent.as_str(),
+            selector,
+        )
+        .map_err(|error| format!("Gate 1 request refused: {error}"))?,
+        (None, Some(_)) => {
+            return Err(
+                "Gate 1 request refused: choose a typed route before selecting a pack.".to_string(),
+            );
+        }
+    };
+    Ok((proposal, pack))
+}
+
+/// `/confirm`: persists the Gate 1 card awaiting confirmation, or returns the refusal the
+/// REPL shows.
+fn confirm_gate_one(
+    boundary_shell: &mut crate::tui::boundary_shell::BoundaryShell,
+    card_hash: &str,
+) -> Result<crate::tui::boundary_shell::confirmation::ConfirmationIdentity, String> {
+    if let crate::tui::boundary_shell::BoundaryState::AwaitingConfirmation { identity, .. } =
+        boundary_shell.state()
+        && let Some(refused) = refused_for_held_pack(&identity.pack)
+    {
+        return Err(format!("Confirmation refused: {refused}"));
+    }
+    boundary_shell
+        .confirm(card_hash)
+        .map(|confirmed| confirmed.identity().clone())
+        .map_err(|error| format!("Confirmation refused: {error}"))
+}
+
+/// `/confirm-directive`: persists the directive awaiting confirmation for the run of
+/// `identity`, or returns the refusal the REPL shows.
+fn confirm_directive_for(
+    boundary_shell: &mut crate::tui::boundary_shell::BoundaryShell,
+    identity: &crate::tui::boundary_shell::confirmation::ConfirmationIdentity,
+    directive_hash: &str,
+) -> Result<crate::tui::boundary_shell::directive::PersistedDirective, String> {
+    if let Some(refused) = refused_for_held_pack(&identity.pack) {
+        return Err(format!("Directive confirmation refused: {refused}"));
+    }
+    boundary_shell
+        .confirm_directive(directive_hash)
+        .map(|confirmed| confirmed.directive().clone())
+        .map_err(|error| format!("Directive confirmation refused: {error}"))
 }
 
 fn validate_saved_session_resume(state_dir: &Path, resume: &str) -> anyhow::Result<()> {
@@ -804,14 +837,14 @@ fn begin_gate_four_pack_change<'a>(
     if selector.is_empty() {
         bail!("/pack requires <id@version>");
     }
-    if let Some(refused) = refused_against_held_pack(selector) {
-        bail!("{refused}");
-    }
     let pack = crate::tui::boundary_shell::pack_catalog::select(
         &identity.profile,
         &identity.intent,
         selector,
     )?;
+    if let Some(refused) = refused_for_held_pack(&pack) {
+        bail!("{refused}");
+    }
     boundary_shell.begin_pack_change(identity, pack)
 }
 
@@ -846,10 +879,7 @@ fn with_confirmed_pack<T>(
     // pack is refused before the dispatch.
     let _pack_environment = match crate::cli_pack::HeldPack::on_this_thread() {
         Some(held) if held.is(id, version, hash) => None,
-        Some(held) => bail!(
-            "{}",
-            held_pack_conflict(&held, &format!("{id}@{version}"), Some(hash))
-        ),
+        Some(held) => bail!("{}", held_pack_conflict(&held, id, version, Some(hash))),
         None => {
             let resolved = crate::cli_pack::ResolvedPack {
                 id: id.clone(),
@@ -880,29 +910,69 @@ fn with_confirmed_pack<T>(
     run()
 }
 
-/// Why a pack selection is refused in a REPL that holds the `--pack` it was started with.
-/// `hash` names the confirmed bytes when the selector alone does not tell the packs apart.
+/// Why a pack selection is refused in a REPL that holds the `--pack` it was started with:
+/// the held pack, the selected one, and what to do. `hash` is the selected exact-byte hash
+/// when it is known. Restarting with the same selector in `--pack` would resolve the same
+/// held bytes again, so only a restart without `--pack` is offered.
 fn held_pack_conflict(
     held: &crate::cli_pack::HeldPack,
-    requested: &str,
+    id: &str,
+    version: &str,
     hash: Option<&str>,
 ) -> String {
-    let shown = match hash {
-        Some(hash) if requested == held.selector() => format!("{requested} ({hash})"),
-        _ => requested.to_string(),
+    let selector = format!("{id}@{version}");
+    let selected = match hash {
+        Some(hash) => format!("`{selector}` ({hash})"),
+        None => format!("`{selector}`"),
+    };
+    let difference = if selector == held.selector() {
+        "does not resolve to the same bytes"
+    } else {
+        "is a different pack"
     };
     format!(
-        "this REPL was started with `--pack {} ({})`, which stays in place until the REPL exits, and `{shown}` is a different pack. Restart the REPL with `--pack {requested}`, or without `--pack`, to use it.",
+        "this REPL was started with `--pack {}` ({}), which stays in place until the REPL exits, and {selected} {difference}. Restart the REPL without `--pack` to select {selected} here.",
         held.selector(),
         held.hash,
     )
 }
 
-/// The refusal of a pack selector that a REPL holding a `--pack` cannot dispatch, decided
-/// before Gate 1 or a Gate 4 pack change asks for anything.
-fn refused_against_held_pack(selector: &str) -> Option<String> {
+/// The refusal of a selected pack that is not the pack this REPL holds, if it holds one.
+fn refused_for_held_pack(
+    pack: &crate::tui::boundary_shell::confirmation::PackSelection,
+) -> Option<String> {
     let held = crate::cli_pack::HeldPack::on_this_thread()?;
-    (selector.trim() != held.selector()).then(|| held_pack_conflict(&held, selector.trim(), None))
+    let crate::tui::boundary_shell::confirmation::PackSelection::Pinned {
+        id, version, hash, ..
+    } = pack
+    else {
+        return None;
+    };
+    (!held.is(id, version, hash)).then(|| held_pack_conflict(&held, id, version, Some(hash)))
+}
+
+/// The refusal of a Gate 1 `--pack` selector under a held pack, decided before the planner
+/// is asked to route the request. Gate 1 freezes an admitted pack, and the admitted catalog
+/// gives one id@version its exact-byte hash whatever route is proposed (the rule of
+/// `pack_catalog::select` and of `PackLocator::locate` for an admitted pack), so the
+/// selector is resolved to that hash and compared with the held one. A malformed selector
+/// keeps the error `pack_catalog::select` gives it.
+fn refused_gate_one_pack(selector: &str) -> Option<String> {
+    let held = crate::cli_pack::HeldPack::on_this_thread()?;
+    let Some((id, version)) = selector.trim().split_once('@') else {
+        return Some(format!(
+            "pack selector `{selector}` must pin id@MAJOR.MINOR.PATCH"
+        ));
+    };
+    let mut admitted = crate::planner::pack::catalog::admitted_packs()
+        .iter()
+        .filter(|pack| pack.id == id && pack.version == version)
+        .map(|pack| pack.hash);
+    let hash = admitted.next();
+    match hash {
+        Some(hash) if held.is(id, version, hash) && admitted.all(|other| other == hash) => None,
+        _ => Some(held_pack_conflict(&held, id, version, hash)),
+    }
 }
 
 fn boundary_run_id(events_path: Option<&std::path::Path>) -> anyhow::Result<String> {
@@ -1674,7 +1744,7 @@ mod tests {
     #[test]
     fn gate_one_and_gate_four_refuse_another_pack_under_a_held_pack() {
         for selector in ["cli-assist@1.0.0", "cli-assist@1.1.0", "nextjs-acme@1.0.0"] {
-            assert_eq!(refused_against_held_pack(selector), None, "{selector}");
+            assert_eq!(refused_gate_one_pack(selector), None, "{selector}");
         }
         crate::cli_pack::tests::own_process::run(
             "tui::repl::tests::gate_one_and_gate_four_refuse_another_pack_under_a_held_pack",
@@ -1685,9 +1755,9 @@ mod tests {
                         confirmed_python_cli_pack(&root.path().join("events.jsonl"));
                     let shell_root = tempfile::tempdir().unwrap();
                     with_confirmed_pack(&config, &identity, || {
-                        assert_eq!(refused_against_held_pack("cli-assist@1.1.0"), None);
-                        assert_eq!(refused_against_held_pack(" cli-assist@1.1.0 "), None);
-                        let refused = refused_against_held_pack("cli-assist@1.0.0").unwrap();
+                        assert_eq!(refused_gate_one_pack("cli-assist@1.1.0"), None);
+                        assert_eq!(refused_gate_one_pack(" cli-assist@1.1.0 "), None);
+                        let refused = refused_gate_one_pack("cli-assist@1.0.0").unwrap();
                         assert!(refused.contains("--pack cli-assist@1.1.0"), "{refused}");
                         assert!(refused.contains("`cli-assist@1.0.0`"), "{refused}");
                         assert!(refused.contains("Restart the REPL"), "{refused}");
@@ -1713,7 +1783,252 @@ mod tests {
                         Ok(())
                     })
                     .unwrap();
-                    assert_eq!(refused_against_held_pack("cli-assist@1.0.0"), None);
+                    assert_eq!(refused_gate_one_pack("cli-assist@1.0.0"), None);
+                });
+            },
+        );
+    }
+
+    /// A planner that counts its calls; any call is a provider request Gate 1 must not make
+    /// for a pack the REPL cannot dispatch.
+    #[derive(Clone)]
+    struct CountingPlanner {
+        calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    impl crate::providers::ChatClient for CountingPlanner {
+        fn label(&self) -> &str {
+            "counting-planner"
+        }
+
+        fn boxed_clone(&self) -> Box<dyn crate::providers::ChatClient> {
+            Box::new(self.clone())
+        }
+
+        fn chat(
+            &mut self,
+            _model: &str,
+            _messages: &[crate::state::ConversationMessage],
+            _tools: &[crate::tools::registry::ToolSpec],
+            _native_tools_enabled: bool,
+        ) -> anyhow::Result<crate::providers::AssistantReply> {
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(crate::providers::AssistantReply::text("unexpected"))
+        }
+    }
+
+    /// `cli-assist@1.1.0` with bytes other than the admitted ones, as a repository pack of
+    /// `root`, and the confirmation that holds it: the same selector, another exact-byte hash.
+    fn reshaped_python_cli_pack(
+        root: &std::path::Path,
+    ) -> (
+        Config,
+        crate::tui::boundary_shell::confirmation::ConfirmationIdentity,
+    ) {
+        let (mut config, identity) = confirmed_python_cli_pack(&root.join("events.jsonl"));
+        let source =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("packs/cli-assist/1.1.0");
+        let directory = root.join("workspace/packs/cli-assist/1.1.0");
+        std::fs::create_dir_all(&directory).unwrap();
+        let mut assist = std::fs::read(source.join("assist.yaml")).unwrap();
+        assist.extend_from_slice(b"\n# the same pack, reshaped\n");
+        std::fs::write(directory.join("assist.yaml"), assist).unwrap();
+        config.workspace_root = root.join("workspace");
+        let hash = PackLocator::new(&config.workspace_root)
+            .observed_hash(
+                crate::planner::pack::catalog::PackSource::Repository,
+                "cli-assist",
+                "1.1.0",
+            )
+            .unwrap();
+        let mut reshaped = identity.clone();
+        let PackSelection::Pinned {
+            hash: admitted,
+            point,
+            ..
+        } = &identity.pack
+        else {
+            panic!("the confirmation pins no pack");
+        };
+        assert_ne!(&hash, admitted, "the reshaped bytes kept the admitted hash");
+        reshaped.pack = PackSelection::Pinned {
+            id: "cli-assist".to_string(),
+            version: "1.1.0".to_string(),
+            hash,
+            point: point.clone(),
+            source: crate::planner::pack::catalog::PackSource::Repository,
+        };
+        (config, reshaped)
+    }
+
+    /// Issue #1036 B1: under a held `cli-assist@1.1.0` whose bytes are not the admitted
+    /// ones, a Gate 1 request naming that same selector resolves to the admitted bytes, so
+    /// it is refused, with its reason, before the planner is asked anything. The request is
+    /// one the planner would be asked to route.
+    #[test]
+    fn gate_one_refuses_the_held_selector_with_other_bytes_before_the_planner() {
+        crate::cli_pack::tests::own_process::run(
+            "tui::repl::tests::gate_one_refuses_the_held_selector_with_other_bytes_before_the_planner",
+            || {
+                within_held_pack_deadline(|| {
+                    let root = tempfile::tempdir().unwrap();
+                    let (routing, _) = confirmed_python_cli_pack(&root.path().join("events.jsonl"));
+                    let (held_config, held) = reshaped_python_cli_pack(root.path());
+                    let request = crate::tui::slash::parse_inline_request(
+                        "Create a Python CLI --pack cli-assist@1.1.0",
+                    )
+                    .unwrap();
+                    // Without a held pack this request goes to the planner.
+                    let planner = CountingPlanner {
+                        calls: Default::default(),
+                    };
+                    let unheld =
+                        route_gate_one(&routing, &request, &mut planner.clone(), &|| false);
+                    assert_eq!(
+                        planner.calls.load(std::sync::atomic::Ordering::SeqCst),
+                        1,
+                        "the request is not one the planner routes: {unheld:?}"
+                    );
+                    let planner = CountingPlanner {
+                        calls: Default::default(),
+                    };
+                    with_confirmed_pack(&held_config, &held, || {
+                        let refused =
+                            route_gate_one(&routing, &request, &mut planner.clone(), &|| false)
+                                .unwrap_err();
+                        assert_eq!(
+                            planner.calls.load(std::sync::atomic::Ordering::SeqCst),
+                            0,
+                            "the planner was asked before the refusal: {refused}"
+                        );
+                        assert!(refused.starts_with("Gate 1 request refused: "), "{refused}");
+                        assert!(refused.contains("--pack cli-assist@1.1.0"), "{refused}");
+                        assert!(
+                            refused.contains("does not resolve to the same bytes"),
+                            "{refused}"
+                        );
+                        assert!(refused.contains("without `--pack`"), "{refused}");
+                        assert!(!refused.contains("Restart the REPL with `"), "{refused}");
+                        // N3: a malformed selector keeps its own error.
+                        let malformed = crate::tui::slash::parse_inline_request(
+                            "Create a Python CLI --pack cli-assist",
+                        )
+                        .unwrap();
+                        let refused =
+                            route_gate_one(&routing, &malformed, &mut planner.clone(), &|| false)
+                                .unwrap_err();
+                        assert!(
+                            refused.contains("must pin id@MAJOR.MINOR.PATCH"),
+                            "{refused}"
+                        );
+                        assert!(!refused.contains("different pack"), "{refused}");
+                        assert_eq!(planner.calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+                        Ok(())
+                    })
+                    .unwrap();
+                });
+            },
+        );
+    }
+
+    /// Issue #1036 B1: a Gate 4 `/pack` naming the held selector with other bytes makes no
+    /// pack-change card.
+    #[test]
+    fn gate_four_refuses_the_held_selector_with_other_bytes() {
+        crate::cli_pack::tests::own_process::run(
+            "tui::repl::tests::gate_four_refuses_the_held_selector_with_other_bytes",
+            || {
+                within_held_pack_deadline(|| {
+                    let root = tempfile::tempdir().unwrap();
+                    let shell_root = tempfile::tempdir().unwrap();
+                    let (held_config, held) = reshaped_python_cli_pack(root.path());
+                    with_confirmed_pack(&held_config, &held, || {
+                        let (mut shell, failed) = failed_shell(shell_root.path());
+                        let refused =
+                            begin_gate_four_pack_change(&mut shell, &failed, "cli-assist@1.1.0")
+                                .unwrap_err()
+                                .to_string();
+                        assert!(
+                            refused.contains("does not resolve to the same bytes"),
+                            "{refused}"
+                        );
+                        assert!(refused.contains("without `--pack`"), "{refused}");
+                        let events =
+                            std::fs::read_to_string(shell_root.path().join("events.jsonl"))
+                                .unwrap_or_default();
+                        assert!(!events.contains("\"action\":\"pack_change\""), "{events}");
+                        // N3: a malformed selector keeps its own error.
+                        let refused =
+                            begin_gate_four_pack_change(&mut shell, &failed, "cli-assist")
+                                .unwrap_err()
+                                .to_string();
+                        assert!(
+                            refused.contains("must pin id@MAJOR.MINOR.PATCH"),
+                            "{refused}"
+                        );
+                        Ok(())
+                    })
+                    .unwrap();
+                });
+            },
+        );
+    }
+
+    /// Issue #1036 B2: a confirmed card whose pack a REPL holding another `--pack` cannot
+    /// dispatch is refused at `/confirm` and `/confirm-directive`, and what the REPL shows
+    /// names the held pack, the card's pack, and what to do. Nothing is confirmed.
+    #[test]
+    fn confirmation_shows_why_a_card_for_another_pack_is_not_dispatched() {
+        crate::cli_pack::tests::own_process::run(
+            "tui::repl::tests::confirmation_shows_why_a_card_for_another_pack_is_not_dispatched",
+            || {
+                within_held_pack_deadline(|| {
+                    let root = tempfile::tempdir().unwrap();
+                    let shell_root = tempfile::tempdir().unwrap();
+                    let (config, identity) =
+                        confirmed_python_cli_pack(&root.path().join("events.jsonl"));
+                    let other = other_python_cli_pack(&identity);
+                    with_confirmed_pack(&config, &identity, || {
+                        let mut shell = crate::tui::boundary_shell::BoundaryShell::new(
+                            shell_root.path().join("confirmations"),
+                            Some(shell_root.path().join("events.jsonl")),
+                        );
+                        let card = shell
+                            .begin_gate_one(
+                                python_cli_proposal(),
+                                "Python CLI filter",
+                                shell_root.path(),
+                                pins(),
+                                other.pack.clone(),
+                            )
+                            .unwrap()
+                            .card_hash()
+                            .unwrap();
+                        let shown = confirm_gate_one(&mut shell, &card).unwrap_err();
+                        assert!(shown.starts_with("Confirmation refused: "), "{shown}");
+                        assert!(shown.contains("--pack cli-assist@1.1.0"), "{shown}");
+                        assert!(shown.contains("`cli-assist@1.0.0`"), "{shown}");
+                        assert!(shown.contains("without `--pack`"), "{shown}");
+                        assert!(
+                            matches!(
+                                shell.state(),
+                                crate::tui::boundary_shell::BoundaryState::AwaitingConfirmation { .. }
+                            ),
+                            "the card was confirmed"
+                        );
+                        let events = std::fs::read_to_string(shell_root.path().join("events.jsonl"))
+                            .unwrap_or_default();
+                        assert!(!events.contains("\"event\":\"route_confirmed\""), "{events}");
+
+                        let shown = confirm_directive_for(&mut shell, &other, "0".repeat(64).as_str())
+                            .unwrap_err();
+                        assert!(shown.starts_with("Directive confirmation refused: "), "{shown}");
+                        assert!(shown.contains("--pack cli-assist@1.1.0"), "{shown}");
+                        assert!(shown.contains("`cli-assist@1.0.0`"), "{shown}");
+                        assert!(shown.contains("without `--pack`"), "{shown}");
+                        Ok(())
+                    })
+                    .unwrap();
                 });
             },
         );

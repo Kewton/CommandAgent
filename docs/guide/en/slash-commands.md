@@ -114,9 +114,11 @@ and requires a new `/confirm <hash>` before dispatch.
 
 A REPL started with `--pack <id@version>` keeps that pack in place until it
 exits. In that REPL, a Gate 1 `--pack` or a Gate 4 `/pack` that names the same
-pack dispatches under it without installing it again. One that names a
-different pack is refused, with the reason, before any provider is asked;
-restart the REPL with that pack in `--pack`, or without `--pack`, to use it.
+pack, with the same exact-byte hash, dispatches under it without installing it
+again. One that names a different pack, or the same `id@version` with other
+bytes, is refused with the reason before any provider is asked, and so is a
+confirmation of such a card. To use that pack, restart the REPL without
+`--pack`.
 
 ## Goal text and quoting
 
