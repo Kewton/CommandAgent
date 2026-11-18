@@ -40,9 +40,9 @@
 //! When one request of a `COMMANDAGENT_BUDGET_CLOSING=once` run also carries
 //! the Issue #957 notice, the two share this request's one dispatch state
 //! (Issue #965): this watch, nearest the client, takes the decision and the
-//! #957 entry reads the same answer. A call that returns while its worker
-//! sits between the #957 watch and this one sends nothing and records
-//! neither; this sentence is armed again for the next request.
+//! #957 entry reads the same answer. A call that returns before this watch
+//! decides sends nothing and records neither; this sentence is armed again
+//! for the next request.
 //!
 //! The event carries only counts and fixed words: `kind`, `attempt` (the
 //! requests of that kind actually sent), `num_predict`, `completion_tokens`,
@@ -224,11 +224,16 @@ impl OutputLimitFeedback {
         }
     }
 
-    /// The dispatch state of the last watch's request when that request
-    /// carries the sentence. A guard around the watch (the Issue #957 entry)
-    /// shares it, so the request is decided once (Issue #965).
-    pub(super) fn guarded_dispatch(&self) -> Option<RequestDispatch> {
-        self.staged.is_some().then(|| self.dispatch.clone())
+    /// [`Self::watch`], together with that watch's dispatch state when its
+    /// request carries the sentence. A guard around the watch (the Issue
+    /// #957 entry) shares it, so the request is decided once (Issue #965).
+    pub(super) fn watch_shared<C>(
+        &mut self,
+        inner: C,
+    ) -> (OutputLimitWatch<C>, Option<RequestDispatch>) {
+        let watch = self.watch(inner);
+        let shared = self.staged.is_some().then(|| self.dispatch.clone());
+        (watch, shared)
     }
 
     /// After the provider call returned. For the request that carries the

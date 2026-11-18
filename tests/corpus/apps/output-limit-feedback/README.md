@@ -128,8 +128,8 @@ request's one dispatch state. The #958 watch, nearest the client, takes the
 one decision; the #957 entry and this leaf read the same answer after the
 call returned. So the #957 `budget_closing` notice event and this event are
 written exactly when that request reached the client. A call that returns
-on a cancel or a timeout while its late worker has passed the #957 watch
-but not yet the #958 one sends nothing and records neither: the #957
+on a cancel or a timeout before the #958 watch decides sends nothing and
+records neither: the #957
 notice is not recorded (its guard never applies and it is not composed
 again, as for a #957 notice request cancelled before dispatch), and this
 sentence is armed again for the next request (leaf tests hold the worker
