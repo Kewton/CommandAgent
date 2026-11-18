@@ -8,9 +8,9 @@
 //!
 //! The heading is made from the pair the containment check used: the checked
 //! canonical root and the target. The root is never resolved again here, so a
-//! root alias that changes after the check cannot relabel the target. Without
-//! a checked root, or for a target outside it, the shared helper's output is
-//! kept unchanged. This is display only: it never decides what is read or
+//! root alias that changes after the check cannot relabel the target. A target
+//! outside the checked root is shown as its absolute path. Without a checked
+//! root, the shared helper's output is kept unchanged. This is display only: it never decides what is read or
 //! refused.
 
 use std::path::{Component, Path};
@@ -18,15 +18,19 @@ use std::path::{Component, Path};
 use crate::tools::path_guard::relative_display;
 
 pub(super) fn heading(root: &Path, checked_root: Option<&Path>, path: &Path) -> String {
-    if let Some(checked_root) = checked_root
-        && !path
-            .components()
-            .any(|component| matches!(component, Component::ParentDir))
+    let Some(checked_root) = checked_root else {
+        return relative_display(root, path);
+    };
+    if !path
+        .components()
+        .any(|component| matches!(component, Component::ParentDir))
         && path.strip_prefix(checked_root).is_ok()
     {
         return relative_display(checked_root, path);
     }
-    relative_display(root, path)
+    // Outside the checked root: the absolute path, as for any outside path.
+    // It is never made relative to the caller's root spelling instead.
+    path.to_string_lossy().replace('\\', "/")
 }
 
 #[cfg(all(test, unix))]
@@ -86,6 +90,20 @@ mod tests {
 
         assert_eq!(heading(&link, Some(&checked), &target), "file.txt");
         assert_eq!(heading(&link, None, &target), target.to_string_lossy());
+    }
+
+    #[test]
+    fn a_target_outside_the_checked_root_is_never_relative_to_the_raw_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let raw = dir.path().canonicalize().unwrap();
+        let checked = raw.join("ws");
+        let target = raw.join("other/f.txt");
+
+        assert_eq!(relative_display(&raw, &target), "other/f.txt");
+        assert_eq!(
+            heading(&raw, Some(&checked), &target),
+            target.to_string_lossy()
+        );
     }
 
     #[test]

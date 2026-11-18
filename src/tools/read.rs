@@ -20,6 +20,13 @@ pub fn run(
     run_checked(root, None, path, start_line, end_line, policy)
 }
 
+/// The heading line of a Read of `path`, made from the same pair as
+/// [`run_checked`]. A repeated Read uses it for its unchanged response, so
+/// every heading Read prints comes from the current check (Issue #966).
+pub(crate) fn heading(root: &Path, checked_root: Option<&Path>, path: &Path) -> String {
+    display::heading(root, checked_root, path)
+}
+
 /// [`run`] for a target resolved by `path_guard::resolve_existing_checked`:
 /// `checked_root` is the canonical root that resolution checked the target
 /// against, and the heading is made from that pair (Issue #966). The checks,

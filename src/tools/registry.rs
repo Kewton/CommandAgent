@@ -351,9 +351,11 @@ impl ToolRegistry {
                 )?;
                 let start_line = optional_usize(arguments, "start_line");
                 let end_line = optional_usize(arguments, "end_line");
+                let heading =
+                    crate::tools::read::heading(&context.root, checked_root.as_deref(), &path);
                 let decision = self
                     .repeated_reads()
-                    .begin_read(&path, start_line, end_line);
+                    .begin_read(&path, start_line, end_line, &heading);
                 match decision {
                     ReadDecision::Unchanged(unchanged) => {
                         eval_events::emit(

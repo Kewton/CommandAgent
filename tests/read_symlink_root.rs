@@ -324,6 +324,57 @@ fn heading_keeps_the_checked_root_when_the_root_alias_moves_after_the_check() {
     assert_ne!(heading, "ws/file.txt");
 }
 
+/// B1 remainder of the #966 review: one registry reads a route, the root alias
+/// is moved to the parent after that resolution (same thread, no sleep), and
+/// the same target is read again as `ws/...`. Every heading, the cached
+/// unchanged response, and `tool_read_unchanged.path` must come from the
+/// current check, not from the earlier root.
+#[test]
+fn one_registry_labels_every_route_from_the_current_root_after_the_alias_moves() {
+    for row in fixture_rows() {
+        let route = row["route"].as_str().unwrap();
+        let ws = workspace();
+        let events_dir = tempfile::tempdir().unwrap();
+        let events = events_dir.path().join("events.jsonl");
+        let registry = ToolRegistry::default();
+        let ctx = context(&ws.self_link, Some(events.clone()));
+        registry
+            .execute("Read", &arguments(&row), &ctx)
+            .unwrap_or_else(|error| panic!("{route}: first read: {error}"));
+
+        // The alias now names the parent of the root that was checked.
+        std::fs::remove_file(&ws.self_link).unwrap();
+        std::os::unix::fs::symlink(ws.canonical.parent().unwrap(), &ws.self_link).unwrap();
+
+        let moved = |value: &str| match value {
+            "." | "" => "ws".to_string(),
+            other => format!("ws/{other}"),
+        };
+        let mut again = arguments(&row);
+        again["path"] = json!(moved(row["path"].as_str().unwrap()));
+        let expected = moved(row["heading"].as_str().unwrap());
+        let output = registry
+            .execute("Read", &again, &ctx)
+            .unwrap_or_else(|error| panic!("{route}: second read: {error}"));
+        assert_eq!(output.lines().next().unwrap_or(""), expected, "{route}");
+        ws.assert_no_host_path(route, &output);
+
+        let unchanged = std::fs::read_to_string(&events)
+            .unwrap_or_default()
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+            .filter(|event| event["event"] == "tool_read_unchanged")
+            .collect::<Vec<_>>();
+        if matches!(route, "directory" | "root_directory") {
+            assert!(unchanged.is_empty(), "{route}: {unchanged:?}");
+        } else {
+            assert!(output.contains("unchanged since"), "{route}: {output}");
+            assert_eq!(unchanged.len(), 1, "{route}: {unchanged:?}");
+            assert_eq!(unchanged[0]["path"], expected.as_str(), "{route}");
+        }
+    }
+}
+
 /// N1 of the #966 review: a root that cannot be resolved at all is refused by
 /// the public entry in either spelling, with the existing error.
 #[test]
