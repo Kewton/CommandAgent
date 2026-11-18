@@ -218,10 +218,15 @@ fn options_alone_never_enable_it_and_read_nothing() {
 /// decision has priority even with the mutation flag and a binding: a
 /// pending defect stays unresolved, and the confirmed no-edit positive
 /// (the defect resolved elsewhere, proven by the latest host check) passes
-/// with no new raw-byte demand and no new read.
+/// with no new raw-byte demand and no new read. The positive needs the
+/// registered `node` checker to really run and pass (Issue #968): the check
+/// comes first and fails as a missing precondition when `node` cannot run.
 #[test]
 fn a_recovery_obligation_keeps_the_issue465_decision() {
-    use crate::planner::recovery_repair_obligation::tests::{options, plan, setup};
+    use crate::planner::recovery_repair_obligation::tests::{
+        options, plan, require_node_checker, setup,
+    };
+    require_node_checker(Path::new("."));
     let (_root, config) = setup();
     let options = bound(
         options(&config, &plan(), 0).with_required_mutation_before_short_circuit(true),
