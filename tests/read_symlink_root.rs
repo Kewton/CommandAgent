@@ -81,6 +81,11 @@ impl Workspace {
         ]
     }
 
+    /// Removes the temporary directory and fails if it cannot be removed.
+    fn close(self) {
+        self._dir.close().unwrap();
+    }
+
     fn assert_no_host_path(&self, label: &str, text: &str) {
         for spelling in &self.temp_spellings {
             assert!(
@@ -238,13 +243,11 @@ fn refusals_are_unchanged_under_a_symlinked_root() {
 
 #[test]
 fn unreadable_directory_is_still_refused_under_a_symlinked_root() {
-    use std::os::unix::fs::PermissionsExt;
-
     let ws = workspace();
     let locked = ws.canonical.join("locked");
     std::fs::create_dir_all(&locked).unwrap();
     std::fs::write(locked.join("f.txt"), "hidden\n").unwrap();
-    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let restore = RestorePermissions::lock(&locked);
 
     let probe = std::fs::read_dir(&locked);
     let results = ws.roots().map(|(name, root)| {
@@ -259,7 +262,7 @@ fn unreadable_directory_is_still_refused_under_a_symlinked_root() {
                 .map_err(|error| tool_error_kind(&error)),
         )
     });
-    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700)).unwrap();
+    drop(restore);
 
     assert_eq!(
         probe.as_ref().err().map(|e| e.kind()),
@@ -269,5 +272,35 @@ fn unreadable_directory_is_still_refused_under_a_symlinked_root() {
     for (name, result) in &results {
         assert!(result.is_err(), "{name}: {result:?}");
         assert_eq!(result, &results[0].1, "{name}");
+    }
+    ws.close();
+}
+
+/// Makes a directory unreadable and gives it back its own permissions on drop,
+/// so a failing assertion still leaves the temporary directory removable.
+struct RestorePermissions {
+    path: PathBuf,
+    original: std::fs::Permissions,
+}
+
+impl RestorePermissions {
+    fn lock(path: &Path) -> Self {
+        use std::os::unix::fs::PermissionsExt;
+
+        let original = std::fs::metadata(path).unwrap().permissions();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o000)).unwrap();
+        Self {
+            path: path.to_path_buf(),
+            original,
+        }
+    }
+}
+
+impl Drop for RestorePermissions {
+    fn drop(&mut self) {
+        let restored = std::fs::set_permissions(&self.path, self.original.clone());
+        if !std::thread::panicking() {
+            restored.unwrap();
+        }
     }
 }
