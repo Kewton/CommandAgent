@@ -1,6 +1,6 @@
 use std::any::Any;
 use std::panic::{AssertUnwindSafe, PanicHookInfo};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 
 use anyhow::bail;
 use serde_json::json;
@@ -9,9 +9,6 @@ use crate::config::Config;
 use crate::providers::ChatClient;
 
 mod command_dispatch;
-
-static PANIC_HOOK_LOCK: Mutex<()> = Mutex::new(());
-type PanicHook = Box<dyn Fn(&PanicHookInfo<'_>) + Sync + Send + 'static>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TuiTerminalStatus {
@@ -85,36 +82,20 @@ struct PanicDiagnostic {
     location: String,
 }
 
-struct PanicHookGuard {
-    previous: Option<PanicHook>,
-    _lock: MutexGuard<'static, ()>,
+fn install_panic_hook(
+    diagnostic: Arc<Mutex<Option<PanicDiagnostic>>>,
+) -> crate::cli_panic_boundary::PanicHookGuard {
+    crate::cli_panic_boundary::PanicHookGuard::install(record_panic_into(diagnostic))
 }
 
-impl PanicHookGuard {
-    fn install(diagnostic: Arc<Mutex<Option<PanicDiagnostic>>>) -> Self {
-        let lock = PANIC_HOOK_LOCK
+fn record_panic_into(
+    diagnostic: Arc<Mutex<Option<PanicDiagnostic>>>,
+) -> impl Fn(&PanicHookInfo<'_>) + Sync + Send + 'static {
+    move |info| {
+        let mut diagnostic = diagnostic
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let previous = std::panic::take_hook();
-        std::panic::set_hook(Box::new(move |info| {
-            let mut diagnostic = diagnostic
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            *diagnostic = Some(PanicDiagnostic::from_hook(info));
-        }));
-        Self {
-            previous: Some(previous),
-            _lock: lock,
-        }
-    }
-}
-
-impl Drop for PanicHookGuard {
-    fn drop(&mut self) {
-        let _ = std::panic::take_hook();
-        if let Some(previous) = self.previous.take() {
-            std::panic::set_hook(previous);
-        }
+        *diagnostic = Some(PanicDiagnostic::from_hook(info));
     }
 }
 
@@ -512,7 +493,7 @@ pub fn handle_command(
     );
     let completion_guard = TuiCommandCompletionGuard::new(&config, &parsed.command);
     let panic_diagnostic = Arc::new(Mutex::new(None));
-    let panic_hook_guard = PanicHookGuard::install(Arc::clone(&panic_diagnostic));
+    let panic_hook_guard = install_panic_hook(Arc::clone(&panic_diagnostic));
     let command_result = std::panic::catch_unwind(AssertUnwindSafe(|| {
         command_dispatch::run_command(command, &parsed, &config, planner, execution, ui)
     }));
@@ -1123,6 +1104,43 @@ pub fn parse_inline_request(input: &str) -> anyhow::Result<ParsedInlineRequest> 
         request: request.join(" "),
         pack,
     })
+}
+
+#[cfg(test)]
+pub(crate) fn install_test_panic_hook() -> impl Drop {
+    install_panic_hook(Arc::new(Mutex::new(None)))
+}
+
+/// Test-only: installs the slash panic hook and returns a reader for what it
+/// recorded, as `(message, location)`. Only panics whose message starts with
+/// `prefix` reach the slash recorder, so other tests' threads cannot overwrite
+/// the record.
+#[cfg(test)]
+pub(crate) fn install_test_panic_hook_with_record(
+    prefix: &'static str,
+) -> (impl Drop, impl Fn() -> Option<(String, String)>) {
+    let diagnostic = Arc::new(Mutex::new(None));
+    let record = record_panic_into(Arc::clone(&diagnostic));
+    let guard = crate::cli_panic_boundary::PanicHookGuard::install(move |info| {
+        if panic_payload_message(info.payload()).starts_with(prefix) {
+            record(info);
+        }
+    });
+    let read = move || {
+        diagnostic
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+            .map(|recorded: PanicDiagnostic| (recorded.message, recorded.location))
+    };
+    (guard, read)
+}
+
+#[cfg(test)]
+pub(crate) fn try_install_test_panic_hook() -> Option<impl Drop> {
+    crate::cli_panic_boundary::PanicHookGuard::try_install(record_panic_into(Arc::new(Mutex::new(
+        None,
+    ))))
 }
 
 #[cfg(test)]
@@ -1940,5 +1958,30 @@ mod tests {
             parsed.goal,
             "あなたが考える最高に面白くかっこいいスペースインベーダーゲームを3011ポートで起動可能なnext.jsアプリとして開発してください。"
         );
+    }
+
+    #[test]
+    fn slash_hook_records_every_thread_and_forwards_only_other_threads() {
+        let sentinel = crate::cli_panic_boundary::TestPanicHookSentinel::install();
+        let (guard, read) = install_test_panic_hook_with_record("slash hook test:");
+
+        // Assertions wait until the guard is gone: a guard cannot be removed from
+        // a panicking thread.
+        let _ = std::thread::spawn(|| panic!("slash hook test: other thread")).join();
+        let after_other_thread = read();
+        let owner = std::panic::catch_unwind(|| panic!("slash hook test: owner thread"));
+        let after_owner_thread = read();
+        drop(guard);
+
+        assert!(owner.is_err());
+        assert_eq!(sentinel.seen("slash hook test: other thread"), 1);
+        assert_eq!(sentinel.seen("slash hook test: owner thread"), 0);
+        let (message, location) = after_other_thread.unwrap();
+        assert_eq!(message, "slash hook test: other thread");
+        assert!(location.contains("slash.rs"), "{location}");
+        let (message, location) = after_owner_thread.unwrap();
+        assert_eq!(message, "slash hook test: owner thread");
+        assert!(location.contains("slash.rs"), "{location}");
+        assert!(sentinel.is_installed());
     }
 }
