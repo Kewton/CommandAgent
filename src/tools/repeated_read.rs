@@ -19,7 +19,6 @@ struct FileFingerprint([u8; 32]);
 #[derive(Debug, Clone)]
 struct CachedRead {
     fingerprint: FileFingerprint,
-    display_path: String,
     head: String,
     repeat_count: usize,
 }
@@ -53,11 +52,17 @@ pub(crate) struct RepeatedReadCache {
 }
 
 impl RepeatedReadCache {
+    /// `display_path` is this call's heading, made from this call's checked
+    /// root and target (Issue #966). An unchanged response and its event use
+    /// it instead of the heading cached by an earlier Read, whose root may
+    /// have named a different directory. Whether the call is a repeat is
+    /// decided as before, from the canonical path, the range, and the content.
     pub(crate) fn begin_read(
         &mut self,
         path: &Path,
         start_line: Option<usize>,
         end_line: Option<usize>,
+        display_path: &str,
     ) -> ReadDecision {
         let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
         let request = ReadRequest {
@@ -91,26 +96,26 @@ impl RepeatedReadCache {
         cached.repeat_count += 1;
         let completion_candidate = identical_consecutive && self.written_paths.contains(&path);
         ReadDecision::Unchanged(UnchangedRead {
-            response: compact_response(cached, completion_candidate),
-            path: cached.display_path.clone(),
+            response: compact_response(display_path, cached, completion_candidate),
+            path: display_path.to_string(),
             repeat_count: cached.repeat_count,
             identical_consecutive,
             completion_candidate,
         })
     }
 
-    pub(crate) fn record_full_read(&mut self, pending: PendingRead, output: &str) {
+    /// Caches the body of a full Read. The heading is passed separately and
+    /// never cached, so each repeat gets its own heading and no part of an
+    /// earlier heading can stay in the cached body (Issue #966).
+    pub(crate) fn record_full_read(&mut self, pending: PendingRead, body: &str) {
         let Some(fingerprint) = pending.fingerprint else {
             return;
         };
-        let mut lines = output.lines();
-        let display_path = lines.next().unwrap_or_default().to_string();
-        let head = compact_head(lines);
+        let head = compact_head(body.lines());
         self.entries.insert(
             pending.request,
             CachedRead {
                 fingerprint,
-                display_path,
                 head,
                 repeat_count: 0,
             },
@@ -147,7 +152,7 @@ fn compact_head<'a>(lines: impl Iterator<Item = &'a str>) -> String {
     )
 }
 
-fn compact_response(cached: &CachedRead, completion_candidate: bool) -> String {
+fn compact_response(display_path: &str, cached: &CachedRead, completion_candidate: bool) -> String {
     let completion = if completion_candidate {
         " This identical consecutive Read follows a successful write to this path and is a completion candidate; finish now if the requested work is complete."
     } else {
@@ -155,7 +160,7 @@ fn compact_response(cached: &CachedRead, completion_candidate: bool) -> String {
     };
     format!(
         "{}\n[commandagent: unchanged since the previous matching Read; returning at most the first {COMPACT_HEAD_LINES} cached lines.{completion}]\n{}",
-        cached.display_path, cached.head
+        display_path, cached.head
     )
 }
 
@@ -164,7 +169,7 @@ mod tests {
     use super::*;
 
     fn full_read(cache: &mut RepeatedReadCache, path: &Path, output: &str) {
-        let ReadDecision::Full(pending) = cache.begin_read(path, None, None) else {
+        let ReadDecision::Full(pending) = cache.begin_read(path, None, None, "sample.txt") else {
             panic!("expected full read");
         };
         cache.record_full_read(pending, output);
@@ -179,11 +184,11 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         std::fs::write(&path, &content).unwrap();
-        let output = format!("sample.txt\n{content}");
         let mut cache = RepeatedReadCache::default();
-        full_read(&mut cache, &path, &output);
+        full_read(&mut cache, &path, &content);
 
-        let ReadDecision::Unchanged(unchanged) = cache.begin_read(&path, None, None) else {
+        let ReadDecision::Unchanged(unchanged) = cache.begin_read(&path, None, None, "sample.txt")
+        else {
             panic!("expected compact unchanged read");
         };
 
@@ -201,19 +206,42 @@ mod tests {
         let path = dir.path().join("sample.txt");
         std::fs::write(&path, "before").unwrap();
         let mut cache = RepeatedReadCache::default();
-        full_read(&mut cache, &path, "sample.txt\nbefore");
+        full_read(&mut cache, &path, "before");
 
         std::fs::write(&path, "after").unwrap();
-        let ReadDecision::Full(pending) = cache.begin_read(&path, None, None) else {
+        let ReadDecision::Full(pending) = cache.begin_read(&path, None, None, "sample.txt") else {
             panic!("changed file must receive a full read");
         };
-        cache.record_full_read(pending, "sample.txt\nafter");
+        cache.record_full_read(pending, "after");
 
-        let ReadDecision::Unchanged(unchanged) = cache.begin_read(&path, None, None) else {
+        let ReadDecision::Unchanged(unchanged) = cache.begin_read(&path, None, None, "sample.txt")
+        else {
             panic!("refreshed read should compact");
         };
         assert!(unchanged.response.contains("after"));
         assert!(!unchanged.response.contains("before"));
+    }
+
+    #[test]
+    fn unchanged_read_is_labeled_by_this_call_not_by_the_cached_heading() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sample.txt");
+        std::fs::write(&path, "content").unwrap();
+        let mut cache = RepeatedReadCache::default();
+        full_read(&mut cache, &path, "content");
+
+        let ReadDecision::Unchanged(unchanged) =
+            cache.begin_read(&path, None, None, "ws/sample.txt")
+        else {
+            panic!("expected unchanged read");
+        };
+        assert_eq!(unchanged.path, "ws/sample.txt");
+        assert!(
+            unchanged.response.starts_with("ws/sample.txt\n"),
+            "{}",
+            unchanged.response
+        );
+        assert!(unchanged.response.contains("content"));
     }
 
     #[test]
@@ -223,16 +251,20 @@ mod tests {
         std::fs::write(&path, "content").unwrap();
         let mut cache = RepeatedReadCache::default();
         cache.note_successful_write(&path);
-        full_read(&mut cache, &path, "sample.txt\ncontent");
+        full_read(&mut cache, &path, "content");
 
         cache.note_non_read_call();
-        let ReadDecision::Unchanged(non_consecutive) = cache.begin_read(&path, None, None) else {
+        let ReadDecision::Unchanged(non_consecutive) =
+            cache.begin_read(&path, None, None, "sample.txt")
+        else {
             panic!("expected unchanged read");
         };
         assert!(!non_consecutive.identical_consecutive);
         assert!(!non_consecutive.completion_candidate);
 
-        let ReadDecision::Unchanged(consecutive) = cache.begin_read(&path, None, None) else {
+        let ReadDecision::Unchanged(consecutive) =
+            cache.begin_read(&path, None, None, "sample.txt")
+        else {
             panic!("expected consecutive unchanged read");
         };
         assert!(consecutive.identical_consecutive);

@@ -2,6 +2,8 @@ use std::path::Path;
 
 use super::workspace_policy::{WorkspacePolicy, should_skip_path};
 
+mod display;
+
 const MAX_READ_BYTES: usize = 24_000;
 const MAX_READ_LINES: usize = 400;
 const SUMMARY_THRESHOLD_BYTES: usize = 6_000;
@@ -15,6 +17,56 @@ pub fn run(
     end_line: Option<usize>,
     policy: WorkspacePolicy,
 ) -> anyhow::Result<String> {
+    run_checked(root, None, path, start_line, end_line, policy)
+}
+
+/// The heading line of a Read of `path`, made from the same pair as
+/// [`run_checked`]. A repeated Read uses it for its unchanged response, so
+/// every heading Read prints comes from the current check (Issue #966).
+pub(crate) fn heading(root: &Path, checked_root: Option<&Path>, path: &Path) -> String {
+    display::heading(root, checked_root, path)
+}
+
+/// [`run`] for a target resolved by `path_guard::resolve_existing_checked`:
+/// `checked_root` is the canonical root that resolution checked the target
+/// against, and the heading is made from that pair (Issue #966). The checks,
+/// the refusals, and the path that is opened are the same as [`run`].
+pub fn run_checked(
+    root: &Path,
+    checked_root: Option<&Path>,
+    path: &Path,
+    start_line: Option<usize>,
+    end_line: Option<usize>,
+    policy: WorkspacePolicy,
+) -> anyhow::Result<String> {
+    run_checked_parts(root, checked_root, path, start_line, end_line, policy)
+        .map(|output| output.text())
+}
+
+/// A Read result as two values (Issue #966): the heading made from the
+/// checked pair, and the body. A heading may itself span lines (a path with a
+/// LF), so the body is never recovered by cutting lines off the text.
+pub(crate) struct ReadOutput {
+    pub(crate) heading: String,
+    pub(crate) body: String,
+}
+
+impl ReadOutput {
+    /// The text a Read returns: the heading, a LF, and the body.
+    pub(crate) fn text(&self) -> String {
+        format!("{}\n{}", self.heading, self.body)
+    }
+}
+
+/// [`run_checked`], returning the heading and the body separately.
+pub(crate) fn run_checked_parts(
+    root: &Path,
+    checked_root: Option<&Path>,
+    path: &Path,
+    start_line: Option<usize>,
+    end_line: Option<usize>,
+    policy: WorkspacePolicy,
+) -> anyhow::Result<ReadOutput> {
     match super::sensitive_path::classify_workspace_path(root, path) {
         super::sensitive_path::PathVerdict::Credential(refusal) => {
             return Err(anyhow::Error::new(refusal));
@@ -25,15 +77,14 @@ pub fn run(
         super::sensitive_path::PathVerdict::Inside => {}
     }
     if path.is_dir() {
-        return list_directory(root, path, policy);
+        return list_directory(root, checked_root, path, policy);
     }
     let content = std::fs::read_to_string(path)?;
     if start_line.is_none() && end_line.is_none() && content.len() > SUMMARY_THRESHOLD_BYTES {
-        return Ok(format!(
-            "{}\n{}",
-            crate::tools::path_guard::relative_display(root, path),
-            summarize_large_file(&content)
-        ));
+        return Ok(ReadOutput {
+            heading: display::heading(root, checked_root, path),
+            body: summarize_large_file(&content),
+        });
     }
     let lines: Vec<&str> = content.lines().collect();
     let start = start_line.unwrap_or(1).max(1);
@@ -45,14 +96,18 @@ pub fn run(
         lines[start - 1..end].join("\n")
     };
     let selected = truncate_with_marker(&selected, MAX_READ_BYTES);
-    Ok(format!(
-        "{}\n{}",
-        crate::tools::path_guard::relative_display(root, path),
-        selected
-    ))
+    Ok(ReadOutput {
+        heading: display::heading(root, checked_root, path),
+        body: selected,
+    })
 }
 
-fn list_directory(root: &Path, path: &Path, policy: WorkspacePolicy) -> anyhow::Result<String> {
+fn list_directory(
+    root: &Path,
+    checked_root: Option<&Path>,
+    path: &Path,
+    policy: WorkspacePolicy,
+) -> anyhow::Result<ReadOutput> {
     let mut entries = Vec::new();
     let mut excluded = 0usize;
     for entry in std::fs::read_dir(path)? {
@@ -73,11 +128,10 @@ fn list_directory(root: &Path, path: &Path, policy: WorkspacePolicy) -> anyhow::
     }
     entries.sort();
     let listing = entries.join("\n");
-    Ok(format!(
-        "{}\n{}",
-        crate::tools::path_guard::relative_display(root, path),
-        with_exclusion_notice(listing, excluded)
-    ))
+    Ok(ReadOutput {
+        heading: display::heading(root, checked_root, path),
+        body: with_exclusion_notice(listing, excluded),
+    })
 }
 
 fn with_exclusion_notice(listing: String, excluded: usize) -> String {

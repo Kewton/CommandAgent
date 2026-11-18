@@ -12,7 +12,7 @@ use crate::mode::ExecutionMode;
 use super::args_recovery::recover_tool_arguments;
 use super::path_guard::{
     WorkspacePathNormalizationKind, normalize_absolute_workspace_glob, normalize_workspace_path,
-    resolve_existing, resolve_for_create,
+    resolve_existing_checked, resolve_for_create,
 };
 use super::repeated_read::{COMPACT_HEAD_LINES, ReadDecision, RepeatedReadCache};
 use super::workspace_policy::{WorkspacePolicy, ensure_tool_path_allowed};
@@ -343,7 +343,7 @@ impl ToolRegistry {
             "Read" => {
                 let raw = required_string(arguments, "path")?;
                 let failure = super::read_missing::ReadFailureContext::capture(context, raw);
-                let path = resolve_policy_checked_path(
+                let PolicyCheckedPath { path, checked_root } = resolve_policy_checked_path(
                     context,
                     "Read",
                     raw,
@@ -351,9 +351,11 @@ impl ToolRegistry {
                 )?;
                 let start_line = optional_usize(arguments, "start_line");
                 let end_line = optional_usize(arguments, "end_line");
+                let heading =
+                    crate::tools::read::heading(&context.root, checked_root.as_deref(), &path);
                 let decision = self
                     .repeated_reads()
-                    .begin_read(&path, start_line, end_line);
+                    .begin_read(&path, start_line, end_line, &heading);
                 match decision {
                     ReadDecision::Unchanged(unchanged) => {
                         eval_events::emit(
@@ -371,23 +373,26 @@ impl ToolRegistry {
                         Ok(unchanged.response)
                     }
                     ReadDecision::Full(pending) => {
-                        let output = crate::tools::read::run(
+                        let output = crate::tools::read::run_checked_parts(
                             &context.root,
+                            checked_root.as_deref(),
                             &path,
                             start_line,
                             end_line,
                             context.workspace_policy,
                         )
                         .map_err(|error| failure.classify(error, Some(&path)))?;
-                        self.repeated_reads().record_full_read(pending, &output);
-                        Ok(output)
+                        self.repeated_reads()
+                            .record_full_read(pending, &output.body);
+                        Ok(output.text())
                     }
                 }
             }
             "Write" => {
                 let raw = required_string(arguments, "path")?;
                 let path =
-                    resolve_policy_checked_path(context, "Write", raw, PathResolution::Create)?;
+                    resolve_policy_checked_path(context, "Write", raw, PathResolution::Create)?
+                        .path;
                 let content = required_string(arguments, "content")?;
                 let output = crate::tools::write::run(&context.root, &path, content)?;
                 self.repeated_reads().note_successful_write(&path);
@@ -406,7 +411,8 @@ impl ToolRegistry {
                     "Edit",
                     &normalized,
                     PathResolution::Create,
-                )?;
+                )?
+                .path;
                 let old = required_string(arguments, "old_string")?;
                 let new = required_string(arguments, "new_string")?;
                 let replace_all = arguments
@@ -461,12 +467,19 @@ enum PathResolution<'a> {
     Create,
 }
 
+/// A policy-checked path, and for a Read the canonical root its containment
+/// check used (Issue #966), so the heading is made from the same pair.
+struct PolicyCheckedPath {
+    path: PathBuf,
+    checked_root: Option<PathBuf>,
+}
+
 fn resolve_policy_checked_path(
     context: &ToolContext,
     tool: &str,
     raw: &str,
     resolution: PathResolution<'_>,
-) -> anyhow::Result<PathBuf> {
+) -> anyhow::Result<PolicyCheckedPath> {
     let mut normalized = normalize_path_arg(context, tool, raw)?;
     if matches!(resolution, PathResolution::Read(_))
         && !context.root.join(&normalized).exists()
@@ -489,17 +502,18 @@ fn resolve_policy_checked_path(
         &normalized,
         context.workspace_policy,
     )?;
-    let path = match resolution {
+    let (path, checked_root) = match resolution {
         PathResolution::Read(failure) => {
             #[cfg(test)]
             super::read_missing::test_hook::after_path_selection(context, &normalized);
-            resolve_existing(&context.root, &normalized)
-                .map_err(|error| failure.classify_lookup(error, &normalized))?
+            let checked = resolve_existing_checked(&context.root, &normalized)
+                .map_err(|error| failure.classify_lookup(error, &normalized))?;
+            (checked.path, Some(checked.root))
         }
-        PathResolution::Create => resolve_for_create(&context.root, &normalized)?,
+        PathResolution::Create => (resolve_for_create(&context.root, &normalized)?, None),
     };
     ensure_tool_path_allowed(&context.root, &path, context.workspace_policy)?;
-    Ok(path)
+    Ok(PolicyCheckedPath { path, checked_root })
 }
 
 fn normalize_path_arg(context: &ToolContext, tool: &str, raw: &str) -> anyhow::Result<String> {
