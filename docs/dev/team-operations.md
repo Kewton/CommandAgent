@@ -16,8 +16,18 @@ Lessons and procedures that every session must follow belong here.
   使用して下さい」). Dispatch them with auto-yes and the harness stop pattern.
   Going back to Command Code is the user's call. If a worker's quality is low
   (repeated verification failures, scope or gate violations, a false report, a
-  stall), the user allowed Codex `gpt-6.1-Sol` medium as the worker
-  (2026-10-16). Antigravity is never used (harness section 1).
+  stall), the user allowed Codex `gpt-6.2-sol` with reasoning high as the
+  worker (2026-10-16; the model was replaced on 2026-11-18, 「Codexのモデルを
+  gpt6.2-sol highに変えてください」, and was Codex `gpt-6.1-Sol` medium before).
+  Antigravity is never used (harness section 1).
+- **Claude Code sessions run Opus 5.5 with effort medium** (2026-11-18,
+  「なるべく opus5.5 medium として」). This covers the development leader
+  (`claude-3`), the helpers and the workers. `CLAUDE.md` and `AGENTS.md` still
+  name Claude Sonnet 5.5 for the leader; this decision wins until they are
+  updated.
+- **Codex runs `gpt-6.2-sol` with reasoning high** (2026-11-18, 「Codexのモデルを
+  gpt6.2-sol highに変えてください」). This replaces Codex `gpt-6.1-Sol` medium
+  everywhere it was named, including the worker fallback above.
 - **The PM closes Issues after their merge** (2026-10-30, 「あなたでもクローズ
   できると思います」). Close only after a merge under harness section 3, step 6,
   or when the user asks, with a comment naming the PR and merge commit, and
@@ -65,7 +75,27 @@ Lessons and procedures that every session must follow belong here.
   a helper with auto-yes, permission edits), do not rephrase and retry. Offer
   the user `! <command>`; the user runs the PM in accept-edits mode.
 - Start the leader with `--model sonnet` on the send that starts the session
-  and confirm the pane header shows the model.
+  and confirm the pane header shows the model. Since 2026-11-18 the leader runs
+  Opus 5.5 with effort medium (section 1): start it on Opus 5.5 instead of
+  `--model sonnet`, set effort medium, and confirm both in the pane.
+- Pitfalls from the 2026-11-18 and 2026-11-19 runs (leader and PM operating
+  errors), each with the step that prevents it:
+  - A brief's verify rule named a gate id that does not exist, and
+    `commandmate verify` exited 99 without reaching a verdict. Copy gate ids
+    from `.commandmate/verify.yaml`, never from memory. Exit 99 is not a pass:
+    count it as no verdict and rerun with valid ids.
+  - A wait loop passed wrong arguments to `capture`, matched nothing, and the
+    run sat idle for about 2.5 hours. Wait on both an anchored regular
+    expression (for example `^DONE:` / `^STOP:`) and a `STALL` condition, so a
+    loop that never matches still reports.
+  - A PM brief claimed that mode `0o700` does not hit R3 of the
+    isolation ratchet. It does: R3 matches `0o[0-7]?[157][0-7][0-7]`
+    (`docs/dev/dev-guardrails.md`). When a test changes permissions, save the
+    original mode and restore it, and check a mode against the R3 pattern
+    instead of asserting it in a brief.
+  - A monitor started with `&` never delivered its notification. Start
+    monitors with the harness's background execution (for example the Bash
+    tool's `run_in_background`), not with a shell `&`.
 
 ## 3. Machine resources
 
@@ -82,6 +112,11 @@ Lessons and procedures that every session must follow belong here.
     `/Volumes/SSD_NX/tmp/heavy-lock/install-worktree-config <worktree>` before
     dispatch; each worktree gets its own target dir under
     `/Volumes/SSD_NX/tmp/cargo-target/`, deleted at cleanup.
+  - Pitfall (2026-11-18/19): the worktree path reached the setup script
+    without being split from the other arguments, and the script wrote
+    `~/.cargo/config.toml` instead of the worktree's file. After creating a
+    worktree and installing its config, confirm that `~/.cargo/config.toml`
+    does not exist and that `<worktree>/.cargo/config.toml` does.
   - Never share one target dir across checkouts (same unit hashes let cargo
     reuse another checkout's binary). Never set `CARGO_TARGET_DIR` or another
     runner in briefs. At most 3 concurrent workers.
