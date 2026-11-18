@@ -1580,7 +1580,7 @@ const START_REFUSALS: &[StartRefusal] = &[
         after_probe: false,
         prepare: |env, _| {
             let copy = env.tools.join("shell-copy");
-            std::fs::copy(pinned_shell(), &copy).unwrap();
+            copy_a_program_elsewhere(&pinned_shell(), &copy);
             set_mode(&copy, 0o775);
             let digest = sha256(&std::fs::read(&copy).unwrap());
             env.write_changed(&Fake::default(), &|descriptor| {
@@ -1605,7 +1605,7 @@ const START_REFUSALS: &[StartRefusal] = &[
             let directory = env.tools.join("shell-directory");
             std::fs::create_dir_all(&directory).unwrap();
             let copy = directory.join("shell-copy");
-            std::fs::copy(pinned_shell(), &copy).unwrap();
+            copy_a_program_elsewhere(&pinned_shell(), &copy);
             set_mode(&copy, 0o755);
             set_mode(&directory, 0o775);
             let digest = sha256(&std::fs::read(&copy).unwrap());
@@ -1615,6 +1615,40 @@ const START_REFUSALS: &[StartRefusal] = &[
         },
     },
 ];
+
+/// A program a test points a descriptor at, written outside this process: no descriptor open for
+/// writing on it ever lives here. With `std::fs::copy`, another test thread that forks while that
+/// descriptor is open hands it to a child that keeps it until its own exec, and an exec of the copy
+/// in that window fails with `ETXTBSY` (Issue #1029, as #1025). The `cp` has ended before this
+/// returns; the mode is set by path, as `std::fs::copy` sets it.
+fn copy_a_program_elsewhere(source: &Path, target: &Path) {
+    #[cfg(unix)]
+    {
+        let copied = std::process::Command::new("/bin/cp")
+            .arg("--")
+            .arg(source)
+            .arg(target)
+            .env_clear()
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap();
+        assert!(copied.status.success(), "{copied:?}");
+        let source_metadata = std::fs::metadata(source).unwrap();
+        std::fs::set_permissions(target, source_metadata.permissions()).unwrap();
+        let metadata = std::fs::symlink_metadata(target).unwrap();
+        assert!(metadata.is_file(), "{metadata:?}");
+        assert_eq!(metadata.permissions(), source_metadata.permissions());
+    }
+    // No `ETXTBSY` and no `/bin/cp` here.
+    #[cfg(not(unix))]
+    std::fs::copy(source, target).unwrap();
+    assert!(
+        std::fs::read(target).unwrap() == std::fs::read(source).unwrap(),
+        "{} is not a copy of {}",
+        target.display(),
+        source.display()
+    );
+}
 
 fn set_mode(path: &Path, mode: u32) {
     #[cfg(unix)]
