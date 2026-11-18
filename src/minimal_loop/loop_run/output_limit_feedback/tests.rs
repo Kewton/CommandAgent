@@ -4,6 +4,7 @@
 //! an exhausted malformed retry without XML fallback).
 
 use std::borrow::Cow;
+use std::cell::Cell;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, mpsc};
@@ -17,6 +18,7 @@ use crate::config::{
     Action, Config, ConfigFieldSources, NarrationMode, OllamaThink, OpenAiApi, PlanPreset,
     PromptLayout, Provider,
 };
+use crate::minimal_loop::budget_closing::{BudgetClosing, NOTICE as CLOSING_NOTICE};
 use crate::provider_call::{ProviderCallOutcome, ProviderCallScope, ProviderChatRequest};
 use crate::providers::streaming::CancelToken;
 use crate::providers::{
@@ -564,6 +566,7 @@ pub(super) struct DispatchGate {
     reached: AtomicBool,
     released: (Mutex<bool>, Condvar),
     decided: Mutex<mpsc::Sender<bool>>,
+    arrived: Mutex<Option<mpsc::Sender<()>>>,
 }
 
 impl DispatchGate {
@@ -573,12 +576,16 @@ impl DispatchGate {
             reached: AtomicBool::new(false),
             released: (Mutex::new(false), Condvar::new()),
             decided: Mutex::new(sender),
+            arrived: Mutex::new(None),
         };
         (Arc::new(gate), receiver)
     }
 
     pub(super) fn hold(&self) {
         self.reached.store(true, Ordering::SeqCst);
+        if let Some(arrived) = self.arrived.lock().unwrap().as_ref() {
+            let _ = arrived.send(());
+        }
         let (lock, condvar) = &self.released;
         let mut released = lock.lock().unwrap();
         while !*released {
@@ -594,6 +601,24 @@ impl DispatchGate {
         let (lock, condvar) = &self.released;
         *lock.lock().unwrap() = true;
         condvar.notify_all();
+    }
+
+    /// A channel that receives one message each time a worker reaches the
+    /// gate.
+    fn arrivals(&self) -> mpsc::Receiver<()> {
+        let (sender, receiver) = mpsc::channel();
+        *self.arrived.lock().unwrap() = Some(sender);
+        receiver
+    }
+}
+
+/// Releases the gate when dropped, so a failed assertion never leaves a
+/// worker held.
+struct Released(Arc<DispatchGate>);
+
+impl Drop for Released {
+    fn drop(&mut self) {
+        self.0.release();
     }
 }
 
@@ -940,6 +965,180 @@ fn a_request_without_the_sentence_lets_a_late_worker_ask_the_client_as_before() 
             watched.1, 1,
             "{interrupt:?}: the late worker asked the client"
         );
+    }
+}
+
+// ---- one request that carries both the #957 notice and the sentence ---------
+
+fn closing_events(path: &Path) -> Vec<Value> {
+    events(path)
+        .into_iter()
+        .filter(|event| event["event"] == "budget_closing")
+        .collect()
+}
+
+/// A run's closing state and this leaf with the next request composed the
+/// way the loop composes it: the #957 notice, then the sentence.
+fn shared_request(root: &Path, path: &Path) -> (BudgetClosing, OutputLimitFeedback) {
+    let mut closing = BudgetClosing::enabled(Some(path), root);
+    let mut leaf = OutputLimitFeedback::new(Some(path));
+    leaf.observe_reply(&reply(Some(100), Vec::new()), LIMIT);
+    let feedback = closing.request_feedback(2, 6, None);
+    let feedback = leaf.compose(feedback).map(Cow::into_owned).unwrap();
+    assert_eq!(feedback, format!("{CLOSING_NOTICE}\n\n{NO_TOOL_SENTENCE}"));
+    closing.note_request(&[ConversationMessage::user(feedback)]);
+    (closing, leaf)
+}
+
+/// One provider call the way the loop makes it (`loop_run.rs`): the #957
+/// entry around this leaf's watch, then `settle`.
+fn shared_call(
+    closing: &mut BudgetClosing,
+    leaf: &mut OutputLimitFeedback,
+    client: &mut Probe,
+    root: &Path,
+    timeout_secs: u64,
+    is_cancelled: impl Fn() -> bool,
+) -> ProviderCallOutcome {
+    let config = call_config(root, timeout_secs);
+    let messages = [ConversationMessage::user("hello")];
+    let (mut watch, shared) = leaf.watch_shared(&mut *client);
+    let outcome = closing.chat_with_cancel_and_stream(
+        &mut watch,
+        shared,
+        &config,
+        request(&messages),
+        is_cancelled,
+        &mut |_| Ok(()),
+    );
+    leaf.settle();
+    outcome
+}
+
+/// `is_cancelled` for a call that ends with `interrupt` only once its worker
+/// arrived (a message on `arrival`). The provider call's first check comes
+/// before it starts the worker and answers no; every later check first waits
+/// for the arrival. Then a cancel answers yes, and a timeout keeps answering
+/// no, so the call's own deadline ends it with the worker already there.
+fn after_arrival(arrival: mpsc::Receiver<()>, interrupt: Interrupt) -> impl Fn() -> bool {
+    let checks = Cell::new(0_usize);
+    let arrived = Cell::new(false);
+    move || {
+        checks.set(checks.get() + 1);
+        if checks.get() == 1 {
+            return false;
+        }
+        if !arrived.get() {
+            arrival
+                .recv_timeout(Duration::from_secs(60))
+                .expect("the worker arrives");
+            arrived.set(true);
+        }
+        matches!(interrupt, Interrupt::Cancel)
+    }
+}
+
+fn deadline_secs(interrupt: Interrupt) -> u64 {
+    match interrupt {
+        Interrupt::Cancel => 30,
+        Interrupt::Timeout => 1,
+    }
+}
+
+#[test]
+fn a_shared_request_held_past_the_notice_watch_is_neither_sent_nor_recorded() {
+    for interrupt in INTERRUPTS {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("events.jsonl");
+        let (mut closing, mut leaf) = shared_request(dir.path(), &path);
+        // The worker has passed the #957 watch (the outer one) and is held
+        // right before this leaf's watch decides; the call ends meanwhile.
+        let (mut client, _taken) = Probe::new(None);
+        let (gate, decided) = DispatchGate::new();
+        let arrival = gate.arrivals();
+        leaf.dispatch_gate = Some(Arc::clone(&gate));
+        let release = Released(Arc::clone(&gate));
+        let outcome = shared_call(
+            &mut closing,
+            &mut leaf,
+            &mut client,
+            dir.path(),
+            deadline_secs(interrupt),
+            after_arrival(arrival, interrupt),
+        );
+        leaf.dispatch_gate = None;
+        interrupted(&outcome, interrupt);
+        assert!(gate.reached.load(Ordering::SeqCst), "{interrupt:?}");
+        assert!(closing_events(&path).is_empty(), "{interrupt:?}: no notice");
+        assert!(feedback_events(&path).is_empty(), "{interrupt:?}");
+        // Released afterwards, the worker never asks the client.
+        drop(release);
+        assert!(!wait_decided(&decided), "{interrupt:?}: not sent");
+        assert_eq!(client.calls(), 0, "{interrupt:?}: the client never saw it");
+        assert!(closing_events(&path).is_empty(), "{interrupt:?}: no notice");
+        assert!(feedback_events(&path).is_empty(), "{interrupt:?}");
+        // The notice is not recorded, so its guard never applies and it is
+        // not composed again; the sentence goes into the next request.
+        assert_eq!(closing.request_feedback(1, 6, None), None, "{interrupt:?}");
+        assert_eq!(closing.before_normal_final(5, 1), None, "{interrupt:?}");
+        assert_eq!(
+            composed(&mut leaf, None),
+            Some(NO_TOOL_SENTENCE.into()),
+            "{interrupt:?}"
+        );
+    }
+}
+
+#[test]
+fn a_shared_request_that_reached_the_client_records_the_notice_and_the_sentence_once() {
+    for interrupt in [None, Some(Interrupt::Cancel), Some(Interrupt::Timeout)] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("events.jsonl");
+        let (mut closing, mut leaf) = shared_request(dir.path(), &path);
+        let (mut client, taken) = Probe::new(None);
+        let outcome = match interrupt {
+            None => {
+                let outcome =
+                    shared_call(&mut closing, &mut leaf, &mut client, dir.path(), 30, || {
+                        false
+                    });
+                assert!(outcome.result.is_ok());
+                outcome
+            }
+            Some(interrupt) => {
+                // The watch dispatched the request and the client holds it
+                // while the call ends.
+                let (gate, decided) = DispatchGate::new();
+                let arrival = gate.arrivals();
+                client.gate = Some(Arc::clone(&gate));
+                let release = Released(gate);
+                let outcome = shared_call(
+                    &mut closing,
+                    &mut leaf,
+                    &mut client,
+                    dir.path(),
+                    deadline_secs(interrupt),
+                    after_arrival(arrival, interrupt),
+                );
+                interrupted(&outcome, interrupt);
+                drop(release);
+                assert!(wait_decided(&decided), "{interrupt:?}");
+                outcome
+            }
+        };
+        taken
+            .recv_timeout(Duration::from_secs(60))
+            .expect("the worker finishes");
+        drop(outcome);
+        assert_eq!(client.calls(), 1, "{interrupt:?}");
+        let notices: Vec<_> = closing_events(&path)
+            .iter()
+            .map(|event| event["phase"].clone())
+            .collect();
+        assert_eq!(notices, [json!("notice")], "{interrupt:?}");
+        assert_eq!(feedback_events(&path).len(), 1, "{interrupt:?}");
+        assert_eq!(composed(&mut leaf, None), None, "{interrupt:?}");
+        assert_eq!(closing.request_feedback(1, 6, None), None, "{interrupt:?}");
     }
 }
 

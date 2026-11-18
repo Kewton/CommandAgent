@@ -746,8 +746,10 @@ fn run_session_planned(
             eval_events::provider_turn::ExecutionTelemetry::new(config.eval_events_path.as_deref());
         let chat_outcome = {
             let mut guard = ui.before_model_call(&label);
+            let (mut watch, shared) = output_limit.watch_shared(&mut *client);
             let mut outcome = budget_closing.chat_with_cancel_and_stream(
-                &mut output_limit.watch(&mut *client),
+                &mut watch,
+                shared,
                 config,
                 provider_call::ProviderChatRequest {
                     scope: call_scope,

@@ -25,7 +25,10 @@
 //! same rule. Before the notice, finals are judged by the existing checks
 //! alone. The notice is recorded only when the request that carried it was
 //! handed to the client, which a [`DispatchWatch`] around that one provider
-//! call observes; a call cancelled before that records nothing.
+//! call observes; a call cancelled before that records nothing. When the same
+//! request also carries the Issue #958 sentence, both share that request's
+//! one [`RequestDispatch`] (Issue #965), decided by the #958 watch nearest
+//! the client, so the notice is recorded exactly when that request was sent.
 //!
 //! Unset, empty, or `off` disables everything: no state, no event, and no
 //! request change. Any other value is a configuration error that names the
@@ -38,8 +41,8 @@ use std::collections::BTreeSet;
 use std::ffi::{OsStr, OsString};
 use std::ops::DerefMut;
 use std::path::{Component, Path, PathBuf};
+#[cfg(test)]
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, Ordering};
 
 use anyhow::Error;
 use serde_json::{Value, json};
@@ -58,6 +61,9 @@ use crate::tools::{hidden_path, sensitive_path};
 
 use super::execution_progress::ExecutionProgress;
 use super::loop_run::{RunSessionOptions, RunSessionScope};
+
+mod dispatch_state;
+pub(crate) use dispatch_state::{CLOSED_ERROR, RequestDispatch};
 
 /// The opt-in environment variable. It has no `ANVIL_*` legacy name.
 pub(crate) const ENV_NAME: &str = "COMMANDAGENT_BUDGET_CLOSING";
@@ -241,6 +247,13 @@ impl BudgetClosing {
         ))
     }
 
+    /// An enabled state for the tests of the leaf that shares a request with
+    /// this one (Issue #965).
+    #[cfg(test)]
+    pub(crate) fn enabled(events_path: Option<&Path>, root: &Path) -> Self {
+        Self::new(true, events_path, root)
+    }
+
     fn new(enabled: bool, events_path: Option<&Path>, root: &Path) -> Self {
         Self {
             phase: if enabled {
@@ -314,6 +327,13 @@ impl BudgetClosing {
     /// the provider call's worker had not yet reached the client) records
     /// nothing, and the watch then never asks the client.
     ///
+    /// `inner` is the dispatch state of a guard inside `client` (the Issue
+    /// #958 watch of a request that also carries its sentence). The notice
+    /// request then shares it: that inner guard, nearer the client, takes the
+    /// one decision, and this function reads the same answer, so the notice is
+    /// recorded exactly when the request was sent (Issue #965). Without an
+    /// inner guard the watch decides on a state of its own, as before.
+    ///
     /// Cancel behavior change, limited to the notice request of an enabled
     /// run: when the provider call has already returned (interrupted) before
     /// its worker reaches the client, the worker no longer sends that request
@@ -322,6 +342,7 @@ impl BudgetClosing {
     pub(crate) fn chat_with_cancel_and_stream<F>(
         &mut self,
         client: &mut dyn ChatClient,
+        inner: Option<RequestDispatch>,
         config: &Config,
         request: provider_call::ProviderChatRequest<'_>,
         is_cancelled: F,
@@ -340,10 +361,12 @@ impl BudgetClosing {
                 on_chunk,
             );
         };
-        let state = Arc::new(AtomicU8::new(DISPATCH_PENDING));
+        let decides = inner.is_none();
+        let state = inner.unwrap_or_else(RequestDispatch::new);
         let mut watch = DispatchWatch {
             inner: client,
-            state: Arc::clone(&state),
+            state: state.clone(),
+            decides,
             #[cfg(test)]
             gate: self.dispatch_gate.clone(),
         };
@@ -354,15 +377,7 @@ impl BudgetClosing {
             is_cancelled,
             on_chunk,
         );
-        let dispatched = state
-            .compare_exchange(
-                DISPATCH_PENDING,
-                DISPATCH_CLOSED,
-                Ordering::SeqCst,
-                Ordering::SeqCst,
-            )
-            .is_err();
-        if dispatched && self.phase == Phase::Armed {
+        if state.close() && self.phase == Phase::Armed {
             self.phase = Phase::Noticed;
             self.iteration_limit = iteration_limit;
             self.emit(EventPhase::Notice, iteration, remaining_calls);
@@ -619,21 +634,12 @@ fn bash_refused_before_run(error: &Error) -> bool {
         .any(|prefix| message.starts_with(prefix))
 }
 
-/// The notice request's dispatch state: it moves once, to `DISPATCHED` (the
-/// watch, before it asks the client) or to `CLOSED` (the run, after the
-/// provider call returned).
-const DISPATCH_PENDING: u8 = 0;
-const DISPATCH_DISPATCHED: u8 = 1;
-const DISPATCH_CLOSED: u8 = 2;
-
-/// The error a watch returns instead of asking the client once the run has
-/// closed the request; it is the provider call's own interruption text.
-const DISPATCH_CLOSED_ERROR: &str = "aborted_by_user: interrupted by user";
-
 /// A [`ChatClient`] that forwards every call unchanged to the client it
 /// wraps, except that `chat` and `chat_stream` first take the request's
 /// shared state from pending to dispatched; when the run already closed the
 /// request they return the interruption error without asking the client.
+/// When a guard inside the wrapped client shares the state (`decides` is
+/// false), that guard takes the decision instead and this one forwards.
 /// Requests, replies, stream chunks, errors, cancellation, timing, and
 /// metadata otherwise pass through as they are.
 ///
@@ -645,7 +651,8 @@ const DISPATCH_CLOSED_ERROR: &str = "aborted_by_user: interrupted by user";
 /// talk to a client around the provider call through it.
 struct DispatchWatch<C> {
     inner: C,
-    state: Arc<AtomicU8>,
+    state: RequestDispatch,
+    decides: bool,
     #[cfg(test)]
     gate: Option<Arc<tests::DispatchGate>>,
 }
@@ -653,20 +660,13 @@ struct DispatchWatch<C> {
 impl<C> DispatchWatch<C> {
     /// Takes the state to dispatched, or finds it already dispatched (a
     /// second call of the same request). False when the run closed it.
+    /// True without a decision when the inner guard decides.
     fn dispatch(&self) -> bool {
         #[cfg(test)]
         if let Some(gate) = &self.gate {
             gate.hold();
         }
-        let proceed = match self.state.compare_exchange(
-            DISPATCH_PENDING,
-            DISPATCH_DISPATCHED,
-            Ordering::SeqCst,
-            Ordering::SeqCst,
-        ) {
-            Ok(_) => true,
-            Err(current) => current == DISPATCH_DISPATCHED,
-        };
+        let proceed = !self.decides || self.state.dispatch();
         #[cfg(test)]
         if let Some(gate) = &self.gate {
             gate.decided(proceed);
@@ -687,7 +687,8 @@ where
     fn boxed_clone(&self) -> Box<dyn ChatClient> {
         Box::new(DispatchWatch {
             inner: self.inner.boxed_clone(),
-            state: Arc::clone(&self.state),
+            state: self.state.clone(),
+            decides: self.decides,
             #[cfg(test)]
             gate: self.gate.clone(),
         })
@@ -742,7 +743,7 @@ where
         on_chunk: &mut dyn FnMut(&str) -> anyhow::Result<()>,
     ) -> anyhow::Result<AssistantReply> {
         if !self.dispatch() {
-            anyhow::bail!(DISPATCH_CLOSED_ERROR);
+            anyhow::bail!(CLOSED_ERROR);
         }
         self.inner
             .chat_stream(model, messages, tools, native_tools_enabled, on_chunk)
@@ -756,7 +757,7 @@ where
         native_tools_enabled: bool,
     ) -> anyhow::Result<AssistantReply> {
         if !self.dispatch() {
-            anyhow::bail!(DISPATCH_CLOSED_ERROR);
+            anyhow::bail!(CLOSED_ERROR);
         }
         // Called only from inside the provider call, which handed this client
         // over; the forwarding form matches the other wrappers

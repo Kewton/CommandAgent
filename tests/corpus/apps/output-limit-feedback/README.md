@@ -120,23 +120,22 @@ carries the sentence. Every other request is forwarded as before, a late
 worker included, with the same provider-call result (leaf test against the
 bare client, for both a cancel and a timeout).
 
-## Known limit: a request that carries both notices
+## A request that carries both notices (Issue #965)
 
-One narrow case remains. It needs all three of these at once:
-
-- the run opted in with `COMMANDAGENT_BUDGET_CLOSING=once`;
-- the Issue #957 notice and this sentence are in the same single request;
-- the provider call returns first on a cancel or a timeout while its late
-  worker has passed the #957 watch but not yet entered the #958 watch.
-
-A run with the setting off, and a run with only this sentence, never meet
-it. When it happens, the request never reaches the client, yet the #957
-`budget_closing` notice event is recorded and the #957 guard is active
-(the guard only sends a final back while a failure is unresolved, so it
-never loosens a check). This sentence was not sent, so it is armed again
-and carried by the next request. The cause is that the two leaves keep
-separate dispatch states; closing the case needs a change that shares one
-state between them, which is outside this Issue.
+When a `COMMANDAGENT_BUDGET_CLOSING=once` run puts the Issue #957 notice and
+this sentence in the same single request, the two leaves share that
+request's one dispatch state. The #958 watch, nearest the client, takes the
+one decision; the #957 entry and this leaf read the same answer after the
+call returned. So the #957 `budget_closing` notice event and this event are
+written exactly when that request reached the client. A call that returns
+on a cancel or a timeout before the #958 watch decides sends nothing and
+records neither: the #957
+notice is not recorded (its guard never applies and it is not composed
+again, as for a #957 notice request cancelled before dispatch), and this
+sentence is armed again for the next request (leaf tests hold the worker
+at that point, for both a cancel and a timeout). A run with the setting
+off, a run with only the #957 notice, and a run with only this sentence
+behave as before.
 
 `tests/output_limit_feedback.rs` also runs one script with Issue #957's
 `COMMANDAGENT_BUDGET_CLOSING=once` (not a fixture row, since every row's

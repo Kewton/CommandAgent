@@ -107,6 +107,13 @@ command, path, content, model text, tool output, or secret is copied.
   that point). That is the only cancel behavior that changes, and only for
   the notice request of an enabled run (the test
   derives that variant from this row).
+- When the notice request also carries the Issue #958 output-limit
+  sentence, both share that request's one dispatch state (Issue #965): the
+  #958 watch, nearest the client, decides once, and the notice is recorded
+  exactly when that request reached the client. A worker held between the
+  two watches while the call is cancelled or times out sends nothing and
+  records no notice (leaf test in
+  `src/minimal_loop/loop_run/output_limit_feedback/tests.rs`).
 - A recoverable Bash error is a refusal only when it is a typed
   engine-private or sensitive path refusal or starts with the host's own
   refusal words; a timeout whose command or output contains those words is
