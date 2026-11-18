@@ -1571,15 +1571,16 @@ pub fn run_ultra_plan_with_ui(
     let profile_id = ProfileId::parse(&plan.profile);
     let runtime = ProfileRuntimeRegistry::resolve(&profile_id);
     let terminal_capabilities = runtime.required_capabilities(&plan.goal);
-    let (assurance_level, assurance_reason) =
-        runtime.assurance_for_completion(&profile_id, &terminal_capabilities);
+    let (level, reason) = runtime.assurance_for_completion(&profile_id, &terminal_capabilities);
+    let (mut level, mut reason) = (level.to_string(), reason.to_string());
+    crate::planner::profile_admission::cap_assurance(profile_id.as_str(), &mut level, &mut reason);
     eval_events::typed::emit(
         config.eval_events_path.as_deref(),
         &eval_events::typed::UltraPlanCompleteEvent::new(
             plan.phases.len(),
             &plan.profile,
-            assurance_level,
-            assurance_reason,
+            &level,
+            &reason,
         ),
     );
     Ok(format!(

@@ -420,11 +420,14 @@ Each row names what an operator sees and what to do.
   acceptance's Full and not a release pass, and nothing turns it into one: assurance reads nothing
   of the stages, and the gate only lowers a report. On the create path, the level on
   `ultra_plan_complete` comes from the kind of profile: it is not the result of a check, and not a
-  seal. Only a run that passed final acceptance reaches it. A manifest profile with no base runtime
-  reports `full` there, with or without stages. Final acceptance's own level is a separate value. The
+  seal. Only a run that passed final acceptance reaches it. Since #985 that value goes through the
+  same admission cap as final acceptance, so a draft profile (every external manifest profile and
+  every overlay) reports at most `static` there, with `profile_not_admitted` when the profile's
+  value was `full` or `partial`; a manifest profile with no base runtime reported `full` before.
+  Final acceptance's own level is still a separate value. The
   `fix` and `investigate` intents are different: they report their own adjudication's level and do not
   go through final acceptance. A run with every stage sealed and a run of the same profile with no
-  stage declaration end at the same two levels, `static` and `full`, and with the profile's final
+  stage declaration end at the same two levels, `static` and `static`, and with the profile's final
   checks failing the same seals make no success. Both those values are at their limit for that
   profile, so that comparison cannot see a raise; that a seal raises nothing rests on reading the
   code and the audit. An overlay on `generic`, whose level has room, cannot be compared: an overlay
