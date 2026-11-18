@@ -1828,6 +1828,43 @@ field() { printf '%s' "$request" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }
         bench_with(script, Options::default())
     }
 
+    /// A program a test will run, written outside this process: no descriptor open for writing on
+    /// it ever lives here. With `std::fs::copy` or `std::fs::write`, another test thread that forks
+    /// while that descriptor is open hands it to a child that keeps it until its own exec, and an
+    /// exec of the program in that window fails with `ETXTBSY` (Issue #1029, as #1025). The `cp`
+    /// has ended before this returns; the mode is set by path, as `std::fs::copy` sets it.
+    fn copy_a_program_elsewhere(source: &Path, target: &Path) {
+        let mut command = std::process::Command::new("/bin/cp");
+        command
+            .arg("--")
+            .arg(source)
+            .arg(target)
+            .env_clear()
+            .stdin(std::process::Stdio::null());
+        let copied = crate::bounded_process::run_with_timeout(
+            &mut command,
+            std::time::Duration::from_secs(120),
+        )
+        .unwrap();
+        assert_eq!(
+            copied.kind,
+            crate::bounded_process::BoundedProcessOutcomeKind::Exited,
+            "{copied:?}"
+        );
+        assert!(copied.success(), "{copied:?}");
+        let source_metadata = std::fs::metadata(source).unwrap();
+        std::fs::set_permissions(target, source_metadata.permissions()).unwrap();
+        let metadata = std::fs::symlink_metadata(target).unwrap();
+        assert!(metadata.is_file(), "{metadata:?}");
+        assert_eq!(metadata.permissions(), source_metadata.permissions());
+        assert!(
+            std::fs::read(target).unwrap() == std::fs::read(source).unwrap(),
+            "{} is not a copy of {}",
+            target.display(),
+            source.display()
+        );
+    }
+
     fn bench_with(script: &str, options: Options) -> Bench {
         let temp = tempfile::tempdir().unwrap();
         let base = std::fs::canonicalize(temp.path()).unwrap();
@@ -1854,7 +1891,7 @@ field() { printf '%s' "$request" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }
             let directory = base.join("executable");
             std::fs::create_dir_all(&directory).unwrap();
             let copy = directory.join("sh");
-            std::fs::copy(&shell, &copy).unwrap();
+            copy_a_program_elsewhere(&shell, &copy);
             shell = copy;
         }
         let mut env =
@@ -10085,7 +10122,10 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                     let directory = self.base.join("lower-tool-bin");
                     std::fs::create_dir_all(&directory).unwrap();
                     let executable = directory.join("run-the-script");
-                    std::fs::write(&executable, "#!/bin/sh\nexec /bin/sh \"$@\"\n").unwrap();
+                    // Written here, then copied by a process of its own: what runs is the copy.
+                    let written = self.base.join("run-the-script.written");
+                    std::fs::write(&written, "#!/bin/sh\nexec /bin/sh \"$@\"\n").unwrap();
+                    super::super::copy_a_program_elsewhere(&written, &executable);
                     std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755))
                         .unwrap();
                     let pin = sha256(&std::fs::read(&executable).unwrap());
