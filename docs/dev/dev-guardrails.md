@@ -161,6 +161,76 @@ CI is an acceptance necessary condition, not a substitute for the authorized
 full-suite green run. The local acceptance conditions, including privileged
 full verification where required, remain in force.
 
+## Test Isolation Ratchet
+
+Tests share one process: its panic hook, its environment, the TUI's global
+presentation state, and every descriptor open for writing when another test
+thread forks. Stage 1 (#1010, #1012, #993, #984, #996, #1029, #995, #968,
+#992) closed the holes that touched that state outside a guard.
+`tests/test_isolation_guardrails.rs` (Issue #1040) keeps those kinds of line
+from growing. It counts lines per file in `src/` and `tests/` and fails when a
+file goes over its limit, or when a file without a limit has such a line:
+
+- R1: `set_hook` or `take_hook` (the process panic hook), in any code.
+- R2: `set_var(` or `remove_var(`, in any code; and
+  `RuntimeEnvironmentGuard::install` in test code (the production calls in
+  `src/lib.rs`, `src/operator_check.rs` and `src/tui/repl.rs` are not
+  counted).
+- R3: in test code, an exec mode (`0o[0-7]?[157][0-7][0-7]`) passed to
+  `set_mode`/`from_mode`/`set_permissions` on the same line; and every
+  `fs::copy` line, since whether a copy is an executable cannot be told from
+  the line.
+- R4: in test code, `render_current_plan`, `render_status_card` or
+  `set_plan_for_test` (test entries into the TUI global state).
+
+A line counts once per rule however many tokens it holds; comment and
+doc-comment lines do not count. Test code is all of `tests/` and, in `src/`,
+what the copied `classified_rust_lines` of `tests/generality_guardrails.rs`
+marks as test, plus two additions kept outside it: a `#[cfg(all(test, ...))]`
+attribute opens test code as `#[cfg(test)]` does, and a file declared by a
+module item under a cfg(test) attribute or inside a cfg(test) inline module
+(with `#[path = "..."]`, inline-module directories, and `include!` from test
+code) is test code as a whole. The guard file itself is not counted, because
+it holds every token as a string literal.
+
+The limits are the counts at the commit that added the guard, with no
+headroom. When a test goes over, put the new line under the existing guard or
+in a separate process (for an executable, a separate-process copy helper of
+the `copy_a_program_elsewhere` kind; for a fixture nothing executes, one copy
+helper in one place), or land a change that removes such lines and lowers the
+limit in the same change. Do not raise a limit to admit growth.
+
+What this gate does not catch:
+
+- The #992 kind: readers of the sandbox state. They are ordinary Bash or
+  verifier calls with no token.
+- Writers of the TUI global state: every test that goes through
+  `eval_events::emit`.
+- New tests that call an existing helper (`TestEnvGuard::set`, the `set_env`
+  helpers under `tests/`, and the like). The helper's own line counts once.
+
+It stops these kinds from growing; it is not a tool for finding the holes that
+exist now.
+
+Known limits of the classification:
+
+- The copied `classified_rust_lines` is kept as it is: `#[cfg(test)]` must be
+  alone on its line, a multi-line cfg attribute is not recognized, braces in
+  strings can move the end of a block, and `#[cfg(test)]` followed by an item
+  starting `mod tests` (including `#[path = "..."] mod tests;`) marks the rest
+  of the file as test code.
+- Inline-module nesting for module paths is read from indentation, which
+  relies on `cargo fmt`.
+- A `mod name;` inside an `include!`d file is resolved as if that file were
+  its own module.
+- In `src/`, a test-code module item that names no file in the tree, an
+  `include!` whose argument is not a plain string literal, and an `include!`
+  outside test code are listed as unresolved and fail the guard unless they
+  are named in its `KNOWN_UNRESOLVED` list (empty when the guard was added).
+- Tokens are matched as text: a renamed import (`use std::fs::copy;` then
+  `copy(...)`) is not counted, and a token inside a string literal or a block
+  comment is.
+
 ## Push Preflight
 
 Before pushing a commit series, resolve its remote parent SHA and record the
