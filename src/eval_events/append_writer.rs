@@ -51,12 +51,10 @@ pub(crate) fn append_line(path: &Path, line: &[u8]) -> io::Result<()> {
 }
 
 fn append_locked(path: &Path, record: &[u8], tail: &mut dyn Read) -> io::Result<()> {
-    #[cfg(test)]
-    test_seam::before_open();
     // Opened before the lock: opening a FIFO with no reader waits, and must
     // not hold up writers of other files. Only a regular file takes the lock;
     // a FIFO or device is written as at fc903248, outside the line guarantee.
-    let file = OpenOptions::new().create(true).append(true).open(path)?;
+    let file = open_append(path)?;
     let _guard = file
         .metadata()
         .map_or(true, |meta| meta.is_file())
@@ -64,6 +62,14 @@ fn append_locked(path: &Path, record: &[u8], tail: &mut dyn Read) -> io::Result<
     #[cfg(test)]
     let file = test_seam::PauseAt::for_this_thread(file);
     write_record(file, record, tail)
+}
+
+/// The open itself. Tests are told here, at the open and not before it, so
+/// whatever the caller holds when it opens is already held when they hear.
+fn open_append(path: &Path) -> io::Result<std::fs::File> {
+    #[cfg(test)]
+    test_seam::before_open();
+    OpenOptions::new().create(true).append(true).open(path)
 }
 
 fn write_record(mut out: impl Write, record: &[u8], tail: &mut dyn Read) -> io::Result<()> {
@@ -159,7 +165,7 @@ pub(crate) mod test_seam {
         static PAUSE: RefCell<Option<Plan>> = const { RefCell::new(None) };
         static PROBE: RefCell<Option<Sender<Seen>>> = const { RefCell::new(None) };
         static LOCK_CALLS: Cell<usize> = const { Cell::new(0) };
-        static OPENING: RefCell<Option<Sender<()>>> = const { RefCell::new(None) };
+        static OPENING: RefCell<Option<Sender<usize>>> = const { RefCell::new(None) };
     }
 
     /// The next record this thread writes stops at the plan's point.
@@ -211,11 +217,12 @@ pub(crate) mod test_seam {
         }
     }
 
-    /// While entered, this thread reports each open it is about to make.
+    /// While entered, this thread reports each open it is about to make, with
+    /// how many times it has taken the write lock by then.
     pub(crate) struct OpenProbe;
 
     impl OpenProbe {
-        pub(crate) fn enter(sender: Sender<()>) -> Self {
+        pub(crate) fn enter(sender: Sender<usize>) -> Self {
             OPENING.with_borrow_mut(|slot| *slot = Some(sender));
             Self
         }
@@ -230,7 +237,7 @@ pub(crate) mod test_seam {
     pub(super) fn before_open() {
         OPENING.with_borrow(|probe| {
             if let Some(sender) = probe {
-                let _ = sender.send(());
+                let _ = sender.send(LOCK_CALLS.get());
             }
         });
     }
@@ -751,7 +758,9 @@ mod tests {
             append_event(&fifo_path, &fixture("fifo"))
         });
         let release = FifoReader(fifo.clone());
-        opening_rx
+        // Heard at the open itself: a lock taken before the open is held by
+        // now, whatever the order of the two threads.
+        let locks_before_open = opening_rx
             .recv_timeout(test_seam::HANG_GUARD)
             .expect("the FIFO writer reaches its open");
         let (done_tx, done_rx) = channel();
@@ -763,6 +772,10 @@ mod tests {
             .recv_timeout(std::time::Duration::from_secs(30))
             .expect("the regular file's append is not held up by the FIFO");
         check_exact(&written, &[fixture("file")]).unwrap();
+        assert_eq!(
+            locks_before_open, 0,
+            "the FIFO writer opens holding no lock"
+        );
         let mut reader = std::fs::File::open(&fifo).unwrap();
         fifo_writer.join().unwrap().unwrap();
         file_writer.join().unwrap();
