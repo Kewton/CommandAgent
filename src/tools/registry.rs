@@ -373,7 +373,7 @@ impl ToolRegistry {
                         Ok(unchanged.response)
                     }
                     ReadDecision::Full(pending) => {
-                        let output = crate::tools::read::run_checked(
+                        let output = crate::tools::read::run_checked_parts(
                             &context.root,
                             checked_root.as_deref(),
                             &path,
@@ -382,8 +382,9 @@ impl ToolRegistry {
                             context.workspace_policy,
                         )
                         .map_err(|error| failure.classify(error, Some(&path)))?;
-                        self.repeated_reads().record_full_read(pending, &output);
-                        Ok(output)
+                        self.repeated_reads()
+                            .record_full_read(pending, &output.body);
+                        Ok(output.text())
                     }
                 }
             }

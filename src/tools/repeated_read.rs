@@ -104,14 +104,14 @@ impl RepeatedReadCache {
         })
     }
 
-    pub(crate) fn record_full_read(&mut self, pending: PendingRead, output: &str) {
+    /// Caches the body of a full Read. The heading is passed separately and
+    /// never cached, so each repeat gets its own heading and no part of an
+    /// earlier heading can stay in the cached body (Issue #966).
+    pub(crate) fn record_full_read(&mut self, pending: PendingRead, body: &str) {
         let Some(fingerprint) = pending.fingerprint else {
             return;
         };
-        let mut lines = output.lines();
-        // The heading line is not cached: each repeat gets its own heading.
-        lines.next();
-        let head = compact_head(lines);
+        let head = compact_head(body.lines());
         self.entries.insert(
             pending.request,
             CachedRead {
@@ -184,9 +184,8 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         std::fs::write(&path, &content).unwrap();
-        let output = format!("sample.txt\n{content}");
         let mut cache = RepeatedReadCache::default();
-        full_read(&mut cache, &path, &output);
+        full_read(&mut cache, &path, &content);
 
         let ReadDecision::Unchanged(unchanged) = cache.begin_read(&path, None, None, "sample.txt")
         else {
@@ -207,13 +206,13 @@ mod tests {
         let path = dir.path().join("sample.txt");
         std::fs::write(&path, "before").unwrap();
         let mut cache = RepeatedReadCache::default();
-        full_read(&mut cache, &path, "sample.txt\nbefore");
+        full_read(&mut cache, &path, "before");
 
         std::fs::write(&path, "after").unwrap();
         let ReadDecision::Full(pending) = cache.begin_read(&path, None, None, "sample.txt") else {
             panic!("changed file must receive a full read");
         };
-        cache.record_full_read(pending, "sample.txt\nafter");
+        cache.record_full_read(pending, "after");
 
         let ReadDecision::Unchanged(unchanged) = cache.begin_read(&path, None, None, "sample.txt")
         else {
@@ -229,7 +228,7 @@ mod tests {
         let path = dir.path().join("sample.txt");
         std::fs::write(&path, "content").unwrap();
         let mut cache = RepeatedReadCache::default();
-        full_read(&mut cache, &path, "sample.txt\ncontent");
+        full_read(&mut cache, &path, "content");
 
         let ReadDecision::Unchanged(unchanged) =
             cache.begin_read(&path, None, None, "ws/sample.txt")
@@ -252,7 +251,7 @@ mod tests {
         std::fs::write(&path, "content").unwrap();
         let mut cache = RepeatedReadCache::default();
         cache.note_successful_write(&path);
-        full_read(&mut cache, &path, "sample.txt\ncontent");
+        full_read(&mut cache, &path, "content");
 
         cache.note_non_read_call();
         let ReadDecision::Unchanged(non_consecutive) =

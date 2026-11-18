@@ -39,6 +39,34 @@ pub fn run_checked(
     end_line: Option<usize>,
     policy: WorkspacePolicy,
 ) -> anyhow::Result<String> {
+    run_checked_parts(root, checked_root, path, start_line, end_line, policy)
+        .map(|output| output.text())
+}
+
+/// A Read result as two values (Issue #966): the heading made from the
+/// checked pair, and the body. A heading may itself span lines (a path with a
+/// LF), so the body is never recovered by cutting lines off the text.
+pub(crate) struct ReadOutput {
+    pub(crate) heading: String,
+    pub(crate) body: String,
+}
+
+impl ReadOutput {
+    /// The text a Read returns: the heading, a LF, and the body.
+    pub(crate) fn text(&self) -> String {
+        format!("{}\n{}", self.heading, self.body)
+    }
+}
+
+/// [`run_checked`], returning the heading and the body separately.
+pub(crate) fn run_checked_parts(
+    root: &Path,
+    checked_root: Option<&Path>,
+    path: &Path,
+    start_line: Option<usize>,
+    end_line: Option<usize>,
+    policy: WorkspacePolicy,
+) -> anyhow::Result<ReadOutput> {
     match super::sensitive_path::classify_workspace_path(root, path) {
         super::sensitive_path::PathVerdict::Credential(refusal) => {
             return Err(anyhow::Error::new(refusal));
@@ -53,11 +81,10 @@ pub fn run_checked(
     }
     let content = std::fs::read_to_string(path)?;
     if start_line.is_none() && end_line.is_none() && content.len() > SUMMARY_THRESHOLD_BYTES {
-        return Ok(format!(
-            "{}\n{}",
-            display::heading(root, checked_root, path),
-            summarize_large_file(&content)
-        ));
+        return Ok(ReadOutput {
+            heading: display::heading(root, checked_root, path),
+            body: summarize_large_file(&content),
+        });
     }
     let lines: Vec<&str> = content.lines().collect();
     let start = start_line.unwrap_or(1).max(1);
@@ -69,11 +96,10 @@ pub fn run_checked(
         lines[start - 1..end].join("\n")
     };
     let selected = truncate_with_marker(&selected, MAX_READ_BYTES);
-    Ok(format!(
-        "{}\n{}",
-        display::heading(root, checked_root, path),
-        selected
-    ))
+    Ok(ReadOutput {
+        heading: display::heading(root, checked_root, path),
+        body: selected,
+    })
 }
 
 fn list_directory(
@@ -81,7 +107,7 @@ fn list_directory(
     checked_root: Option<&Path>,
     path: &Path,
     policy: WorkspacePolicy,
-) -> anyhow::Result<String> {
+) -> anyhow::Result<ReadOutput> {
     let mut entries = Vec::new();
     let mut excluded = 0usize;
     for entry in std::fs::read_dir(path)? {
@@ -102,11 +128,10 @@ fn list_directory(
     }
     entries.sort();
     let listing = entries.join("\n");
-    Ok(format!(
-        "{}\n{}",
-        display::heading(root, checked_root, path),
-        with_exclusion_notice(listing, excluded)
-    ))
+    Ok(ReadOutput {
+        heading: display::heading(root, checked_root, path),
+        body: with_exclusion_notice(listing, excluded),
+    })
 }
 
 fn with_exclusion_notice(listing: String, excluded: usize) -> String {

@@ -375,6 +375,58 @@ fn one_registry_labels_every_route_from_the_current_root_after_the_alias_moves()
     }
 }
 
+/// R-966d2: a heading that itself spans lines (a directory name with a real
+/// LF) must not leave a fragment in the cached body. One registry reads the
+/// file under the parent root, the alias moves to the inner workspace after
+/// that resolution (same thread, no sleep), and the same file is read again.
+#[test]
+fn a_multi_line_heading_leaves_nothing_in_the_cached_body() {
+    let dir = tempfile::tempdir().unwrap();
+    let parent = dir.path().canonicalize().unwrap().join("parent");
+    let inner = parent.join("outer\nold").join("ws");
+    std::fs::create_dir_all(&inner).unwrap();
+    std::fs::write(
+        inner.join("file.txt"),
+        "first body line\nsecond body line\n",
+    )
+    .unwrap();
+    let alias = dir.path().join("alias");
+    std::os::unix::fs::symlink(&parent, &alias).unwrap();
+    let events = dir.path().join("events.jsonl");
+    let registry = ToolRegistry::default();
+    let ctx = context(&alias, Some(events.clone()));
+
+    let first = registry
+        .execute("Read", &json!({ "path": "outer\nold/ws/file.txt" }), &ctx)
+        .unwrap();
+    assert_eq!(
+        first,
+        "outer\nold/ws/file.txt\nfirst body line\nsecond body line"
+    );
+
+    std::fs::remove_file(&alias).unwrap();
+    std::os::unix::fs::symlink(&inner, &alias).unwrap();
+
+    let again = registry
+        .execute("Read", &json!({ "path": "file.txt" }), &ctx)
+        .unwrap();
+    let mut lines = again.lines();
+    assert_eq!(lines.next(), Some("file.txt"), "{again}");
+    let notice = lines.next().unwrap_or("");
+    assert!(notice.contains("unchanged since"), "{again}");
+    assert_eq!(lines.next(), Some("first body line"), "{again}");
+    assert!(!again.contains("old/ws"), "{again}");
+    assert!(!again.contains("outer"), "{again}");
+
+    let text = std::fs::read_to_string(&events).unwrap();
+    let event = text
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .find(|event| event["event"] == "tool_read_unchanged")
+        .unwrap_or_else(|| panic!("no tool_read_unchanged in {text}"));
+    assert_eq!(event["path"], "file.txt", "{event}");
+}
+
 /// N1 of the #966 review: a root that cannot be resolved at all is refused by
 /// the public entry in either spelling, with the existing error.
 #[test]
