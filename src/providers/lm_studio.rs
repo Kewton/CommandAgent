@@ -168,7 +168,7 @@ impl LmStudioClient {
         Ok(self)
     }
 
-    fn with_reasoning_effort(
+    pub(crate) fn with_reasoning_effort(
         mut self,
         reasoning_effort: Option<&'static str>,
         role: ProviderRole,

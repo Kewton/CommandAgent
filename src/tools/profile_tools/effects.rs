@@ -3292,54 +3292,6 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                 assert_eq!(counted.bound(), vec![Some(1)]);
             }
 
-            /// Issue #976 acceptance 1 (D12): a stage call, a final repair's send, and a send of
-            /// another role all draw on the one wallet, each as what it is.
-            #[test]
-            fn a_stage_call_a_final_repair_and_another_role_share_one_wallet() {
-                use crate::structured_budget::identity::SendPurpose;
-                use crate::structured_budget::session::FinalRepairMarker;
-                use crate::structured_budget::transport::{BudgetedBody, settle_body};
-
-                let bench = admitted(stage_bench());
-                let counted = Counted::new(|value| value["limits"]["physical_sends"] = json!(3));
-                counted.ask(&bench, &bench.upper, "initial").unwrap();
-                counted
-                    .wallet
-                    .send(50, Some(&FinalRepairMarker::default()))
-                    .unwrap();
-                let body: Value = serde_json::from_slice(
-                    &crate::structured_budget::test_support::body_asking_for(50),
-                )
-                .unwrap();
-                let classifier = |handle| {
-                    BudgetedBody::new(handle, &body, SendPurpose::Classifier)
-                        .unwrap()
-                        .begin(reqwest::Client::new().post("http://127.0.0.1:9/v1/chat"))
-                        .and_then(|(_, send)| settle_body(&mut Some(send), TestWallet::KNOWN))
-                };
-                classifier(&counted.wallet.handle).unwrap();
-                let state = counted.wallet.handle.wallet().unwrap();
-                let purposes = state
-                    .attempts
-                    .iter()
-                    .map(|attempt| attempt.purpose)
-                    .collect::<Vec<_>>();
-                assert_eq!(
-                    purposes,
-                    vec![
-                        SendPurpose::Executor,
-                        SendPurpose::FinalRepair,
-                        SendPurpose::Classifier
-                    ]
-                );
-                assert_eq!(state.logical_stage_used("upper"), 1);
-                assert_eq!(state.final_repair_used(), 1);
-                // The one wallet's limit holds across them all.
-                let past = classifier(&counted.wallet.handle).unwrap_err();
-                assert!(matches!(past, SendRefusal::Wallet(_)), "{past:?}");
-                assert_eq!(counted.wallet.sends(), 3);
-            }
-
             /// R4-I/O: after a bind the wallet refused, G4's cleanup is on disk. The saved record
             /// holds no attempt in flight, read from the file.
             #[test]
@@ -5892,34 +5844,36 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                     if notes {
                         std::fs::write(self.root.join("notes.txt"), "the notes\n").unwrap();
                     }
-                    self.ultra_in(profile, responder, None)
+                    self.ultra_in(profile, responder, None).0
                 }
 
-                /// The same, under `wallet` when it is one: each client is a [`WalletClient`] of it.
+                /// The same, under `wallet` when it is one, through the factory's budgeted
+                /// clients; with how many requests the fake received.
                 fn ultra_in(
                     &self,
                     profile: &str,
                     responder: Responder,
                     wallet: Option<&Arc<crate::structured_budget::test_support::TestWallet>>,
-                ) -> Result<String, String> {
+                ) -> (Result<String, String>, usize) {
+                    use crate::config::ProviderRole;
                     let http = FakeHttp::start(responder);
-                    let mut config = self.config(&http.url);
-                    config.profile = profile.to_string();
-                    let client = |planner: bool| -> Box<dyn crate::providers::ChatClient> {
-                        let inner = client_from_config(&config, planner).unwrap();
-                        match wallet {
-                            Some(wallet) => Box::new(WalletClient {
-                                inner,
-                                wallet: wallet.clone(),
-                                settled: Arc::default(),
-                            }),
-                            None => inner,
+                    let (mut planner, mut execution, mut config) = match wallet {
+                        Some(wallet) => {
+                            let config = self.budgeted_config(&http.url, wallet);
+                            let planner = budgeted_client(&config, ProviderRole::Planner);
+                            (
+                                planner,
+                                budgeted_client(&config, ProviderRole::Executor),
+                                config,
+                            )
+                        }
+                        None => {
+                            let config = self.config(&http.url);
+                            let planner = client_from_config(&config, true).unwrap();
+                            (planner, client_from_config(&config, false).unwrap(), config)
                         }
                     };
-                    let (mut planner, mut execution) = (client(true), client(false));
-                    // A client of the factory under a wallet would be a budgeted one; these send
-                    // to it as the wrapper does.
-                    config.field_sources.run_budget = wallet.map(|wallet| wallet.handle.clone());
+                    config.profile = profile.to_string();
                     let plan = UltraPlan {
                         goal: "Submit the stages".to_string(),
                         profile: profile.to_string(),
@@ -5939,9 +5893,92 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                     let result =
                         run_ultra_plan(planner.as_mut(), execution.as_mut(), &plan, &config)
                             .map_err(|error| format!("{error:#}"));
-                    http.finish();
-                    result
+                    (result, http.finish().len())
                 }
+
+                /// [`Self::config`] as an operator's run under `wallet` has it: an
+                /// OpenAI-compatible provider of `m-1` on the fake, its preset naming the one
+                /// upstream the wallet's route admits.
+                fn budgeted_config(
+                    &self,
+                    url: &str,
+                    wallet: &crate::structured_budget::test_support::TestWallet,
+                ) -> Config {
+                    let preset = "[preset.budget976]\nopenrouter_provider = { only = [\"u\"], allow_fallbacks = false }\n";
+                    let directory = self.root.join(".commandagent");
+                    std::fs::create_dir_all(&directory).unwrap();
+                    std::fs::write(directory.join("config.toml"), preset).unwrap();
+                    let state = self.evidence.join("state");
+                    let parsed = crate::provider_cli::parse_from([
+                        "commandagent",
+                        "--cwd",
+                        self.root.to_str().unwrap(),
+                        "--state-dir",
+                        state.to_str().unwrap(),
+                        "--model",
+                        "m-1",
+                        "--provider",
+                        "openai-compatible",
+                        "--base-url",
+                        url,
+                        "--preset",
+                        "budget976",
+                    ])
+                    .unwrap();
+                    let mut config =
+                        Config::from_cli_with_provider_options(parsed.cli, parsed.provider_options)
+                            .unwrap();
+                    let plain = self.config(url);
+                    config.eval_events_path = plain.eval_events_path;
+                    config.yes = true;
+                    config.offline = false;
+                    config.profile = plain.profile;
+                    config.max_iterations = plain.max_iterations;
+                    config.chat_timeout_secs = plain.chat_timeout_secs;
+                    config.chat_retries = 0;
+                    config.num_predict = 50;
+                    config.field_sources.run_budget = Some(wallet.handle.clone());
+                    config
+                }
+            }
+
+            /// The factory's client for `role` under the config's wallet, with the effort the
+            /// wallet's route wants: the factory reads it from this process's environment, which
+            /// a test leaves alone.
+            fn budgeted_client(
+                config: &Config,
+                role: crate::config::ProviderRole,
+            ) -> Box<dyn crate::providers::ChatClient> {
+                let client =
+                    crate::providers::lm_studio::LmStudioClient::from_openai_compatible_env(
+                        config, role,
+                    )
+                    .unwrap();
+                Box::new(client.with_reasoning_effort(Some("low"), role))
+            }
+
+            /// A wallet a run's bodies fit, on the route of [`World::budgeted_config`].
+            fn roomy_wallet(
+                change: impl FnOnce(&mut Value),
+            ) -> Arc<crate::structured_budget::test_support::TestWallet> {
+                Arc::new(crate::structured_budget::test_support::TestWallet::open(
+                    |value| {
+                        value["max_input_tokens"] = json!(50_000_000_u64);
+                        value["limits"]["tokens"] = json!(1_000_000_000_u64);
+                        change(value);
+                    },
+                ))
+            }
+
+            /// Each reply of `responder` with a known usage, so its send settles.
+            fn with_usage(responder: Responder) -> Responder {
+                Arc::new(move |index, body| {
+                    let mut reply: Value = serde_json::from_str(&responder(index, body)).unwrap();
+                    reply["model"] = json!("m-1");
+                    reply["usage"] =
+                        json!({"prompt_tokens": 10, "completion_tokens": 5, "cost": 0.00001});
+                    reply.to_string()
+                })
             }
 
             fn manifest(profile: &str, upper: &str, lower: &str) -> String {
@@ -6242,7 +6279,7 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                     tools: &[crate::tools::registry::ToolSpec],
                     native_tools_enabled: bool,
                 ) -> anyhow::Result<crate::providers::AssistantReply> {
-                    let response = self.settle();
+                    let response = self.wallet.settled_response();
                     self.settled.lock().unwrap().push(response);
                     crate::provider_call::note_settled_response(response);
                     crate::providers::ChatClient::chat(
@@ -6252,30 +6289,6 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                         tools,
                         native_tools_enabled,
                     )
-                }
-            }
-
-            impl WalletClient {
-                /// One send of 50 tokens settled with a known report, in the final repair the
-                /// worker's call is of, if it is one, as the factory's client sends.
-                fn settle(&self) -> crate::structured_budget::identity::ResponseIdentity {
-                    use crate::structured_budget::transport::{
-                        BudgetedBody, settle_body_identified,
-                    };
-                    let body: Value = serde_json::from_slice(
-                        &crate::structured_budget::test_support::body_asking_for(50),
-                    )
-                    .unwrap();
-                    let purpose = crate::structured_budget::identity::SendPurpose::Executor;
-                    let (_, send) = BudgetedBody::new(&self.wallet.handle, &body, purpose)
-                        .unwrap()
-                        .of_session(crate::provider_call::current_final_repair())
-                        .begin(reqwest::Client::new().post("http://127.0.0.1:9/v1/chat"))
-                        .unwrap();
-                    let known = crate::structured_budget::test_support::TestWallet::KNOWN;
-                    settle_body_identified(&mut Some(send), known)
-                        .unwrap()
-                        .unwrap()
                 }
             }
 
@@ -6794,23 +6807,25 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                     return;
                 };
                 let _live = world.enter();
-                let wallet = Arc::new(crate::structured_budget::test_support::TestWallet::open(
-                    |value| {
-                        value["limits"]["final_repair_attempts"] = json!(1000);
-                        value["limits"]["final_repair_seconds"] = json!(100_000);
-                    },
-                ));
+                let wallet = roomy_wallet(|value| {
+                    value["limits"]["final_repair_attempts"] = json!(1000);
+                    value["limits"]["final_repair_seconds"] = json!(100_000);
+                });
                 std::fs::write(world.root.join("notes.txt"), "the notes\n").unwrap();
-                let ended = world.ultra_in(
+                let (ended, received) = world.ultra_in(
                     WRITES_PROFILE,
-                    a_repair_final_acceptance_never_takes(),
+                    with_usage(a_repair_final_acceptance_never_takes()),
                     Some(&wallet),
                 );
                 ended.expect_err("two stages are open");
                 final_repair_stops_at_its_two(&world.events());
                 let state = wallet.handle.wallet().unwrap();
                 assert_eq!(state.final_repair_used(), 2);
-                assert!(state.physical_used() > 2);
+                assert_eq!(
+                    state.physical_used(),
+                    received as u64,
+                    "every send is the wallet's"
+                );
             }
 
             /// The revision the upper stage's seal named, as a model has it in its history.
@@ -8709,8 +8724,10 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
             }
 
             /// Issue #976 #23 (acceptance 5): under a wallet, a settings object and a document
-            /// index go through the same machine and the same count. Each stage's call is one
-            /// submission of its stage, tied to the attempt G4 let start, and nothing is refused.
+            /// index go through the same machine and the same count. The provider's client sends
+            /// each request through the wallet: the fake receives as many as it holds. Each
+            /// stage's call is one submission of its stage, tied to the attempt G4 let start, and
+            /// nothing is refused.
             #[test]
             fn a_settings_object_and_a_document_index_count_the_same_under_a_wallet() {
                 const NAME: &str =
@@ -8720,25 +8737,19 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                 };
                 let _live = world.enter();
                 let run = |profile: &str, upper: &'static str, lower: &'static str| {
-                    let http = FakeHttp::start(Arc::new(move |index, body| match index {
-                        1 => submit(upper, "fast", "initial"),
-                        2 => submit(lower, "fast", &revision_below(&last_answer(body))),
-                        _ => text_reply("done"),
-                    }));
-                    let mut config = world.config(&http.url);
+                    let http =
+                        FakeHttp::start(with_usage(Arc::new(move |index, body| match index {
+                            1 => submit(upper, "fast", "initial"),
+                            2 => submit(lower, "fast", &revision_below(&last_answer(body))),
+                            _ => text_reply("done"),
+                        })));
+                    let wallet = roomy_wallet(|_| {});
+                    let mut config = world.budgeted_config(&http.url, &wallet);
                     config.profile = profile.to_string();
-                    let inner = client_from_config(&config, false).unwrap();
-                    let wallet = Arc::new(
-                        crate::structured_budget::test_support::TestWallet::open(|_| {}),
-                    );
-                    config.field_sources.run_budget = Some(wallet.handle.clone());
-                    let mut client = WalletClient {
-                        inner,
-                        wallet: wallet.clone(),
-                        settled: Arc::default(),
-                    };
+                    let mut client =
+                        budgeted_client(&config, crate::config::ProviderRole::Executor);
                     run_session_with_outcome_with_ui(
-                        &mut client,
+                        client.as_mut(),
                         &mut SessionSnapshot::new(),
                         "Submit both stages.",
                         &[],
@@ -8746,9 +8757,14 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                         &NOOP_UI,
                     )
                     .unwrap();
-                    http.finish();
+                    let received = http.finish().len();
                     assert_eq!(crate::structured_budget::outcome::refusal(&config), None);
                     let state = wallet.handle.wallet().unwrap();
+                    assert_eq!(
+                        state.physical_used(),
+                        received as u64,
+                        "every send is the wallet's"
+                    );
                     state
                         .logicals
                         .iter()
@@ -8770,6 +8786,100 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                 assert_eq!(index, settings);
                 assert!(world.root.join("out/lower.json").is_file());
                 assert!(world.root.join("index/lower.json").is_file());
+            }
+
+            /// Issue #976 acceptance 1 (D12): a stage call, a final repair, and a send of another
+            /// role go through the provider's clients to the fake, and all draw on the one wallet,
+            /// each as what it is. The fake receives what the wallet holds, and past the wallet's
+            /// one final repair the next reaches neither.
+            #[test]
+            fn a_stage_call_a_final_repair_and_another_role_send_through_one_wallet() {
+                use crate::config::ProviderRole;
+                use crate::minimal_loop::loop_run::{
+                    RunSessionOptions, run_session_with_outcome_with_options,
+                };
+                use crate::structured_budget::identity::SendPurpose;
+                const NAME: &str =
+                    "a_stage_call_a_final_repair_and_another_role_send_through_one_wallet";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                let http = FakeHttp::start(with_usage(Arc::new(|_, body| {
+                    let asked = body.to_string().contains("Submit the upper stage 976.");
+                    if asked && !has_answer(body) {
+                        return submit(UPPER_TOOL, "fast", "initial");
+                    }
+                    text_reply("done")
+                })));
+                let wallet =
+                    roomy_wallet(|value| value["limits"]["final_repair_attempts"] = json!(1));
+                let config = world.budgeted_config(&http.url, &wallet);
+                let session = |prompt: &str, options: RunSessionOptions| {
+                    let mut client = budgeted_client(&config, ProviderRole::Executor);
+                    run_session_with_outcome_with_options(
+                        client.as_mut(),
+                        &mut SessionSnapshot::new(),
+                        prompt,
+                        &[],
+                        &config,
+                        &NOOP_UI,
+                        options,
+                    )
+                    .map(|_| ())
+                    .map_err(|error| format!("{error:#}"))
+                };
+                let _ = session("Submit the upper stage 976.", RunSessionOptions::default());
+                let _ = session("Repair 976.", RunSessionOptions::final_acceptance_repair());
+                let mut planner = budgeted_client(&config, ProviderRole::Planner);
+                let message = [crate::state::ConversationMessage::user("Plan 976.")];
+                crate::providers::ChatClient::chat(planner.as_mut(), "m-1", &message, &[], false)
+                    .unwrap();
+                let received = http.requests.lock().unwrap().len();
+                let state = wallet.handle.wallet().unwrap();
+                assert_eq!(
+                    state.physical_used(),
+                    received as u64,
+                    "every send is the wallet's"
+                );
+                let purposes = state
+                    .attempts
+                    .iter()
+                    .map(|attempt| attempt.purpose)
+                    .collect::<Vec<_>>();
+                for purpose in [
+                    SendPurpose::Executor,
+                    SendPurpose::FinalRepair,
+                    SendPurpose::Planner,
+                ] {
+                    assert!(purposes.contains(&purpose), "{purposes:?}");
+                }
+                assert_eq!(state.final_repair_used(), 1);
+                let stage = crate::structured_budget::identity::LogicalKind::Stage {
+                    stage: "upper".to_string(),
+                };
+                let bound = state
+                    .logicals
+                    .iter()
+                    .map(|logical| (logical.kind.clone(), logical.attempt.is_some()))
+                    .collect::<Vec<_>>();
+                assert_eq!(bound, vec![(stage, true)]);
+                // Past the wallet's one final repair, the next sends nothing.
+                let again = session(
+                    "Repair 976 again.",
+                    RunSessionOptions::final_acceptance_repair(),
+                );
+                let error = again.expect_err("the wallet refuses a second final repair");
+                assert!(error.contains("FinalRepairAttemptsExceeded"), "{error}");
+                assert_eq!(
+                    http.finish().len(),
+                    received,
+                    "nothing more reached the fake"
+                );
+                assert_eq!(
+                    wallet.handle.wallet().unwrap().physical_used(),
+                    received as u64
+                );
             }
 
             /// A run resumed in a new process has its seals lowered with the bytes unchanged, and
