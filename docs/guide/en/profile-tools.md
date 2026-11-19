@@ -563,10 +563,18 @@ send past the provider, cost, or token limits. The details are in the
   was spent is available again. The same holds when the declaration's `ledger_dir` is rewritten:
   the same ID is a full wallet in the new directory.
 - If a failed bind also fails to save its cleanup, an unresolved attempt can remain on disk. The
-  run stays refused and is not a success.
+  run stays refused and is not a success, and the operator is told through a
+  `structured_stage_refused` event and stderr. The code that passes this case to the notice is not
+  covered by a test.
 - A few narrow gaps in how a refusal is carried between commands and steps are listed in the
   developer note (L-1, L-2, L-3, H2, H5).
-- A planner prefetch does not start under a wallet, and no judge call exists to count yet.
+- The 240-second limit of a final repair is the host's own judgement; the wallet cannot widen it,
+  and tests check only the count of two repairs.
+- The audit rule that every provider send is reserved reads source and is a tripwire, not a proof;
+  running tests with a fake HTTP back it.
+- A planner prefetch does not start under a wallet. No judge call exists; the independent-judge
+  check is a provider call from another conversation
+  (`a_stage_call_a_final_repair_and_another_role_send_through_one_wallet`).
 
 ## Check an Operator Root Without a Run
 

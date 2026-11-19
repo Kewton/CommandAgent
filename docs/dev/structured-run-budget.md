@@ -57,9 +57,11 @@ refused. Resume and fresh starts never reissue a budget. `--summary-json` reads 
 - **D12 (independent judge):** no judge feature was built. The code makes no billed judge call
   (`SendPurpose` has Planner, Executor, Repair, FinalRepair and Classifier only). A later judge
   would have to go through the same transport to be counted by the same wallet. The Issue's
-  acceptance 1 is to be checked with a provider call from a separate conversation; that check is
-  not in the tree at f770f078. The user approved this reading
-  with the plan.
+  acceptance 1 is checked with a provider call from a separate conversation:
+  `a_stage_call_a_final_repair_and_another_role_send_through_one_wallet` in
+  `src/tools/profile_tools/effects.rs` sends a stage call, a final repair and another role's send
+  through the real clients to a fake, and compares what the fake received with the wallet's
+  `physical_used`. The user approved this reading with the plan.
 - **D11:** see below.
 
 ## Known limits
@@ -89,9 +91,11 @@ These are records of what the wallet does not cover.
 - **R4-I/O:** after a failed bind (a refused G5 bind), "no G4 attempt is left in flight" holds only when the G4
   cleanup (`record_failure`) can be saved. If that write fails, an unresolved attempt can remain
   on disk. It stays fail-closed: no process starts, the command is not a success, and G4's
-  ledger refuses what follows. In `src/tools/profile_tools/effects.rs` only the secret-in-output
-  case returns the recording error; at the time of writing, other failures of that write are
-  dropped without a notice to the operator.
+  ledger refuses what follows. In `src/tools/profile_tools/effects.rs`, when the wallet was
+  selected, the G5 bind was refused and the cleanup cannot be saved (`unrecorded_cleanup`,
+  `tell_unrecorded`), the operator is told through the existing `structured_stage_refused` event
+  and stderr. The secret-in-output case still returns the recording error as the call's `Err`.
+  A run with no wallet is unchanged.
 - **L-1 (low):** a send's command number is taken when its body is built
   (`BudgetedBody::new`, called from `post_json` in `src/providers/lm_studio.rs`). A late worker
   that builds its body after the next command began carries the new number, so a refusal of the
@@ -115,6 +119,17 @@ These are records of what the wallet does not cover.
   `planner/runner/driver.rs`), its fixed type is lost on the way. G5 reads the handle's own record
   of the refusal, so none is missed, and no production code downcasts to find it. A reader of the
   error text sees the words, not the type.
+- **B7:** the decision of the R4-I/O notice (`unrecorded_cleanup`) is covered by tests. Its caller,
+  which passes `bind_refused`, has no seam and is not covered by a test.
+- **B3:** the 240-second limit of a final repair is the host's own judgement
+  (`FINAL_ACCEPTANCE_REPAIR_WALL_CLOCK_CAP` in `src/planner/final_acceptance.rs`, compared with
+  `Instant::elapsed()` in `src/planner/runner/phase/flow.rs`). The wallet has no entry that widens
+  it. The tests check the count of two repairs only, not the 240 seconds.
+- **G5 audit:** `run_budget_provider_send` in `tests/protection_coverage_audit.rs` is a tripwire on
+  how source is written, not a proof. That every send under a wallet is reserved is held by
+  running tests (what a fake HTTP received against the wallet's records) and by the existing
+  admission tests. Out of its reach: a shared helper outside the providers that takes the method
+  as an argument, and a rewrite meant to keep the counts.
 - A whole reply that fails to parse, and calls the loop drops before the registry, are not logical
   submissions. The physical limit still applies.
 - The v1 amount is the provider's report. Whether a real service reports `usage.cost`, and whether

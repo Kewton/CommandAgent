@@ -521,9 +521,14 @@ wallet が数えるのは CommandAgent 自身が行う provider 呼び出しで�
   command にはできません。次の run は新しい wallet として始まり、使った額がまた使えます。宣言の
   `ledger_dir` を書き換えた場合も同じで、同じ ID が新しい directory で満額の wallet になります。
 - bind の失敗の後始末の保存も失敗すると、未解決の attempt が disk に残ることがあります。run は拒否されたままで、
-  成功にはなりません。
+  成功にはなりません。operator には `structured_stage_refused` event と stderr で知らせます。この場合を通知へ渡す
+  呼び出し側は、試験で守れていません。
 - command や step の間で拒否を運ぶ所の狭い隙（L-1、L-2、L-3、H2、H5）は開発者向けの文書に載せています。
-- planner の prefetch は wallet の下では始まらず、数える対象の judge の呼び出しはまだありません。
+- final repair の 240 秒は host 側の判定で、wallet はそれを広げられません。試験が確かめるのは 2 回の回数だけです。
+- provider への送信がすべて予約されることを見る audit の規則は、source を読む tripwire で、証明ではありません。
+  fake の HTTP を使う実行時の試験がそれを支えます。
+- planner の prefetch は wallet の下では始まりません。judge の呼び出しはなく、独立 judge の確認は別の会話の
+  provider call で行います（`a_stage_call_a_final_repair_and_another_role_send_through_one_wallet`）。
 
 ## run なしで operator root を確かめる
 
