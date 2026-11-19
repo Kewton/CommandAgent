@@ -545,6 +545,37 @@ A record is `unavailable` when nothing could be vouched for:
 billed line. `assurance` stays where it was: a sealed stage set is reported here,
 but it does not raise `static`.
 
+### Known limits
+
+The wallet counts the provider calls CommandAgent itself makes. These are recorded
+limits of the wallet. The first three happen outside it: what is sent there, or what record is
+removed there, is not protected by the limits, and they apply to v1 and v2 alike. The rest are
+gaps in cleanup and in how a refusal is carried between commands and steps; none of them lets a
+send past the provider, cost, or token limits. The details are in the
+[developer note](../../dev/structured-run-budget.md#known-limits).
+
+- A program inside an online sandboxed Bash can still reach a provider, and the wallet does not
+  count that.
+- An existing wallet directory is accepted whatever its owner, and another user ID that can write
+  the parent directory can create it before the first run.
+- A writer with the same user ID outside the sandbox can delete the ledger before a run or put an
+  older one back. A sandboxed command cannot. The next run then starts as a fresh wallet, so what
+  was spent is available again. The same holds when the declaration's `ledger_dir` is rewritten:
+  the same ID is a full wallet in the new directory.
+- If a failed bind also fails to save its cleanup, an unresolved attempt can remain on disk. The
+  run stays refused and is not a success, and the operator is told through a
+  `structured_stage_refused` event and stderr. The code that passes this case to the notice is not
+  covered by a test.
+- A few narrow gaps in how a refusal is carried between commands and steps are listed in the
+  developer note (L-1, L-2, L-3, H2, H5).
+- The 240-second limit of a final repair is the host's own judgement; the wallet cannot widen it,
+  and tests check only the count of two repairs.
+- The audit rule that every provider send is reserved reads source and is a tripwire, not a proof;
+  running tests with a fake HTTP back it.
+- A planner prefetch does not start under a wallet. No judge call exists; the independent-judge
+  check is a provider call from another conversation
+  (`a_stage_call_a_final_repair_and_another_role_send_through_one_wallet`).
+
 ## Check an Operator Root Without a Run
 
 `commandagent --operator-check` asks the run's own admission whether it accepts

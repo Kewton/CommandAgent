@@ -506,6 +506,30 @@ session には、欄も節も出ません。
 `summary.md` には、ある object ごとに短い節が、請求額の行の後に足されます。`assurance` は変わりません。
 段がすべて sealed でも、ここに出るだけで `static` は上がりません。
 
+### 既知の制約
+
+wallet が数えるのは CommandAgent 自身が行う provider 呼び出しです。ここに記すのは wallet の既知の制約です。
+最初の 3 つは wallet の外で起きることで、そこで送られた分や消された記録は上限で守られません。v1 と v2 の
+どちらにも当てはまります。残りは後始末と、command・step の間で拒否を運ぶ所の隙で、provider・費用・token の
+上限を超えて送信させるものではありません。
+詳細は[開発者向けの文書](../../dev/structured-run-budget.md#known-limits)にあります。
+
+- オンラインの sandbox 付き Bash の中のプログラムは provider に直接届くことがあり、wallet はそれを数えません。
+- 既にある wallet の directory は所有者を問わず受け入れます。親 directory に書ける別の user ID が、最初の run
+  より前に作っておくことができます。
+- sandbox の外の同じ user ID の書き手は、run の前に ledger を消したり古いものに戻したりできます。sandbox 内の
+  command にはできません。次の run は新しい wallet として始まり、使った額がまた使えます。宣言の
+  `ledger_dir` を書き換えた場合も同じで、同じ ID が新しい directory で満額の wallet になります。
+- bind の失敗の後始末の保存も失敗すると、未解決の attempt が disk に残ることがあります。run は拒否されたままで、
+  成功にはなりません。operator には `structured_stage_refused` event と stderr で知らせます。この場合を通知へ渡す
+  呼び出し側は、試験で守れていません。
+- command や step の間で拒否を運ぶ所の狭い隙（L-1、L-2、L-3、H2、H5）は開発者向けの文書に載せています。
+- final repair の 240 秒は host 側の判定で、wallet はそれを広げられません。試験が確かめるのは 2 回の回数だけです。
+- provider への送信がすべて予約されることを見る audit の規則は、source を読む tripwire で、証明ではありません。
+  fake の HTTP を使う実行時の試験がそれを支えます。
+- planner の prefetch は wallet の下では始まりません。judge の呼び出しはなく、独立 judge の確認は別の会話の
+  provider call で行います（`a_stage_call_a_final_repair_and_another_role_send_through_one_wallet`）。
+
 ## run なしで operator root を確かめる
 
 `commandagent --operator-check` は、この設定で operator root の宣言を run の受理が受け付けるかを、
