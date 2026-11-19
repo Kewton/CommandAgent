@@ -545,6 +545,25 @@ A record is `unavailable` when nothing could be vouched for:
 billed line. `assurance` stays where it was: a sealed stage set is reported here,
 but it does not raise `static`.
 
+### Known limits
+
+The wallet counts the provider calls CommandAgent itself makes. These are recorded
+limits of the Chat Completions (v1) wallet; none lets a send past the provider, cost, or
+token limits. The details are in the
+[developer note](../../dev/structured-run-budget.md#known-limits).
+
+- A program inside an online sandboxed Bash can still reach a provider, and the wallet does not
+  count that.
+- An existing wallet directory is accepted whatever its owner, and another user ID that can write
+  the parent directory can create it before the first run.
+- A writer with the same user ID outside the sandbox can delete the ledger before a run or put an
+  older one back. A sandboxed command cannot.
+- If a failed start also fails to save its cleanup, an unresolved attempt can remain on disk. The
+  run stays refused and is not a success.
+- A few narrow gaps in how a refusal is carried between commands and steps are listed in the
+  developer note (L-1, L-2, L-3, H2, H5).
+- A planner prefetch does not start under a wallet, and no judge call exists to count yet.
+
 ## Check an Operator Root Without a Run
 
 `commandagent --operator-check` asks the run's own admission whether it accepts
