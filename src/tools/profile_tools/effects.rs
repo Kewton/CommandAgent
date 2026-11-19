@@ -3219,16 +3219,24 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
 
                 let bench = admitted(stage_bench());
                 let counted = Counted::new(|value| value["limits"]["logical_per_stage"] = json!(2));
-                // Spent, held, and what is left of the cost limit of 1000, and the stage's count.
+                // Each call's send settles its known usage at the tariff: 10 in at 2 and 5 out at
+                // 10 per million, 0.00007. The cost limit is 1000.
+                let charge = Money::parse_decimal_up("0.00007").unwrap().units();
+                let limit = Money::parse_decimal_up("1000").unwrap().units();
+                // Spent, held, what is left, and the stage's count, exactly.
                 let ledger = || {
                     let state = counted.wallet.handle.wallet().unwrap();
                     let (spent, held) = (state.spent().unwrap(), state.held().unwrap());
-                    let limit = Money::parse_decimal_up("1000").unwrap();
-                    let left = limit.units() - spent.units() - held.units();
-                    (spent, held, left, state.logical_stage_used("upper"))
+                    let (spent, held) = (spent.units(), held.units());
+                    (
+                        spent,
+                        held,
+                        limit - spent - held,
+                        state.logical_stage_used("upper"),
+                    )
                 };
                 let first = counted.ask(&bench, &bench.upper, "initial").unwrap();
-                let before = ledger();
+                assert_eq!(ledger(), (charge, 0, limit - charge, 1));
                 let revision = first["stage"]["revision"].as_str().unwrap().to_string();
                 bench.mark(&format!("second-{UPPER}"), "");
                 let second = counted
@@ -3240,18 +3248,8 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                     .unwrap();
                 assert_eq!(second["stage"]["status"], "sealed", "{second}");
                 assert_ne!(second["stage"]["revision"], first["stage"]["revision"]);
-                let after = ledger();
-                assert_eq!(
-                    (before.1, after.1),
-                    (Money::ZERO, Money::ZERO),
-                    "nothing held"
-                );
-                assert!(after.0 > before.0, "{before:?} {after:?}");
-                assert!(
-                    after.2 < before.2,
-                    "nothing comes back: {before:?} {after:?}"
-                );
-                assert_eq!((before.3, after.3), (1, 2));
+                let after = (2 * charge, 0, limit - 2 * charge, 2);
+                assert_eq!(ledger(), after, "nothing comes back");
                 let error = counted
                     .ask(
                         &bench,
@@ -3267,8 +3265,8 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                     "{error:#}"
                 );
                 assert_eq!(bench.starts(UPPER), 2, "nothing runs past the limit");
-                let last = ledger();
-                assert!(last.2 <= after.2 && last.3 == 2, "{after:?} {last:?}");
+                // The refused call's send was settled before its record was refused.
+                assert_eq!(ledger(), (3 * charge, 0, limit - 3 * charge, 2));
                 assert!(refusal(&counted.config).is_some());
             }
 
@@ -3317,19 +3315,15 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                 assert_eq!(refused_codes(&events), Vec::<String>::new());
             }
 
-            /// The names of the events a call wrote, in order.
-            fn event_names(events: &std::path::Path) -> Vec<String> {
-                std::fs::read_to_string(events)
-                    .unwrap_or_default()
-                    .lines()
-                    .map(|line| serde_json::from_str::<Value>(line).unwrap())
-                    .map(|event| event["event"].as_str().unwrap_or_default().to_string())
-                    .collect()
+            /// The events a call wrote, byte for byte: nothing in them varies between runs.
+            fn event_lines(events: &std::path::Path) -> Vec<String> {
+                let text = std::fs::read_to_string(events).unwrap_or_default();
+                text.lines().map(str::to_string).collect()
             }
 
             /// One call that the process answers with no result, on a bench of its own, with G4's
             /// file changed under it when `clobbered`. Under `wallet` or none.
-            fn rejected_call(
+            pub(super) fn rejected_call(
                 clobbered: bool,
                 checks_fail: bool,
                 wallet: bool,
@@ -3362,11 +3356,11 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                         .execute(&arguments, &context, &|| false)
                         .unwrap_err()
                 };
-                (error, event_names(&events), refused_codes(&events))
+                (error, event_lines(&events), refused_codes(&events))
             }
 
             /// B1: off, a record G4 cannot save after the process ran adds no event and changes
-            /// none: the same names in the same order as with the record left alone. Under a
+            /// none: the same events, byte for byte, as with the record left alone. Under a
             /// wallet whose bind held, it adds none either.
             #[test]
             fn an_unsaved_cleanup_after_a_process_adds_no_event_off_or_on() {
@@ -8661,6 +8655,46 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                         crate::planner::structured_stages::final_gate_failure(&config).unwrap();
                     assert!(failure.contains("ledger_refused"), "{failure}");
                 }
+            }
+
+            /// B1, on stderr: off, a record G4 cannot save after the process ran writes nothing
+            /// more than with the record left alone, and under a wallet whose bind held, nothing
+            /// either. A record refusal the call reports is shown once. Each case is a child of
+            /// its own, so its stderr is all its own.
+            #[test]
+            fn an_unsaved_cleanup_after_a_process_writes_nothing_more_to_stderr() {
+                const NAME: &str =
+                    "an_unsaved_cleanup_after_a_process_writes_nothing_more_to_stderr";
+                // (record changed, checks fail, wallet) for each case.
+                let case = |name: &str| match name {
+                    "kept" => (false, false, false),
+                    "off" => (true, false, false),
+                    "on" => (true, false, true),
+                    "told-off" => (true, true, false),
+                    _ => (true, true, true),
+                };
+                let Some(_) = world_base() else {
+                    let stderr = |name: &str| {
+                        let temp = prepared();
+                        let base = std::fs::canonicalize(temp.path()).unwrap();
+                        let child = run_child_writing(NAME, &base, &[(ROLE_ENV, name)], true);
+                        assert!(child.success, "{name}: {}", child.stdout);
+                        String::from_utf8(child.stderr).unwrap()
+                    };
+                    let kept = stderr("kept");
+                    assert!(!kept.contains("stage record refused"), "{kept}");
+                    assert_eq!(stderr("off"), kept);
+                    assert_eq!(stderr("on"), kept);
+                    for told in ["told-off", "told-on"] {
+                        let text = stderr(told);
+                        assert_eq!(text.matches("stage record refused: diverged").count(), 1);
+                        assert_eq!(text.matches("stage record refused").count(), 1, "{text}");
+                    }
+                    return;
+                };
+                let (changed, checks_fail, wallet) =
+                    case(&std::env::var(ROLE_ENV).unwrap_or_default());
+                super::run_budget::rejected_call(changed, checks_fail, wallet);
             }
 
             /// Acceptance 1: a settings object and a document index go through the same machine,
