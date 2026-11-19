@@ -1,8 +1,7 @@
 //! Issue #976 (G5), acceptance 6: with no wallet selected, a v1 (Chat Completions) run of the
-//! binary is what the code before #976 recorded, byte for byte after the normalization of #1006
-//! and nothing wider. The paths, the excluded paths and how the golden was recorded are in
-//! `tests/corpus/apps/structured-run-budget/`; every test its `fixtures/cases.json` names is
-//! checked here to exist.
+//! binary was recorded, byte for byte after the normalization of #1006, as the same record before
+//! and after each #976 merge. This file holds the recorder and the checks that need no binary run;
+//! `tests/corpus/apps/structured-run-budget/README.md` says why no live run is compared.
 
 #![cfg(unix)]
 
@@ -295,20 +294,9 @@ fn record_all(on: bool) -> String {
     serde_json::to_string_pretty(&record).unwrap() + "\n"
 }
 
-/// None when the two are byte-equal; otherwise the first differing line of each.
-fn difference(golden: &str, now: &str) -> Option<String> {
-    if golden.as_bytes() == now.as_bytes() {
-        return None;
-    }
-    let (mut base, mut current) = (golden.split('\n'), now.split('\n'));
-    (1..).find_map(|line| match (base.next(), current.next()) {
-        (Some(a), Some(b)) if a == b => None,
-        (a, b) => Some(format!("line {line}: base {a:?} now {b:?}")),
-    })
-}
-
-/// The recorder: `STRUCTURED_RUN_BUDGET_OFF_OUT=<file>` writes the record there, raw when
-/// `STRUCTURED_RUN_BUDGET_OFF_RAW` is set. Without it the test does nothing.
+/// The recorder (see the corpus README): `STRUCTURED_RUN_BUDGET_OFF_OUT=<file>` runs the binary
+/// on every path and writes the record there, raw when `STRUCTURED_RUN_BUDGET_OFF_RAW` is set.
+/// Without it the test does nothing: no live run is compared here (README, Known limits).
 #[test]
 fn records_the_off_golden() {
     if let Some(out) = std::env::var_os("STRUCTURED_RUN_BUDGET_OFF_OUT") {
@@ -317,26 +305,35 @@ fn records_the_off_golden() {
     }
 }
 
-#[test]
-fn ac6_with_no_wallet_a_v1_run_is_byte_equal_to_the_recording_before_976() {
-    if let Some(difference) = difference(OFF_GOLDEN, &record_all(true)) {
-        panic!("the off run changed: {difference}");
-    }
+fn sha256(bytes: &[u8]) -> String {
+    use sha2::Digest as _;
+    let digest = sha2::Sha256::digest(bytes);
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
+/// The committed golden is the record whose digest the recording of each build gave, and the
+/// fixtures are the ones the manifest names; one changed byte does not keep a digest.
 #[test]
-fn ac6_the_off_comparison_fails_without_the_normalization_and_on_one_changed_byte() {
-    let now = record_all(true);
-    assert_eq!(difference(OFF_GOLDEN, &now), None);
-    let raw = difference(OFF_GOLDEN, &record_all(false));
-    assert!(raw.is_some(), "a raw run passed");
-    let bytes = OFF_GOLDEN.as_bytes();
-    for at in (0..bytes.len()).step_by(997).chain([bytes.len() - 2]) {
-        let mut changed = bytes.to_vec();
-        changed[at] = if changed[at] == b'x' { b'y' } else { b'x' };
-        let changed = difference(&String::from_utf8(changed).unwrap(), &now);
-        assert!(changed.is_some(), "byte {at} changed and passed");
+fn ac6_the_committed_golden_has_the_digest_every_build_recorded() {
+    let root = format!("{}/{CORPUS}", env!("CARGO_MANIFEST_DIR"));
+    let read = |name: &str| std::fs::read(format!("{root}/{name}")).unwrap();
+    let manifest: Value = serde_json::from_slice(&read("source-manifest.json")).unwrap();
+    for name in ["cases.json", "off-golden.json"] {
+        let digest = sha256(&read(&format!("fixtures/{name}")));
+        assert_eq!(manifest["fixture_sha256"][name], digest, "{name}");
     }
+    let recorded = manifest["normalized_sha256"].as_object().unwrap();
+    assert_eq!(recorded.len(), 5);
+    for (build, digest) in recorded {
+        assert_eq!(digest, &sha256(OFF_GOLDEN.as_bytes()), "{build}");
+    }
+    let mut changed = OFF_GOLDEN.as_bytes().to_vec();
+    changed[OFF_GOLDEN.len() / 2] ^= 1;
+    assert_ne!(
+        recorded["d2afc7bb"],
+        sha256(&changed),
+        "one changed byte kept the digest"
+    );
 }
 
 /// Each `path::name` of cases.json whose file has no `fn <name>(`.

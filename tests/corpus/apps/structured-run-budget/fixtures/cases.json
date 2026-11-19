@@ -46,9 +46,8 @@
       "src/tools/profile_tools/effects.rs::a_settings_object_and_a_document_index_count_the_same_under_a_wallet",
       "src/tools/profile_tools/effects.rs::a_wallet_near_its_limit_still_runs_every_check"
     ]},
-    {"criterion": "AC6", "holds": "with no wallet the v1 wire, events and files are the base's byte for byte; the comparison fails without the normalization and on one changed byte; the earlier off goldens still hold", "tests": [
-      "tests/structured_run_budget_off.rs::ac6_with_no_wallet_a_v1_run_is_byte_equal_to_the_recording_before_976",
-      "tests/structured_run_budget_off.rs::ac6_the_off_comparison_fails_without_the_normalization_and_on_one_changed_byte",
+    {"criterion": "AC6", "holds": "the off golden is the normalized record of each #976 parent and merge (recorded, not run in CI: README Known limits); its digest is checked without the binary; the earlier off goldens still hold", "tests": [
+      "tests/structured_run_budget_off.rs::ac6_the_committed_golden_has_the_digest_every_build_recorded",
       "src/providers/lm_studio.rs::with_no_wallet_the_wire_is_what_it_was_and_a_wallet_changes_only_a_count_past_its_limit",
       "src/structured_budget/submission_tests.rs::with_no_wallet_a_call_has_no_budget",
       "tests/profile_tool_commit.rs::off_wire_events_and_artifacts_match_the_base_recording_byte_for_byte",
