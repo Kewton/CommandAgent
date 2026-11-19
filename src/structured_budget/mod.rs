@@ -14,7 +14,7 @@
 
 #![allow(
     dead_code,
-    reason = "nothing calls this until the transport and the gates are wired in; removed then"
+    reason = "wired in, but some items are still unused (e.g. BudgetedBody::bytes, settle_body); a follow-up sorts them out"
 )]
 
 pub(crate) mod admission;
