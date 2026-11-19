@@ -829,6 +829,7 @@ impl ProposalTool {
             other => return self.answer_without_process(other, &ledger, target, notes),
         };
         // An attempt the wallet could not tie to its call starts no process, and ends as a failure.
+        let bind_refused = bound.is_err();
         let outcome = bound.and_then(|()| {
             self.stage_attempt(call, &ledger, (&contract, target), &ticket, &asked, notes)
         });
@@ -844,13 +845,10 @@ impl ProposalTool {
             let failure = terminal_failure(error.kind, notes.secret_in_output);
             let recorded = locked(&ledger)
                 .map(|mut held| held.record_failure(&ticket, AttemptFailure::Terminal(failure)));
-            match recorded {
-                // Without its mark on disk a later process would go on comparing the value, so
-                // what failed here is the record, and the operator has to hear that.
-                Ok(Err(refusal)) if notes.secret_in_output => return Err(ledger_refused(refusal)),
-                Ok(Err(refusal)) => self.tell_unrecorded(call, ledger_refused(refusal)),
-                Err(unavailable) => self.tell_unrecorded(call, unavailable),
-                Ok(Ok(_)) => {}
+            if let Some(unrecorded) =
+                unrecorded_cleanup(recorded, notes.secret_in_output, bind_refused)?
+            {
+                self.tell_unrecorded(call, unrecorded);
             }
         }
         outcome
@@ -1304,6 +1302,21 @@ pub(crate) fn now_ms() -> u64 {
 /// words, and a word in a name could make this end look like something to retry.
 fn stage_ended(code: &str) -> ProfileToolRefusal {
     refusal(RefusalKind::StageRunEnded, code)
+}
+
+/// A secret's unsaved mark is the call's failure. After a bind the wallet refused, an unsaved
+/// record goes to the operator (R4-I/O); anywhere else the call's own failure is all there is.
+fn unrecorded_cleanup(
+    recorded: Result<Result<FailureDecision, LedgerRefusal>, ProfileToolRefusal>,
+    secret_in_output: bool,
+    bind_refused: bool,
+) -> Result<Option<ProfileToolRefusal>, ProfileToolRefusal> {
+    match recorded {
+        Ok(Err(refusal)) if secret_in_output => Err(ledger_refused(refusal)),
+        Ok(Err(refusal)) if bind_refused => Ok(Some(ledger_refused(refusal))),
+        Err(unavailable) if bind_refused => Ok(Some(unavailable)),
+        _ => Ok(None),
+    }
 }
 
 /// The wallet's word for a stage call it could not count (Issue #976).
@@ -2566,7 +2579,6 @@ field() { printf '%s' "$request" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }
 echo started >> "$MARKS/started-{tool}"
 printf '%s' "$request" > "$MARKS/request-{tool}"
 [ -f "$MARKS/clobber" ] && printf changed > "$(cat "$MARKS/clobber")"
-[ -p "$MARKS/gate" ] && cat "$MARKS/gate" > /dev/null
 [ -f "$MARKS/broken" ] && {{ printf 'not a result'; exit 0; }}
 field() {{ printf '%s' "$request" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }}
 checks='[{{"id":"shape","status":"passed"}}]'
@@ -3166,7 +3178,7 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                     .as_array()
                     .unwrap()
                     .iter()
-                    .map(|target| target["in_flight"].clone())
+                    .map(|target| target.get("in_flight").cloned().expect("written, if null"))
                     .collect()
             }
 
@@ -3196,13 +3208,27 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
             }
 
             /// Issue #976 #21 (acceptance 4): a revision G4 makes of a sealed stage starts its
-            /// attempts over, and the wallet's count of the stage goes on. With two allowed, the
-            /// call after the revision is refused and runs nothing.
+            /// attempts over; the wallet gives back neither money nor a count. Each call spends
+            /// its send and holds nothing after it, so what is left only falls. With two calls of
+            /// the stage allowed, the call after the revision is refused for that limit and runs
+            /// nothing.
             #[test]
             fn a_revision_of_a_stage_gives_the_wallet_nothing_back() {
+                use crate::structured_budget::ledger::LedgerFailure;
+                use crate::structured_budget::reservation::{BudgetRefusal, Money};
+
                 let bench = admitted(stage_bench());
                 let counted = Counted::new(|value| value["limits"]["logical_per_stage"] = json!(2));
+                // Spent, held, and what is left of the cost limit of 1000, and the stage's count.
+                let ledger = || {
+                    let state = counted.wallet.handle.wallet().unwrap();
+                    let (spent, held) = (state.spent().unwrap(), state.held().unwrap());
+                    let limit = Money::parse_decimal_up("1000").unwrap();
+                    let left = limit.units() - spent.units() - held.units();
+                    (spent, held, left, state.logical_stage_used("upper"))
+                };
                 let first = counted.ask(&bench, &bench.upper, "initial").unwrap();
+                let before = ledger();
                 let revision = first["stage"]["revision"].as_str().unwrap().to_string();
                 bench.mark(&format!("second-{UPPER}"), "");
                 let second = counted
@@ -3214,6 +3240,18 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                     .unwrap();
                 assert_eq!(second["stage"]["status"], "sealed", "{second}");
                 assert_ne!(second["stage"]["revision"], first["stage"]["revision"]);
+                let after = ledger();
+                assert_eq!(
+                    (before.1, after.1),
+                    (Money::ZERO, Money::ZERO),
+                    "nothing held"
+                );
+                assert!(after.0 > before.0, "{before:?} {after:?}");
+                assert!(
+                    after.2 < before.2,
+                    "nothing comes back: {before:?} {after:?}"
+                );
+                assert_eq!((before.3, after.3), (1, 2));
                 let error = counted
                     .ask(
                         &bench,
@@ -3221,10 +3259,16 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                         second["stage"]["revision"].as_str().unwrap(),
                     )
                     .unwrap_err();
-                assert!(error.downcast_ref::<SendRefusal>().is_some(), "{error:#}");
+                assert_eq!(
+                    error.downcast_ref::<SendRefusal>(),
+                    Some(&SendRefusal::Wallet(LedgerFailure::Budget(
+                        BudgetRefusal::LogicalStageExceeded
+                    ))),
+                    "{error:#}"
+                );
                 assert_eq!(bench.starts(UPPER), 2, "nothing runs past the limit");
-                let state = counted.wallet.handle.wallet().unwrap();
-                assert_eq!(state.logical_stage_used("upper"), 2);
+                let last = ledger();
+                assert!(last.2 <= after.2 && last.3 == 2, "{after:?} {last:?}");
                 assert!(refusal(&counted.config).is_some());
             }
 
@@ -3321,70 +3365,126 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                 assert_eq!(refused_codes(&events), Vec::<String>::new());
             }
 
-            /// R4-I/O: a bound attempt fails and G4 cannot save its end, as the file changed under
-            /// it. The call keeps its own failure, and the operator is told the record failed.
-            #[test]
-            fn a_cleanup_that_cannot_be_saved_reaches_the_operator() {
-                let bench = admitted(stage_bench());
-                let counted = Counted::new(|_| {});
-                let file = crate::planner::structured_stages::ledger::ledger_file(
-                    &bench.workspace.parent().unwrap().join("state"),
-                    &bench.workspace,
-                    super::PROFILE,
-                )
-                .unwrap();
-                bench.mark("clobber", &file.display().to_string());
-                bench.mark("broken", "");
-                let (context, events) = with_events(&bench);
-                let error = counted
-                    .call_in(
-                        &context,
-                        &bench.upper,
-                        &json!({"mode": "fast", EXPECTED_REVISION_ARGUMENT: "initial"}),
-                    )
-                    .unwrap_err();
-                assert_eq!(kind(&error), RefusalKind::ResultRejected, "{error:#}");
-                assert_eq!(counted.bound(), vec![Some(1)]);
-                assert_eq!(refused_codes(&events), vec!["diverged".to_string()]);
+            /// The names of the events a call wrote, in order.
+            fn event_names(events: &std::path::Path) -> Vec<String> {
+                std::fs::read_to_string(events)
+                    .unwrap_or_default()
+                    .lines()
+                    .map(|line| serde_json::from_str::<Value>(line).unwrap())
+                    .map(|event| event["event"].as_str().unwrap_or_default().to_string())
+                    .collect()
             }
 
-            /// R4-I/O: G4's lock is lost while the bound attempt's process runs. The call keeps its
-            /// own failure, and the operator is told the record is unavailable. The process waits
-            /// on a pipe the test opens only once the lock is lost, so the order is fixed.
-            #[test]
-            fn a_record_lost_during_the_attempt_reaches_the_operator() {
+            /// One call that the process answers with no result, on a bench of its own, with G4's
+            /// file changed under it when `clobbered`. Under `wallet` or none.
+            fn rejected_call(
+                clobbered: bool,
+                checks_fail: bool,
+                wallet: bool,
+            ) -> (anyhow::Error, Vec<String>, Vec<String>) {
                 let bench = admitted(stage_bench());
-                let counted = Counted::new(|_| {});
-                let gate = bench.marks.join("gate");
-                let name = std::ffi::CString::new(gate.as_os_str().as_encoded_bytes()).unwrap();
-                // SAFETY: `name` is a NUL-terminated path that outlives the call.
-                assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
-                bench.mark("broken", "");
-                let ledger = bench.ledger();
-                let opener = std::thread::spawn(move || {
-                    // Opens once the process has opened the pipe to read: G4's lock is free then.
-                    let writer = std::fs::OpenOptions::new().write(true).open(&gate).unwrap();
-                    let poisoner = ledger.clone();
-                    let poisoned = std::thread::spawn(move || {
-                        let _held = poisoner.lock().unwrap();
-                        panic!("the record is lost (R4-I/O fault)");
-                    })
-                    .join();
-                    assert!(poisoned.is_err() && ledger.is_poisoned());
-                    drop(writer);
-                });
-                let (context, events) = with_events(&bench);
-                let error = counted
-                    .call_in(
-                        &context,
-                        &bench.upper,
-                        &json!({"mode": "fast", EXPECTED_REVISION_ARGUMENT: "initial"}),
+                if clobbered {
+                    let file = crate::planner::structured_stages::ledger::ledger_file(
+                        &bench.workspace.parent().unwrap().join("state"),
+                        &bench.workspace,
+                        super::PROFILE,
                     )
-                    .unwrap_err();
-                opener.join().unwrap();
-                assert_eq!(kind(&error), RefusalKind::ResultRejected, "{error:#}");
-                assert_eq!(counted.bound(), vec![Some(1)]);
-                assert_eq!(refused_codes(&events), vec!["unavailable".to_string()]);
+                    .unwrap();
+                    bench.mark("clobber", &file.display().to_string());
+                }
+                if checks_fail {
+                    let failing = r#"[{"id":"shape","status":"failed"}]"#;
+                    bench.mark(&format!("checks-{UPPER}"), failing);
+                } else {
+                    bench.mark("broken", "");
+                }
+                let (context, events) = with_events(&bench);
+                let arguments = json!({"mode": "fast", EXPECTED_REVISION_ARGUMENT: "initial"});
+                let error = if wallet {
+                    Counted::new(|_| {})
+                        .call_in(&context, &bench.upper, &arguments)
+                        .unwrap_err()
+                } else {
+                    bench
+                        .upper
+                        .execute(&arguments, &context, &|| false)
+                        .unwrap_err()
+                };
+                (error, event_names(&events), refused_codes(&events))
+            }
+
+            /// B1: off, a record G4 cannot save after the process ran adds no event and changes
+            /// none: the same names in the same order as with the record left alone. Under a
+            /// wallet whose bind held, it adds none either.
+            #[test]
+            fn an_unsaved_cleanup_after_a_process_adds_no_event_off_or_on() {
+                let (kept, kept_events, _) = rejected_call(false, false, false);
+                let (lost, lost_events, lost_refused) = rejected_call(true, false, false);
+                assert_eq!(kind(&kept), RefusalKind::ResultRejected, "{kept:#}");
+                assert_eq!(kind(&lost), RefusalKind::ResultRejected, "{lost:#}");
+                assert!(!kept_events.is_empty());
+                assert_eq!(lost_events, kept_events);
+                assert_eq!(lost_refused, Vec::<String>::new());
+                let (bound, _, bound_refused) = rejected_call(true, false, true);
+                assert_eq!(kind(&bound), RefusalKind::ResultRejected, "{bound:#}");
+                assert_eq!(bound_refused, Vec::<String>::new());
+            }
+
+            /// B1: when the record's refusal is the call's own and is told once already, the
+            /// cleanup after it tells nothing more.
+            #[test]
+            fn a_record_refusal_the_call_reports_is_told_once() {
+                for wallet in [false, true] {
+                    let (error, _, refused) = rejected_call(true, true, wallet);
+                    assert_eq!(kind(&error), RefusalKind::StageLedgerRefused, "{error:#}");
+                    assert_eq!(refused, vec!["diverged".to_string()], "wallet {wallet}");
+                }
+            }
+
+            /// R4-I/O (B7, by its decision): after a refused bind, a record G4 could not save and
+            /// a lock it lost go to the operator, and the call keeps its own refusal. After a
+            /// bind that held they do not, and a secret's record failing is the call's, as it was.
+            /// A refused bind with an unsaved record cannot be made here: between `begin` and the
+            /// cleanup only the wallet's bind runs, and no seam reaches G4's file there.
+            #[test]
+            fn after_a_refused_bind_only_an_unsaved_record_is_told() {
+                use crate::planner::structured_stages::ledger::LedgerRefusal;
+                use crate::planner::structured_stages::state::{FailureDecision, StageRefusal};
+                let bench = stage_bench();
+                let ledger = bench.ledger();
+                let poisoner = ledger.clone();
+                let poisoned = std::thread::spawn(move || {
+                    let _held = poisoner.lock().unwrap();
+                    panic!("the record is lost (R4-I/O fault)");
+                })
+                .join();
+                assert!(poisoned.is_err());
+                let lost = || {
+                    super::super::super::locked(&ledger)
+                        .map(|_| -> Result<FailureDecision, LedgerRefusal> { unreachable!() })
+                };
+                let unsaved = || Ok(Err(LedgerRefusal::Diverged));
+                let saved = || Ok(Ok(FailureDecision::Refused(StageRefusal::Stale)));
+                let code = |told: Option<crate::tools::profile_tools::ProfileToolRefusal>| {
+                    told.map(|told| told.data.unwrap()["code"].clone())
+                };
+                let decide = super::super::super::unrecorded_cleanup;
+                assert_eq!(
+                    code(decide(unsaved(), false, true).unwrap()),
+                    Some(json!("diverged"))
+                );
+                assert_eq!(
+                    code(decide(lost(), false, true).unwrap()),
+                    Some(json!("unavailable"))
+                );
+                assert_eq!(code(decide(saved(), false, true).unwrap()), None);
+                for (bound, secret) in [(false, false), (false, true)] {
+                    assert_eq!(code(decide(lost(), secret, bound).unwrap()), None);
+                    assert_eq!(code(decide(saved(), secret, bound).unwrap()), None);
+                }
+                assert_eq!(code(decide(unsaved(), false, false).unwrap()), None);
+                let secret = decide(unsaved(), true, false).unwrap_err();
+                assert_eq!(secret.kind, RefusalKind::StageLedgerRefused);
             }
         }
 

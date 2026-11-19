@@ -431,8 +431,8 @@ fn reserved_and_sends(handle: &RunBudgetHandle) -> (usize, u64) {
 
 /// Issue #976 (concurrency): two sends of one wallet from two threads, where the cost limit
 /// holds one reservation and not two. The second begins while the first is still open and is
-/// refused for it, so one reservation is on disk, and the total stays within the limit once the
-/// first settles.
+/// refused for it. While the first is open, what it holds is its one reservation and within the
+/// limit, and so is the total once it settles.
 #[test]
 fn a_send_open_on_another_thread_holds_its_reservation_against_the_next() {
     let wallet = Wallet::with(|value| value["limits"]["cost_usd"] = json!("0.001"));
@@ -446,12 +446,28 @@ fn a_send_open_on_another_thread_holds_its_reservation_against_the_next() {
         transport::settle_body(&mut Some(send), KNOWN)
     });
     open.recv().unwrap();
+    held_is_one_reservation(&wallet.handle);
     let second = open_send(&wallet.handle).map(drop);
     assert_eq!(second, refused(BudgetRefusal::Unresolved));
+    held_is_one_reservation(&wallet.handle);
     go_on.send(()).unwrap();
     assert_eq!(first.join().unwrap(), Ok(()));
     assert_eq!(reserved_and_sends(&wallet.handle), (1, 1));
     within_the_limit(&wallet.handle);
+}
+
+/// With one send open: it holds the reservation of [`BODY`], 720 per million dollars, and nothing
+/// else is held or spent. That is within the cost limit of 0.001.
+fn held_is_one_reservation(handle: &RunBudgetHandle) {
+    let state = handle.wallet().unwrap();
+    let one = super::super::reservation::Money::parse_decimal_up("0.00072").unwrap();
+    assert_eq!(state.attempts.len(), 1);
+    assert_eq!(state.attempts[0].reserved, one);
+    assert_eq!(
+        (state.held().unwrap(), state.spent().unwrap()),
+        (one, super::super::reservation::Money::ZERO)
+    );
+    within_the_limit(handle);
 }
 
 /// What is spent and still held, together, is within the cost limit of 0.001.
@@ -463,7 +479,7 @@ fn within_the_limit(handle: &RunBudgetHandle) {
 }
 
 /// The same two sends started at one barrier: whichever is first, one is let out and one is
-/// refused, and one reservation is on disk.
+/// refused. Before the one let out settles, it holds one reservation within the limit.
 #[test]
 fn two_sends_at_once_on_one_wallet_reserve_once() {
     let wallet = Wallet::with(|value| value["limits"]["cost_usd"] = json!("0.001"));
@@ -487,6 +503,7 @@ fn two_sends_at_once_on_one_wallet_reserve_once() {
         refused(BudgetRefusal::Unresolved)
     );
     assert_eq!(reserved_and_sends(&wallet.handle), (1, 1));
+    held_is_one_reservation(&wallet.handle);
     for send in sent {
         transport::settle_body(&mut Some(send.unwrap()), KNOWN).unwrap();
     }
