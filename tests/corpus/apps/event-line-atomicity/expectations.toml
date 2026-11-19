@@ -1,0 +1,40 @@
+case_id = "event-line-atomicity"
+source = "Issue #987: every writer of an events file in one process appends whole records (one JSON object and its LF) under one process-wide lock, so a strict line reader parses every line; the byte shapes a split record leaves stay refused"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[json_fields]
+fixtures/line-cases.json:kind = "synthetic"
+fixtures/line-cases.json:base_sha = "fc9032488f55bc0c992614d3fc3f1af1634e209f"
+source-manifest.json:kind = "synthetic"
+source-manifest.json:base_sha = "fc9032488f55bc0c992614d3fc3f1af1634e209f"
+
+[fixture_contains]
+fixtures/line-cases.json = [
+  "\"id\": \"small-lines\"",
+  "\"id\": \"escaped-newline-and-unicode\"",
+  "\"id\": \"large-line\"",
+  "\"id\": \"record-split-by-another-record\"",
+  "\"id\": \"two-objects-on-one-line\"",
+  "\"id\": \"last-line-without-lf\"",
+  "\"id\": \"empty-line\"",
+  "\"id\": \"non-object-line\""
+]

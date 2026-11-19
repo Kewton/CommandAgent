@@ -1,6 +1,4 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs::OpenOptions;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
@@ -10,6 +8,7 @@ use crate::planner::adjudication::{
     terminal_status,
 };
 
+pub(crate) mod append_writer;
 mod completion_render;
 pub mod failure_explanation;
 mod human_summary;
@@ -186,16 +185,7 @@ fn append_or_buffer(path: &Path, event: &Value) -> anyhow::Result<()> {
     if provider_turn::buffer(path, event)? {
         return Ok(());
     }
-    append(path, event)
-}
-
-fn append(path: &Path, event: &Value) -> anyhow::Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
-    writeln!(file, "{}", serde_json::to_string(event)?)?;
-    Ok(())
+    append_writer::append_event(path, event)
 }
 
 pub fn write_run_summary(path: Option<&Path>, text: &str) {

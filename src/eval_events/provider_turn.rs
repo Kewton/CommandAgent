@@ -114,9 +114,8 @@ impl PendingTurn {
                 Ok(())
             })?;
         } else {
-            super::append(&path, &event)?;
-            let mut file = std::fs::OpenOptions::new().append(true).open(path)?;
-            std::io::copy(&mut self.tail, &mut file)?;
+            // One lock for the event line and its tail (Issue #987).
+            super::append_writer::append_event_with_tail(&path, &event, &mut self.tail)?;
         }
         Ok(())
     }

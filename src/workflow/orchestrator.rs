@@ -716,15 +716,11 @@ fn provider_name(provider: Provider) -> &'static str {
 }
 
 pub fn emit(path: &Path, mut value: serde_json::Value) -> anyhow::Result<()> {
-    use std::io::Write;
     if let Some(context) = crate::sensitive_data::active_for(Some(path)) {
         context.scrub_value_lenient(&mut value);
     }
-    let mut f = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)?;
-    writeln!(f, "{}", value)?;
+    // The run events' lock, shared with sandbox events to this file (Issue #987).
+    crate::eval_events::append_writer::append_line(path, format!("{value}\n").as_bytes())?;
     Ok(())
 }
 
@@ -1358,5 +1354,55 @@ mod tests {
             );
             assert_eq!(got, want, "{id}");
         }
+    }
+
+    /// A workflow record in progress holds back an event `eval_events::emit`
+    /// sends to the same file (a sandbox downgrade does), so neither line is
+    /// split (Issue #987).
+    #[test]
+    fn workflow_events_share_the_run_events_write_lock() {
+        use crate::eval_events::append_writer::test_seam::{
+            self, ContentionProbe, PauseScope, Point, Seen,
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("workflow-events.jsonl");
+        let (plan, mut control) = test_seam::plan(Point {
+            newlines: 0,
+            bytes: 10,
+        });
+        let workflow_path = path.clone();
+        let workflow = std::thread::spawn(move || {
+            let _pause = PauseScope::enter(plan);
+            emit(
+                &workflow_path,
+                json!({"event":"workflow_started", "id":"workflow"}),
+            )
+            .unwrap();
+        });
+        control.wait_paused();
+        let (seen_tx, seen_rx) = std::sync::mpsc::channel();
+        let sandbox_path = path.clone();
+        let sandbox = std::thread::spawn(move || {
+            let _probe = ContentionProbe::enter(seen_tx.clone());
+            crate::eval_events::emit(
+                Some(&sandbox_path),
+                json!({"event":"fixture", "id":"sandbox"}),
+            );
+            let _ = seen_tx.send(Seen::Wrote);
+        });
+        let first = seen_rx.recv_timeout(test_seam::HANG_GUARD).unwrap();
+        control.resume();
+        workflow.join().unwrap();
+        sandbox.join().unwrap();
+        assert_eq!(first, Seen::Contended);
+        let bytes = fs::read(&path).unwrap();
+        let body = bytes
+            .strip_suffix(b"\n")
+            .expect("the last line ends with LF");
+        let ids = body
+            .split(|byte| *byte == b'\n')
+            .map(|line| serde_json::from_slice::<serde_json::Value>(line).unwrap()["id"].clone())
+            .collect::<Vec<_>>();
+        assert_eq!(ids, ["workflow", "sandbox"]);
     }
 }

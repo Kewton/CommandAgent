@@ -1,0 +1,13 @@
+{
+  "issue": "#987",
+  "kind": "synthetic",
+  "owner": "src/eval_events/append_writer.rs (whole-record appends under one process-wide lock)",
+  "base_sha": "fc9032488f55bc0c992614d3fc3f1af1634e209f",
+  "base_note": "develop fc903248 is the approved base; the invalid cases are hand-authored byte shapes a line reader must refuse, including the split the base writer could leave when another record lands inside an unfinished line",
+  "recorded_source": null,
+  "derived_fixture": "fixtures/line-cases.json lists hand-authored synthetic JSONL byte strings with the verdict of a strict line check (every physical line one JSON object, LF at the end). The unit test named in the fixture applies that check and rewrites every valid case through the product writer byte for byte. No run output, model output, host path, or credential is stored here.",
+  "regenerate_digests": "sha256 of fixtures/line-cases.json",
+  "fixture_sha256": {
+    "line-cases.json": "42c91a452445720be7bd902832c390b2697e6d33f3e13a75ec6935ccc24f1b61"
+  }
+}
