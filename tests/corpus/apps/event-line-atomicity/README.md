@@ -21,7 +21,11 @@ reads `fixtures/line-cases.json`, checks its sha256 against
 compares the verdict and event ids. The concurrent orderings themselves
 (a writer stopped inside a record, between a provider turn's event line and
 its tail, and inside a large tail) are made by the stopped-writer tests in the
-same module, not recorded here.
+same module, not recorded here. The refusal after a failed write leaves a
+line open is checked by `a_line_left_open_refuses_every_later_append_to_that_file`
+and `a_tail_reopened_onto_a_regular_file_meets_the_mark`; the readers' view of
+a line cut inside a character, by
+`a_line_cut_inside_a_character_hides_earlier_lines_from_existing_readers`.
 
 ## Regenerating
 

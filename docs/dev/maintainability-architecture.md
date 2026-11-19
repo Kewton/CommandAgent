@@ -63,14 +63,19 @@ not its LF) marks that file: its handle is held, keyed by the device and inode
 read from the handle opened for the write (never from the path), and every
 later append to it in this process fails without writing, under any spelling
 of its path. A new file created at the same path is a different inode and is
-written. The mark lives only as long as the process; another process, or the
-next run, does not see it. A handle whose identity cannot be read gets nothing
-written. A panic while the lock is held makes every later locked append fail.
-A provider turn's tail is copied by its recorded length: a read error or an
-early end of the spool fails the flush (`UnexpectedEof`) after its whole lines,
-a spool write that fails leaves no fragment in the flushed tail, and a nested
-turn whose merge into its parent fails is lost whole while the parent keeps
-its lines and its event.
+written. Both opens of a provider turn's flush go through this one check. The
+mark lives only as long as the process; another process, or the next run,
+does not see it. Without an inode identity (not Unix) every events file
+shares one key, so a mark refuses every events file in the process. A handle
+whose identity cannot be read gets nothing written. A panic while the lock is
+held makes every later locked append fail.
+
+A provider turn's tail is copied by its recorded length. A read error or an
+early end of the spool (`UnexpectedEof`) while it is copied fails the flush;
+the bytes copied until then stay in the file, and when they end inside a line
+the file is marked. This differs from a spool write that fails: its bytes are
+never committed, so no flush copies them. A nested turn whose merge into its
+parent fails is lost whole while the parent keeps its lines and its event.
 
 Line readers are unchanged: `commandagent runs <id> --events` still fails on a
 malformed line, and the terminal report and completion snapshot still skip it.
@@ -85,11 +90,10 @@ server hands its events path to the child run through
 durability across a crash. No cross-process file lock is taken. An events
 path whose opened handle is not a regular file (a FIFO, a device) is written
 outside the lock with the calls of `fc903248`, a provider turn's tail through
-a second append open included (classified again: a regular file by then takes
-the lock), so a FIFO waiting for its reader never holds up other writers; its
-lines get no guarantee and a failure there marks nothing. A first handle
-whose metadata cannot be read is refused; the second open's handle is then
-treated as a regular file and its tail copied under the lock.
+a second append open included (classified again: a regular file by then is
+written as above), so a FIFO waiting for its reader never holds up other
+writers; its lines get no guarantee and a failure there marks nothing. A
+handle from either open whose metadata cannot be read is refused.
 
 ## Browser probe asset
 

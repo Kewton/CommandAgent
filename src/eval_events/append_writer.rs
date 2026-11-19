@@ -76,10 +76,24 @@ fn append_locked(path: &Path, record: &[u8], tail: Option<Tail>) -> io::Result<(
     // Opened before the lock: opening a FIFO with no reader waits, and must
     // not hold up writers of other files.
     let file = open_append(path)?;
-    // Known from the opened handle before the first byte is written; a handle
-    // that cannot be classified gets nothing written.
+    write_handle(file, record, tail, |file, tail| {
+        append_as_before(file, path, record, tail)
+    })
+}
+
+/// The one way bytes reach a handle from either open. A regular file is
+/// identified from the handle before the first byte, then checked, written
+/// and, when its line is left open, marked and held, all under the lock. A
+/// handle that cannot be identified gets nothing written. Anything else goes
+/// to `not_regular`, without the lock or a mark.
+fn write_handle<'t>(
+    file: File,
+    record: &[u8],
+    tail: Option<Tail<'t>>,
+    not_regular: impl FnOnce(File, Option<Tail<'t>>) -> io::Result<()>,
+) -> io::Result<()> {
     let Some(key) = regular_key(&file)? else {
-        return append_as_before(file, path, record, tail);
+        return not_regular(file, tail);
     };
     let mut open_lines = lock()?;
     if open_lines.iter().any(|(held, _)| *held == key) {
@@ -123,7 +137,7 @@ fn append_as_before(
         }
         None => file.write_all(record)?,
     }
-    let Some((tail, len)) = tail else {
+    let Some(tail) = tail else {
         return Ok(());
     };
     drop(file);
@@ -131,19 +145,12 @@ fn append_as_before(
     test_seam::before_tail();
     #[cfg(test)]
     test_seam::before_open();
-    let mut file = OpenOptions::new().append(true).open(path)?;
-    // The path may name a regular file by now; its tail then takes the lock.
-    let _guard = match takes_lock(&file) {
-        true => Some(lock()?),
-        false => None,
-    };
-    copy_exact(tail, len, &mut file, &mut Progress::default())
-}
-
-/// Whether writes through `file` take the lock: a regular file, or a handle
-/// that cannot be classified.
-fn takes_lock(file: &File) -> bool {
-    file.metadata().map_or(true, |meta| meta.is_file())
+    let file = OpenOptions::new().append(true).open(path)?;
+    // The path may name a regular file by now; it is classified again.
+    write_handle(file, &[], Some(tail), |mut file, tail| match tail {
+        Some((tail, len)) => copy_exact(tail, len, &mut file, &mut Progress::default()),
+        None => Ok(()),
+    })
 }
 
 /// The identity of a regular file, `None` for anything else, read from the
@@ -273,7 +280,8 @@ fn lock() -> io::Result<MutexGuard<'static, Vec<(FileKey, File)>>> {
 }
 
 /// Test-only seams: stop a writer at a chosen point of its bytes, and see when
-/// another writer has to wait for the lock. Both are thread-local scopes.
+/// another writer has to wait for the lock. Both are thread-local scopes. A
+/// panic under the lock makes every later append in that test process fail.
 #[cfg(test)]
 pub(crate) mod test_seam {
     use std::cell::{Cell, RefCell};
@@ -550,7 +558,8 @@ pub(crate) mod test_seam {
     pub(crate) fn held_identities() -> Vec<(u64, u64)> {
         let held = super::WRITE_LOCK.lock().unwrap();
         held.iter()
-            .map(|(_, file)| super::key_of(&file.metadata().unwrap()))
+            .filter_map(|(_, file)| file.metadata().ok())
+            .map(|meta| super::key_of(&meta))
             .collect()
     }
 
@@ -1226,15 +1235,32 @@ mod tests {
 
     #[cfg(unix)]
     fn tail_reopened_onto_a_regular_file() {
-        use std::io::BufRead;
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("events.fifo");
+        let (path, finished, locks) =
+            reopen_tail_onto(dir.path(), |path| std::fs::write(path, b"").unwrap(), &[]);
+        finished.unwrap();
+        assert_eq!(locks, 1, "the tail copied to a regular file takes the lock");
+        let events = strict_lines(&read(&path)).unwrap();
+        assert_eq!(ids(&events), ["turn-tail-0", "turn-tail-1", "turn-tail-2"]);
+    }
+
+    /// A provider turn whose path is a FIFO for its event line and, between
+    /// the two opens, becomes what `swap` puts there; its tail takes `faults`.
+    #[cfg(unix)]
+    fn reopen_tail_onto(
+        dir: &Path,
+        swap: impl FnOnce(&Path),
+        faults: &[(Site, Fault)],
+    ) -> (PathBuf, Result<(), String>, usize) {
+        use std::io::BufRead;
+        let path = dir.join("events.fifo");
         mkfifo(&path);
         let (plan, mut control) = test_seam::plan_before_tail();
-        let turn_path = path.clone();
+        let (turn_path, faults) = (path.clone(), faults.to_vec());
         let turn = spawn_with_result(move || {
             let mut scope = spool_turn(&turn_path, "turn", 3);
             let _pause = PauseScope::enter(plan);
+            let _faults = FaultScope::enter(&faults);
             let before = test_seam::lock_calls();
             let result = scope.finish().map_err(|err| format!("{err:#}"));
             (result, test_seam::lock_calls() - before)
@@ -1243,15 +1269,50 @@ mod tests {
         first.read_until(b'\n', &mut Vec::new()).unwrap();
         control.wait_paused();
         drop(first);
-        // Between the two opens the path becomes a regular file.
         std::fs::remove_file(&path).unwrap();
-        std::fs::write(&path, b"").unwrap();
+        swap(&path);
         control.resume();
         let (finished, locks) = collect(turn, test_seam::HANG_GUARD, "the provider turn");
-        finished.unwrap();
-        assert_eq!(locks, 1, "the tail copied to a regular file takes the lock");
-        let events = strict_lines(&read(&path)).unwrap();
-        assert_eq!(ids(&events), ["turn-tail-0", "turn-tail-1", "turn-tail-2"]);
+        (path, finished, locks)
+    }
+
+    /// The tail's second open meets the mark like the first: a marked inode
+    /// swapped in gets nothing, and a tail cut inside a line marks its file.
+    #[cfg(unix)]
+    #[test]
+    fn a_tail_reopened_onto_a_regular_file_meets_the_mark() {
+        in_own_process_within(
+            "eval_events::append_writer::tests::a_tail_reopened_onto_a_regular_file_meets_the_mark",
+            tail_reopened_meets_the_mark,
+        );
+    }
+
+    #[cfg(unix)]
+    fn tail_reopened_meets_the_mark() {
+        let dir = tempfile::tempdir().unwrap();
+        let marked = dir.path().join("marked.jsonl");
+        let left = cut_inside_a_character(&marked);
+        let link = |path: &Path| std::fs::hard_link(&marked, path).unwrap();
+        let (_, finished, _) = reopen_tail_onto(dir.path(), link, &[]);
+        let err = finished.unwrap_err();
+        assert!(err.contains("unfinished line"), "{err}");
+        assert_eq!(read(&marked), left);
+
+        let faults = [
+            (Site::TailRead, Fault::Short(100)),
+            (Site::TailRead, Fault::Fail),
+        ];
+        let fresh = tempfile::tempdir().unwrap();
+        let (path, finished, _) = reopen_tail_onto(
+            fresh.path(),
+            |path| std::fs::write(path, b"").unwrap(),
+            &faults,
+        );
+        let err = finished.unwrap_err();
+        assert!(err.contains("line is left open"), "{err}");
+        let err = append_event(&path, &fixture("b")).unwrap_err();
+        assert!(format!("{err:#}").contains("unfinished line"), "{err:#}");
+        assert_eq!(read(&path).len(), 100);
     }
 
     /// Runs `body` alone in a child test process (`test` is this test's full
@@ -1607,9 +1668,13 @@ mod tests {
             assert!(append_event(&other, &fixture("c")).is_err(), "{other:?}");
         }
         assert_eq!(read(&path), left);
-        let other = dir.path().join("other.jsonl");
-        append_event(&other, &fixture("c")).unwrap();
-        check_exact(&read(&other), &[fixture("c")]).unwrap();
+        // Without an inode identity (not Unix) every file shares the mark.
+        #[cfg(unix)]
+        {
+            let other = dir.path().join("other.jsonl");
+            append_event(&other, &fixture("c")).unwrap();
+            check_exact(&read(&other), &[fixture("c")]).unwrap();
+        }
     }
 
     /// B waits for the lock while A, stopped inside its record, holds it; A
