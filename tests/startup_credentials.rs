@@ -1862,7 +1862,9 @@ fn code_only(source: &str) -> String {
     let mut rest = source;
     while let Some(first) = rest.chars().next() {
         let after_ident = code.ends_with(|c: char| c.is_alphanumeric() || c == '_');
-        let raw = (rest.strip_prefix("br").or_else(|| rest.strip_prefix('r')))
+        let raw = ["br", "cr", "r"]
+            .iter()
+            .find_map(|prefix| rest.strip_prefix(prefix))
             .map(|after| (after, after.len() - after.trim_start_matches('#').len()))
             .filter(|(after, hashes)| !after_ident && after[*hashes..].starts_with('"'));
         let (length, kept) = if rest.starts_with("//") {
@@ -1945,6 +1947,12 @@ fn a_reporter_body_in_a_comment_or_a_string_is_not_the_reporters() {
         (
             "a raw string, a new head",
             format!("const KEPT: &str = r#\"{real}\"#;\n"),
+            &other.replace("-> std::path::PathBuf", "-> ::std::path::PathBuf"),
+        ),
+        // The same, kept in a raw C string whose own quotes would close a plain one.
+        (
+            "a raw C string, a new head",
+            format!("const KEPT: &CStr = cr#\"\"\n{real}\"\"#;\n"),
             &other.replace("-> std::path::PathBuf", "-> ::std::path::PathBuf"),
         ),
     ];

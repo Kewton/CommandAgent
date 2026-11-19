@@ -249,22 +249,44 @@ fn send_code(text: &str) -> String {
     code_only(text).split_whitespace().collect()
 }
 
-/// Every way a request can be made a POST: `.post(`, `Method::POST`, and, in a provider, any
-/// `.request(`, whose method the audit cannot tell, so it counts (fail closed).
+/// Every known way a request is made a POST: `.post(`, `Client::post(` (and its `put` and `patch`),
+/// `Method::POST`, and, in a provider, any `.request(`, whose method the audit cannot tell, so it
+/// counts (fail closed).
 fn post_marks(path: &str, code: &str) -> usize {
     let requests = path.starts_with("src/providers/") as usize * code.matches(".request(").count();
-    code.matches(".post(").count() + code.matches("Method::POST").count() + requests
+    let marks = [
+        ".post(",
+        "Client::post(",
+        "Client::put(",
+        "Client::patch(",
+        "Method::POST",
+    ];
+    marks
+        .map(|mark| code.matches(mark).count())
+        .iter()
+        .sum::<usize>()
+        + requests
 }
 
-/// A tripwire over where provider POSTs are, not a proof of what runs: the code is read, never
-/// executed. That the factory refuses every client but a counted one under a wallet, wherever
-/// its admission sits, is held by running it: `admission.rs`
-/// `a_run_with_a_wallet_gets_no_client_but_the_one_it_can_count` and
-/// `a_selection_with_no_wallet_gets_no_client_and_no_selection_is_as_it_was`.
+/// A tripwire that notices a POST written in a known way where none was, not a proof of what runs:
+/// the code is read, never executed. That every send under a wallet is reserved is held by running
+/// it: the wallet's own tests count what a fake HTTP received against the wallet's records, and
+/// `admission.rs` `a_run_with_a_wallet_gets_no_client_but_the_one_it_can_count` and
+/// `a_selection_with_no_wallet_gets_no_client_and_no_selection_is_as_it_was` run the factory's
+/// refusal, wherever its admission sits. Out of its reach: a shared helper outside the providers
+/// that takes the method as an argument, and any rewrite meant to keep the counts.
 fn audit_run_budget_provider_send(corpus: &AuditCorpus, rule: &ProtectionRule) -> Vec<String> {
     let mut violations = Vec::new();
+    // Code first, so an attribute in a comment is not read as one.
+    let corpus = &AuditCorpus {
+        files: corpus
+            .files
+            .iter()
+            .map(|(path, text)| (path.clone(), code_only(text)))
+            .collect(),
+    };
     // Not `production_text`: it stops at a `mod tests;` near the top of a file.
-    let production = |path: &str| code_only(&without_test_items(corpus.file(path)));
+    let production = |path: &str| without_test_items(corpus.file(path));
     let factory = function_body(
         &production(rule.allowlist[0]),
         "client_from_config_for_role",
@@ -287,11 +309,11 @@ fn audit_run_budget_provider_send(corpus: &AuditCorpus, rule: &ProtectionRule) -
                 "{path} has {marks} POST marks in post_json, not all of its own"
             ));
         }
-        let sends = [".send(", ".begin("].map(|send| post_json.matches(send).count());
-        if sends != [1, 1] {
+        let sends = [".send(", ".begin(", ".execute("].map(|send| post_json.matches(send).count());
+        if sends != [1, 1, 0] {
             violations.push(format!(
-                "{path} post_json sends {} and begins {}",
-                sends[0], sends[1]
+                "{path} post_json sends {} and begins {}, executes {}",
+                sends[0], sends[1], sends[2]
             ));
         }
         let wanted = RUN_BUDGET_SEND_REQUIRED
@@ -338,7 +360,9 @@ fn code_only(source: &str) -> String {
     let mut rest = source;
     while let Some(first) = rest.chars().next() {
         let after_ident = code.ends_with(|c: char| c.is_alphanumeric() || c == '_');
-        let raw = (rest.strip_prefix("br").or_else(|| rest.strip_prefix('r')))
+        let raw = ["br", "cr", "r"]
+            .iter()
+            .find_map(|prefix| rest.strip_prefix(prefix))
             .map(|after| (after, after.len() - after.trim_start_matches('#').len()))
             .filter(|(after, hashes)| !after_ident && after[*hashes..].starts_with('"'));
         let (length, kept) = if rest.starts_with("//") {
@@ -399,15 +423,18 @@ fn run_budget_provider_send_rejects_each_weakened_variant() {
     let openai_arm = "let (request, send) = budgeted\n                        .begin(self.http.post(&url))\n                        .map_err(transport::refused)?;";
     let openai_plain =
         "let (request, send) = (self.http.post(&url).json(body), None::<()>.unwrap());";
-    let resend = "let _ = call.run(async { self.http.post(url_of(endpoint)).json(body).send().await });\n            let request = self.authorize(request);";
+    let resend = "let _ = call.run(async { self.http.post(format!(\"{}{endpoint}\", self.base_url)).json(body).send().await });\n            let request = self.authorize(request);";
+    let execute = "let copy = request.try_clone().unwrap().json(body).build()?;\n            let _ = call.run(self.http.execute(copy));\n            let (request, mut send) = match &budgeted {";
     // Sends that go around the wallet: each would post a wallet's run with nothing counted.
     // `what the change is | the file | the text replaced | its replacement`; "" inserts at the top.
     let weakened = [
         format!("lm studio's wallet arm sends the plain body | 1 | {lm_arm} | {lm_plain}"),
         format!("... and keeps the old arm in a comment | 1 | {lm_arm} | /* {lm_arm} */ {lm_plain}"),
         format!("lm studio posts again in a try | 1 | let request = self.authorize(request); | {resend}"),
-        format!("openai's wallet arm sends the plain body | 2 | {openai_arm} | {openai_plain}"),
-        "lm studio hands a POST to a helper | 1 |  | fn more(&self) { self.http.request(reqwest::Method::POST, url); }\n".into(),
+        format!("lm studio executes a copy | 1 | let (request, mut send) = match &budgeted {{ | {execute}"),
+        "lm studio hides a POST past a commented cfg | 1 |  | /*\n#[cfg(test)]\n*/\nfn more(&self) { self.http.post(url).send(); }\n// */\n".into(),
+        "a new file posts after a raw C string | src/providers/new.rs |  | const C: &CStr = cr#\"a\"b\"#;\nfn send() { http.post(url).send(); }\n".into(),
+        "a new file posts as Client::post | src/providers/new.rs |  | fn send() { Client::post(&http, url).send(); }\n".into(),
         "a provider makes a request of any method | src/providers/new.rs |  | fn send() { http.request(method, url).send(); }\n".into(),
         "a new file posts, spaced and commented | src/providers/new.rs |  | fn send() { http.post /* x */ (url).send(); }\n".into(),
         "the factory does not admit | 0 | admit_route_on( | admitted(".into(),
@@ -415,13 +442,15 @@ fn run_budget_provider_send_rejects_each_weakened_variant() {
         "the doctor checks a provider | src/doctor.rs | refuse(Unmetered::ProviderCheck) | Ok(())".into(),
         "jev posts unrefused | src/minimal_loop/request_pattern/mod.rs | Unmetered::RequestPattern | Other".into(),
     ];
-    // Marks the audit reads, changed with no send weakened: the rule sees each of them move.
+    // Marks the audit reads, changed so that no send gets through: the rule sees each of them move.
     let marks = [
-        "begin renamed | 1 | .begin(request) | .body_of(request)",
-        "the no-wallet arm as `_` | 2 | None => (\n | _ => (\n",
-        "a helper that sends nothing | 1 | fn post_json( | fn other(&self) { self.http.post(url); }\nfn post_json(",
+        format!("openai's wallet arm stops short | 2 | {openai_arm} | {openai_plain}"),
+        "lm studio builds a POST in a helper | 1 |  | fn more(&self) { self.http.request(reqwest::Method::POST, url); }\n".into(),
+        "begin renamed | 1 | .begin(request) | .body_of(request)".into(),
+        "the no-wallet arm as `_` | 2 | None => (\n | _ => (\n".into(),
+        "a helper that sends nothing | 1 | fn post_json( | fn other(&self) { self.http.post(url); }\nfn post_json(".into(),
     ];
-    for variant in weakened.iter().map(String::as_str).chain(marks) {
+    for variant in weakened.iter().chain(&marks) {
         let [name, path, from, to] =
             <[&str; 4]>::try_from(variant.split(" | ").collect::<Vec<_>>()).unwrap();
         let path = path
