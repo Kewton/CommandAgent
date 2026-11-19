@@ -1,0 +1,58 @@
+{
+  "issue": "#976",
+  "kind": "synthetic",
+  "golden_paths": ["compatible-chat-tool-call", "compatible-chat-retry", "lm-studio-chat-tool-call"],
+  "excluded_paths": {
+    "compatible-chat-ordinary-reply": "the base writes its time_profile event only when time_profile.total_ms() > 0 (src/lib.rs); this path's total is 1-6 ms, so the line is there or not by the clock; not compared in any weaker form",
+    "compatible-chat-client-error": "the same time_profile condition; 1-8 ms; one of 94 stage-0 recordings lacked the line; not compared in any weaker form"
+  },
+  "cases": [
+    {"criterion": "AC1", "holds": "a stage call, a final repair and another role send through one wallet; each limit passes exactly and refuses one past; nothing is sent before its reservation", "tests": [
+      "src/tools/profile_tools/effects.rs::a_stage_call_a_final_repair_and_another_role_send_through_one_wallet",
+      "src/structured_budget/reservation.rs::a_cost_cap_passes_exactly_and_refuses_one_unit_short",
+      "src/structured_budget/reservation.rs::the_wall_limit_passes_exactly_and_refuses_one_past",
+      "src/structured_budget/reservation.rs::a_stage_cap_passes_exactly_refuses_one_past_and_leaves_other_stages_alone",
+      "src/structured_budget/session_tests.rs::a_send_open_on_another_thread_holds_its_reservation_against_the_next",
+      "src/structured_budget/session_tests.rs::two_sends_at_once_on_one_wallet_reserve_once"
+    ]},
+    {"criterion": "AC2", "holds": "schema and meaning refusals, retry, cancel before and after the send, a late reply, missing and explicit zero, reasoning, and the prefetch refused before it starts; a known amount once, unknown stops and holds", "tests": [
+      "src/tools/profile_tools/effects.rs::a_check_the_tool_fails_is_a_submission_with_its_attempt_bound",
+      "src/providers/lm_studio.rs::a_retry_is_counted_and_gets_no_second_post_under_a_wallet",
+      "src/providers/openai/run_budget_tests.rs::a_cancel_before_the_send_takes_nothing_and_one_after_it_keeps_the_reservation",
+      "src/providers/lm_studio.rs::a_cancel_of_a_send_in_flight_is_unknown",
+      "src/structured_budget/settlement.rs::a_late_report_that_is_not_known_changes_nothing_and_a_known_one_settles",
+      "src/structured_budget/settlement.rs::a_missing_cost_is_not_known_and_an_explicit_zero_is",
+      "src/providers/lm_studio.rs::a_known_amount_past_the_reservation_is_settled_and_stops_the_wallet",
+      "src/planner/pipeline.rs::a_prefetch_under_a_run_budget_does_not_start"
+    ]},
+    {"criterion": "AC3", "holds": "each send of a client counted, a client the wallet cannot count gets none, an unsupported route is refused before a send and never falls back", "tests": [
+      "src/structured_budget/admission.rs::a_run_with_a_wallet_gets_no_client_but_the_one_it_can_count",
+      "src/structured_budget/policy.rs::a_route_that_allows_fallbacks_is_refused",
+      "tests/protection_coverage_audit.rs::run_budget_provider_send_rejects_each_weakened_variant"
+    ]},
+    {"criterion": "AC4", "holds": "a revision, a resume or another session gives nothing back; final repairs stay at two; a refused command is no success; the cleanup after a refused bind is told", "tests": [
+      "src/tools/profile_tools/effects.rs::a_revision_of_a_stage_gives_the_wallet_nothing_back",
+      "src/tools/profile_tools/effects.rs::a_wallet_with_room_for_more_final_repairs_leaves_them_at_two",
+      "src/structured_budget/outcome_tests.rs::another_session_or_a_resume_gets_no_budget_back",
+      "src/planner/structured_stages/resume.rs::a_resume_gives_no_attempts_back_at_the_limit",
+      "src/structured_budget/outcome_tests.rs::every_limit_that_refuses_a_send_ends_its_command_as_no_success",
+      "src/tools/profile_tools/effects.rs::an_unsaved_cleanup_after_a_process_adds_no_event_off_or_on",
+      "src/tools/profile_tools/effects.rs::an_unsaved_cleanup_after_a_process_writes_nothing_more_to_stderr",
+      "src/tools/profile_tools/effects.rs::a_record_refusal_the_call_reports_is_told_once",
+      "src/tools/profile_tools/effects.rs::after_a_refused_bind_only_an_unsaved_record_is_told",
+      "src/tools/profile_tools/effects.rs::a_refused_bind_leaves_no_attempt_in_flight_on_disk"
+    ]},
+    {"criterion": "AC5", "holds": "a settings object and a document index count the same under a wallet, and a wallet near its limit skips no check", "tests": [
+      "src/tools/profile_tools/effects.rs::a_settings_object_and_a_document_index_count_the_same_under_a_wallet",
+      "src/tools/profile_tools/effects.rs::a_wallet_near_its_limit_still_runs_every_check"
+    ]},
+    {"criterion": "AC6", "holds": "with no wallet the v1 wire, events and files are the base's byte for byte; the comparison fails without the normalization and on one changed byte; the earlier off goldens still hold", "tests": [
+      "tests/structured_run_budget_off.rs::ac6_with_no_wallet_a_v1_run_is_byte_equal_to_the_recording_before_976",
+      "tests/structured_run_budget_off.rs::ac6_the_off_comparison_fails_without_the_normalization_and_on_one_changed_byte",
+      "src/providers/lm_studio.rs::with_no_wallet_the_wire_is_what_it_was_and_a_wallet_changes_only_a_count_past_its_limit",
+      "src/structured_budget/submission_tests.rs::with_no_wallet_a_call_has_no_budget",
+      "tests/profile_tool_commit.rs::off_wire_events_and_artifacts_match_the_base_recording_byte_for_byte",
+      "tests/structured_stage_receipts.rs::off_wire_events_and_artifacts_match_the_base_recording_byte_for_byte"
+    ]}
+  ]
+}
