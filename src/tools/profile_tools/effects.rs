@@ -841,17 +841,27 @@ impl ProposalTool {
         }
         if let Err(error) = &outcome {
             // Past the intent the permit has answered already, and this is refused as stale.
-            if let Ok(mut held) = locked(&ledger) {
-                let failure = terminal_failure(error.kind, notes.secret_in_output);
-                let recorded = held.record_failure(&ticket, AttemptFailure::Terminal(failure));
+            let failure = terminal_failure(error.kind, notes.secret_in_output);
+            let recorded = locked(&ledger)
+                .map(|mut held| held.record_failure(&ticket, AttemptFailure::Terminal(failure)));
+            match recorded {
                 // Without its mark on disk a later process would go on comparing the value, so
                 // what failed here is the record, and the operator has to hear that.
-                if let (true, Err(refusal)) = (notes.secret_in_output, recorded) {
-                    return Err(ledger_refused(refusal));
-                }
+                Ok(Err(refusal)) if notes.secret_in_output => return Err(ledger_refused(refusal)),
+                Ok(Err(refusal)) => self.tell_unrecorded(call, ledger_refused(refusal)),
+                Err(unavailable) => self.tell_unrecorded(call, unavailable),
+                Ok(Ok(_)) => {}
             }
         }
         outcome
+    }
+
+    /// R4-I/O: the attempt failed and G4 could not save that it ended, so the record may still
+    /// hold it in flight. The call keeps its own failure; the operator hears of the record.
+    fn tell_unrecorded(&self, call: &StageCall<'_>, unrecorded: ProfileToolRefusal) {
+        if let Some(data) = &call.stage.with_ledger_path(unrecorded).data {
+            emit_stage_refusal(call.context, self, data);
+        }
     }
 
     /// The table's rows that start nothing. What a model can correct goes back as data; the
@@ -2556,6 +2566,7 @@ field() { printf '%s' "$request" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }
 echo started >> "$MARKS/started-{tool}"
 printf '%s' "$request" > "$MARKS/request-{tool}"
 [ -f "$MARKS/clobber" ] && printf changed > "$(cat "$MARKS/clobber")"
+[ -p "$MARKS/gate" ] && cat "$MARKS/gate" > /dev/null
 [ -f "$MARKS/broken" ] && {{ printf 'not a result'; exit 0; }}
 field() {{ printf '%s' "$request" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }}
 checks='[{{"id":"shape","status":"passed"}}]'
@@ -2813,6 +2824,8 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
         /// Issue #976: a stage call under a run's wallet is a submission of its stage, and the
         /// attempt G4 lets start is tied to it before the process starts.
         mod run_budget {
+            use std::path::PathBuf;
+
             use serde_json::{Value, json};
 
             use super::super::super::super::schema::invocation::{
@@ -2884,6 +2897,15 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                     tool: &ProposalTool,
                     arguments: &Value,
                 ) -> anyhow::Result<Value> {
+                    self.call_in(&bench.context(), tool, arguments)
+                }
+
+                fn call_in(
+                    &self,
+                    context: &crate::tools::registry::ToolContext,
+                    tool: &ProposalTool,
+                    arguments: &Value,
+                ) -> anyhow::Result<Value> {
                     let response = self
                         .wallet
                         .try_settled_response()
@@ -2894,8 +2916,7 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                         0,
                     )
                     .unwrap();
-                    let text =
-                        tool.execute_under(Some(&budget), arguments, &bench.context(), &|| false)?;
+                    let text = tool.execute_under(Some(&budget), arguments, context, &|| false)?;
                     Ok(serde_json::from_str(&text).unwrap())
                 }
 
@@ -3111,6 +3132,259 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                 assert_eq!(state.logical_stage_used("upper"), 4);
                 assert_eq!(state.logical_stage_used("lower"), 2);
                 assert_eq!(refusal(&counted.config), None);
+            }
+
+            /// The context of a call whose events land in the bench's directory.
+            fn with_events(bench: &StageBench) -> (crate::tools::registry::ToolContext, PathBuf) {
+                let events = bench.workspace.parent().unwrap().join("events-976.jsonl");
+                let mut context = bench.context();
+                context.eval_events_path = Some(events.clone());
+                (context, events)
+            }
+
+            /// The `structured_stage_refused` events written so far, by code.
+            fn refused_codes(events: &std::path::Path) -> Vec<String> {
+                std::fs::read_to_string(events)
+                    .unwrap_or_default()
+                    .lines()
+                    .map(|line| serde_json::from_str::<Value>(line).unwrap())
+                    .filter(|event| event["event"] == "structured_stage_refused")
+                    .map(|event| event["code"].as_str().unwrap_or_default().to_string())
+                    .collect()
+            }
+
+            /// Every `in_flight` of G4's saved record, read from the file and not from memory.
+            fn saved_in_flight(bench: &StageBench) -> Vec<Value> {
+                let file = crate::planner::structured_stages::ledger::ledger_file(
+                    &bench.workspace.parent().unwrap().join("state"),
+                    &bench.workspace,
+                    super::PROFILE,
+                )
+                .unwrap();
+                let saved: Value = serde_json::from_slice(&std::fs::read(file).unwrap()).unwrap();
+                saved["body"]["targets"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|target| target["in_flight"].clone())
+                    .collect()
+            }
+
+            /// Issue #976 #18 (acceptance 2): a call the schema takes and the tool's checks reject
+            /// is a submission of its stage, tied to the attempt it spent, and gives nothing back:
+            /// the call after it is one more.
+            #[test]
+            fn a_check_the_tool_fails_is_a_submission_with_its_attempt_bound() {
+                let bench = admitted(stage_bench());
+                let counted = Counted::new(|_| {});
+                bench.mark(
+                    &format!("checks-{UPPER}"),
+                    r#"[{"id":"shape","status":"failed"}]"#,
+                );
+                let rejected = counted.ask(&bench, &bench.upper, "initial").unwrap();
+                assert_eq!(rejected["status"], "resubmit", "{rejected}");
+                assert_eq!(rejected["code"], "check_failed", "{rejected}");
+                assert_eq!(counted.bound(), vec![Some(1)]);
+                bench.unmark(&format!("checks-{UPPER}"));
+                let sealed = counted.ask(&bench, &bench.upper, "initial").unwrap();
+                assert_eq!(sealed["stage"]["status"], "sealed", "{sealed}");
+                assert_eq!(counted.bound(), vec![Some(1), Some(2)]);
+                let state = counted.wallet.handle.wallet().unwrap();
+                assert_eq!(state.logical_stage_used("upper"), 2);
+                assert_eq!(bench.starts(UPPER), 2);
+                assert_eq!(refusal(&counted.config), None);
+            }
+
+            /// Issue #976 #21 (acceptance 4): a revision G4 makes of a sealed stage starts its
+            /// attempts over, and the wallet's count of the stage goes on. With two allowed, the
+            /// call after the revision is refused and runs nothing.
+            #[test]
+            fn a_revision_of_a_stage_gives_the_wallet_nothing_back() {
+                let bench = admitted(stage_bench());
+                let counted = Counted::new(|value| value["limits"]["logical_per_stage"] = json!(2));
+                let first = counted.ask(&bench, &bench.upper, "initial").unwrap();
+                let revision = first["stage"]["revision"].as_str().unwrap().to_string();
+                bench.mark(&format!("second-{UPPER}"), "");
+                let second = counted
+                    .call(
+                        &bench,
+                        &bench.upper,
+                        &json!({"mode": "other", EXPECTED_REVISION_ARGUMENT: revision}),
+                    )
+                    .unwrap();
+                assert_eq!(second["stage"]["status"], "sealed", "{second}");
+                assert_ne!(second["stage"]["revision"], first["stage"]["revision"]);
+                let error = counted
+                    .ask(
+                        &bench,
+                        &bench.upper,
+                        second["stage"]["revision"].as_str().unwrap(),
+                    )
+                    .unwrap_err();
+                assert!(error.downcast_ref::<SendRefusal>().is_some(), "{error:#}");
+                assert_eq!(bench.starts(UPPER), 2, "nothing runs past the limit");
+                let state = counted.wallet.handle.wallet().unwrap();
+                assert_eq!(state.logical_stage_used("upper"), 2);
+                assert!(refusal(&counted.config).is_some());
+            }
+
+            /// Issue #976 #24 (acceptance 5): a wallet with one call left runs the same process
+            /// and the same checks as no wallet, and a failing check is not taken as a pass to
+            /// save a call. The answer is the one an uncounted call gets.
+            #[test]
+            fn a_wallet_near_its_limit_still_runs_every_check() {
+                let failing = r#"[{"id":"shape","status":"failed"}]"#;
+                let plain = admitted(stage_bench());
+                plain.mark(&format!("checks-{UPPER}"), failing);
+                let uncounted = plain.call(&plain.upper, "fast", "initial").unwrap();
+                let bench = admitted(stage_bench());
+                bench.mark(&format!("checks-{UPPER}"), failing);
+                let counted = Counted::new(|value| value["limits"]["logical_per_stage"] = json!(1));
+                let answer = counted.ask(&bench, &bench.upper, "initial").unwrap();
+                assert_eq!(answer, uncounted);
+                assert_eq!(answer["code"], "check_failed", "{answer}");
+                assert_eq!(bench.starts(UPPER), 1);
+                assert_ne!(bench.status(&upper_key()).0, super::Phase::Sealed);
+                assert_eq!(counted.bound(), vec![Some(1)]);
+            }
+
+            /// Issue #976 acceptance 1 (D12): a stage call, a final repair's send, and a send of
+            /// another role all draw on the one wallet, each as what it is.
+            #[test]
+            fn a_stage_call_a_final_repair_and_another_role_share_one_wallet() {
+                use crate::structured_budget::identity::SendPurpose;
+                use crate::structured_budget::session::FinalRepairMarker;
+                use crate::structured_budget::transport::{BudgetedBody, settle_body};
+
+                let bench = admitted(stage_bench());
+                let counted = Counted::new(|value| value["limits"]["physical_sends"] = json!(3));
+                counted.ask(&bench, &bench.upper, "initial").unwrap();
+                counted
+                    .wallet
+                    .send(50, Some(&FinalRepairMarker::default()))
+                    .unwrap();
+                let body: Value = serde_json::from_slice(
+                    &crate::structured_budget::test_support::body_asking_for(50),
+                )
+                .unwrap();
+                let classifier = |handle| {
+                    BudgetedBody::new(handle, &body, SendPurpose::Classifier)
+                        .unwrap()
+                        .begin(reqwest::Client::new().post("http://127.0.0.1:9/v1/chat"))
+                        .and_then(|(_, send)| settle_body(&mut Some(send), TestWallet::KNOWN))
+                };
+                classifier(&counted.wallet.handle).unwrap();
+                let state = counted.wallet.handle.wallet().unwrap();
+                let purposes = state
+                    .attempts
+                    .iter()
+                    .map(|attempt| attempt.purpose)
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    purposes,
+                    vec![
+                        SendPurpose::Executor,
+                        SendPurpose::FinalRepair,
+                        SendPurpose::Classifier
+                    ]
+                );
+                assert_eq!(state.logical_stage_used("upper"), 1);
+                assert_eq!(state.final_repair_used(), 1);
+                // The one wallet's limit holds across them all.
+                let past = classifier(&counted.wallet.handle).unwrap_err();
+                assert!(matches!(past, SendRefusal::Wallet(_)), "{past:?}");
+                assert_eq!(counted.wallet.sends(), 3);
+            }
+
+            /// R4-I/O: after a bind the wallet refused, G4's cleanup is on disk. The saved record
+            /// holds no attempt in flight, read from the file.
+            #[test]
+            fn a_refused_bind_leaves_no_attempt_in_flight_on_disk() {
+                let bench = stage_bench();
+                let counted = Counted::new(|_| {});
+                let (context, events) = with_events(&bench);
+                let error = counted
+                    .call_in(
+                        &context,
+                        &bench.upper,
+                        &json!({"mode": "fast", EXPECTED_REVISION_ARGUMENT: "initial"}),
+                    )
+                    .unwrap_err();
+                assert!(
+                    error.to_string().contains("run_budget_refused"),
+                    "{error:#}"
+                );
+                assert_eq!(bench.attempts(&upper_key()), 1);
+                let in_flight = saved_in_flight(&bench);
+                assert_eq!(in_flight.len(), 2, "{in_flight:?}");
+                assert!(in_flight.iter().all(Value::is_null), "{in_flight:?}");
+                assert_eq!(refused_codes(&events), Vec::<String>::new());
+            }
+
+            /// R4-I/O: a bound attempt fails and G4 cannot save its end, as the file changed under
+            /// it. The call keeps its own failure, and the operator is told the record failed.
+            #[test]
+            fn a_cleanup_that_cannot_be_saved_reaches_the_operator() {
+                let bench = admitted(stage_bench());
+                let counted = Counted::new(|_| {});
+                let file = crate::planner::structured_stages::ledger::ledger_file(
+                    &bench.workspace.parent().unwrap().join("state"),
+                    &bench.workspace,
+                    super::PROFILE,
+                )
+                .unwrap();
+                bench.mark("clobber", &file.display().to_string());
+                bench.mark("broken", "");
+                let (context, events) = with_events(&bench);
+                let error = counted
+                    .call_in(
+                        &context,
+                        &bench.upper,
+                        &json!({"mode": "fast", EXPECTED_REVISION_ARGUMENT: "initial"}),
+                    )
+                    .unwrap_err();
+                assert_eq!(kind(&error), RefusalKind::ResultRejected, "{error:#}");
+                assert_eq!(counted.bound(), vec![Some(1)]);
+                assert_eq!(refused_codes(&events), vec!["diverged".to_string()]);
+            }
+
+            /// R4-I/O: G4's lock is lost while the bound attempt's process runs. The call keeps its
+            /// own failure, and the operator is told the record is unavailable. The process waits
+            /// on a pipe the test opens only once the lock is lost, so the order is fixed.
+            #[test]
+            fn a_record_lost_during_the_attempt_reaches_the_operator() {
+                let bench = admitted(stage_bench());
+                let counted = Counted::new(|_| {});
+                let gate = bench.marks.join("gate");
+                let name = std::ffi::CString::new(gate.as_os_str().as_encoded_bytes()).unwrap();
+                // SAFETY: `name` is a NUL-terminated path that outlives the call.
+                assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+                bench.mark("broken", "");
+                let ledger = bench.ledger();
+                let opener = std::thread::spawn(move || {
+                    // Opens once the process has opened the pipe to read: G4's lock is free then.
+                    let writer = std::fs::OpenOptions::new().write(true).open(&gate).unwrap();
+                    let poisoner = ledger.clone();
+                    let poisoned = std::thread::spawn(move || {
+                        let _held = poisoner.lock().unwrap();
+                        panic!("the record is lost (R4-I/O fault)");
+                    })
+                    .join();
+                    assert!(poisoned.is_err() && ledger.is_poisoned());
+                    drop(writer);
+                });
+                let (context, events) = with_events(&bench);
+                let error = counted
+                    .call_in(
+                        &context,
+                        &bench.upper,
+                        &json!({"mode": "fast", EXPECTED_REVISION_ARGUMENT: "initial"}),
+                    )
+                    .unwrap_err();
+                opener.join().unwrap();
+                assert_eq!(kind(&error), RefusalKind::ResultRejected, "{error:#}");
+                assert_eq!(counted.bound(), vec![Some(1)]);
+                assert_eq!(refused_codes(&events), vec!["unavailable".to_string()]);
             }
         }
 
@@ -5518,11 +5792,34 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                     if notes {
                         std::fs::write(self.root.join("notes.txt"), "the notes\n").unwrap();
                     }
+                    self.ultra_in(profile, responder, None)
+                }
+
+                /// The same, under `wallet` when it is one: each client is a [`WalletClient`] of it.
+                fn ultra_in(
+                    &self,
+                    profile: &str,
+                    responder: Responder,
+                    wallet: Option<&Arc<crate::structured_budget::test_support::TestWallet>>,
+                ) -> Result<String, String> {
                     let http = FakeHttp::start(responder);
                     let mut config = self.config(&http.url);
                     config.profile = profile.to_string();
-                    let mut planner = client_from_config(&config, true).unwrap();
-                    let mut execution = client_from_config(&config, false).unwrap();
+                    let client = |planner: bool| -> Box<dyn crate::providers::ChatClient> {
+                        let inner = client_from_config(&config, planner).unwrap();
+                        match wallet {
+                            Some(wallet) => Box::new(WalletClient {
+                                inner,
+                                wallet: wallet.clone(),
+                                settled: Arc::default(),
+                            }),
+                            None => inner,
+                        }
+                    };
+                    let (mut planner, mut execution) = (client(true), client(false));
+                    // A client of the factory under a wallet would be a budgeted one; these send
+                    // to it as the wrapper does.
+                    config.field_sources.run_budget = wallet.map(|wallet| wallet.handle.clone());
                     let plan = UltraPlan {
                         goal: "Submit the stages".to_string(),
                         profile: profile.to_string(),
@@ -5845,7 +6142,7 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                     tools: &[crate::tools::registry::ToolSpec],
                     native_tools_enabled: bool,
                 ) -> anyhow::Result<crate::providers::AssistantReply> {
-                    let response = self.wallet.settled_response();
+                    let response = self.settle();
                     self.settled.lock().unwrap().push(response);
                     crate::provider_call::note_settled_response(response);
                     crate::providers::ChatClient::chat(
@@ -5855,6 +6152,30 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                         tools,
                         native_tools_enabled,
                     )
+                }
+            }
+
+            impl WalletClient {
+                /// One send of 50 tokens settled with a known report, in the final repair the
+                /// worker's call is of, if it is one, as the factory's client sends.
+                fn settle(&self) -> crate::structured_budget::identity::ResponseIdentity {
+                    use crate::structured_budget::transport::{
+                        BudgetedBody, settle_body_identified,
+                    };
+                    let body: Value = serde_json::from_slice(
+                        &crate::structured_budget::test_support::body_asking_for(50),
+                    )
+                    .unwrap();
+                    let purpose = crate::structured_budget::identity::SendPurpose::Executor;
+                    let (_, send) = BudgetedBody::new(&self.wallet.handle, &body, purpose)
+                        .unwrap()
+                        .of_session(crate::provider_call::current_final_repair())
+                        .begin(reqwest::Client::new().post("http://127.0.0.1:9/v1/chat"))
+                        .unwrap();
+                    let known = crate::structured_budget::test_support::TestWallet::KNOWN;
+                    settle_body_identified(&mut Some(send), known)
+                        .unwrap()
+                        .unwrap()
                 }
             }
 
@@ -6282,20 +6603,12 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                 assert!(no_g4_record(&world));
             }
 
-            /// T2 (acceptance 4): two stages open get the one repair budget final acceptance has,
-            /// and not one each.
-            #[test]
-            fn stages_left_open_get_no_final_repairs_of_their_own() {
-                const NAME: &str = "stages_left_open_get_no_final_repairs_of_their_own";
-                let Some(world) = one_process(NAME) else {
-                    return;
-                };
-                let _live = world.enter();
-                // A repair that keeps changing a file and never calls a stage, so each attempt
-                // ends well, the bytes moved, and final acceptance still says no. Only the budget
-                // can stop this.
+            /// A repair that keeps changing a file and never calls a stage, so each attempt ends
+            /// well, the bytes moved, and final acceptance still says no. Only the budget can stop
+            /// this.
+            fn a_repair_final_acceptance_never_takes() -> Responder {
                 let written = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-                let responder: Responder = Arc::new(move |_, body| {
+                Arc::new(move |_, body| {
                     if !body["tools"].to_string().contains(UPPER_TOOL) {
                         return text_reply(
                             &json!({"goal": "Look", "steps": [{
@@ -6321,7 +6634,19 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                         );
                     }
                     call_reply("Read", &json!({"path": FIXED}))
-                });
+                })
+            }
+
+            /// T2 (acceptance 4): two stages open get the one repair budget final acceptance has,
+            /// and not one each.
+            #[test]
+            fn stages_left_open_get_no_final_repairs_of_their_own() {
+                const NAME: &str = "stages_left_open_get_no_final_repairs_of_their_own";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                let responder = a_repair_final_acceptance_never_takes();
                 world
                     .ultra_as(WRITES_PROFILE, true, responder)
                     .expect_err("two stages are open");
@@ -6334,6 +6659,11 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                     unmet.contains("upper") && unmet.contains("lower"),
                     "both still open at the end: {unmet}"
                 );
+                final_repair_stops_at_its_two(&events);
+            }
+
+            /// Final acceptance's own repair bound, as the events show it.
+            fn final_repair_stops_at_its_two(events: &str) {
                 let starts = events
                     .matches("\"event\":\"final_acceptance_repair_start\"")
                     .count();
@@ -6352,6 +6682,35 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                     exhausted.contains("\"exhausted_reason\":\"bounded_repair_exhausted\""),
                     "the budget is what stopped it: {exhausted}"
                 );
+            }
+
+            /// Issue #976 #22 (acceptance 4): a wallet that declares far more final repairs and
+            /// seconds than final acceptance has does not lift its bound. The wallet sees the two
+            /// final repairs the host opened, and refuses nothing.
+            #[test]
+            fn a_wallet_with_room_for_more_final_repairs_leaves_them_at_two() {
+                const NAME: &str = "a_wallet_with_room_for_more_final_repairs_leaves_them_at_two";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                let wallet = Arc::new(crate::structured_budget::test_support::TestWallet::open(
+                    |value| {
+                        value["limits"]["final_repair_attempts"] = json!(1000);
+                        value["limits"]["final_repair_seconds"] = json!(100_000);
+                    },
+                ));
+                std::fs::write(world.root.join("notes.txt"), "the notes\n").unwrap();
+                let ended = world.ultra_in(
+                    WRITES_PROFILE,
+                    a_repair_final_acceptance_never_takes(),
+                    Some(&wallet),
+                );
+                ended.expect_err("two stages are open");
+                final_repair_stops_at_its_two(&world.events());
+                let state = wallet.handle.wallet().unwrap();
+                assert_eq!(state.final_repair_used(), 2);
+                assert!(state.physical_used() > 2);
             }
 
             /// The revision the upper stage's seal named, as a model has it in its history.
@@ -8247,6 +8606,70 @@ printf '{{"protocol":"profile-tool.result/v1","request_id":"%s","tool_id":"%s","
                 // A record for each profile, and each names what it adopted.
                 let leaf = world.evidence.join("state/structured-stages");
                 assert_eq!(std::fs::read_dir(leaf).unwrap().count(), 2);
+            }
+
+            /// Issue #976 #23 (acceptance 5): under a wallet, a settings object and a document
+            /// index go through the same machine and the same count. Each stage's call is one
+            /// submission of its stage, tied to the attempt G4 let start, and nothing is refused.
+            #[test]
+            fn a_settings_object_and_a_document_index_count_the_same_under_a_wallet() {
+                const NAME: &str =
+                    "a_settings_object_and_a_document_index_count_the_same_under_a_wallet";
+                let Some(world) = one_process(NAME) else {
+                    return;
+                };
+                let _live = world.enter();
+                let run = |profile: &str, upper: &'static str, lower: &'static str| {
+                    let http = FakeHttp::start(Arc::new(move |index, body| match index {
+                        1 => submit(upper, "fast", "initial"),
+                        2 => submit(lower, "fast", &revision_below(&last_answer(body))),
+                        _ => text_reply("done"),
+                    }));
+                    let mut config = world.config(&http.url);
+                    config.profile = profile.to_string();
+                    let inner = client_from_config(&config, false).unwrap();
+                    let wallet = Arc::new(
+                        crate::structured_budget::test_support::TestWallet::open(|_| {}),
+                    );
+                    config.field_sources.run_budget = Some(wallet.handle.clone());
+                    let mut client = WalletClient {
+                        inner,
+                        wallet: wallet.clone(),
+                        settled: Arc::default(),
+                    };
+                    run_session_with_outcome_with_ui(
+                        &mut client,
+                        &mut SessionSnapshot::new(),
+                        "Submit both stages.",
+                        &[],
+                        &config,
+                        &NOOP_UI,
+                    )
+                    .unwrap();
+                    http.finish();
+                    assert_eq!(crate::structured_budget::outcome::refusal(&config), None);
+                    let state = wallet.handle.wallet().unwrap();
+                    state
+                        .logicals
+                        .iter()
+                        .map(|logical| {
+                            let bound = logical.attempt.as_ref().map(|bound| bound.attempt);
+                            (logical.kind.clone(), bound)
+                        })
+                        .collect::<Vec<_>>()
+                };
+                let settings = run(PROFILE, UPPER_TOOL, LOWER_TOOL);
+                let index = run(INDEX_PROFILE, "ProposeIndexUpper", "ProposeIndexLower");
+                let stage = |name: &str| {
+                    let kind = crate::structured_budget::identity::LogicalKind::Stage {
+                        stage: name.to_string(),
+                    };
+                    (kind, Some(1))
+                };
+                assert_eq!(settings, vec![stage("upper"), stage("lower")]);
+                assert_eq!(index, settings);
+                assert!(world.root.join("out/lower.json").is_file());
+                assert!(world.root.join("index/lower.json").is_file());
             }
 
             /// A run resumed in a new process has its seals lowered with the bytes unchanged, and

@@ -412,3 +412,83 @@ fn a_worker_out_after_its_call_keeps_that_calls_marker_and_the_next_call_its_own
     assert!(marker_of("next").unwrap().same_session(&next));
     assert!(marker_of("plain").is_none());
 }
+
+/// One send of the wallet's own command, begun and held open: what a worker has between the
+/// reservation and the response.
+fn open_send(handle: &Arc<RunBudgetHandle>) -> Result<transport::OpenSend, SendRefusal> {
+    let body: Value = serde_json::from_slice(BODY).unwrap();
+    BudgetedBody::new(handle, &body, SendPurpose::Executor)
+        .unwrap()
+        .begin(reqwest::Client::new().post("http://127.0.0.1:9/v1/chat/completions"))
+        .map(|(_, send)| send)
+}
+
+/// What the wallet holds and has spent, with no reservation counted twice.
+fn reserved_and_sends(handle: &RunBudgetHandle) -> (usize, u64) {
+    let state = handle.wallet().unwrap();
+    (state.attempts.len(), state.physical_used())
+}
+
+/// Issue #976 (concurrency): two sends of one wallet from two threads, where the cost limit
+/// holds one reservation and not two. The second begins while the first is still open and is
+/// refused for it, so one reservation is on disk, and the total stays within the limit once the
+/// first settles.
+#[test]
+fn a_send_open_on_another_thread_holds_its_reservation_against_the_next() {
+    let wallet = Wallet::with(|value| value["limits"]["cost_usd"] = json!("0.001"));
+    let (opened, open) = std::sync::mpsc::channel();
+    let (go_on, settle) = std::sync::mpsc::channel::<()>();
+    let handle = Arc::clone(&wallet.handle);
+    let first = std::thread::spawn(move || {
+        let send = open_send(&handle).unwrap();
+        opened.send(()).unwrap();
+        settle.recv().unwrap();
+        transport::settle_body(&mut Some(send), KNOWN)
+    });
+    open.recv().unwrap();
+    let second = open_send(&wallet.handle).map(drop);
+    assert_eq!(second, refused(BudgetRefusal::Unresolved));
+    go_on.send(()).unwrap();
+    assert_eq!(first.join().unwrap(), Ok(()));
+    assert_eq!(reserved_and_sends(&wallet.handle), (1, 1));
+    within_the_limit(&wallet.handle);
+}
+
+/// What is spent and still held, together, is within the cost limit of 0.001.
+fn within_the_limit(handle: &RunBudgetHandle) {
+    let state = handle.wallet().unwrap();
+    let total = state.spent().unwrap().checked_add(state.held().unwrap());
+    let limit = super::super::reservation::Money::parse_decimal_up("0.001").unwrap();
+    assert!(total.is_some_and(|total| total <= limit), "{total:?}");
+}
+
+/// The same two sends started at one barrier: whichever is first, one is let out and one is
+/// refused, and one reservation is on disk.
+#[test]
+fn two_sends_at_once_on_one_wallet_reserve_once() {
+    let wallet = Wallet::with(|value| value["limits"]["cost_usd"] = json!("0.001"));
+    let start = Arc::new(std::sync::Barrier::new(2));
+    let senders = (0..2)
+        .map(|_| {
+            let (handle, start) = (Arc::clone(&wallet.handle), Arc::clone(&start));
+            std::thread::spawn(move || {
+                start.wait();
+                open_send(&handle)
+            })
+        })
+        .collect::<Vec<_>>();
+    let (sent, refused_sends): (Vec<_>, Vec<_>) = senders
+        .into_iter()
+        .map(|sender| sender.join().unwrap())
+        .partition(Result::is_ok);
+    assert_eq!((sent.len(), refused_sends.len()), (1, 1));
+    assert_eq!(
+        refused_sends.into_iter().next().unwrap().map(drop),
+        refused(BudgetRefusal::Unresolved)
+    );
+    assert_eq!(reserved_and_sends(&wallet.handle), (1, 1));
+    for send in sent {
+        transport::settle_body(&mut Some(send.unwrap()), KNOWN).unwrap();
+    }
+    within_the_limit(&wallet.handle);
+}
