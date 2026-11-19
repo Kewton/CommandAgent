@@ -508,16 +508,19 @@ session には、欄も節も出ません。
 
 ### 既知の制約
 
-wallet が数えるのは CommandAgent 自身が行う provider 呼び出しです。ここに記すのは Chat Completions
-(v1) の wallet の既知の制約で、どれも provider・費用・token の上限を超えて送信させるものではありません。
+wallet が数えるのは CommandAgent 自身が行う provider 呼び出しです。ここに記すのは wallet の既知の制約です。
+最初の 3 つは wallet の外で起きることで、そこで送られた分や消された記録は上限で守られません。v1 と v2 の
+どちらにも当てはまります。残りは後始末と、command・step の間で拒否を運ぶ所の隙で、provider・費用・token の
+上限を超えて送信させるものではありません。
 詳細は[開発者向けの文書](../../dev/structured-run-budget.md#known-limits)にあります。
 
 - オンラインの sandbox 付き Bash の中のプログラムは provider に直接届くことがあり、wallet はそれを数えません。
 - 既にある wallet の directory は所有者を問わず受け入れます。親 directory に書ける別の user ID が、最初の run
   より前に作っておくことができます。
 - sandbox の外の同じ user ID の書き手は、run の前に ledger を消したり古いものに戻したりできます。sandbox 内の
-  command にはできません。
-- 開始の失敗の後始末の保存も失敗すると、未解決の attempt が disk に残ることがあります。run は拒否されたままで、
+  command にはできません。次の run は新しい wallet として始まり、使った額がまた使えます。宣言の
+  `ledger_dir` を書き換えた場合も同じで、同じ ID が新しい directory で満額の wallet になります。
+- bind の失敗の後始末の保存も失敗すると、未解決の attempt が disk に残ることがあります。run は拒否されたままで、
   成功にはなりません。
 - command や step の間で拒否を運ぶ所の狭い隙（L-1、L-2、L-3、H2、H5）は開発者向けの文書に載せています。
 - planner の prefetch は wallet の下では始まらず、数える対象の judge の呼び出しはまだありません。

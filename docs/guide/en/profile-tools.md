@@ -548,8 +548,10 @@ but it does not raise `static`.
 ### Known limits
 
 The wallet counts the provider calls CommandAgent itself makes. These are recorded
-limits of the Chat Completions (v1) wallet; none lets a send past the provider, cost, or
-token limits. The details are in the
+limits of the wallet. The first three happen outside it: what is sent there, or what record is
+removed there, is not protected by the limits, and they apply to v1 and v2 alike. The rest are
+gaps in cleanup and in how a refusal is carried between commands and steps; none of them lets a
+send past the provider, cost, or token limits. The details are in the
 [developer note](../../dev/structured-run-budget.md#known-limits).
 
 - A program inside an online sandboxed Bash can still reach a provider, and the wallet does not
@@ -557,8 +559,10 @@ token limits. The details are in the
 - An existing wallet directory is accepted whatever its owner, and another user ID that can write
   the parent directory can create it before the first run.
 - A writer with the same user ID outside the sandbox can delete the ledger before a run or put an
-  older one back. A sandboxed command cannot.
-- If a failed start also fails to save its cleanup, an unresolved attempt can remain on disk. The
+  older one back. A sandboxed command cannot. The next run then starts as a fresh wallet, so what
+  was spent is available again. The same holds when the declaration's `ledger_dir` is rewritten:
+  the same ID is a full wallet in the new directory.
+- If a failed bind also fails to save its cleanup, an unresolved attempt can remain on disk. The
   run stays refused and is not a success.
 - A few narrow gaps in how a refusal is carried between commands and steps are listed in the
   developer note (L-1, L-2, L-3, H2, H5).

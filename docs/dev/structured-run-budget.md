@@ -15,7 +15,8 @@ events are as they were.
 ## Policy: `run-budget.policy/v1`
 
 Read from `<operator root>/run-budgets/<id>.json` (`policy.rs`, `POLICY_PROTOCOL`). The decode
-refuses unknown fields, repeated keys, wrong types, zero bounds and a zero price. It holds eight
+refuses unknown fields, repeated keys, wrong types, a zero price, and a zero
+`wall_seconds`, `final_repair_seconds`, `max_input_tokens` or `max_output_tokens`. It holds eight
 limits (`cost_usd`, `physical_sends`, `logical_global`, `logical_per_stage`, `tokens`,
 `wall_seconds`, `final_repair_attempts`, `final_repair_seconds`), one tariff used only for the
 reservation, the route, per-send ceilings, and `ledger_dir`. No price or limit depends on a
@@ -25,8 +26,8 @@ model, a domain or a profile name.
 
 - A send goes only if `spent + held + reservation` stays within every limit together. Exactly at
   a limit passes; one past it does not.
-- Reservation and start are on disk, for the same bytes, before the POST. Transport retries each
-  reserve and start on their own.
+- Reservation and start are on disk, for the same bytes, before the POST. Each transport retry is
+  reserved and started on its own.
 - A send that was refused before its start gives its reservation back. Once started, a timeout,
   a cancel, a missing amount or a cut body leaves the send unknown: the reservation is held, the
   latch is set for good, and no further send or command success is allowed.
@@ -54,16 +55,23 @@ refused. Resume and fresh starts never reissue a budget. `--summary-json` reads 
   prefetch" cases are therefore read as "refused before it starts". The user approved this
   reading with the plan.
 - **D12 (independent judge):** no judge feature was built. The code makes no billed judge call
-  (`SendPurpose` has Planner, Executor, Repair, FinalRepair and Classifier only). Any later
-  judge goes through the same transport and so draws on the same wallet. The Issue's acceptance 1
-  is checked with a provider call from a separate conversation. The user approved this reading
+  (`SendPurpose` has Planner, Executor, Repair, FinalRepair and Classifier only). A later judge
+  would have to go through the same transport to be counted by the same wallet. The Issue's
+  acceptance 1 is to be checked with a provider call from a separate conversation; that check is
+  not in the tree at f770f078. The user approved this reading
   with the plan.
 - **D11:** see below.
 
 ## Known limits
 
-These are records of what v1 does not cover. None of them lets a send past the provider, cost or
-token limits, and none turns a refused command into a success, unless the entry says so.
+These are records of what the wallet does not cover.
+
+- Q6, another uid, and D11 happen outside the wallet. What is sent there, or what record is
+  removed there, is not protected by the limits. They apply to v2 (Responses) as well, which uses
+  the same store, lock and directory.
+- R4-I/O, L-1, L-2, L-3, H2 and H5 are gaps in how a refusal is carried between commands and
+  steps, and in cleanup. None of them lets a send past the provider, cost or token limits, and
+  none turns a refused command into a success.
 
 - **Q6 (user decision):** the wallet counts the provider calls CommandAgent makes. A program
   inside an online sandboxed Bash can still reach a provider directly, and that is not counted.
@@ -73,10 +81,12 @@ token limits, and none turns a refused command into a success, unless the entry 
   the wallet directory before the first run. That other uid is not a command of the run, so it is
   outside the threat model; this was not introduced by the later hardening either.
 - **D11:** a writer with the same uid outside the sandbox can delete the ledger before a run or
-  put an older file back. A sandboxed Bash cannot write it. What is caught: a ledger that vanishes
+  put an older file back. A sandboxed Bash cannot write it. The next run then starts as a fresh
+  wallet, so what was spent is available again. So does an operator who rewrites `ledger_dir`: the
+  same ID is a full wallet in the new directory. What is caught: a ledger that vanishes
   during a run, a missing ledger on resume, corruption, and a hash mismatch. What is not: a delete
   or rollback before the run starts, which looks like a fresh wallet.
-- **R4-I/O:** after a failed bind, "no G4 attempt is left in flight" holds only when the G4
+- **R4-I/O:** after a failed bind (a refused G5 bind), "no G4 attempt is left in flight" holds only when the G4
   cleanup (`record_failure`) can be saved. If that write fails, an unresolved attempt can remain
   on disk. It stays fail-closed: no process starts, the command is not a success, and G4's
   ledger refuses what follows. In `src/tools/profile_tools/effects.rs` only the secret-in-output
