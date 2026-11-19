@@ -1826,19 +1826,22 @@ fn reporter_head() -> String {
     .concat()
 }
 
-/// What is wrong with how `source` builds the reporter. Its body is read from the code alone, and
-/// the head is in the whole text once, so a body kept in a comment or a string is not taken for it.
+/// What is wrong with how `source` builds the reporter. Its head and body are read from the code
+/// alone (see [`code_only`]), and the head is in the whole text once, so a body kept in a comment
+/// or a string is not taken for it.
 #[cfg(target_os = "macos")]
 fn reporter_build_findings(source: &str) -> Vec<String> {
-    let code = without_comments(source);
+    let code = code_only(source);
     let (head, named) = (reporter_head(), format!("{:?}", COMPILER));
     let mut found = Vec::new();
-    for (what, text) in [("the file", source), ("its code", code.as_str())] {
-        for (name, once) in [("reporter()", &head), (named.as_str(), &named)] {
-            let count = text.matches(once.as_str()).count();
-            if count != 1 {
-                found.push(format!("{what} names {name} {count} times"));
-            }
+    for (what, text, once) in [
+        ("the file", source, &head),
+        ("its code", &code, &head),
+        ("the file", source, &named),
+    ] {
+        let count = text.matches(once.as_str()).count();
+        if count != 1 {
+            found.push(format!("{what} has {once:?} {count} times"));
         }
     }
     if let Some(start) = code.find(&head).map(|at| at + head.len()) {
@@ -1850,62 +1853,56 @@ fn reporter_build_findings(source: &str) -> Vec<String> {
     found
 }
 
-/// `source` with its comments taken out. Strings and characters are kept whole, so a `//` in one
-/// starts no comment.
+/// `source` as code alone: comments (line and block, nested) gone, and each string, byte string,
+/// raw string and character literal left empty, as `""` or `'_'`, so nothing written in one reads
+/// as code.
 #[cfg(target_os = "macos")]
-fn without_comments(source: &str) -> String {
+fn code_only(source: &str) -> String {
     let mut code = String::with_capacity(source.len());
     let mut rest = source;
     while let Some(first) = rest.chars().next() {
-        let raw_hashes = rest.strip_prefix('r').map(|after| {
-            let hashes = after.len() - after.trim_start_matches('#').len();
-            (after[hashes..].starts_with('"'), hashes)
-        });
-        let length = if rest.starts_with("//") {
-            rest.find('\n').unwrap_or(rest.len())
+        let after_ident = code.ends_with(|c: char| c.is_alphanumeric() || c == '_');
+        let raw = (rest.strip_prefix("br").or_else(|| rest.strip_prefix('r')))
+            .map(|after| (after, after.len() - after.trim_start_matches('#').len()))
+            .filter(|(after, hashes)| !after_ident && after[*hashes..].starts_with('"'));
+        let (length, kept) = if rest.starts_with("//") {
+            (rest.find('\n').unwrap_or(rest.len()), "")
         } else if rest.starts_with("/*") {
-            // Block comments nest; one left open runs to the end.
             let (mut depth, mut at) = (0usize, 0);
             while at < rest.len() {
-                let step = if rest[at..].starts_with("/*") {
-                    depth += 1;
-                    2
-                } else if rest[at..].starts_with("*/") {
-                    depth -= 1;
-                    2
+                let opens = rest[at..].starts_with("/*");
+                if opens || rest[at..].starts_with("*/") {
+                    depth = if opens { depth + 1 } else { depth - 1 };
+                    at += 2;
+                    if depth == 0 {
+                        break;
+                    }
                 } else {
-                    rest[at..].chars().next().unwrap().len_utf8()
-                };
-                at += step;
-                if depth == 0 {
-                    break;
+                    at += rest[at..].chars().next().unwrap().len_utf8();
                 }
             }
-            at
+            (at, " ")
+        } else if let Some((after, hashes)) = raw {
+            let open = rest.len() - after.len() + hashes + 1;
+            let close = ["\"", &"#".repeat(hashes)].concat();
+            let end = rest[open..].find(&close).map(|at| open + at + close.len());
+            (end.unwrap_or(rest.len()), "\"\"")
+        } else if first == '"' {
+            let mut escaped = false;
+            let end = rest[1..].find(|c| {
+                let ends = c == '"' && !escaped;
+                escaped = c == '\\' && !escaped;
+                ends
+            });
+            (end.map_or(rest.len(), |at| at + 2), "\"\"")
+        } else if first == '\'' && rest[1..].starts_with('\\') {
+            (rest[3..].find('\'').map_or(rest.len(), |at| at + 4), "'_'")
+        } else if first == '\'' && rest[1..].chars().nth(1) == Some('\'') {
+            (2 + rest[1..].chars().next().unwrap().len_utf8(), "'_'")
         } else {
-            let kept = if let Some((true, hashes)) = raw_hashes {
-                let close = ["\"", &"#".repeat(hashes)].concat();
-                rest[hashes + 2..]
-                    .find(&close)
-                    .map_or(rest.len(), |at| at + hashes + 2 + close.len())
-            } else if first == '"' {
-                let mut escaped = false;
-                let end = rest[1..].find(|c| {
-                    let ends = c == '"' && !escaped;
-                    escaped = c == '\\' && !escaped;
-                    ends
-                });
-                end.map_or(rest.len(), |at| at + 2)
-            } else if first == '\'' && rest[1..].starts_with('\\') {
-                rest[3..].find('\'').map_or(rest.len(), |at| at + 4)
-            } else if first == '\'' && rest[1..].chars().nth(1) == Some('\'') {
-                2 + rest[1..].chars().next().unwrap().len_utf8()
-            } else {
-                first.len_utf8()
-            };
-            code.push_str(&rest[..kept]);
-            kept
+            (first.len_utf8(), &rest[..first.len_utf8()])
         };
+        code.push_str(kept);
         rest = &rest[length..];
     }
     code
@@ -1943,6 +1940,12 @@ fn a_reporter_body_in_a_comment_or_a_string_is_not_the_reporters() {
             "a block comment, a new head",
             format!("/*\n{real}*/\n"),
             &renamed,
+        ),
+        // The real head spelled anew for the same type, and the old one kept in a raw string.
+        (
+            "a raw string, a new head",
+            format!("const KEPT: &str = r#\"{real}\"#;\n"),
+            &other.replace("-> std::path::PathBuf", "-> ::std::path::PathBuf"),
         ),
     ];
     for (row, kept, built) in rows {
