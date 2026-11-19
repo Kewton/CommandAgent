@@ -1811,17 +1811,155 @@ fn the_reporters_compiler_has_nothing_of_the_tests_environment() {
 #[test]
 fn the_reporter_is_built_only_as_the_witness_builds_it() {
     const SOURCE: &str = include_str!("startup_credentials.rs");
-    let head = [
+    let found = reporter_build_findings(SOURCE);
+    assert!(found.is_empty(), "{found:?}");
+    assert_eq!(COMPILER, ["/usr/bin/", "cc"].concat());
+}
+
+/// The head of [`reporter`], put together so that this line is not one.
+#[cfg(target_os = "macos")]
+fn reporter_head() -> String {
+    [
         "fn reporter",
         "(directory: &Path) -> std::path::PathBuf {\n",
     ]
+    .concat()
+}
+
+/// What is wrong with how `source` builds the reporter. Its body is read from the code alone, and
+/// the head is in the whole text once, so a body kept in a comment or a string is not taken for it.
+#[cfg(target_os = "macos")]
+fn reporter_build_findings(source: &str) -> Vec<String> {
+    let code = without_comments(source);
+    let (head, named) = (reporter_head(), format!("{:?}", COMPILER));
+    let mut found = Vec::new();
+    for (what, text) in [("the file", source), ("its code", code.as_str())] {
+        for (name, once) in [("reporter()", &head), (named.as_str(), &named)] {
+            let count = text.matches(once.as_str()).count();
+            if count != 1 {
+                found.push(format!("{what} names {name} {count} times"));
+            }
+        }
+    }
+    if let Some(start) = code.find(&head).map(|at| at + head.len()) {
+        let body = &code[start..start + code[start..].find("\n}\n").unwrap_or(0)];
+        if body.trim() != "reporter_built_by(COMPILER, directory)" {
+            found.push(format!("reporter() is {body:?}"));
+        }
+    }
+    found
+}
+
+/// `source` with its comments taken out. Strings and characters are kept whole, so a `//` in one
+/// starts no comment.
+#[cfg(target_os = "macos")]
+fn without_comments(source: &str) -> String {
+    let mut code = String::with_capacity(source.len());
+    let mut rest = source;
+    while let Some(first) = rest.chars().next() {
+        let raw_hashes = rest.strip_prefix('r').map(|after| {
+            let hashes = after.len() - after.trim_start_matches('#').len();
+            (after[hashes..].starts_with('"'), hashes)
+        });
+        let length = if rest.starts_with("//") {
+            rest.find('\n').unwrap_or(rest.len())
+        } else if rest.starts_with("/*") {
+            // Block comments nest; one left open runs to the end.
+            let (mut depth, mut at) = (0usize, 0);
+            while at < rest.len() {
+                let step = if rest[at..].starts_with("/*") {
+                    depth += 1;
+                    2
+                } else if rest[at..].starts_with("*/") {
+                    depth -= 1;
+                    2
+                } else {
+                    rest[at..].chars().next().unwrap().len_utf8()
+                };
+                at += step;
+                if depth == 0 {
+                    break;
+                }
+            }
+            at
+        } else {
+            let kept = if let Some((true, hashes)) = raw_hashes {
+                let close = ["\"", &"#".repeat(hashes)].concat();
+                rest[hashes + 2..]
+                    .find(&close)
+                    .map_or(rest.len(), |at| at + hashes + 2 + close.len())
+            } else if first == '"' {
+                let mut escaped = false;
+                let end = rest[1..].find(|c| {
+                    let ends = c == '"' && !escaped;
+                    escaped = c == '\\' && !escaped;
+                    ends
+                });
+                end.map_or(rest.len(), |at| at + 2)
+            } else if first == '\'' && rest[1..].starts_with('\\') {
+                rest[3..].find('\'').map_or(rest.len(), |at| at + 4)
+            } else if first == '\'' && rest[1..].chars().nth(1) == Some('\'') {
+                2 + rest[1..].chars().next().unwrap().len_utf8()
+            } else {
+                first.len_utf8()
+            };
+            code.push_str(&rest[..kept]);
+            kept
+        };
+        rest = &rest[length..];
+    }
+    code
+}
+
+/// The witness's control: a body of [`reporter`] kept in a comment or a string, beside a reporter
+/// that is built another way, is found. A check that reads the first head it finds in the text
+/// would take the kept body for the reporter's and pass each of these.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_reporter_body_in_a_comment_or_a_string_is_not_the_reporters() {
+    const SOURCE: &str = include_str!("startup_credentials.rs");
+    let head = reporter_head();
+    let real = [
+        head.as_str(),
+        "    reporter_built_by(COMPILER, directory)\n}\n",
+    ]
     .concat();
-    let start = SOURCE.find(&head).expect("reporter() is where it was") + head.len();
-    let body = &SOURCE[start..start + SOURCE[start..].find("\n}\n").unwrap()];
-    assert_eq!(body.trim(), "reporter_built_by(COMPILER, directory)");
-    let named = format!("{:?}", COMPILER);
-    assert_eq!(SOURCE.matches(&named).count(), 1, "{named} is named once");
-    assert_eq!(COMPILER, ["/usr/bin/", "cc"].concat());
+    assert_eq!(SOURCE.matches(&real).count(), 1);
+    let other = real.replace("COMPILER", "\"/tmp/cc\"");
+    let renamed = other.replace("std::path::PathBuf", "PathBuf");
+    let rows = [
+        ("a block comment", format!("/*\n{real}*/\n"), &other),
+        (
+            "a nested block comment",
+            format!("/* /* */\n{real}*/\n"),
+            &other,
+        ),
+        (
+            "a string",
+            format!("const KEPT: &str = \"{real}\";\n"),
+            &other,
+        ),
+        (
+            "a block comment, a new head",
+            format!("/*\n{real}*/\n"),
+            &renamed,
+        ),
+    ];
+    for (row, kept, built) in rows {
+        let changed = [kept.as_str(), &SOURCE.replacen(&real, built, 1)].concat();
+        // The first head in the text, read as the reporter: what the kept body makes it say.
+        let start = changed.find(&head).unwrap() + head.len();
+        let first = &changed[start..start + changed[start..].find("\n}\n").unwrap()];
+        assert_eq!(
+            first.trim(),
+            "reporter_built_by(COMPILER, directory)",
+            "{row}"
+        );
+        assert!(
+            !reporter_build_findings(&changed).is_empty(),
+            "{row} passed"
+        );
+    }
 }
 
 /// What each report said of the marker: `None` where it was absent, its value where present.

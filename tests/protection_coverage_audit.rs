@@ -151,6 +151,17 @@ const PROTECTION_RULES: &[ProtectionRule] = &[
         ],
         audit: audit_structured_stage_completion,
     },
+    ProtectionRule {
+        category: "run_budget_provider_send",
+        site_predicate: "provider HTTP POSTs of a run with a wallet selected",
+        required_wrapper: "admit_route_on before any client / BudgetedBody::begin on every try",
+        allowlist: &[
+            "src/providers/mod.rs",
+            "src/providers/lm_studio.rs",
+            "src/providers/openai.rs",
+        ],
+        audit: audit_run_budget_provider_send,
+    },
 ];
 
 /// One required line for each end, and for the single judgment they all come to.
@@ -204,6 +215,133 @@ fn audit_structured_stage_completion(corpus: &AuditCorpus, rule: &ProtectionRule
         violations.push(format!("{repair} reads the stages"));
     }
     violations
+}
+
+/// G5 (Issue #976): what each wallet client's `post_json` must say, as `allowlist-index code`,
+/// whitespace and whole-line comments aside. Its every POST is there, a wallet's body goes out only through `begin`, and the
+/// plain body only where no wallet is.
+const RUN_BUDGET_SEND_REQUIRED: &[&str] = &[
+    "1 self.run_budget.as_ref().map(|handle|BudgetedBody::new(handle,body,send_purpose(self.provider_role)))",
+    "1 Some(budgeted)=>{let(request,send)=budgeted.begin(request).map_err(transport::refused)?",
+    "1 None=>(request.json(body),None),",
+    "2 self.run_budget.as_ref().map(|handle|{BudgetedBody::for_responses(handle,body,send_purpose(self.provider_role),&url)})",
+    "2 Some(budgeted)=>{let(request,send)=budgeted.begin(self.http.post(&url)).map_err(transport::refused)?",
+    "2 None=>(self.http.post(&url).bearer_auth(&self.api_key).json(body),None,),",
+];
+
+/// The POSTs no wallet counts, each as `site count guard-file guard-line`: the line that keeps it
+/// out of a run with one. The factory refuses the client, or the caller refuses the send; a
+/// router's `.post` sends nothing.
+const RUN_BUDGET_UNCOUNTED_POSTS: &[&str] = &[
+    "src/providers/ollama.rs 2 src/providers/mod.rs admit_route_on(",
+    "src/providers/gemini.rs 2 src/providers/mod.rs admit_route_on(",
+    "src/doctor.rs 1 src/doctor.rs refuse(Unmetered::ProviderCheck)",
+    "src/minimal_loop/request_pattern/jev.rs 1 src/minimal_loop/request_pattern/mod.rs entry::Unmetered::RequestPattern",
+    "src/bin/gui_server.rs 2 src/bin/gui_server.rs Router::new()",
+];
+
+fn audit_run_budget_provider_send(corpus: &AuditCorpus, rule: &ProtectionRule) -> Vec<String> {
+    let mut violations = Vec::new();
+    // Not `production_text`: it stops at a `mod tests;` near the top of a file.
+    let production = |path: &str| without_test_items(corpus.file(path));
+    let code = |text: &str| statements(text).join(";");
+    // The factory admits a route for the wallet before it builds any client.
+    let factory = function_body(
+        &production(rule.allowlist[0]),
+        "client_from_config_for_role",
+    )
+    .map(|body| code(&body))
+    .unwrap_or_default();
+    let admitted = factory.find("crate::structured_budget::admission::admit_route_on(config,role,crate::structured_budget::admission::run_basis(config),)?");
+    if admitted.is_none_or(|at| factory.find("Box::new(").is_none_or(|built| built < at)) {
+        violations.push(format!(
+            "{} builds a client before admit_route_on",
+            rule.allowlist[0]
+        ));
+    }
+    for (index, path) in rule.allowlist.iter().enumerate().skip(1) {
+        let text = production(path);
+        let post_json = function_body(&text, "post_json").unwrap_or_default();
+        if post_json.matches(".post(").count() != text.matches(".post(").count() {
+            violations.push(format!("{path} posts outside post_json"));
+        }
+        let post_json = code(&post_json);
+        let wanted = RUN_BUDGET_SEND_REQUIRED
+            .iter()
+            .filter_map(|line| line.split_once(' '));
+        for (_, required) in wanted.filter(|(at, _)| *at == index.to_string()) {
+            if !post_json.contains(required) {
+                violations.push(format!("{path} post_json is missing `{required}`"));
+            }
+        }
+    }
+    let test_only = test_only_files(corpus);
+    for (path, text) in corpus.src_rust_files() {
+        let posts = without_test_items(text)
+            .matches(".post(")
+            .count()
+            .to_string();
+        if posts == "0"
+            || test_only.contains(&path)
+            || path.ends_with("_tests.rs")
+            || rule.allowlist[1..].contains(&path.as_str())
+        {
+            continue;
+        }
+        let site = RUN_BUDGET_UNCOUNTED_POSTS
+            .iter()
+            .map(|site| site.splitn(4, ' ').collect::<Vec<_>>());
+        match site
+            .clone()
+            .find(|site| site[0] == path && site[1] == posts)
+        {
+            Some(site) if production(site[2]).contains(site[3]) => {}
+            Some(site) => {
+                violations.push(format!("{path} posts and {} lacks `{}`", site[2], site[3]))
+            }
+            None => violations.push(format!("{path}: {posts} POSTs no wallet counts or refuses")),
+        }
+    }
+    violations
+}
+
+/// G5: each way around `begin` or the admission fails the rule, one change at a time.
+#[test]
+fn run_budget_provider_send_rejects_each_weakened_variant() {
+    let real = AuditCorpus::from_manifest_dir();
+    let rule = PROTECTION_RULES
+        .iter()
+        .find(|rule| rule.category == "run_budget_provider_send")
+        .expect("the G5 rule is registered");
+    let found = (rule.audit)(&real, rule);
+    assert!(found.is_empty(), "{found:?}");
+    // `what the change is | the file | the text replaced | its replacement`; "" inserts at the top.
+    let variants = [
+        "lm studio skips begin | 1 | .begin(request) | .body_of(request)",
+        "lm studio sends the plain body | 1 | None => (request.json(body) | _ => (request.json(body)",
+        "lm studio posts elsewhere | 1 | fn post_json( | fn other(&self) { self.http.post(\"\"); }\nfn post_json(",
+        "openai skips begin | 2 | .begin(self.http.post(&url)) | .body_of(self.http.post(&url))",
+        "openai sends the plain body | 2 | None => (\n | _ => (\n",
+        "the factory does not admit | 0 | admit_route_on( | admitted(",
+        "a refused client posts more | src/providers/ollama.rs |  | fn more() { http.post(\"\"); }\n",
+        "the doctor checks a provider | src/doctor.rs | refuse(Unmetered::ProviderCheck) | Ok(())",
+        "jev posts unrefused | src/minimal_loop/request_pattern/mod.rs | Unmetered::RequestPattern | Other",
+        "a new file posts | src/providers/another.rs |  | fn send() { http.post(\"\"); }\n",
+    ];
+    for variant in variants {
+        let [name, path, from, to] =
+            <[&str; 4]>::try_from(variant.split(" | ").collect::<Vec<_>>()).unwrap();
+        let path = path
+            .parse()
+            .map_or(path, |index: usize| rule.allowlist[index]);
+        let mut changed = AuditCorpus {
+            files: real.files.clone(),
+        };
+        let text = real.file(path).replacen(from, to, 1);
+        assert_ne!(text, real.file(path), "{name}: the change did not apply");
+        changed.files.insert(path.to_string(), text);
+        assert!(!(rule.audit)(&changed, rule).is_empty(), "{name} passed");
+    }
 }
 
 /// T5b (acceptance 6): assurance reads nothing of the stages. The one read is the gate that can
