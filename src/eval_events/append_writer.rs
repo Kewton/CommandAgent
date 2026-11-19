@@ -11,41 +11,51 @@
 //! of fc903248 and no lock), are outside this guarantee (see
 //! `docs/dev/maintainability-architecture.md`).
 //!
+//! A failed write that leaves a line open in a regular file is never repaired:
+//! the file is held open (so its inode stays its own) and every later append
+//! to it in this process fails, so no record joins the broken line.
+//!
 //! Nothing called under the lock emits, redacts, publishes, or touches the
 //! provider-turn spool registry, so a flush can never re-enter the lock.
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::Path;
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Mutex, MutexGuard};
 
 use serde_json::Value;
 
 /// One lock for every events file: a per-path lock would let two spellings of
-/// one file (relative, `..`, a symlink) write at the same time.
-static WRITE_LOCK: Mutex<()> = Mutex::new(());
+/// one file (relative, `..`, a symlink) write at the same time. It also holds
+/// the regular files this process left with an open line.
+static WRITE_LOCK: Mutex<Vec<(FileKey, File)>> = Mutex::new(Vec::new());
+
+#[cfg(unix)]
+type FileKey = (u64, u64);
+/// Without an inode identity every events file counts as the same one, so an
+/// open line anywhere refuses every later append (fail closed).
+#[cfg(not(unix))]
+type FileKey = ();
+
+/// A spooled tail and the length of its whole lines.
+pub(crate) type Tail<'a> = (&'a mut dyn Read, u64);
 
 /// Append `event` as one line, creating the parent directory first.
 pub(crate) fn append_event(path: &Path, event: &Value) -> anyhow::Result<()> {
     append_event_and(path, event, None)
 }
 
-/// Append `event` as one line and then `tail` (whole lines) under one lock, so
-/// no other line of this process lands between them or inside them.
-pub(crate) fn append_event_with_tail(
-    path: &Path,
-    event: &Value,
-    tail: &mut dyn Read,
-) -> anyhow::Result<()> {
+/// Append `event` as one line and then exactly the tail's length of it (whole
+/// lines) under one lock, so no other line of this process lands between them
+/// or inside them.
+pub(crate) fn append_event_with_tail(path: &Path, event: &Value, tail: Tail) -> anyhow::Result<()> {
     append_event_and(path, event, Some(tail))
 }
 
-fn append_event_and(path: &Path, event: &Value, tail: Option<&mut dyn Read>) -> anyhow::Result<()> {
+fn append_event_and(path: &Path, event: &Value, tail: Option<Tail>) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let mut record = serde_json::to_vec(event)?;
-    record.push(b'\n');
-    append_locked(path, &record, tail)?;
+    append_locked(path, &record(event)?, tail)?;
     Ok(())
 }
 
@@ -55,18 +65,46 @@ pub(crate) fn append_line(path: &Path, line: &[u8]) -> io::Result<()> {
     append_locked(path, line, None)
 }
 
-fn append_locked(path: &Path, record: &[u8], tail: Option<&mut dyn Read>) -> io::Result<()> {
+/// The JSON text of `event` and its `\n`.
+pub(super) fn record(event: &Value) -> serde_json::Result<Vec<u8>> {
+    let mut record = serde_json::to_vec(event)?;
+    record.push(b'\n');
+    Ok(record)
+}
+
+fn append_locked(path: &Path, record: &[u8], tail: Option<Tail>) -> io::Result<()> {
     // Opened before the lock: opening a FIFO with no reader waits, and must
-    // not hold up writers of other files. A handle that cannot be classified
-    // counts as a regular file.
+    // not hold up writers of other files.
     let file = open_append(path)?;
-    if !takes_lock(&file) {
+    // Known from the opened handle before the first byte is written; a handle
+    // that cannot be classified gets nothing written.
+    let Some(key) = regular_key(&file)? else {
         return append_as_before(file, path, record, tail);
+    };
+    let mut open_lines = lock()?;
+    if open_lines.iter().any(|(held, _)| *held == key) {
+        return Err(io::Error::other(
+            "events file has an unfinished line from an earlier failed write in this process; not appending",
+        ));
     }
-    let _guard = lock();
-    #[cfg(test)]
-    let file = test_seam::PauseAt::for_this_thread(file);
-    write_record(file, record, tail.unwrap_or(&mut io::empty()))
+    let mut progress = Progress::default();
+    let Err(err) = write_record(&file, record, tail, &mut progress) else {
+        return Ok(());
+    };
+    let open = progress.last.is_some_and(|byte| byte != b'\n');
+    let note = if open {
+        "; the line is left open and later appends to this file fail"
+    } else {
+        ""
+    };
+    if open {
+        open_lines.push((key, file));
+    }
+    let written = progress.written;
+    Err(io::Error::new(
+        err.kind(),
+        format!("{err} ({written} bytes written{note})"),
+    ))
 }
 
 /// A FIFO or device, written with fc903248's calls and no lock: the body and
@@ -76,7 +114,7 @@ fn append_as_before(
     mut file: File,
     path: &Path,
     record: &[u8],
-    tail: Option<&mut dyn Read>,
+    tail: Option<Tail>,
 ) -> io::Result<()> {
     match record.strip_suffix(b"\n") {
         Some(body) => {
@@ -85,7 +123,7 @@ fn append_as_before(
         }
         None => file.write_all(record)?,
     }
-    let Some(tail) = tail else {
+    let Some((tail, len)) = tail else {
         return Ok(());
     };
     drop(file);
@@ -95,15 +133,38 @@ fn append_as_before(
     test_seam::before_open();
     let mut file = OpenOptions::new().append(true).open(path)?;
     // The path may name a regular file by now; its tail then takes the lock.
-    let _guard = takes_lock(&file).then(lock);
-    io::copy(tail, &mut file)?;
-    Ok(())
+    let _guard = match takes_lock(&file) {
+        true => Some(lock()?),
+        false => None,
+    };
+    copy_exact(tail, len, &mut file, &mut Progress::default())
 }
 
 /// Whether writes through `file` take the lock: a regular file, or a handle
 /// that cannot be classified.
 fn takes_lock(file: &File) -> bool {
     file.metadata().map_or(true, |meta| meta.is_file())
+}
+
+/// The identity of a regular file, `None` for anything else, read from the
+/// opened handle and never from the path.
+fn regular_key(file: &File) -> io::Result<Option<FileKey>> {
+    #[cfg(test)]
+    test_seam::identity_fault()?;
+    let meta = file.metadata()?;
+    if !meta.is_file() {
+        return Ok(None);
+    }
+    #[cfg(unix)]
+    return Ok(Some(key_of(&meta)));
+    #[cfg(not(unix))]
+    Ok(Some(()))
+}
+
+#[cfg(unix)]
+fn key_of(meta: &std::fs::Metadata) -> FileKey {
+    use std::os::unix::fs::MetadataExt;
+    (meta.dev(), meta.ino())
 }
 
 /// The open itself. Tests are told here, at the open and not before it, so
@@ -114,20 +175,101 @@ fn open_append(path: &Path) -> io::Result<File> {
     OpenOptions::new().create(true).append(true).open(path)
 }
 
-fn write_record(mut out: impl Write, record: &[u8], tail: &mut dyn Read) -> io::Result<()> {
-    out.write_all(record)?;
+fn write_record(
+    file: &File,
+    record: &[u8],
+    tail: Option<Tail>,
+    progress: &mut Progress,
+) -> io::Result<()> {
+    #[cfg(test)]
+    let file =
+        test_seam::PauseAt::for_this_thread(test_seam::Faulty::new(file, test_seam::Site::File));
+    let mut out = file;
+    write_counted(&mut out, record, progress)?;
     #[cfg(test)]
     test_seam::before_tail();
-    io::copy(tail, &mut out)?;
-    out.flush()
+    match tail {
+        Some((tail, len)) => copy_exact(tail, len, &mut out, progress),
+        None => Ok(()),
+    }
 }
 
-fn lock() -> MutexGuard<'static, ()> {
+/// What a write got out: the bytes and the last of them.
+#[derive(Default)]
+pub(super) struct Progress {
+    written: u64,
+    last: Option<u8>,
+}
+
+/// Write all of `bytes`, retrying short writes and `Interrupted`.
+pub(super) fn write_counted(
+    out: &mut impl Write,
+    mut bytes: &[u8],
+    progress: &mut Progress,
+) -> io::Result<()> {
+    while !bytes.is_empty() {
+        match out.write(bytes) {
+            Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
+            Ok(written) => {
+                progress.written += written as u64;
+                progress.last = Some(bytes[written - 1]);
+                bytes = &bytes[written..];
+            }
+            Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
+            Err(err) => return Err(err),
+        }
+    }
+    Ok(())
+}
+
+/// Copy exactly `len` bytes of `tail`, a bounded chunk at a time. A tail that
+/// ends early is an `UnexpectedEof` error, never a shorter success.
+pub(super) fn copy_exact(
+    tail: &mut dyn Read,
+    len: u64,
+    out: &mut impl Write,
+    progress: &mut Progress,
+) -> io::Result<()> {
+    #[cfg(test)]
+    let tail = &mut test_seam::Faulty::new(tail, test_seam::Site::TailRead);
+    let mut chunk = [0; 8 * 1024];
+    let mut left = len;
+    while left > 0 {
+        let want = chunk.len().min(usize::try_from(left).unwrap_or(usize::MAX));
+        match tail.read(&mut chunk[..want]) {
+            Ok(0) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    format!("spooled tail ended {left} bytes early"),
+                ));
+            }
+            Ok(read) => {
+                write_counted(out, &chunk[..read], progress)?;
+                left -= read as u64;
+            }
+            Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
+            Err(err) => return Err(err),
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+pub(super) use test_seam::spool_out;
+/// The writer a provider-turn spool write goes through (tests inject faults).
+#[cfg(not(test))]
+pub(super) fn spool_out(spool: &mut dyn Write, _merge: bool) -> &mut dyn Write {
+    spool
+}
+
+fn lock() -> io::Result<MutexGuard<'static, Vec<(FileKey, File)>>> {
     #[cfg(test)]
     test_seam::observe_lock(&WRITE_LOCK);
-    // The guard protects no data, so a panic while it was held leaves nothing
-    // half-updated; later writers keep going.
-    WRITE_LOCK.lock().unwrap_or_else(PoisonError::into_inner)
+    // A panic under the lock may have left the open-line list incomplete;
+    // nothing proves it is not, so every later locked append fails.
+    WRITE_LOCK
+        .lock()
+        .map_err(|_| io::Error::other("event writer lock poisoned by a panic; not appending"))
 }
 
 /// Test-only seams: stop a writer at a chosen point of its bytes, and see when
@@ -135,7 +277,7 @@ fn lock() -> MutexGuard<'static, ()> {
 #[cfg(test)]
 pub(crate) mod test_seam {
     use std::cell::{Cell, RefCell};
-    use std::io::{self, Write};
+    use std::io::{self, Read, Write};
     use std::sync::Mutex;
     use std::sync::mpsc::{Receiver, Sender, channel};
     use std::time::Duration;
@@ -208,6 +350,7 @@ pub(crate) mod test_seam {
         static PROBE: RefCell<Option<Sender<Seen>>> = const { RefCell::new(None) };
         static LOCK_CALLS: Cell<usize> = const { Cell::new(0) };
         static OPENING: RefCell<Option<Sender<usize>>> = const { RefCell::new(None) };
+        static FAULTS: RefCell<Vec<(Site, Fault)>> = const { RefCell::new(Vec::new()) };
     }
 
     /// The next record this thread writes stops at the plan's point.
@@ -295,7 +438,123 @@ pub(crate) mod test_seam {
         LOCK_CALLS.get()
     }
 
-    pub(super) fn observe_lock(lock: &Mutex<()>) {
+    /// Where a test injects a fault.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub(crate) enum Site {
+        File,
+        TailRead,
+        SpoolAppend,
+        SpoolMerge,
+        Identity,
+    }
+
+    /// What the next call at a site does instead of its normal I/O.
+    #[derive(Debug, Clone, Copy)]
+    pub(crate) enum Fault {
+        /// At most this many bytes.
+        Short(usize),
+        Interrupted,
+        Fail,
+        /// `Ok(0)`: a write that took nothing, a read at end of file.
+        Zero,
+    }
+
+    /// While entered, calls at each site take this thread's faults in order;
+    /// a site with none left does its normal I/O.
+    pub(crate) struct FaultScope;
+
+    impl FaultScope {
+        pub(crate) fn enter(faults: &[(Site, Fault)]) -> Self {
+            FAULTS.with_borrow_mut(|queue| *queue = faults.to_vec());
+            Self
+        }
+    }
+
+    impl Drop for FaultScope {
+        fn drop(&mut self) {
+            FAULTS.with_borrow_mut(Vec::clear);
+        }
+    }
+
+    fn next_fault(site: Site) -> Option<Fault> {
+        FAULTS.with_borrow_mut(|queue| {
+            let at = queue.iter().position(|(at, _)| *at == site)?;
+            Some(queue.remove(at).1)
+        })
+    }
+
+    pub(super) fn identity_fault() -> io::Result<()> {
+        match next_fault(Site::Identity) {
+            Some(_) => Err(io::Error::other("injected fault")),
+            None => Ok(()),
+        }
+    }
+
+    pub(crate) struct Faulty<T> {
+        inner: T,
+        site: Site,
+    }
+
+    impl<T> Faulty<T> {
+        pub(crate) fn new(inner: T, site: Site) -> Self {
+            Self { inner, site }
+        }
+    }
+
+    impl<W: Write> Write for Faulty<W> {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            match next_fault(self.site) {
+                None => self.inner.write(buf),
+                Some(Fault::Short(most)) => self.inner.write(&buf[..most.min(buf.len())]),
+                Some(Fault::Interrupted) => Err(io::ErrorKind::Interrupted.into()),
+                Some(Fault::Fail) => Err(io::Error::other("injected fault")),
+                Some(Fault::Zero) => Ok(0),
+            }
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            self.inner.flush()
+        }
+    }
+
+    impl<R: Read> Read for Faulty<R> {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            match next_fault(self.site) {
+                None => self.inner.read(buf),
+                Some(Fault::Short(most)) => {
+                    let most = most.min(buf.len());
+                    self.inner.read(&mut buf[..most])
+                }
+                Some(Fault::Interrupted) => Err(io::ErrorKind::Interrupted.into()),
+                Some(Fault::Fail) => Err(io::Error::other("injected fault")),
+                Some(Fault::Zero) => Ok(0),
+            }
+        }
+    }
+
+    pub(in crate::eval_events) fn spool_out(
+        spool: &mut dyn Write,
+        merge: bool,
+    ) -> Faulty<&mut dyn Write> {
+        let site = if merge {
+            Site::SpoolMerge
+        } else {
+            Site::SpoolAppend
+        };
+        Faulty::new(spool, site)
+    }
+
+    /// The identities of the files held open for an open line, read from the
+    /// held handles themselves.
+    #[cfg(unix)]
+    pub(crate) fn held_identities() -> Vec<(u64, u64)> {
+        let held = super::WRITE_LOCK.lock().unwrap();
+        held.iter()
+            .map(|(_, file)| super::key_of(&file.metadata().unwrap()))
+            .collect()
+    }
+
+    pub(super) fn observe_lock<T>(lock: &Mutex<T>) {
         LOCK_CALLS.set(LOCK_CALLS.get() + 1);
         PROBE.with_borrow(|probe| {
             if let Some(sender) = probe
@@ -390,7 +649,9 @@ mod tests {
     use serde_json::json;
     use sha2::Digest;
 
-    use super::test_seam::{self, ContentionProbe, PauseAt, PauseScope, Plan, Point, Seen};
+    use super::test_seam::{
+        self, ContentionProbe, Fault, FaultScope, PauseAt, PauseScope, Plan, Point, Seen, Site,
+    };
     use super::*;
     use crate::eval_events::provider_turn::ExecutionTelemetry;
     use crate::eval_events::{append_event_failsafe, emit};
@@ -1199,6 +1460,15 @@ mod tests {
             crate::eval_events::terminal_report::read_events(Some(&path)).len(),
             total
         );
+        // The completion snapshot skips the torn line and still reads past it.
+        emit(
+            Some(&path),
+            json!({"event":"run_stop", "id":"stop-2", "profile":"after_torn",
+                "final_acceptance_status":"failed"}),
+        );
+        let snapshot = crate::eval_events::latest_completion_snapshot(Some(&path));
+        assert_eq!(snapshot.profile, "after_torn");
+        assert_eq!(snapshot.final_acceptance_status, "failed");
     }
 
     #[test]
@@ -1276,5 +1546,287 @@ mod tests {
             .iter()
             .map(|item| item.as_str().unwrap().to_string())
             .collect()
+    }
+
+    fn kind(err: &anyhow::Error) -> io::ErrorKind {
+        err.chain()
+            .find_map(|cause| cause.downcast_ref::<io::Error>())
+            .map(io::Error::kind)
+            .unwrap()
+    }
+
+    #[test]
+    fn short_and_interrupted_writes_still_write_the_whole_record() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("events.jsonl");
+        let faults = [Fault::Short(1), Fault::Interrupted, Fault::Short(7)];
+        let _faults = FaultScope::enter(&faults.map(|fault| (Site::File, fault)));
+        append_event(&path, &fixture("a")).unwrap();
+        assert_eq!(read(&path), record_of(&fixture("a")));
+    }
+
+    fn cut_record() -> (Value, Vec<u8>, usize) {
+        let a = json!({"event":"fixture", "id":"a", "text":"é", "schema_version":"1"});
+        let bytes = record_of(&a);
+        let cut = bytes.iter().position(|byte| *byte == 0xC3).unwrap() + 1;
+        (a, bytes, cut)
+    }
+
+    /// X is whole; A stops inside `é`; B and every later append to that file
+    /// are refused, and the bytes stay exactly X and A's prefix.
+    fn cut_inside_a_character(path: &Path) -> Vec<u8> {
+        append_event(path, &fixture("x")).unwrap();
+        let (a, bytes, cut) = cut_record();
+        let _faults =
+            FaultScope::enter(&[(Site::File, Fault::Short(cut)), (Site::File, Fault::Fail)]);
+        let err = append_event_failsafe(Some(path), a).unwrap_err();
+        assert!(format!("{err:#}").contains("line is left open"), "{err:#}");
+        let mut expected = record_of(&fixture("x"));
+        expected.extend_from_slice(&bytes[..cut]);
+        assert_eq!(read(path), expected);
+        expected
+    }
+
+    #[test]
+    fn a_line_left_open_refuses_every_later_append_to_that_file() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("sub")).unwrap();
+        let path = dir.path().join("events.jsonl");
+        let left = cut_inside_a_character(&path);
+        let err = append_event_failsafe(Some(&path), fixture("b")).unwrap_err();
+        assert!(format!("{err:#}").contains("unfinished line"), "{err:#}");
+        emit(Some(&path), fixture("b"));
+        let mut spellings = vec![dir.path().join("sub/../events.jsonl")];
+        #[cfg(unix)]
+        {
+            let link = dir.path().join("link.jsonl");
+            std::os::unix::fs::symlink(&path, &link).unwrap();
+            spellings.push(link);
+        }
+        for other in spellings {
+            assert!(append_event(&other, &fixture("c")).is_err(), "{other:?}");
+        }
+        assert_eq!(read(&path), left);
+        let other = dir.path().join("other.jsonl");
+        append_event(&other, &fixture("c")).unwrap();
+        check_exact(&read(&other), &[fixture("c")]).unwrap();
+    }
+
+    /// B waits for the lock while A, stopped inside its record, holds it; A
+    /// then fails with its line open, and B, let in after, is refused.
+    #[test]
+    fn a_writer_waiting_on_a_failing_record_is_refused_after_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("events.jsonl");
+        let (a, bytes, cut) = cut_record();
+        let (path_a, path_b) = (path.clone(), path.clone());
+        let seen = interleave(
+            Point {
+                newlines: 0,
+                bytes: cut,
+            },
+            move |plan| {
+                let _pause = PauseScope::enter(plan);
+                // The first call passes through (shortened by the pause).
+                let faults = [Fault::Short(usize::MAX), Fault::Fail];
+                let _faults = FaultScope::enter(&faults.map(|fault| (Site::File, fault)));
+                let err = append_event_failsafe(Some(&path_a), a).unwrap_err();
+                assert!(format!("{err:#}").contains("line is left open"), "{err:#}");
+            },
+            move || {
+                let err = append_event_failsafe(Some(&path_b), fixture("b")).unwrap_err();
+                assert!(format!("{err:#}").contains("unfinished line"), "{err:#}");
+            },
+        );
+        assert_eq!(seen, Seen::Contended);
+        assert_eq!(read(&path), bytes[..cut]);
+    }
+
+    #[test]
+    fn a_record_missing_only_its_lf_also_refuses_later_appends() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("events.jsonl");
+        let bytes = record_of(&fixture("a"));
+        let body = bytes.len() - 1;
+        let _faults =
+            FaultScope::enter(&[(Site::File, Fault::Short(body)), (Site::File, Fault::Fail)]);
+        assert!(append_event(&path, &fixture("a")).is_err());
+        assert!(append_event(&path, &fixture("b")).is_err());
+        assert_eq!(read(&path), bytes[..body]);
+    }
+
+    /// Failures before any byte (the handle cannot be identified, a write
+    /// takes nothing) leave no open line.
+    #[test]
+    fn failures_before_the_first_byte_leave_the_file_usable() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("events.jsonl");
+        let _faults = FaultScope::enter(&[(Site::Identity, Fault::Fail)]);
+        assert!(append_event(&path, &fixture("lost")).is_err());
+        let _faults = FaultScope::enter(&[(Site::File, Fault::Zero)]);
+        let err = append_event(&path, &fixture("lost")).unwrap_err();
+        assert_eq!(kind(&err), io::ErrorKind::WriteZero);
+        assert_eq!(read(&path), b"");
+        append_event(&path, &fixture("a")).unwrap();
+        check_exact(&read(&path), &[fixture("a")]).unwrap();
+    }
+
+    /// The tail stops right after its first whole line, by a read error or by
+    /// an end of file before its recorded length: the flush fails, the bytes
+    /// end at that LF, and the file takes later appends.
+    #[test]
+    fn a_tail_stopped_at_a_line_end_fails_the_flush_but_not_the_file() {
+        let mut first = tail_event("turn", 0);
+        first["schema_version"] = json!("1");
+        let line = record_of(&first).len();
+        for (stop, want) in [
+            (Fault::Fail, io::ErrorKind::Other),
+            (Fault::Zero, io::ErrorKind::UnexpectedEof),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("events.jsonl");
+            let mut scope = spool_turn(&path, "turn", 3);
+            let faults = [(Site::TailRead, Fault::Short(line)), (Site::TailRead, stop)];
+            let _faults = FaultScope::enter(&faults);
+            let err = scope.finish().unwrap_err();
+            assert_eq!(kind(&err), want, "{err:#}");
+            drop(scope);
+            let events = strict_lines(&read(&path)).unwrap();
+            assert_eq!(ids(&events), ["turn", "turn-tail-0"]);
+            append_event(&path, &fixture("b")).unwrap();
+            let events = strict_lines(&read(&path)).unwrap();
+            assert_eq!(ids(&events), ["turn", "turn-tail-0", "b"]);
+        }
+    }
+
+    /// The mark is the inode of the held handle, not the path: a new file at
+    /// the path is written, and the held handle still names the old inode.
+    #[cfg(unix)]
+    #[test]
+    fn a_new_file_at_a_refused_path_is_written_while_the_old_one_stays_held() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("events.jsonl");
+        cut_inside_a_character(&path);
+        let old = key_of(&std::fs::metadata(&path).unwrap());
+        assert!(test_seam::held_identities().contains(&old));
+        std::fs::remove_file(&path).unwrap();
+        append_event(&path, &fixture("b")).unwrap();
+        let new = key_of(&std::fs::metadata(&path).unwrap());
+        assert_ne!(new, old, "the held inode is not reused");
+        check_exact(&read(&path), &[fixture("b")]).unwrap();
+        assert!(test_seam::held_identities().contains(&old));
+    }
+
+    /// A FIFO whose reader leaves part way through a line gets no mark: the
+    /// next record reaches the next reader whole.
+    #[cfg(unix)]
+    #[test]
+    fn a_fifo_broken_inside_a_line_takes_the_next_record() {
+        in_own_process_within(
+            "eval_events::append_writer::tests::a_fifo_broken_inside_a_line_takes_the_next_record",
+            fifo_broken_inside_a_line,
+        );
+    }
+
+    #[cfg(unix)]
+    fn fifo_broken_inside_a_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let fifo = dir.path().join("events.fifo");
+        mkfifo(&fifo);
+        // Reader 1 takes the event line and part of the one-line tail, then
+        // leaves; the tail's next chunk write fails after whole chunks.
+        let take = record_of(&fixture("a")).len() + 100;
+        let reader = spawn_with_result({
+            let fifo = fifo.clone();
+            move || File::open(fifo).and_then(|mut file| file.read_exact(&mut vec![0; take]))
+        });
+        // A second writer keeps reader 1 from seeing an end of file between
+        // the event line and the tail's own open.
+        let other_writer = OpenOptions::new().write(true).open(&fifo).unwrap();
+        let tail = record_of(&json!({"event":"fixture", "id":"big", "pad":"x".repeat(1 << 20)}));
+        let mut tail_read = tail.as_slice();
+        let broken =
+            append_event_with_tail(&fifo, &fixture("a"), (&mut tail_read, tail.len() as u64));
+        drop(other_writer);
+        collect(reader, test_seam::HANG_GUARD, "reader 1").unwrap();
+        assert!(broken.is_err(), "the reader left inside the tail's line");
+        let next = spawn_with_result({
+            let fifo = fifo.clone();
+            move || read_fifo(fifo)
+        });
+        let wrote = append_event(&fifo, &fixture("b")).map_err(|err| format!("{err:#}"));
+        let bytes = collect(next, test_seam::HANG_GUARD, "reader 2");
+        wrote.unwrap();
+        assert_eq!(bytes.unwrap(), record_of(&fixture("b")));
+    }
+
+    /// A panic under the lock makes every later locked append fail.
+    #[cfg(unix)]
+    #[test]
+    fn a_poisoned_lock_refuses_every_later_append() {
+        in_own_process_within(
+            "eval_events::append_writer::tests::a_poisoned_lock_refuses_every_later_append",
+            poisoned_lock,
+        );
+    }
+
+    #[cfg(unix)]
+    fn poisoned_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("events.jsonl");
+        let panicked = std::thread::spawn(|| {
+            let _held = WRITE_LOCK.lock().unwrap();
+            panic!("a panic while the write lock is held");
+        });
+        assert!(panicked.join().is_err());
+        let err = append_event(&path, &fixture("a")).unwrap_err();
+        assert!(format!("{err:#}").contains("poisoned"), "{err:#}");
+        assert_eq!(read(&path), b"");
+    }
+
+    /// A read constraint, not a fix: a line cut inside a character makes the
+    /// whole file invalid UTF-8, so the existing readers stop seeing the
+    /// earlier whole line X as well. They stay as they are (Issue #987).
+    #[test]
+    fn a_line_cut_inside_a_character_hides_earlier_lines_from_existing_readers() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join(".commandagent/runs/cut-run/events.jsonl");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let stop = json!({"event":"run_stop", "id":"x", "ok":true, "profile":"generic",
+            "stop_reason":"fixture_reason_987", "final_acceptance_status":"passed"});
+        let request = crate::config::RunsRequest {
+            id: Some("cut-run".to_string()),
+            events: true,
+            ..crate::config::RunsRequest::default()
+        };
+        let observe = || {
+            (
+                crate::eval_events::terminal_report::read_events(Some(&path)).len(),
+                crate::eval_events::latest_completion_snapshot(Some(&path)).profile,
+                crate::runs::render_runs_request(root.path(), &request)
+                    .map_err(|err| err.to_string()),
+                crate::runs::recent_runs(root.path(), 5)[0]
+                    .stop_reason
+                    .clone(),
+            )
+        };
+        append_event(&path, &stop).unwrap();
+        let (terminal, profile, strict, lenient) = observe();
+        assert_eq!((terminal, profile.as_str()), (1, "generic"));
+        assert!(
+            strict.is_ok() && lenient.contains("fixture_reason_987"),
+            "{lenient}"
+        );
+        let (a, _, cut) = cut_record();
+        let faults = [(Site::File, Fault::Short(cut)), (Site::File, Fault::Fail)];
+        let _faults = FaultScope::enter(&faults);
+        assert!(append_event_failsafe(Some(&path), a).is_err());
+        assert!(append_event_failsafe(Some(&path), fixture("b")).is_err());
+        let (terminal, profile, strict, lenient) = observe();
+        assert_eq!(
+            (terminal, profile.as_str(), lenient.as_str()),
+            (0, "", "unknown")
+        );
+        assert!(strict.unwrap_err().contains("failed to read run events"));
     }
 }
