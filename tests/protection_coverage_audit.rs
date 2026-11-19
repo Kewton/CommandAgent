@@ -244,9 +244,23 @@ const RUN_BUDGET_UNCOUNTED_POSTS: &[&str] = &[
     "src/bin/gui_server.rs 2 src/bin/gui_server.rs Router::new()",
 ];
 
-/// `text` as code alone with no whitespace: see [`code_only`].
-fn send_code(text: &str) -> String {
-    code_only(text).split_whitespace().collect()
+/// Code that [`code_only`] has read, with no whitespace.
+fn send_code(code: &str) -> String {
+    code.split_whitespace().collect()
+}
+
+/// [`code_only`] of each text, read once in a test run: the audit reads the whole tree once for
+/// each weakened variant, and every file but the changed one is the same.
+fn code_once(text: &str) -> String {
+    type Read = std::sync::Mutex<std::collections::HashMap<String, String>>;
+    static READ: std::sync::OnceLock<Read> = std::sync::OnceLock::new();
+    let read = READ.get_or_init(Default::default);
+    if let Some(code) = read.lock().unwrap().get(text) {
+        return code.clone();
+    }
+    let code = code_only(text);
+    read.lock().unwrap().insert(text.to_string(), code.clone());
+    code
 }
 
 /// Every known way a request is made a POST: `.post(`, `Client::post(` (and its `put` and `patch`),
@@ -282,7 +296,7 @@ fn audit_run_budget_provider_send(corpus: &AuditCorpus, rule: &ProtectionRule) -
         files: corpus
             .files
             .iter()
-            .map(|(path, text)| (path.clone(), code_only(text)))
+            .map(|(path, text)| (path.clone(), code_once(text)))
             .collect(),
     };
     // Not `production_text`: it stops at a `mod tests;` near the top of a file.
@@ -438,13 +452,13 @@ fn run_budget_provider_send_rejects_each_weakened_variant() {
         "a provider makes a request of any method | src/providers/new.rs |  | fn send() { http.request(method, url).send(); }\n".into(),
         "a new file posts, spaced and commented | src/providers/new.rs |  | fn send() { http.post /* x */ (url).send(); }\n".into(),
         "the factory does not admit | 0 | admit_route_on( | admitted(".into(),
-        "a refused client posts more | src/providers/ollama.rs |  | fn more() { http.post(url); }\n".into(),
         "the doctor checks a provider | src/doctor.rs | refuse(Unmetered::ProviderCheck) | Ok(())".into(),
         "jev posts unrefused | src/minimal_loop/request_pattern/mod.rs | Unmetered::RequestPattern | Other".into(),
     ];
     // Marks the audit reads, changed so that no send gets through: the rule sees each of them move.
     let marks = [
         format!("openai's wallet arm stops short | 2 | {openai_arm} | {openai_plain}"),
+        "a refused client builds one more POST | src/providers/ollama.rs |  | fn more() { http.post(url); }\n".into(),
         "lm studio builds a POST in a helper | 1 |  | fn more(&self) { self.http.request(reqwest::Method::POST, url); }\n".into(),
         "begin renamed | 1 | .begin(request) | .body_of(request)".into(),
         "the no-wallet arm as `_` | 2 | None => (\n | _ => (\n".into(),
