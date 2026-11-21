@@ -197,8 +197,7 @@ pub fn write_run_summary(path: Option<&Path>, text: &str) {
         return;
     };
     let summary = parent.join("summary.md");
-    let rendered = human_summary::render(path, &summary_body(text));
-    let content = terminal_report::scrub_summary_document(path, &rendered);
+    let content = human_summary::render(path, &summary_body(text));
     if let Err(err) = std::fs::create_dir_all(parent) {
         eprintln!("warning: failed to create run summary directory: {err}");
         return;
@@ -229,8 +228,7 @@ pub fn append_run_summary(path: Option<&Path>, text: &str) {
         format!("{}\n---\n\n{}", existing.trim_end(), content.trim())
     };
     let rendered = human_summary::render(path, &combined);
-    let document = terminal_report::scrub_summary_document(path, &rendered);
-    if let Err(err) = std::fs::write(summary, format!("{document}\n")) {
+    if let Err(err) = std::fs::write(summary, format!("{rendered}\n")) {
         eprintln!("warning: failed to append run summary: {err}");
     }
 }
