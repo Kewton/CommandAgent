@@ -851,6 +851,58 @@ mod tests {
         }
     }
 
+    /// r5 blocker 2: `append_run_summary` reads the previous `summary.md` body
+    /// back and re-renders it. A value already sitting in that body (written
+    /// before the scope, or by another writer) must be masked before the
+    /// combined document is saved, and the caller's appended text must not
+    /// revive it.
+    #[test]
+    fn an_existing_summary_body_is_masked_before_it_is_appended() {
+        crate::eval_events::summary_language::with_language_for_test(
+            crate::eval_events::summary_language::SummaryLanguage::English,
+            existing_summary_body_is_masked,
+        );
+    }
+
+    fn existing_summary_body_is_masked() {
+        let secret = "SYNTHETIC_EXISTING_BODY_SECRET_42";
+        let root = tempfile::tempdir().unwrap();
+        let path = root
+            .path()
+            .join(".commandagent/runs/existing-body/events.jsonl");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let event = json!({
+            "event": "run_stop", "ok": false, "status": "failed",
+            "stop_reason": "verification failed",
+            "next_action": "resume_or_rerun_command",
+        });
+        std::fs::write(&path, format!("{event}\n")).unwrap();
+        // A body already on disk that carries the registered value.
+        std::fs::write(
+            path.parent().unwrap().join("summary.md"),
+            format!("Status: failed\nOld detail: {secret}\n"),
+        )
+        .unwrap();
+
+        let mut catalog = crate::sensitive_data::SecretCatalog::new();
+        catalog.register(secret);
+        crate::sensitive_data::install_scope(catalog, Some(root.path()), Some(&path));
+        // Only the path scope is registered: the body must still be masked.
+        crate::sensitive_data::set_current(None);
+
+        crate::eval_events::append_run_summary(Some(&path), "TUI command failed: phase failed");
+        let summary = std::fs::read_to_string(path.parent().unwrap().join("summary.md")).unwrap();
+        assert!(!summary.contains(secret), "{summary}");
+        assert!(summary.contains("<redacted>"), "{summary}");
+        assert!(summary.contains("Old detail: <redacted>"), "{summary}");
+        assert!(
+            summary.contains("---\n\nTUI command failed: phase failed"),
+            "{summary}"
+        );
+
+        crate::sensitive_data::set_current(None);
+    }
+
     #[test]
     fn porcelain_parser_returns_destination_paths_and_handles_spaces() {
         let parsed = parse_porcelain_v1_z(

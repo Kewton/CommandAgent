@@ -222,6 +222,10 @@ pub fn append_run_summary(path: Option<&Path>, text: &str) {
     }
     let existing = std::fs::read_to_string(&summary).unwrap_or_default();
     let existing = human_summary::machine_body(&existing);
+    // The body read back from disk may predate this writer (or come from
+    // another writer), so mask it with the events-path scope before it is
+    // re-rendered; a fixed `Status:`/`Result:` value stays protected.
+    let existing = summary_body(path, &existing);
     let combined = if existing.trim().is_empty() {
         content
     } else {
