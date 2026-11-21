@@ -77,12 +77,25 @@ the file is marked. This differs from a spool write that fails: its bytes are
 never committed, so no flush copies them. A nested turn whose merge into its
 parent fails is lost whole while the parent keeps its lines and its event.
 
-Line readers are unchanged: `commandagent runs <id> --events` still fails on a
-malformed line, and the terminal report and completion snapshot still skip it.
-Read constraint: a line cut inside a multi-byte character makes the file
-invalid UTF-8, and then those readers see none of its lines, including the
-whole lines before the cut (`runs` lists the stop reason as `unknown`). This
-was already so at `fc903248`; the readers are not loosened here.
+Line readers read per line. `eval_events/event_reader.rs` splits a file into
+physical lines by its LF bytes and only then checks each line for UTF-8 and
+JSON, so a line cut inside a multi-byte character no longer hides the whole
+lines around it:
+
+- `commandagent runs <id> --events` is strict: it fails on the first line that
+  is not one JSON value, and the error names the file and that line's number.
+- The terminal report, the completion snapshot, and the lenient run inventory
+  skip only the broken line and keep the valid lines before and after it, in
+  file order. A valid line before the cut keeps its values, including a
+  recorded terminal `run_stop`; a value that appears only inside the broken
+  line is never read as one.
+
+Every entrance keeps its display masking, so a skipped line cannot surface a
+protected value and a kept line is still scrubbed. Before Issue #1059 the whole
+file was decoded as one UTF-8 string first, so a single cut hid every line,
+including the whole lines before it (`runs` listed the stop reason as
+`unknown`); the strict path still fails on a broken line, and the lenient ones
+still skip it — malformed input is not loosened.
 
 Outside this guarantee: another process appending to the same file (the GUI
 server hands its events path to the child run through

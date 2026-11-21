@@ -24,6 +24,9 @@ expect = "not_checked"
 [json_fields]
 fixtures/line-cases.json:kind = "synthetic"
 fixtures/line-cases.json:base_sha = "fc9032488f55bc0c992614d3fc3f1af1634e209f"
+fixtures/reader-line-cases.json:kind = "synthetic"
+fixtures/reader-line-cases.json:base_sha = "fc9032488f55bc0c992614d3fc3f1af1634e209f"
+fixtures/reader-line-cases.json:test = "eval_events::append_writer::tests::broken_lines_do_not_hide_or_forge_neighbouring_events"
 source-manifest.json:kind = "synthetic"
 source-manifest.json:base_sha = "fc9032488f55bc0c992614d3fc3f1af1634e209f"
 
@@ -37,4 +40,14 @@ fixtures/line-cases.json = [
   "\"id\": \"last-line-without-lf\"",
   "\"id\": \"empty-line\"",
   "\"id\": \"non-object-line\""
+]
+fixtures/reader-line-cases.json = [
+  "\"id\": \"cut-utf8-between-whole-lines\"",
+  "\"id\": \"malformed-json-between-whole-lines\"",
+  "\"id\": \"success-only-in-cut-line\"",
+  "\"id\": \"secret-stop-before-cut-line\"",
+  "\"strict_error_kind\": \"not_utf8\"",
+  "\"strict_error_kind\": \"not_json\"",
+  "\"snapshot_profile\": \"kept\"",
+  "\"inventory_stop_reason_has_secret\": true"
 ]

@@ -10,6 +10,7 @@ use crate::planner::adjudication::{
 
 pub(crate) mod append_writer;
 mod completion_render;
+pub(crate) mod event_reader;
 pub mod failure_explanation;
 mod human_summary;
 pub(crate) mod provider_turn;
@@ -475,13 +476,7 @@ pub fn latest_completion_snapshot(path: Option<&Path>) -> CompletionSnapshot {
     let Some(path) = path else {
         return CompletionSnapshot::empty();
     };
-    let Ok(text) = std::fs::read_to_string(path) else {
-        return CompletionSnapshot::empty();
-    };
-    let events = text
-        .lines()
-        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .collect::<Vec<_>>();
+    let events = event_reader::read_lenient(path);
     let diagnostics = planner_diagnostics_from_events(&events);
     let recovery_fields = latest_recovery_fields(&events);
     let persistence_fields = latest_persistence_fields(&events);
@@ -602,13 +597,7 @@ pub fn latest_tui_command_stop_ok(path: Option<&Path>) -> Option<bool> {
 
 pub fn latest_tui_command_stop_event(path: Option<&Path>) -> Option<Value> {
     let path = path?;
-    let Ok(text) = std::fs::read_to_string(path) else {
-        return None;
-    };
-    let events = text
-        .lines()
-        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .collect::<Vec<_>>();
+    let events = event_reader::read_lenient(path);
     let mut terminal = events
         .iter()
         .rev()
@@ -1547,15 +1536,7 @@ pub fn render_tui_command_incomplete_notice(
 }
 
 fn read_event_values(path: Option<&Path>) -> Vec<Value> {
-    let Some(path) = path else {
-        return Vec::new();
-    };
-    let Ok(text) = std::fs::read_to_string(path) else {
-        return Vec::new();
-    };
-    text.lines()
-        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .collect()
+    event_reader::read_lenient_opt(path)
 }
 
 fn read_run_summary(path: Option<&Path>) -> Option<String> {

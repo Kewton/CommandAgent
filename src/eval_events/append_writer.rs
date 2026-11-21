@@ -669,6 +669,9 @@ mod tests {
         include_str!("../../tests/corpus/apps/event-line-atomicity/fixtures/line-cases.json");
     const CORPUS_MANIFEST: &str =
         include_str!("../../tests/corpus/apps/event-line-atomicity/source-manifest.json");
+    const CORPUS_READER_CASES: &str = include_str!(
+        "../../tests/corpus/apps/event-line-atomicity/fixtures/reader-line-cases.json"
+    );
 
     /// Every physical line is one JSON object and the file ends with LF. Read
     /// as bytes: neither `str::lines()` nor a stream parser is used, and no
@@ -1849,11 +1852,13 @@ mod tests {
         assert_eq!(read(&path), b"");
     }
 
-    /// A read constraint, not a fix: a line cut inside a character makes the
-    /// whole file invalid UTF-8, so the existing readers stop seeing the
-    /// earlier whole line X as well. They stay as they are (Issue #987).
+    /// A line cut inside a character no longer hides the whole line X before
+    /// it. The four reader entrances are checked: the terminal report and the
+    /// completion snapshot skip the broken line and keep X, the lenient run
+    /// inventory reads X's stop reason, and the strict `runs --events` path
+    /// still fails on the broken line (Issue #1059).
     #[test]
-    fn a_line_cut_inside_a_character_hides_earlier_lines_from_existing_readers() {
+    fn a_line_cut_inside_a_character_keeps_the_earlier_lines_visible() {
         let root = tempfile::tempdir().unwrap();
         let path = root.path().join(".commandagent/runs/cut-run/events.jsonl");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -1890,8 +1895,132 @@ mod tests {
         let (terminal, profile, strict, lenient) = observe();
         assert_eq!(
             (terminal, profile.as_str(), lenient.as_str()),
-            (0, "", "unknown")
+            (1, "generic", "fixture_reason_987")
         );
-        assert!(strict.unwrap_err().contains("failed to read run events"));
+        let strict = strict.unwrap_err();
+        assert!(strict.contains("failed to parse run event"), "{strict}");
+        assert!(strict.contains(":2:"), "{strict}");
+        assert!(strict.contains("not valid UTF-8"), "{strict}");
+    }
+
+    /// The synthetic contracts for the reader: with a broken line between two
+    /// whole lines, the lenient entrances keep the neighbours in order and by
+    /// value, and the strict entrance names the file and the line. The broken
+    /// line holds a short key/value pair, a multi-byte value, a marker-like
+    /// value and an identifier-like value, and in one case the only success and
+    /// terminal values; neither leaks nor forges evidence (Issue #1059).
+    #[test]
+    fn broken_lines_do_not_hide_or_forge_neighbouring_events() {
+        let corpus: Value = serde_json::from_str(CORPUS_READER_CASES).unwrap();
+        assert_eq!(corpus["kind"], "synthetic");
+        let tokens = &corpus["broken_line_tokens"];
+        let multibyte = tokens["multibyte"].as_str().unwrap();
+        let marker = tokens["marker_like"].as_str().unwrap();
+        let canary = tokens["identifier_like"].as_str().unwrap();
+        let secret = tokens["secret"].as_str().unwrap();
+        let short_pair = format!(
+            "\"{}\":\"{}\"",
+            tokens["short_key"].as_str().unwrap(),
+            tokens["short_value"].as_str().unwrap()
+        );
+
+        for case in corpus["cases"].as_array().unwrap() {
+            let id = case["id"].as_str().unwrap();
+            let root = tempfile::tempdir().unwrap();
+            let path = root
+                .path()
+                .join(".commandagent/runs")
+                .join(id)
+                .join("events.jsonl");
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, hex_bytes(case["bytes_hex"].as_str().unwrap())).unwrap();
+            let broken_line = case["broken_line"].as_u64().unwrap();
+
+            let lenient = crate::eval_events::terminal_report::read_events(Some(&path));
+            let ids = lenient
+                .iter()
+                .map(|event| event["id"].as_str().unwrap().to_string())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                ids,
+                json_strings(&case["lenient_event_ids"]),
+                "{id}: whole neighbours lost or reordered"
+            );
+            let rendered = serde_json::to_string(&lenient).unwrap();
+            assert!(!rendered.contains(&short_pair), "{id}: {rendered}");
+            assert!(!rendered.contains(multibyte), "{id}: {rendered}");
+            assert!(!rendered.contains(marker), "{id}: {rendered}");
+            assert!(!rendered.contains(canary), "{id}: {rendered}");
+
+            let snapshot = crate::eval_events::latest_completion_snapshot(Some(&path));
+            assert_eq!(snapshot.profile, case["snapshot_profile"], "{id}");
+            assert_eq!(
+                snapshot.prompt_layout, case["snapshot_prompt_layout"],
+                "{id}"
+            );
+            assert_eq!(
+                snapshot.final_acceptance_status, case["snapshot_final_acceptance"],
+                "{id}"
+            );
+
+            let strict = crate::eval_events::event_reader::read_strict(&path)
+                .unwrap_err()
+                .to_string();
+            assert!(
+                strict.contains(&path.display().to_string()),
+                "{id}: {strict}"
+            );
+            assert!(
+                strict.contains(&format!(":{broken_line}:")),
+                "{id}: {strict}"
+            );
+            match case["strict_error_kind"].as_str().unwrap() {
+                "not_utf8" => assert!(strict.contains("not valid UTF-8"), "{id}: {strict}"),
+                "not_json" => assert!(strict.contains("not valid JSON"), "{id}: {strict}"),
+                other => panic!("{id}: unknown strict error kind {other}"),
+            }
+            assert!(!strict.contains(multibyte), "{id}: {strict}");
+            assert!(!strict.contains(canary), "{id}: {strict}");
+            assert!(!strict.contains(secret), "{id}: {strict}");
+
+            let request = crate::config::RunsRequest {
+                id: Some(id.to_string()),
+                events: true,
+                ..crate::config::RunsRequest::default()
+            };
+            let strict = crate::runs::render_runs_request(root.path(), &request)
+                .unwrap_err()
+                .to_string();
+            assert!(
+                strict.contains("failed to parse run event"),
+                "{id}: {strict}"
+            );
+            assert!(
+                strict.contains(&format!(":{broken_line}:")),
+                "{id}: {strict}"
+            );
+
+            let items = crate::runs::recent_runs(root.path(), 5);
+            assert_eq!(items.len(), 1, "{id}");
+            assert_eq!(items[0].status, case["inventory_status"], "{id}");
+
+            let mut catalog = crate::sensitive_data::SecretCatalog::new();
+            catalog.register(secret);
+            crate::sensitive_data::install_scope(catalog, Some(root.path()), Some(&path));
+            if case["inventory_stop_reason_has_secret"].as_bool().unwrap() {
+                let table = crate::runs::render_runs_table(root.path());
+                assert!(table.contains("redacted"), "{id}: {table}");
+                assert!(!table.contains(secret), "{id}: {table}");
+            }
+            crate::sensitive_data::reset_scopes_for_tests();
+        }
+    }
+
+    fn hex_bytes(text: &str) -> Vec<u8> {
+        assert_eq!(text.len() % 2, 0, "odd hex length");
+        (0..text.len())
+            .step_by(2)
+            .map(|index| u8::from_str_radix(&text[index..index + 2], 16).unwrap())
+            .collect()
     }
 }

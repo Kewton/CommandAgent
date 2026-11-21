@@ -128,14 +128,11 @@ pub(crate) fn project(
     }
 }
 
+/// Every line that is one JSON value, in file order. A line cut inside a
+/// multi-byte character or otherwise malformed is skipped on its own; the whole
+/// lines around it are still returned.
 pub(crate) fn read_events(path: Option<&Path>) -> Vec<Value> {
-    path.and_then(|path| std::fs::read_to_string(path).ok())
-        .map(|text| {
-            text.lines()
-                .filter_map(|line| serde_json::from_str(line).ok())
-                .collect()
-        })
-        .unwrap_or_default()
+    super::event_reader::read_lenient_opt(path)
 }
 
 fn latest_terminal(events: &[Value]) -> Option<&Value> {
