@@ -126,18 +126,26 @@ fn render_gate_one_for_surface(
         u16::from(identity.recovery_plan_auto_runs) + 1
     ));
     render_pack(identity, pack_locator, &mut lines)?;
-    let candidates = pack_catalog::compatible(&identity.profile, &identity.intent);
-    lines.push(if candidates.is_empty() {
+    // Read the alternatives through the same locator as the selection, so the
+    // list here names the supply sources and hashes a card can actually choose.
+    let candidates = pack_locator.selectable(&identity.profile, &identity.intent);
+    let alternatives = candidates
+        .iter()
+        .filter(|pack| match &identity.pack {
+            PackSelection::Pinned { id, version, .. } => pack.id != *id || pack.version != *version,
+            PackSelection::None => true,
+        })
+        .map(|pack| {
+            format!(
+                "{}@{} / {} / {}",
+                pack.id, pack.version, pack.hash, pack.source
+            )
+        })
+        .collect::<Vec<_>>();
+    lines.push(if alternatives.is_empty() {
         "- ほかに利用可能な検証パック: なし".to_string()
     } else {
-        format!(
-            "- ほかに利用可能な検証パック: {}",
-            candidates
-                .iter()
-                .map(|pack| format!("{}@{} / {}", pack.id, pack.version, pack.hash))
-                .collect::<Vec<_>>()
-                .join("; ")
-        )
+        format!("- ほかに利用可能な検証パック: {}", alternatives.join("; "))
     });
     lines.extend([
         String::new(),
@@ -257,7 +265,28 @@ pub fn render_gate_three(
     identity: &ConfirmationIdentity,
     terminal: &TerminalPresentation,
 ) -> anyhow::Result<String> {
-    validate_terminal_identity(identity, terminal)?;
+    render_gate_three_with(identity, terminal, validate_terminal_identity)
+}
+
+/// [`render_gate_three`] whose identity is validated through a locator, for a
+/// REPL or GUI that reads a local or repository pack. The admitted-only
+/// [`render_gate_three`] stays for callers with no operator root.
+pub fn render_gate_three_with_locator(
+    identity: &ConfirmationIdentity,
+    terminal: &TerminalPresentation,
+    locator: &PackLocator,
+) -> anyhow::Result<String> {
+    render_gate_three_with(identity, terminal, |identity, terminal| {
+        validate_terminal_identity_with_locator(identity, terminal, locator)
+    })
+}
+
+fn render_gate_three_with(
+    identity: &ConfirmationIdentity,
+    terminal: &TerminalPresentation,
+    validate: impl Fn(&ConfirmationIdentity, &TerminalPresentation) -> anyhow::Result<()>,
+) -> anyhow::Result<String> {
+    validate(identity, terminal)?;
     if !terminal.full {
         bail!("non-full terminals must use Gate 4");
     }
@@ -272,7 +301,29 @@ pub fn render_gate_four(
     terminal: &TerminalPresentation,
     actions: &[(NextAction, bool, &str)],
 ) -> anyhow::Result<String> {
-    validate_terminal_identity(identity, terminal)?;
+    render_gate_four_with(identity, terminal, actions, validate_terminal_identity)
+}
+
+/// [`render_gate_four`] whose identity is validated through a locator, for a
+/// REPL or GUI that reads a local or repository pack.
+pub fn render_gate_four_with_locator(
+    identity: &ConfirmationIdentity,
+    terminal: &TerminalPresentation,
+    actions: &[(NextAction, bool, &str)],
+    locator: &PackLocator,
+) -> anyhow::Result<String> {
+    render_gate_four_with(identity, terminal, actions, |identity, terminal| {
+        validate_terminal_identity_with_locator(identity, terminal, locator)
+    })
+}
+
+fn render_gate_four_with(
+    identity: &ConfirmationIdentity,
+    terminal: &TerminalPresentation,
+    actions: &[(NextAction, bool, &str)],
+    validate: impl Fn(&ConfirmationIdentity, &TerminalPresentation) -> anyhow::Result<()>,
+) -> anyhow::Result<String> {
+    validate(identity, terminal)?;
     if terminal.full {
         bail!("full terminals must use Gate 3");
     }
@@ -539,6 +590,22 @@ fn validate_terminal_identity(
     terminal: &TerminalPresentation,
 ) -> anyhow::Result<()> {
     validate_complete_identity(identity)?;
+    if identity.card_hash()? != terminal.card_hash {
+        bail!("terminal sheet identity differs from the confirmed Gate 1 card");
+    }
+    Ok(())
+}
+
+/// The terminal identity check through a locator, so a rightly confirmed local
+/// or repository pack renders its Gate 3/Gate 4 terminal instead of failing an
+/// admitted-only check (Issue #1057). The persisted confirmation identity is
+/// still compared byte for byte with the terminal's card hash.
+fn validate_terminal_identity_with_locator(
+    identity: &ConfirmationIdentity,
+    terminal: &TerminalPresentation,
+    locator: &PackLocator,
+) -> anyhow::Result<()> {
+    validate_complete_identity_with_locator(identity, locator)?;
     if identity.card_hash()? != terminal.card_hash {
         bail!("terminal sheet identity differs from the confirmed Gate 1 card");
     }

@@ -9,13 +9,14 @@ use serde_json::json;
 
 use crate::config::{Action, Config};
 use crate::tui::markdown::PlainRenderer;
+use crate::tui::repl::pack_selection::ReplPackContext;
 use crate::tui::{OutputRenderer, TerminalUi};
 use crate::{doctor, eval_events, minimal_loop, model_probe, planner, providers, repl, state, tui};
 
-/// Runs the direct action selected in `config`.
-pub(crate) fn run(config: &Config) -> anyhow::Result<()> {
+/// Runs the direct action selected in `config`; `repl_pack` is what a REPL start resolved.
+pub(crate) fn run(config: &Config, repl_pack: Option<ReplPackContext>) -> anyhow::Result<()> {
     match config.action.clone() {
-        Action::Repl => repl::run_repl(config.clone()),
+        Action::Repl => repl::run_repl_with_pack_context(config.clone(), repl_pack),
         Action::Prompt(prompt)
             if config.profile == planner::profiles::community_mini_app::PROFILE_ID
                 && config.offline =>

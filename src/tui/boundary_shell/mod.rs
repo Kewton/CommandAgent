@@ -286,10 +286,39 @@ impl BoundaryShell {
         previous: &ConfirmationIdentity,
         pack: PackSelection,
     ) -> anyhow::Result<&ConfirmationIdentity> {
+        self.begin_pack_change_inner(previous, pack, None)
+    }
+
+    /// [`Self::begin_pack_change`] for a REPL or GUI that reads packs from more
+    /// than the admitted catalog: the selection is validated against the exact
+    /// bytes the same locator sees, not only against the admitted tuple.
+    pub fn begin_pack_change_with_locator(
+        &mut self,
+        previous: &ConfirmationIdentity,
+        pack: PackSelection,
+        locator: &PackLocator,
+    ) -> anyhow::Result<&ConfirmationIdentity> {
+        self.begin_pack_change_inner(previous, pack, Some(locator))
+    }
+
+    fn begin_pack_change_inner(
+        &mut self,
+        previous: &ConfirmationIdentity,
+        pack: PackSelection,
+        locator: Option<&PackLocator>,
+    ) -> anyhow::Result<&ConfirmationIdentity> {
         if !matches!(self.state, BoundaryState::FailureReady(_)) {
             bail!("pack changes are available only at Gate 4");
         }
-        pack_catalog::validate_selection(&previous.profile, &previous.intent, &pack)?;
+        match locator {
+            Some(locator) => pack_catalog::validate_selection_with_locator(
+                &previous.profile,
+                &previous.intent,
+                &pack,
+                locator,
+            )?,
+            None => pack_catalog::validate_selection(&previous.profile, &previous.intent, &pack)?,
+        }
         self.select_next_action(NextAction::PackChange)?;
         let mut identity = previous.clone();
         identity.pack = pack;
@@ -318,6 +347,19 @@ impl BoundaryShell {
     }
 
     pub fn confirm(&mut self, card_hash: &str) -> anyhow::Result<&ConfirmedDispatch> {
+        self.confirm_with_validation(card_hash, |_| Ok(()))
+    }
+
+    /// [`Self::confirm`], after revalidating the exact pack the card froze.
+    /// `revalidate` runs before any confirmation record, `route_confirmed`
+    /// event, or state change exists, so a pack that changed or moved since the
+    /// card was shown is refused with its reason and nothing is recorded; the
+    /// caller can show it and keep reading input (Issue #1057).
+    pub fn confirm_with_validation(
+        &mut self,
+        card_hash: &str,
+        revalidate: impl FnOnce(&ConfirmationIdentity) -> anyhow::Result<()>,
+    ) -> anyhow::Result<&ConfirmedDispatch> {
         let BoundaryState::AwaitingConfirmation {
             identity,
             card_hash: expected_hash,
@@ -328,6 +370,7 @@ impl BoundaryShell {
         if card_hash != expected_hash {
             bail!("confirmation card identity changed; render Gate 1 again");
         }
+        revalidate(identity)?;
         let confirmed =
             confirmation::persist_confirmation(&self.confirmation_root, identity, expected_hash)?;
         crate::eval_events::emit(
