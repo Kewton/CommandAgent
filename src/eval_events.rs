@@ -197,7 +197,8 @@ pub fn write_run_summary(path: Option<&Path>, text: &str) {
         return;
     };
     let summary = parent.join("summary.md");
-    let content = human_summary::render(path, &summary_body(text));
+    let rendered = human_summary::render(path, &summary_body(text));
+    let content = scrub_summary_document(path, &rendered);
     if let Err(err) = std::fs::create_dir_all(parent) {
         eprintln!("warning: failed to create run summary directory: {err}");
         return;
@@ -227,10 +228,24 @@ pub fn append_run_summary(path: Option<&Path>, text: &str) {
     } else {
         format!("{}\n---\n\n{}", existing.trim_end(), content.trim())
     };
-    let document = human_summary::render(path, &combined);
+    let rendered = human_summary::render(path, &combined);
+    let document = scrub_summary_document(path, &rendered);
     if let Err(err) = std::fs::write(summary, format!("{document}\n")) {
         eprintln!("warning: failed to append run summary: {err}");
     }
+}
+
+/// Scrub a rendered summary with the run scope registered for its events path
+/// before it is saved. `human_summary` renders free text the terminal report
+/// projects from the events file (`Next action`, `Stop reason`, and the other
+/// projected fields) ahead of the caller's body, so that text never passes
+/// through `summary_body`'s scrub. Applying the same exact-value scrub to the
+/// whole document closes that gap; it is idempotent for the already-scrubbed
+/// body, and a missing scope leaves the document unchanged.
+fn scrub_summary_document(path: &Path, document: &str) -> String {
+    crate::sensitive_data::active_for(Some(path))
+        .map(|context| context.scrub_text(document))
+        .unwrap_or_else(|| document.to_string())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

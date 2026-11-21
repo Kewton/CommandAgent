@@ -469,6 +469,73 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    /// The review of Issue #1059: once a broken line no longer hides the whole
+    /// line before it, the terminal report projects that line's free text
+    /// (`Next action`, `Stop reason`) ahead of the caller's body, past
+    /// `summary_body`'s scrub. Both summary writers must scrub the rendered
+    /// document with the events path's scope, so a registered value that only
+    /// the kept line holds never reaches `summary.md`, while the fixed status
+    /// and the ordinary event fields still render.
+    #[test]
+    fn a_projected_next_action_is_scrubbed_before_the_summary_is_saved() {
+        crate::eval_events::summary_language::with_language_for_test(
+            crate::eval_events::summary_language::SummaryLanguage::English,
+            projected_next_action_summary,
+        );
+    }
+
+    fn projected_next_action_summary() {
+        let secret = "SYNTHETIC_NEXT_ACTION_SECRET_42";
+        let root = tempfile::tempdir().unwrap();
+        let path = root
+            .path()
+            .join(".commandagent/runs/review-run/events.jsonl");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let failed = json!({
+            "event": "run_stop", "ok": false, "status": "failed",
+            "stop_reason": format!("verification failed ({secret})"),
+            "next_action": format!("resume_with {secret}"),
+        });
+        let mut bytes = serde_json::to_vec(&failed).unwrap();
+        bytes.push(b'\n');
+        // Line 2 is cut inside a multi-byte character and holds no secret.
+        bytes.extend_from_slice(b"{\"event\":\"fixture\",\"text\":\"\xE8\xA9\"}\n");
+        std::fs::write(&path, &bytes).unwrap();
+
+        let mut catalog = crate::sensitive_data::SecretCatalog::new();
+        catalog.register_credential("review_token", secret).unwrap();
+        crate::sensitive_data::install_scope(catalog, Some(root.path()), Some(&path));
+
+        crate::eval_events::write_run_summary(
+            Some(&path),
+            "Status: failed\nCompleted phases:\n- scaffold",
+        );
+        let summary = std::fs::read_to_string(path.parent().unwrap().join("summary.md")).unwrap();
+        assert!(!summary.contains(secret), "{summary}");
+        assert!(summary.contains("<redacted>"), "{summary}");
+        assert!(summary.contains("- Result: failed"), "{summary}");
+        assert!(
+            summary.contains("- Stop reason: verification failed"),
+            "{summary}"
+        );
+
+        crate::eval_events::append_run_summary(Some(&path), "TUI command failed: phase failed");
+        let summary = std::fs::read_to_string(path.parent().unwrap().join("summary.md")).unwrap();
+        assert!(!summary.contains(secret), "{summary}");
+        assert!(summary.contains("<redacted>"), "{summary}");
+        assert!(summary.contains("- Result: failed"), "{summary}");
+        assert!(
+            summary.contains("---\n\nTUI command failed: phase failed"),
+            "{summary}"
+        );
+        assert!(summary.contains("- scaffold"), "{summary}");
+
+        // Only this test's scope is restored: drop its thread-local scope and
+        // leave unregistered keys untouched, because `reset_scopes_for_tests`
+        // would clear scopes other lib tests registered in this process.
+        crate::sensitive_data::set_current(None);
+    }
+
     #[test]
     fn porcelain_parser_returns_destination_paths_and_handles_spaces() {
         let parsed = parse_porcelain_v1_z(
