@@ -1286,11 +1286,15 @@ fn present_and_record_terminal(
         Err(error) => render_terminal_after_pack_change(identity, terminal, &error),
     };
     let gate = if terminal.full { "Gate 3" } else { "Gate 4" };
-    crate::tui::boundary_shell::transcript::append(
-        &config.state_dir,
-        gate,
-        &format!("{rendered}\n\nSheet path: {}", sheet_path.display()),
-    )?;
+    // The transcript is saved outside any later display boundary, so the sheet
+    // path line is masked with the run's registered scope here, as every other
+    // reason is. A `--state-dir` can contain a registered value, and the path
+    // must not be persisted raw (Issue #1057 r3).
+    let body = crate::sensitive_data::scrub_everything(&format!(
+        "{rendered}\n\nSheet path: {}",
+        sheet_path.display()
+    ));
+    crate::tui::boundary_shell::transcript::append(&config.state_dir, gate, &body)?;
     Ok(rendered)
 }
 
@@ -3695,6 +3699,96 @@ mod tests {
             "the stop event changed"
         );
         assert!(sheet_path.exists(), "the sheet was removed");
+    }
+
+    /// Blocker (r3): the transcript's `Sheet path:` line must be masked with the
+    /// run's registered scope, exactly as the reason text is, for a normal run
+    /// and a revalidation-failing run alike. A `--state-dir` that contains a
+    /// registered value must not persist it through the sheet path.
+    #[test]
+    fn a_sheet_path_in_the_transcript_is_masked_for_normal_and_failing_runs() {
+        use crate::sensitive_data::{SecretCatalog, install_scope, reset_scopes_for_tests};
+
+        const CANARY: &str = "PACK_CANARY_r3_sheet_7a4";
+        let temp = tempfile::tempdir().unwrap();
+        let workspace = temp.path().join("workspace");
+        let extension = temp.path().join("extension");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let bytes = pack_selection::tests::assist("canary-pack", "1.0.0", "runtime-sheet");
+        let hash = pack_selection::tests::write_pack(&extension, "canary-pack", "1.0.0", &bytes);
+
+        let mut config = Config::from_cli(crate::cli::Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            workspace.to_str().unwrap(),
+            "--profile",
+            "python-cli",
+            "--intent",
+            "create",
+        ]))
+        .unwrap();
+        // The state dir (and so the persisted sheet path) contains the value.
+        config.state_dir = temp.path().join(format!("state-{CANARY}"));
+        let context =
+            pack_selection::ReplPackContext::new(workspace.clone(), Some(extension.clone()));
+
+        let selection = crate::tui::boundary_shell::confirmation::PackSelection::Pinned {
+            id: "canary-pack".to_string(),
+            version: "1.0.0".to_string(),
+            hash,
+            point: "cli-validation".to_string(),
+            source: crate::planner::pack::catalog::PackSource::Local,
+        };
+        let identity = selection_identity_for(&workspace, Some(&extension), &selection);
+        let terminal = terminal_for(&identity, false);
+        let generated = crate::tui::boundary_shell::sheet::GeneratedSheet {
+            markdown: "# sheet".to_string(),
+            full: false,
+            section5: Some("failed".to_string()),
+        };
+        let sheet_path =
+            crate::tui::boundary_shell::sheet::persist(&config.state_dir, &identity, &generated)
+                .unwrap();
+        assert!(
+            sheet_path.display().to_string().contains(CANARY),
+            "the fixture does not put the value in the sheet path"
+        );
+
+        reset_scopes_for_tests();
+        let mut catalog = SecretCatalog::new();
+        catalog
+            .register_credential("SYNTHETIC_KEY", CANARY)
+            .unwrap();
+        let _scope = install_scope(catalog, Some(&workspace), None);
+
+        // A normal run: the pack is readable, so the terminal renders.
+        let normal =
+            present_and_record_terminal(&config, &identity, &terminal, &context, &sheet_path)
+                .unwrap();
+        // A revalidation-failing run: the pack moves during the run.
+        std::fs::rename(
+            extension.join("canary-pack"),
+            extension.join("canary-pack-moved"),
+        )
+        .unwrap();
+        let failing =
+            present_and_record_terminal(&config, &identity, &terminal, &context, &sheet_path)
+                .unwrap();
+        reset_scopes_for_tests();
+
+        let transcript =
+            std::fs::read_to_string(config.state_dir.join("boundary-transcript.md")).unwrap();
+        // Both terminals are recorded, each with a `Sheet path:` line.
+        assert_eq!(transcript.matches("## Gate 4").count(), 2, "{transcript}");
+        assert_eq!(transcript.matches("Sheet path:").count(), 2, "{transcript}");
+        assert!(transcript.contains("<redacted>"), "{transcript}");
+        // The value never reaches the transcript or the terminal.
+        assert!(
+            !transcript.contains(CANARY),
+            "the sheet path leaked into the transcript: {transcript}"
+        );
+        assert!(!normal.contains(CANARY), "{normal}");
+        assert!(!failing.contains(CANARY), "{failing}");
     }
 
     /// The confirmed identity of `pack` for the python-cli filter route, as the
