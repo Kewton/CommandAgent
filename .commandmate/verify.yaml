@@ -50,7 +50,7 @@ gates:
     command: "npm ci --ignore-scripts --include=dev --prefix tests/nextjs_domain && python3 -m pytest tests/test_nextjs_domain_oracle.py -q"
     timeoutSec: 900
 options:
-  baseRef: origin/develop
+  baseRef: develop
   skipInPrimaryCheckout: true
   maxLogTailBytes: 8192
   requireCommit: false
