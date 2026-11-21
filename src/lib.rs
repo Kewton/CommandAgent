@@ -2235,10 +2235,11 @@ mod tests {
         }
     }
 
-    /// Issue #1062: a run whose measured time is 0 ms records the `time_profile` line too, right
-    /// after the stop, on success, failure and interruption. The clock is the recorded 0 ms.
+    /// Issue #1062: the direct CLI's terminal writer records the same event sequence at 0 ms and
+    /// at a positive total: exactly one `time_profile` right after the stop, on success, failure
+    /// and interruption. Only the measured value differs; an unobserved value stays null.
     #[test]
-    fn a_zero_millisecond_direct_run_records_time_profile_right_after_each_stop() {
+    fn a_direct_run_records_the_same_event_sequence_at_0_and_7_ms_after_each_stop() {
         for (status, result) in [
             (DirectCommandStatus::Completed, Ok(())),
             (
@@ -2250,46 +2251,70 @@ mod tests {
                 Err(anyhow::anyhow!("interrupted by user")),
             ),
         ] {
-            let dir = tempfile::tempdir().unwrap();
-            let events = dir.path().join(".anvil/runs/test-run/events.jsonl");
-            std::fs::create_dir_all(events.parent().unwrap()).unwrap();
-            let mut cfg = config(dir.path().to_path_buf());
-            cfg.eval_events_path = Some(events.clone());
-            eval_events::emit(
-                cfg.eval_events_path.as_deref(),
-                json!({
-                    "event": "provider_turn_duration",
-                    "caller_scope": "executor",
-                    "duration_ms": 0,
-                }),
-            );
+            let mut sequences: Vec<Vec<String>> = Vec::new();
+            for duration_ms in [0_u64, 7] {
+                let dir = tempfile::tempdir().unwrap();
+                let events = dir.path().join(".anvil/runs/test-run/events.jsonl");
+                std::fs::create_dir_all(events.parent().unwrap()).unwrap();
+                let mut cfg = config(dir.path().to_path_buf());
+                cfg.eval_events_path = Some(events.clone());
+                eval_events::emit(
+                    cfg.eval_events_path.as_deref(),
+                    json!({
+                        "event": "provider_turn_duration",
+                        "caller_scope": "executor",
+                        "duration_ms": duration_ms,
+                    }),
+                );
 
-            emit_direct_command_stop_with_status(&cfg, "--prompt", &result, status);
+                emit_direct_command_stop_with_status(&cfg, "--prompt", &result, status);
 
-            let recorded: Vec<Value> = std::fs::read_to_string(&events)
-                .unwrap()
-                .lines()
-                .map(|line| serde_json::from_str(line).unwrap())
-                .collect();
-            let names: Vec<&str> = recorded
-                .iter()
-                .map(|event| event["event"].as_str().unwrap())
-                .collect();
-            let stop = names
-                .iter()
-                .position(|name| *name == "tui_command_stop")
-                .unwrap();
-            assert_eq!(names[stop + 1], "time_profile", "{status:?}: {names:?}");
+                let recorded: Vec<Value> = std::fs::read_to_string(&events)
+                    .unwrap()
+                    .lines()
+                    .map(|line| serde_json::from_str(line).unwrap())
+                    .collect();
+                let names: Vec<String> = recorded
+                    .iter()
+                    .map(|event| event["event"].as_str().unwrap().to_string())
+                    .collect();
+                let stop = names
+                    .iter()
+                    .position(|name| name == "tui_command_stop")
+                    .unwrap();
+                assert_eq!(
+                    names[stop + 1],
+                    "time_profile",
+                    "{status:?} at {duration_ms} ms: {names:?}"
+                );
+                assert_eq!(
+                    names.iter().filter(|name| *name == "time_profile").count(),
+                    1,
+                    "{status:?} at {duration_ms} ms: {names:?}"
+                );
+                let profile = &recorded[stop + 1];
+                assert_eq!(profile["lifecycle_stage"], "direct_cli_command");
+                assert_eq!(profile["command"], "--prompt");
+                assert_eq!(profile["profile"]["total_ms"], duration_ms);
+                for key in [
+                    "provider_prompt_eval_duration",
+                    "provider_eval_duration",
+                    "provider_load_duration",
+                    "provider_total_duration",
+                    "prompt_eval_count",
+                    "eval_count",
+                ] {
+                    assert!(
+                        profile["profile"][key].is_null(),
+                        "{status:?} at {duration_ms} ms: {key} is not null"
+                    );
+                }
+                sequences.push(names);
+            }
             assert_eq!(
-                names.iter().filter(|name| **name == "time_profile").count(),
-                1,
-                "{status:?}: {names:?}"
+                sequences[0], sequences[1],
+                "{status:?}: the event sequence changed with the measured total"
             );
-            let profile = &recorded[stop + 1];
-            assert_eq!(profile["lifecycle_stage"], "direct_cli_command");
-            assert_eq!(profile["command"], "--prompt");
-            assert_eq!(profile["profile"]["total_ms"], 0);
-            assert!(profile["profile"]["provider_prompt_eval_duration"].is_null());
         }
     }
 
