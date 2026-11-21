@@ -275,6 +275,37 @@ impl PackLocator {
         expected_hash: Option<&str>,
     ) -> anyhow::Result<LocatedPack> {
         let directory = self.locate(source, id, version)?;
+        self.verify_at(source, &directory, id, version, expected_hash)
+            .with_context(|| format!("locate {source} pack `{id}@{version}`"))
+    }
+
+    /// Verify one already-frozen directory, instead of re-searching where
+    /// `id@version` now lives. A card selects a directory and keeps it; a later
+    /// re-search that fell back to the `packs/` compatibility layout, or that
+    /// found another directory with the same bytes, is not the pack that was
+    /// shown (Issue #1057).
+    pub fn locate_pinned_at(
+        &self,
+        source: PackSource,
+        directory: &Path,
+        id: &str,
+        version: &str,
+        expected_hash: Option<&str>,
+    ) -> anyhow::Result<LocatedPack> {
+        if self.locate(source, id, version)? != directory {
+            bail!("pack `{id}@{version}` no longer resolves to the confirmed directory in {source}")
+        }
+        self.verify_at(source, directory, id, version, expected_hash)
+    }
+
+    fn verify_at(
+        &self,
+        source: PackSource,
+        directory: &Path,
+        id: &str,
+        version: &str,
+        expected_hash: Option<&str>,
+    ) -> anyhow::Result<LocatedPack> {
         let root = match source {
             PackSource::Local => self
                 .extension_root
@@ -285,9 +316,8 @@ impl PackLocator {
         // A local pack may sit directly under the root as well as under `packs/`,
         // so the chain is checked from whichever root this directory resolved
         // under, never only from the `packs/` layout.
-        validate_resolved_chain(root, &directory)
-            .with_context(|| format!("locate {source} pack `{id}@{version}`"))?;
-        let loaded = super::load_directory(&directory)
+        validate_resolved_chain(root, directory)?;
+        let loaded = super::load_directory(directory)
             .with_context(|| format!("load {source} pack {}", directory.display()))?;
         if loaded.id() != id || loaded.identity.version != version {
             bail!(
@@ -365,7 +395,7 @@ impl PackLocator {
             profile: loaded.identity.profile.as_str().to_string(),
             intent: loaded.identity.intent.as_str().to_string(),
             point,
-            directory,
+            directory: directory.to_path_buf(),
             source: resolved_source,
             shadowed_repository: source == PackSource::Local
                 && self

@@ -183,7 +183,9 @@ pub fn run_with_provider_options(
             eprintln!("warning: {warning}");
         }
     }
-    let pack = resolved_pack?;
+    // A startup refusal is displayed before any display boundary exists, so it
+    // is masked with the accepted config's registered scope here (Issue #1057).
+    let pack = resolved_pack.map_err(cli_argument_error)?;
     // The REPL reads its Gate 1 and Gate 4 packs from the same roots its
     // `--pack` resolved from (Issue #1057). Hand it the resolved startup pack
     // before the guard installs it, so the REPL keeps one pack held for its life.

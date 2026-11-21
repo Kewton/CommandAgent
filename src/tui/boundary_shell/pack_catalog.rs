@@ -102,8 +102,8 @@ pub fn validate_selection_with_locator(
         id,
         version,
         hash,
-        point,
         source,
+        ..
     } = selection
     else {
         return Ok(());
@@ -112,6 +112,28 @@ pub fn validate_selection_with_locator(
         return validate_selection(profile, intent, selection);
     }
     let located = locator.locate_pinned_from(*source, id, version, Some(hash))?;
+    validate_located_selection(profile, intent, selection, &located)
+}
+
+/// The profile, intent, and injection-point checks a confirmation makes against
+/// one already-verified located pack. Shared by the re-searching validator and
+/// the frozen-directory validator so both apply the same rules.
+pub fn validate_located_selection(
+    profile: &str,
+    intent: &str,
+    selection: &PackSelection,
+    located: &crate::planner::pack::catalog::LocatedPack,
+) -> anyhow::Result<()> {
+    let PackSelection::Pinned {
+        id,
+        version,
+        point,
+        source,
+        ..
+    } = selection
+    else {
+        return Ok(());
+    };
     if located.source != *source {
         bail!(
             "pack `{id}@{version}` resolved as {}, not confirmed source {source}",

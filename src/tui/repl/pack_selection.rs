@@ -7,7 +7,7 @@
 //! and the same rules as the CLI, and a pack the roots cannot read is refused
 //! with a reason that never quotes the pack's bytes.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::bail;
 
@@ -93,6 +93,67 @@ impl ReplPackContext {
             intent,
             selection,
             &self.locator,
+        )
+    }
+
+    /// Select a pack for a Gate 1 card, returning the selection and the exact
+    /// directory that answered for it. Freezing the directory is what later
+    /// refuses a confirmation when the same selector has moved to another
+    /// directory (for example the `packs/` compatible layout) or its bytes
+    /// changed since the card was shown (Issue #1057).
+    pub(crate) fn select_frozen(
+        &self,
+        profile: &str,
+        intent: &str,
+        selector: &str,
+    ) -> anyhow::Result<(PackSelection, PathBuf)> {
+        let selection = self.select(profile, intent, selector)?;
+        let directory = self.frozen_directory(&selection)?;
+        Ok((selection, directory))
+    }
+
+    /// The exact directory a pinned selection resolves to under these roots.
+    pub(crate) fn frozen_directory(&self, selection: &PackSelection) -> anyhow::Result<PathBuf> {
+        let PackSelection::Pinned {
+            id,
+            version,
+            source,
+            ..
+        } = selection
+        else {
+            return Ok(PathBuf::new());
+        };
+        self.locator.locate(*source, id, version)
+    }
+
+    /// Revalidate the pack a Gate 1 card froze, before its confirmation is
+    /// recorded. The exact directory that answered for the selector is checked
+    /// again, never re-searched, so a selector that moved to another directory
+    /// with the same bytes is refused. An admitted selection keeps the admitted
+    /// catalog rule.
+    pub(crate) fn revalidate_frozen(
+        &self,
+        profile: &str,
+        intent: &str,
+        selection: &PackSelection,
+        directory: &Path,
+    ) -> anyhow::Result<()> {
+        let PackSelection::Pinned { hash, source, .. } = selection else {
+            return Ok(());
+        };
+        if *source == PackSource::Admitted {
+            return crate::tui::boundary_shell::pack_catalog::validate_selection(
+                profile, intent, selection,
+            );
+        }
+        let PackSelection::Pinned { id, version, .. } = selection else {
+            return Ok(());
+        };
+        let located = self
+            .locator
+            .locate_pinned_at(*source, directory, id, version, Some(hash))?;
+        crate::tui::boundary_shell::pack_catalog::validate_located_selection(
+            profile, intent, selection, &located,
         )
     }
 
@@ -493,7 +554,7 @@ pub(crate) mod tests {
         let error = locator
             .locate_pinned("canary-pack", "1.0.0", None)
             .unwrap_err();
-        let reason = error.to_string();
+        let reason = format!("{error:#}");
         assert!(reason.contains("pin mismatch"), "{reason}");
         assert!(!reason.contains("PACK_CANARY_27"), "{reason}");
         assert!(!reason.contains("workspace-fallback"), "{reason}");

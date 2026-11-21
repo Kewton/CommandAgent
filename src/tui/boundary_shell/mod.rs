@@ -347,6 +347,19 @@ impl BoundaryShell {
     }
 
     pub fn confirm(&mut self, card_hash: &str) -> anyhow::Result<&ConfirmedDispatch> {
+        self.confirm_with_validation(card_hash, |_| Ok(()))
+    }
+
+    /// [`Self::confirm`], after revalidating the exact pack the card froze.
+    /// `revalidate` runs before any confirmation record, `route_confirmed`
+    /// event, or state change exists, so a pack that changed or moved since the
+    /// card was shown is refused with its reason and nothing is recorded; the
+    /// caller can show it and keep reading input (Issue #1057).
+    pub fn confirm_with_validation(
+        &mut self,
+        card_hash: &str,
+        revalidate: impl FnOnce(&ConfirmationIdentity) -> anyhow::Result<()>,
+    ) -> anyhow::Result<&ConfirmedDispatch> {
         let BoundaryState::AwaitingConfirmation {
             identity,
             card_hash: expected_hash,
@@ -357,6 +370,7 @@ impl BoundaryShell {
         if card_hash != expected_hash {
             bail!("confirmation card identity changed; render Gate 1 again");
         }
+        revalidate(identity)?;
         let confirmed =
             confirmation::persist_confirmation(&self.confirmation_root, identity, expected_hash)?;
         crate::eval_events::emit(

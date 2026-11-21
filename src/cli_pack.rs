@@ -66,9 +66,13 @@ pub(crate) struct PackCliError {
 }
 
 impl PackCliError {
+    /// A startup refusal. It is displayed by the process entry point (`main.rs`)
+    /// as `error: {err:#}`, outside any later display boundary, so the message is
+    /// masked with the run's registered scope here: a rejection must not put a
+    /// registered value on the terminal before the prompt exists (Issue #1057).
     fn new(message: impl Into<String>) -> Self {
         Self {
-            message: message.into(),
+            message: crate::sensitive_data::scrub_everything(&message.into()),
         }
     }
 }
@@ -185,9 +189,11 @@ fn resolve_inner(cli: &Cli, config: &Config) -> Result<Option<ResolvedPack>, Pac
         ))
     })?;
     if pin.trim() != loaded.hash {
+        // Never transcribe the pin file's value: it is untrusted bytes that may
+        // equal a registered credential, and this message reaches the terminal
+        // before the REPL prompt.
         return Err(PackCliError::new(format!(
-            "selected pack hash mismatch: pack.sha256 contains `{}`, observed `{}`",
-            pin.trim(),
+            "selected pack pin does not match its bytes: pack.sha256 disagrees with the observed exact-byte hash `{}`",
             loaded.hash
         )));
     }

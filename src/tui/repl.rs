@@ -42,6 +42,9 @@ pub(crate) fn run_with_pack_context(
     let mut planner = crate::providers::client_from_config(&config, true)?;
     let mut boundary_shell = boundary_shell_for(&config);
     let mut active_identity = boundary_shell.restore_latest_terminal()?;
+    // The exact directory the latest Gate 1 card froze, if it pinned a pack. Its
+    // confirmation revalidates this directory, not a re-searched selector.
+    let mut active_pack_directory: Option<std::path::PathBuf> = None;
     let mut directive_round = 0_u32;
     let mut editor = ReplEditor::new(&config)?;
     let history_path = crate::tui::history::prepare_workspace_history_path(
@@ -214,8 +217,8 @@ pub(crate) fn run_with_pack_context(
                 selector,
                 &pack_context,
             );
-            let changed = match changed {
-                Ok(identity) => identity.clone(),
+            let (changed, changed_directory) = match changed {
+                Ok(result) => result,
                 Err(error) => {
                     render_and_remember(
                         &renderer,
@@ -226,6 +229,7 @@ pub(crate) fn run_with_pack_context(
                     continue;
                 }
             };
+            let changed = changed.clone();
             let card = crate::tui::boundary_shell::presentation::render_gate_one(
                 &changed,
                 pack_context.locator(),
@@ -236,6 +240,7 @@ pub(crate) fn run_with_pack_context(
                 &card,
             )?;
             render_and_remember(&renderer, &mut last_result, card)?;
+            active_pack_directory = changed_directory;
             ui.reset_interrupt();
             continue;
         }
@@ -431,10 +436,18 @@ Confirm with `/confirm-directive {}` before continuation dispatch.",
                     continue;
                 }
             };
-            let identity = match confirm_gate_one(&mut boundary_shell, &resolved_hash) {
+            let identity = match confirm_gate_one(
+                &mut boundary_shell,
+                &config,
+                &pack_context,
+                active_pack_directory.as_deref(),
+                &resolved_hash,
+            ) {
                 Ok(identity) => identity,
                 Err(refused) => {
                     render_and_remember(&renderer, &mut last_result, refused)?;
+                    // The refused card stays unconfirmed; the next card needs a
+                    // fresh confirmation. No dispatch or terminal follows.
                     ui.reset_interrupt();
                     continue;
                 }
@@ -569,7 +582,7 @@ Confirm with `/confirm-directive {}` before continuation dispatch.",
                 &parsed_request.request,
                 &config.workspace_root,
                 pins,
-                pack,
+                pack.selection.clone(),
                 crate::tui::boundary_shell::GateOneOptions {
                     locator: Some(pack_context.locator()),
                     recovery_plan_auto_runs: config.recovery_plan_auto_runs,
@@ -600,6 +613,9 @@ Confirm with `/confirm-directive {}` before continuation dispatch.",
                 &card,
             )?;
             render_and_remember(&renderer, &mut last_result, card)?;
+            // Keep the exact directory this card froze, so its confirmation
+            // revalidates that directory rather than re-searching the selector.
+            active_pack_directory = pack.directory;
             ui.reset_interrupt();
             continue;
         }
@@ -627,7 +643,7 @@ fn route_gate_one(
 ) -> Result<
     (
         crate::tui::boundary_shell::ambiguity::RouteProposal,
-        crate::tui::boundary_shell::confirmation::PackSelection,
+        GateOnePack,
     ),
     String,
 > {
@@ -663,10 +679,29 @@ fn route_gate_one(
     let pack = gate_one_pack(
         pack_context,
         proposal.selected.as_ref(),
-        parsed_request.pack.as_deref(),
+        parsed_request.pack.clone(),
     )
     .map_err(|reason| format!("Gate 1 request refused: {reason}"))?;
     Ok((proposal, pack))
+}
+
+/// The pack a Gate 1 card froze: the selection, and the exact directory that
+/// answered for it. The directory is compared again before the confirmation is
+/// recorded, so a selector that moved to another directory with the same bytes
+/// cannot be confirmed under the old card (Issue #1057).
+#[derive(Debug, Clone)]
+struct GateOnePack {
+    selection: crate::tui::boundary_shell::confirmation::PackSelection,
+    directory: Option<std::path::PathBuf>,
+}
+
+impl GateOnePack {
+    fn none() -> Self {
+        Self {
+            selection: crate::tui::boundary_shell::confirmation::PackSelection::None,
+            directory: None,
+        }
+    }
 }
 
 /// The pack a Gate 1 request freezes, given the route it was proposed and the
@@ -675,15 +710,15 @@ fn route_gate_one(
 fn gate_one_pack(
     pack_context: &pack_selection::ReplPackContext,
     route: Option<&crate::tui::boundary_shell::route::RouteCandidate>,
-    selector: Option<&str>,
-) -> Result<crate::tui::boundary_shell::confirmation::PackSelection, String> {
-    match (route, selector) {
+    selector: Option<String>,
+) -> Result<GateOnePack, String> {
+    match (route, selector.as_deref()) {
         // A REPL started with `--pack` fixes that pack on a request that names
         // none (the 2026-11-21 decision in Issue #1057). A held pack the route
         // cannot read is refused with its reason; a request without a held pack
         // stays as it was: no pack.
         (Some(route), None) => match pack_context.startup_selection() {
-            Ok(None) => Ok(crate::tui::boundary_shell::confirmation::PackSelection::None),
+            Ok(None) => Ok(GateOnePack::none()),
             Ok(Some((located, selection))) => {
                 if let Some(reason) = pack_selection::compatibility_refusal(
                     &located,
@@ -692,22 +727,36 @@ fn gate_one_pack(
                 ) {
                     return Err(reason);
                 }
-                Ok(selection)
+                Ok(GateOnePack {
+                    selection,
+                    directory: Some(located.directory),
+                })
             }
             Err(error) => Err(pack_selection::refusal_reason(&error)),
         },
-        (Some(route), Some(selector)) => pack_context
-            .select(route.profile.as_str(), route.intent.as_str(), selector)
-            .map_err(|error| pack_selection::refusal_reason(&error)),
+        (Some(route), Some(selector)) => {
+            let (selection, directory) = pack_context
+                .select_frozen(route.profile.as_str(), route.intent.as_str(), selector)
+                .map_err(|error| pack_selection::refusal_reason(&error))?;
+            Ok(GateOnePack {
+                selection,
+                directory: Some(directory),
+            })
+        }
         (None, Some(_)) => Err("choose a typed route before selecting a pack.".to_string()),
-        (None, None) => Ok(crate::tui::boundary_shell::confirmation::PackSelection::None),
+        (None, None) => Ok(GateOnePack::none()),
     }
 }
 
 /// `/confirm`: persists the Gate 1 card awaiting confirmation, or returns the refusal the
-/// REPL shows.
+/// REPL shows. The pack the card froze is revalidated against its exact directory
+/// before anything is recorded; a pack that changed or moved is refused with the
+/// reason, nothing is confirmed, and a new card is needed (Issue #1057).
 fn confirm_gate_one(
     boundary_shell: &mut crate::tui::boundary_shell::BoundaryShell,
+    config: &Config,
+    pack_context: &pack_selection::ReplPackContext,
+    active_pack_directory: Option<&std::path::Path>,
     card_hash: &str,
 ) -> Result<crate::tui::boundary_shell::confirmation::ConfirmationIdentity, String> {
     if let crate::tui::boundary_shell::BoundaryState::AwaitingConfirmation { identity, .. } =
@@ -716,10 +765,44 @@ fn confirm_gate_one(
     {
         return Err(format!("Confirmation refused: {refused}"));
     }
+    let _ = config;
     boundary_shell
-        .confirm(card_hash)
+        .confirm_with_validation(card_hash, |identity| {
+            revalidate_confirmed_pack(pack_context, identity, active_pack_directory).map_err(
+                |error| {
+                    anyhow::anyhow!(
+                        "the pack changed since the Gate 1 card was shown; render Gate 1 again: {}",
+                        pack_selection::refusal_reason(&error)
+                    )
+                },
+            )
+        })
         .map(|confirmed| confirmed.identity().clone())
         .map_err(|error| format!("Confirmation refused: {error}"))
+}
+
+/// The pack-level revalidation a Gate 1 confirmation makes before recording.
+fn revalidate_confirmed_pack(
+    pack_context: &pack_selection::ReplPackContext,
+    identity: &crate::tui::boundary_shell::confirmation::ConfirmationIdentity,
+    active_pack_directory: Option<&std::path::Path>,
+) -> anyhow::Result<()> {
+    let crate::tui::boundary_shell::confirmation::PackSelection::Pinned { .. } = &identity.pack
+    else {
+        return Ok(());
+    };
+    let Some(directory) = active_pack_directory else {
+        // A card restored without a frozen directory cannot be revalidated
+        // against it; fall back to the roots so a moved/removed pack is still
+        // refused rather than confirmed.
+        return pack_context.validate(&identity.profile, &identity.intent, &identity.pack);
+    };
+    pack_context.revalidate_frozen(
+        &identity.profile,
+        &identity.intent,
+        &identity.pack,
+        directory,
+    )
 }
 
 /// The boundary shell of the REPL's state directory and event stream, in its collecting
@@ -927,17 +1010,22 @@ fn begin_gate_four_pack_change<'a>(
     identity: &crate::tui::boundary_shell::confirmation::ConfirmationIdentity,
     selector: &str,
     pack_context: &pack_selection::ReplPackContext,
-) -> anyhow::Result<&'a crate::tui::boundary_shell::confirmation::ConfirmationIdentity> {
+) -> anyhow::Result<(
+    &'a crate::tui::boundary_shell::confirmation::ConfirmationIdentity,
+    Option<std::path::PathBuf>,
+)> {
     if selector.is_empty() {
         bail!("/pack requires <id@version>");
     }
-    let pack = pack_context
-        .select(&identity.profile, &identity.intent, selector)
+    let (pack, directory) = pack_context
+        .select_frozen(&identity.profile, &identity.intent, selector)
         .map_err(|error| anyhow::anyhow!("{}", pack_selection::refusal_reason(&error)))?;
     if let Some(refused) = refused_for_held_pack(&pack) {
         bail!("{refused}");
     }
-    boundary_shell.begin_pack_change_with_locator(identity, pack, pack_context.locator())
+    let changed =
+        boundary_shell.begin_pack_change_with_locator(identity, pack, pack_context.locator())?;
+    Ok((changed, Some(directory)))
 }
 
 /// The dispatch entry for tests and callers that read packs from the workspace
@@ -1120,7 +1208,11 @@ fn render_terminal(
     pack_context: &pack_selection::ReplPackContext,
 ) -> anyhow::Result<String> {
     if terminal.full {
-        return crate::tui::boundary_shell::presentation::render_gate_three(identity, terminal);
+        return crate::tui::boundary_shell::presentation::render_gate_three_with_locator(
+            identity,
+            terminal,
+            pack_context.locator(),
+        );
     }
     // "Available" means a card could actually choose it under the REPL's roots,
     // not merely that the admitted catalog lists one (Issue #1057).
@@ -1134,7 +1226,7 @@ fn render_terminal(
                 id, version, ..
             } => candidate.id != *id || candidate.version != *version,
         });
-    crate::tui::boundary_shell::presentation::render_gate_four(
+    crate::tui::boundary_shell::presentation::render_gate_four_with_locator(
         identity,
         terminal,
         &[
@@ -1173,6 +1265,7 @@ fn render_terminal(
                 "records no further action",
             ),
         ],
+        pack_context.locator(),
     )
 }
 
@@ -1561,7 +1654,7 @@ mod tests {
     fn gate_four_pack_change_creates_a_new_gate_one_boundary() {
         let root = tempfile::tempdir().unwrap();
         let (mut shell, identity) = failed_shell(root.path());
-        let changed = begin_gate_four_pack_change(
+        let (changed, _directory) = begin_gate_four_pack_change(
             &mut shell,
             &identity,
             "cli-assist@1.1.0",
@@ -1922,7 +2015,7 @@ mod tests {
                             std::fs::read_to_string(shell_root.path().join("events.jsonl"))
                                 .unwrap_or_default();
                         assert!(!events.contains("\"action\":\"pack_change\""), "{events}");
-                        let changed = begin_gate_four_pack_change(
+                        let (changed, _directory) = begin_gate_four_pack_change(
                             &mut shell,
                             &failed,
                             "cli-assist@1.1.0",
@@ -2196,7 +2289,16 @@ mod tests {
                             .unwrap()
                             .card_hash()
                             .unwrap();
-                        let shown = confirm_gate_one(&mut shell, &card).unwrap_err();
+                        let context_for_confirm =
+                            workspace_context(&config.workspace_root);
+                        let shown = confirm_gate_one(
+                            &mut shell,
+                            &config,
+                            &context_for_confirm,
+                            None,
+                            &card,
+                        )
+                        .unwrap_err();
                         assert!(shown.starts_with("Confirmation refused: "), "{shown}");
                         assert!(shown.contains("--pack cli-assist@1.1.0"), "{shown}");
                         assert!(shown.contains("`cli-assist@1.0.0`"), "{shown}");
@@ -2333,7 +2435,7 @@ mod tests {
                             "{:?}",
                             shell.state()
                         );
-                        let changed = begin_gate_four_pack_change(
+                        let (changed, _directory) = begin_gate_four_pack_change(
                             &mut shell,
                             &ran,
                             "cli-assist@1.1.0",
@@ -2375,6 +2477,7 @@ mod tests {
                             &workspace_context(&config.workspace_root),
                         )
                         .unwrap()
+                        .0
                         .card_hash()
                         .unwrap();
                         let awaiting = format!("{:?}", shell.state());
@@ -2391,7 +2494,14 @@ mod tests {
                         );
                         assert!(refused.contains("`cli-assist@1.0.0`"), "{refused}");
                         assert_eq!(format!("{:?}", shell.state()), awaiting);
-                        let confirmed = confirm_gate_one(&mut shell, &card).unwrap();
+                        let confirmed = confirm_gate_one(
+                            &mut shell,
+                            &config,
+                            &workspace_context(&config.workspace_root),
+                            None,
+                            &card,
+                        )
+                        .unwrap();
                         assert!(matches!(
                             &confirmed.pack,
                             PackSelection::Pinned { id, version, .. }
@@ -2441,9 +2551,17 @@ mod tests {
                             &workspace_context(&config.workspace_root),
                         )
                         .unwrap()
+                        .0
                         .card_hash()
                         .unwrap();
-                        let held_run = confirm_gate_one(&mut shell, &card).unwrap();
+                        let held_run = confirm_gate_one(
+                            &mut shell,
+                            &config,
+                            &workspace_context(&config.workspace_root),
+                            None,
+                            &card,
+                        )
+                        .unwrap();
                         finish_failed(&mut shell, &config);
                         let round = shell.next_directive_round(&target).unwrap();
                         begin_directive_for(
@@ -2605,7 +2723,7 @@ mod tests {
 
                     let card = gate_one_pack(&context, Some(&python_cli_route()), None).unwrap();
                     let rendered = crate::tui::boundary_shell::presentation::render_gate_one(
-                        &boundary_identity(&config, card.clone(), context.locator()),
+                        &boundary_identity(&config, card.selection.clone(), context.locator()),
                         context.locator(),
                     )
                     .unwrap();
@@ -2623,7 +2741,7 @@ mod tests {
                             "Python CLI filter",
                             &config.workspace_root,
                             pins(),
-                            card.clone(),
+                            card.selection.clone(),
                             crate::tui::boundary_shell::GateOneOptions {
                                 locator: Some(context.locator()),
                                 recovery_plan_auto_runs: 0,
@@ -2826,7 +2944,7 @@ mod tests {
                     let frozen = gate_one_pack(&context, Some(&python_cli_route()), None).unwrap();
                     assert!(
                         matches!(
-                            &frozen,
+                            &frozen.selection,
                             PackSelection::Pinned { id, hash: pinned, source, .. }
                                 if id == "canary-pack"
                                     && pinned == &hash
@@ -2856,10 +2974,12 @@ mod tests {
                         workspace.clone(),
                         Some(extension.clone()),
                     );
-                    assert_eq!(
-                        gate_one_pack(&unheld, Some(&python_cli_route()), None).unwrap(),
+                    assert!(matches!(
+                        gate_one_pack(&unheld, Some(&python_cli_route()), None)
+                            .unwrap()
+                            .selection,
                         PackSelection::None
-                    );
+                    ));
                 });
             },
         );
@@ -2909,5 +3029,408 @@ mod tests {
                 .selector_refusal("canary-pack@1.0.0")
                 .contains("workspace-other")
         );
+    }
+
+    // ---- Issue #1057 review regressions (independent review, 3 blockers) ----
+
+    /// Blocker 1: a startup rejection must not print a registered value. Before
+    /// the REPL prompt exists, the process entry point prints `error: {err:#}`,
+    /// so the refusal is masked with the run's registered scope and the pin file
+    /// value is never transcribed.
+    #[test]
+    fn a_startup_pin_mismatch_never_prints_the_registered_value() {
+        use crate::sensitive_data::{SecretCatalog, install_scope, reset_scopes_for_tests};
+
+        const CANARY: &str = "PACK_CANARY_27_canary_4f1";
+        let temp = tempfile::tempdir().unwrap();
+        let workspace = temp.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+
+        // A valid local pack whose pin is made inconsistent, holding the canary
+        // as the pin file's value.
+        let pack_root = temp.path().join("extension");
+        crate::tui::repl::pack_selection::tests::write_pack(
+            &pack_root,
+            "canary-pack",
+            "1.0.0",
+            &crate::tui::repl::pack_selection::tests::assist("canary-pack", "1.0.0", "startup-pin"),
+        );
+        std::fs::write(
+            pack_root.join("canary-pack/1.0.0/pack.sha256"),
+            format!("{CANARY}\n"),
+        )
+        .unwrap();
+
+        // Register the same value as a credential in the run's scope, as the
+        // config path does for a `${ENV}` expansion.
+        reset_scopes_for_tests();
+        let mut catalog = SecretCatalog::new();
+        catalog
+            .register_credential("SYNTHETIC_KEY", CANARY)
+            .unwrap();
+        let _scope = install_scope(catalog, Some(&workspace), None);
+
+        let cli = crate::cli::Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            workspace.to_str().unwrap(),
+            "--profile",
+            "python-cli",
+            "--intent",
+            "create",
+            "--extension-root",
+            pack_root.to_str().unwrap(),
+            "--pack",
+            "canary-pack@1.0.0",
+        ]);
+        let config = Config::from_cli(cli.clone()).unwrap();
+        let refusal = crate::cli_pack::resolve(&cli, &config)
+            .unwrap_err()
+            .to_string();
+        reset_scopes_for_tests();
+
+        // The rejection names the failing check and the observed hash, never the
+        // registered value the pin file carried.
+        assert!(refusal.contains("pin"), "{refusal}");
+        assert!(
+            !refusal.contains(CANARY),
+            "the registered value reached the refusal: {refusal}"
+        );
+    }
+
+    /// Blocker 2: a confirmed card whose pack changed since it was shown is
+    /// refused before any confirmation, dispatch, or terminal is recorded, and
+    /// the REPL keeps reading input. The same selector with the same bytes in
+    /// the `packs/` compatibility layout must not pass for the old directory.
+    #[test]
+    fn a_pack_changed_after_the_card_is_refused_before_confirmation_and_records_nothing() {
+        use crate::tui::boundary_shell::confirmation::PackSelection;
+
+        crate::cli_pack::tests::own_process::run(
+            "tui::repl::tests::a_pack_changed_after_the_card_is_refused_before_confirmation_and_records_nothing",
+            || {
+                within_held_pack_deadline(|| {
+                    let temp = tempfile::tempdir().unwrap();
+                    let workspace = temp.path().join("workspace");
+                    let extension = temp.path().join("extension");
+                    std::fs::create_dir_all(&workspace).unwrap();
+                    let bytes =
+                        pack_selection::tests::assist("canary-pack", "1.0.0", "card-freeze");
+                    let hash = pack_selection::tests::write_pack(
+                        &extension,
+                        "canary-pack",
+                        "1.0.0",
+                        &bytes,
+                    );
+
+                    let mut config = Config::from_cli(crate::cli::Cli::parse_from([
+                        "commandagent",
+                        "--cwd",
+                        workspace.to_str().unwrap(),
+                        "--profile",
+                        "python-cli",
+                        "--intent",
+                        "create",
+                    ]))
+                    .unwrap();
+                    config.eval_events_path = Some(temp.path().join("events.jsonl"));
+                    config.state_dir = temp.path().join("state");
+                    let context = pack_selection::ReplPackContext::new(
+                        workspace.clone(),
+                        Some(extension.clone()),
+                    );
+
+                    // Gate 1 freezes this directory.
+                    let (selection, directory) = context
+                        .select_frozen("python-cli", "create", "canary-pack@1.0.0")
+                        .unwrap();
+                    assert_eq!(
+                        selection,
+                        PackSelection::Pinned {
+                            id: "canary-pack".to_string(),
+                            version: "1.0.0".to_string(),
+                            hash: hash.clone(),
+                            point: "cli-validation".to_string(),
+                            source: crate::planner::pack::catalog::PackSource::Local,
+                        }
+                    );
+                    assert_eq!(directory, extension.join("canary-pack/1.0.0"));
+
+                    let mut shell = boundary_shell_for(&config);
+                    shell
+                        .begin_gate_one_with_locator_and_recovery(
+                            python_cli_proposal(),
+                            "Python CLI filter",
+                            &config.workspace_root,
+                            pins(),
+                            selection.clone(),
+                            crate::tui::boundary_shell::GateOneOptions {
+                                locator: Some(context.locator()),
+                                recovery_plan_auto_runs: 0,
+                            },
+                        )
+                        .unwrap();
+
+                    // The pack changes (same selector, other bytes, re-pinned)
+                    // after the card was shown. Confirmation is refused before
+                    // anything is recorded, and no confirmation record or event
+                    // exists.
+                    let changed =
+                        pack_selection::tests::assist("canary-pack", "1.0.0", "changed-after-card");
+                    std::fs::write(extension.join("canary-pack/1.0.0/assist.yaml"), &changed)
+                        .unwrap();
+                    let changed_hash =
+                        crate::planner::pack::exact_byte_hash(Some(changed.as_bytes()), None);
+                    assert_ne!(changed_hash, hash, "the bytes did not change");
+                    std::fs::write(
+                        extension.join("canary-pack/1.0.0/pack.sha256"),
+                        format!("{changed_hash}\n"),
+                    )
+                    .unwrap();
+                    let card_hash = match shell.state() {
+                        crate::tui::boundary_shell::BoundaryState::AwaitingConfirmation {
+                            card_hash,
+                            ..
+                        } => card_hash.clone(),
+                        state => panic!("unexpected state: {state:?}"),
+                    };
+                    let refused = confirm_gate_one(
+                        &mut shell,
+                        &config,
+                        &context,
+                        Some(&directory),
+                        &card_hash,
+                    )
+                    .unwrap_err();
+                    assert!(refused.starts_with("Confirmation refused: "), "{refused}");
+                    assert!(
+                        refused.contains("changed since the Gate 1 card was shown"),
+                        "{refused}"
+                    );
+                    assert!(!refused.contains("changed-after-card"), "{refused}");
+                    assert!(matches!(
+                        shell.state(),
+                        crate::tui::boundary_shell::BoundaryState::AwaitingConfirmation { .. }
+                    ));
+                    let confirmations = config.state_dir.join("boundary-confirmations");
+                    assert_eq!(
+                        std::fs::read_dir(&confirmations).map_or(0, |e| e.count()),
+                        0,
+                        "a refused confirmation wrote a record"
+                    );
+                    let events = std::fs::read_to_string(config.eval_events_path.as_ref().unwrap())
+                        .unwrap_or_default();
+                    assert!(
+                        !events.contains("\"event\":\"route_confirmed\""),
+                        "{events}"
+                    );
+                    assert!(!events.contains("pack_injected"), "{events}");
+
+                    // The REPL keeps reading input: a fresh card for the new
+                    // bytes confirms against its own frozen directory.
+                    let (fresh, fresh_directory) = context
+                        .select_frozen("python-cli", "create", "canary-pack@1.0.0")
+                        .unwrap();
+                    assert_eq!(
+                        fresh_directory, directory,
+                        "the changed bytes stay in the same directory"
+                    );
+                    assert!(
+                        matches!(
+                            &fresh,
+                            PackSelection::Pinned { hash: h, .. } if h == &changed_hash
+                        ),
+                        "{fresh:?}"
+                    );
+                    let mut shell = boundary_shell_for(&config);
+                    shell
+                        .begin_gate_one_with_locator_and_recovery(
+                            python_cli_proposal(),
+                            "Python CLI filter",
+                            &config.workspace_root,
+                            pins(),
+                            fresh,
+                            crate::tui::boundary_shell::GateOneOptions {
+                                locator: Some(context.locator()),
+                                recovery_plan_auto_runs: 0,
+                            },
+                        )
+                        .unwrap();
+                    let fresh_hash = match shell.state() {
+                        crate::tui::boundary_shell::BoundaryState::AwaitingConfirmation {
+                            card_hash,
+                            ..
+                        } => card_hash.clone(),
+                        state => panic!("unexpected state: {state:?}"),
+                    };
+                    confirm_gate_one(
+                        &mut shell,
+                        &config,
+                        &context,
+                        Some(&fresh_directory),
+                        &fresh_hash,
+                    )
+                    .unwrap();
+                });
+            },
+        );
+    }
+
+    /// Blocker 2 (compatible layout): removing the served directory while the
+    /// same bytes remain under `packs/` must not confirm the old ID. The frozen
+    /// directory is verified directly, never re-searched.
+    #[test]
+    fn a_frozen_directory_removed_from_a_compatible_layout_does_not_rebind() {
+        crate::cli_pack::tests::own_process::run(
+            "tui::repl::tests::a_frozen_directory_removed_from_a_compatible_layout_does_not_rebind",
+            || {
+                within_held_pack_deadline(|| {
+                    let temp = tempfile::tempdir().unwrap();
+                    let workspace = temp.path().join("workspace");
+                    let extension = temp.path().join("extension");
+                    std::fs::create_dir_all(&workspace).unwrap();
+                    let bytes = pack_selection::tests::assist("canary-pack", "1.0.0", "compat");
+
+                    // The served directory is the direct layout; the same bytes
+                    // also sit under the `packs/` compatibility layout.
+                    pack_selection::tests::write_pack(&extension, "canary-pack", "1.0.0", &bytes);
+                    pack_selection::tests::write_pack(
+                        &extension.join("packs"),
+                        "canary-pack",
+                        "1.0.0",
+                        &bytes,
+                    );
+
+                    let context = pack_selection::ReplPackContext::new(
+                        workspace.clone(),
+                        Some(extension.clone()),
+                    );
+                    let (selection, directory) = context
+                        .select_frozen("python-cli", "create", "canary-pack@1.0.0")
+                        .unwrap();
+                    assert_eq!(directory, extension.join("canary-pack/1.0.0"));
+
+                    // The served direct directory is moved away; the same bytes
+                    // remain under `packs/`, which must not be adopted for the
+                    // old card.
+                    std::fs::rename(
+                        extension.join("canary-pack"),
+                        extension.join("canary-pack-moved"),
+                    )
+                    .unwrap();
+                    assert!(!directory.exists());
+
+                    let refused = context
+                        .revalidate_frozen("python-cli", "create", &selection, &directory)
+                        .is_err();
+                    assert!(refused, "the moved pack was revalidated");
+                    // The old card never re-binds to the compatible layout: a
+                    // fresh selection answers from `packs/`, which is a different
+                    // directory and a different card.
+                    let served = context
+                        .select_frozen("python-cli", "create", "canary-pack@1.0.0")
+                        .map(|(_, served)| served)
+                        .unwrap();
+                    assert_eq!(
+                        served,
+                        extension.join("packs/canary-pack/1.0.0"),
+                        "only the compatibility layout remains"
+                    );
+                    assert_ne!(
+                        served, directory,
+                        "the compatibility layout is not the confirmed directory"
+                    );
+                });
+            },
+        );
+    }
+
+    /// Blocker 3: a rightly confirmed local pack renders and records its Gate 4
+    /// terminal, not an admitted-only error. Same for a repository pack.
+    #[test]
+    fn a_confirmed_local_pack_renders_and_records_its_gate_four_terminal() {
+        use crate::tui::boundary_shell::confirmation::PackSelection;
+
+        let temp = tempfile::tempdir().unwrap();
+        let workspace = temp.path().join("workspace");
+        let extension = temp.path().join("extension");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let hash = pack_selection::tests::write_pack(
+            &extension,
+            "canary-pack",
+            "1.0.0",
+            &pack_selection::tests::assist("canary-pack", "1.0.0", "terminal"),
+        );
+
+        let mut config = Config::from_cli(crate::cli::Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            workspace.to_str().unwrap(),
+            "--profile",
+            "python-cli",
+            "--intent",
+            "create",
+        ]))
+        .unwrap();
+        config.eval_events_path = Some(temp.path().join("events.jsonl"));
+        config.state_dir = temp.path().join("state");
+        let context =
+            pack_selection::ReplPackContext::new(workspace.clone(), Some(extension.clone()));
+
+        let selection = PackSelection::Pinned {
+            id: "canary-pack".to_string(),
+            version: "1.0.0".to_string(),
+            hash,
+            point: "cli-validation".to_string(),
+            source: crate::planner::pack::catalog::PackSource::Local,
+        };
+        let mut shell = boundary_shell_for(&config);
+        let identity = shell
+            .begin_gate_one_with_locator_and_recovery(
+                python_cli_proposal(),
+                "Python CLI filter",
+                &config.workspace_root,
+                pins(),
+                selection.clone(),
+                crate::tui::boundary_shell::GateOneOptions {
+                    locator: Some(context.locator()),
+                    recovery_plan_auto_runs: 0,
+                },
+            )
+            .unwrap()
+            .clone();
+        let card = identity.card_hash().unwrap();
+        shell.confirm(&card).unwrap();
+        shell.dispatch(|_| Ok("failed".to_string())).unwrap();
+        crate::eval_events::emit(
+            config.eval_events_path.as_deref(),
+            serde_json::json!({
+                "event": "tui_command_stop",
+                "profile": "python-cli",
+                "status": "failed",
+                "ok": false,
+                "stop_reason": "failed",
+            }),
+        );
+        let generated = crate::tui::boundary_shell::sheet::generate(
+            &identity,
+            config.eval_events_path.as_deref(),
+            false,
+        )
+        .unwrap();
+        let terminal = shell
+            .present_terminal(generated.markdown, generated.full, generated.section5)
+            .unwrap();
+
+        // The admitted-only renderer refuses this local pack; the locator-aware
+        // one, which the REPL uses, renders and records the terminal.
+        assert!(
+            crate::tui::boundary_shell::presentation::render_gate_four(&identity, terminal, &[],)
+                .is_err(),
+            "the admitted-only renderer must refuse a local pack"
+        );
+        let rendered = render_terminal(&identity, terminal, &context).unwrap();
+        assert!(rendered.contains("# Gate 4"), "{rendered}");
+        assert!(rendered.contains("canary-pack@1.0.0"), "{rendered}");
     }
 }
