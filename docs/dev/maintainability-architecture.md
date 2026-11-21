@@ -113,8 +113,16 @@ release-gate status, stop reason, and next action vocabularies — are fixed
 identifiers (`sensitive_data/fixed_identifiers.rs`). A credential or plain
 value equal to one, or a fragment of one, is refused at registration, so a
 registered secret can never collide with a value the acceptance-unverified
-decision compares. The decision reads the original value and the display masks
-the string it shows; with nothing registered, the two see the same value.
+decision compares. A closed value is therefore displayed as-is, and the
+decision and the display read the same value; only the free text the
+projection does not classify (a stop reason, a verification command, a body)
+is masked.
+
+The acceptance-unverified decision reads the same body the summary shows: the
+previous body (masked, not capped) joined with the new text and then passed
+through the write limit. There is no second path that reads the raw argument
+or a previously rendered line, so the result cannot disagree with the
+displayed status and next action.
 
 ## Browser probe asset
 

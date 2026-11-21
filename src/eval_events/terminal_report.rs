@@ -74,15 +74,10 @@ pub(crate) struct TerminalReport {
     pub(crate) assurance: Option<String>,
     pub(crate) gate: Option<String>,
     pub(crate) stop_reason: Option<String>,
-    /// The `next_action` string to display. It is masked like any other
-    /// projected string, so a registered value equal to a fixed action word is
-    /// hidden too.
+    /// The `next_action` string to display. A closed action word is a fixed
+    /// identifier and is shown as-is, so the renderer's acceptance-unverified
+    /// comparison and the display read the same value.
     pub(crate) next_action: Option<String>,
-    /// Whether the *original* projected `next_action` is the acceptance-unverified
-    /// action, taken before it was masked. The renderer combines this with the
-    /// status it actually displays, so masking the displayed string cannot erase
-    /// the decision.
-    pub(crate) next_action_unverified: bool,
     pub(crate) changed_files: Vec<String>,
     pub(crate) verifications: Vec<VerificationObservation>,
     pub(crate) exit_code: Option<i32>,
@@ -134,13 +129,10 @@ pub(crate) fn project(
     let assurance = mask_projected(context.as_ref(), assurance, CLOSED_ASSURANCE);
     let gate = mask_projected(context.as_ref(), gate, CLOSED_GATE);
     let stop_reason = mask_projected(context.as_ref(), stop_reason, CLOSED_STOP_REASON);
-    // The "acceptance unverified" decision is taken from the original value.
-    let next_action_unverified =
-        next_action.as_deref() == Some(super::ACCEPTANCE_UNVERIFIED_NEXT_ACTION);
-    // The displayed string still goes through masking (r5). These words are now
-    // fixed identifiers, so a credential can no longer be registered as one;
-    // when nothing is registered this changes nothing.
-    let next_action = mask_projected_text_opt(context.as_ref(), next_action);
+    // A closed action word is a fixed identifier, so `register_credential`
+    // refuses it and the display can keep it as-is: the acceptance-unverified
+    // decision compares exactly what the report shows.
+    let next_action = mask_projected(context.as_ref(), next_action, CLOSED_NEXT_ACTION);
     let changed_files = workspace
         .as_deref()
         .map(changed_files)
@@ -163,7 +155,6 @@ pub(crate) fn project(
         gate,
         stop_reason,
         next_action,
-        next_action_unverified,
         changed_files,
         verifications,
         exit_code,
@@ -188,6 +179,27 @@ const CLOSED_GATE: &[&str] = &[
 /// these. Every other stop reason is free text.
 const CLOSED_STOP_REASON: &[&str] = &["completed", "interrupted by user"];
 
+/// The closed `next_action` vocabulary. These are fixed identifiers
+/// (`sensitive_data/fixed_identifiers.rs`), so a credential equal to one is
+/// refused at registration and the display can show it unmasked — the same
+/// value the acceptance-unverified decision compares.
+const CLOSED_NEXT_ACTION: &[&str] = &[
+    "none",
+    "fix_command_failure",
+    "resume_or_rerun_command",
+    "inspect_summary_and_resume_or_rerun",
+    "inspect_process_tree",
+    "inspect_internal_panic",
+    "run_acceptance_or_review_changes",
+    "run_setup_interaction_probe_to_enable_interaction_release_checks",
+    "collect_missing_release_evidence_or_continue_release_recovery",
+    "collect_missing_final_acceptance_evidence",
+    "repair_release_gate_failure",
+    "repair_final_acceptance_failure",
+    "terminal_handoff",
+    "retry_once",
+];
+
 /// Mask a projected value unless it is one of the product's closed values.
 fn mask_projected(
     context: Option<&crate::sensitive_data::RedactionContext>,
@@ -201,14 +213,6 @@ fn mask_projected(
             mask_projected_text(context, &value)
         }
     })
-}
-
-/// Mask a projected value unconditionally.
-fn mask_projected_text_opt(
-    context: Option<&crate::sensitive_data::RedactionContext>,
-    value: Option<String>,
-) -> Option<String> {
-    value.map(|value| mask_projected_text(context, &value))
 }
 
 fn mask_projected_text(
@@ -795,7 +799,9 @@ mod tests {
             std::fs::write(&path, format!("{event}\n")).unwrap();
             let mut catalog = crate::sensitive_data::SecretCatalog::new();
             for value in &registered {
-                catalog.register(value);
+                // The closed acceptance word and other fixed identifiers are
+                // refused here (r8); the other shapes register normally.
+                let _ = catalog.register_credential("SYNTHETIC_VALUE", value);
             }
             crate::sensitive_data::install_scope(catalog, Some(root.path()), Some(&path));
             if matches!(case, Case::BodyOnlyPathScope) {
@@ -816,18 +822,28 @@ mod tests {
                     );
                 }
                 Case::AcceptanceUnverified => {
-                    // The decision still holds, but the displayed action is now
-                    // masked like any other planned string (r5 blocker 1).
+                    // r8 (2): a closed action word is a fixed identifier, so it
+                    // cannot be registered; the display shows it and the decision
+                    // compares that same value.
+                    for value in &registered {
+                        assert!(
+                            crate::sensitive_data::SecretCatalog::new()
+                                .register_credential("SYNTHETIC_CLOSED_VALUE", value)
+                                .is_err(),
+                            "{id}: {value} must not be registrable"
+                        );
+                    }
                     assert!(
                         summary.contains("acceptance unverified"),
                         "{id} {stage}: decision lost: {summary}"
                     );
-                    for value in &registered {
-                        for line in value.split('\n') {
-                            assert!(!summary.contains(line), "{id} {stage}: {summary}");
-                        }
-                    }
-                    assert!(summary.contains("<redacted>"), "{id} {stage}: {summary}");
+                    assert!(
+                        summary.contains(&format!(
+                            "- Next action: {}",
+                            crate::eval_events::ACCEPTANCE_UNVERIFIED_NEXT_ACTION
+                        )),
+                        "{id} {stage}: decision and display disagree: {summary}"
+                    );
                     assert_eq!(
                         summary.matches("# Run result").count(),
                         1,

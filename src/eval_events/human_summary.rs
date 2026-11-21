@@ -5,49 +5,14 @@ use super::terminal_report::{self, TerminalReport, VerificationObservation, Veri
 
 const MACHINE_DETAILS_HEADING: &str = "## Machine details";
 
-const STATUS_PREFIXES: &[&str] = &["Status:"];
-const NEXT_ACTION_PREFIXES: &[&str] = &["Next action:", "Recovery next action:"];
-
-pub(super) fn render(
-    events_path: &Path,
-    machine_body: &str,
-    fallback_next_action_unverified: Option<bool>,
-) -> String {
+pub(super) fn render(events_path: &Path, machine_body: &str) -> String {
     let events = terminal_report::read_events(Some(events_path));
     let report = terminal_report::project(&events, Some(events_path), None, None, None);
     render_document(
         machine_body,
         SummaryLanguage::from_process_locale(),
         &report,
-        fallback_next_action_unverified,
     )
-}
-
-/// The body's newest `Next action:` value, as the renderer resolves it, and
-/// whether it is the acceptance-unverified action. `None` when the body states
-/// no next action. The caller passes the same body it displays (before masking),
-/// so the decision and the display cannot diverge.
-pub(super) fn body_next_action_unverified(body: &str) -> Option<bool> {
-    machine_value_last(body, NEXT_ACTION_PREFIXES)
-        .map(|next_action| next_action == super::ACCEPTANCE_UNVERIFIED_NEXT_ACTION)
-}
-
-/// Whether a previously rendered summary recorded the acceptance-unverified
-/// result. That header line is fixed renderer text and is never masked, so it
-/// still states the decision after the earlier machine body's free
-/// `Next action:` value was masked on disk. An append that states no next action
-/// of its own inherits this, which is the value the joined display shows.
-pub(super) fn document_result_unverified(document: &str) -> bool {
-    [SummaryLanguage::English, SummaryLanguage::Japanese]
-        .into_iter()
-        .any(|language| {
-            let line = format!(
-                "- {}: {}",
-                language.result_label(),
-                language.acceptance_unverified_result()
-            );
-            document.lines().any(|candidate| candidate.trim() == line)
-        })
 }
 
 pub(super) fn machine_body(document: &str) -> String {
@@ -66,17 +31,12 @@ fn render_document(
     machine_body: &str,
     language: SummaryLanguage,
     report: &TerminalReport,
-    fallback_next_action_unverified: Option<bool>,
 ) -> String {
-    // The body fallback supplies a value only where the projection has none, so
-    // the decision and the display are resolved from the same source per field.
-    let body_status = machine_value_last(machine_body, STATUS_PREFIXES);
-    let status_value = report
+    let status = report
         .status
         .map(|status| status.as_str().to_string())
-        .or_else(|| body_status.clone())
+        .or_else(|| machine_value(machine_body, &["Status:"]))
         .unwrap_or_else(|| language.unavailable().to_string());
-    let status = status_value.as_str();
     let assurance = report
         .assurance
         .clone()
@@ -96,27 +56,21 @@ fn render_document(
     let next_action = report
         .next_action
         .clone()
-        .or_else(|| machine_value_last(machine_body, NEXT_ACTION_PREFIXES))
+        .or_else(|| machine_value(machine_body, &["Next action:", "Recovery next action:"]))
         .unwrap_or_else(|| language.unavailable().to_string());
     let exit_code = report
         .exit_code
         .map(|code| code.to_string())
         .unwrap_or_else(|| language.unavailable().to_string());
-    // Resolve "acceptance unverified" from the same status and next action that
-    // are displayed, using each field's own source: the projection when it has
-    // the value, otherwise the body's newest original value.
-    let next_action_unverified = report
-        .next_action
-        .as_ref()
-        .map(|_| report.next_action_unverified)
-        .or(fallback_next_action_unverified)
-        .unwrap_or(false);
-    let acceptance_unverified =
-        status == terminal_report::TerminalStatus::Completed.as_str() && next_action_unverified;
-    let result = if acceptance_unverified {
+    // The decision reads the same values that are displayed, so it can never
+    // disagree with them: both come from the joined, capped body and the events
+    // projection, per field.
+    let result = if status == terminal_report::TerminalStatus::Completed.as_str()
+        && next_action == super::ACCEPTANCE_UNVERIFIED_NEXT_ACTION
+    {
         language.acceptance_unverified_result().to_string()
     } else {
-        language.status(status).into_owned()
+        language.status(&status).into_owned()
     };
     let verification_summary = verification_summary(language, &report.verifications);
     let mut lines = vec![
@@ -174,21 +128,6 @@ fn render_document(
 
 fn machine_value(body: &str, prefixes: &[&str]) -> Option<String> {
     body.lines().find_map(|line| {
-        prefixes.iter().find_map(|prefix| {
-            line.trim()
-                .strip_prefix(prefix)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(ToOwned::to_owned)
-        })
-    })
-}
-
-/// The last value a prefix carries in the body. A summary accumulates bodies
-/// separated by `---`, so the newest statement wins; the display and the
-/// "acceptance unverified" decision both read this same value.
-fn machine_value_last(body: &str, prefixes: &[&str]) -> Option<String> {
-    body.lines().rev().find_map(|line| {
         prefixes.iter().find_map(|prefix| {
             line.trim()
                 .strip_prefix(prefix)
@@ -267,6 +206,7 @@ fn push_list(lines: &mut Vec<String>, values: &[String], empty: &str) {
 mod tests {
     use super::*;
     use crate::eval_events::terminal_report::{TerminalStatus, VerificationStatus};
+    use serde_json::json;
 
     fn report() -> TerminalReport {
         TerminalReport {
@@ -275,7 +215,6 @@ mod tests {
             gate: Some("failed".to_string()),
             stop_reason: Some("tests failed\nPaths:\n- src/main.rs".to_string()),
             next_action: Some("fix_command_failure".to_string()),
-            next_action_unverified: false,
             changed_files: vec!["src/main.rs".to_string()],
             verifications: vec![
                 VerificationObservation {
@@ -299,7 +238,6 @@ mod tests {
             "Status: failed\ncompletion_contract_verification_enabled=false",
             SummaryLanguage::English,
             &report(),
-            None,
         );
         let first_ten = rendered.lines().take(10).collect::<Vec<_>>().join("\n");
         assert!(first_ten.contains("- Result: failed"), "{rendered}");
@@ -327,7 +265,6 @@ mod tests {
             "Status: failed\nFailure kind: direct_cli_command_failed",
             SummaryLanguage::Japanese,
             &report(),
-            None,
         );
         assert!(rendered.contains("# 実行結果"), "{rendered}");
         assert!(rendered.contains("- 結果: 失敗"), "{rendered}");
@@ -350,7 +287,7 @@ mod tests {
         let report = terminal_report::project(&events, Some(&path), None, None, None);
         assert_eq!(report.exit_code, Some(0));
 
-        let english = render_document("", SummaryLanguage::English, &report, None);
+        let english = render_document("", SummaryLanguage::English, &report);
         let header = english.lines().take(10).collect::<Vec<_>>().join("\n");
         assert!(
             header.contains("- Result: acceptance unverified (process completed)"),
@@ -363,7 +300,7 @@ mod tests {
         assert!(!header.contains("- Result: completed"), "{english}");
         assert!(!header.contains("- Next action: none"), "{english}");
 
-        let japanese = render_document("", SummaryLanguage::Japanese, &report, None);
+        let japanese = render_document("", SummaryLanguage::Japanese, &report);
         let header = japanese.lines().take(10).collect::<Vec<_>>().join("\n");
         assert!(
             header.contains("- 結果: 受入未検証（処理は終了）"),
@@ -383,74 +320,16 @@ mod tests {
         let mut report = report();
         report.status = Some(TerminalStatus::Completed);
         report.next_action = Some("none".to_string());
-        let rendered = render_document("", SummaryLanguage::Japanese, &report, None);
+        let rendered = render_document("", SummaryLanguage::Japanese, &report);
         assert!(rendered.contains("- 結果: 完了"), "{rendered}");
         assert!(rendered.contains("- 次の一手: 追加操作なし"), "{rendered}");
     }
 
-    /// r6 blocker 2: with no terminal event, the status and next action come
-    /// from the body fallback. The "acceptance unverified" decision must use
-    /// the fallback's *original* values, not the events projection, and the
-    /// displayed next action stays masked when it is registered. Through both
-    /// writers.
+    /// r6/r7/r8: the acceptance-unverified decision reads the same joined,
+    /// capped body the summary displays. Every shape below ends with the result
+    /// agreeing with the next action actually shown.
     #[test]
-    fn fallback_body_keeps_acceptance_unverified_result() {
-        crate::eval_events::summary_language::with_language_for_test(
-            SummaryLanguage::English,
-            fallback_body_acceptance_unverified,
-        );
-    }
-
-    fn fallback_body_acceptance_unverified() {
-        let secret = crate::eval_events::ACCEPTANCE_UNVERIFIED_NEXT_ACTION;
-        let body = format!("Status: completed\nNext action: {secret}");
-        let root = tempfile::tempdir().unwrap();
-        let path = root
-            .path()
-            .join(".commandagent/runs/fallback-acceptance/events.jsonl");
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        // Only `run_start`: no terminal event, so the fallback supplies both.
-        let start = serde_json::json!({"event": "run_start", "ok": true, "status": "running"});
-        std::fs::write(&path, format!("{start}\n")).unwrap();
-
-        let mut catalog = crate::sensitive_data::SecretCatalog::new();
-        catalog.register(secret);
-        crate::sensitive_data::install_scope(catalog, Some(root.path()), Some(&path));
-
-        let check = |summary: &str, stage: &str| {
-            assert!(
-                summary.contains("- Result: acceptance unverified (process completed)"),
-                "{stage}: decision lost: {summary}"
-            );
-            assert!(
-                !summary.contains("- Result: completed"),
-                "{stage}: {summary}"
-            );
-            assert!(!summary.contains(secret), "{stage}: {summary}");
-            assert!(summary.contains("<redacted>"), "{stage}: {summary}");
-        };
-
-        crate::eval_events::write_run_summary(Some(&path), &body);
-        let summary = std::fs::read_to_string(path.parent().unwrap().join("summary.md")).unwrap();
-        check(&summary, "after write");
-
-        crate::eval_events::append_run_summary(Some(&path), &body);
-        let summary = std::fs::read_to_string(path.parent().unwrap().join("summary.md")).unwrap();
-        check(&summary, "after append");
-
-        // Only this test's scope is restored.
-        crate::sensitive_data::set_current(None);
-    }
-
-    /// r7: the decision and the display must read the same body. Append renders
-    /// the previous body plus this call's text, so the decision reads that
-    /// joined body too. Three shapes, each with the value registered (masked on
-    /// disk by the earlier write) and unregistered: a supplement appended after
-    /// an acceptance-unverified body keeps the result; a failed body followed by
-    /// an unverified body follows the joined body; and a body supplying the next
-    /// action the events lack agrees with the display.
-    #[test]
-    fn append_decides_from_the_joined_body_it_displays() {
+    fn append_decides_from_the_body_it_displays() {
         crate::eval_events::summary_language::with_language_for_test(
             SummaryLanguage::English,
             append_decision_matches_display,
@@ -458,97 +337,154 @@ mod tests {
     }
 
     fn append_decision_matches_display() {
-        let secret = crate::eval_events::ACCEPTANCE_UNVERIFIED_NEXT_ACTION;
-        // (write body, appended text, whether the value is registered)
-        let cases: [(&str, &str, bool); 6] = [
-            (
-                "Status: completed\nNext action: run_acceptance_or_review_changes",
-                "Follow-up detail only",
-                false,
-            ),
-            (
-                "Status: completed\nNext action: run_acceptance_or_review_changes",
-                "Follow-up detail only",
-                true,
-            ),
-            (
-                "Status: failed\nStop reason: checks failed",
-                "Status: completed\nNext action: run_acceptance_or_review_changes",
-                false,
-            ),
-            (
-                "Status: failed\nStop reason: checks failed",
-                "Status: completed\nNext action: run_acceptance_or_review_changes",
-                true,
-            ),
-            (
-                "Status: completed",
-                "Next action: run_acceptance_or_review_changes",
-                false,
-            ),
-            (
-                "Status: completed",
-                "Next action: run_acceptance_or_review_changes",
-                true,
-            ),
-        ];
+        let unverified = crate::eval_events::ACCEPTANCE_UNVERIFIED_NEXT_ACTION;
 
-        for (index, (write_body, appended, registered)) in cases.into_iter().enumerate() {
-            let root = tempfile::tempdir().unwrap();
-            let path = root
-                .path()
-                .join(format!(".commandagent/runs/joined-{index}/events.jsonl"));
-            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-            // No terminal event: status and next action come from the body.
-            let start = serde_json::json!({"event": "run_start", "ok": true, "status": "running"});
-            std::fs::write(&path, format!("{start}\n")).unwrap();
-
-            if registered {
-                let mut catalog = crate::sensitive_data::SecretCatalog::new();
-                catalog.register(secret);
-                crate::sensitive_data::install_scope(catalog, Some(root.path()), Some(&path));
-            }
-
-            crate::eval_events::write_run_summary(Some(&path), write_body);
-            crate::eval_events::append_run_summary(Some(&path), appended);
-            let summary =
-                std::fs::read_to_string(path.parent().unwrap().join("summary.md")).unwrap();
-
+        // r6: no terminal event, so the body supplies both values.
+        let no_terminal_event = |body: &str, appended: &str| {
+            let summary = append_pair(
+                json!({"event": "run_start", "ok": true, "status": "running"}),
+                body,
+                appended,
+            );
             assert!(
                 summary.contains("- Result: acceptance unverified (process completed)"),
-                "case {index} (registered={registered}): decision lost: {summary}"
+                "{summary}"
             );
             assert!(
-                !summary.contains("- Result: completed"),
-                "case {index} (registered={registered}): {summary}"
+                summary.contains(&format!("- Next action: {unverified}")),
+                "decision and display disagree: {summary}"
             );
-            // The display shows the same next action the decision used.
-            let shown = if registered {
-                "- Next action: <redacted>"
-            } else {
-                "- Next action: run_acceptance_or_review_changes"
-            };
-            assert!(
-                summary.contains(shown),
-                "case {index}: decision and display disagree: {summary}"
-            );
-            if registered {
-                assert!(!summary.contains(secret), "case {index}: {summary}");
-            }
+        };
 
-            // Only this test's scope is restored.
-            crate::sensitive_data::set_current(None);
+        // r8 shape 1: the appended action word is dropped by the 8,000-character
+        // cap, so it must not change the decision.
+        let dropped_by_cap = format!(
+            "Status: completed\nNext action: none\n{}",
+            "x".repeat(8_001)
+        );
+        let summary = append_pair(
+            json!({"event": "run_start", "ok": true, "status": "running"}),
+            &dropped_by_cap,
+            &format!("Next action: {unverified}"),
+        );
+        assert!(
+            summary.contains("- Result: completed"),
+            "a value the display dropped changed the decision: {summary}"
+        );
+        assert!(
+            !summary.contains("- Result: acceptance unverified"),
+            "{summary}"
+        );
+
+        // r8 shape 2: an example line in the body is not a decision.
+        let summary = append_pair(
+            json!({"event": "run_start", "ok": true, "status": "running"}),
+            "Status: completed\nExample:\n- Result: acceptance unverified (process completed)",
+            "Follow-up detail only",
+        );
+        assert!(
+            summary.contains("- Result: completed"),
+            "an example line decided the result: {summary}"
+        );
+
+        // r8 shape 3: a failed body then a completed one. Result and the
+        // displayed next action come from the same joined body, so the result is
+        // exactly what the displayed status and action imply. Both with the
+        // value registered and without.
+        for registered in [false, true] {
+            let summary = append_pair_registered(
+                json!({"event": "run_start", "ok": true, "status": "running"}),
+                &format!("Status: failed\nNext action: {unverified}"),
+                "Status: completed",
+                registered,
+            );
+            assert_result_follows_display(&summary, registered);
         }
+
+        // r8 shape 4: after an unverified body, appending only a completed
+        // status keeps the displayed action, so the result is completed too.
+        for registered in [false, true] {
+            let summary = append_pair_registered(
+                json!({"event": "run_start", "ok": true, "status": "running"}),
+                &format!("Status: completed\nNext action: {unverified}"),
+                "Status: completed",
+                registered,
+            );
+            assert_result_follows_display(&summary, registered);
+        }
+
+        // r6: a supplement after an unverified body keeps the result.
+        no_terminal_event(
+            &format!("Status: completed\nNext action: {unverified}"),
+            "Follow-up detail only",
+        );
+
+        // Only this test's scope is restored. The body is unregistered
+        // throughout, so the display cannot hide the value it decided on.
+        crate::sensitive_data::set_current(None);
+    }
+
+    /// Write `body`, then append `appended`, with no registered scope, and
+    /// return the rendered `summary.md`. Each call gets its own tempdir.
+    fn append_pair(event: serde_json::Value, body: &str, appended: &str) -> String {
+        append_pair_registered(event, body, appended, false)
+    }
+
+    /// Like [`append_pair`], optionally registering the acceptance-unverified
+    /// action in this thread's scope. Registration refuses it (it is a fixed
+    /// identifier), so the scope stays empty either way.
+    fn append_pair_registered(
+        event: serde_json::Value,
+        body: &str,
+        appended: &str,
+        registered: bool,
+    ) -> String {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join(".commandagent/runs/pair/events.jsonl");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, format!("{event}\n")).unwrap();
+        if registered {
+            let mut catalog = crate::sensitive_data::SecretCatalog::new();
+            assert!(
+                catalog
+                    .register_credential(
+                        "SYNTHETIC_CLOSED_VALUE",
+                        crate::eval_events::ACCEPTANCE_UNVERIFIED_NEXT_ACTION
+                    )
+                    .is_err(),
+                "a closed action word must not be registrable"
+            );
+            crate::sensitive_data::install_scope(catalog, Some(root.path()), Some(&path));
+        }
+        crate::eval_events::write_run_summary(Some(&path), body);
+        crate::eval_events::append_run_summary(Some(&path), appended);
+        std::fs::read_to_string(path.parent().unwrap().join("summary.md")).unwrap()
+    }
+
+    /// The result must be exactly what the displayed status and next action
+    /// imply: "acceptance unverified" only when the shown status is completed
+    /// and the shown action is the unverified one.
+    fn assert_result_follows_display(summary: &str, registered: bool) {
+        let unverified = crate::eval_events::ACCEPTANCE_UNVERIFIED_NEXT_ACTION;
+        let shown_action = summary
+            .lines()
+            .find(|line| line.starts_with("- Next action: "))
+            .unwrap_or_default();
+        let shown_status_completed = summary
+            .lines()
+            .find(|line| line.starts_with("Status: "))
+            .is_some_and(|line| line.trim() == "Status: completed");
+        let expects_unverified = shown_status_completed && shown_action.ends_with(unverified);
+        assert_eq!(
+            summary.contains("- Result: acceptance unverified (process completed)"),
+            expects_unverified,
+            "registered={registered}: result and display disagree: {summary}"
+        );
     }
 
     #[test]
     fn machine_body_unwraps_new_and_legacy_documents() {
-        let rendered = render_document(
-            "Status: completed",
-            SummaryLanguage::English,
-            &report(),
-            None,
-        );
+        let rendered = render_document("Status: completed", SummaryLanguage::English, &report());
         assert_eq!(machine_body(&rendered), "Status: completed");
         assert_eq!(
             machine_body(&format!(
