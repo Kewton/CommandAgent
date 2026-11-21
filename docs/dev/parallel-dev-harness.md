@@ -28,6 +28,13 @@ User ──> PM ──> Development leader ──> Workers (one per Issue worktr
 | Judge (role `judge`) | `commandagent-develop` / `claude-4` | Claude Code (Opus 5.5, effort medium) | receives briefs | GO / NO-GO per Issue on integrated `develop` or a milestone. Reads only |
 | Worker (role `worker`) | each Issue worktree, primary instance | Command Code (DeepSeek V4.1 Flash) | `cmate-worker-development` | Implementing exactly one Issue inside its worktree |
 
+The same chain also runs `Kewton/musubi-ca-pack` (worktree `musubi-ca-pack`,
+base branch `main`) with its own development leader `musubi-ca-pack` /
+`claude-3`, the profile `.commandmate/profile.json` in that repository, and
+the gate in its `.commandmate/verify.yaml`. Read "develop" as `main` for that
+repository. Milestones and releases follow the "Milestones and releases"
+section of `CLAUDE.md`.
+
 Instance ids are the source of truth; re-check them with
 `commandmate instances commandagent-develop --json` before sending. Never send
 to your own instance, and send with `--role <role>` so a session holding

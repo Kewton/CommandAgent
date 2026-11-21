@@ -17,14 +17,19 @@ Run `commandmate whoami` at the start of every session and find your row
 
 | Role | CommandMate role | Worktree / instance | CLI | Talks to |
 | --- | --- | --- | --- | --- |
-| 窓口 (PM) | `pm` | `commandagent-develop` / `claude-2` | Claude Code | the user, the development leader, the reviewer, the judge |
-| 管理 (development leader) | `dev-lead` | `commandagent-develop` / `claude-3` | Claude Code | the PM, the workers, the reviewer |
+| 窓口 (PM) | `pm` | `commandagent-develop` / `claude-2` | Claude Code | the user, both development leaders, the reviewer, the judge |
+| 管理 (development leader, CommandAgent) | `dev-lead` | `commandagent-develop` / `claude-3` | Claude Code | the PM, the workers, the reviewer |
+| 管理 (development leader, musubi-ca-pack) | `dev-lead` | `musubi-ca-pack` / `claude-3` | Claude Code | the PM, the workers, the reviewer |
 | Worker | `worker` | each Issue worktree / `command-code` | Command Code | the development leader |
 | Reviewer | `reviewer` | `commandagent-develop` / `codex` | Codex | whoever asked (PM or leader) |
 | Judge | `judge` | `commandagent-develop` / `claude-4` | Claude Code | the PM |
 
-Any other instance (`claude`, `antigravity`, `command-code` in
-`commandagent-develop`) is not part of the team. Follow `AGENTS.md` and the
+The team covers two repositories (user decision, 2026-11-21): CommandAgent
+(base branch `develop`) and `Kewton/musubi-ca-pack` (base branch `main`,
+registered as `musubi-ca-pack`). One PM, reviewer and judge serve both; each
+repository has its own development leader, and its own rules live in that
+repository's `AGENTS.md`. Any other instance (`claude`, `antigravity`,
+`command-code` in a base worktree) is not part of the team. Follow `AGENTS.md` and the
 brief you were given; if a brief conflicts with `AGENTS.md`, stop and report
 the conflict instead of choosing.
 
@@ -53,6 +58,26 @@ Rules for every role:
   the PM under the conditions in harness section 3, steps 5 and 6. When any
   condition fails or is unclear, the PM asks the user.
 
+## Milestones and releases
+
+User decisions of 2026-11-21. A milestone is small (3–5 Issues, a week or
+less, with a due date) and maps to one release.
+
+- CommandAgent milestones are named by version and raise the minor number:
+  `v0.1.0` (the first stable release, graduating from the RC tags), then
+  `v0.2.0`, `v0.3.0`, …. musubi-ca-pack milestones name the pack release
+  (`Musubi light v1`) and pin a CommandAgent release.
+- Flow: Issues merge into the base branch → every Issue of the milestone is
+  closed → the judge checks the integrated base branch (GO / NO-GO per Issue)
+  → on all GO the PM prepares `CHANGELOG.md` and the version bump → a pull
+  request from `develop` to `main` → merge → tag → `release.yml` → GitHub
+  Release → close the milestone. Unfinished Issues move to the next milestone;
+  the release still ships.
+- The user holds the merge into `main`, tagging and publishing a release, and
+  may delegate them to the PM case by case. Without that delegation the PM
+  stops at "ready to release" with the judge's verdict and the prepared diff.
+- Work for musubi-ca-pack carries the `musubi-pack` label in CommandAgent.
+
 ### 窓口 (PM, `claude-2`)
 
 - Delegate with the `cmate-delegate` skill. Do not implement Issue code and do
@@ -66,6 +91,9 @@ Rules for every role:
   `.tf` files are merged by the user.
 - Ask the reviewer (`codex`) for investigation and reviews, and the judge
   (`claude-4`) to check an integrated milestone (GO / NO-GO per Issue).
+- Send musubi-ca-pack work to its leader (`musubi-ca-pack` / `claude-3`), and
+  CommandAgent work to `commandagent-develop` / `claude-3`. Keep one ledger per
+  run and name the repository in every entry.
 - When the leader's prompt stays open (the stop pattern fired), answer it only
   within your authority; send anything else (merge, destructive git,
   CommandMate start/stop, Issue edits) to the user.
