@@ -198,7 +198,7 @@ pub fn write_run_summary(path: Option<&Path>, text: &str) {
     };
     let summary = parent.join("summary.md");
     let rendered = human_summary::render(path, &summary_body(text));
-    let content = scrub_summary_document(path, &rendered);
+    let content = terminal_report::scrub_summary_document(path, &rendered);
     if let Err(err) = std::fs::create_dir_all(parent) {
         eprintln!("warning: failed to create run summary directory: {err}");
         return;
@@ -229,81 +229,10 @@ pub fn append_run_summary(path: Option<&Path>, text: &str) {
         format!("{}\n---\n\n{}", existing.trim_end(), content.trim())
     };
     let rendered = human_summary::render(path, &combined);
-    let document = scrub_summary_document(path, &rendered);
+    let document = terminal_report::scrub_summary_document(path, &rendered);
     if let Err(err) = std::fs::write(summary, format!("{document}\n")) {
         eprintln!("warning: failed to append run summary: {err}");
     }
-}
-
-/// The closed-value labels `human_summary` renders. Their value is a product
-/// status, so a fixed identifier there must survive the save-point scrub. The
-/// free-text labels (`Stop reason`, `Next action`) are deliberately absent:
-/// that is the text the terminal report projects without a scrub.
-const FIXED_SUMMARY_LABELS: &[&str] = &["Status:", "Result:", "Assurance:", "Gate:"];
-
-/// Scrub a rendered summary with the run scope registered for its events path
-/// before it is saved. `human_summary` renders free text the terminal report
-/// projects from the events file (`Next action`, `Stop reason`, and the other
-/// projected fields) ahead of the caller's body, so that text never passes
-/// through `summary_body`'s scrub. Only that projected free text is scrubbed:
-/// a fixed value under a closed-value label (`Status`, `Result`, `Assurance`,
-/// `Gate`) is protected first, the same way `summary_body` protects it, so a
-/// registered value equal to a fixed status does not rewrite it. The scrub is
-/// idempotent for the already-scrubbed body, and a missing scope leaves the
-/// document unchanged.
-fn scrub_summary_document(path: &Path, document: &str) -> String {
-    let Some(context) = crate::sensitive_data::active_for(Some(path)) else {
-        return document.to_string();
-    };
-    let (protected, fixed) = protect_rendered_fixed_values(document);
-    restore_fixed_summary_values(&context.scrub_text(&protected), &fixed)
-}
-
-/// Replace a fixed closed-value with a placeholder so the save-point scrub
-/// cannot rewrite it, remembering the original value. A value that is not a
-/// fixed identifier is left in place so the scrub covers it. Lines may carry a
-/// `- ` bullet, as the rendered header does.
-fn protect_rendered_fixed_values(document: &str) -> (String, Vec<(String, String)>) {
-    let mut text = String::new();
-    let mut fixed = Vec::new();
-    for (index, line) in document.split('\n').enumerate() {
-        if index > 0 {
-            text.push('\n');
-        }
-        match rendered_fixed_value(line) {
-            Some((label, separator, value))
-                if crate::sensitive_data::is_fixed_identifier(value) =>
-            {
-                // The trailing sentinel keeps one placeholder from matching
-                // inside another, so restore cannot corrupt a fixed value.
-                let placeholder = format!("\u{1}commandagentrenderedfixed{}\u{1}", fixed.len());
-                text.push_str(label);
-                text.push_str(separator);
-                text.push_str(&placeholder);
-                fixed.push((placeholder, value.to_string()));
-            }
-            _ => text.push_str(line),
-        }
-    }
-    (text, fixed)
-}
-
-fn rendered_fixed_value(line: &str) -> Option<(&str, &str, &str)> {
-    let indent = line.len() - line.trim_start().len();
-    let (prefix_end, body) = match line[indent..].strip_prefix("- ") {
-        Some(body) => (indent + 2, body),
-        None => (indent, &line[indent..]),
-    };
-    for label in FIXED_SUMMARY_LABELS {
-        if let Some(rest) = body.strip_prefix(label) {
-            let (separator, value) = match rest.strip_prefix(' ') {
-                Some(value) => (" ", value),
-                None => ("", rest),
-            };
-            return Some((&line[..prefix_end + label.len()], separator, value));
-        }
-    }
-    None
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

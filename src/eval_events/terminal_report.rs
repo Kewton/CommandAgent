@@ -128,6 +128,114 @@ pub(crate) fn project(
     }
 }
 
+/// Scrub a rendered summary with the run scope registered for its events path,
+/// just before it is saved. `human_summary` renders free text the terminal
+/// report projects from the events file (`Stop reason`, `Next action`) ahead of
+/// the caller's (already scrubbed) body, so that text never passes through
+/// `summary_body`'s scrub. The renderer's own fixed text — the headings and
+/// separators that delimit the document, every field label, and a fixed status
+/// under a closed-value label — is replaced by a placeholder first and restored
+/// after, so a registered value that equals one of them cannot rewrite it or
+/// break the boundary `append_run_summary` splits on. The scrub still sees the
+/// whole document at once, so a value that spans lines is matched as one
+/// string. A missing scope leaves it unchanged.
+pub(crate) fn scrub_summary_document(path: &Path, document: &str) -> String {
+    let Some(context) = crate::sensitive_data::active_for(Some(path)) else {
+        return document.to_string();
+    };
+    let (protected, fixed) = protect_summary_fixed_text(document);
+    let mut scrubbed = context.scrub_text(&protected);
+    for (placeholder, value) in &fixed {
+        scrubbed = scrubbed.replace(placeholder.as_str(), value);
+    }
+    scrubbed
+}
+
+/// The labels `human_summary` renders, each marked closed when its value is a
+/// product status (so a fixed identifier there is preserved). The localized
+/// header uses the `SummaryLanguage` labels; the machine-details body keeps the
+/// caller's English labels (`Status:`, `Result:`), which `summary_body` already
+/// protected the same way.
+fn summary_labels(language: super::summary_language::SummaryLanguage) -> Vec<(String, bool)> {
+    vec![
+        (format!("{}:", language.result_label()), true),
+        (format!("{}:", language.assurance_label()), true),
+        (format!("{}:", language.gate_label()), true),
+        (format!("{}:", language.stop_reason_label()), false),
+        (format!("{}:", language.next_action_label()), false),
+        (format!("{}:", language.changed_files_label()), false),
+        (format!("{}:", language.verification_label()), false),
+        (format!("{}:", language.exit_code_label()), false),
+        ("Status:".to_string(), true),
+        ("Result:".to_string(), true),
+        ("Assurance:".to_string(), true),
+        ("Gate:".to_string(), true),
+        ("Stop reason:".to_string(), false),
+        ("Next action:".to_string(), false),
+        ("Changed files:".to_string(), false),
+        ("Verification:".to_string(), false),
+        ("Exit code:".to_string(), false),
+    ]
+}
+
+/// Replace the summary's fixed structure with placeholders so the save-point
+/// scrub cannot rewrite it. Every other byte, including the projected free
+/// text, is left in place for the scrub.
+fn protect_summary_fixed_text(document: &str) -> (String, Vec<(String, String)>) {
+    let language = super::summary_language::SummaryLanguage::from_process_locale();
+    let structural = [
+        format!("# {}", language.heading()),
+        "## Machine details".to_string(),
+        format!("## {}", language.changed_files_label()),
+        format!("## {}", language.verification_commands_heading()),
+        format!("- {}", language.none()),
+        "---".to_string(),
+    ];
+    let labels = summary_labels(language);
+    let mut text = String::new();
+    let mut fixed = Vec::new();
+    for (index, line) in document.split('\n').enumerate() {
+        if index > 0 {
+            text.push('\n');
+        }
+        if structural.iter().any(|structural| structural == line) {
+            push_summary_placeholder(&mut text, &mut fixed, line);
+            continue;
+        }
+        let indent = line.len() - line.trim_start().len();
+        let (prefix_end, body) = match line[indent..].strip_prefix("- ") {
+            Some(body) => (indent + 2, body),
+            None => (indent, &line[indent..]),
+        };
+        let Some((label, closed, rest)) = labels.iter().find_map(|(label, closed)| {
+            body.strip_prefix(label.as_str())
+                .map(|rest| (label.as_str(), *closed, rest))
+        }) else {
+            text.push_str(line);
+            continue;
+        };
+        push_summary_placeholder(&mut text, &mut fixed, &line[..prefix_end + label.len()]);
+        let (separator, value) = match rest.strip_prefix(' ') {
+            Some(value) => (" ", value),
+            None => ("", rest),
+        };
+        text.push_str(separator);
+        if closed && crate::sensitive_data::is_fixed_identifier(value) {
+            push_summary_placeholder(&mut text, &mut fixed, value);
+        } else {
+            text.push_str(value);
+        }
+    }
+    (text, fixed)
+}
+
+fn push_summary_placeholder(text: &mut String, fixed: &mut Vec<(String, String)>, value: &str) {
+    // The sentinel keeps one placeholder from matching inside another.
+    let placeholder = format!("\u{1}commandagentsummaryfixed{}\u{1}", fixed.len());
+    text.push_str(&placeholder);
+    fixed.push((placeholder, value.to_string()));
+}
+
 /// Every line that is one JSON value, in file order. A line cut inside a
 /// multi-byte character or otherwise malformed is skipped on its own; the whole
 /// lines around it are still returned.
@@ -533,6 +641,53 @@ mod tests {
         // Only this test's scope is restored: drop its thread-local scope and
         // leave unregistered keys untouched, because `reset_scopes_for_tests`
         // would clear scopes other lib tests registered in this process.
+        crate::sensitive_data::set_current(None);
+    }
+
+    /// The reviewer's second reproduction: scrubbing the whole rendered
+    /// summary also rewrote the renderer's own fixed strings when a registered
+    /// value equalled one of them. With `Machine details` registered (and the
+    /// value kept out of the events file and the body), the `## Machine details`
+    /// boundary must survive both writers, so `append_run_summary` still finds
+    /// it and re-renders exactly one `# Run result` heading.
+    #[test]
+    fn fixed_summary_boundaries_survive_a_registered_heading_value() {
+        crate::eval_events::summary_language::with_language_for_test(
+            crate::eval_events::summary_language::SummaryLanguage::English,
+            fixed_summary_boundaries,
+        );
+    }
+
+    fn fixed_summary_boundaries() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root
+            .path()
+            .join(".commandagent/runs/heading-run/events.jsonl");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let mut catalog = crate::sensitive_data::SecretCatalog::new();
+        catalog.register("Machine details");
+        crate::sensitive_data::install_scope(catalog, Some(root.path()), Some(&path));
+
+        crate::eval_events::write_run_summary(
+            Some(&path),
+            "Status: failed\nCompleted phases:\n- scaffold",
+        );
+        let summary = std::fs::read_to_string(path.parent().unwrap().join("summary.md")).unwrap();
+        assert!(summary.contains("## Machine details"), "{summary}");
+
+        crate::eval_events::append_run_summary(Some(&path), "TUI command failed: phase failed");
+        let summary = std::fs::read_to_string(path.parent().unwrap().join("summary.md")).unwrap();
+        assert!(summary.contains("## Machine details"), "{summary}");
+        assert_eq!(
+            summary.matches("# Run result").count(),
+            1,
+            "the boundary broke and the previous header was appended twice: {summary}"
+        );
+        assert!(
+            summary.contains("---\n\nTUI command failed: phase failed"),
+            "{summary}"
+        );
+
         crate::sensitive_data::set_current(None);
     }
 
