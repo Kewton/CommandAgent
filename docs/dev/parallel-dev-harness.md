@@ -363,6 +363,18 @@ auto-yes answers tool prompts only. It does not grant any authority in
 section 2: the leader still needs the PM's written approval to dispatch and to
 create PRs (section 3, step 5), and it never merges (step 6).
 
+Open prompts are answered by role (user decision, 2026-11-21, 「毎回私が選択する
+訳にはいかないのでルールを見直して下さい」; `CLAUDE.md`, the exit-10 rule). The
+leader answers a worker's prompt inside the Issue's scope and any refusal or
+cancel. The PM answers any team session's prompt with a refusal or cancel, or
+with a yes that stays inside an approved brief and has no outward effect. A
+prompt that would send to a real provider or spend money, push, create or
+merge a PR, delete outside the worktree or a scratch root, touch `.env` or
+keys, start or stop CommandMate, edit an Issue, or change a gate goes to the
+user. The leader's and the PM's Claude Code settings allow
+`commandmate respond` and `commandmate prompt` (in `.claude/settings.local.json`),
+so the auto-mode classifier does not refuse an answer the rule permits.
+
 Stop pattern (auto-yes stops and the prompt is returned to a human when any of
 these strings appears in the terminal):
 
