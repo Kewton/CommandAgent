@@ -407,12 +407,12 @@ Confirm with `/confirm-directive {}` before continuation dispatch.",
                 generated.full,
                 generated.section5,
             )?;
-            let rendered = render_terminal(&identity, terminal, &pack_context)?;
-            let gate = if terminal.full { "Gate 3" } else { "Gate 4" };
-            crate::tui::boundary_shell::transcript::append(
-                &config.state_dir,
-                gate,
-                &format!("{rendered}\n\nSheet path: {}", sheet_path.display()),
+            let rendered = present_and_record_terminal(
+                &config,
+                &identity,
+                terminal,
+                &pack_context,
+                &sheet_path,
             )?;
             render_and_remember(&renderer, &mut last_result, rendered)?;
             directive_round = continuation.directive_round;
@@ -494,12 +494,12 @@ Confirm with `/confirm-directive {}` before continuation dispatch.",
                 generated.full,
                 generated.section5,
             )?;
-            let rendered = render_terminal(&identity, terminal, &pack_context)?;
-            let gate = if terminal.full { "Gate 3" } else { "Gate 4" };
-            crate::tui::boundary_shell::transcript::append(
-                &config.state_dir,
-                gate,
-                &format!("{rendered}\n\nSheet path: {}", sheet_path.display()),
+            let rendered = present_and_record_terminal(
+                &config,
+                &identity,
+                terminal,
+                &pack_context,
+                &sheet_path,
             )?;
             render_and_remember(&renderer, &mut last_result, rendered)?;
             active_identity = Some(identity);
@@ -1266,6 +1266,61 @@ fn render_terminal(
             ),
         ],
         pack_context.locator(),
+    )
+}
+
+/// Render and record the Gate 3/Gate 4 terminal for a confirmed run, after its
+/// stop event and sheet are recorded. A pack that changed or moved during the
+/// run fails revalidation here; the terminal is still recorded and shown with
+/// the masked reason, so the transcript is not lost and the caller keeps reading
+/// input rather than ending the REPL (Issue #1057 r2).
+fn present_and_record_terminal(
+    config: &Config,
+    identity: &crate::tui::boundary_shell::confirmation::ConfirmationIdentity,
+    terminal: &crate::tui::boundary_shell::acceptance::TerminalPresentation,
+    pack_context: &pack_selection::ReplPackContext,
+    sheet_path: &std::path::Path,
+) -> anyhow::Result<String> {
+    let rendered = match render_terminal(identity, terminal, pack_context) {
+        Ok(rendered) => rendered,
+        Err(error) => render_terminal_after_pack_change(identity, terminal, &error),
+    };
+    let gate = if terminal.full { "Gate 3" } else { "Gate 4" };
+    crate::tui::boundary_shell::transcript::append(
+        &config.state_dir,
+        gate,
+        &format!("{rendered}\n\nSheet path: {}", sheet_path.display()),
+    )?;
+    Ok(rendered)
+}
+
+/// The terminal transcript for a confirmed run whose pack no longer
+/// revalidates after dispatch. The run's stop event and sheet are already
+/// recorded and are left untouched; this records and shows the terminal with
+/// the masked reason, so the Gate 3/Gate 4 transcript is not lost and the REPL
+/// can keep reading input (Issue #1057 r2).
+fn render_terminal_after_pack_change(
+    identity: &crate::tui::boundary_shell::confirmation::ConfirmationIdentity,
+    terminal: &crate::tui::boundary_shell::acceptance::TerminalPresentation,
+    error: &anyhow::Error,
+) -> String {
+    let gate = if terminal.full {
+        "Gate 3 — Acceptance"
+    } else {
+        "Gate 4 — Failure and next action"
+    };
+    // Mask with the run's registered scope before display, as a startup refusal
+    // does; never quote the pack's bytes.
+    let reason = crate::sensitive_data::scrub_everything(&format!("{error:#}"));
+    let card_hash = identity
+        .card_hash()
+        .unwrap_or_else(|_| "<unavailable>".to_string());
+    format!(
+        "# {gate}\n\n\
+         - 実行後の検証パック再確認に失敗しました: {reason}\n\
+         - この実行の停止 event と acceptance sheet は記録済みです。\n\
+         - Confirmation ID: {card_hash}\n\n{}",
+        terminal.acceptance_sheet
     )
 }
 
@@ -3432,5 +3487,256 @@ mod tests {
         let rendered = render_terminal(&identity, terminal, &context).unwrap();
         assert!(rendered.contains("# Gate 4"), "{rendered}");
         assert!(rendered.contains("canary-pack@1.0.0"), "{rendered}");
+    }
+
+    // ---- Issue #1057 review r2 regressions (dispatch-time pack changes) ----
+
+    /// Blocker 1 (r2): a pin that changes *during* the run makes the terminal
+    /// render fail, and that failure must be masked with the run's registered
+    /// scope before it is displayed — exactly as a startup refusal is. The
+    /// catalog's pin-mismatch reason also never transcribes the pin value.
+    #[test]
+    fn a_runtime_pin_change_is_masked_before_the_terminal_error_is_displayed() {
+        use crate::sensitive_data::{SecretCatalog, install_scope, reset_scopes_for_tests};
+
+        const CANARY: &str = "PACK_CANARY_r2_pin_9c3";
+        let temp = tempfile::tempdir().unwrap();
+        let workspace = temp.path().join("workspace");
+        let extension = temp.path().join("extension");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let bytes = pack_selection::tests::assist("canary-pack", "1.0.0", "runtime-pin");
+        pack_selection::tests::write_pack(&extension, "canary-pack", "1.0.0", &bytes);
+        let context =
+            pack_selection::ReplPackContext::new(workspace.clone(), Some(extension.clone()));
+
+        // Register the canary, then make the served pin equal it (mismatched
+        // against the observed bytes).
+        reset_scopes_for_tests();
+        let mut catalog = SecretCatalog::new();
+        catalog
+            .register_credential("SYNTHETIC_KEY", CANARY)
+            .unwrap();
+        let _scope = install_scope(catalog, Some(&workspace), None);
+        std::fs::write(
+            extension.join("canary-pack/1.0.0/pack.sha256"),
+            format!("{CANARY}\n"),
+        )
+        .unwrap();
+
+        let selection = crate::tui::boundary_shell::confirmation::PackSelection::Pinned {
+            id: "canary-pack".to_string(),
+            version: "1.0.0".to_string(),
+            hash: crate::planner::pack::exact_byte_hash(Some(bytes.as_bytes()), None),
+            point: "cli-validation".to_string(),
+            source: crate::planner::pack::catalog::PackSource::Local,
+        };
+        let directory = extension.join("canary-pack/1.0.0");
+        // (a) The catalog's own pin-mismatch reason never transcribes the pin
+        // value, even before any masking.
+        let catalog_error = context
+            .revalidate_frozen("python-cli", "create", &selection, &directory)
+            .unwrap_err();
+        assert!(
+            !format!("{catalog_error:#}").contains(CANARY),
+            "the pin value leaked from the catalog reason"
+        );
+
+        // (b) A failure that *does* carry a registered value (as the r2 error
+        // did) is masked before it reaches the terminal. The render function is
+        // the display boundary under test.
+        let identity = crate::tui::boundary_shell::confirmation::ConfirmationIdentity::new(
+            "Python CLI filter".to_string(),
+            &workspace,
+            &python_cli_route(),
+            crate::tui::boundary_shell::band_catalog::value_for(
+                "python-cli",
+                IntentId::Create,
+                TaskFamilyId::Filter,
+            )
+            .unwrap(),
+            pins(),
+            crate::tui::boundary_shell::confirmation::PackSelection::None,
+        )
+        .unwrap();
+        let value_carrying = anyhow::anyhow!(
+            "pack `canary-pack@1.0.0` pin mismatch: expected `{CANARY}`, observed `sha256:other`"
+        );
+        let rendered = render_terminal_after_pack_change(
+            &identity,
+            &terminal_for(&identity, false),
+            &value_carrying,
+        );
+        reset_scopes_for_tests();
+
+        assert!(rendered.contains("再確認に失敗"), "{rendered}");
+        assert!(
+            !rendered.contains(CANARY),
+            "the registered value reached the terminal: {rendered}"
+        );
+        assert!(rendered.contains("<redacted>"), "{rendered}");
+    }
+
+    /// Blocker 2 (r2): when the pack moves *during* the run, its post-dispatch
+    /// revalidation fails. The terminal must still be recorded to the transcript
+    /// with the masked reason, the run's stop event and sheet must be untouched,
+    /// and no error may escape to end the REPL.
+    #[test]
+    fn a_runtime_pack_move_still_records_the_gate_four_transcript() {
+        use crate::sensitive_data::{SecretCatalog, install_scope, reset_scopes_for_tests};
+
+        const CANARY: &str = "PACK_CANARY_r2_move_5b1";
+        let temp = tempfile::tempdir().unwrap();
+        let workspace = temp.path().join("workspace");
+        let extension = temp.path().join("extension");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let bytes = pack_selection::tests::assist("canary-pack", "1.0.0", "runtime-move");
+        let hash = pack_selection::tests::write_pack(&extension, "canary-pack", "1.0.0", &bytes);
+
+        let mut config = Config::from_cli(crate::cli::Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            workspace.to_str().unwrap(),
+            "--profile",
+            "python-cli",
+            "--intent",
+            "create",
+        ]))
+        .unwrap();
+        config.eval_events_path = Some(temp.path().join("events.jsonl"));
+        config.state_dir = temp.path().join("state");
+        let context =
+            pack_selection::ReplPackContext::new(workspace.clone(), Some(extension.clone()));
+
+        let selection = crate::tui::boundary_shell::confirmation::PackSelection::Pinned {
+            id: "canary-pack".to_string(),
+            version: "1.0.0".to_string(),
+            hash,
+            point: "cli-validation".to_string(),
+            source: crate::planner::pack::catalog::PackSource::Local,
+        };
+        let identity = selection_identity_for(&workspace, Some(&extension), &selection);
+        let mut shell = boundary_shell_for(&config);
+        let card = shell
+            .begin_gate_one_with_locator_and_recovery(
+                python_cli_proposal(),
+                "Python CLI filter",
+                &config.workspace_root,
+                pins(),
+                selection.clone(),
+                crate::tui::boundary_shell::GateOneOptions {
+                    locator: Some(context.locator()),
+                    recovery_plan_auto_runs: 0,
+                },
+            )
+            .unwrap()
+            .card_hash()
+            .unwrap();
+        shell.confirm(&card).unwrap();
+        shell.dispatch(|_| Ok("failed".to_string())).unwrap();
+        // The run's stop evidence is recorded before the pack moves.
+        let stop = serde_json::json!({
+            "event": "tui_command_stop",
+            "profile": "python-cli",
+            "status": "failed",
+            "ok": false,
+            "stop_reason": "failed",
+            "runtime_acceptance_status": "failed",
+        });
+        crate::eval_events::emit(config.eval_events_path.as_deref(), stop);
+        let generated = crate::tui::boundary_shell::sheet::generate(
+            &identity,
+            config.eval_events_path.as_deref(),
+            false,
+        )
+        .unwrap();
+        let sheet_path =
+            crate::tui::boundary_shell::sheet::persist(&config.state_dir, &identity, &generated)
+                .unwrap();
+        let stop_before =
+            std::fs::read_to_string(config.eval_events_path.as_ref().unwrap()).unwrap();
+        let terminal = shell
+            .present_terminal(generated.markdown, generated.full, generated.section5)
+            .unwrap();
+
+        // The pack moves during the run; revalidation now fails.
+        std::fs::rename(
+            extension.join("canary-pack"),
+            extension.join("canary-pack-moved"),
+        )
+        .unwrap();
+        reset_scopes_for_tests();
+        let mut catalog = SecretCatalog::new();
+        catalog
+            .register_credential("SYNTHETIC_KEY", CANARY)
+            .unwrap();
+        let _scope = install_scope(catalog, Some(&workspace), None);
+
+        let rendered =
+            present_and_record_terminal(&config, &identity, terminal, &context, &sheet_path)
+                .unwrap();
+        reset_scopes_for_tests();
+
+        // No error escaped (the call above returned Ok): the REPL can continue.
+        // The Gate 4 transcript is recorded with the masked reason.
+        let transcript =
+            std::fs::read_to_string(config.state_dir.join("boundary-transcript.md")).unwrap();
+        assert!(transcript.contains("## Gate 4"), "{transcript}");
+        assert!(transcript.contains("再確認に失敗"), "{transcript}");
+        assert!(transcript.contains("Sheet path:"), "{transcript}");
+        assert!(!transcript.contains(CANARY), "{transcript}");
+        assert!(
+            rendered.contains("## Gate 4") || rendered.contains("# Gate 4"),
+            "{rendered}"
+        );
+        // The run's stop event and sheet are unchanged.
+        assert_eq!(
+            std::fs::read_to_string(config.eval_events_path.as_ref().unwrap()).unwrap(),
+            stop_before,
+            "the stop event changed"
+        );
+        assert!(sheet_path.exists(), "the sheet was removed");
+    }
+
+    /// The confirmed identity of `pack` for the python-cli filter route, as the
+    /// run loop builds it, validated through the same roots the pack was read
+    /// from.
+    fn selection_identity_for(
+        workspace: &std::path::Path,
+        extension_root: Option<&std::path::Path>,
+        pack: &crate::tui::boundary_shell::confirmation::PackSelection,
+    ) -> crate::tui::boundary_shell::confirmation::ConfirmationIdentity {
+        let locator = crate::planner::pack::catalog::PackLocator::with_extension_root(
+            workspace,
+            extension_root.map(std::path::Path::to_path_buf),
+        );
+        crate::tui::boundary_shell::confirmation::ConfirmationIdentity::new_with_locator(
+            "Python CLI filter".to_string(),
+            workspace,
+            &python_cli_route(),
+            crate::tui::boundary_shell::band_catalog::value_for(
+                "python-cli",
+                IntentId::Create,
+                TaskFamilyId::Filter,
+            )
+            .unwrap(),
+            pins(),
+            pack.clone(),
+            &locator,
+        )
+        .unwrap()
+    }
+
+    /// A terminal presentation for `identity`, using its own card hash.
+    fn terminal_for(
+        identity: &crate::tui::boundary_shell::confirmation::ConfirmationIdentity,
+        full: bool,
+    ) -> crate::tui::boundary_shell::acceptance::TerminalPresentation {
+        crate::tui::boundary_shell::acceptance::TerminalPresentation::new(
+            identity.card_hash().unwrap(),
+            "# sheet\n\n- Command succeeded: false\n\n## 5. Stop reason\nfailed".to_string(),
+            full,
+            (!full).then(|| "failed".to_string()),
+        )
+        .unwrap()
     }
 }

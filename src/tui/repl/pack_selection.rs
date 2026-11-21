@@ -555,7 +555,7 @@ pub(crate) mod tests {
             .locate_pinned("canary-pack", "1.0.0", None)
             .unwrap_err();
         let reason = format!("{error:#}");
-        assert!(reason.contains("pin mismatch"), "{reason}");
+        assert!(reason.contains("pin does not match its bytes"), "{reason}");
         assert!(!reason.contains("PACK_CANARY_27"), "{reason}");
         assert!(!reason.contains("workspace-fallback"), "{reason}");
         assert!(

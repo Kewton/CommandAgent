@@ -339,9 +339,12 @@ impl PackLocator {
         let pin = std::fs::read_to_string(&pin_path)
             .with_context(|| format!("read pack pin {}", pin_path.display()))?;
         if pin.trim() != hash {
+            // Never transcribe the pin file's value: it is untrusted bytes that
+            // may equal a registered credential, and this reason is displayed
+            // from a dispatch-time revalidation too, before any masking
+            // (Issue #1057 r2).
             bail!(
-                "pack `{id}@{version}` pin mismatch: expected `{}`, observed `{hash}`",
-                pin.trim()
+                "pack `{id}@{version}` pin does not match its bytes: pack.sha256 disagrees with the observed exact-byte hash `{hash}`"
             )
         }
         if let Some(expected_hash) = expected_hash
