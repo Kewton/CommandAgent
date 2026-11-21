@@ -1,0 +1,33 @@
+{
+  "issue": "#1062",
+  "origin": "synthetic",
+  "source": "74a03a66944a57ad2dfa31624bd64896051dbcd5 + the Issue #1062 change (working tree)",
+  "recorded_on": "the Issue #1062 work tree over 74a03a66, macOS; the same recorder that writes off-golden-v0.1.0.json",
+  "how": "STRUCTURED_RUN_BUDGET_OFF_OUT=<out> cargo test --locked --test structured_run_budget_off -- --exact records_the_off_golden ran 12 times with the default TMPDIR; every normalized record was byte-identical (normalized_sha256), and the committed fixture is that record. No raw record was taken: the raw one holds the temporary root and pid and does not fit this corpus.",
+  "repeats": {
+    "normalized": 12,
+    "identical": 12,
+    "differing": 0,
+    "raw": 0,
+    "record": "0 of 12 differed (#1006 also: 12 of 12 identical for its six paths)"
+  },
+  "in_ci": "yes: ac6_a_current_off_run_is_the_v010_record_byte_for_byte runs the binary on all five paths and compares it with the fixture byte for byte; the digest test needs no binary",
+  "normalization": "the eight items of responses-run-budget/fixtures/off-golden.json (#1006), word for word, in off-golden-v0.1.0.json normalization; nothing wider",
+  "paths": {
+    "compatible-chat-tool-call": "a Write call, then text",
+    "compatible-chat-retry": "500, then text",
+    "lm-studio-chat-tool-call": "a Write call, then text (--lm-studio-host)",
+    "compatible-chat-ordinary-reply": "text; returned by #1062",
+    "compatible-chat-client-error": "HTTP 400, no retry; returned by #1062"
+  },
+  "time_profile": "#1062: one time_profile line after every stop, whatever profile.total_ms; the client-error path records total_ms 0 and the line is present, which is the case #976 could not record",
+  "synthetic_source": "hand-written Chat Completions replies; no live model, key, provider, bench task, run record or host path",
+  "regenerate_digests": "shasum -a 256 fixtures/cases-v0.1.0.json fixtures/off-golden-v0.1.0.json",
+  "normalized_sha256": {
+    "74a03a66+#1062": "43c3dbcb5558a86cd1a6f51df847e94fe060ca4bc6743efc88f92555f5d9ff5d"
+  },
+  "fixture_sha256": {
+    "cases-v0.1.0.json": "84bb5895c08f70f91abbfd5cf6d3e577059de129fa0071e3c48516f29a422a0b",
+    "off-golden-v0.1.0.json": "43c3dbcb5558a86cd1a6f51df847e94fe060ca4bc6743efc88f92555f5d9ff5d"
+  }
+}

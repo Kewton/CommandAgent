@@ -1,5 +1,5 @@
 case_id = "structured-run-budget"
-source = "Issue #976 (G5): synthetic runs of the binary against a disposable 127.0.0.1 fake with no wallet selected; the off golden is byte-equal to the records of the code before and after each #976 merge (3c546943, fea0a54e, 62634272, d2afc7bb); not a model-capability or bench measurement"
+source = "Issue #976 (G5): synthetic runs of the binary against a disposable 127.0.0.1 fake with no wallet selected; the off golden is byte-equal to the records of the code before and after each #976 merge (3c546943, fea0a54e, 62634272, d2afc7bb); Issue #1062 records all five paths in off-golden-v0.1.0.json, every stop carrying its time_profile line; not a model-capability or bench measurement"
 required_paths = []
 verify_commands = []
 required_capabilities = []
@@ -27,7 +27,20 @@ fixtures/cases.json:kind = "synthetic"
 fixtures/off-golden.json:issue = "#976"
 fixtures/off-golden.json:kind = "structured-run-budget-off"
 source-manifest.json:origin = "synthetic"
+fixtures/cases-v0.1.0.json:issue = "#1062"
+fixtures/cases-v0.1.0.json:kind = "synthetic"
+fixtures/off-golden-v0.1.0.json:issue = "#1062"
+fixtures/off-golden-v0.1.0.json:kind = "structured-run-budget-off"
+source-manifest-v0.1.0.json:origin = "synthetic"
 
 [fixture_contains]
 fixtures/cases.json = ["\"criterion\": \"AC1\"", "\"criterion\": \"AC6\""]
 fixtures/off-golden.json = ["\"id\": \"compatible-chat-tool-call\"", "\"id\": \"compatible-chat-retry\"", "\"id\": \"lm-studio-chat-tool-call\""]
+fixtures/cases-v0.1.0.json = ["\"criterion\": \"AC1\"", "\"criterion\": \"AC6\""]
+fixtures/off-golden-v0.1.0.json = [
+  "\"id\": \"compatible-chat-tool-call\"",
+  "\"id\": \"compatible-chat-retry\"",
+  "\"id\": \"lm-studio-chat-tool-call\"",
+  "\"id\": \"compatible-chat-ordinary-reply\"",
+  "\"id\": \"compatible-chat-client-error\""
+]

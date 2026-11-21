@@ -113,6 +113,28 @@ U1).
   `tests/corpus/apps/responses-run-budget`). A reply that fails to parse still hands its observation
   to the turn, on a path apart from the response metadata.
 
+## 0 ms and the `time_profile` line (Issue #1062)
+
+Before #1062 the CLI wrote its `time_profile` event only when `time_profile.total_ms() > 0`. A run
+whose measured total rounds to 0 ms therefore ended with one event line less, so a byte comparison
+of a wallet-off run was red or green by the clock. #1006's record already holds the line on every
+path, but a live run could omit it; #976 left two 1–8 ms paths out of its golden for that reason.
+
+Now every stop writes exactly one `time_profile` line right after it, on success, error and
+interruption. The condition is the stop, not the duration or the input events, so a 0 ms run
+records the same line sequence as a positive one. A path with no stop (an immediate reply, a
+refusal before the command starts) gets no line. The event name and schema are unchanged; an
+unobserved value is still `null`, and `profile.total_ms` is still the measured 0.
+
+For the wallet-off comparison this means:
+
+- #1006's `off-golden.json` is compared as before. The line is in each recorded path, and a live
+  run now always writes it, so no per-path delta fixture is needed.
+- #976's two recaptured paths are recorded and compared live in
+  `tests/corpus/apps/structured-run-budget/fixtures/off-golden-v0.1.0.json`
+  (`ac6_a_current_off_run_is_the_v010_record_byte_for_byte`). The old golden and case table are
+  kept as the #976 record.
+
 ## Wallet-off control
 
 `tests/responses_run_budget.rs` compares the binary's wallet-off runs with a recording of the base
