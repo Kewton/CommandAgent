@@ -28,6 +28,11 @@ Two test groups depend on the environment they run in, not only on the code:
   shared lock and fails the tests after it. A child that ran no test fails its parent.
 - `a_c_locale_child_fails_the_utf8_glyph_expectations` is the control for the Linux failure:
   the UTF-8 expectations in a `LC_ALL=C` child fail on the ASCII fallback.
+- `/plan` follows the same rule (#1048): `tui_resume_runs_recovery_plan_remaining_phases_and_records_lineage`
+  runs its body under `LC_ALL=C.UTF-8`, and its `_ascii` twin runs the same body under
+  `LC_ALL=C`. The body compares the phase marks and `Current activity: ✓ Write ok` through
+  `tui::glyphs::for_locale(.., false)`, so the ASCII child requires `ok`/`>`/`o` instead of
+  the UTF-8 glyphs.
 
 The ambient locale of the runner therefore no longer decides the TUI result, and a missing
 `node` is reported as such instead of as a Recovery decision.
@@ -54,7 +59,9 @@ On the shared development Mac, wrap the command in the heavy-lock `with-cargo-sl
   `CARGO_TARGET_TMPDIR` resolve at their host paths.
 - Groups, each run once per locale in `CI_LINUX_LOCALES` (default `C.UTF-8 C`, set as the
   ambient `LC_ALL`): `tui_integration`, and the lib filters `issue465`,
-  `recovery_repair_obligation`, `tui::terminal`, `tui::glyphs`.
+  `recovery_repair_obligation`, `tui::terminal`, `tui::glyphs`. The `tui_integration`
+  group includes both `/plan` cases, so the Docker procedure checks the resume plan
+  output under both locales.
 - A run passes only when it exits 0 with at least one passed test. Ignored tests are
   reported in the counts and never counted as passes. The script exits 0 only when every
   run passed.
