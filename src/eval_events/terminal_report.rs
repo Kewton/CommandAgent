@@ -74,6 +74,9 @@ pub(crate) struct TerminalReport {
     pub(crate) assurance: Option<String>,
     pub(crate) gate: Option<String>,
     pub(crate) stop_reason: Option<String>,
+    /// The `next_action` string to display. A closed action word is a fixed
+    /// identifier and is shown as-is, so the renderer's acceptance-unverified
+    /// comparison and the display read the same value.
     pub(crate) next_action: Option<String>,
     pub(crate) changed_files: Vec<String>,
     pub(crate) verifications: Vec<VerificationObservation>,
@@ -116,26 +119,117 @@ pub(crate) fn project(
         .or_else(|| latest_event_text(events, "plan_final_contract", "next_action"));
     let exit_code = exit_code_override.or_else(|| status.map(TerminalStatus::default_exit_code));
 
+    // Every projected string is masked here, before it reaches the renderer:
+    // it comes from the events file and never passes through `summary_body`'s
+    // scrub. A closed value the product defines keeps its identity (the
+    // renderer compares some of them, and the language translates them); any
+    // other value is one free-text value, masked as a whole so a multi-line
+    // value still matches.
+    let context = crate::sensitive_data::active_for(events_path);
+    let assurance = mask_projected(context.as_ref(), assurance, CLOSED_ASSURANCE);
+    let gate = mask_projected(context.as_ref(), gate, CLOSED_GATE);
+    let stop_reason = mask_projected(context.as_ref(), stop_reason, CLOSED_STOP_REASON);
+    // A closed action word is a fixed identifier, so `register_credential`
+    // refuses it and the display can keep it as-is: the acceptance-unverified
+    // decision compares exactly what the report shows.
+    let next_action = mask_projected(context.as_ref(), next_action, CLOSED_NEXT_ACTION);
+    let changed_files = workspace
+        .as_deref()
+        .map(changed_files)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|path| mask_projected_text(context.as_ref(), &path))
+        .collect();
+    let verifications = verification_observations(events)
+        .into_iter()
+        .map(|observation| VerificationObservation {
+            command: mask_projected_text(context.as_ref(), &observation.command),
+            status: observation.status,
+            exit_code: observation.exit_code,
+        })
+        .collect();
+
     TerminalReport {
         status,
         assurance,
         gate,
         stop_reason,
         next_action,
-        changed_files: workspace.as_deref().map(changed_files).unwrap_or_default(),
-        verifications: verification_observations(events),
+        changed_files,
+        verifications,
         exit_code,
     }
 }
 
+/// Assurance levels the product defines. Any other projected value is free text.
+const CLOSED_ASSURANCE: &[&str] = &["full", "partial", "static", "failed", "reduced"];
+
+/// Release-gate statuses the product defines.
+const CLOSED_GATE: &[&str] = &[
+    "pass",
+    "passed",
+    "failed",
+    "partial",
+    "not_applicable",
+    "not_checked",
+    "not_recorded",
+];
+
+/// Stop reasons the product defines; the renderer and the language recognize
+/// these. Every other stop reason is free text.
+const CLOSED_STOP_REASON: &[&str] = &["completed", "interrupted by user"];
+
+/// The closed `next_action` vocabulary. These are fixed identifiers
+/// (`sensitive_data/fixed_identifiers.rs`), so a credential equal to one is
+/// refused at registration and the display can show it unmasked — the same
+/// value the acceptance-unverified decision compares.
+const CLOSED_NEXT_ACTION: &[&str] = &[
+    "none",
+    "fix_command_failure",
+    "resume_or_rerun_command",
+    "inspect_summary_and_resume_or_rerun",
+    "inspect_process_tree",
+    "inspect_internal_panic",
+    "run_acceptance_or_review_changes",
+    "run_setup_interaction_probe_to_enable_interaction_release_checks",
+    "collect_missing_release_evidence_or_continue_release_recovery",
+    "collect_missing_final_acceptance_evidence",
+    "repair_release_gate_failure",
+    "repair_final_acceptance_failure",
+    "terminal_handoff",
+    "retry_once",
+];
+
+/// Mask a projected value unless it is one of the product's closed values.
+fn mask_projected(
+    context: Option<&crate::sensitive_data::RedactionContext>,
+    value: Option<String>,
+    closed: &[&str],
+) -> Option<String> {
+    value.map(|value| {
+        if closed.contains(&value.as_str()) {
+            value
+        } else {
+            mask_projected_text(context, &value)
+        }
+    })
+}
+
+fn mask_projected_text(
+    context: Option<&crate::sensitive_data::RedactionContext>,
+    value: &str,
+) -> String {
+    match context {
+        Some(context) => context.scrub_text(value),
+        None => value.to_string(),
+    }
+}
+
+/// Every line that is one JSON value, in file order. A line cut inside a
+/// multi-byte character or otherwise malformed is skipped on its own; the whole
+/// lines around it are still returned.
 pub(crate) fn read_events(path: Option<&Path>) -> Vec<Value> {
-    path.and_then(|path| std::fs::read_to_string(path).ok())
-        .map(|text| {
-            text.lines()
-                .filter_map(|line| serde_json::from_str(line).ok())
-                .collect()
-        })
-        .unwrap_or_default()
+    super::event_reader::read_lenient_opt(path)
 }
 
 fn latest_terminal(events: &[Value]) -> Option<&Value> {
@@ -471,6 +565,499 @@ fn shell_display_arg(value: &str) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// The review of Issue #1059: once a broken line no longer hides the whole
+    /// line before it, the terminal report projects that line's free text
+    /// (`Next action`, `Stop reason`) ahead of the caller's body, past
+    /// `summary_body`'s scrub. Both summary writers must scrub the rendered
+    /// document with the events path's scope, so a registered value that only
+    /// the kept line holds never reaches `summary.md`, while the fixed status
+    /// and the ordinary event fields still render.
+    #[test]
+    fn a_projected_next_action_is_scrubbed_before_the_summary_is_saved() {
+        crate::eval_events::summary_language::with_language_for_test(
+            crate::eval_events::summary_language::SummaryLanguage::English,
+            projected_next_action_summary,
+        );
+    }
+
+    fn projected_next_action_summary() {
+        let secret = "SYNTHETIC_NEXT_ACTION_SECRET_42";
+        let root = tempfile::tempdir().unwrap();
+        let path = root
+            .path()
+            .join(".commandagent/runs/review-run/events.jsonl");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let failed = json!({
+            "event": "run_stop", "ok": false, "status": "failed",
+            "stop_reason": format!("verification failed ({secret})"),
+            "next_action": format!("resume_with {secret}"),
+        });
+        let mut bytes = serde_json::to_vec(&failed).unwrap();
+        bytes.push(b'\n');
+        // Line 2 is cut inside a multi-byte character and holds no secret.
+        bytes.extend_from_slice(b"{\"event\":\"fixture\",\"text\":\"\xE8\xA9\"}\n");
+        std::fs::write(&path, &bytes).unwrap();
+
+        let mut catalog = crate::sensitive_data::SecretCatalog::new();
+        catalog.register_credential("review_token", secret).unwrap();
+        crate::sensitive_data::install_scope(catalog, Some(root.path()), Some(&path));
+
+        crate::eval_events::write_run_summary(
+            Some(&path),
+            "Status: failed\nCompleted phases:\n- scaffold",
+        );
+        let summary = std::fs::read_to_string(path.parent().unwrap().join("summary.md")).unwrap();
+        assert!(!summary.contains(secret), "{summary}");
+        assert!(summary.contains("<redacted>"), "{summary}");
+        assert!(summary.contains("- Result: failed"), "{summary}");
+        assert!(
+            summary.contains("- Stop reason: verification failed"),
+            "{summary}"
+        );
+
+        crate::eval_events::append_run_summary(Some(&path), "TUI command failed: phase failed");
+        let summary = std::fs::read_to_string(path.parent().unwrap().join("summary.md")).unwrap();
+        assert!(!summary.contains(secret), "{summary}");
+        assert!(summary.contains("<redacted>"), "{summary}");
+        assert!(summary.contains("- Result: failed"), "{summary}");
+        assert!(
+            summary.contains("---\n\nTUI command failed: phase failed"),
+            "{summary}"
+        );
+        assert!(summary.contains("- scaffold"), "{summary}");
+
+        // Only this test's scope is restored: drop its thread-local scope and
+        // leave unregistered keys untouched, because `reset_scopes_for_tests`
+        // would clear scopes other lib tests registered in this process.
+        crate::sensitive_data::set_current(None);
+    }
+
+    /// The reviewer's second reproduction: with `Machine details` registered
+    /// (and the value kept out of the events file and the body), the
+    /// `## Machine details` boundary must survive both writers, so
+    /// `append_run_summary` still finds it and renders exactly one
+    /// `# Run result` heading. The renderer's fixed text is never scrubbed now;
+    /// only the projected values are.
+    #[test]
+    fn fixed_summary_boundaries_survive_a_registered_heading_value() {
+        crate::eval_events::summary_language::with_language_for_test(
+            crate::eval_events::summary_language::SummaryLanguage::English,
+            fixed_summary_boundaries,
+        );
+    }
+
+    fn fixed_summary_boundaries() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root
+            .path()
+            .join(".commandagent/runs/heading-run/events.jsonl");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let mut catalog = crate::sensitive_data::SecretCatalog::new();
+        catalog.register("Machine details");
+        crate::sensitive_data::install_scope(catalog, Some(root.path()), Some(&path));
+
+        crate::eval_events::write_run_summary(
+            Some(&path),
+            "Status: failed\nCompleted phases:\n- scaffold",
+        );
+        let summary = std::fs::read_to_string(path.parent().unwrap().join("summary.md")).unwrap();
+        assert!(summary.contains("## Machine details"), "{summary}");
+
+        crate::eval_events::append_run_summary(Some(&path), "TUI command failed: phase failed");
+        let summary = std::fs::read_to_string(path.parent().unwrap().join("summary.md")).unwrap();
+        assert!(summary.contains("## Machine details"), "{summary}");
+        assert_eq!(
+            summary.matches("# Run result").count(),
+            1,
+            "the boundary broke and the previous header was appended twice: {summary}"
+        );
+        assert!(
+            summary.contains("---\n\nTUI command failed: phase failed"),
+            "{summary}"
+        );
+
+        crate::sensitive_data::set_current(None);
+    }
+
+    /// Every projected string field is masked at projection time, except a
+    /// closed value the product defines. Each shape below is checked after
+    /// `write_run_summary` and again after `append_run_summary`:
+    /// a single-line value (in `next_action` and `stop_reason`), the reviewer's
+    /// multi-line value whose second line looks like a `Stop reason:` label
+    /// (r3), a value equal to the fixed `Machine details` label (the boundary
+    /// must survive), a value in `assurance_level` and `release_gate_status`
+    /// (r4 blocker 1), a body written with only the path scope registered
+    /// (r4 blocker 2), and `run_acceptance_or_review_changes` in `next_action`
+    /// (the closed value the "acceptance unverified" decision needs, r4
+    /// blocker 3).
+    #[test]
+    fn projected_fields_are_masked_for_every_value_shape() {
+        crate::eval_events::summary_language::with_language_for_test(
+            crate::eval_events::summary_language::SummaryLanguage::English,
+            every_projected_value_shape,
+        );
+    }
+
+    fn every_projected_value_shape() {
+        let single = "SYNTHETIC_SINGLE_SECRET_42";
+        let assurance_secret = "SYNTHETIC_ASSURANCE_SECRET_42";
+        let gate_secret = "SYNTHETIC_GATE_SECRET_42";
+        let body_secret = "SYNTHETIC_BODY_SECRET_42";
+        let multiline = "SYNTHETIC_MULTILINE_SECRET_42\nStop reason: still_a_secret";
+
+        #[derive(Clone, Copy)]
+        enum Case {
+            Single,
+            Multiline,
+            FixedLabel,
+            AssuranceGate,
+            BodyOnlyPathScope,
+            AcceptanceUnverified,
+        }
+
+        let cases: [(&str, Case, Vec<&str>); 6] = [
+            ("single-line", Case::Single, vec![single]),
+            ("multiline", Case::Multiline, vec![multiline]),
+            ("fixed-label", Case::FixedLabel, vec!["Machine details"]),
+            (
+                "assurance-gate",
+                Case::AssuranceGate,
+                vec![assurance_secret, gate_secret],
+            ),
+            (
+                "body-path-scope",
+                Case::BodyOnlyPathScope,
+                vec![body_secret],
+            ),
+            (
+                "acceptance-unverified",
+                Case::AcceptanceUnverified,
+                vec![crate::eval_events::ACCEPTANCE_UNVERIFIED_NEXT_ACTION],
+            ),
+        ];
+
+        for (id, case, registered) in cases {
+            let root = tempfile::tempdir().unwrap();
+            let path = root
+                .path()
+                .join(".commandagent/runs")
+                .join(id)
+                .join("events.jsonl");
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+
+            let (event, body) = match case {
+                Case::Single => (
+                    json!({
+                        "event": "run_stop", "ok": false, "status": "failed",
+                        "stop_reason": format!("verification failed ({single})"),
+                        "next_action": format!("resume_with {single}"),
+                    }),
+                    "Status: failed\nCompleted phases:\n- scaffold",
+                ),
+                Case::Multiline => (
+                    json!({
+                        "event": "run_stop", "ok": false, "status": "failed",
+                        "next_action": multiline,
+                    }),
+                    "Status: failed\nCompleted phases:\n- scaffold",
+                ),
+                Case::FixedLabel => (
+                    json!({
+                        "event": "run_stop", "ok": false, "status": "failed",
+                        "stop_reason": "verification failed",
+                        "next_action": "resume_or_rerun_command",
+                    }),
+                    "Status: failed\nCompleted phases:\n- scaffold",
+                ),
+                Case::AssuranceGate => (
+                    json!({
+                        "event": "run_stop", "ok": false, "status": "failed",
+                        "assurance_level": assurance_secret,
+                        "release_gate_status": gate_secret,
+                        "stop_reason": "verification failed",
+                        "next_action": "resume_or_rerun_command",
+                    }),
+                    "Status: failed\nCompleted phases:\n- scaffold",
+                ),
+                Case::BodyOnlyPathScope => (
+                    json!({
+                        "event": "run_stop", "ok": false, "status": "failed",
+                        "stop_reason": "verification failed",
+                        "next_action": "resume_or_rerun_command",
+                    }),
+                    "Status: failed\nCompleted phases:\n- scaffold\nSYNTHETIC_BODY_SECRET_42",
+                ),
+                Case::AcceptanceUnverified => (
+                    json!({
+                        "event": "run_stop", "ok": true, "status": "completed",
+                        "next_action": crate::eval_events::ACCEPTANCE_UNVERIFIED_NEXT_ACTION,
+                    }),
+                    "Status: completed",
+                ),
+            };
+            std::fs::write(&path, format!("{event}\n")).unwrap();
+            let mut catalog = crate::sensitive_data::SecretCatalog::new();
+            for value in &registered {
+                // The closed acceptance word and other fixed identifiers are
+                // refused here (r8); the other shapes register normally.
+                let _ = catalog.register_credential("SYNTHETIC_VALUE", value);
+            }
+            crate::sensitive_data::install_scope(catalog, Some(root.path()), Some(&path));
+            if matches!(case, Case::BodyOnlyPathScope) {
+                // Only the path scope is left: the body must still be masked.
+                crate::sensitive_data::set_current(None);
+            }
+
+            let check = |summary: &str, stage: &str| match case {
+                Case::FixedLabel => {
+                    assert!(
+                        summary.contains("## Machine details"),
+                        "{id} {stage}: boundary rewritten: {summary}"
+                    );
+                    assert_eq!(
+                        summary.matches("# Run result").count(),
+                        1,
+                        "{id} {stage}: header duplicated: {summary}"
+                    );
+                }
+                Case::AcceptanceUnverified => {
+                    // r8 (2): a closed action word is a fixed identifier, so it
+                    // cannot be registered; the display shows it and the decision
+                    // compares that same value.
+                    for value in &registered {
+                        assert!(
+                            crate::sensitive_data::SecretCatalog::new()
+                                .register_credential("SYNTHETIC_CLOSED_VALUE", value)
+                                .is_err(),
+                            "{id}: {value} must not be registrable"
+                        );
+                    }
+                    assert!(
+                        summary.contains("acceptance unverified"),
+                        "{id} {stage}: decision lost: {summary}"
+                    );
+                    assert!(
+                        summary.contains(&format!(
+                            "- Next action: {}",
+                            crate::eval_events::ACCEPTANCE_UNVERIFIED_NEXT_ACTION
+                        )),
+                        "{id} {stage}: decision and display disagree: {summary}"
+                    );
+                    assert_eq!(
+                        summary.matches("# Run result").count(),
+                        1,
+                        "{id} {stage}: header duplicated: {summary}"
+                    );
+                }
+                _ => {
+                    for value in &registered {
+                        for line in value.split('\n') {
+                            assert!(!summary.contains(line), "{id} {stage}: {summary}");
+                        }
+                    }
+                    assert!(summary.contains("<redacted>"), "{id} {stage}: {summary}");
+                }
+            };
+
+            crate::eval_events::write_run_summary(Some(&path), body);
+            let summary =
+                std::fs::read_to_string(path.parent().unwrap().join("summary.md")).unwrap();
+            check(&summary, "after write");
+
+            crate::eval_events::append_run_summary(Some(&path), "TUI command failed: phase failed");
+            let summary =
+                std::fs::read_to_string(path.parent().unwrap().join("summary.md")).unwrap();
+            check(&summary, "after append");
+            assert!(
+                summary.contains("---\n\nTUI command failed: phase failed"),
+                "{id}: {summary}"
+            );
+
+            // Only this test's scope is restored.
+            crate::sensitive_data::set_current(None);
+        }
+    }
+
+    /// r6 blocker 1: appending re-renders the body read back from `summary.md`,
+    /// and that body grows with every append. Masking it must not apply
+    /// `summary_body`'s 8,000-character cap, or the accumulated previous body
+    /// is truncated the next time the summary is appended to. The registered
+    /// value is still masked.
+    #[test]
+    fn appending_does_not_truncate_the_existing_body() {
+        crate::eval_events::summary_language::with_language_for_test(
+            crate::eval_events::summary_language::SummaryLanguage::English,
+            append_keeps_existing_body,
+        );
+    }
+
+    fn append_keeps_existing_body() {
+        let secret = "SYNTHETIC_APPEND_SECRET_42";
+        let written = format!(
+            "Status: failed\nWRITE_HEAD_1059\n{}\nWRITE_TAIL_1059\nvalue: {secret}",
+            "x".repeat(4_500)
+        );
+        let appended = format!(
+            "APPENDED_HEAD_1059\n{}\nAPPENDED_TAIL_1059",
+            "y".repeat(4_500)
+        );
+
+        let root = tempfile::tempdir().unwrap();
+        let path = root
+            .path()
+            .join(".commandagent/runs/append-truncation/events.jsonl");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let event = json!({
+            "event": "run_stop", "ok": false, "status": "failed",
+            "stop_reason": "verification failed",
+            "next_action": "resume_or_rerun_command",
+        });
+        std::fs::write(&path, format!("{event}\n")).unwrap();
+
+        let mut catalog = crate::sensitive_data::SecretCatalog::new();
+        catalog.register(secret);
+        crate::sensitive_data::install_scope(catalog, Some(root.path()), Some(&path));
+
+        // Saved twice, then appended to twice. After the first append the body
+        // read back on the second append is already over 8,000 characters.
+        crate::eval_events::write_run_summary(Some(&path), &written);
+        crate::eval_events::write_run_summary(Some(&path), &written);
+        crate::eval_events::append_run_summary(Some(&path), &appended);
+        crate::eval_events::append_run_summary(Some(&path), "TUI command failed: phase failed");
+        let summary = std::fs::read_to_string(path.parent().unwrap().join("summary.md")).unwrap();
+
+        assert!(summary.contains("WRITE_HEAD_1059"), "{summary}");
+        assert!(summary.contains("WRITE_TAIL_1059"), "{summary}");
+        assert!(
+            summary.contains("APPENDED_HEAD_1059"),
+            "the appended body was truncated: {}",
+            summary.chars().count()
+        );
+        assert!(
+            summary.contains("APPENDED_TAIL_1059"),
+            "the previous body's tail was truncated: {}",
+            summary.chars().count()
+        );
+        assert!(!summary.contains(secret), "{summary}");
+        assert!(summary.contains("<redacted>"), "{summary}");
+        assert!(
+            summary.contains("---\n\nTUI command failed: phase failed"),
+            "{summary}"
+        );
+
+        // Only this test's scope is restored.
+        crate::sensitive_data::set_current(None);
+    }
+
+    /// Issue #1059 (2026-11-22): the closed values the projection compares are
+    /// fixed identifiers, so a credential equal to one is refused. Nothing gets
+    /// registered, so the acceptance decision and the displayed next action see
+    /// the same value, and the result stays "acceptance unverified".
+    #[test]
+    fn a_closed_next_action_cannot_be_registered_as_a_credential() {
+        crate::eval_events::summary_language::with_language_for_test(
+            crate::eval_events::summary_language::SummaryLanguage::English,
+            closed_next_action_is_not_registrable,
+        );
+    }
+
+    fn closed_next_action_is_not_registrable() {
+        let value = crate::eval_events::ACCEPTANCE_UNVERIFIED_NEXT_ACTION;
+        let root = tempfile::tempdir().unwrap();
+        let path = root
+            .path()
+            .join(".commandagent/runs/closed-value/events.jsonl");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let event = json!({
+            "event": "run_stop", "ok": true, "status": "completed",
+            "next_action": value,
+        });
+        std::fs::write(&path, format!("{event}\n")).unwrap();
+
+        let mut catalog = crate::sensitive_data::SecretCatalog::new();
+        // Refused at the source, which is the whole protection.
+        assert!(
+            catalog
+                .register_credential("SYNTHETIC_CLOSED_VALUE", value)
+                .is_err()
+        );
+        assert!(catalog.is_empty());
+        crate::sensitive_data::install_scope(catalog, Some(root.path()), Some(&path));
+
+        for stage in ["write", "append"] {
+            if stage == "write" {
+                crate::eval_events::write_run_summary(Some(&path), "Status: completed");
+            } else {
+                crate::eval_events::append_run_summary(Some(&path), "Follow-up detail");
+            }
+            let summary =
+                std::fs::read_to_string(path.parent().unwrap().join("summary.md")).unwrap();
+            assert!(
+                summary.contains("- Result: acceptance unverified (process completed)"),
+                "{stage}: {summary}"
+            );
+            assert!(
+                summary.contains(&format!("- Next action: {value}")),
+                "{stage}: the decision and the display disagree: {summary}"
+            );
+        }
+
+        // Only this test's scope is restored.
+        crate::sensitive_data::set_current(None);
+    }
+
+    /// r5 blocker 2: `append_run_summary` reads the previous `summary.md` body
+    /// back and re-renders it. A value already sitting in that body (written
+    /// before the scope, or by another writer) must be masked before the
+    /// combined document is saved, and the caller's appended text must not
+    /// revive it.
+    #[test]
+    fn an_existing_summary_body_is_masked_before_it_is_appended() {
+        crate::eval_events::summary_language::with_language_for_test(
+            crate::eval_events::summary_language::SummaryLanguage::English,
+            existing_summary_body_is_masked,
+        );
+    }
+
+    fn existing_summary_body_is_masked() {
+        let secret = "SYNTHETIC_EXISTING_BODY_SECRET_42";
+        let root = tempfile::tempdir().unwrap();
+        let path = root
+            .path()
+            .join(".commandagent/runs/existing-body/events.jsonl");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let event = json!({
+            "event": "run_stop", "ok": false, "status": "failed",
+            "stop_reason": "verification failed",
+            "next_action": "resume_or_rerun_command",
+        });
+        std::fs::write(&path, format!("{event}\n")).unwrap();
+        // A body already on disk that carries the registered value.
+        std::fs::write(
+            path.parent().unwrap().join("summary.md"),
+            format!("Status: failed\nOld detail: {secret}\n"),
+        )
+        .unwrap();
+
+        let mut catalog = crate::sensitive_data::SecretCatalog::new();
+        catalog.register(secret);
+        crate::sensitive_data::install_scope(catalog, Some(root.path()), Some(&path));
+        // Only the path scope is registered: the body must still be masked.
+        crate::sensitive_data::set_current(None);
+
+        crate::eval_events::append_run_summary(Some(&path), "TUI command failed: phase failed");
+        let summary = std::fs::read_to_string(path.parent().unwrap().join("summary.md")).unwrap();
+        assert!(!summary.contains(secret), "{summary}");
+        assert!(summary.contains("<redacted>"), "{summary}");
+        assert!(summary.contains("Old detail: <redacted>"), "{summary}");
+        assert!(
+            summary.contains("---\n\nTUI command failed: phase failed"),
+            "{summary}"
+        );
+
+        crate::sensitive_data::set_current(None);
+    }
 
     #[test]
     fn porcelain_parser_returns_destination_paths_and_handles_spaces() {

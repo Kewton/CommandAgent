@@ -10,6 +10,7 @@ use crate::planner::adjudication::{
 
 pub(crate) mod append_writer;
 mod completion_render;
+pub(crate) mod event_reader;
 pub mod failure_explanation;
 mod human_summary;
 pub(crate) mod provider_turn;
@@ -196,7 +197,7 @@ pub fn write_run_summary(path: Option<&Path>, text: &str) {
         return;
     };
     let summary = parent.join("summary.md");
-    let content = human_summary::render(path, &summary_body(text));
+    let content = human_summary::render(path, &summary_body(path, text));
     if let Err(err) = std::fs::create_dir_all(parent) {
         eprintln!("warning: failed to create run summary directory: {err}");
         return;
@@ -214,20 +215,28 @@ pub fn append_run_summary(path: Option<&Path>, text: &str) {
         return;
     };
     let summary = parent.join("summary.md");
-    let content = summary_body(text);
+    let content = summary_body(path, text);
     if let Err(err) = std::fs::create_dir_all(parent) {
         eprintln!("warning: failed to create run summary directory: {err}");
         return;
     }
-    let existing = std::fs::read_to_string(&summary).unwrap_or_default();
-    let existing = human_summary::machine_body(&existing);
+    let previous_document = std::fs::read_to_string(&summary).unwrap_or_default();
+    let existing = human_summary::machine_body(&previous_document);
+    // The body read back from disk may predate this writer (or come from
+    // another writer), so mask it with the events-path scope before it is
+    // re-rendered; a fixed `Status:`/`Result:` value stays protected. Masking
+    // is not capped here, because the limit applies to text being written, and
+    // truncating the previous body would lose it.
+    let existing = masked_summary_body(path, &existing);
     let combined = if existing.trim().is_empty() {
         content
     } else {
         format!("{}\n---\n\n{}", existing.trim_end(), content.trim())
     };
-    let document = human_summary::render(path, &combined);
-    if let Err(err) = std::fs::write(summary, format!("{document}\n")) {
+    // The decision reads this same joined, capped body, so it cannot disagree
+    // with what is displayed.
+    let rendered = human_summary::render(path, &combined);
+    if let Err(err) = std::fs::write(summary, format!("{rendered}\n")) {
         eprintln!("warning: failed to append run summary: {err}");
     }
 }
@@ -475,13 +484,7 @@ pub fn latest_completion_snapshot(path: Option<&Path>) -> CompletionSnapshot {
     let Some(path) = path else {
         return CompletionSnapshot::empty();
     };
-    let Ok(text) = std::fs::read_to_string(path) else {
-        return CompletionSnapshot::empty();
-    };
-    let events = text
-        .lines()
-        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .collect::<Vec<_>>();
+    let events = event_reader::read_lenient(path);
     let diagnostics = planner_diagnostics_from_events(&events);
     let recovery_fields = latest_recovery_fields(&events);
     let persistence_fields = latest_persistence_fields(&events);
@@ -602,13 +605,7 @@ pub fn latest_tui_command_stop_ok(path: Option<&Path>) -> Option<bool> {
 
 pub fn latest_tui_command_stop_event(path: Option<&Path>) -> Option<Value> {
     let path = path?;
-    let Ok(text) = std::fs::read_to_string(path) else {
-        return None;
-    };
-    let events = text
-        .lines()
-        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .collect::<Vec<_>>();
+    let events = event_reader::read_lenient(path);
     let mut terminal = events
         .iter()
         .rev()
@@ -1547,15 +1544,7 @@ pub fn render_tui_command_incomplete_notice(
 }
 
 fn read_event_values(path: Option<&Path>) -> Vec<Value> {
-    let Some(path) = path else {
-        return Vec::new();
-    };
-    let Ok(text) = std::fs::read_to_string(path) else {
-        return Vec::new();
-    };
-    text.lines()
-        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .collect()
+    event_reader::read_lenient_opt(path)
 }
 
 fn read_run_summary(path: Option<&Path>) -> Option<String> {
@@ -2872,18 +2861,11 @@ fn truncate_whole_tokens(value: &str, limit: usize) -> String {
     }
 }
 
-fn summary_body(body: &str) -> String {
-    // A `Status:`/`Result:` value is protected only when it is a fixed machine
-    // identifier; any other value (free text, or a secret) is scrubbed like the
-    // rest of the body. The full body is still scrubbed as one string so a
-    // multiline secret cannot survive as two fragments.
-    let (protected, fixed) = protect_fixed_summary_values(body);
-    let scrubbed = crate::sensitive_data::scrub_active(&protected);
-    let clean = scrubbed.replace("\r\n", "\n").replace('\r', "\n");
-    let clean = redact_home_paths(&clean);
+fn summary_body(events_path: &Path, body: &str) -> String {
+    let clean = masked_summary_body(events_path, body);
     let mut out = String::new();
     let mut len = 0usize;
-    for line in clean.lines().map(redact_secret_like) {
+    for line in clean.lines() {
         let line_len = line.chars().count();
         let next_len = len + usize::from(!out.is_empty()) + line_len;
         if next_len > SUMMARY_LIMIT {
@@ -2893,10 +2875,42 @@ fn summary_body(body: &str) -> String {
             out.push('\n');
             len += 1;
         }
-        out.push_str(&line);
+        out.push_str(line);
         len += line_len;
     }
-    restore_fixed_summary_values(&out, &fixed)
+    out
+}
+
+/// Mask the summary body without applying [`SUMMARY_LIMIT`]. `append_run_summary`
+/// re-renders a body it read back from disk and must not truncate it; the limit
+/// applies only to newly written text, so masking is separate from capping.
+fn masked_summary_body(events_path: &Path, body: &str) -> String {
+    // A `Status:`/`Result:` value is protected only when it is a fixed machine
+    // identifier; any other value (free text, or a secret) is scrubbed like the
+    // rest of the body. The full body is still scrubbed as one string so a
+    // multiline secret cannot survive as two fragments. The scope is resolved
+    // from the events path as well as the thread, so a caller that registered
+    // the scope by path (and cleared the thread-local one) still gets the body
+    // scrubbed.
+    let (protected, fixed) = protect_fixed_summary_values(body);
+    let scrubbed = scrub_summary_body(events_path, &protected);
+    let clean = scrubbed.replace("\r\n", "\n").replace('\r', "\n");
+    let clean = redact_home_paths(&clean);
+    let clean = clean
+        .lines()
+        .map(redact_secret_like)
+        .collect::<Vec<_>>()
+        .join("\n");
+    restore_fixed_summary_values(&clean, &fixed)
+}
+
+/// Scrub summary body text with the scope registered for the events path,
+/// falling back to the thread-local scope.
+fn scrub_summary_body(events_path: &Path, body: &str) -> String {
+    match crate::sensitive_data::active_for(Some(events_path)) {
+        Some(context) => context.scrub_text(body),
+        None => body.to_string(),
+    }
 }
 
 /// Replace a *fixed* `Status:`/`Result:` machine value with a placeholder so the
@@ -3083,7 +3097,10 @@ mod tests {
         let body = format!("{}{}", "日本語".repeat(220), "除外");
         let snippet = body_snippet(&body);
         assert!(snippet.chars().count() <= SNIPPET_LIMIT);
-        let summary = summary_body(&format!("{}\n{}", "日本語".repeat(1_000), body));
+        let summary = summary_body(
+            std::path::Path::new("/tmp/h05-caps/events.jsonl"),
+            &format!("{}\n{}", "日本語".repeat(1_000), body),
+        );
         assert!(summary.chars().count() <= SUMMARY_LIMIT);
     }
 
@@ -3104,7 +3121,13 @@ mod tests {
         assert!(!body_snippet(multiline).contains("H05_NEWLINE"));
         assert!(!body_snippet(spaced).contains("H05_SPACE"));
         assert!(!body_tail_snippet(multiline).contains("H05_NEWLINE"));
-        assert!(!summary_body(multiline).contains("H05_NEWLINE"));
+        assert!(
+            !summary_body(
+                std::path::Path::new("/tmp/h05-summary/events.jsonl"),
+                multiline
+            )
+            .contains("H05_NEWLINE")
+        );
         let preview = argument_value_summary("command", &json!(multiline)).to_string();
         assert!(!preview.contains("H05_NEWLINE"), "{preview}");
         crate::sensitive_data::reset_scopes_for_tests();

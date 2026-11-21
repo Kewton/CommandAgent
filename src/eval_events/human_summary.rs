@@ -62,7 +62,11 @@ fn render_document(
         .exit_code
         .map(|code| code.to_string())
         .unwrap_or_else(|| language.unavailable().to_string());
-    let result = if status == "completed" && next_action == super::ACCEPTANCE_UNVERIFIED_NEXT_ACTION
+    // The decision reads the same values that are displayed, so it can never
+    // disagree with them: both come from the joined, capped body and the events
+    // projection, per field.
+    let result = if status == terminal_report::TerminalStatus::Completed.as_str()
+        && next_action == super::ACCEPTANCE_UNVERIFIED_NEXT_ACTION
     {
         language.acceptance_unverified_result().to_string()
     } else {
@@ -202,6 +206,7 @@ fn push_list(lines: &mut Vec<String>, values: &[String], empty: &str) {
 mod tests {
     use super::*;
     use crate::eval_events::terminal_report::{TerminalStatus, VerificationStatus};
+    use serde_json::json;
 
     fn report() -> TerminalReport {
         TerminalReport {
@@ -318,6 +323,163 @@ mod tests {
         let rendered = render_document("", SummaryLanguage::Japanese, &report);
         assert!(rendered.contains("- 結果: 完了"), "{rendered}");
         assert!(rendered.contains("- 次の一手: 追加操作なし"), "{rendered}");
+    }
+
+    /// r6/r7/r8: the acceptance-unverified decision reads the same joined,
+    /// capped body the summary displays. Every shape below ends with the result
+    /// agreeing with the next action actually shown.
+    #[test]
+    fn append_decides_from_the_body_it_displays() {
+        crate::eval_events::summary_language::with_language_for_test(
+            SummaryLanguage::English,
+            append_decision_matches_display,
+        );
+    }
+
+    fn append_decision_matches_display() {
+        let unverified = crate::eval_events::ACCEPTANCE_UNVERIFIED_NEXT_ACTION;
+
+        // r6: no terminal event, so the body supplies both values.
+        let no_terminal_event = |body: &str, appended: &str| {
+            let summary = append_pair(
+                json!({"event": "run_start", "ok": true, "status": "running"}),
+                body,
+                appended,
+            );
+            assert!(
+                summary.contains("- Result: acceptance unverified (process completed)"),
+                "{summary}"
+            );
+            assert!(
+                summary.contains(&format!("- Next action: {unverified}")),
+                "decision and display disagree: {summary}"
+            );
+        };
+
+        // r8 shape 1: the appended action word is dropped by the 8,000-character
+        // cap, so it must not change the decision.
+        let dropped_by_cap = format!(
+            "Status: completed\nNext action: none\n{}",
+            "x".repeat(8_001)
+        );
+        let summary = append_pair(
+            json!({"event": "run_start", "ok": true, "status": "running"}),
+            &dropped_by_cap,
+            &format!("Next action: {unverified}"),
+        );
+        assert!(
+            summary.contains("- Result: completed"),
+            "a value the display dropped changed the decision: {summary}"
+        );
+        assert!(
+            !summary.contains("- Result: acceptance unverified"),
+            "{summary}"
+        );
+
+        // r8 shape 2: an example line in the body is not a decision.
+        let summary = append_pair(
+            json!({"event": "run_start", "ok": true, "status": "running"}),
+            "Status: completed\nExample:\n- Result: acceptance unverified (process completed)",
+            "Follow-up detail only",
+        );
+        assert!(
+            summary.contains("- Result: completed"),
+            "an example line decided the result: {summary}"
+        );
+
+        // r8 shape 3: a failed body then a completed one. Result and the
+        // displayed next action come from the same joined body, so the result is
+        // exactly what the displayed status and action imply. Both with the
+        // value registered and without.
+        for registered in [false, true] {
+            let summary = append_pair_registered(
+                json!({"event": "run_start", "ok": true, "status": "running"}),
+                &format!("Status: failed\nNext action: {unverified}"),
+                "Status: completed",
+                registered,
+            );
+            assert_result_follows_display(&summary, registered);
+        }
+
+        // r8 shape 4: after an unverified body, appending only a completed
+        // status keeps the displayed action, so the result is completed too.
+        for registered in [false, true] {
+            let summary = append_pair_registered(
+                json!({"event": "run_start", "ok": true, "status": "running"}),
+                &format!("Status: completed\nNext action: {unverified}"),
+                "Status: completed",
+                registered,
+            );
+            assert_result_follows_display(&summary, registered);
+        }
+
+        // r6: a supplement after an unverified body keeps the result.
+        no_terminal_event(
+            &format!("Status: completed\nNext action: {unverified}"),
+            "Follow-up detail only",
+        );
+
+        // Only this test's scope is restored. The body is unregistered
+        // throughout, so the display cannot hide the value it decided on.
+        crate::sensitive_data::set_current(None);
+    }
+
+    /// Write `body`, then append `appended`, with no registered scope, and
+    /// return the rendered `summary.md`. Each call gets its own tempdir.
+    fn append_pair(event: serde_json::Value, body: &str, appended: &str) -> String {
+        append_pair_registered(event, body, appended, false)
+    }
+
+    /// Like [`append_pair`], optionally registering the acceptance-unverified
+    /// action in this thread's scope. Registration refuses it (it is a fixed
+    /// identifier), so the scope stays empty either way.
+    fn append_pair_registered(
+        event: serde_json::Value,
+        body: &str,
+        appended: &str,
+        registered: bool,
+    ) -> String {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join(".commandagent/runs/pair/events.jsonl");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, format!("{event}\n")).unwrap();
+        if registered {
+            let mut catalog = crate::sensitive_data::SecretCatalog::new();
+            assert!(
+                catalog
+                    .register_credential(
+                        "SYNTHETIC_CLOSED_VALUE",
+                        crate::eval_events::ACCEPTANCE_UNVERIFIED_NEXT_ACTION
+                    )
+                    .is_err(),
+                "a closed action word must not be registrable"
+            );
+            crate::sensitive_data::install_scope(catalog, Some(root.path()), Some(&path));
+        }
+        crate::eval_events::write_run_summary(Some(&path), body);
+        crate::eval_events::append_run_summary(Some(&path), appended);
+        std::fs::read_to_string(path.parent().unwrap().join("summary.md")).unwrap()
+    }
+
+    /// The result must be exactly what the displayed status and next action
+    /// imply: "acceptance unverified" only when the shown status is completed
+    /// and the shown action is the unverified one.
+    fn assert_result_follows_display(summary: &str, registered: bool) {
+        let unverified = crate::eval_events::ACCEPTANCE_UNVERIFIED_NEXT_ACTION;
+        let shown_action = summary
+            .lines()
+            .find(|line| line.starts_with("- Next action: "))
+            .unwrap_or_default();
+        let shown_status_completed = summary
+            .lines()
+            .find(|line| line.starts_with("Status: "))
+            .is_some_and(|line| line.trim() == "Status: completed");
+        let expects_unverified = shown_status_completed && shown_action.ends_with(unverified);
+        assert_eq!(
+            summary.contains("- Result: acceptance unverified (process completed)"),
+            expects_unverified,
+            "registered={registered}: result and display disagree: {summary}"
+        );
     }
 
     #[test]

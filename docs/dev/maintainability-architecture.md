@@ -77,12 +77,25 @@ the file is marked. This differs from a spool write that fails: its bytes are
 never committed, so no flush copies them. A nested turn whose merge into its
 parent fails is lost whole while the parent keeps its lines and its event.
 
-Line readers are unchanged: `commandagent runs <id> --events` still fails on a
-malformed line, and the terminal report and completion snapshot still skip it.
-Read constraint: a line cut inside a multi-byte character makes the file
-invalid UTF-8, and then those readers see none of its lines, including the
-whole lines before the cut (`runs` lists the stop reason as `unknown`). This
-was already so at `fc903248`; the readers are not loosened here.
+Line readers read per line. `eval_events/event_reader.rs` splits a file into
+physical lines by its LF bytes and only then checks each line for UTF-8 and
+JSON, so a line cut inside a multi-byte character no longer hides the whole
+lines around it:
+
+- `commandagent runs <id> --events` is strict: it fails on the first line that
+  is not one JSON value, and the error names the file and that line's number.
+- The terminal report, the completion snapshot, and the lenient run inventory
+  skip only the broken line and keep the valid lines before and after it, in
+  file order. A valid line before the cut keeps its values, including a
+  recorded terminal `run_stop`; a value that appears only inside the broken
+  line is never read as one.
+
+Every entrance keeps its display masking, so a skipped line cannot surface a
+protected value and a kept line is still scrubbed. Before Issue #1059 the whole
+file was decoded as one UTF-8 string first, so a single cut hid every line,
+including the whole lines before it (`runs` listed the stop reason as
+`unknown`); the strict path still fails on a broken line, and the lenient ones
+still skip it — malformed input is not loosened.
 
 Outside this guarantee: another process appending to the same file (the GUI
 server hands its events path to the child run through
@@ -94,6 +107,22 @@ a second append open included (classified again: a regular file by then is
 written as above), so a FIFO waiting for its reader never holds up other
 writers; its lines get no guarantee and a failure there marks nothing. A
 handle from either open whose metadata cannot be read is refused.
+
+The values the summary's projection treats as closed — the assurance level,
+release-gate status, stop reason, and next action vocabularies — are fixed
+identifiers (`sensitive_data/fixed_identifiers.rs`). A credential or plain
+value equal to one, or a fragment of one, is refused at registration, so a
+registered secret can never collide with a value the acceptance-unverified
+decision compares. A closed value is therefore displayed as-is, and the
+decision and the display read the same value; only the free text the
+projection does not classify (a stop reason, a verification command, a body)
+is masked.
+
+The acceptance-unverified decision reads the same body the summary shows: the
+previous body (masked, not capped) joined with the new text and then passed
+through the write limit. There is no second path that reads the raw argument
+or a previously rendered line, so the result cannot disagree with the
+displayed status and next action.
 
 ## Browser probe asset
 
