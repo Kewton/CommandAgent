@@ -134,10 +134,12 @@ pub(crate) fn project(
     let assurance = mask_projected(context.as_ref(), assurance, CLOSED_ASSURANCE);
     let gate = mask_projected(context.as_ref(), gate, CLOSED_GATE);
     let stop_reason = mask_projected(context.as_ref(), stop_reason, CLOSED_STOP_REASON);
-    // The "acceptance unverified" decision is taken from the original value;
-    // only the string that is displayed is masked, closed action words included.
+    // The "acceptance unverified" decision is taken from the original value.
     let next_action_unverified =
         next_action.as_deref() == Some(super::ACCEPTANCE_UNVERIFIED_NEXT_ACTION);
+    // The displayed string still goes through masking (r5). These words are now
+    // fixed identifiers, so a credential can no longer be registered as one;
+    // when nothing is registered this changes nothing.
     let next_action = mask_projected_text_opt(context.as_ref(), next_action);
     let changed_files = workspace
         .as_deref()
@@ -927,6 +929,63 @@ mod tests {
             summary.contains("---\n\nTUI command failed: phase failed"),
             "{summary}"
         );
+
+        // Only this test's scope is restored.
+        crate::sensitive_data::set_current(None);
+    }
+
+    /// Issue #1059 (2026-11-22): the closed values the projection compares are
+    /// fixed identifiers, so a credential equal to one is refused. Nothing gets
+    /// registered, so the acceptance decision and the displayed next action see
+    /// the same value, and the result stays "acceptance unverified".
+    #[test]
+    fn a_closed_next_action_cannot_be_registered_as_a_credential() {
+        crate::eval_events::summary_language::with_language_for_test(
+            crate::eval_events::summary_language::SummaryLanguage::English,
+            closed_next_action_is_not_registrable,
+        );
+    }
+
+    fn closed_next_action_is_not_registrable() {
+        let value = crate::eval_events::ACCEPTANCE_UNVERIFIED_NEXT_ACTION;
+        let root = tempfile::tempdir().unwrap();
+        let path = root
+            .path()
+            .join(".commandagent/runs/closed-value/events.jsonl");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let event = json!({
+            "event": "run_stop", "ok": true, "status": "completed",
+            "next_action": value,
+        });
+        std::fs::write(&path, format!("{event}\n")).unwrap();
+
+        let mut catalog = crate::sensitive_data::SecretCatalog::new();
+        // Refused at the source, which is the whole protection.
+        assert!(
+            catalog
+                .register_credential("SYNTHETIC_CLOSED_VALUE", value)
+                .is_err()
+        );
+        assert!(catalog.is_empty());
+        crate::sensitive_data::install_scope(catalog, Some(root.path()), Some(&path));
+
+        for stage in ["write", "append"] {
+            if stage == "write" {
+                crate::eval_events::write_run_summary(Some(&path), "Status: completed");
+            } else {
+                crate::eval_events::append_run_summary(Some(&path), "Follow-up detail");
+            }
+            let summary =
+                std::fs::read_to_string(path.parent().unwrap().join("summary.md")).unwrap();
+            assert!(
+                summary.contains("- Result: acceptance unverified (process completed)"),
+                "{stage}: {summary}"
+            );
+            assert!(
+                summary.contains(&format!("- Next action: {value}")),
+                "{stage}: the decision and the display disagree: {summary}"
+            );
+        }
 
         // Only this test's scope is restored.
         crate::sensitive_data::set_current(None);

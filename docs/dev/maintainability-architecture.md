@@ -108,6 +108,14 @@ written as above), so a FIFO waiting for its reader never holds up other
 writers; its lines get no guarantee and a failure there marks nothing. A
 handle from either open whose metadata cannot be read is refused.
 
+The values the summary's projection treats as closed — the assurance level,
+release-gate status, stop reason, and next action vocabularies — are fixed
+identifiers (`sensitive_data/fixed_identifiers.rs`). A credential or plain
+value equal to one, or a fragment of one, is refused at registration, so a
+registered secret can never collide with a value the acceptance-unverified
+decision compares. The decision reads the original value and the display masks
+the string it shows; with nothing registered, the two see the same value.
+
 ## Browser probe asset
 
 The Playwright program is stored at
