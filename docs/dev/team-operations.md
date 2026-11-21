@@ -12,6 +12,16 @@ Lessons and procedures that every session must follow belong here.
 
 ## 1. Standing user decisions that update the harness
 
+- **Who answers open prompts** (2026-11-21, 「毎回私が選択する訳にはいかないので
+  ルールを見直して下さい」). The user no longer answers every prompt. The leader
+  answers a worker's prompt inside the Issue's scope and any refusal or
+  cancel; the PM answers any team session's prompt with a refusal or cancel,
+  or with an in-brief yes that has no outward effect; the user keeps real
+  provider sends and spending, push, PR creation and merge, deletes outside
+  the worktree or a scratch root, `.env` and keys, CommandMate start and stop,
+  Issue edits, and gate changes. First use: the PM answered "No" to a
+  musubi-ca-pack #6 worker probe that would have posted to api.openai.com.
+  See `CLAUDE.md` (exit-10 rule) and harness section 4.
 - **Team reorganized to the CommandMate team-setup layout** (2026-11-21,
   「ガイドの標準構成（claude-2 を PM にするなど）に合わせ」「推奨で良い」). The PM is
   `claude-2`, the development leader `claude-3`, the reviewer `codex`, the
