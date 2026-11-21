@@ -62,8 +62,7 @@ fn render_document(
         .exit_code
         .map(|code| code.to_string())
         .unwrap_or_else(|| language.unavailable().to_string());
-    let result = if status == "completed" && next_action == super::ACCEPTANCE_UNVERIFIED_NEXT_ACTION
-    {
+    let result = if report.acceptance_unverified {
         language.acceptance_unverified_result().to_string()
     } else {
         language.status(&status).into_owned()
@@ -210,6 +209,7 @@ mod tests {
             gate: Some("failed".to_string()),
             stop_reason: Some("tests failed\nPaths:\n- src/main.rs".to_string()),
             next_action: Some("fix_command_failure".to_string()),
+            acceptance_unverified: false,
             changed_files: vec!["src/main.rs".to_string()],
             verifications: vec![
                 VerificationObservation {

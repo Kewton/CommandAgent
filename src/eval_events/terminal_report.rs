@@ -74,7 +74,14 @@ pub(crate) struct TerminalReport {
     pub(crate) assurance: Option<String>,
     pub(crate) gate: Option<String>,
     pub(crate) stop_reason: Option<String>,
+    /// The `next_action` string to display. It is masked like any other
+    /// projected string, so a registered value equal to a fixed action word is
+    /// hidden too.
     pub(crate) next_action: Option<String>,
+    /// The "acceptance unverified" decision, taken from the *original*
+    /// `next_action` before it was masked, so masking the displayed string
+    /// cannot erase the decision.
+    pub(crate) acceptance_unverified: bool,
     pub(crate) changed_files: Vec<String>,
     pub(crate) verifications: Vec<VerificationObservation>,
     pub(crate) exit_code: Option<i32>,
@@ -126,7 +133,11 @@ pub(crate) fn project(
     let assurance = mask_projected(context.as_ref(), assurance, CLOSED_ASSURANCE);
     let gate = mask_projected(context.as_ref(), gate, CLOSED_GATE);
     let stop_reason = mask_projected(context.as_ref(), stop_reason, CLOSED_STOP_REASON);
-    let next_action = mask_projected(context.as_ref(), next_action, CLOSED_NEXT_ACTION);
+    // The "acceptance unverified" decision is taken from the original value;
+    // only the string that is displayed is masked, closed action words included.
+    let acceptance_unverified = status == Some(TerminalStatus::Completed)
+        && next_action.as_deref() == Some(super::ACCEPTANCE_UNVERIFIED_NEXT_ACTION);
+    let next_action = mask_projected_text_opt(context.as_ref(), next_action);
     let changed_files = workspace
         .as_deref()
         .map(changed_files)
@@ -149,6 +160,7 @@ pub(crate) fn project(
         gate,
         stop_reason,
         next_action,
+        acceptance_unverified,
         changed_files,
         verifications,
         exit_code,
@@ -173,25 +185,6 @@ const CLOSED_GATE: &[&str] = &[
 /// these. Every other stop reason is free text.
 const CLOSED_STOP_REASON: &[&str] = &["completed", "interrupted by user"];
 
-/// The closed `next_action` vocabulary. `run_acceptance_or_review_changes` is
-/// kept so the renderer's "acceptance unverified" decision still sees it.
-const CLOSED_NEXT_ACTION: &[&str] = &[
-    "none",
-    "fix_command_failure",
-    "resume_or_rerun_command",
-    "inspect_summary_and_resume_or_rerun",
-    "inspect_process_tree",
-    "inspect_internal_panic",
-    "run_acceptance_or_review_changes",
-    "run_setup_interaction_probe_to_enable_interaction_release_checks",
-    "collect_missing_release_evidence_or_continue_release_recovery",
-    "collect_missing_final_acceptance_evidence",
-    "repair_release_gate_failure",
-    "repair_final_acceptance_failure",
-    "terminal_handoff",
-    "retry_once",
-];
-
 /// Mask a projected value unless it is one of the product's closed values.
 fn mask_projected(
     context: Option<&crate::sensitive_data::RedactionContext>,
@@ -205,6 +198,14 @@ fn mask_projected(
             mask_projected_text(context, &value)
         }
     })
+}
+
+/// Mask a projected value unconditionally.
+fn mask_projected_text_opt(
+    context: Option<&crate::sensitive_data::RedactionContext>,
+    value: Option<String>,
+) -> Option<String> {
+    value.map(|value| mask_projected_text(context, &value))
 }
 
 fn mask_projected_text(
@@ -812,10 +813,18 @@ mod tests {
                     );
                 }
                 Case::AcceptanceUnverified => {
+                    // The decision still holds, but the displayed action is now
+                    // masked like any other planned string (r5 blocker 1).
                     assert!(
                         summary.contains("acceptance unverified"),
-                        "{id} {stage}: closed value masked: {summary}"
+                        "{id} {stage}: decision lost: {summary}"
                     );
+                    for value in &registered {
+                        for line in value.split('\n') {
+                            assert!(!summary.contains(line), "{id} {stage}: {summary}");
+                        }
+                    }
+                    assert!(summary.contains("<redacted>"), "{id} {stage}: {summary}");
                     assert_eq!(
                         summary.matches("# Run result").count(),
                         1,
